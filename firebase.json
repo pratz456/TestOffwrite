@@ -1,0 +1,53 @@
+{
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "storage": {
+    "rules": "storage.rules"
+  },
+  "hosting": {
+    "source": ".",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "frameworksBackend": {
+      "region": "us-central1"
+    },
+    "redirects": [
+      {
+        "source": "https://www.writeoffapp.com/**",
+        "destination": "https://writeoffapp.com/**",
+        "type": 301
+      },
+      {
+        "source": "https://writeoff-23910.web.app/**",
+        "destination": "https://writeoffapp.com/**",
+        "type": 301
+      },
+      {
+        "source": "https://writeoff-23910.firebaseapp.com/**",
+        "destination": "https://writeoffapp.com/**",
+        "type": 301
+      }
+    ]
+  },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "ignore": [
+        "node_modules",
+        ".git",
+        "firebase-debug.log",
+        "firebase-debug.*.log",
+        "*.local"
+      ],
+      "predeploy": [
+        "npm --prefix \"$RESOURCE_DIR\" run build"
+      ]
+    }
+  ]
+}

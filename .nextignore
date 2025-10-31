@@ -1,0 +1,2 @@
+# Exclude backup directories from Next.js build
+api-backup/

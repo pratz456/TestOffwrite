@@ -1,0 +1,86 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Allow collection-group reads to any transactions doc, but only for the owner
+    // This supports queries like collectionGroup('transactions') with where('user_id','==', uid)
+    match /{path=**}/transactions/{txId} {
+      allow read: if request.auth != null
+                  && (resource.data.user_id == request.auth.uid
+                      || resource.data.userId == request.auth.uid);
+      // All writes to transactions are server-only via Admin SDK
+      allow create, update, delete: if false;
+    }
+
+    // Analysis Jobs - for tracking analysis progress (new system)
+    match /analysis_jobs/{jobId} {
+      allow read: if request.auth != null
+                  && (resource.data.userId == request.auth.uid
+                      || resource.data.user_id == request.auth.uid);
+      allow write: if false; // only server updates this
+    }
+
+    // Analysis Status - legacy (for migration)
+    match /analysis_status/{jobId} {
+      // TEMP during migration - allow both userId and user_id fields
+      allow read: if request.auth != null
+                  && (resource.data.userId == request.auth.uid
+                      || resource.data.user_id == request.auth.uid);
+      allow write: if false; // clients never write; server uses Admin SDK
+    }
+
+    // User profile can only be read by the owner, written via Admin/API only
+    match /user_profiles/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+
+      // Allow the user to create their own profile doc if id === uid
+      allow create: if request.auth != null
+                    && request.auth.uid == uid
+                    && request.resource.id == uid;
+
+      // Allow the user to update their own profile doc
+      allow update: if request.auth != null && request.auth.uid == uid;
+
+      // No client deletes
+      allow delete: if false;
+
+      // Accounts subcollection
+      match /accounts/{accountId} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow write: if false; // write via Admin/API only
+        
+        // Transactions
+        match /transactions/{txId} {
+          // Allow reading transactions
+          allow read: if request.auth != null && request.auth.uid == uid;
+          
+          // Allow user updates to transaction fields
+          allow update: if request.auth != null
+                        && request.auth.uid == uid
+                        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+                             'notes',
+                             'user_classification_reason',
+                             'receipt_url',
+                             'receipt_filename',
+                             'is_deductible',
+                             'deduction_score',
+                             'deductible_reason',
+                             'business_purpose',
+                             'attendees',
+                             'travel_destination',
+                             'equipment_details',
+                             'client_project',
+                             'documentation_status',
+                             'meeting_notes',
+                             'mileage_details',
+                             'updated_at'
+                           ]);
+          
+          // Prevent arbitrary creates/deletes from client
+          // Server-side analysis updates use Admin SDK (bypasses these rules)
+          allow create, delete: if false;
+        }
+      }
+    }
+  }
+}
