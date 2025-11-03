@@ -174,7 +174,7 @@ export default function ReportsPage() {
   // Show loading state while auth is loading or data is fetching
   if (authLoading || isLoading) {
     return (
-      <div className="p-6 bg-gray-50 min-h-screen">
+      <div className="p-4 sm:p-6 bg-gray-50 min-h-screen">
         <PageHeaderSkeleton />
         <ReportsChartSkeleton />
         <div className="grid grid-cols-2 gap-4 mb-6">
@@ -195,7 +195,7 @@ export default function ReportsPage() {
 
   if (error) {
     return (
-      <div className="p-6 bg-gray-50 min-h-screen">
+      <div className="p-4 sm:p-6 bg-gray-50 min-h-screen">
         <div className="text-center">
           <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
           <h2 className="text-xl font-semibold text-gray-900 mb-2">Error Loading Reports</h2>
@@ -215,7 +215,7 @@ export default function ReportsPage() {
 
   if (!reportsData) {
     return (
-      <div className="p-6 bg-gray-50 min-h-screen">
+      <div className="p-4 sm:p-6 bg-gray-50 min-h-screen">
         <div className="text-center text-gray-500">
           <AlertCircle className="w-16 h-16 text-gray-400 mx-auto mb-4" />
           <h2 className="text-xl font-semibold text-gray-900 mb-2">No Reports Data</h2>
@@ -249,21 +249,22 @@ export default function ReportsPage() {
   const hasData = dataValues.length > 0 && dataMax > 0;
 
   return (
-    <div className="p-6 bg-gray-50 min-h-screen">
+    <div className="p-4 sm:p-6 bg-gray-50 min-h-screen">
       {/* Header */}
-      <div className="flex justify-between items-start mb-4">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start mb-4 gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-1">Reports</h1>
-          <p className="text-gray-600">Your tax deduction analysis and savings summary</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-1">Reports</h1>
+          <p className="text-sm sm:text-base text-gray-600">Your tax deduction analysis and savings summary</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
           <OtherReportsDropdown disabled={isGeneratingReport} />
           <Button 
-            className="bg-blue-600 hover:bg-blue-700 text-white"
+            className="bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto touch-target"
             onClick={() => router.push('/protected/schedule-c')}
           >
-            <Download className="w-4 h-4 mr-2" />
-            Export Schedule C
+            <Download className="w-4 h-4 sm:mr-2" />
+            <span className="hidden sm:inline">Export Schedule C</span>
+            <span className="sm:hidden">Schedule C</span>
           </Button>
         </div>
       </div>
@@ -285,9 +286,9 @@ export default function ReportsPage() {
       {activeTab === 'overview' && (
         <>
           {/* Monthly Tax Savings Chart */}
-          <Card className="p-6 bg-white border-0 shadow-sm mb-6">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-semibold text-gray-900">Monthly Estimated Tax Savings</h2>
+          <Card className="p-4 sm:p-6 bg-white border-0 shadow-sm mb-6">
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-6 gap-2">
+              <h2 className="text-lg sm:text-xl font-semibold text-gray-900">Monthly Estimated Tax Savings</h2>
               <span className="text-sm text-gray-500">2024</span>
             </div>
 
@@ -301,10 +302,10 @@ export default function ReportsPage() {
               </div>
             ) : (
               <>
-                {/* Chart */}
-                <div className="relative mb-4 ml-16" style={{ height: '256px' }}>
-                  {/* Y-axis labels */}
-                  <div className="absolute left-0 top-0 h-full flex flex-col justify-between text-xs text-gray-400 -ml-16 w-14 text-right">
+                {/* Chart - Mobile optimized with horizontal scroll */}
+                <div className="relative mb-4">
+                  {/* Y-axis labels - Hidden on mobile, shown on desktop */}
+                  <div className="hidden sm:block absolute left-0 top-0 h-64 flex flex-col justify-between text-xs text-gray-400 -ml-16 w-14 text-right">
                     <span>${maxAmount.toFixed(0)}</span>
                     <span>${(maxAmount * 0.75).toFixed(0)}</span>
                     <span>${(maxAmount * 0.5).toFixed(0)}</span>
@@ -312,47 +313,75 @@ export default function ReportsPage() {
                     <span>$0</span>
                   </div>
 
-                  {/* Chart bars */}
-                  <div className="relative px-4" style={{ height: '256px' }}>
-                    <div className="flex items-end justify-between h-full">
-                      {monthlyData.map((month, index) => {
-                        const barHeightPx = month.total > 0 ? Math.max((month.total / maxAmount) * 256, 8) : 0;
-                        
-                        return (
-                          <div key={month.month} className="flex flex-col items-center" style={{ width: '8.33%' }}>
-                            {/* Bar */}
-                            <div 
-                              className="w-full bg-blue-500 hover:bg-blue-600 transition-all duration-300 cursor-pointer rounded-t-sm mb-2 relative group"
-                              style={{
-                                height: `${barHeightPx}px`,
-                                maxWidth: '32px'
-                              }}
-                              onClick={() => handleMonthClick(month)}
-                            >
-                              {/* Tooltip */}
-                              {month.total > 0 && (
-                                <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap pointer-events-none z-10">
-                                  ${month.total.toFixed(2)}
-                                </div>
-                              )}
+                  {/* Chart container with horizontal scroll on mobile */}
+                  <div className="relative ml-0 sm:ml-16" style={{ height: '256px' }}>
+                    {/* Scrollable chart area */}
+                    <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-4 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
+                      <div className="inline-flex items-end h-full gap-2 sm:gap-1 min-w-full sm:min-w-0" style={{ minWidth: `${monthlyData.length * 48}px` }}>
+                        {monthlyData.map((month, index) => {
+                          const barHeightPx = month.total > 0 ? Math.max((month.total / maxAmount) * 256, 8) : 0;
+                          
+                          return (
+                            <div key={month.month} className="flex flex-col items-center touch-target" style={{ minWidth: '40px', width: '40px' }}>
+                              {/* Bar */}
+                              <div 
+                                className="w-full bg-blue-500 hover:bg-blue-600 active:bg-blue-700 transition-all duration-300 cursor-pointer rounded-t-sm mb-2 relative group touch-target"
+                                style={{
+                                  height: `${barHeightPx}px`,
+                                  minHeight: month.total > 0 ? '4px' : '0px',
+                                  minWidth: '32px',
+                                  width: '32px'
+                                }}
+                                onClick={() => handleMonthClick(month)}
+                              >
+                                {/* Tooltip */}
+                                {month.total > 0 && (
+                                  <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 sm:group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap pointer-events-none z-10">
+                                    ${month.total.toFixed(2)}
+                                  </div>
+                                )}
+                              </div>
+                              
+                              {/* Month label - Rotated on mobile for better readability */}
+                              <span className="text-[10px] sm:text-xs text-gray-500 mt-1 whitespace-nowrap transform -rotate-45 origin-top-left sm:rotate-0 sm:origin-center sm:transform-none" style={{ marginTop: '4px' }}>
+                                {month.monthName}
+                              </span>
+                              
+                              {/* Mobile Y-axis value indicator */}
+                              <div className="sm:hidden text-[9px] text-gray-400 mt-1 text-center" style={{ minHeight: '20px' }}>
+                                {month.total > 0 && (
+                                  <span>${month.total > 999 ? (month.total / 1000).toFixed(1) + 'k' : month.total.toFixed(0)}</span>
+                                )}
+                              </div>
                             </div>
-                            
-                            {/* Month label */}
-                            <span className="text-xs text-gray-500 mt-1">{month.monthName}</span>
-                          </div>
-                        );
-                      })}
+                          );
+                        })}
+                      </div>
                     </div>
+                    
+                    {/* Mobile Y-axis labels on the right */}
+                    <div className="sm:hidden absolute right-0 top-0 h-full flex flex-col justify-between text-xs text-gray-400 w-12 text-right pr-2">
+                      <span className="text-[10px]">${maxAmount.toFixed(0)}</span>
+                      <span className="text-[10px]">${(maxAmount * 0.75).toFixed(0)}</span>
+                      <span className="text-[10px]">${(maxAmount * 0.5).toFixed(0)}</span>
+                      <span className="text-[10px]">${(maxAmount * 0.25).toFixed(0)}</span>
+                      <span className="text-[10px]">$0</span>
+                    </div>
+                  </div>
+                  
+                  {/* Scroll hint on mobile */}
+                  <div className="sm:hidden text-center mt-2 text-xs text-gray-500 flex items-center justify-center gap-1">
+                    <span>← Swipe to see all months →</span>
                   </div>
                 </div>
 
                 {/* Chart link */}
-                <div className="text-center">
+                <div className="text-center mt-4">
                   <button 
-                    className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                    className="text-blue-600 hover:text-blue-700 active:text-blue-800 text-sm font-medium touch-target py-2 px-4"
                     onClick={() => {
                       // Show instruction for chart interaction
-                      alert('Click on any bar in the chart to view detailed breakdown for that month');
+                      alert('Tap on any bar in the chart to view detailed breakdown for that month');
                     }}
                   >
                     Tap bars to view detailed monthly tax savings breakdown
@@ -363,10 +392,10 @@ export default function ReportsPage() {
           </Card>
 
           {/* Summary Cards */}
-          <div className="grid grid-cols-2 gap-4 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
             {/* This Month Card */}
             <Card 
-              className="p-6 bg-white border-0 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+              className="p-4 sm:p-6 bg-white border-0 shadow-sm cursor-pointer hover:shadow-md active:shadow-lg transition-shadow touch-target"
               onClick={() => {
                 const currentMonth = monthlyData.find(m => m.month === new Date().getMonth());
                 if (currentMonth) {
@@ -378,7 +407,7 @@ export default function ReportsPage() {
                 <Calendar className="w-5 h-5 text-gray-600" />
                 <h3 className="text-sm font-medium text-gray-700">This Month</h3>
               </div>
-              <div className="text-2xl font-bold text-gray-900 mb-1">
+              <div className="text-xl sm:text-2xl font-bold text-gray-900 mb-1">
                 ${summary.currentMonthTotal.toFixed(2)}
               </div>
               <div className="text-sm text-green-600 font-medium">
@@ -388,7 +417,7 @@ export default function ReportsPage() {
 
             {/* Avg Monthly Card */}
             <Card 
-              className="p-6 bg-white border-0 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+              className="p-4 sm:p-6 bg-white border-0 shadow-sm cursor-pointer hover:shadow-md active:shadow-lg transition-shadow touch-target"
               onClick={() => {
                 console.log('Average monthly tax savings card clicked');
                 // Could show monthly averages breakdown
@@ -398,7 +427,7 @@ export default function ReportsPage() {
                 <TrendingUp className="w-5 h-5 text-gray-600" />
                 <h3 className="text-sm font-medium text-gray-700">Avg Monthly Tax Savings</h3>
               </div>
-              <div className="text-2xl font-bold text-gray-900 mb-1">
+              <div className="text-xl sm:text-2xl font-bold text-gray-900 mb-1">
                 ${summary.avgMonthly.toFixed(2)}
               </div>
               <div className="text-sm text-gray-500">
@@ -409,30 +438,30 @@ export default function ReportsPage() {
 
           {/* Ready to File Section */}
           <Card 
-            className="p-6 bg-white border-0 shadow-sm mb-6 cursor-pointer hover:shadow-md transition-shadow"
+            className="p-4 sm:p-6 bg-white border-0 shadow-sm mb-6 cursor-pointer hover:shadow-md active:shadow-lg transition-shadow touch-target"
             onClick={() => {
               console.log('Ready to file section clicked');
               // Could expand to show more filing details
             }}
           >
-            <h3 className="text-xl font-semibold text-gray-900 mb-4">Ready to File?</h3>
+            <h3 className="text-lg sm:text-xl font-semibold text-gray-900 mb-4">Ready to File?</h3>
             <div className="space-y-3">
               <div className="flex justify-between items-center">
-                <span className="text-gray-700">Estimated Federal Refund</span>
-                <span className="text-2xl font-bold text-green-600">
+                <span className="text-sm sm:text-base text-gray-700">Estimated Federal Refund</span>
+                <span className="text-xl sm:text-2xl font-bold text-green-600">
                   ${summary.estimatedRefund.toFixed(2)}
                 </span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-gray-700">State Tax Owed</span>
-                <span className="text-2xl font-bold text-orange-600">
+                <span className="text-sm sm:text-base text-gray-700">State Tax Owed</span>
+                <span className="text-xl sm:text-2xl font-bold text-orange-600">
                   $456.00
                 </span>
               </div>
               <div className="border-t border-gray-200 pt-3">
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-700 font-medium">Net Refund</span>
-                  <span className="text-2xl font-bold text-green-600">
+                  <span className="text-sm sm:text-base text-gray-700 font-medium">Net Refund</span>
+                  <span className="text-xl sm:text-2xl font-bold text-green-600">
                     ${(summary.estimatedRefund - 456).toFixed(2)}
                   </span>
                 </div>
@@ -447,23 +476,24 @@ export default function ReportsPage() {
       {showMonthlyModal && selectedMonth && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b border-gray-200">
+            <div className="p-4 sm:p-6 border-b border-gray-200 sticky top-0 bg-white z-10">
               <div className="flex justify-between items-center">
-                <h2 className="text-2xl font-bold text-gray-900">
+                <h2 className="text-xl sm:text-2xl font-bold text-gray-900">
                   {selectedMonth.monthName} 2024 Breakdown
                 </h2>
                 <button
                   onClick={() => setShowMonthlyModal(false)}
-                  className="text-gray-400 hover:text-gray-600"
+                  className="text-gray-400 hover:text-gray-600 active:text-gray-800 touch-target p-2"
+                  aria-label="Close modal"
                 >
-                  <X className="w-6 h-6" />
+                  <X className="w-5 h-5 sm:w-6 sm:h-6" />
                 </button>
               </div>
             </div>
             
-            <div className="p-6">
+            <div className="p-4 sm:p-6">
               {/* Summary */}
-              <div className="grid grid-cols-3 gap-4 mb-6">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
                 <div className="text-center p-4 bg-blue-50 rounded-lg">
                   <div className="text-2xl font-bold text-blue-600">
                     ${selectedMonth.total.toFixed(2)}
@@ -528,20 +558,21 @@ export default function ReportsPage() {
       {/* Export Modal */}
       {showExportModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-md w-full">
-            <div className="p-6 border-b border-gray-200">
+          <div className="bg-white rounded-lg max-w-md w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-4 sm:p-6 border-b border-gray-200 sticky top-0 bg-white z-10">
               <div className="flex justify-between items-center">
-                <h2 className="text-xl font-bold text-gray-900">Generate Report</h2>
+                <h2 className="text-lg sm:text-xl font-bold text-gray-900">Generate Report</h2>
                 <button
                   onClick={() => setShowExportModal(false)}
-                  className="text-gray-400 hover:text-gray-600"
+                  className="text-gray-400 hover:text-gray-600 active:text-gray-800 touch-target p-2"
+                  aria-label="Close modal"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
             </div>
             
-            <div className="p-6">
+            <div className="p-4 sm:p-6">
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Export Format
@@ -570,18 +601,18 @@ export default function ReportsPage() {
                 </div>
               </div>
 
-              <div className="flex gap-3">
+              <div className="flex flex-col sm:flex-row gap-3">
                 <Button
                   onClick={handleGenerateReport}
                   disabled={isGeneratingReport}
-                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white touch-target"
                 >
                   {isGeneratingReport ? 'Generating...' : 'Generate Report'}
                 </Button>
                 <Button
                   onClick={() => setShowExportModal(false)}
                   variant="outline"
-                  className="px-6"
+                  className="px-6 touch-target"
                 >
                   Cancel
                 </Button>

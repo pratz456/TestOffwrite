@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -43,8 +43,11 @@ interface CategorySummary {
 export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
   user,
   onBack,
-  transactions
+  transactions: transactionsProp
 }) => {
+  // Ensure transactions is always an array
+  const transactions = Array.isArray(transactionsProp) ? transactionsProp : [];
+  
   const [selectedYear, setSelectedYear] = useState('2025'); // Default to current year
   const [exportFormat, setExportFormat] = useState('CSV (Spreadsheet)');
   const [categorySummaries, setCategorySummaries] = useState<CategorySummary[]>([]);
@@ -163,76 +166,16 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
     'COMMUNITY_RELIGIOUS',
   ];
 
-  useEffect(() => {
-    calculateDeductions();
-    // Optionally refresh latest year transactions from Supabase for most up-to-date preview
-    // (non-blocking; silently fails if RLS prevents)
-    const fetchLatest = async () => {
-      try {
-        if (!user) return;
-        
-        const response = await fetch('/api/transactions', {
-          credentials: 'include', // Include cookies for authentication
-        });
-        const result = await response.json();
-        const allTransactions = result.transactions || [];
-        
-        // Filter by year
-        const start = `${selectedYear}-01-01`;
-        const end = `${selectedYear}-12-31`;
-        const data = allTransactions.filter((t: any) => t.date >= start && t.date <= end);
-        
-        if (data && Array.isArray(data) && data.length > 0) {
-          // Map trans_id -> id for internal consistency if needed
-          const mapped = data.map((t: any) => ({
-            id: t.trans_id || t.id,
-            merchant_name: t.merchant_name,
-            amount: t.amount,
-            category: t.category,
-            date: t.date,
-            type: t.type,
-            is_deductible: t.is_deductible,
-            deductible_reason: t.deductible_reason,
-            deduction_score: t.deduction_score,
-            description: t.description,
-            notes: t.notes,
-          }));
-          // Re-run calculation with freshest data merged (prefer latest for selected year)
-          calculateDeductions(mapped as any);
-        }
-      } catch (e) {
-        // silent
-      }
-    };
-    fetchLatest();
-    // Debug logging
-    console.log('🔍 Schedule C Debug Info:', {
-      totalTransactions: transactions.length,
-      selectedYear,
-      yearTransactions: transactions.filter(t => new Date(t.date).getFullYear().toString() === selectedYear).length,
-      deductibleTypes: transactions.reduce((acc, t) => {
-        const key = t.is_deductible === null ? 'null' : t.is_deductible ? 'true' : 'false';
-        acc[key] = (acc[key] || 0) + 1;
-        return acc;
-      }, {} as any),
-      businessCategoryCount: transactions.filter(t =>
-        potentialBusinessCategories.includes(t.category) &&
-        new Date(t.date).getFullYear().toString() === selectedYear &&
-        t.amount > 0
-      ).length,
-      sampleTransactions: transactions.slice(0, 3).map(t => ({
-        merchant: t.merchant_name,
-        amount: t.amount,
-        category: t.category,
-        is_deductible: t.is_deductible,
-        date: t.date
-      }))
-    });
-  }, [transactions, selectedYear]);
+  // Memoize transactions array reference to prevent unnecessary re-renders
+  const transactionsKey = useMemo(() => {
+    return transactions.map(t => `${t.id}-${t.date}-${t.amount}-${t.is_deductible}`).join('|');
+  }, [transactions]);
 
-  const calculateDeductions = (overrideYearTx?: Transaction[]) => {
+  // Memoize calculateDeductions to prevent recreation on every render
+  const calculateDeductions = useCallback((overrideYearTx?: Transaction[]) => {
     // Filter transactions for selected year
-    const sourceTx = overrideYearTx ? overrideYearTx : transactions;
+    // Ensure we always work with an array
+    const sourceTx = Array.isArray(overrideYearTx) ? overrideYearTx : (Array.isArray(transactions) ? transactions : []);
     const yearTransactions = sourceTx.filter(t => {
       const transactionYear = new Date(t.date).getFullYear().toString();
       return transactionYear === selectedYear;
@@ -313,7 +256,75 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
 
     const total = summaries.reduce((sum, cat) => sum + cat.amount, 0);
     setTotalDeductible(total);
-  };
+  }, [transactions, selectedYear]);
+
+  useEffect(() => {
+    calculateDeductions();
+    // Optionally refresh latest year transactions from Supabase for most up-to-date preview
+    // (non-blocking; silently fails if RLS prevents)
+    const fetchLatest = async () => {
+      try {
+        if (!user) return;
+        
+        const response = await fetch('/api/transactions', {
+          credentials: 'include', // Include cookies for authentication
+        });
+        const result = await response.json();
+        const allTransactions = result.transactions || [];
+        
+        // Filter by year
+        const start = `${selectedYear}-01-01`;
+        const end = `${selectedYear}-12-31`;
+        const data = allTransactions.filter((t: any) => t.date >= start && t.date <= end);
+        
+        if (data && Array.isArray(data) && data.length > 0) {
+          // Map trans_id -> id for internal consistency if needed
+          const mapped = data.map((t: any) => ({
+            id: t.trans_id || t.id,
+            merchant_name: t.merchant_name,
+            amount: t.amount,
+            category: t.category,
+            date: t.date,
+            type: t.type,
+            is_deductible: t.is_deductible,
+            deductible_reason: t.deductible_reason,
+            deduction_score: t.deduction_score,
+            description: t.description,
+            notes: t.notes,
+          }));
+          // Re-run calculation with freshest data merged (prefer latest for selected year)
+          calculateDeductions(mapped as any);
+        }
+      } catch (e) {
+        // silent
+      }
+    };
+    fetchLatest();
+    // Debug logging
+    console.log('🔍 Schedule C Debug Info:', {
+      totalTransactions: transactions.length,
+      selectedYear,
+      yearTransactions: transactions.filter(t => new Date(t.date).getFullYear().toString() === selectedYear).length,
+      deductibleTypes: transactions.reduce((acc, t) => {
+        const key = t.is_deductible === null ? 'null' : t.is_deductible ? 'true' : 'false';
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+      }, {} as any),
+      businessCategoryCount: transactions.filter(t =>
+        potentialBusinessCategories.includes(t.category) &&
+        new Date(t.date).getFullYear().toString() === selectedYear &&
+        t.amount > 0
+      ).length,
+      sampleTransactions: transactions.slice(0, 3).map(t => ({
+        merchant: t.merchant_name,
+        amount: t.amount,
+        category: t.category,
+        is_deductible: t.is_deductible,
+        date: t.date
+      }))
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transactionsKey, selectedYear, user]);
 
   const getScheduleCLineNumber = (lineItem: string): string => {
     const lineNumbers: { [key: string]: string } = {

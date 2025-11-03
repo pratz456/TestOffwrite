@@ -315,60 +315,60 @@ export default function TransactionsPage() {
     <div className="bg-background text-foreground min-h-screen">
       {/* Header */}
       <div className="bg-background">
-        <div className="max-w-7xl mx-auto px-4 md:px-6 py-4">
-          <h1 className="text-2xl md:text-3xl font-bold text-foreground mb-1">Transactions</h1>
-          <p className="text-muted-foreground">Your transaction management and categorization overview</p>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4">
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-foreground mb-1">Transactions</h1>
+          <p className="text-sm sm:text-base text-muted-foreground">Your transaction management and categorization overview</p>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 space-y-6">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 space-y-4 sm:space-y-6">
         {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+        <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-6">
           <div
-            className="bg-card rounded-lg p-4 md:p-6 shadow-sm cursor-pointer hover:shadow-md transition-shadow border border-border"
+            className="bg-card rounded-lg p-3 sm:p-4 md:p-6 shadow-sm cursor-pointer hover:shadow-md active:shadow-lg transition-shadow border border-border touch-target"
             onClick={() => {
               console.log('Deductible transactions card clicked');
               setActiveTab('deductible');
             }}
           >
-            <div className="text-2xl font-semibold text-foreground">${deductibleTotal.toFixed(2)}</div>
-            <div className="text-sm text-muted-foreground">{deductibleTransactions.length} deductible</div>
+            <div className="text-lg sm:text-xl md:text-2xl font-semibold text-foreground">${deductibleTotal.toFixed(2)}</div>
+            <div className="text-xs sm:text-sm text-muted-foreground">{deductibleTransactions.length} deductible</div>
           </div>
           <div
-            className="bg-card rounded-lg p-4 md:p-6 shadow-sm cursor-pointer hover:shadow-md transition-shadow border border-border"
+            className="bg-card rounded-lg p-3 sm:p-4 md:p-6 shadow-sm cursor-pointer hover:shadow-md active:shadow-lg transition-shadow border border-border touch-target"
             onClick={() => {
               console.log('Pending transactions card clicked');
               setActiveTab('pending');
             }}
           >
-            <div className="text-2xl font-semibold text-foreground">${pendingTotal.toFixed(2)}</div>
-            <div className="text-sm text-muted-foreground">{pendingTransactions.length} needs review</div>
+            <div className="text-lg sm:text-xl md:text-2xl font-semibold text-foreground">${pendingTotal.toFixed(2)}</div>
+            <div className="text-xs sm:text-sm text-muted-foreground">{pendingTransactions.length} needs review</div>
           </div>
           <div
-            className="bg-card rounded-lg p-4 md:p-6 shadow-sm cursor-pointer hover:shadow-md transition-shadow border border-border"
+            className="bg-card rounded-lg p-3 sm:p-4 md:p-6 shadow-sm cursor-pointer hover:shadow-md active:shadow-lg transition-shadow border border-border touch-target"
             onClick={() => {
               console.log('Potential savings card clicked');
               // Could navigate to reports page or show savings breakdown
             }}
           >
-            <div className="text-2xl font-semibold text-foreground">${potentialSavings.toFixed(2)}</div>
-            <div className="text-sm text-muted-foreground">Potential savings</div>
+            <div className="text-lg sm:text-xl md:text-2xl font-semibold text-foreground">${potentialSavings.toFixed(2)}</div>
+            <div className="text-xs sm:text-sm text-muted-foreground">Potential savings</div>
           </div>
           <div
-            className="bg-card rounded-lg p-4 md:p-6 shadow-sm cursor-pointer hover:shadow-md transition-shadow border border-border"
+            className="bg-card rounded-lg p-3 sm:p-4 md:p-6 shadow-sm cursor-pointer hover:shadow-md active:shadow-lg transition-shadow border border-border touch-target"
             onClick={() => {
               console.log('Total transactions card clicked');
               setActiveTab('all');
             }}
           >
-            <div className="text-2xl font-semibold text-foreground">{transactions.length}</div>
-            <div className="text-sm text-muted-foreground">Total transactions</div>
+            <div className="text-lg sm:text-xl md:text-2xl font-semibold text-foreground">{transactions.length}</div>
+            <div className="text-xs sm:text-sm text-muted-foreground">Total transactions</div>
           </div>
         </div>
 
         {/* Search and Filter Bar */}
-        <div className="bg-card rounded-lg p-4 shadow-sm border border-border">
-          <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+        <div className="bg-card rounded-lg p-3 sm:p-4 shadow-sm border border-border">
+          <div className="flex flex-col lg:flex-row lg:items-center gap-3 sm:gap-4">
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
               <input
@@ -558,39 +558,39 @@ export default function TransactionsPage() {
         </div>
 
         {/* Status Tabs */}
-        <div className="flex gap-1 mb-6">
+        <div className="flex gap-1 mb-6 overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 sm:pb-0">
           <button
             onClick={() => setActiveTab('all')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'all'
+            className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors touch-target min-h-[44px] whitespace-nowrap ${activeTab === 'all'
               ? 'bg-primary text-primary-foreground'
-              : 'bg-card text-muted-foreground hover:bg-muted'
+              : 'bg-card text-muted-foreground hover:bg-muted active:bg-muted/80'
               }`}
           >
             All ({transactions.length})
           </button>
           <button
             onClick={() => setActiveTab('deductible')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'deductible'
+            className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors touch-target min-h-[44px] whitespace-nowrap ${activeTab === 'deductible'
               ? 'bg-primary text-primary-foreground'
-              : 'bg-card text-muted-foreground hover:bg-muted'
+              : 'bg-card text-muted-foreground hover:bg-muted active:bg-muted/80'
               }`}
           >
             Deductible ({deductibleTransactions.length})
           </button>
           <button
             onClick={() => setActiveTab('personal')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'personal'
+            className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors touch-target min-h-[44px] whitespace-nowrap ${activeTab === 'personal'
               ? 'bg-primary text-primary-foreground'
-              : 'bg-card text-muted-foreground hover:bg-muted'
+              : 'bg-card text-muted-foreground hover:bg-muted active:bg-muted/80'
               }`}
           >
             Personal ({personalTransactions.length})
           </button>
           <button
             onClick={() => setActiveTab('pending')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'pending'
+            className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors touch-target min-h-[44px] whitespace-nowrap ${activeTab === 'pending'
               ? 'bg-primary text-primary-foreground'
-              : 'bg-card text-muted-foreground hover:bg-muted'
+              : 'bg-card text-muted-foreground hover:bg-muted active:bg-muted/80'
               }`}
           >
             Pending ({pendingTransactions.length})
@@ -599,7 +599,8 @@ export default function TransactionsPage() {
 
         {/* Transaction List */}
         <div className="bg-card rounded-xl shadow-sm overflow-hidden border border-border">
-          <div className="overflow-x-auto">
+          {/* Desktop Table View */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full">
               <thead className="bg-muted border-b border-border">
                 <tr>
@@ -678,23 +679,76 @@ export default function TransactionsPage() {
               </tbody>
             </table>
           </div>
+
+          {/* Mobile Card View */}
+          <div className="md:hidden divide-y divide-border">
+            {filteredTransactions.map((transaction) => (
+              <div
+                key={transaction.id}
+                className="p-4 hover:bg-muted cursor-pointer transition-colors touch-target active:bg-muted/80"
+                onClick={() => {
+                  // Navigate to transaction detail screen with source page info
+                  router.push(`/protected?screen=transaction-detail&transactionId=${transaction.id}&from=transactions`);
+                }}
+              >
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-base font-semibold text-foreground mb-1 truncate">
+                      {transaction.merchant_name}
+                    </div>
+                    {transaction.notes && (
+                      <div className="text-sm text-muted-foreground mb-2 line-clamp-2">
+                        {transaction.notes}
+                      </div>
+                    )}
+                    <div className="text-sm text-muted-foreground">
+                      {new Date(transaction.date).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric'
+                      })}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-lg font-bold text-foreground mb-1">
+                      ${Math.abs(transaction.amount).toFixed(2)}
+                    </div>
+                    {transaction.receipt_url ? (
+                      <div className="w-8 h-8 bg-accent/20 rounded-full flex items-center justify-center mx-auto">
+                        <FileText className="w-4 h-4 text-accent" />
+                      </div>
+                    ) : (
+                      <div className="w-8 h-8 bg-muted rounded-full flex items-center justify-center mx-auto">
+                        <FileText className="w-4 h-4 text-muted-foreground" />
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {getCategoryBadge(transaction.category)}
+                  {getStatusBadge(transaction)}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* Top Right Action Buttons */}
-        <div className="fixed bottom-6 right-6 flex gap-3">
+        <div className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 flex flex-col sm:flex-row gap-3 z-40">
           <Button
-            className="bg-card text-foreground border border-border hover:bg-muted"
+            className="bg-card text-foreground border border-border hover:bg-muted active:bg-muted/80 touch-target min-h-[44px] shadow-lg"
             onClick={() => setShowReceiptModal(true)}
           >
-            <Camera className="w-4 h-4 mr-2" />
-            Receipt
+            <Camera className="w-4 h-4 sm:mr-2" />
+            <span className="hidden sm:inline">Receipt</span>
           </Button>
           <Button
-            className="bg-primary text-primary-foreground hover:bg-primary-hover"
+            className="bg-primary text-primary-foreground hover:bg-primary-hover active:bg-primary/90 touch-target min-h-[44px] shadow-lg"
             onClick={() => setShowAddModal(true)}
           >
-            <Plus className="w-4 h-4 mr-2" />
-            + Add
+            <Plus className="w-4 h-4 sm:mr-2" />
+            <span className="hidden sm:inline">+ Add</span>
+            <span className="sm:hidden">Add</span>
           </Button>
         </div>
 
