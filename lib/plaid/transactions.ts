@@ -5,6 +5,7 @@ import { updateAccount } from '../firebase/accounts'
 import { addTransaction } from '../database/transactions'
 import { db } from '../firebase/client'
 import { doc, getDoc } from 'firebase/firestore'
+import { fetchAllPlaidTransactions } from './pagination'
 
 // Plaid transaction functions
 export async function fetchTransactions(userId: string) {
@@ -64,19 +65,22 @@ export async function fetchTransactions(userId: string) {
       const startDate = new Date();
       startDate.setMonth(endDate.getMonth() - 6); // 6 months back
       
-      // Fetch all transactions (no pagination needed for historical data)
-      const transactionsResponse = await plaidClient.transactionsGet({
-        access_token: userData.plaid_token,
-        start_date: startDate.toISOString().split('T')[0],
-        end_date: endDate.toISOString().split('T')[0],
-        options: {
-          account_ids: [account.account_id],
-          include_personal_finance_category: true,
+      // Fetch all transactions with pagination
+      const { transactions, totalPages, totalTransactions: accountTransactionCount } = await fetchAllPlaidTransactions(
+        plaidClient,
+        {
+          access_token: userData.plaid_token,
+          start_date: startDate.toISOString().split('T')[0],
+          end_date: endDate.toISOString().split('T')[0],
+          options: {
+            account_ids: [account.account_id],
+            include_personal_finance_category: true,
+          },
         },
-      });
+        `[Account ${account.account_id}]`
+      );
 
-      const transactions = transactionsResponse.data.transactions || [];
-      console.log(`📊 Total transactions fetched: ${transactions.length}`);
+      console.log(`📊 Total transactions fetched for account ${account.account_id}: ${accountTransactionCount} across ${totalPages} page(s)`);
 
       // Store transactions in database with AI analysis
       for (const txn of transactions) {
@@ -153,13 +157,6 @@ export async function fetchTransactions(userId: string) {
       }
 
       totalTransactions += transactions.length
-
-      // Update account with last cursor for sync
-      if (transactionsResponse.data.request_id) {
-        await updateAccount(userId, account.account_id, {
-          last_cursor: transactionsResponse.data.request_id,
-        })
-      }
     }
 
     console.log(`🎉 Successfully fetched and stored ${totalTransactions} transactions`)

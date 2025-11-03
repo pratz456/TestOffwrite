@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { plaidClient } from '@/lib/plaid/client';
 import { adminDb } from '@/lib/firebase/admin';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
+import { fetchAllPlaidTransactions } from '@/lib/plaid/pagination';
 
 export async function POST(req: Request) {
   try {
@@ -61,20 +62,23 @@ export async function POST(req: Request) {
 
       console.log(`📅 [Import Transactions] Importing transactions from ${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}`);
 
-      // Get transactions for the specific account only
-      const transactionsRes = await plaidClient.transactionsGet({
-        access_token,
-        start_date: startDate.toISOString().split('T')[0],
-        end_date: endDate.toISOString().split('T')[0],
-        account_ids: [account_id], // Only get transactions for this specific account
-        options: {
-          include_personal_finance_category: true,
-          include_logo_and_counterparty_beta: true,
+      // Get all transactions for the specific account with pagination
+      const { transactions: allTransactions, totalPages, totalTransactions } = await fetchAllPlaidTransactions(
+        plaidClient,
+        {
+          access_token,
+          start_date: startDate.toISOString().split('T')[0],
+          end_date: endDate.toISOString().split('T')[0],
+          account_ids: [account_id], // Only get transactions for this specific account
+          options: {
+            include_personal_finance_category: true,
+            include_logo_and_counterparty_beta: true,
+          },
         },
-      });
+        '[Import Transactions]'
+      );
 
-      const allTransactions = transactionsRes.data.transactions || [];
-      console.log(`📊 [Import Transactions] Fetched ${allTransactions.length} transactions from Plaid for account: ${selectedAccount.name}`);
+      console.log(`📊 [Import Transactions] Fetched ${totalTransactions} transactions from Plaid for account: ${selectedAccount.name} across ${totalPages} page(s)`);
 
       if (allTransactions.length === 0) {
         console.warn(`⚠️ [Import Transactions] No transactions found for account ${selectedAccount.name} (${selectedAccount.type}/${selectedAccount.subtype})`);

@@ -1,10 +1,46 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Configuration, PlaidApi, PlaidEnvironments, LinkTokenCreateRequest, Products, CountryCode } from 'plaid';
 
-// Determine Plaid environment - default to sandbox if not set
-const plaidEnv = process.env.PLAID_ENV || 'sandbox';
-const plaidClientId = process.env.PLAID_CLIENT_ID;
-const plaidSecret = process.env.PLAID_SECRET;
+// Helper function to get Plaid config from both environment variables and functions.config()
+function getPlaidConfig() {
+  // First try process.env (for Next.js/Cloud Run - this is the primary method)
+  let plaidClientId: string | undefined = process.env.PLAID_CLIENT_ID;
+  let plaidSecret: string | undefined = process.env.PLAID_SECRET;
+  let plaidEnv: string | undefined = process.env.PLAID_ENV;
+  
+  // If not found in process.env, try functions.config() (for legacy Firebase Functions)
+  if (!plaidClientId || !plaidSecret) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const functions = require('firebase-functions');
+      const config = functions.config();
+      if (config.plaid) {
+        plaidClientId = plaidClientId || config.plaid.client_id || config.plaid.clientId;
+        plaidSecret = plaidSecret || config.plaid.secret;
+        plaidEnv = plaidEnv || config.plaid.env;
+      }
+    } catch (e) {
+      // functions.config() not available, that's okay - we'll use process.env
+      console.log('⚠️ [Plaid Config] functions.config() not available, using process.env only');
+    }
+  }
+  
+  // Default to sandbox if env not set
+  plaidEnv = plaidEnv || 'sandbox';
+  
+  // Log what we found (without exposing secrets)
+  console.log('🔍 [Plaid Config] Configuration check:', {
+    hasClientId: !!plaidClientId,
+    hasSecret: !!plaidSecret,
+    env: plaidEnv,
+    clientIdLength: plaidClientId?.length || 0,
+    secretLength: plaidSecret?.length || 0
+  });
+  
+  return { plaidClientId, plaidSecret, plaidEnv };
+}
+
+const { plaidClientId, plaidSecret, plaidEnv } = getPlaidConfig();
 
 if (!plaidClientId || !plaidSecret) {
   console.error('❌ Plaid credentials not configured:', {
@@ -12,7 +48,7 @@ if (!plaidClientId || !plaidSecret) {
     hasSecret: !!plaidSecret,
     env: plaidEnv
   });
-  throw new Error('Plaid credentials not configured. Please add PLAID_CLIENT_ID and PLAID_SECRET to your .env.local file.');
+  throw new Error('Plaid credentials not configured. Please add PLAID_CLIENT_ID and PLAID_SECRET to your environment variables.');
 }
 
 const configuration = new Configuration({

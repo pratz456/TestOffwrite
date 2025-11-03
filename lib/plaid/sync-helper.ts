@@ -2,13 +2,44 @@ import { Configuration, PlaidApi, PlaidEnvironments } from 'plaid';
 import { getUserProfileServer, upsertUserProfileServer } from '../firebase/profiles-server';
 import { createTransactionServer } from '../firebase/transactions-server';
 import { adminDb } from '../firebase/admin';
+import { fetchAllPlaidTransactions } from './pagination';
+
+// Helper function to get Plaid config from both environment variables and functions.config()
+function getPlaidConfig() {
+  // Try to read from functions.config() first (for Firebase Functions)
+  let plaidClientId: string | undefined;
+  let plaidSecret: string | undefined;
+  let plaidEnv: string | undefined;
+  
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const functions = require('firebase-functions');
+    const config = functions.config();
+    if (config.plaid) {
+      plaidClientId = config.plaid.client_id || config.plaid.clientId;
+      plaidSecret = config.plaid.secret;
+      plaidEnv = config.plaid.env;
+    }
+  } catch (e) {
+    // functions.config() not available, continue to process.env
+  }
+  
+  // Fall back to process.env (for Next.js/local dev)
+  plaidClientId = plaidClientId || process.env.PLAID_CLIENT_ID;
+  plaidSecret = plaidSecret || process.env.PLAID_SECRET;
+  plaidEnv = plaidEnv || process.env.PLAID_ENV || 'sandbox';
+  
+  return { plaidClientId, plaidSecret, plaidEnv };
+}
+
+const { plaidClientId, plaidSecret, plaidEnv } = getPlaidConfig();
 
 const configuration = new Configuration({
-  basePath: PlaidEnvironments[process.env.PLAID_ENV as keyof typeof PlaidEnvironments || 'sandbox'],
+  basePath: PlaidEnvironments[plaidEnv as keyof typeof PlaidEnvironments] || PlaidEnvironments.sandbox,
   baseOptions: {
     headers: {
-      'PLAID-CLIENT-ID': process.env.PLAID_CLIENT_ID,
-      'PLAID-SECRET': process.env.PLAID_SECRET,
+      'PLAID-CLIENT-ID': plaidClientId || '',
+      'PLAID-SECRET': plaidSecret || '',
     },
   },
 });
@@ -66,19 +97,22 @@ export async function syncUserTransactions(
 
     console.log(`📅 [Sync Helper] Syncing transactions from ${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}`);
     
-    // Fetch transactions from Plaid
-    const transactionsResponse = await client.transactionsGet({
-      access_token: userProfile.plaid_token,
-      start_date: startDate.toISOString().split('T')[0],
-      end_date: endDate.toISOString().split('T')[0],
-      options: {
-        include_personal_finance_category: true,
-        include_logo_and_counterparty_beta: true,
+    // Fetch all transactions from Plaid with pagination
+    const { transactions, totalPages, totalTransactions } = await fetchAllPlaidTransactions(
+      client,
+      {
+        access_token: userProfile.plaid_token,
+        start_date: startDate.toISOString().split('T')[0],
+        end_date: endDate.toISOString().split('T')[0],
+        options: {
+          include_personal_finance_category: true,
+          include_logo_and_counterparty_beta: true,
+        },
       },
-    });
+      '[Sync Helper]'
+    );
 
-    const transactions = transactionsResponse.data.transactions || [];
-    console.log(`📊 [Sync Helper] Fetched ${transactions.length} transactions from Plaid`);
+    console.log(`📊 [Sync Helper] Fetched ${totalTransactions} transactions from Plaid across ${totalPages} page(s)`);
 
     let transactionsSaved = 0;
 

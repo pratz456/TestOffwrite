@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { plaidClient } from '@/lib/plaid/client';
 import { adminDb } from '@/lib/firebase/admin';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
+import { fetchAllPlaidTransactions } from '@/lib/plaid/pagination';
 
 export async function POST(req: Request) {
   try {
@@ -88,44 +89,89 @@ export async function POST(req: Request) {
 
       console.log(`📅 Importing transactions from ${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}`);
 
-      // Retry mechanism for Plaid PRODUCT_NOT_READY error
-      let transactionsRes;
-      let retryCount = 0;
+      // Fetch all transactions with pagination and retry logic for PRODUCT_NOT_READY errors
+      let allTransactions: any[] = [];
+      let totalPages = 0;
       const maxRetries = 3;
       
-      console.log(`🔄 [Plaid] Starting transaction fetch with ${maxRetries} max retries`);
+      console.log(`🔄 [Plaid] Starting transaction fetch with pagination support and ${maxRetries} max retries per page`);
       
-      while (retryCount < maxRetries) {
-        try {
-          console.log(`🔄 [Plaid] Attempt ${retryCount + 1}/${maxRetries}: Fetching transactions...`);
-          transactionsRes = await plaidClient.transactionsGet({
-            access_token,
-            start_date: startDate.toISOString().split('T')[0],
-            end_date: endDate.toISOString().split('T')[0],
-            options: {
-              include_personal_finance_category: true,
-              include_logo_and_counterparty_beta: true,
-            },
-          });
-          console.log(`✅ [Plaid] Successfully fetched transactions on attempt ${retryCount + 1}`);
-          break; // Success, exit retry loop
-        } catch (error: any) {
-          retryCount++;
-          console.log(`❌ [Plaid] Attempt ${retryCount} failed:`, error.response?.data?.error_code || error.message);
+      try {
+        // Use a custom wrapper that adds retry logic to the pagination helper
+        const fetchWithRetries = async () => {
+          let nextCursor: string | undefined = undefined;
+          let pageCount = 0;
+          const maxPages = 100; // Safety limit
           
-          if (error.response?.data?.error_code === 'PRODUCT_NOT_READY' && retryCount < maxRetries) {
-            const waitTime = retryCount * 2;
-            console.log(`⏳ [Plaid] PRODUCT_NOT_READY error, retrying in ${waitTime} seconds... (attempt ${retryCount}/${maxRetries})`);
-            await new Promise(resolve => setTimeout(resolve, waitTime * 1000)); // Exponential backoff
-          } else {
-            console.log(`❌ [Plaid] Final attempt failed or non-retryable error:`, error.response?.data || error.message);
-            throw error; // Re-throw if not PRODUCT_NOT_READY or max retries reached
-          }
-        }
-      }
+          do {
+            pageCount++;
+            
+            if (pageCount > maxPages) {
+              console.warn(`[Plaid] ⚠️ Reached maximum page limit (${maxPages}), stopping pagination`);
+              break;
+            }
 
-      allTransactions = transactionsRes.data.transactions || [];
-      console.log(`📊 Fetched ${allTransactions.length} transactions from Plaid for account: ${plaidAccount.name}`);
+            let retryCount = 0;
+            let pageTransactions: any[] = [];
+            
+            // Retry logic for each page
+            while (retryCount < maxRetries) {
+              try {
+                console.log(`🔄 [Plaid] Fetching page ${pageCount}, attempt ${retryCount + 1}/${maxRetries}...`);
+                const transactionsResponse = await plaidClient.transactionsGet({
+                  access_token,
+                  start_date: startDate.toISOString().split('T')[0],
+                  end_date: endDate.toISOString().split('T')[0],
+                  options: {
+                    include_personal_finance_category: true,
+                    include_logo_and_counterparty_beta: true,
+                    cursor: nextCursor,
+                  },
+                });
+                
+                pageTransactions = transactionsResponse.data.transactions || [];
+                allTransactions = allTransactions.concat(pageTransactions);
+                
+                nextCursor = transactionsResponse.data.next_cursor || undefined;
+                
+                console.log(
+                  `📊 [Plaid] Page ${pageCount}: Fetched ${pageTransactions.length} transactions, ` +
+                  `total so far: ${allTransactions.length}`
+                );
+                
+                if (nextCursor) {
+                  console.log(`🔄 [Plaid] More transactions available, fetching next page...`);
+                } else {
+                  console.log(`✅ [Plaid] All transactions fetched (no more pages)`);
+                }
+                
+                break; // Success, exit retry loop for this page
+              } catch (error: any) {
+                retryCount++;
+                console.log(`❌ [Plaid] Page ${pageCount}, attempt ${retryCount} failed:`, error.response?.data?.error_code || error.message);
+                
+                if (error.response?.data?.error_code === 'PRODUCT_NOT_READY' && retryCount < maxRetries) {
+                  const waitTime = retryCount * 2;
+                  console.log(`⏳ [Plaid] PRODUCT_NOT_READY error, retrying in ${waitTime} seconds... (attempt ${retryCount}/${maxRetries})`);
+                  await new Promise(resolve => setTimeout(resolve, waitTime * 1000)); // Exponential backoff
+                } else {
+                  console.log(`❌ [Plaid] Final attempt failed or non-retryable error:`, error.response?.data || error.message);
+                  throw error; // Re-throw if not PRODUCT_NOT_READY or max retries reached
+                }
+              }
+            }
+          } while (nextCursor);
+          
+          totalPages = pageCount;
+        };
+        
+        await fetchWithRetries();
+        
+        console.log(`📊 [Plaid] Fetched ${allTransactions.length} total transactions from Plaid for account: ${plaidAccount.name} across ${totalPages} page(s)`);
+      } catch (error: any) {
+        console.error(`❌ [Plaid] Error fetching transactions with pagination:`, error);
+        throw error;
+      }
 
       // If no transactions found, try other accounts
       if (allTransactions.length === 0 && allAccounts.length > 1) {
@@ -138,19 +184,23 @@ export async function POST(req: Request) {
           console.log(`🔍 Trying account: ${altAccount.name} (${altAccount.type}/${altAccount.subtype})`);
           
           try {
-            const altTransactionsRes = await plaidClient.transactionsGet({
-              access_token,
-              start_date: startDate.toISOString().split('T')[0],
-              end_date: endDate.toISOString().split('T')[0],
-              account_ids: [altAccount.account_id], // Only get transactions for this specific account
-              options: {
-                include_personal_finance_category: true,
-                include_logo_and_counterparty_beta: true,
+            // Fetch all transactions for alternative account with pagination
+            const { transactions: altTransactions, totalPages: altTotalPages } = await fetchAllPlaidTransactions(
+              plaidClient,
+              {
+                access_token,
+                start_date: startDate.toISOString().split('T')[0],
+                end_date: endDate.toISOString().split('T')[0],
+                account_ids: [altAccount.account_id], // Only get transactions for this specific account
+                options: {
+                  include_personal_finance_category: true,
+                  include_logo_and_counterparty_beta: true,
+                },
               },
-            });
+              `[Plaid] Alt Account ${altAccount.name}`
+            );
             
-            const altTransactions = altTransactionsRes.data.transactions || [];
-            console.log(`📊 Found ${altTransactions.length} transactions in ${altAccount.name}`);
+            console.log(`📊 Found ${altTransactions.length} transactions in ${altAccount.name} across ${altTotalPages} page(s)`);
             
             if (altTransactions.length > 0) {
               console.log(`✅ Switching to account with transactions: ${altAccount.name}`);
@@ -169,6 +219,7 @@ export async function POST(req: Request) {
               
               // Use the transactions from this account
               allTransactions = altTransactions;
+              totalPages = altTotalPages;
               break;
             }
           } catch (altError) {
@@ -177,7 +228,7 @@ export async function POST(req: Request) {
         }
       }
 
-      console.log(`📊 Final account selected: ${plaidAccount.name} with ${allTransactions.length} transactions`);
+      console.log(`📊 Final account selected: ${plaidAccount.name} with ${allTransactions.length} transactions across ${totalPages} page(s)`);
       
       // Log sample transaction to see what Plaid returns
       if (allTransactions.length > 0) {
