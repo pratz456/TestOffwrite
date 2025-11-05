@@ -9,7 +9,7 @@ import { fetchAllPlaidTransactions } from '@/lib/plaid/pagination';
 export async function POST(req: Request) {
   try {
     const { uid } = await getUserFromReqOrThrow(req);
-    const { account_id, import_timeframe = '6months', access_token } = await req.json();
+    const { account_id, import_timeframe = '1year', access_token } = await req.json();
 
     if (!account_id || !access_token) {
       return NextResponse.json({ error: 'Missing account_id or access_token' }, { status: 400 });
@@ -20,7 +20,7 @@ export async function POST(req: Request) {
     // Get the specific account info
     const accountsRes = await plaidClient.accountsGet({ access_token });
     const selectedAccount = accountsRes.data.accounts?.find(acc => acc.account_id === account_id);
-    
+
     if (!selectedAccount) {
       return NextResponse.json({ error: 'Selected account not found' }, { status: 404 });
     }
@@ -45,7 +45,7 @@ export async function POST(req: Request) {
       // Calculate date range based on timeframe
       const endDate = new Date();
       const startDate = new Date();
-      
+
       switch (import_timeframe) {
         case '1month':
           startDate.setMonth(endDate.getMonth() - 1);
@@ -82,7 +82,7 @@ export async function POST(req: Request) {
 
       if (allTransactions.length === 0) {
         console.warn(`⚠️ [Import Transactions] No transactions found for account ${selectedAccount.name} (${selectedAccount.type}/${selectedAccount.subtype})`);
-        return NextResponse.json({ 
+        return NextResponse.json({
           error: 'No transactions found for the selected account. This account may not have any recent transaction activity.',
           details: `Account: ${selectedAccount.name} (${selectedAccount.type}/${selectedAccount.subtype})`,
           debug: {
@@ -101,18 +101,18 @@ export async function POST(req: Request) {
       const transactions = allTransactions;
       for (const tx of transactions) {
         const txId = tx.transaction_id;
-        
+
         // Check if transaction already exists before importing
         const txRef = adminDb.doc(
           `user_profiles/${uid}/accounts/${account_id}/transactions/${txId}`
         );
         const existingTx = await txRef.get();
-        
+
         if (existingTx.exists) {
           console.log(`🔄 [Import Transactions] Transaction ${txId} already exists, skipping import`);
           continue; // Skip this transaction
         }
-        
+
         const transactionData = {
           analysis_status: 'pending',
           analysisStatus: 'pending', // Add camelCase version for consistency
@@ -137,15 +137,15 @@ export async function POST(req: Request) {
         };
 
         console.log(`📊 [Import Transactions] Setting transaction ${txId} with analysis_status: 'pending' and analyzed: false`);
-        
+
         await txRef.set(transactionData);
-        
+
         if (imported < 3) {
           console.log(`✅ [Import Transactions] Wrote transaction ${txId} to Firebase`);
           console.log(`📊 [Import Transactions] Document path: user_profiles/${uid}/accounts/${account_id}/transactions/${txId}`);
           console.log(`📊 [Import Transactions] Transaction data:`, JSON.stringify(transactionData, null, 2));
         }
-        
+
         imported++;
       }
     } catch (txError: any) {
@@ -185,8 +185,8 @@ export async function POST(req: Request) {
     console.log(`📊 [Import Transactions] Analysis status check: ${pendingCount} pending transactions out of ${verifySnap.size} total`);
     console.log(`📊 [Import Transactions] Sample transactions:`, sampleTxs);
 
-    return NextResponse.json({ 
-      ok: true, 
+    return NextResponse.json({
+      ok: true,
       accountId: account_id,
       accountName: selectedAccount.name,
       accountType: selectedAccount.type,

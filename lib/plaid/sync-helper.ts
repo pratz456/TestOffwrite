@@ -10,7 +10,7 @@ function getPlaidConfig() {
   let plaidClientId: string | undefined;
   let plaidSecret: string | undefined;
   let plaidEnv: string | undefined;
-  
+
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const functions = require('firebase-functions');
@@ -23,12 +23,12 @@ function getPlaidConfig() {
   } catch (e) {
     // functions.config() not available, continue to process.env
   }
-  
+
   // Fall back to process.env (for Next.js/local dev)
   plaidClientId = plaidClientId || process.env.PLAID_CLIENT_ID;
   plaidSecret = plaidSecret || process.env.PLAID_SECRET;
   plaidEnv = plaidEnv || process.env.PLAID_ENV || 'sandbox';
-  
+
   return { plaidClientId, plaidSecret, plaidEnv };
 }
 
@@ -59,12 +59,12 @@ export interface SyncResult {
  * @returns Promise<SyncResult>
  */
 export async function syncUserTransactions(
-  userId: string, 
-  importTimeframe: string = '6months'
+  userId: string,
+  importTimeframe: string = '1year'
 ): Promise<SyncResult> {
   try {
     console.log(`🔄 [Sync Helper] Starting transaction sync for user ${userId}...`);
-    
+
     // Get user's Plaid access token from Firebase
     const { data: userProfile, error: profileError } = await getUserProfileServer(userId);
 
@@ -80,7 +80,7 @@ export async function syncUserTransactions(
     // Calculate date range based on timeframe
     const endDate = new Date();
     const startDate = new Date();
-    
+
     switch (importTimeframe) {
       case '1month':
         startDate.setMonth(endDate.getMonth() - 1);
@@ -96,7 +96,7 @@ export async function syncUserTransactions(
     }
 
     console.log(`📅 [Sync Helper] Syncing transactions from ${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}`);
-    
+
     // Fetch all transactions from Plaid with pagination
     const { transactions, totalPages, totalTransactions } = await fetchAllPlaidTransactions(
       client,
@@ -120,9 +120,9 @@ export async function syncUserTransactions(
     if (transactions.length > 0) {
       for (const transaction of transactions) {
         const category = transaction.personal_finance_category?.detailed || transaction.category?.[0] || 'Other';
-        
+
         console.log(`📝 [Sync Helper] Processing transaction: ${transaction.merchant_name || transaction.name} - ${category}`);
-        
+
         const { data: savedTransaction, error: transactionError } = await createTransactionServer(
           userId,
           transaction.account_id,
@@ -170,7 +170,7 @@ export async function syncUserTransactions(
     }
 
     console.log(`🎉 [Sync Helper] Transaction sync completed! Saved ${transactionsSaved} transactions`);
-    
+
     return {
       success: true,
       transactionsSaved,
@@ -194,7 +194,7 @@ export async function syncUserTransactions(
 export async function findUserByPlaidItemId(plaidItemId: string): Promise<string | null> {
   try {
     console.log(`🔍 [Sync Helper] Looking for user with Plaid item ID: ${plaidItemId}`);
-    
+
     // Query user_profiles collection to find user with matching plaid_item_id
     const userProfilesSnapshot = await adminDb
       .collection('user_profiles')
@@ -209,7 +209,7 @@ export async function findUserByPlaidItemId(plaidItemId: string): Promise<string
 
     const userDoc = userProfilesSnapshot.docs[0];
     const userId = userDoc.id;
-    
+
     console.log(`✅ [Sync Helper] Found user ${userId} for Plaid item ${plaidItemId}`);
     return userId;
   } catch (error) {

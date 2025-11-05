@@ -27,7 +27,7 @@ function verifyWebhookSignature(payload: string, signature: string, secret: stri
     // Plaid webhook verification logic
     // For now, we'll implement basic verification
     // In production, you should use Plaid's official webhook verification library
-    
+
     if (!signature || !payload) {
       return false;
     }
@@ -36,7 +36,7 @@ function verifyWebhookSignature(payload: string, signature: string, secret: stri
     const expectedSignature = createHash('sha256')
       .update(payload + secret)
       .digest('hex');
-    
+
     return signature === expectedSignature;
   } catch (error) {
     console.error('❌ [Webhook] Signature verification failed:', error);
@@ -50,14 +50,14 @@ function verifyWebhookSignature(payload: string, signature: string, secret: stri
 export async function POST(request: NextRequest) {
   try {
     console.log('🔔 [Webhook] Received Plaid webhook');
-    
+
     // Get the webhook signature for verification
     const signature = request.headers.get('plaid-verification') || request.headers.get('x-plaid-verification');
-    
+
     // Get the raw body for signature verification
     const body = await request.text();
     const payload: PlaidWebhookPayload = JSON.parse(body);
-    
+
     console.log('📊 [Webhook] Webhook payload:', {
       webhook_type: payload.webhook_type,
       webhook_code: payload.webhook_code,
@@ -82,10 +82,10 @@ export async function POST(request: NextRequest) {
     if (payload.webhook_type === 'TRANSACTIONS') {
       if (payload.webhook_code === 'SYNC_UPDATES_AVAILABLE' || payload.webhook_code === 'DEFAULT_UPDATE') {
         console.log(`🔄 [Webhook] Processing ${payload.webhook_code} for item ${payload.item_id}`);
-        
+
         // Find the user associated with this Plaid item
         const userId = await findUserByPlaidItemId(payload.item_id);
-        
+
         if (!userId) {
           console.error(`❌ [Webhook] No user found for Plaid item ${payload.item_id}`);
           return NextResponse.json({ error: 'User not found' }, { status: 404 });
@@ -97,7 +97,7 @@ export async function POST(request: NextRequest) {
         if (payload.webhook_id) {
           const processedWebhookRef = adminDb.doc(`processed_webhooks/${payload.webhook_id}`);
           const existingWebhook = await processedWebhookRef.get();
-          
+
           if (existingWebhook.exists) {
             console.log(`🔄 [Webhook] Webhook ${payload.webhook_id} already processed, skipping`);
             return NextResponse.json({ success: true, message: 'Already processed' });
@@ -114,7 +114,7 @@ export async function POST(request: NextRequest) {
 
         // Sync transactions for the user
         const syncResult = await syncUserTransactions(userId, '6months');
-        
+
         if (syncResult.success) {
           console.log(`✅ [Webhook] Successfully synced ${syncResult.transactionsSaved} transactions for user ${userId}`);
           return NextResponse.json({
@@ -147,7 +147,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('❌ [Webhook] Error processing webhook:', error);
     return NextResponse.json(
-      { 
+      {
         error: 'Failed to process webhook',
         details: error instanceof Error ? error.message : 'Unknown error'
       },
@@ -160,7 +160,7 @@ export async function POST(request: NextRequest) {
  * Health check endpoint for webhook
  */
 export async function GET() {
-  return NextResponse.json({ 
+  return NextResponse.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
     message: 'Plaid webhook endpoint is running'

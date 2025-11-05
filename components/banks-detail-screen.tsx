@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { ArrowLeft, Building2, CheckCircle, AlertCircle, CreditCard, Smartphone, DollarSign, Calendar, Plus } from 'lucide-react';
+import { ArrowLeft, Building2, CheckCircle, AlertCircle, CreditCard, Smartphone, DollarSign, Calendar, Plus, Trash2 } from 'lucide-react';
+import { auth } from '@/lib/firebase/client';
 
 interface BankConnection {
   id: string;
@@ -30,49 +31,170 @@ interface BanksDetailScreenProps {
   bankConnected?: boolean;
 }
 
-export const BanksDetailScreen: React.FC<BanksDetailScreenProps> = ({ 
-  user, 
-  onBack, 
+export const BanksDetailScreen: React.FC<BanksDetailScreenProps> = ({
+  user,
+  onBack,
   onConnectBank,
   bankConnected = false
 }) => {
   const [selectedFilter, setSelectedFilter] = useState<'all' | 'active' | 'error'>('all');
+  const [bankConnections, setBankConnections] = useState<BankConnection[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [deletingAccountId, setDeletingAccountId] = useState<string | null>(null);
+  const [disconnectingPlaid, setDisconnectingPlaid] = useState(false);
+  const [hasPlaidConnection, setHasPlaidConnection] = useState(false);
 
-  // Mock bank connections data
-  const [bankConnections] = useState<BankConnection[]>([
-    {
-      id: '1',
-      bankName: 'Chase Bank',
-      accountType: 'Business Checking',
-      accountNumber: '****1234',
-      isConnected: true,
-      lastSync: '2024-12-28T10:30:00Z',
-      balance: 15420.50,
-      transactionCount: 23,
-      status: 'active'
-    },
-    {
-      id: '2',
-      bankName: 'Bank of America',
-      accountType: 'Business Credit Card',
-      accountNumber: '****5678',
-      isConnected: true,
-      lastSync: '2024-12-28T09:15:00Z',
-      balance: -2850.75,
-      transactionCount: 15,
-      status: 'active'
-    },
-    {
-      id: '3',
-      bankName: 'Wells Fargo',
-      accountType: 'Business Savings',
-      accountNumber: '****9012',
-      isConnected: false,
-      lastSync: '2024-12-25T14:20:00Z',
-      transactionCount: 0,
-      status: 'error'
+  // Fetch accounts and Plaid connection status from API
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+
+        // Get Firebase auth token
+        const currentUser = auth.currentUser;
+        if (!currentUser) {
+          console.error('No authenticated user found');
+          setLoading(false);
+          return;
+        }
+
+        const token = await currentUser.getIdToken();
+
+        // Check Plaid connection status
+        const plaidStatusResponse = await fetch('/api/plaid/items', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        if (plaidStatusResponse.ok) {
+          const plaidStatus = await plaidStatusResponse.json();
+          setHasPlaidConnection(plaidStatus.hasConnection || false);
+        }
+
+        // Fetch accounts with authentication
+        const accountsResponse = await fetch('/api/database/accounts', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        if (accountsResponse.ok) {
+          const data = await accountsResponse.json();
+          console.log('📊 [Banks Detail] Fetched accounts:', data);
+          const accounts: BankConnection[] = (data.accounts || []).map((account: any) => ({
+            id: account.account_id || account.id,
+            bankName: account.name || 'Unknown Bank',
+            accountType: `${account.subtype || account.type || 'Account'}`,
+            accountNumber: account.mask ? `****${account.mask}` : '****',
+            isConnected: true,
+            lastSync: account.updated_at ? new Date(account.updated_at.seconds * 1000 || account.updated_at).toISOString() : new Date().toISOString(),
+            balance: 0, // Balance would need to be fetched separately
+            transactionCount: 0, // Transaction count would need to be calculated
+            status: 'active' as const
+          }));
+          console.log('✅ [Banks Detail] Processed accounts:', accounts);
+          setBankConnections(accounts);
+        } else {
+          const errorData = await accountsResponse.json().catch(() => ({}));
+          console.error('❌ [Banks Detail] Failed to fetch accounts:', accountsResponse.status, errorData);
+        }
+      } catch (error) {
+        console.error('Error fetching data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  const handleDeleteAccount = async (accountId: string) => {
+    if (!window.confirm('Are you sure you want to delete this bank account? This will also delete all associated transactions. This action cannot be undone.')) {
+      return;
     }
-  ]);
+
+    try {
+      setDeletingAccountId(accountId);
+
+      // Get Firebase auth token
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        console.error('No authenticated user found');
+        return;
+      }
+
+      const token = await currentUser.getIdToken();
+
+      const response = await fetch('/api/database/accounts', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ accountId }),
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.success) {
+        // Remove the account from the list
+        setBankConnections(prev => prev.filter(acc => acc.id !== accountId));
+        alert('Bank account deleted successfully.');
+      } else {
+        alert(`Failed to delete account: ${result.error || result.details || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Error deleting account:', error);
+      alert('Failed to delete account. Please try again.');
+    } finally {
+      setDeletingAccountId(null);
+    }
+  };
+
+  const handleDisconnectPlaid = async () => {
+    if (!confirm('Are you sure you want to disconnect all Plaid connections? This will remove all connected bank accounts.')) {
+      return;
+    }
+
+    try {
+      setDisconnectingPlaid(true);
+
+      // Get Firebase auth token
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        console.error('No authenticated user found');
+        return;
+      }
+
+      const token = await currentUser.getIdToken();
+
+      const response = await fetch('/api/plaid/items', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.success) {
+        // Clear all accounts
+        setBankConnections([]);
+        setHasPlaidConnection(false);
+        alert(`Bank connection disconnected successfully. ${result.deletedCounts?.accounts || 0} accounts and ${result.deletedCounts?.transactions || 0} transactions deleted.`);
+      } else {
+        const errorMsg = result.details || result.error || 'Unknown error';
+        alert(`Failed to disconnect bank: ${errorMsg}`);
+      }
+    } catch (error) {
+      console.error('Error disconnecting Plaid:', error);
+      alert('Failed to disconnect bank. Please try again.');
+    } finally {
+      setDisconnectingPlaid(false);
+    }
+  };
 
   const filteredConnections = bankConnections.filter(connection => {
     if (selectedFilter === 'active') return connection.status === 'active';
@@ -215,6 +337,16 @@ export const BanksDetailScreen: React.FC<BanksDetailScreenProps> = ({
                     <option value="active">Active Only</option>
                     <option value="error">Issues Only</option>
                   </select>
+                  {hasPlaidConnection && (
+                    <Button
+                      onClick={handleDisconnectPlaid}
+                      disabled={disconnectingPlaid}
+                      variant="destructive"
+                      className="gap-2 bg-red-600 hover:bg-red-700"
+                    >
+                      {disconnectingPlaid ? 'Disconnecting...' : 'Disconnect Plaid'}
+                    </Button>
+                  )}
                   <Button onClick={onConnectBank} className="gap-2 bg-blue-600 hover:bg-blue-700">
                     <Plus className="w-4 h-4" />
                     Connect Bank
@@ -224,8 +356,8 @@ export const BanksDetailScreen: React.FC<BanksDetailScreenProps> = ({
 
               <div className="space-y-4">
                 {filteredConnections.map((connection) => (
-                  <div 
-                    key={connection.id} 
+                  <div
+                    key={connection.id}
                     className={`p-4 rounded-lg border-l-4 ${getStatusColor(connection.status)}`}
                   >
                     <div className="flex items-start justify-between">
@@ -261,8 +393,21 @@ export const BanksDetailScreen: React.FC<BanksDetailScreenProps> = ({
                             Sync Now
                           </Button>
                         )}
-                        <Button variant="outline" size="sm">
-                          Settings
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleDeleteAccount(connection.id)}
+                          disabled={deletingAccountId === connection.id}
+                          className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+                        >
+                          {deletingAccountId === connection.id ? (
+                            'Deleting...'
+                          ) : (
+                            <>
+                              <Trash2 className="w-4 h-4 mr-1" />
+                              Delete
+                            </>
+                          )}
                         </Button>
                       </div>
                     </div>
@@ -270,7 +415,12 @@ export const BanksDetailScreen: React.FC<BanksDetailScreenProps> = ({
                 ))}
               </div>
 
-              {filteredConnections.length === 0 && (
+              {loading ? (
+                <div className="text-center py-12">
+                  <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                  <p className="text-slate-500">Loading accounts...</p>
+                </div>
+              ) : filteredConnections.length === 0 ? (
                 <div className="text-center py-12">
                   <Building2 className="w-16 h-16 text-gray-300 mx-auto mb-4" />
                   <p className="text-slate-500">No bank connections found</p>
@@ -279,7 +429,7 @@ export const BanksDetailScreen: React.FC<BanksDetailScreenProps> = ({
                     Connect Your First Bank
                   </Button>
                 </div>
-              )}
+              ) : null}
             </Card>
           </div>
 

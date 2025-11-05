@@ -6,21 +6,21 @@ import { getAuthenticatedUser } from '../../../../lib/firebase/api-auth';
 export async function POST(request: NextRequest) {
   try {
     console.log('🔄 [Plaid Sync] Starting manual transaction sync...');
-    
+
     // Get the authenticated user
     const { user, error: authError } = await getAuthenticatedUser(request);
-    
+
     if (authError || !user) {
       console.error('❌ [Plaid Sync] Authentication failed:', authError);
-      return NextResponse.json({ 
+      return NextResponse.json({
         error: 'Authentication failed. Please log in again.',
-        details: authError 
+        details: authError
       }, { status: 401 });
     }
 
     console.log('✅ [Plaid Sync] User authenticated:', user.uid);
 
-    const { userId, import_timeframe = '6months' } = await request.json();
+    const { userId, import_timeframe = '1year' } = await request.json();
 
     if (!userId) {
       return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
 
     // Use the sync helper function
     const syncResult = await syncUserTransactions(user.uid, import_timeframe);
-    
+
     if (syncResult.success) {
       console.log(`✅ [Plaid Sync] Successfully synced ${syncResult.transactionsSaved} transactions for user ${user.uid}`);
       return NextResponse.json({
@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('❌ [Plaid Sync] Error syncing transactions:', error);
-    
+
     // More detailed error logging
     if (error instanceof Error) {
       console.error('❌ [Plaid Sync] Error details:', {
@@ -60,13 +60,13 @@ export async function POST(request: NextRequest) {
         stack: error.stack
       });
     }
-    
+
     return NextResponse.json(
-      { 
+      {
         error: 'Failed to sync transactions. Please try again.',
         details: error instanceof Error ? error.message : 'Unknown error'
       },
       { status: 500 }
     );
   }
-} 
+}

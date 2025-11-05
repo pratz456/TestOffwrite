@@ -18,7 +18,7 @@ export function JobProgress({ accountId, onComplete }: JobProgressProps) {
   if (loading) {
     return (
       <div className="flex flex-col items-center gap-3">
-        <div className="text-xl font-semibold">Setting up analysis...</div>
+        <div className="text-xl font-semibold text-foreground">Setting up analysis...</div>
         <Progress value={0} className="w-64" />
       </div>
     );
@@ -27,8 +27,8 @@ export function JobProgress({ accountId, onComplete }: JobProgressProps) {
   if (error) {
     return (
       <div className="flex flex-col items-center gap-3">
-        <div className="text-red-600 font-semibold">Error loading progress</div>
-        <div className="text-sm text-gray-600">
+        <div className="text-destructive font-semibold">Error loading progress</div>
+        <div className="text-sm text-muted-foreground">
           {error instanceof Error ? error.message : String(error)}
         </div>
       </div>
@@ -38,7 +38,7 @@ export function JobProgress({ accountId, onComplete }: JobProgressProps) {
   if (!job) {
     return (
       <div className="flex flex-col items-center gap-3">
-        <div className="text-gray-600">Setting up analysis...</div>
+        <div className="text-muted-foreground">Setting up analysis...</div>
       </div>
     );
   }
@@ -68,13 +68,13 @@ export function JobProgress({ accountId, onComplete }: JobProgressProps) {
   const getStatusColor = () => {
     switch (status) {
       case 'done':
-        return 'text-green-600';
+        return 'text-emerald-600 dark:text-emerald-400';
       case 'failed':
-        return 'text-red-600';
+        return 'text-destructive';
       case 'canceled':
-        return 'text-yellow-600';
+        return 'text-yellow-600 dark:text-yellow-400';
       default:
-        return 'text-blue-600';
+        return 'text-primary';
     }
   };
 
@@ -92,7 +92,7 @@ export function JobProgress({ accountId, onComplete }: JobProgressProps) {
   };
 
   return (
-    <div className="bg-white/80 backdrop-blur-sm rounded-xl p-6 border border-slate-200 shadow-lg">
+    <div className="bg-card rounded-xl p-6 border border-border shadow-lg">
       <div className="text-center mb-6">
         <div className="inline-flex items-center justify-center w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-lg mb-4">
           {status === 'done' ? (
@@ -101,26 +101,26 @@ export function JobProgress({ accountId, onComplete }: JobProgressProps) {
             <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
           )}
         </div>
-        <h3 className="text-xl font-bold text-slate-900 mb-2">{getStatusMessage()}</h3>
-        <p className="text-slate-600">Processing your transactions with AI</p>
+        <h3 className="text-xl font-bold text-card-foreground mb-2">{getStatusMessage()}</h3>
+        <p className="text-muted-foreground">Processing your transactions with AI</p>
       </div>
-      
+
       <div className="mb-6">
         <div className="flex justify-between items-center mb-3">
-          <span className="text-sm font-medium text-slate-600">Progress</span>
-          <span className="text-sm font-semibold text-blue-600">{pct}%</span>
+          <span className="text-sm font-medium text-muted-foreground">Progress</span>
+          <span className="text-sm font-semibold text-primary">{pct}%</span>
         </div>
         <Progress value={pct} className="h-3" />
         <div className="flex justify-between items-center mt-2">
-          <span className="text-sm text-slate-600">{job.processed} of {job.total} analyzed</span>
+          <span className="text-sm text-muted-foreground">{job.processed} of {job.total} analyzed</span>
           {etaSec != null && (
-            <span className="text-sm text-slate-500">~{etaSec}s remaining</span>
+            <span className="text-sm text-muted-foreground">~{etaSec}s remaining</span>
           )}
         </div>
       </div>
-      
+
       {job.status === 'done' && (
-        <Button 
+        <Button
           onClick={() => {
             if (onComplete) {
               onComplete();

@@ -34,7 +34,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
   const [estimatedTimeRemaining, setEstimatedTimeRemaining] = useState<number>(0);
   const [startTime, setStartTime] = useState<number>(0);
   const [importProgress, setImportProgress] = useState({ imported: 0, total: 0 });
-  
+
   // Ref to store the polling interval so we can clear it properly
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const isPollingRef = useRef<boolean>(false);
@@ -54,7 +54,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
           monitorAnalysisProgress(accountId);
         }
       }, 5000);
-      
+
       return () => clearTimeout(fallbackTimer);
     }
   }, [accountId, jobProgressError, jobProgress]);
@@ -98,7 +98,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
     const urlParams = new URLSearchParams(window.location.search);
     const accountIdParam = urlParams.get('accountId');
     const analyzingParam = urlParams.get('analyzing');
-    
+
     if (accountIdParam && analyzingParam === 'true') {
       console.log('🔄 [PlaidLink] Redirected from account usage page, starting analysis monitoring');
       setAccountId(accountIdParam);
@@ -106,7 +106,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
       setAnalysisStatus('analyzing');
       monitorAnalysisProgress(accountIdParam);
     }
-    
+
     // Cleanup function to clear any intervals when component unmounts
     return () => {
       console.log('🧹 [PlaidLink] Component unmounting, cleaning up...');
@@ -124,12 +124,12 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
     const urlParams = new URLSearchParams(window.location.search);
     const accountIdParam = urlParams.get('accountId');
     const analyzingParam = urlParams.get('analyzing');
-    
+
     // Only create link token if we're not redirected from account usage page
     if (accountIdParam && analyzingParam === 'true') {
       return;
     }
-    
+
     const createLinkToken = async () => {
       try {
         const response = await fetch('/api/plaid/create-link-token', {
@@ -158,7 +158,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
   // Monitor analysis progress with detailed tracking
   const monitorAnalysisProgress = async (accountId: string) => {
     console.log('🔄 [Progress Monitor] Starting to monitor analysis for account:', accountId);
-    
+
     // Guard clause to ensure accountId is valid
     if (!accountId || accountId.trim() === '') {
       console.error('❌ [Progress Monitor] Invalid accountId provided:', accountId);
@@ -166,37 +166,37 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
       setCurrentTransaction('Invalid account ID - please try again');
       return;
     }
-    
+
     // Clear any existing interval first
     if (pollingIntervalRef.current) {
       console.log('🧹 [Progress Monitor] Clearing existing interval before starting new one');
       clearInterval(pollingIntervalRef.current);
       pollingIntervalRef.current = null;
     }
-    
+
     // Prevent multiple monitoring sessions
     if (isPollingRef.current) {
       console.log('⚠️ [Progress Monitor] Monitoring already in progress, skipping');
       return;
     }
-    
+
     // Set polling flag
     isPollingRef.current = true;
-    
+
     let importComplete = false;
     let analysisStarted = false;
     let pollCount = 0;
     const maxPolls = 200; // Maximum 200 polls (5 minutes at 1.5s intervals)
     const startTime = Date.now();
     setStartTime(startTime);
-    
+
     // Set initial status to show monitoring has started
     setCurrentTransaction('Starting analysis...');
-    
+
     // Use deterministic jobId - one job per (user, account)
     const deterministicJobId = `${user.id}_${accountId}`;
     setJobId(deterministicJobId);
-    
+
     // Start analysis if not already running
     try {
       const currentUser = auth.currentUser;
@@ -206,7 +206,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
         setCurrentTransaction('Authentication error - please log in again');
         return;
       }
-      
+
       const token = await currentUser.getIdToken();
       if (!token) {
         console.error('❌ [Auto-Analyze] Failed to get authentication token');
@@ -214,10 +214,10 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
         setCurrentTransaction('Authentication error - please log in again');
         return;
       }
-      
+
       console.log('🔄 [Auto-Analyze] Starting analysis for account:', accountId);
       console.log('🔍 [Auto-Analyze] Request details:', { accountId, userId: currentUser.uid });
-      
+
       const response = await fetch('/api/plaid/auto-analyze', {
         method: 'POST',
         headers: {
@@ -226,7 +226,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
         },
         body: JSON.stringify({ accountId })
       });
-        
+
         if (response.ok) {
           const result = await response.json();
           console.log('✅ [Auto-Analyze] Analysis started:', result);
@@ -251,7 +251,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
     // Simple fallback polling mechanism
     const pollInterval = setInterval(async () => {
       pollCount++;
-      
+
       // Safety check - prevent infinite polling
       if (pollCount > maxPolls) {
         console.warn('⚠️ [Progress Monitor] Maximum polls reached, forcing completion');
@@ -280,31 +280,31 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
           isPollingRef.current = false;
           return;
         }
-        
+
         const token = await currentUser.getIdToken();
-        
+
         // Check analysis status using the API
         console.log('🔍 [Progress Monitor] Fetching analysis status for account:', accountId);
-        
+
         const response = await fetch(`/api/transactions/analysis-status?accountId=${accountId}`, {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
         });
-        
+
         if (response.ok) {
           const result = await response.json();
           console.log('📊 [Progress Monitor] API Response data:', result);
-          
+
           if (result.success && result.data) {
             const { overallStatus, progress, breakdown } = result.data;
-            
+
             // Update progress
             setAnalysisProgress({ current: progress.current, total: progress.total, status: 'running' });
-            
+
             // Check if analysis is complete
-            if (overallStatus === 'completed' || 
+            if (overallStatus === 'completed' ||
                 (progress.current >= progress.total && progress.total > 0) ||
                 (breakdown?.pending === 0 && breakdown?.running === 0 && progress.total > 0)) {
               console.log('✅ [Progress Monitor] Analysis complete!');
@@ -316,7 +316,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
                 pollingIntervalRef.current = null;
               }
               isPollingRef.current = false;
-              
+
               // Redirect to review transactions
               setTimeout(() => {
                 router.push(`/protected?screen=review-transactions&accountId=${accountId}`);
@@ -329,7 +329,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
         }
       } catch (error) {
         console.error('❌ [Progress Monitor] Error checking progress:', error);
-        
+
         // If we get too many errors, stop polling
         if (pollCount > 10) {
           console.error('❌ [Progress Monitor] Too many errors, stopping polling');
@@ -344,7 +344,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
         }
       }
     }, 3000); // Poll every 3 seconds
-    
+
     // Store the interval in the ref
     pollingIntervalRef.current = pollInterval;
   };
@@ -353,7 +353,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
   /*
     const pollInterval = setInterval(async () => {
       pollCount++;
-      
+
       // Safety check - prevent infinite polling
       if (pollCount > maxPolls) {
         console.warn('⚠️ [Progress Monitor] Maximum polls reached, forcing completion');
@@ -381,9 +381,9 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
           isPollingRef.current = false;
           return;
         }
-        
+
         const token = await currentUser.getIdToken();
-        
+
         // Security check: Validate token
         if (!token || token.length < 10) {
           console.error('❌ [Security] Invalid auth token');
@@ -394,34 +394,34 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
           isPollingRef.current = false;
           return;
         }
-        
+
         // Check analysis status using the new API
         console.log('🔍 [Progress Monitor] Fetching analysis status for account:', accountId);
         console.log('🔍 [Progress Monitor] Poll count:', pollCount, 'Max polls:', maxPolls);
-        
+
         let response = await fetch(`/api/transactions/analysis-status?accountId=${accountId}`, {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
         });
-        
+
         console.log('🔍 [Progress Monitor] API response status:', response.status);
-        
+
         console.log('📡 [Progress Monitor] API Response status:', response.status);
-        
+
         // Fallback to regular transactions API if analysis-status fails
         if (!response.ok) {
           console.warn('⚠️ [Progress Monitor] Analysis-status API failed, falling back to transactions API');
           console.warn('⚠️ [Progress Monitor] Error details:', response.status, response.statusText);
-          
+
           response = await fetch('/api/transactions', {
             headers: {
               'Authorization': `Bearer ${token}`,
               'Content-Type': 'application/json',
             },
           });
-          
+
           if (!response.ok) {
             console.error('❌ [Progress Monitor] Fallback API also failed:', response.status);
             logAPIError(new Error(`Fallback API failed`), '/api/transactions', response.status, {
@@ -432,20 +432,20 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
             throw new Error(`API failed with status ${response.status}`);
           }
         }
-        
+
         if (response.ok) {
           const result = await response.json();
           console.log('📊 [Progress Monitor] API Response data:', result);
-          
+
           // Handle both new API format and fallback format
           if (result.success && result.data) {
             // New API format
             const { overallStatus, progress, breakdown, currentlyAnalyzing, summary } = result.data;
-            
+
             console.log('📊 [Progress Monitor] Analysis Status:', { overallStatus, progress, breakdown });
-            
+
             // IMMEDIATE COMPLETION CHECK - if all transactions are done, redirect immediately
-            if (overallStatus === 'completed' || 
+            if (overallStatus === 'completed' ||
                 (progress.current >= progress.total && progress.total > 0) ||
                 (breakdown?.pending === 0 && breakdown?.running === 0 && progress.total > 0)) {
               console.log('🚀 [Progress Monitor] IMMEDIATE COMPLETION DETECTED!', { overallStatus, progress, breakdown });
@@ -459,7 +459,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
               }
               isPollingRef.current = false;
               console.log('✅ [Progress Monitor] Interval cleared, polling stopped');
-              
+
               // Redirect immediately
               setTimeout(() => {
                 console.log('🔄 [Progress Monitor] Redirecting to review transactions...');
@@ -467,7 +467,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
               }, 1000); // 1 second delay
               return; // CRITICAL: Exit the polling loop immediately
             }
-            
+
             // Handle different statuses
             if (overallStatus === 'no_transactions' && !importComplete) {
               console.log('⏳ [Progress Monitor] No transactions yet, still importing...');
@@ -477,7 +477,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
               setCurrentTransaction('Connecting to your bank...');
               return;
             }
-            
+
             // Mark import as complete once we see transactions
             if (summary.totalTransactions > 0 && !importComplete) {
               console.log('✅ [Progress Monitor] Import complete, found', summary.totalTransactions, 'transactions');
@@ -485,11 +485,11 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
               setAnalysisStatus('analyzing');
               setImportProgress({ imported: summary.totalTransactions, total: summary.totalTransactions });
             }
-            
+
             // Update progress
             if (importComplete) {
               setAnalysisProgress({ current: progress.current, total: progress.total, status: 'running' });
-              
+
               // Calculate estimated time remaining
               if (progress.current > 0 && progress.total > 0) {
                 const elapsedTime = Date.now() - startTime;
@@ -498,7 +498,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
                 const estimatedRemaining = Math.round((remainingTransactions * avgTimePerTransaction) / 1000);
                 setEstimatedTimeRemaining(estimatedRemaining);
               }
-              
+
               // Show current transaction being analyzed with real-time updates
               if (currentlyAnalyzing) {
                 const merchantName = currentlyAnalyzing.merchant_name || 'Unknown merchant';
@@ -514,10 +514,10 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
                 setCurrentTransaction(progressText);
                 console.log(`📊 [Progress Monitor] ${progress.current}/${progress.total} (${progress.percentage}%) - ${progressText}`);
               }
-              
+
             // Check if analysis is complete - be more aggressive about detection
             console.log('🔍 [Progress Monitor] Checking completion (main):', { overallStatus, progress, breakdown });
-            if (overallStatus === 'completed' || 
+            if (overallStatus === 'completed' ||
                 (progress.current >= progress.total && progress.total > 0) ||
                 (breakdown?.pending === 0 && breakdown?.running === 0 && progress.total > 0)) {
               console.log('✅ [Progress Monitor] Analysis complete!', { overallStatus, progress, breakdown });
@@ -528,7 +528,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
                 clearInterval(pollingIntervalRef.current);
                 pollingIntervalRef.current = null;
               }
-              
+
               // Redirect to review transactions after a short delay
               setTimeout(() => {
                 console.log('🔄 [Progress Monitor] Redirecting to review transactions...');
@@ -541,9 +541,9 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
             // Fallback format - regular transactions API
             console.log('📊 [Progress Monitor] Using fallback transactions API');
             const accountTransactions = result.transactions.filter((t: any) => t.account_id === accountId);
-            
+
             console.log('📊 [Progress Monitor] Found transactions:', accountTransactions.length);
-            
+
             // First, check if transactions are still being imported
             if (accountTransactions.length === 0 && !importComplete) {
               console.log('⏳ [Progress Monitor] No transactions yet, still importing...');
@@ -553,7 +553,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
               setCurrentTransaction('Connecting to your bank...');
               return;
             }
-            
+
             // Mark import as complete once we see transactions
             if (accountTransactions.length > 0 && !importComplete) {
               console.log('✅ [Progress Monitor] Import complete, found', accountTransactions.length, 'transactions');
@@ -561,25 +561,25 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
               setAnalysisStatus('analyzing');
               setImportProgress({ imported: accountTransactions.length, total: accountTransactions.length });
             }
-            
+
             // Now track analysis progress
             if (importComplete) {
-              const pending = accountTransactions.filter((t: any) => 
-                t.analysisStatus === 'pending' || 
+              const pending = accountTransactions.filter((t: any) =>
+                t.analysisStatus === 'pending' ||
                 (t.is_deductible === null && !t.analyzed)
               ).length;
               const running = accountTransactions.filter((t: any) => t.analysisStatus === 'running').length;
-              const completed = accountTransactions.filter((t: any) => 
-                t.analysisStatus === 'completed' || 
+              const completed = accountTransactions.filter((t: any) =>
+                t.analysisStatus === 'completed' ||
                 (t.analyzed && t.is_deductible !== null)
               ).length;
               const failed = accountTransactions.filter((t: any) => t.analysisStatus === 'failed').length;
-              
+
               const total = pending + running + completed + failed;
               const current = completed + failed;
-              
+
               console.log('📊 [Progress Monitor] Analysis Status:', { pending, running, completed, failed, total, current });
-              
+
               // IMMEDIATE COMPLETION CHECK for fallback
               if (pending === 0 && running === 0 && total > 0) {
                 console.log('🚀 [Progress Monitor] IMMEDIATE COMPLETION DETECTED (fallback)!', { pending, running, completed, failed, total, current });
@@ -590,7 +590,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
                 clearInterval(pollInterval);
                 pollingIntervalRef.current = null;
                 console.log('✅ [Progress Monitor] Interval cleared, polling stopped (fallback)');
-                
+
                 // Redirect immediately
                 setTimeout(() => {
                   console.log('🔄 [Progress Monitor] Redirecting to review transactions...');
@@ -598,9 +598,9 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
                 }, 1000); // 1 second delay
                 return;
               }
-              
+
               setAnalysisProgress({ current, total, status: 'running' });
-              
+
               // Calculate estimated time remaining
               if (current > 0 && total > 0) {
                 const elapsedTime = Date.now() - startTime;
@@ -609,7 +609,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
                 const estimatedRemaining = Math.round((remainingTransactions * avgTimePerTransaction) / 1000);
                 setEstimatedTimeRemaining(estimatedRemaining);
               }
-              
+
               // Show current transaction being analyzed
               const currentlyAnalyzing = accountTransactions.find((t: any) => t.analysisStatus === 'running');
               if (currentlyAnalyzing) {
@@ -620,7 +620,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
               } else {
                 setCurrentTransaction('Finalizing analysis...');
               }
-              
+
               // Check if analysis is complete - be more aggressive about detection
               console.log('🔍 [Progress Monitor] Checking completion:', { pending, running, completed, failed, total, current });
               if (pending === 0 && running === 0 && total > 0) {
@@ -632,7 +632,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
                 clearInterval(pollInterval);
                 pollingIntervalRef.current = null;
                 console.log('✅ [Progress Monitor] Interval cleared, polling stopped (main check)');
-                
+
                 // Redirect to review transactions after a short delay
                 setTimeout(() => {
                   console.log('🔄 [Progress Monitor] Redirecting to review transactions...');
@@ -650,7 +650,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
           console.error('❌ [Progress Monitor] API request failed:', response.status);
           const errorText = await response.text();
           console.error('❌ [Progress Monitor] Error response:', errorText);
-          
+
           // If API fails multiple times, stop polling to prevent infinite loop
           if (pollCount > 10) {
             console.error('❌ [Progress Monitor] Too many API failures, stopping polling');
@@ -666,14 +666,14 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
         }
       } catch (error) {
         console.error('❌ [Progress Monitor] Error checking progress:', error);
-        
+
         // Log the error with detailed context
         logPollingError(error, pollCount, {
           userId: user?.id,
           accountId: accountId,
           message: `Polling error at attempt ${pollCount}`,
         });
-        
+
         // If we get too many errors, stop polling
         if (pollCount > 10) {
           console.error('❌ [Progress Monitor] Too many errors, stopping polling');
@@ -686,7 +686,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
             userId: user?.id,
             accountId: accountId,
           });
-          
+
           if (pollingIntervalRef.current) {
             clearInterval(pollingIntervalRef.current);
             pollingIntervalRef.current = null;
@@ -698,17 +698,17 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
         }
       }
     }, 2000); // Poll every 2 seconds
-    
+
     // Store the interval in the ref IMMEDIATELY after creation
     pollingIntervalRef.current = pollInterval;
-    
+
     // IMMEDIATE FALLBACK: Check if analysis is already done and redirect
     setTimeout(async () => {
       try {
         const currentUser = auth.currentUser;
         if (currentUser) {
           const token = await currentUser.getIdToken();
-          
+
           // Check if analysis is already complete
           const statusResponse = await fetch(`/api/transactions/analysis-status?accountId=${accountId}`, {
             headers: {
@@ -716,14 +716,14 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
               'Content-Type': 'application/json',
             },
           });
-          
+
           if (statusResponse.ok) {
             const statusResult = await statusResponse.json();
             console.log('🔍 [IMMEDIATE CHECK] Analysis status:', statusResult);
-            
+
             if (statusResult.success && statusResult.data) {
               const { overallStatus, progress } = statusResult.data;
-              
+
               if (overallStatus === 'completed' || (progress?.current >= progress?.total && progress?.total > 0)) {
                 console.log('✅ [IMMEDIATE CHECK] Analysis already complete, redirecting immediately');
                 setAnalysisStatus('completed');
@@ -733,11 +733,11 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
               }
             }
           }
-          
+
           // Use deterministic jobId - one job per (user, account)
           const deterministicJobId = `${user.id}_${accountId}`;
           setJobId(deterministicJobId);
-          
+
           // If not complete, trigger analysis
           if ((analysisProgress?.current ?? 0) === 0 && (analysisProgress?.total ?? 0) === 0) {
             console.log('🔄 [IMMEDIATE CHECK] No progress detected, triggering analysis...');
@@ -749,7 +749,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
               },
               body: JSON.stringify({ accountId })
             });
-            
+
             if (response.ok) {
               const result = await response.json();
               console.log('✅ [IMMEDIATE CHECK] Analysis trigger result:', result);
@@ -764,7 +764,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
         console.error('❌ [IMMEDIATE CHECK] Error:', error);
       }
     }, 1500); // Check every 1.5 seconds for real-time updates
-    
+
     // AGGRESSIVE FALLBACK: Redirect after 2 minutes regardless
     setTimeout(() => {
       clearInterval(pollInterval);
@@ -774,7 +774,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
       setCurrentTransaction('Redirecting to review transactions...');
       setTimeout(() => onSuccess(), 1000);
     }, 120000); // 2 minutes
-    
+
     // EMERGENCY FALLBACK: Redirect after 30 seconds if no progress at all
     setTimeout(() => {
       if ((analysisProgress?.current ?? 0) === 0 && (analysisProgress?.total ?? 0) === 0) {
@@ -807,7 +807,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
       if (!currentUser) {
         throw new Error('No authenticated user found');
       }
-      
+
       const token = await currentUser.getIdToken(true); // Force refresh the token
       console.log('🔑 Got Firebase token for Plaid API call');
 
@@ -846,7 +846,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
       console.log('Bank account connected successfully:', data);
       console.log(`📊 [Plaid Success] Imported ${data.imported} transactions`);
       setIsConnected(true);
-      
+
       // Redirect to account classification page
       if (data.accountId) {
         console.log('🔄 [Plaid Success] Redirecting to account classification for account:', data.accountId);
@@ -924,19 +924,19 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
     };
 
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 flex items-center justify-center p-2">
+      <div className="min-h-screen bg-background flex items-center justify-center p-2">
         <div className="max-w-sm w-full">
           {/* Header */}
           <div className="text-center mb-3">
             <div className="inline-flex items-center justify-center w-8 h-8 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-md shadow-lg mb-2">
               <CheckCircle className="w-4 h-4 text-white" />
             </div>
-            <h1 className="text-sm font-bold text-slate-900 mb-1">Bank Connected Successfully</h1>
-            <p className="text-xs text-slate-600">Your account is now linked and ready for analysis</p>
+            <h1 className="text-sm font-bold text-foreground mb-1">Bank Connected Successfully</h1>
+            <p className="text-xs text-muted-foreground">Your account is now linked and ready for analysis</p>
           </div>
 
           {/* Main Progress Card */}
-          <Card className="p-3 bg-white/80 backdrop-blur-sm border-0 shadow-xl rounded-lg">
+          <Card className="p-3 bg-card border border-border shadow-xl rounded-lg">
             <div className="text-center mb-3">
               <div className="inline-flex items-center justify-center w-6 h-6 bg-gradient-to-br from-blue-500 to-blue-600 rounded-md shadow-lg mb-2">
                 {analysisStatus === 'analyzing' ? (
@@ -945,10 +945,10 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
                   <CheckCircle className="w-3 h-3 text-white" />
                 )}
               </div>
-              <h2 className="text-xs font-bold text-slate-900 mb-1">{getStatusMessage()}</h2>
-              <p className="text-xs text-slate-600">Our AI is working to categorize your transactions</p>
+              <h2 className="text-xs font-bold text-card-foreground mb-1">{getStatusMessage()}</h2>
+              <p className="text-xs text-muted-foreground">Our AI is working to categorize your transactions</p>
             </div>
-            
+
             {/* Analysis Progress */}
             {accountId ? (
               <div className="mb-3">
@@ -958,32 +958,32 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
               (analysisProgress?.total ?? 0) > 0 && (
                 <div className="mb-3">
                   <div className="flex justify-between items-center mb-2">
-                    <h3 className="text-xs font-semibold text-slate-800">Analysis Progress</h3>
+                    <h3 className="text-xs font-semibold text-card-foreground">Analysis Progress</h3>
                     <div className="flex items-center gap-1">
-                      <span className="text-sm font-bold text-blue-600">{analysisProgress?.current ?? 0}</span>
-                      <span className="text-slate-500">/</span>
-                      <span className="text-xs font-semibold text-slate-600">{analysisProgress?.total ?? 0}</span>
+                      <span className="text-sm font-bold text-primary">{analysisProgress?.current ?? 0}</span>
+                      <span className="text-muted-foreground">/</span>
+                      <span className="text-xs font-semibold text-muted-foreground">{analysisProgress?.total ?? 0}</span>
                     </div>
                   </div>
-                  
+
                   {/* Modern Progress Bar */}
-                  <div className="relative w-full bg-slate-200 rounded-full h-1 overflow-hidden shadow-inner">
-                    <div 
+                  <div className="relative w-full bg-muted rounded-full h-1 overflow-hidden shadow-inner">
+                    <div
                       className="h-1 rounded-full transition-all duration-700 ease-out shadow-sm bg-gradient-to-r from-blue-500 via-blue-600 to-indigo-600"
-                      style={{ 
-                        width: `${(analysisProgress?.total ?? 0) > 0 ? ((analysisProgress?.current ?? 0) / (analysisProgress?.total ?? 1)) * 100 : 0}%` 
+                      style={{
+                        width: `${(analysisProgress?.total ?? 0) > 0 ? ((analysisProgress?.current ?? 0) / (analysisProgress?.total ?? 1)) * 100 : 0}%`
                       }}
                     />
                     <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-pulse"></div>
                   </div>
-                  
+
                   <div className="flex justify-between items-center mt-1">
-                    <span className="text-xs font-medium text-slate-600">
+                    <span className="text-xs font-medium text-muted-foreground">
                       {Math.round(((analysisProgress?.current ?? 0) / Math.max(analysisProgress?.total ?? 1, 1)) * 100)}% Complete
                     </span>
                     {estimatedTimeRemaining > 0 && (
-                      <span className="text-xs text-slate-500">
-                        ~{estimatedTimeRemaining < 60 
+                      <span className="text-xs text-muted-foreground">
+                        ~{estimatedTimeRemaining < 60
                           ? `${estimatedTimeRemaining}s remaining`
                           : `${Math.round(estimatedTimeRemaining / 60)}m remaining`
                         }
@@ -993,24 +993,24 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
                 </div>
               )
             )}
-            
+
             {/* Current Transaction Being Analyzed */}
             {currentTransaction && analysisStatus === 'analyzing' && (
-              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-md p-2 mb-2">
+              <div className="bg-blue-500/10 border border-blue-500/20 rounded-md p-2 mb-2">
                 <div className="flex items-center gap-1 mb-1">
                   <div className="w-1 h-1 bg-blue-500 rounded-full animate-pulse shadow-sm"></div>
-                  <span className="text-xs font-semibold text-blue-800 uppercase tracking-wide">Currently Analyzing</span>
+                  <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide">Currently Analyzing</span>
                 </div>
-                <p className="text-slate-700 font-medium text-xs">{currentTransaction}</p>
+                <p className="text-card-foreground font-medium text-xs">{currentTransaction}</p>
               </div>
             )}
-            
+
             {/* Status Details */}
             {analysisStatus === 'analyzing' && (
-              <div className="bg-slate-50 rounded-md p-2 mb-2">
+              <div className="bg-muted rounded-md p-2 mb-2">
                 <div className="text-center">
-                  <h4 className="text-xs font-semibold text-slate-800 mb-1">What's happening?</h4>
-                  <div className="space-y-0.5 text-xs text-slate-600">
+                  <h4 className="text-xs font-semibold text-card-foreground mb-1">What's happening?</h4>
+                  <div className="space-y-0.5 text-xs text-muted-foreground">
                     <div className="flex items-center justify-center gap-1">
                       <div className="w-1 h-1 bg-blue-500 rounded-full"></div>
                       <span>AI is analyzing each transaction for tax deductibility</span>
@@ -1027,71 +1027,71 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
                 </div>
               </div>
             )}
-            
+
             {analysisStatus === 'completed' && (
-              <div className="bg-gradient-to-r from-emerald-50 to-green-50 border border-emerald-200 rounded-md p-2 mb-2">
+              <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-md p-2 mb-2">
                 <div className="text-center">
-                  <CheckCircle className="w-4 h-4 text-emerald-500 mx-auto mb-1" />
-                  <h4 className="text-xs font-semibold text-emerald-800 mb-0.5">Analysis Complete!</h4>
-                  <p className="text-xs text-emerald-700">All transactions have been analyzed and categorized</p>
+                  <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400 mx-auto mb-1" />
+                  <h4 className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 mb-0.5">Analysis Complete!</h4>
+                  <p className="text-xs text-emerald-600 dark:text-emerald-400">All transactions have been analyzed and categorized</p>
                 </div>
               </div>
             )}
-            
+
             {/* Progress indicator for when no progress data yet */}
             {(analysisProgress?.total ?? 0) === 0 && analysisStatus === 'analyzing' && (
               <div className="text-center">
-                <div className="inline-flex items-center justify-center w-6 h-6 bg-blue-100 rounded-full mb-2">
-                  <div className="w-3 h-3 border border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                <div className="inline-flex items-center justify-center w-6 h-6 bg-blue-500/10 rounded-full mb-2">
+                  <div className="w-3 h-3 border border-blue-600 dark:border-blue-400 border-t-transparent rounded-full animate-spin"></div>
                 </div>
-                <p className="text-xs text-slate-600 font-medium">Preparing analysis...</p>
-                <p className="text-xs text-slate-500 mt-0.5">Importing and processing your transactions</p>
+                <p className="text-xs text-muted-foreground font-medium">Preparing analysis...</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Importing and processing your transactions</p>
               </div>
             )}
-            
+
             {/* Single Progress Indicator (fallback) - only show when accountId is NOT present to avoid duplicates */}
             {(!accountId && (analysisStatus === 'importing' || analysisStatus === 'analyzing')) && (
-              <div className="text-xs text-gray-500">
+              <div className="text-xs text-muted-foreground">
                 <div className="flex items-center justify-center gap-1 mb-2">
-                  <div className="w-3 h-3 border border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                  <div className="w-3 h-3 border border-blue-600 dark:border-blue-400 border-t-transparent rounded-full animate-spin"></div>
                   <span className="font-medium">
                     {analysisStatus === 'importing' ? 'Importing transactions from your bank...' : 'Analyzing transactions with AI...'}
                   </span>
                 </div>
-                
+
                 {/* Single Progress Bar */}
-                <div className="w-full bg-gray-200 rounded-full h-1 mb-2">
-                  <div 
-                    className="bg-blue-600 h-1 rounded-full transition-all duration-500"
-                    style={{ 
-                      width: analysisStatus === 'importing' 
+                <div className="w-full bg-muted rounded-full h-1 mb-2">
+                  <div
+                    className="bg-blue-600 dark:bg-blue-500 h-1 rounded-full transition-all duration-500"
+                    style={{
+                      width: analysisStatus === 'importing'
                         ? importProgress.total > 0 ? `${(importProgress.imported / importProgress.total) * 100}%` : '10%'
                         : (analysisProgress?.total ?? 0) > 0 ? `${((analysisProgress?.current ?? 0) / (analysisProgress?.total ?? 1)) * 100}%` : '0%'
                     }}
                   ></div>
                 </div>
-                
+
                 {/* Current Status */}
                 <div className="text-center">
-                  <p className="text-xs font-medium text-gray-800 mb-0.5">{currentTransaction}</p>
+                  <p className="text-xs font-medium text-card-foreground mb-0.5">{currentTransaction}</p>
                   {estimatedTimeRemaining > 0 && (
-                    <p className="text-xs text-gray-500">
-                      Estimated time remaining: {estimatedTimeRemaining < 60 
+                    <p className="text-xs text-muted-foreground">
+                      Estimated time remaining: {estimatedTimeRemaining < 60
                         ? `${estimatedTimeRemaining} seconds`
                         : `${Math.round(estimatedTimeRemaining / 60)} minutes`
                       }
                     </p>
                   )}
                 </div>
-                
+
                 {/* Skip to Review Button - Show after 10 seconds */}
                 <div className="text-center mt-3">
-                  <div className="bg-amber-50 border border-amber-200 rounded-md p-2 mb-2">
+                  <div className="bg-amber-500/10 border border-amber-500/20 rounded-md p-2 mb-2">
                     <div className="flex items-center justify-center gap-1 mb-1">
                       <div className="w-1 h-1 bg-amber-500 rounded-full animate-pulse"></div>
-                      <span className="text-xs font-semibold text-amber-800 uppercase tracking-wide">Taking longer than expected?</span>
+                      <span className="text-xs font-semibold text-amber-600 dark:text-amber-400 uppercase tracking-wide">Taking longer than expected?</span>
                     </div>
-                    <p className="text-amber-700 text-xs mb-2">
+                    <p className="text-amber-600 dark:text-amber-400 text-xs mb-2">
                       You can skip the analysis and review transactions manually
                     </p>
                     <button
@@ -1099,7 +1099,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
                         console.log('🔄 [User Action] Skipping analysis, proceeding to review transactions');
                         onSuccess();
                       }}
-                      className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-md transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 text-xs"
+                      className="px-3 py-1 bg-amber-600 hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-600 text-white font-semibold rounded-md transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 text-xs"
                     >
                       Skip to Review Transactions
                     </button>
@@ -1121,7 +1121,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
                     <ArrowRight className="w-5 h-5" />
                   </div>
                 </button>
-                <p className="text-sm text-slate-600 mt-4">
+                <p className="text-sm text-muted-foreground mt-4">
                   All transactions have been analyzed and are ready for your review
                 </p>
               </div>
@@ -1136,7 +1136,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
     <div className="min-h-screen bg-muted">
       <div className="bg-white border-b border-border sticky top-0 z-50 shadow-sm">
         <div className="flex items-center justify-between p-4 max-w-4xl mx-auto">
-          <button 
+          <button
             onClick={onBack}
             className="w-10 h-10 bg-white border border-border rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-all duration-200 shadow-sm"
           >
@@ -1197,7 +1197,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
                   <p className="text-xs text-muted-foreground">256-bit encryption</p>
                 </div>
               </div>
-              
+
               <div className="flex items-center gap-2 p-3 bg-muted/30 rounded-lg">
                 <CreditCard className="w-4 h-4 text-primary" />
                 <div>

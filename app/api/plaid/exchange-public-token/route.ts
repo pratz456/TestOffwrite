@@ -9,7 +9,7 @@ import { fetchAllPlaidTransactions } from '@/lib/plaid/pagination';
 export async function POST(req: Request) {
   try {
     const { uid } = await getUserFromReqOrThrow(req);
-    const { public_token, import_timeframe = '6months' } = await req.json();
+    const { public_token, import_timeframe = '1year' } = await req.json();
 
     if (!public_token) {
       return NextResponse.json({ error: 'Missing public_token' }, { status: 400 });
@@ -29,7 +29,7 @@ export async function POST(req: Request) {
     // 2) Get all available accounts and log them for debugging
     const accountsRes = await plaidClient.accountsGet({ access_token });
     const allAccounts = accountsRes.data.accounts || [];
-    
+
     console.log(`📊 [Plaid] Found ${allAccounts.length} accounts from Plaid:`);
     allAccounts.forEach((acc, index) => {
       console.log(`   ${index}: ${acc.name || acc.official_name} (${acc.type}) - ${acc.subtype} - Mask: ${acc.mask || 'N/A'}`);
@@ -39,16 +39,57 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'No accounts returned by Plaid' }, { status: 502 });
     }
 
+    // Get institution info to store institution_id
+    let institutionId = '';
+    try {
+      const itemResponse = await plaidClient.itemGet({ access_token });
+      institutionId = itemResponse.data.item.institution_id || '';
+    } catch (err) {
+      console.warn('Could not fetch institution ID:', err);
+    }
+
+    // Store ALL accounts in the database, not just one
+    const storedAccounts = [];
+    for (const plaidAccount of allAccounts) {
+      const accountId = plaidAccount.account_id;
+      const accountRef = adminDb.doc(`user_profiles/${uid}/accounts/${accountId}`);
+
+      // Store account with all required fields
+      await accountRef.set({
+        id: accountId,
+        account_id: accountId,
+        name: plaidAccount.name ?? plaidAccount.official_name ?? `Account • ${plaidAccount.mask ?? ''}`,
+        mask: plaidAccount.mask ?? null,
+        type: plaidAccount.type || 'depository',
+        subtype: plaidAccount.subtype || 'checking',
+        institution_id: institutionId || '',
+        user_id: uid,
+        createdAt: Date.now(),
+        created_at: new Date(),
+        updated_at: new Date(),
+      }, { merge: true });
+
+      storedAccounts.push({
+        account_id: accountId,
+        name: plaidAccount.name ?? plaidAccount.official_name,
+        type: plaidAccount.type,
+        subtype: plaidAccount.subtype,
+        mask: plaidAccount.mask,
+      });
+
+      console.log(`✅ [Plaid] Stored account: ${plaidAccount.name || plaidAccount.official_name} (${accountId})`);
+    }
+
     // For now, let's try to find the most likely account with transactions
     // Priority: checking > credit card > savings > other
-    let plaidAccount = allAccounts.find(acc => 
+    let plaidAccount = allAccounts.find(acc =>
       acc.subtype === 'checking' || acc.type === 'depository'
-    ) || allAccounts.find(acc => 
+    ) || allAccounts.find(acc =>
       acc.subtype === 'credit card' || acc.type === 'credit'
     ) || allAccounts[0];
 
-    console.log(`🎯 [Plaid] Selected account: ${plaidAccount.name || plaidAccount.official_name} (${plaidAccount.type}/${plaidAccount.subtype})`);
-    
+    console.log(`🎯 [Plaid] Selected account for transaction import: ${plaidAccount.name || plaidAccount.official_name}`);
+
     let accountId = plaidAccount.account_id;
     let accountRef = adminDb.doc(`user_profiles/${uid}/accounts/${accountId}`);
 
@@ -67,12 +108,12 @@ export async function POST(req: Request) {
     let failedWrites = 0;
     const writeErrors: any[] = [];
     let allTransactions: any[] = [];
-    
+
     try {
       // Calculate date range based on timeframe
       const endDate = new Date();
       const startDate = new Date();
-      
+
       switch (import_timeframe) {
         case '1month':
           startDate.setMonth(endDate.getMonth() - 1);
@@ -93,19 +134,19 @@ export async function POST(req: Request) {
       let allTransactions: any[] = [];
       let totalPages = 0;
       const maxRetries = 3;
-      
+
       console.log(`🔄 [Plaid] Starting transaction fetch with pagination support and ${maxRetries} max retries per page`);
-      
+
       try {
         // Use a custom wrapper that adds retry logic to the pagination helper
         const fetchWithRetries = async () => {
           let nextCursor: string | undefined = undefined;
           let pageCount = 0;
           const maxPages = 100; // Safety limit
-          
+
           do {
             pageCount++;
-            
+
             if (pageCount > maxPages) {
               console.warn(`[Plaid] ⚠️ Reached maximum page limit (${maxPages}), stopping pagination`);
               break;
@@ -113,7 +154,7 @@ export async function POST(req: Request) {
 
             let retryCount = 0;
             let pageTransactions: any[] = [];
-            
+
             // Retry logic for each page
             while (retryCount < maxRetries) {
               try {
@@ -128,28 +169,28 @@ export async function POST(req: Request) {
                     cursor: nextCursor,
                   },
                 });
-                
+
                 pageTransactions = transactionsResponse.data.transactions || [];
                 allTransactions = allTransactions.concat(pageTransactions);
-                
+
                 nextCursor = transactionsResponse.data.next_cursor || undefined;
-                
+
                 console.log(
                   `📊 [Plaid] Page ${pageCount}: Fetched ${pageTransactions.length} transactions, ` +
                   `total so far: ${allTransactions.length}`
                 );
-                
+
                 if (nextCursor) {
                   console.log(`🔄 [Plaid] More transactions available, fetching next page...`);
                 } else {
                   console.log(`✅ [Plaid] All transactions fetched (no more pages)`);
                 }
-                
+
                 break; // Success, exit retry loop for this page
               } catch (error: any) {
                 retryCount++;
                 console.log(`❌ [Plaid] Page ${pageCount}, attempt ${retryCount} failed:`, error.response?.data?.error_code || error.message);
-                
+
                 if (error.response?.data?.error_code === 'PRODUCT_NOT_READY' && retryCount < maxRetries) {
                   const waitTime = retryCount * 2;
                   console.log(`⏳ [Plaid] PRODUCT_NOT_READY error, retrying in ${waitTime} seconds... (attempt ${retryCount}/${maxRetries})`);
@@ -161,12 +202,12 @@ export async function POST(req: Request) {
               }
             }
           } while (nextCursor);
-          
+
           totalPages = pageCount;
         };
-        
+
         await fetchWithRetries();
-        
+
         console.log(`📊 [Plaid] Fetched ${allTransactions.length} total transactions from Plaid for account: ${plaidAccount.name} across ${totalPages} page(s)`);
       } catch (error: any) {
         console.error(`❌ [Plaid] Error fetching transactions with pagination:`, error);
@@ -177,12 +218,12 @@ export async function POST(req: Request) {
       if (allTransactions.length === 0 && allAccounts.length > 1) {
         console.warn(`⚠️ No transactions found for selected account: ${plaidAccount.name} (${plaidAccount.type}/${plaidAccount.subtype})`);
         console.log(`🔄 Trying other accounts...`);
-        
+
         for (const altAccount of allAccounts) {
           if (altAccount.account_id === plaidAccount.account_id) continue;
-          
+
           console.log(`🔍 Trying account: ${altAccount.name} (${altAccount.type}/${altAccount.subtype})`);
-          
+
           try {
             // Fetch all transactions for alternative account with pagination
             const { transactions: altTransactions, totalPages: altTotalPages } = await fetchAllPlaidTransactions(
@@ -199,15 +240,15 @@ export async function POST(req: Request) {
               },
               `[Plaid] Alt Account ${altAccount.name}`
             );
-            
+
             console.log(`📊 Found ${altTransactions.length} transactions in ${altAccount.name} across ${altTotalPages} page(s)`);
-            
+
             if (altTransactions.length > 0) {
               console.log(`✅ Switching to account with transactions: ${altAccount.name}`);
               plaidAccount = altAccount;
               accountId = altAccount.account_id;
               accountRef = adminDb.doc(`user_profiles/${uid}/accounts/${accountId}`);
-              
+
               // Update the stored account info
               await accountRef.set({
                 id: accountId,
@@ -216,7 +257,7 @@ export async function POST(req: Request) {
                 createdAt: Date.now(),
                 user_id: uid,
               }, { merge: true });
-              
+
               // Use the transactions from this account
               allTransactions = altTransactions;
               totalPages = altTotalPages;
@@ -229,33 +270,33 @@ export async function POST(req: Request) {
       }
 
       console.log(`📊 Final account selected: ${plaidAccount.name} with ${allTransactions.length} transactions across ${totalPages} page(s)`);
-      
+
       // Log sample transaction to see what Plaid returns
       if (allTransactions.length > 0) {
         console.log(`📊 Sample transaction from Plaid:`, JSON.stringify(allTransactions[0], null, 2));
       } else {
         console.warn(`⚠️ Plaid returned 0 transactions for date range ${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]} on ALL accounts`);
       }
-      
+
       const transactions = allTransactions;
-      
+
       console.log(`🔄 [Transaction Import] Starting to save ${transactions.length} transactions to Firebase...`);
-      
+
       for (const tx of transactions) {
         const txId = tx.transaction_id;
-        
+
         // Check if transaction already exists before importing
         const txRef = adminDb.doc(
           `user_profiles/${uid}/accounts/${accountId}/transactions/${txId}`
         );
         const existingTx = await txRef.get();
-        
+
         if (existingTx.exists) {
           console.log(`🔄 Transaction ${txId} already exists, skipping import`);
           successfulWrites++; // Count as successful since it already exists
           continue; // Skip this transaction
         }
-        
+
         const transactionData = {
           analysis_status: 'pending',
           analysisStatus: 'pending', // Add camelCase version for consistency
@@ -281,13 +322,13 @@ export async function POST(req: Request) {
 
         console.log(`📊 [Import] Setting transaction ${txId} with analysis_status: 'pending' and analyzed: false`);
         console.log(`📊 [Import] Transaction data:`, JSON.stringify(transactionData, null, 2));
-        
+
         try {
           await txRef.set(transactionData);
-          
+
           console.log(`✅ [Import] Successfully wrote transaction ${txId} to Firebase`);
           console.log(`📊 [Import] Document path: user_profiles/${uid}/accounts/${accountId}/transactions/${txId}`);
-          
+
           imported++;
           successfulWrites++;
         } catch (writeError) {
@@ -298,7 +339,7 @@ export async function POST(req: Request) {
             code: writeError.code,
             path: `user_profiles/${uid}/accounts/${accountId}/transactions/${txId}`
           });
-          
+
           console.error(`❌ [Import] Failed to write transaction ${txId} to Firebase:`, writeError);
           console.error(`❌ [Import] Write error details:`, {
             error: writeError.message,
@@ -349,14 +390,14 @@ export async function POST(req: Request) {
       console.log(`📊 Analysis status check: ${pendingCount} pending transactions out of ${verifySnap.size} total`);
       console.log(`📊 Sample transactions:`, sampleTxs);
       console.log(`📊 Import summary: ${successfulWrites} successful writes, ${failedWrites} failed writes`);
-      
+
       if (failedWrites > 0) {
         console.error(`❌ Import had ${failedWrites} failed writes:`, writeErrors);
       }
 
-      return NextResponse.json({ 
-        ok: true, 
-        accountId, 
+      return NextResponse.json({
+        ok: true,
+        accountId,
         imported: verifySnap.size, // Return actual count
         successfulWrites,
         failedWrites,

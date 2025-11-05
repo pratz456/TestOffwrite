@@ -227,15 +227,15 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
       console.log('🚫 [Optimistic] Excluding classified transaction:', transId);
       return false;
     }
-    
+
     // Use the same logic as dashboard for consistency: is_deductible === null
     // This ensures the counts match between dashboard and review screen
     const needsReview = t.is_deductible === null;
-    
+
     if (needsReview) {
       console.log('✅ [Filter] Transaction needs review:', transId, t.merchant_name);
     }
-    
+
     return needsReview;
   });
 
@@ -287,7 +287,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
 
   const handleSkip = async () => {
     if (!currentTransaction || isProcessing) return;
-    
+
     setIsProcessing(true);
     console.log('⏭️ [Skip] Skipping transaction:', currentTransaction.id);
 
@@ -298,7 +298,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
       };
 
       const transactionId = (currentTransaction as any).trans_id || currentTransaction.id;
-      
+
       try {
         const { makeAuthenticatedRequest } = await import('@/lib/firebase/api-client');
         const response = await makeAuthenticatedRequest(`/api/transactions/${transactionId}`, {
@@ -311,7 +311,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
 
         if (response.ok) {
           console.log('✅ [Skip] Transaction updated in database');
-          
+
           // Immediately add transaction to classified set for instant UI feedback
           const transId = (currentTransaction as any).trans_id || currentTransaction.id;
           setClassifiedTransactionIds(prev => {
@@ -333,7 +333,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
       } else {
         console.log('✅ [Skip] Reached end of transactions');
       }
-      
+
       // Update progress - pass the current transaction with skip status
       if (onTransactionUpdate && currentTransaction) {
         const updatedTransaction = {
@@ -342,7 +342,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
         };
         onTransactionUpdate(updatedTransaction);
       }
-      
+
     } catch (error) {
       console.error('❌ [Skip] Error in skip process:', error);
       // Still try to move to next transaction even if there's an error
@@ -450,7 +450,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
         } else if (response.status >= 500) {
           errorMessage = 'Server error. Please try again later or contact support if the problem persists.';
         }
-        
+
         alert(errorMessage);
         return;
       }
@@ -535,7 +535,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
       } else if (e.message && e.message.includes('permission')) {
         errorMessage = 'Permission error. You may not have access to update this transaction.';
       }
-      
+
       alert(errorMessage);
     } finally {
       setIsProcessing(false);
@@ -552,10 +552,10 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
 
   if (needsReviewTransactions.length === 0) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <div className="max-w-md w-full">
           {/* Main Card */}
-          <div className="bg-white/80 backdrop-blur-sm rounded-3xl shadow-xl border border-white/20 p-8 text-center">
+          <div className="bg-card rounded-3xl shadow-xl border border-border p-8 text-center">
             {/* Main Icon */}
             <div className="mb-6">
               {transactions.length === 0 ? (
@@ -577,11 +577,11 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
             </div>
 
             {/* Content */}
-            <h2 className="text-2xl font-bold text-gray-900 mb-3">
+            <h2 className="text-2xl font-bold text-foreground mb-3">
               {transactions.length === 0 ? 'Ready to Get Started!' : 'All Caught Up!'}
             </h2>
-            
-            <p className="text-gray-600 mb-8 leading-relaxed">
+
+            <p className="text-muted-foreground mb-8 leading-relaxed">
               {transactions.length === 0
                 ? 'Connect your bank account to start analyzing transactions and maximizing your tax deductions.'
                 : `Great job! You've reviewed all transactions. You have ${transactions.length} total transactions in your account.`
@@ -604,7 +604,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
                   <Button
                     onClick={onBack}
                     variant="outline"
-                    className="w-full border-2 border-gray-200 hover:border-gray-300 text-gray-700 font-medium py-3 px-6 rounded-xl transition-all duration-200 flex items-center justify-center gap-2"
+                    className="w-full border-2 border-border hover:border-border text-foreground font-medium py-3 px-6 rounded-xl transition-all duration-200 flex items-center justify-center gap-2"
                   >
                     <ArrowLeft className="w-4 h-4" />
                     Back to Dashboard
@@ -623,8 +623,8 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
 
             {/* Additional Info */}
             {transactions.length > 0 && (
-              <div className="mt-6 p-4 bg-blue-50 rounded-xl border border-blue-100">
-                <div className="flex items-center justify-center gap-2 text-blue-700">
+              <div className="mt-6 p-4 bg-blue-500/10 rounded-xl border border-blue-500/20">
+                <div className="flex items-center justify-center gap-2 text-blue-600 dark:text-blue-400">
                   <Info className="w-4 h-4" />
                   <span className="text-sm font-medium">
                     New transactions will appear here for review
@@ -633,10 +633,6 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
               </div>
             )}
           </div>
-
-          {/* Decorative Elements */}
-          <div className="absolute top-10 left-10 w-20 h-20 bg-blue-200/30 rounded-full blur-xl"></div>
-          <div className="absolute bottom-10 right-10 w-32 h-32 bg-indigo-200/30 rounded-full blur-xl"></div>
         </div>
       </div>
     );
@@ -644,10 +640,10 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
 
   if (currentIndex >= needsReviewTransactions.length) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-green-50 to-teal-50 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <div className="max-w-md w-full">
           {/* Main Card */}
-          <div className="bg-white/80 backdrop-blur-sm rounded-3xl shadow-xl border border-white/20 p-8 text-center">
+          <div className="bg-card rounded-3xl shadow-xl border border-border p-8 text-center">
             {/* Success Icon */}
             <div className="relative mb-6">
               <div className="w-20 h-20 bg-gradient-to-br from-emerald-400 to-emerald-600 rounded-full flex items-center justify-center mx-auto shadow-lg">
@@ -659,10 +655,10 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
             </div>
 
             {/* Content */}
-            <h2 className="text-2xl font-bold text-gray-900 mb-3">Review Complete!</h2>
-            
-            <p className="text-gray-600 mb-8 leading-relaxed">
-              Excellent work! You've successfully reviewed all transactions that needed attention. 
+            <h2 className="text-2xl font-bold text-foreground mb-3">Review Complete!</h2>
+
+            <p className="text-muted-foreground mb-8 leading-relaxed">
+              Excellent work! You've successfully reviewed all transactions that needed attention.
               Your tax deductions are now properly categorized and ready for filing.
             </p>
 
@@ -676,8 +672,8 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
             </Button>
 
             {/* Success Stats */}
-            <div className="mt-6 p-4 bg-emerald-50 rounded-xl border border-emerald-100">
-              <div className="flex items-center justify-center gap-2 text-emerald-700">
+            <div className="mt-6 p-4 bg-emerald-500/10 rounded-xl border border-emerald-500/20">
+              <div className="flex items-center justify-center gap-2 text-emerald-600 dark:text-emerald-400">
                 <CheckCircle className="w-4 h-4" />
                 <span className="text-sm font-medium">
                   All transactions reviewed and categorized
@@ -685,36 +681,32 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
               </div>
             </div>
           </div>
-
-          {/* Decorative Elements */}
-          <div className="absolute top-10 left-10 w-20 h-20 bg-emerald-200/30 rounded-full blur-xl"></div>
-          <div className="absolute bottom-10 right-10 w-32 h-32 bg-green-200/30 rounded-full blur-xl"></div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-background">
       <div className="max-w-5xl mx-auto px-4">
         {/* Sticky Header */}
-        <div className="sticky top-0 bg-gray-50 z-10 py-4">
+        <div className="sticky top-0 bg-background z-10 py-4">
           <div className="flex items-center justify-between mb-4">
             <button
               onClick={onBack}
-              className="p-2 hover:bg-gray-100 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="p-2 hover:bg-muted rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary"
               aria-label="Go back"
             >
-              <ArrowLeft className="w-5 h-5 text-gray-600" />
+              <ArrowLeft className="w-5 h-5 text-muted-foreground" />
             </button>
 
             <div className="text-center">
-              <h1 className="text-lg font-semibold text-gray-900">Review Transactions</h1>
+              <h1 className="text-lg font-semibold text-foreground">Review Transactions</h1>
               <div className="flex flex-col items-center gap-1">
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-muted-foreground">
                   {currentIndex + 1} of {originalTotal || needsReviewTransactions.length}
                 </p>
-                <div className="w-24 h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                <div className="w-24 h-1.5 bg-muted rounded-full overflow-hidden">
                   <div
                     className="h-full bg-primary transition-all duration-300 ease-out"
                     style={{
@@ -728,17 +720,17 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
             <div className="w-9 h-9" /> {/* Spacer for alignment */}
           </div>
 
-          <div className="border-b border-slate-200 mb-4" />
+          <div className="border-b border-border mb-4" />
 
-          <p className="text-center text-xs text-slate-600">
+          <p className="text-center text-xs text-muted-foreground">
             Swipe right to deduct • Swipe left for personal • Use Skip to keep AI analysis
           </p>
 
           {/* Success Message */}
           {showSuccessMessage && (
-            <div className="mt-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg mx-4 animate-in slide-in-from-top-2 duration-300">
-              <div className="flex items-center justify-center gap-3 text-emerald-700">
-                <CheckCircle className="w-4 h-4 text-emerald-600" />
+            <div className="mt-4 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg mx-4 animate-in slide-in-from-top-2 duration-300">
+              <div className="flex items-center justify-center gap-3 text-emerald-600 dark:text-emerald-400">
+                <CheckCircle className="w-4 h-4" />
                 <span className="font-medium text-sm">{successMessage}</span>
               </div>
             </div>
@@ -748,8 +740,8 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
         {/* Main Card */}
         <div className="pb-6">
           <div
-            className={`rounded-2xl border border-slate-200 bg-white shadow-sm transition-all duration-300 ${swipeDirection === 'right' ? 'transform translate-x-8 opacity-80 bg-green-50' :
-                swipeDirection === 'left' ? 'transform -translate-x-8 opacity-80 bg-red-50' :
+            className={`rounded-2xl border border-border bg-card shadow-sm transition-all duration-300 ${swipeDirection === 'right' ? 'transform translate-x-8 opacity-80 bg-emerald-500/10' :
+                swipeDirection === 'left' ? 'transform -translate-x-8 opacity-80 bg-red-500/10' :
                   isProcessing ? 'scale-[0.98]' : ''
               }`}
             style={{
@@ -764,17 +756,17 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
               {/* Title Row */}
               <div className="flex items-start justify-between mb-4">
                 <div className="flex-1 min-w-0">
-                  <h2 className="text-lg font-semibold text-gray-900 truncate">
+                  <h2 className="text-lg font-semibold text-card-foreground truncate">
                     {currentTransaction.merchant_name}
                   </h2>
-                  <p className="text-xs text-slate-500 mt-1">
+                  <p className="text-xs text-muted-foreground mt-1">
                     {new Date(currentTransaction.date).toLocaleDateString('en-US', {
                       month: 'short',
                       day: 'numeric'
                     })}
                   </p>
                 </div>
-                <div className="text-xl font-semibold text-gray-900">
+                <div className="text-xl font-semibold text-card-foreground">
                   ${Math.abs(currentTransaction.amount).toFixed(2)}
                 </div>
               </div>
@@ -782,19 +774,19 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
               {/* View Details Button */}
               <button
                 onClick={() => onTransactionClick?.({ ...currentTransaction, _source: 'review-transactions' })}
-                className="w-full flex items-center justify-between p-3 border bg-slate-50 hover:bg-slate-100 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4"
+                className="w-full flex items-center justify-between p-3 border border-border bg-muted hover:bg-muted/80 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-primary mb-4"
                 aria-label="View transaction details"
               >
                 <div className="flex items-center gap-2">
-                  <Info className="w-4 h-4 text-slate-500" />
-                  <span className="text-sm font-medium text-slate-700">View Details</span>
+                  <Info className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-sm font-medium text-card-foreground">View Details</span>
                 </div>
-                <ChevronRight className="w-4 h-4 text-slate-400" />
+                <ChevronRight className="w-4 h-4 text-muted-foreground" />
               </button>
 
               {/* Category Pill */}
               <div className="mb-4">
-                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 text-blue-700 border border-blue-100 rounded-full text-xs font-medium">
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 rounded-full text-xs font-medium">
                   <Tag className="w-3 h-3" />
                   {formatCategory(currentTransaction.category)}
                 </div>
@@ -802,23 +794,23 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
 
               {/* Description Section */}
               <div className="mb-4">
-                <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wide mb-2">
+                <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">
                   DESCRIPTION
                 </div>
-                <p className="text-sm text-slate-800">
+                <p className="text-sm text-card-foreground">
                   {currentTransaction.description || currentTransaction.deductible_reason || 'No additional details available'}
                 </p>
               </div>
 
               {/* AI Analysis Section */}
               <div className="mb-6">
-                <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wide mb-2">
+                <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">
                   AI ANALYSIS
                 </div>
                 {currentTransaction.ai?.reasoning ? (
                   <div className="space-y-3">
-                    <p className="text-sm text-slate-800">
-                      {currentTransaction.ai.status_label === 'Likely Deductible' 
+                    <p className="text-sm text-card-foreground">
+                      {currentTransaction.ai.status_label === 'Likely Deductible'
                         ? `This ${currentTransaction.merchant_name} transaction appears to be a business expense that may qualify for tax deduction.`
                         : currentTransaction.ai.status_label === 'Not Deductible'
                         ? `This ${currentTransaction.merchant_name} transaction appears to be a personal expense and is not tax deductible.`
@@ -827,16 +819,16 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
                     </p>
                     {currentTransaction.ai.status_label && (
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-medium text-slate-500">Status:</span>
-                        <span className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded-full">
+                        <span className="text-xs font-medium text-muted-foreground">Status:</span>
+                        <span className="text-xs px-2 py-1 bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-full">
                           {currentTransaction.ai.status_label}
                         </span>
                       </div>
                     )}
                     {typeof currentTransaction.ai.score_pct === 'number' && (
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-medium text-slate-500">Confidence:</span>
-                        <span className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded-full">
+                        <span className="text-xs font-medium text-muted-foreground">Confidence:</span>
+                        <span className="text-xs px-2 py-1 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-full">
                           {currentTransaction.ai.score_pct}%
                         </span>
                       </div>
@@ -844,10 +836,10 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
 
                     {/* Key Analysis Factors */}
                     <div>
-                      <h4 className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">
+                      <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
                         KEY ANALYSIS FACTORS
                       </h4>
-                      <ul className="text-xs text-slate-600 space-y-1">
+                      <ul className="text-xs text-muted-foreground space-y-1">
                         <li>• <strong>Date:</strong> {new Date(currentTransaction.date).toLocaleDateString('en-US', {
                           month: 'short',
                           day: 'numeric',
@@ -863,16 +855,16 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
                   </div>
                 ) : currentTransaction.ai_analysis ? (
                   <div className="space-y-3">
-                    <p className="text-sm text-slate-800">
+                    <p className="text-sm text-card-foreground">
                       {currentTransaction.ai_analysis}
                     </p>
 
                     {/* Key Analysis Factors */}
                     <div>
-                      <h4 className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">
+                      <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
                         KEY ANALYSIS FACTORS
                       </h4>
-                      <ul className="text-xs text-slate-600 space-y-1">
+                      <ul className="text-xs text-muted-foreground space-y-1">
                         <li>• <strong>Date:</strong> {new Date(currentTransaction.date).toLocaleDateString('en-US', {
                           month: 'short',
                           day: 'numeric',
@@ -888,16 +880,16 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
                   </div>
                 ) : currentTransaction.deductible_reason ? (
                   <div className="space-y-3">
-                    <p className="text-sm text-slate-800">
+                    <p className="text-sm text-card-foreground">
                       {currentTransaction.deductible_reason}
                     </p>
 
                     {/* Key Analysis Factors */}
                     <div>
-                      <h4 className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">
+                      <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
                         KEY ANALYSIS FACTORS
                       </h4>
-                      <ul className="text-xs text-slate-600 space-y-1">
+                      <ul className="text-xs text-muted-foreground space-y-1">
                         <li>• <strong>Date:</strong> {new Date(currentTransaction.date).toLocaleDateString('en-US', {
                           month: 'short',
                           day: 'numeric',
@@ -913,16 +905,16 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    <p className="text-sm text-slate-800">
+                    <p className="text-sm text-card-foreground">
                       {`${formatCategory(currentTransaction.category)} at ${currentTransaction.merchant_name} are commonly deductible for freelancer/creator businesses. Keep detailed records of services provided and business purpose.`}
                     </p>
 
                     {/* Key Analysis Factors */}
                     <div>
-                      <h4 className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">
+                      <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
                         KEY ANALYSIS FACTORS
                       </h4>
-                      <ul className="text-xs text-slate-600 space-y-1">
+                      <ul className="text-xs text-muted-foreground space-y-1">
                         <li>• <strong>Date:</strong> {new Date(currentTransaction.date).toLocaleDateString('en-US', {
                           month: 'short',
                           day: 'numeric',
@@ -941,12 +933,12 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
             </div>
 
             {/* Bottom Rail */}
-            <div className="border-t border-slate-200 p-5 sm:p-6">
+            <div className="border-t border-border p-5 sm:p-6">
               <div className="flex items-center justify-between">
                 <button
                   onClick={() => handleSwipe('left')}
                   disabled={isProcessing}
-                  className="flex items-center gap-2 text-rose-600 hover:text-rose-700 transition-colors focus:outline-none focus:ring-2 focus:ring-rose-500 focus:ring-offset-2 rounded-lg p-2 min-h-[40px] disabled:opacity-50"
+                  className="flex items-center gap-2 text-destructive hover:text-destructive/80 transition-colors focus:outline-none focus:ring-2 focus:ring-destructive focus:ring-offset-2 rounded-lg p-2 min-h-[40px] disabled:opacity-50"
                   aria-label="Mark as personal expense"
                 >
                   <XCircle className="w-5 h-5" />
@@ -957,7 +949,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
                 <button
                   onClick={handleSkip}
                   disabled={isProcessing}
-                  className="flex items-center gap-2 text-gray-600 hover:text-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 rounded-lg p-2 min-h-[40px] disabled:opacity-50"
+                  className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 rounded-lg p-2 min-h-[40px] disabled:opacity-50"
                   aria-label="Skip transaction"
                 >
                   <SkipForward className="w-5 h-5" />
@@ -968,11 +960,11 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
                 <div className="flex flex-col items-center mx-2" style={{ minWidth: 0 }}>
                   <Button
                     variant="outline"
-                    className="flex items-center gap-2 px-5 py-2 text-purple-700 border border-purple-300 bg-white hover:bg-purple-50 hover:border-purple-400 focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 rounded-lg shadow-sm font-semibold transition-colors"
+                    className="flex items-center gap-2 px-5 py-2 text-purple-600 dark:text-purple-400 border border-purple-500/20 bg-purple-500/10 hover:bg-purple-500/20 hover:border-purple-500/30 focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 rounded-lg shadow-sm font-semibold transition-colors"
                     style={{ whiteSpace: 'nowrap' }}
                     onClick={() => setAskCpaOpen(true)}
                   >
-                    <HelpCircle className="w-5 h-5 mr-1 text-purple-500" />
+                    <HelpCircle className="w-5 h-5 mr-1" />
                     Ask a CPA
                   </Button>
                 </div>
@@ -980,7 +972,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
                 <button
                   onClick={() => handleSwipe('right')}
                   disabled={isProcessing}
-                  className="flex items-center gap-2 text-green-600 hover:text-green-700 transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 rounded-lg p-2 min-h-[40px] disabled:opacity-50"
+                  className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 rounded-lg p-2 min-h-[40px] disabled:opacity-50"
                   aria-label="Mark as deductible expense"
                 >
                   <CheckCircle className="w-5 h-5" />

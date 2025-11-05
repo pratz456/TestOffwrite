@@ -17,13 +17,13 @@ export default function AnalysisProgress({ jobId }: { jobId: string }) {
 
   useEffect(() => {
     if (!jobId) return;
-    
+
     console.log(`📊 [AnalysisProgress] Subscribing to job ${jobId}`);
-    
+
     const unsub = onSnapshot(doc(db, 'analysis_status', jobId), (snap) => {
       const d = snap.data() as Job | undefined;
       console.log(`📊 [AnalysisProgress] Job update:`, d);
-      
+
       setJob({
         status: d?.status ?? 'running',
         total: d?.total ?? 0,
@@ -33,7 +33,7 @@ export default function AnalysisProgress({ jobId }: { jobId: string }) {
       });
     }, (error) => {
       console.error('📊 [AnalysisProgress] Subscription error:', error);
-      
+
       // Handle permission errors gracefully
       if (error.code === 'permission-denied') {
         console.warn('📊 [AnalysisProgress] Permission denied - job may not belong to current user or may not exist');
@@ -64,7 +64,7 @@ export default function AnalysisProgress({ jobId }: { jobId: string }) {
         });
       }
     });
-    
+
     return () => unsub();
   }, [jobId]);
 
@@ -88,45 +88,45 @@ export default function AnalysisProgress({ jobId }: { jobId: string }) {
   const getStatusColor = () => {
     switch (job?.status) {
       case 'completed':
-        return 'text-green-600';
+        return 'text-emerald-600 dark:text-emerald-400';
       case 'failed':
-        return 'text-red-600';
+        return 'text-destructive';
       default:
-        return 'text-blue-600';
+        return 'text-primary';
     }
   };
 
   return (
-    <div className="max-w-md mx-auto p-6 rounded-2xl border border-gray-200 bg-white shadow-sm">
+    <div className="max-w-md mx-auto p-6 rounded-2xl border border-border bg-card shadow-sm">
       <div className="mb-4 text-center">
         <div className={`text-lg font-semibold ${getStatusColor()}`}>
           {getStatusMessage()}
         </div>
         {job?.status === 'failed' && job?.error && (
-          <div className="mt-2 text-sm text-red-500">
+          <div className="mt-2 text-sm text-destructive">
             Error: {job.error}
           </div>
         )}
       </div>
 
       <div className="flex items-center justify-between mb-3">
-        <div className="font-medium text-gray-800">
+        <div className="font-medium text-card-foreground">
           {processed} / {total} analyzed
         </div>
-        <div className="text-sm font-semibold text-blue-600">{pct}%</div>
+        <div className="text-sm font-semibold text-primary">{pct}%</div>
       </div>
 
       {/* Progress bar */}
-      <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden shadow-inner mb-3">
+      <div className="w-full bg-muted rounded-full h-4 overflow-hidden shadow-inner mb-3">
         <div
           className={`h-4 rounded-full transition-all duration-700 ease-out shadow-sm ${
-            job?.status === 'failed' 
+            job?.status === 'failed'
               ? 'bg-gradient-to-r from-red-500 to-red-600'
               : job?.status === 'completed'
-              ? 'bg-gradient-to-r from-green-500 to-green-600'
+              ? 'bg-gradient-to-r from-emerald-500 to-emerald-600'
               : 'bg-gradient-to-r from-blue-500 to-blue-600'
           }`}
-          style={{ 
+          style={{
             width: `${pct}%`
           }}
         />
@@ -135,7 +135,7 @@ export default function AnalysisProgress({ jobId }: { jobId: string }) {
       {/* Failed count */}
       {failed > 0 && (
         <div className="text-center">
-          <span className="text-sm text-red-600 font-medium">
+          <span className="text-sm text-destructive font-medium">
             {failed} failed
           </span>
         </div>
@@ -143,7 +143,7 @@ export default function AnalysisProgress({ jobId }: { jobId: string }) {
 
       {/* Status indicator */}
       <div className="mt-4 text-center">
-        <div className="text-sm text-gray-500">
+        <div className="text-sm text-muted-foreground">
           {job?.status === 'running' && (
             <>
               <div className="inline-block w-3 h-3 bg-blue-500 rounded-full animate-pulse mr-2"></div>
@@ -152,7 +152,7 @@ export default function AnalysisProgress({ jobId }: { jobId: string }) {
           )}
           {job?.status === 'completed' && (
             <>
-              <div className="inline-block w-3 h-3 bg-green-500 rounded-full mr-2"></div>
+              <div className="inline-block w-3 h-3 bg-emerald-500 rounded-full mr-2"></div>
               All transactions analyzed
             </>
           )}

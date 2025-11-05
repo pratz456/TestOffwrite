@@ -4,9 +4,23 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth, connectAuthEmulator } from "firebase/auth";
 import { getFirestore, connectFirestoreEmulator } from "firebase/firestore";
 
+// Determine the correct auth domain based on environment
+const getAuthDomain = () => {
+  // In production, use the custom domain if set, otherwise fall back to Firebase default
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
+    // If we're on the custom domain, use it; otherwise use Firebase default
+    if (hostname === 'writeoffapp.com' || hostname === 'www.writeoffapp.com') {
+      return process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || 'writeoffapp.com';
+    }
+  }
+  // Use environment variable or fall back to Firebase default domain
+  return process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || 'writeoff-23910.firebaseapp.com';
+};
+
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "AIzaSyCVvpY-M571W0I3Faz-i8mAyofLobqm5ZE",
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || "writeoffapp.com",
+  authDomain: getAuthDomain(),
   projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "writeoff-23910",
   storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "writeoff-23910.firebasestorage.app",
   messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "930596534802",
@@ -34,7 +48,7 @@ export const db = getFirestore(app);
 //   } catch (error) {
 //     console.log('Firebase Auth emulator already connected or not available');
 //   }
-//   
+//
 //   try {
 //     if (!(db as any)._delegate._databaseId.projectId.includes('demo-')) {
 //       connectFirestoreEmulator(db, 'localhost', 8080);

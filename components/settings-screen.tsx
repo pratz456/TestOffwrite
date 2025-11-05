@@ -75,7 +75,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     state: '',
     filing_status: '',
     income: '',
-    
+
     // Business Details Tab
     business_purpose: '',
     business_start_date: '',
@@ -83,7 +83,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     w2_income: undefined as number | undefined,
     business_income: undefined as number | undefined,
     naics_code: '',
-    
+
     // Tax Settings Tab - Required Fields
     home_office_sqft: undefined as number | undefined,
     total_home_sqft: undefined as number | undefined,
@@ -91,7 +91,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     vehicle_business_use_percentage: undefined as number | undefined,
     vehicle_deduction_method: '',
     itemization_status: '',
-    
+
     // Advanced Tab
     audit_history: 'none',
     tax_professional: false,
@@ -139,24 +139,24 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
         if (existingProfile) {
           console.log('Loaded existing profile:', existingProfile);
-          
+
           // Parse profession string and handle custom professions
           const professionString = existingProfile.profession || '';
           const professionArray = professionString ? professionString.split(', ').filter(p => p.trim()) : [];
-          
+
           const predefinedProfessions = [
             'Software Developer', 'Freelance Writer', 'Graphic Designer', 'Consultant', 'Marketing Specialist',
             'Real Estate Agent', 'Photographer', 'Web Designer', 'Content Creator', 'Business Coach',
             'Virtual Assistant', 'Social Media Manager', 'Online Tutor', 'E-commerce Store Owner', 'Other'
           ];
-          
+
           const customProfessions = professionArray.filter(p => !predefinedProfessions.includes(p));
           const standardProfessions = professionArray.filter(p => predefinedProfessions.includes(p));
-          
-          const finalProfessions = customProfessions.length > 0 
+
+          const finalProfessions = customProfessions.length > 0
             ? [...standardProfessions, 'Other']
             : standardProfessions;
-          
+
           const loadedProfile = {
             // Profile Tab - Map all fields from database
             name: existingProfile.name || user?.user_metadata?.name || '',
@@ -167,7 +167,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             state: existingProfile.state || '',
             filing_status: existingProfile.filing_status || '',
             income: existingProfile.income || '',
-            
+
             // Business Details Tab - Map all business fields
             business_purpose: existingProfile.business_purpose || '',
             business_start_date: existingProfile.business_start_date || '',
@@ -175,7 +175,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             w2_income: existingProfile.w2_income,
             business_income: existingProfile.business_income,
             naics_code: existingProfile.naics_code || '',
-            
+
             // Tax Settings Tab - Map all tax-related fields
             home_office_sqft: existingProfile.home_office_sqft,
             total_home_sqft: existingProfile.total_home_sqft,
@@ -183,7 +183,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             vehicle_business_use_percentage: existingProfile.vehicle_business_use_percentage,
             vehicle_deduction_method: existingProfile.vehicle_deduction_method || '',
             itemization_status: existingProfile.itemization_status || '',
-            
+
             // Advanced Tab - Map all advanced fields
             audit_history: existingProfile.audit_history || 'none',
             tax_professional: existingProfile.tax_professional || false,
@@ -195,9 +195,9 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             professional_licenses: existingProfile.professional_licenses || [],
             prior_year_deductions: existingProfile.prior_year_deductions || []
           };
-          
+
           console.log('Mapped profile data:', loadedProfile);
-          
+
           setProfile(loadedProfile);
           setOriginalProfile(JSON.parse(JSON.stringify(loadedProfile)));
           setHasUnsavedChanges(false);
@@ -226,7 +226,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const handleProfessionChange = (profession: string, checked: boolean) => {
     setProfile(prev => ({
       ...prev,
-      profession: checked 
+      profession: checked
         ? [...prev.profession, profession]
         : prev.profession.filter(p => p !== profession),
       // Clear custom profession if "Other" is deselected
@@ -261,7 +261,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         state: profile.state,
         filing_status: profile.filing_status,
         income: profile.income,
-        
+
         // Business Details
         business_purpose: profile.business_purpose,
         business_start_date: profile.business_start_date,
@@ -269,7 +269,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         w2_income: profile.w2_income,
         business_income: profile.business_income,
         naics_code: profile.naics_code,
-        
+
         // Tax Settings
         home_office_sqft: profile.home_office_sqft,
         total_home_sqft: profile.total_home_sqft,
@@ -277,7 +277,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         vehicle_business_use_percentage: profile.vehicle_business_use_percentage,
         vehicle_deduction_method: profile.vehicle_deduction_method,
         itemization_status: profile.itemization_status,
-        
+
         // Advanced Settings
         audit_history: profile.audit_history,
         tax_professional: profile.tax_professional,
@@ -458,7 +458,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       {/* Header */}
       <div className="bg-white border-b border-border sticky top-0 z-50 shadow-sm">
         <div className="flex items-center justify-between p-6">
-          {/* <button 
+          {/* <button
             onClick={onBack}
             className="w-12 h-12 bg-white border border-border rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-all duration-200 shadow-sm"
           >
@@ -468,7 +468,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             <h2 className="text-4xl font-bold text-primary mb-2 text-center">Settings</h2>
             <p className="text-lg text-muted-foreground text-center">Manage your profile and preferences</p>
           </div>
-          
+
           {/* Save Status Indicator */}
           <div className="flex items-center gap-3">
             {hasUnsavedChanges && (
@@ -632,7 +632,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                       <p className="text-xs text-muted-foreground">Selected: {profile.profession.join(', ')}</p>
                     </div>
                   )}
-                  
+
                   {/* Custom profession input - only show when "Other" is selected */}
                   {profile.profession.includes('Other') && (
                     <div className="mt-3">
@@ -1268,12 +1268,12 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                       // Check if user can export (rate limiting)
                       const statusRes = await fetch('/api/user/export');
                       const statusData = await statusRes.json();
-                      
+
                       if (!statusData.canExport) {
                         alert(`You can only export your data once per hour. Please wait ${statusData.timeRemaining} minutes.`);
                         return;
                       }
-                      
+
                       // Request the export
                       const res = await fetch('/api/user/export', {
                         method: 'POST',
@@ -1281,14 +1281,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                           'Content-Type': 'application/json',
                         },
                       });
-                      
+
                       if (res.ok) {
                         const exportData = await res.json();
-                        
+
                         // Create downloadable files
                         const timestamp = new Date().toISOString().split('T')[0];
                         const exportId = exportData.exportId;
-                        
+
                         // Download JSON data
                         const jsonBlob = new Blob([JSON.stringify(exportData.data.json, null, 2)], { type: 'application/json' });
                         const jsonUrl = window.URL.createObjectURL(jsonBlob);
@@ -1299,7 +1299,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                         jsonLink.click();
                         jsonLink.remove();
                         window.URL.revokeObjectURL(jsonUrl);
-                        
+
                         // Download CSV data
                         const csvBlob = new Blob([exportData.data.csv], { type: 'text/csv' });
                         const csvUrl = window.URL.createObjectURL(csvBlob);
@@ -1310,7 +1310,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                         csvLink.click();
                         csvLink.remove();
                         window.URL.revokeObjectURL(csvUrl);
-                        
+
                         // Download README
                         const readmeBlob = new Blob([exportData.data.readme], { type: 'text/plain' });
                         const readmeUrl = window.URL.createObjectURL(readmeBlob);
@@ -1321,7 +1321,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                         readmeLink.click();
                         readmeLink.remove();
                         window.URL.revokeObjectURL(readmeUrl);
-                        
+
                         alert(`Export completed! Downloaded ${exportData.summary.transactions} transactions, ${exportData.summary.accounts} accounts, and ${exportData.summary.receipts} receipts.`);
                       } else {
                         const errorData = await res.json();
@@ -1340,18 +1340,21 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 </Button>
                 <Button
                   onClick={async () => {
-                    if (window.confirm('Are you sure you want to delete your account and all associated data? This action cannot be undone.')) {
+                    if (window.confirm('Are you sure you want to delete your account and all associated data? This includes all Plaid connections, accounts, transactions, and receipts. This action cannot be undone.')) {
                       try {
                         const res = await fetch('/api/user/delete', { method: 'DELETE' });
                         const result = await res.json();
                         if (result.success) {
-                          alert('Your account and data have been deleted. You will be logged out.');
+                          alert('Your account and all data have been deleted. You will be logged out.');
+                          // Sign out and redirect to home
                           window.location.href = '/';
                         } else {
-                          alert('Failed to delete account: ' + (result.error || 'Unknown error'));
+                          const errorMsg = result.details || result.error || 'Unknown error';
+                          alert(`Failed to delete account: ${errorMsg}`);
                         }
                       } catch (err) {
-                        alert('Failed to delete account.');
+                        console.error('Error deleting account:', err);
+                        alert('Failed to delete account. Please try again.');
                       }
                     }
                   }}

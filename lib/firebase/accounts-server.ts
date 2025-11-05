@@ -24,7 +24,7 @@ export async function getAccountsServer(userId: string): Promise<{ data: Account
     const accountsRef = adminDb.collection("user_profiles").doc(userId).collection("accounts");
     const querySnapshot = await accountsRef.get();
     const accounts: Account[] = [];
-    
+
     querySnapshot.forEach((doc) => {
       const data = doc.data();
       accounts.push({
@@ -40,7 +40,7 @@ export async function getAccountsServer(userId: string): Promise<{ data: Account
         updated_at: data.updated_at,
       });
     });
-    
+
     return { data: accounts, error: null };
   } catch (error) {
     console.error('Error getting accounts (server):', error);
@@ -63,16 +63,16 @@ export async function createAccountServer(
 ): Promise<{ data: Account | null; error: any }> {
   try {
     const docRef = adminDb.collection("user_profiles").doc(userId).collection("accounts").doc(accountData.account_id);
-    
+
     const newAccount = {
       ...accountData,
       user_id: userId,
       created_at: new Date(),
       updated_at: new Date(),
     };
-    
+
     await docRef.set(newAccount);
-    
+
     // Return the created account
     const createdDoc = await docRef.get();
     if (createdDoc.exists) {
@@ -97,7 +97,7 @@ export async function createAccountServer(
         error: null
       };
     }
-    
+
     return { data: null, error: new Error('Failed to retrieve created account') };
   } catch (error) {
     console.error('Error creating account (server):', error);
@@ -117,9 +117,9 @@ export async function updateAccountServer(
       ...updates,
       updated_at: new Date(),
     };
-    
+
     await docRef.update(updateData);
-    
+
     // Return the updated account
     const updatedDoc = await docRef.get();
     if (updatedDoc.exists) {
@@ -144,7 +144,7 @@ export async function updateAccountServer(
         error: null
       };
     }
-    
+
     return { data: null, error: new Error('Failed to retrieve updated account') };
   } catch (error) {
     console.error('Error updating account (server):', error);
@@ -154,6 +154,43 @@ export async function updateAccountServer(
 
 // Export alias for backward compatibility
 export const addAccountServer = createAccountServer;
+
+// Server-side function (for use in API routes)
+export async function deleteAccountServer(
+  userId: string,
+  accountId: string
+): Promise<{ success: boolean; error: any }> {
+  try {
+    const docRef = adminDb.collection("user_profiles").doc(userId).collection("accounts").doc(accountId);
+
+    // Check if account exists
+    const accountDoc = await docRef.get();
+    if (!accountDoc.exists) {
+      return { success: false, error: new Error('Account not found') };
+    }
+
+    // Delete the account document
+    // Note: Firestore will automatically delete subcollections (transactions) if cascade delete is configured
+    await docRef.delete();
+
+    // Also delete any transactions associated with this account
+    const transactionsRef = adminDb.collection("user_profiles").doc(userId).collection("accounts").doc(accountId).collection("transactions");
+    const transactionsSnapshot = await transactionsRef.get();
+
+    if (!transactionsSnapshot.empty) {
+      const batch = adminDb.batch();
+      transactionsSnapshot.forEach((doc) => {
+        batch.delete(doc.ref);
+      });
+      await batch.commit();
+    }
+
+    return { success: true, error: null };
+  } catch (error) {
+    console.error('Error deleting account (server):', error);
+    return { success: false, error };
+  }
+}
 
 // Server-side function to set account usage type
 export async function setAccountUsageServer(

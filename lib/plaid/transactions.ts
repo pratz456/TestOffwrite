@@ -11,27 +11,27 @@ import { fetchAllPlaidTransactions } from './pagination'
 export async function fetchTransactions(userId: string) {
   try {
     console.log(`🔍 Starting fetchTransactions for userId: ${userId}`)
-    
+
     // Get user's Plaid access token from Firestore
     const { data: authData } = await getCurrentUser()
     const user = authData?.user
     console.log(`👤 User data retrieved:`, user ? 'Found user' : 'No user found')
-    
+
     if (!user) {
       console.log(`❌ No user found`)
       return { success: false, error: 'No user found' }
     }
-    
+
     // Get Plaid token from Firestore
     const userRef = doc(db, 'users', user.id)
     const userDoc = await getDoc(userRef)
     const userData = userDoc.data()
-    
+
     if (!userData?.plaid_token) {
       console.log(`❌ No Plaid token found for user ${userId}`)
       return { success: false, error: 'No Plaid token found' }
     }
-    
+
     console.log(`🔑 Plaid token found, proceeding with transaction fetch`)
 
     // Get accounts from Plaid
@@ -47,7 +47,7 @@ export async function fetchTransactions(userId: string) {
     for (const account of plaidAccounts) {
       const existingAccount = await getAccounts(userId)
       const accountExists = existingAccount.data?.some(acc => acc.account_id === account.account_id)
-      
+
       if (!accountExists) {
         await addAccount({
           account_id: account.account_id,
@@ -58,13 +58,13 @@ export async function fetchTransactions(userId: string) {
 
     // Get transactions from Plaid for each account
     let totalTransactions = 0
-    
+
     for (const account of plaidAccounts) {
-      // Calculate date range - default to 6 months for historical data
+      // Calculate date range - default to 1 year for historical data
       const endDate = new Date();
       const startDate = new Date();
-      startDate.setMonth(endDate.getMonth() - 6); // 6 months back
-      
+      startDate.setFullYear(endDate.getFullYear() - 1); // 1 year back instead of 6 months
+
       // Fetch all transactions with pagination
       const { transactions, totalPages, totalTransactions: accountTransactionCount } = await fetchAllPlaidTransactions(
         plaidClient,
@@ -95,7 +95,7 @@ export async function fetchTransactions(userId: string) {
 
         // Analyze transaction with OpenAI via API route
         console.log(`Analyzing transaction: ${transactionData.merchant_name} - $${transactionData.amount}`)
-        
+
         try {
           const analysisResponse = await fetch('/api/openai/analyze-transaction', {
             method: 'POST',
@@ -114,7 +114,7 @@ export async function fetchTransactions(userId: string) {
 
           if (analysisResponse.ok) {
             const analysisData = await analysisResponse.json();
-            
+
             if (analysisData.success) {
               // Add AI analysis results to transaction data
               Object.assign(transactionData, {
@@ -122,7 +122,7 @@ export async function fetchTransactions(userId: string) {
                 deductible_reason: analysisData.analysis.deductible_reason,
                 deduction_score: analysisData.analysis.deduction_score,
               })
-              
+
               console.log(`✅ AI Analysis: ${analysisData.analysis.is_deductible ? 'Deductible' : 'Not Deductible'} - ${analysisData.analysis.deductible_reason} (${analysisData.analysis.confidence_percentage}% confidence)`)
             } else {
               console.log(`❌ AI Analysis failed for ${transactionData.merchant_name}:`, analysisData.error)
@@ -174,12 +174,12 @@ export async function getAccountBalances(userId: string) {
     if (!user) {
       return { success: false, error: 'No user found' }
     }
-    
+
     // Get Plaid token from Firestore
     const userRef = doc(db, 'users', user.id)
     const userDoc = await getDoc(userRef)
     const userData = userDoc.data()
-    
+
     if (!userData?.plaid_token) {
       return { success: false, error: 'No Plaid token found' }
     }
@@ -202,12 +202,12 @@ export async function getInstitutionInfo(userId: string) {
     if (!user) {
       return { success: false, error: 'No user found' }
     }
-    
+
     // Get Plaid token from Firestore
     const userRef = doc(db, 'users', user.id)
     const userDoc = await getDoc(userRef)
     const userData = userDoc.data()
-    
+
     if (!userData?.plaid_token) {
       return { success: false, error: 'No Plaid token found' }
     }
@@ -230,4 +230,4 @@ export async function getInstitutionInfo(userId: string) {
     console.error('Error fetching institution info:', error)
     return { success: false, error }
   }
-} 
+}
