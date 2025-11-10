@@ -18,11 +18,98 @@ export async function POST(req: Request) {
     // 1) Exchange token
     const plaidRes = await plaidClient.itemPublicTokenExchange({ public_token });
     const access_token = plaidRes.data.access_token;
+    const item_id = plaidRes.data.item_id;
+
+    console.log(`🔍 [Plaid] Checking for duplicate bank account connection...`);
+    console.log(`🔍 [Plaid] Item ID: ${item_id}`);
+
+    // Get institution info to check for duplicates BEFORE storing
+    let institutionId = '';
+    try {
+      const itemResponse = await plaidClient.itemGet({ access_token });
+      institutionId = itemResponse.data.item.institution_id || '';
+      console.log(`🔍 [Plaid] Institution ID: ${institutionId}`);
+    } catch (err) {
+      console.warn('Could not fetch institution ID:', err);
+    }
+
+    // Comprehensive duplicate check: Check if user already has any bank accounts connected
+    try {
+      // First, check if user has any existing accounts at all
+      const allExistingAccountsSnapshot = await adminDb
+        .collection(`user_profiles/${uid}/accounts`)
+        .get();
+
+      console.log(`🔍 [Plaid] Found ${allExistingAccountsSnapshot.size} existing accounts for user`);
+
+      if (allExistingAccountsSnapshot.size > 0) {
+        // User has existing accounts, check for duplicates
+
+        // Check 1: By institution_id (most reliable)
+        if (institutionId) {
+          const institutionAccounts = allExistingAccountsSnapshot.docs.filter(doc => {
+            const data = doc.data();
+            return data.institution_id === institutionId;
+          });
+
+          if (institutionAccounts.length > 0) {
+            const existingAccount = institutionAccounts[0].data();
+            console.log(`⚠️ [Plaid] Bank account already exists for institution: ${institutionId}`);
+            console.log(`⚠️ [Plaid] Existing account: ${existingAccount.name || 'Unknown'}`);
+            return NextResponse.json({
+              error: 'BANK_ALREADY_CONNECTED',
+              message: `This bank account is already connected. You can manage it from your bank settings.`,
+              institutionId,
+              existingAccountName: existingAccount.name || 'Unknown Account'
+            }, { status: 409 }); // 409 Conflict
+          }
+        }
+
+        // Check 2: By plaid_item_id in user profile
+        const userProfileDoc = await adminDb.doc(`user_profiles/${uid}`).get();
+        if (userProfileDoc.exists) {
+          const userProfile = userProfileDoc.data();
+          if (userProfile?.plaid_item_id && userProfile.plaid_item_id === item_id) {
+            console.log(`⚠️ [Plaid] Same Plaid item already connected: ${item_id}`);
+            return NextResponse.json({
+              error: 'BANK_ALREADY_CONNECTED',
+              message: `This bank account is already connected. You can manage it from your bank settings.`,
+              itemId: item_id
+            }, { status: 409 }); // 409 Conflict
+          }
+        }
+
+        // Check 3: If user has plaid_token, they already have a connection
+        // (This prevents connecting a second bank if they already have one)
+        if (userProfileDoc.exists) {
+          const userProfile = userProfileDoc.data();
+          if (userProfile?.plaid_token) {
+            console.log(`⚠️ [Plaid] User already has a Plaid connection (plaid_token exists)`);
+            // Note: We allow this to continue if institution_id doesn't match
+            // This allows users to connect multiple different banks
+            // But we'll check account_ids later to prevent exact duplicates
+          }
+        }
+      }
+    } catch (checkError) {
+      console.error('❌ [Plaid] Error checking for existing bank account:', checkError);
+      console.error('❌ [Plaid] Error details:', {
+        message: checkError instanceof Error ? checkError.message : String(checkError),
+        stack: checkError instanceof Error ? checkError.stack : undefined
+      });
+      // Don't continue if check fails - this is a critical check
+      return NextResponse.json({
+        error: 'DUPLICATE_CHECK_FAILED',
+        message: 'Unable to verify if bank account already exists. Please try again or contact support.'
+      }, { status: 500 });
+    }
+
+    console.log(`✅ [Plaid] No duplicate found, proceeding with connection...`);
 
     // Store the access token in user profile for future use
     await adminDb.doc(`user_profiles/${uid}`).set({
       plaid_token: access_token,
-      plaid_item_id: plaidRes.data.item_id,
+      plaid_item_id: item_id,
       last_updated: Date.now(),
     }, { merge: true });
 
@@ -39,22 +126,62 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'No accounts returned by Plaid' }, { status: 502 });
     }
 
-    // Get institution info to store institution_id
-    let institutionId = '';
-    try {
-      const itemResponse = await plaidClient.itemGet({ access_token });
-      institutionId = itemResponse.data.item.institution_id || '';
-    } catch (err) {
-      console.warn('Could not fetch institution ID:', err);
+    // Additional check: Verify none of the account_ids already exist
+    // This is a critical check - if ANY account_id exists, block the entire connection
+    console.log(`🔍 [Plaid] Checking if any account IDs already exist...`);
+    const duplicateAccountIds: string[] = [];
+    for (const plaidAccount of allAccounts) {
+      const accountId = plaidAccount.account_id;
+      const accountRef = adminDb.doc(`user_profiles/${uid}/accounts/${accountId}`);
+      const existingAccountDoc = await accountRef.get();
+
+      if (existingAccountDoc.exists) {
+        const existingAccount = existingAccountDoc.data();
+        duplicateAccountIds.push(accountId);
+        console.log(`⚠️ [Plaid] DUPLICATE DETECTED: Account ID ${accountId} already exists: ${existingAccount?.name || 'Unknown'}`);
+        console.log(`⚠️ [Plaid] Existing account data:`, JSON.stringify(existingAccount, null, 2));
+      }
     }
 
+    if (duplicateAccountIds.length > 0) {
+      console.log(`❌ [Plaid] BLOCKING CONNECTION: Found ${duplicateAccountIds.length} duplicate account(s): ${duplicateAccountIds.join(', ')}`);
+      // Get the first duplicate account for the error message
+      const firstDuplicateId = duplicateAccountIds[0];
+      const firstDuplicateRef = adminDb.doc(`user_profiles/${uid}/accounts/${firstDuplicateId}`);
+      const firstDuplicateDoc = await firstDuplicateRef.get();
+      const firstDuplicateData = firstDuplicateDoc.exists ? firstDuplicateDoc.data() : null;
+
+      return NextResponse.json({
+        error: 'BANK_ALREADY_CONNECTED',
+        message: `This bank account (${firstDuplicateData?.name || firstDuplicateId}) is already connected. You can manage it from your bank settings.`,
+        accountId: firstDuplicateId,
+        existingAccountName: firstDuplicateData?.name || 'Unknown Account',
+        duplicateCount: duplicateAccountIds.length
+      }, { status: 409 }); // 409 Conflict
+    }
+    console.log(`✅ [Plaid] No duplicate account IDs found - all ${allAccounts.length} accounts are new`);
+
     // Store ALL accounts in the database, not just one
+    // BUT: Double-check each account doesn't exist before storing
     const storedAccounts = [];
     for (const plaidAccount of allAccounts) {
       const accountId = plaidAccount.account_id;
       const accountRef = adminDb.doc(`user_profiles/${uid}/accounts/${accountId}`);
 
-      // Store account with all required fields
+      // Final check: Verify this specific account doesn't exist
+      const finalCheck = await accountRef.get();
+      if (finalCheck.exists) {
+        const existingData = finalCheck.data();
+        console.log(`❌ [Plaid] BLOCKED: Account ${accountId} already exists: ${existingData?.name || 'Unknown'}`);
+        return NextResponse.json({
+          error: 'BANK_ALREADY_CONNECTED',
+          message: `This bank account (${existingData?.name || accountId}) is already connected. You can manage it from your bank settings.`,
+          accountId,
+          existingAccountName: existingData?.name || 'Unknown Account'
+        }, { status: 409 }); // 409 Conflict
+      }
+
+      // Store account with all required fields (only if it doesn't exist)
       await accountRef.set({
         id: accountId,
         account_id: accountId,
@@ -67,7 +194,7 @@ export async function POST(req: Request) {
         createdAt: Date.now(),
         created_at: new Date(),
         updated_at: new Date(),
-      }, { merge: true });
+      }); // Removed merge: true - we want to fail if it exists
 
       storedAccounts.push({
         account_id: accountId,

@@ -25,37 +25,27 @@ import { QuarterlyTaxCalculator } from "@/components/quarterly-tax-calculator";
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useTransactions } from "@/lib/firebase/hooks";
+import type { Transaction as FirebaseTransaction } from "@/lib/firebase/transactions";
 
 interface UserProfile {
   email: string;
   name: string;
-  profession: string;
+  profession: string | string[];
   income: string;
   state: string;
   filingStatus: string;
   plaidToken?: string;
 }
 
-interface Transaction {
-  id: string;
-  merchant_name: string;
-  amount: number;
-  category: string;
-  date: string;
-  type?: 'expense' | 'income';
-  is_deductible?: boolean | null;
-  deductible_reason?: string;
-  deduction_score?: number;
-  description?: string;
-  notes?: string;
-}
+// Use Transaction type from firebase library
+type Transaction = FirebaseTransaction;
 
 export default function ProtectedPage() {
   const { user, loading } = useAuth();
   const [userProfile, setUserProfile] = useState<any>(null);
   const [hasProfile, setHasProfile] = useState<boolean | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [currentScreen, setCurrentScreen] = useState<'dashboard' | 'settings' | 'add-expense' | 'receipt-upload' | 'tax-calendar' | 'transactions' | 'review-transactions' | 'schedule-c-export' | 'edit-expense' | 'deductions-detail' | 'expenses-detail' | 'banks-detail' | 'profit-loss-detail' | 'categories' | 'plaid-link' | 'plaid' | 'transaction-detail' | 'reports'>('dashboard');
+  const [currentScreen, setCurrentScreen] = useState<'dashboard' | 'settings' | 'add-expense' | 'receipt-upload' | 'tax-calendar' | 'transactions' | 'review-transactions' | 'schedule-c-export' | 'edit-expense' | 'deductions-detail' | 'expenses-detail' | 'banks-detail' | 'profit-loss-detail' | 'categories' | 'plaid-link' | 'plaid' | 'transaction-detail' | 'reports' | 'ai-insights' | 'quarterly-taxes'>('dashboard');
   const [navigationStack, setNavigationStack] = useState<string[]>(['dashboard']);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
@@ -253,7 +243,13 @@ export default function ProtectedPage() {
               if (res.ok) {
                 const data = await res.json();
                 if (data && data.transaction) {
-                  transaction = data.transaction as Transaction;
+                  const fetchedTransaction = data.transaction;
+                  // Ensure trans_id is set
+                  transaction = {
+                    ...fetchedTransaction,
+                    trans_id: fetchedTransaction.trans_id || fetchedTransaction.id,
+                    id: fetchedTransaction.id || fetchedTransaction.trans_id
+                  } as Transaction;
                 }
               } else {
                 console.warn('Failed to fetch transaction from API:', res.status);
@@ -340,7 +336,7 @@ export default function ProtectedPage() {
         // Redirect to specified screen if provided
         if (redirectTo) {
           console.log(`🔄 Redirecting to ${redirectTo} after profile completion`);
-          setCurrentScreen(redirectTo);
+          setCurrentScreen(redirectTo as any);
         }
       } catch (error) {
         console.error('Error in handleProfileComplete:', error);
@@ -578,18 +574,24 @@ export default function ProtectedPage() {
   };
 
   // Handle transaction update (for review screen) - now handled by real-time updates
-  const handleTransactionUpdate = async (updatedTransaction: Transaction) => {
+  const handleTransactionUpdate = (updatedTransaction: Transaction) => {
     console.log('🔄 [UI RERENDER] Parent handleTransactionUpdate called for:', updatedTransaction.trans_id || updatedTransaction.id, 'is_deductible:', updatedTransaction.is_deductible);
 
     // Real-time updates are handled automatically by the useTransactions hook
     // Just update the viewing transaction if it's the same one
-    setViewingTransaction(prev => prev && (prev.trans_id || prev.id) === (updatedTransaction.trans_id || updatedTransaction.id) ? { ...prev, ...updatedTransaction } : prev);
+    setViewingTransaction(prev => {
+      if (!prev) return null;
+      const prevId = prev.trans_id || prev.id;
+      const updatedId = updatedTransaction.trans_id || updatedTransaction.id;
+      return prevId === updatedId ? { ...prev, ...updatedTransaction } : prev;
+    });
   };
 
   // Handle receipt upload completion
   const handleReceiptUploadComplete = (expenseData: any) => {
     const transaction: Transaction = {
       id: expenseData.id,
+      trans_id: expenseData.id || expenseData.trans_id || `receipt-${Date.now()}`,
       merchant_name: expenseData.description,
       amount: expenseData.amount,
       category: expenseData.category,
@@ -712,9 +714,16 @@ export default function ProtectedPage() {
         <ReviewTransactionsScreen
           user={safeUser}
           onBack={handleGoBack}
-          transactions={transactions}
-          onTransactionUpdate={handleTransactionUpdate}
-          onTransactionClick={handleViewTransaction}
+          transactions={transactions as any}
+          onTransactionUpdate={handleTransactionUpdate as any}
+          onTransactionClick={(transaction) => {
+            // Add source to transaction
+            const transactionWithSource = {
+              ...transaction,
+              _source: 'review-transactions'
+            };
+            handleViewTransaction(transactionWithSource as any);
+          }}
         />
       );
     }
@@ -782,7 +791,15 @@ export default function ProtectedPage() {
           user={safeUser}
           onBack={handleGoBack}
           transactions={transactions}
-          onTransactionClick={(transaction) => handleViewTransaction(transaction)}
+          onTransactionClick={(transaction) => {
+            // Ensure transaction has trans_id and add source
+            const transactionWithSource = {
+              ...transaction,
+              trans_id: (transaction as any).trans_id || transaction.id,
+              _source: 'categories'
+            };
+            handleViewTransaction(transactionWithSource as any);
+          }}
         />
       );
     }
@@ -840,8 +857,25 @@ export default function ProtectedPage() {
         <TaxEducationModal
           isOpen={isEducationModalOpen}
           onClose={() => setIsEducationModalOpen(false)}
-          transaction={viewingTransaction}
-          userProfile={userProfile}
+          transaction={viewingTransaction ? {
+            merchant_name: viewingTransaction.merchant_name,
+            amount: viewingTransaction.amount,
+            category: viewingTransaction.category,
+            is_deductible: viewingTransaction.is_deductible ?? false,
+            deductible_reason: viewingTransaction.deductible_reason,
+            ai: viewingTransaction.ai ? {
+              reasoning: viewingTransaction.ai.reasoning ?? undefined,
+              irs: viewingTransaction.ai.irs ? {
+                publication: viewingTransaction.ai.irs.publication ?? undefined,
+                section: viewingTransaction.ai.irs.section ?? undefined
+              } : undefined
+            } : undefined
+          } : undefined}
+          userProfile={userProfile ? {
+            profession: Array.isArray(userProfile.profession) ? userProfile.profession[0] || '' : userProfile.profession || '',
+            business_entity_type: userProfile.businessEntityType || '',
+            state: userProfile.state || ''
+          } : undefined}
         />
 
         {/* Mobile Quick Actions */}

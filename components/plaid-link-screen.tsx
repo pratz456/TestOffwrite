@@ -825,12 +825,13 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
 
       if (!response.ok) {
         let errorText = `HTTP ${response.status}`;
+        let errorData: any = null;
         try {
           const text = await response.text();              // read once
           try {
-            const data = JSON.parse(text);                 // attempt JSON
-            errorText = data?.error || data?.details || errorText;
-            console.error('Plaid connection error (JSON):', data);
+            errorData = JSON.parse(text);                 // attempt JSON
+            errorText = errorData?.message || errorData?.error || errorData?.details || errorText;
+            console.error('Plaid connection error (JSON):', errorData);
           } catch {
             // Non-JSON body
             errorText = text || errorText;
@@ -839,6 +840,13 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
         } catch {
           console.error('Plaid connection error: empty response');
         }
+
+        // Handle duplicate bank account error specifically
+        if (response.status === 409 && errorData?.error === 'BANK_ALREADY_CONNECTED') {
+          const accountName = errorData?.existingAccountName ? ` (${errorData.existingAccountName})` : '';
+          throw new Error(`This bank account is already connected${accountName}. Please go to your bank settings to manage existing connections.`);
+        }
+
         throw new Error(`Failed to connect bank account: ${errorText}`);
       }
 
