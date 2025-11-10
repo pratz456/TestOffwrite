@@ -15,7 +15,7 @@ export default function ScheduleSEPage() {
   const router = useRouter();
   const { user } = useAuth();
   const { toasts, removeToast, showSuccess, showError } = useToasts();
-  
+
   const [selectedYear, setSelectedYear] = useState('2024');
   const [exportFormat, setExportFormat] = useState('PDF');
   const [isExporting, setIsExporting] = useState(false);
@@ -34,15 +34,15 @@ export default function ScheduleSEPage() {
     try {
       setIsLoading(true);
       const response = await fetch('/api/settings/tax-summary');
-      
+
       if (response.ok) {
         const { data } = await response.json();
         setTaxSummary(data);
-        
+
         if (data) {
           const calc = calcScheduleSE(data, (user as any)?.filing_status || 'single');
           setCalculation(calc);
-          
+
           const errors = validateTaxSummarySettings(data);
           setValidationErrors(errors);
         }
@@ -74,13 +74,24 @@ export default function ScheduleSEPage() {
     }
 
     setIsExporting(true);
-    
+
     try {
+      // Get auth token for authentication
+      const { auth } = await import('@/lib/firebase/client');
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        showError('Authentication Error', 'Please log in to export reports');
+        return;
+      }
+      const token = await currentUser.getIdToken();
+
       const response = await fetch('/api/reports/export', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
         },
+        credentials: 'include',
         body: JSON.stringify({ type: 'scheduleSE' }),
       });
 
@@ -94,10 +105,10 @@ export default function ScheduleSEPage() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      
+
       const today = new Date().toISOString().split('T')[0];
       a.download = `scheduleSE_${today}.pdf`;
-      
+
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -176,8 +187,8 @@ export default function ScheduleSEPage() {
               </Select>
             </div>
           </div>
-          
-          <Button 
+
+          <Button
             onClick={handleExport}
             disabled={isExporting || !taxSummary || validationErrors.length > 0}
             className="w-full bg-blue-600 hover:bg-blue-700 text-white"
@@ -190,7 +201,7 @@ export default function ScheduleSEPage() {
         {/* Schedule SE Preview */}
         <Card className="p-6">
           <h2 className="text-xl font-semibold mb-4">Schedule SE Preview - Tax Year {selectedYear}</h2>
-          
+
           {!taxSummary ? (
             <div className="text-center py-12">
               <User className="w-16 h-16 text-gray-300 mx-auto mb-4" />

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist } from "next/font/google";
 import { AuthProvider } from "@/lib/firebase/auth-context";
 import { ReactQueryProvider } from "@/lib/react-query/provider";
+import { ThemeProvider } from "@/components/theme-provider-wrapper";
 import "./globals.css";
 
 const defaultUrl = process.env.VERCEL_URL
@@ -41,11 +42,13 @@ export default function RootLayout({
         className={`${geistSans.className} antialiased bg-background text-foreground min-h-screen`}
         suppressHydrationWarning
       >
-        <ReactQueryProvider>
-          <AuthProvider>
-            {children}
-          </AuthProvider>
-        </ReactQueryProvider>
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+          <ReactQueryProvider>
+            <AuthProvider>
+              {children}
+            </AuthProvider>
+          </ReactQueryProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

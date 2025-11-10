@@ -35,16 +35,44 @@
     --chart-5: 27 87% 55%;
     --radius: 8px;
   }
+  .dark {
+    /* Brand-consistent dark mode */
+    --background: 222 47% 7%;
+    --foreground: 0 0% 100%;
+    --card: 222 47% 9%;
+    --card-foreground: 0 0% 100%;
+    --popover: 222 47% 9%;
+    --popover-foreground: 0 0% 100%;
+    --primary: 217 91% 60%; /* slightly lighter for contrast on dark */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 222 47% 15%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: 222 47% 15%;
+    --muted-foreground: 215 16% 65%;
+    --accent: 221 83% 20%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 62.8% 45%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 222 47% 18%;
+    --input: 222 47% 18%;
+    --ring: 217 91% 60%;
+    --chart-1: 217 91% 60%;
+    --chart-2: 199 89% 48%;
+    --chart-3: 160 60% 55%;
+    --chart-4: 43 74% 60%;
+    --chart-5: 27 87% 60%;
+  }
+
   @media (prefers-color-scheme: dark) {
-    :root {
-      /* Brand-consistent dark mode */
+    :root:not(.light) {
+      /* Brand-consistent dark mode - fallback for system preference when no class is set */
       --background: 222 47% 7%;
       --foreground: 0 0% 100%;
       --card: 222 47% 9%;
       --card-foreground: 0 0% 100%;
       --popover: 222 47% 9%;
       --popover-foreground: 0 0% 100%;
-      --primary: 217 91% 60%; /* slightly lighter for contrast on dark */
+      --primary: 217 91% 60%;
       --primary-foreground: 0 0% 100%;
       --secondary: 222 47% 15%;
       --secondary-foreground: 0 0% 100%;
@@ -77,44 +105,43 @@
     @apply bg-background text-foreground antialiased;
   }
 
-  @media (prefers-color-scheme: dark) {
-    .bg-white,
-    .bg-gray-50,
-    .bg-slate-50 {
-      background-color: hsl(var(--card)) !important;
-    }
-    .bg-gray-50 {
-      background-color: hsl(var(--background)) !important;
-    }
-    .text-gray-900,
-    .text-black {
-      color: hsl(var(--foreground)) !important;
-    }
-    .text-gray-800,
-    .text-gray-700,
-    .text-gray-600,
-    .text-gray-500,
-    .text-gray-400 {
-      color: hsl(var(--muted-foreground)) !important;
-    }
-    .border-gray-200,
-    .border-gray-100,
-    .border-slate-200 {
-      border-color: hsl(var(--border)) !important;
-    }
-    .bg-blue-600,
-    .bg-blue-500 {
-      background-color: hsl(var(--primary)) !important;
-      color: hsl(var(--primary-foreground)) !important;
-    }
-    .hover\:bg-gray-50:hover {
-      background-color: hsl(var(--muted)) !important;
-    }
-    .text-blue-600 {
-      color: hsl(var(--primary)) !important;
-    }
+  /* Dark mode overrides for hardcoded colors - use semantic classes instead */
+  .dark .bg-white,
+  .dark .bg-gray-50,
+  .dark .bg-slate-50 {
+    background-color: hsl(var(--card)) !important;
   }
-  
+  .dark .bg-gray-50 {
+    background-color: hsl(var(--background)) !important;
+  }
+  .dark .text-gray-900,
+  .dark .text-black {
+    color: hsl(var(--foreground)) !important;
+  }
+  .dark .text-gray-800,
+  .dark .text-gray-700,
+  .dark .text-gray-600,
+  .dark .text-gray-500,
+  .dark .text-gray-400 {
+    color: hsl(var(--muted-foreground)) !important;
+  }
+  .dark .border-gray-200,
+  .dark .border-gray-100,
+  .dark .border-slate-200 {
+    border-color: hsl(var(--border)) !important;
+  }
+  .dark .bg-blue-600,
+  .dark .bg-blue-500 {
+    background-color: hsl(var(--primary)) !important;
+    color: hsl(var(--primary-foreground)) !important;
+  }
+  .dark .hover\:bg-gray-50:hover {
+    background-color: hsl(var(--muted)) !important;
+  }
+  .dark .text-blue-600 {
+    color: hsl(var(--primary)) !important;
+  }
+
   /* Focus states for accessibility */
   button:focus-visible,
   a:focus-visible,
@@ -123,7 +150,7 @@
   textarea:focus-visible {
     @apply outline-none outline-offset-2 outline-primary;
   }
-  
+
   /* Reduce motion preference */
   @media (prefers-reduced-motion: reduce) {
     * {
@@ -140,25 +167,25 @@
     min-height: 44px;
     min-width: 44px;
   }
-  
+
   @media (min-width: 768px) {
     .touch-target {
       min-height: 0;
       min-width: 0;
     }
   }
-  
+
   /* Mobile text size utilities */
   .text-mobile-sm {
     font-size: 0.875rem;
   }
-  
+
   @media (min-width: 768px) {
     .text-mobile-sm {
       font-size: inherit;
     }
   }
-  
+
   /* Prevent horizontal scroll on mobile */
   .mobile-no-scroll {
     overflow-x: hidden;

@@ -15,7 +15,7 @@ export default function Form8829Page() {
   const router = useRouter();
   const { user } = useAuth();
   const { toasts, removeToast, showSuccess, showError } = useToasts();
-  
+
   const [selectedYear, setSelectedYear] = useState('2024');
   const [exportFormat, setExportFormat] = useState('PDF');
   const [isExporting, setIsExporting] = useState(false);
@@ -34,15 +34,15 @@ export default function Form8829Page() {
     try {
       setIsLoading(true);
       const response = await fetch('/api/settings/home-office');
-      
+
       if (response.ok) {
         const { data } = await response.json();
         setHomeOfficeSettings(data);
-        
+
         if (data) {
           const calc = calc8829(data);
           setCalculation(calc);
-          
+
           const errors = validateHomeOfficeSettings(data);
           setValidationErrors(errors);
         }
@@ -75,13 +75,24 @@ export default function Form8829Page() {
     }
 
     setIsExporting(true);
-    
+
     try {
+      // Get auth token for authentication
+      const { auth } = await import('@/lib/firebase/client');
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        showError('Authentication Error', 'Please log in to export reports');
+        return;
+      }
+      const token = await currentUser.getIdToken();
+
       const response = await fetch('/api/reports/export', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
         },
+        credentials: 'include',
         body: JSON.stringify({ type: 'form8829' }),
       });
 
@@ -95,10 +106,10 @@ export default function Form8829Page() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      
+
       const today = new Date().toISOString().split('T')[0];
       a.download = `form8829_${today}.pdf`;
-      
+
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -177,8 +188,8 @@ export default function Form8829Page() {
               </Select>
             </div>
           </div>
-          
-          <Button 
+
+          <Button
             onClick={handleExport}
             disabled={isExporting || !homeOfficeSettings || validationErrors.length > 0}
             className="w-full bg-blue-600 hover:bg-blue-700 text-white"
@@ -191,7 +202,7 @@ export default function Form8829Page() {
         {/* Form 8829 Preview */}
         <Card className="p-6">
           <h2 className="text-xl font-semibold mb-4">Form 8829 Preview - Tax Year {selectedYear}</h2>
-          
+
           {!homeOfficeSettings ? (
             <div className="text-center py-12">
               <Home className="w-16 h-16 text-gray-300 mx-auto mb-4" />

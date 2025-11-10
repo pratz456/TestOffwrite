@@ -18,7 +18,7 @@ export default function Form4562Page() {
   const router = useRouter();
   const { user } = useAuth();
   const { toasts, removeToast, showSuccess, showError } = useToasts();
-  
+
   const [selectedYear, setSelectedYear] = useState('2024');
   const [exportFormat, setExportFormat] = useState('PDF');
   const [isExporting, setIsExporting] = useState(false);
@@ -48,17 +48,17 @@ export default function Form4562Page() {
     try {
       setIsLoading(true);
       const response = await fetch('/api/settings/assets');
-      
+
       if (response.ok) {
         const { data } = await response.json();
         setAssets(data || []);
-        
+
         if (data && data.length > 0) {
           // Use a default business income for calculation
           const businessIncome = 100000; // Default business income - should be replaced with actual Schedule C data when available
           const calc = calc4562(data, businessIncome);
           setCalculation(calc);
-          
+
           const errors = validateAssets(data);
           setValidationErrors(errors);
         } else {
@@ -93,13 +93,24 @@ export default function Form4562Page() {
     }
 
     setIsExporting(true);
-    
+
     try {
+      // Get auth token for authentication
+      const { auth } = await import('@/lib/firebase/client');
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        showError('Authentication Error', 'Please log in to export reports');
+        return;
+      }
+      const token = await currentUser.getIdToken();
+
       const response = await fetch('/api/reports/export', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
         },
+        credentials: 'include',
         body: JSON.stringify({ type: 'form4562' }),
       });
 
@@ -113,10 +124,10 @@ export default function Form4562Page() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      
+
       const today = new Date().toISOString().split('T')[0];
       a.download = `form4562_${today}.pdf`;
-      
+
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -254,8 +265,8 @@ export default function Form4562Page() {
               </Select>
             </div>
           </div>
-          
-          <Button 
+
+          <Button
             onClick={handleExport}
             disabled={isExporting || assets.length === 0 || validationErrors.length > 0}
             className="w-full bg-blue-600 hover:bg-blue-700 text-white"
@@ -268,7 +279,7 @@ export default function Form4562Page() {
         {/* Form 4562 Preview */}
         <Card className="p-6">
           <h2 className="text-xl font-semibold mb-4">Form 4562 Preview - Tax Year {selectedYear}</h2>
-          
+
           {assets.length === 0 ? (
             <div className="text-center py-12">
               <Calculator className="w-16 h-16 text-gray-300 mx-auto mb-4" />
@@ -331,7 +342,7 @@ export default function Form4562Page() {
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
                   <h3 className="text-lg font-medium text-gray-900">Business Assets ({assets.length})</h3>
-                  <Button 
+                  <Button
                     onClick={() => setShowAddAsset(!showAddAsset)}
                     variant="outline"
                     size="sm"

@@ -1,7 +1,7 @@
 export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
+import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import { getUserProfileServer } from '@/lib/firebase/profiles-server';
 import { getTransactionsServer } from '@/lib/firebase/transactions-server';
 import { generateForm8829PDF } from '@/lib/reports/form8829';
@@ -14,16 +14,11 @@ type FormType = 'form8829' | 'form4562' | 'scheduleSE';
 export async function POST(request: NextRequest) {
   try {
     console.log('🔄 [Reports Export API] Starting request...');
-    
-    // Get the authenticated user
-    const { user, error: authError } = await getAuthenticatedUser(request);
-    
-    if (authError || !user) {
-      console.error('❌ [Reports Export API] Authentication failed:', authError);
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
 
-    console.log('✅ [Reports Export API] User authenticated:', user.uid);
+    // Get the authenticated user
+    const { uid } = await getUserFromReqOrThrow(request);
+
+    console.log('✅ [Reports Export API] User authenticated:', uid);
 
     const { type } = await request.json();
 
@@ -34,10 +29,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log(`📋 [Reports Export API] Generating ${type} for user ${user.uid}`);
+    console.log(`📋 [Reports Export API] Generating ${type} for user ${uid}`);
 
     // Fetch user profile
-    const { data: userProfile, error: profileError } = await getUserProfileServer(user.uid);
+    const { data: userProfile, error: profileError } = await getUserProfileServer(uid);
     if (profileError || !userProfile) {
       console.error('❌ [Reports Export API] Failed to fetch user profile:', profileError);
       return NextResponse.json(
@@ -47,7 +42,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Fetch transactions for calculations
-    const { data: transactions, error: transactionsError } = await getTransactionsServer(user.uid);
+    const { data: transactions, error: transactionsError } = await getTransactionsServer(uid);
     if (transactionsError) {
       console.error('❌ [Reports Export API] Failed to fetch transactions:', transactionsError);
       return NextResponse.json(
@@ -65,7 +60,7 @@ export async function POST(request: NextRequest) {
     switch (type as FormType) {
       case 'form8829':
         // Fetch home office settings
-        const { data: homeOfficeSettings, error: homeOfficeError } = await getHomeOfficeSettings(user.uid);
+        const { data: homeOfficeSettings, error: homeOfficeError } = await getHomeOfficeSettings(uid);
         if (homeOfficeError || !homeOfficeSettings) {
           return NextResponse.json(
             { error: 'Home office settings not found. Please complete your home office setup in Settings.' },
@@ -92,7 +87,7 @@ export async function POST(request: NextRequest) {
 
       case 'form4562':
         // Fetch assets settings
-        const { data: assetsSettings, error: assetsError } = await getAssetsSettings(user.uid);
+        const { data: assetsSettings, error: assetsError } = await getAssetsSettings(uid);
         if (assetsError || !assetsSettings || assetsSettings.length === 0) {
           return NextResponse.json(
             { error: 'No assets found. Please add your business assets in Settings.' },
@@ -111,7 +106,7 @@ export async function POST(request: NextRequest) {
 
       case 'scheduleSE':
         // Fetch tax summary settings
-        const { data: taxSummarySettings, error: taxSummaryError } = await getTaxSummarySettings(user.uid);
+        const { data: taxSummarySettings, error: taxSummaryError } = await getTaxSummarySettings(uid);
         if (taxSummaryError || !taxSummarySettings) {
           return NextResponse.json(
             { error: 'Tax summary not found. Please ensure your Schedule C data is complete.' },
@@ -151,7 +146,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('❌ [Reports Export API] Unexpected error:', error);
     return NextResponse.json(
-      { 
+      {
         error: 'Failed to generate report',
         details: error instanceof Error ? error.message : 'Unknown error'
       },
