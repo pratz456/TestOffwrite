@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
     const { uid } = await getUserFromReqOrThrow(request);
     const body = await request.json().catch(() => ({}));
     const { accountId } = body;
-    
+
     const userId = uid;
 
     console.log('🔍 [Auto-Analyze] Request received:', { userId, accountId, body });
@@ -61,12 +61,12 @@ export async function POST(request: NextRequest) {
     // Ensure the account belongs to the user
     const accRef = adminDb.doc(`user_profiles/${uid}/accounts/${accountId}`);
     const accSnap = await accRef.get();
-    console.log('🔍 [Auto-Analyze] Account lookup:', { 
-      accountPath: `user_profiles/${uid}/accounts/${accountId}`, 
+    console.log('🔍 [Auto-Analyze] Account lookup:', {
+      accountPath: `user_profiles/${uid}/accounts/${accountId}`,
       exists: accSnap.exists,
-      accountData: accSnap.exists ? accSnap.data() : null 
+      accountData: accSnap.exists ? accSnap.data() : null
     });
-    
+
     if (!accSnap.exists) {
       console.error('❌ [Auto-Analyze] Account not found:', { userId: uid, accountId });
       return NextResponse.json({ error: 'Account not found' }, { status: 404 });
@@ -91,7 +91,7 @@ export async function POST(request: NextRequest) {
 
     // Get user profile for context
     const { data: userProfile, error: profileError } = await getUserProfileServer(uid);
-    
+
     if (profileError || !userProfile) {
       console.error('❌ [Auto-Analyze] User profile not found:', profileError);
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
@@ -102,33 +102,132 @@ export async function POST(request: NextRequest) {
     const total = txs.length;
 
     console.log(`📊 [Auto-Analyze] Found ${total} pending transactions for analysis`);
-    console.log('🔍 [Auto-Analyze] Transaction details:', { 
-      total, 
+    console.log('🔍 [Auto-Analyze] Transaction details:', {
+      total,
       firstFew: txs.slice(0, 3).map(tx => ({ id: tx.id, merchant: tx.merchant_name, status: tx.analysis_status }))
     });
 
     // Check if there are any transactions to analyze
     if (total === 0) {
       console.warn(`⚠️ [Auto-Analyze] No pending transactions found for account ${accountId}`);
-      
+
       // Check if ANY transactions exist for this account (not just pending)
       const allTxsRef = adminDb
         .collection(`user_profiles/${uid}/accounts/${accountId}/transactions`)
         .limit(10);
       const allTxsSnap = await allTxsRef.get();
-      
+
       if (allTxsSnap.empty) {
         console.error(`❌ [Auto-Analyze] No transactions found at all for account ${accountId}`);
         console.error(`❌ [Auto-Analyze] Collection path: user_profiles/${uid}/accounts/${accountId}/transactions`);
-        
+
         // Additional debugging: Check if the account document exists
         const accRef = adminDb.doc(`user_profiles/${uid}/accounts/${accountId}`);
         const accSnap = await accRef.get();
         console.error(`❌ [Auto-Analyze] Account document exists:`, accSnap.exists);
-        
-        return NextResponse.json({ 
-          error: 'No transactions found for this account. Please reconnect your bank or try importing transactions again.',
-          details: 'The account was connected but no transactions were imported.',
+
+        // Try to automatically import transactions if user has Plaid token
+        console.log(`🔄 [Auto-Analyze] Attempting to automatically import transactions for account ${accountId}`);
+        try {
+          // userProfile is already fetched earlier in the function
+          if (userProfile?.plaid_token) {
+            console.log(`✅ [Auto-Analyze] User has Plaid token, triggering transaction import...`);
+
+            // Import transactions using sync helper
+            const { syncUserTransactions } = await import('../../../../lib/plaid/sync-helper');
+            const syncResult = await syncUserTransactions(uid, '2years');
+
+            if (syncResult.success && syncResult.transactionsSaved > 0) {
+              console.log(`✅ [Auto-Analyze] Successfully imported ${syncResult.transactionsSaved} transactions`);
+
+              // Wait a moment for transactions to be fully written to Firestore
+              await new Promise(resolve => setTimeout(resolve, 2000));
+
+              // Now check again for pending transactions
+              const newTxs = await getPendingTransactions(uid, accountId);
+              const newTotal = newTxs.length;
+
+              console.log(`✅ [Auto-Analyze] Found ${newTotal} pending transactions after import`);
+
+              if (newTotal > 0) {
+                console.log(`✅ [Auto-Analyze] Proceeding with analysis for ${newTotal} newly imported transactions`);
+
+                // Initialize the job doc
+                const jobId = `${uid}_${accountId}`;
+                const jobRef = adminDb.collection('analysis_jobs').doc(jobId);
+
+                await jobRef.set({
+                  userId: uid,
+                  accountId,
+                  status: 'running',
+                  total: newTotal,
+                  processed: 0,
+                  succeeded: 0,
+                  failed: 0,
+                  batchSize: 10,
+                  avgMs: 0,
+                  startedAt: FieldValue.serverTimestamp(),
+                  completedAt: null,
+                  lastUpdate: FieldValue.serverTimestamp(),
+                } as JobDoc, { merge: false });
+
+                // Kick off the work in background
+                void processTransactions(jobRef, newTxs, uid, accountId, userProfile);
+
+                return NextResponse.json({
+                  jobId,
+                  message: `Successfully imported ${syncResult.transactionsSaved} transactions. Analysis started for ${newTotal} transactions.`,
+                  imported: syncResult.transactionsSaved,
+                  pendingTransactions: newTotal
+                }, { status: 200 });
+              } else {
+                console.warn(`⚠️ [Auto-Analyze] Imported transactions but none are pending analysis (they may already be analyzed)`);
+                // Check if all transactions are already analyzed
+                const allTxsCheck = await adminDb
+                  .collection(`user_profiles/${uid}/accounts/${accountId}/transactions`)
+                  .limit(10)
+                  .get();
+
+                if (!allTxsCheck.empty) {
+                  // Transactions exist but are already analyzed
+                  const jobId = `${uid}_${accountId}`;
+                  const jobRef = adminDb.collection('analysis_jobs').doc(jobId);
+                  await jobRef.set({
+                    userId: uid,
+                    accountId,
+                    status: 'done',
+                    total: allTxsCheck.size,
+                    processed: allTxsCheck.size,
+                    succeeded: allTxsCheck.size,
+                    failed: 0,
+                    startedAt: FieldValue.serverTimestamp(),
+                    completedAt: FieldValue.serverTimestamp(),
+                  });
+
+                  return NextResponse.json({
+                    jobId,
+                    message: `Successfully imported ${syncResult.transactionsSaved} transactions. All transactions are already analyzed.`,
+                    imported: syncResult.transactionsSaved,
+                    totalTransactions: allTxsCheck.size
+                  }, { status: 200 });
+                }
+              }
+            } else {
+              console.error(`❌ [Auto-Analyze] Failed to import transactions:`, syncResult.error);
+            }
+          } else {
+            console.warn(`⚠️ [Auto-Analyze] User does not have Plaid token, cannot auto-import transactions`);
+          }
+        } catch (importError) {
+          console.error(`❌ [Auto-Analyze] Error during auto-import:`, importError);
+          // Continue to return error below
+        }
+
+        // If we reach here, either import failed or user doesn't have Plaid token
+        return NextResponse.json({
+          error: 'No transactions found for this account.',
+          details: 'The account was connected but no transactions were imported. Please use the "Re-sync Transactions" button in your bank settings to import transactions.',
+          suggestion: 'Go to Settings > Accounts and click "Re-sync Transactions" to import your transaction history.',
           debug: {
             accountPath: `user_profiles/${uid}/accounts/${accountId}`,
             accountExists: accSnap.exists,
@@ -148,9 +247,9 @@ export async function POST(request: NextRequest) {
             merchant_name: data.merchant_name
           };
         });
-        
+
         console.log(`ℹ️ [Auto-Analyze] Found ${allTxsSnap.size} transactions but none are pending:`, sampleTxs);
-        
+
         // All transactions are already analyzed, mark as done
         await jobRef.set({
           userId,
@@ -163,8 +262,8 @@ export async function POST(request: NextRequest) {
           startedAt: FieldValue.serverTimestamp(),
           completedAt: FieldValue.serverTimestamp(),
         });
-        return NextResponse.json({ 
-          jobId, 
+        return NextResponse.json({
+          jobId,
           message: 'All transactions already analyzed',
           totalTransactions: allTxsSnap.size
         }, { status: 200 });
@@ -215,18 +314,18 @@ export async function POST(request: NextRequest) {
 async function getPendingTransactions(userId: string, accountId: string) {
   const collectionPath = `user_profiles/${userId}/accounts/${accountId}/transactions`;
   console.log('🔍 [Auto-Analyze] Querying transactions from:', collectionPath);
-  
+
   // First, try to get all transactions to see what's actually in the database
   const allTxsSnap = await adminDb
     .collection(collectionPath)
     .limit(10)
     .get();
 
-  console.log('🔍 [Auto-Analyze] All transactions sample:', { 
+  console.log('🔍 [Auto-Analyze] All transactions sample:', {
     totalDocs: allTxsSnap.docs.length,
     empty: allTxsSnap.empty,
-    sampleDocs: allTxsSnap.docs.map(doc => ({ 
-      id: doc.id, 
+    sampleDocs: allTxsSnap.docs.map(doc => ({
+      id: doc.id,
       analysis_status: doc.data().analysis_status,
       analysisStatus: doc.data().analysisStatus,
       analyzed: doc.data().analyzed,
@@ -287,7 +386,7 @@ async function getPendingTransactions(userId: string, accountId: string) {
         .collection(collectionPath)
         .limit(500)
         .get();
-      
+
       pendingTransactions = snap4.docs
         .map(doc => ({ id: doc.id, ...doc.data() }))
         .filter(tx => {
@@ -301,7 +400,7 @@ async function getPendingTransactions(userId: string, accountId: string) {
     }
   }
 
-  console.log('🔍 [Auto-Analyze] Final pending transactions:', { 
+  console.log('🔍 [Auto-Analyze] Final pending transactions:', {
     count: pendingTransactions.length,
     firstFew: pendingTransactions.slice(0, 3).map(tx => ({
       id: tx.id,
@@ -328,11 +427,11 @@ async function processTransactions(
   console.log(`🔄 [Auto-Analyze] Processing ${txs.length} transactions in background`);
 
   const BATCH_SIZE = 10;
-  
+
   // Process in batches of 10
   for (let i = 0; i < txs.length; i += BATCH_SIZE) {
     const batch = txs.slice(i, i + BATCH_SIZE);
-    
+
     // Process batch in parallel
     await Promise.all(batch.map(async (tx) => {
       const start = Date.now();
@@ -365,7 +464,7 @@ async function analyzeOneTransaction(
   userProfile: any
 ) {
   const txRef = adminDb.doc(`user_profiles/${userId}/accounts/${accountId}/transactions/${tx.id}`);
-  
+
   // Mark as running
   await txRef.update({
     analysis_status: 'running',
@@ -403,12 +502,12 @@ async function analyzeOneTransaction(
 
   // Analyze with the new improved system
   const analysisResult = await analyzeTransactionWithRetry(transactionInput, userContext);
-  
+
   if (!analysisResult.success) {
     console.error(`❌ [Auto-Analyze] Analysis failed for transaction ${tx.id}:`, analysisResult.error);
     throw new Error(`Analysis failed: ${analysisResult.error}`);
   }
-  
+
   const result = analysisResult.result;
 
   // Update transaction with analysis results using new schema
@@ -417,15 +516,15 @@ async function analyzeOneTransaction(
     deduction_score: result.confidence || 0,
     deductible_reason: result.customized_reason || result.reasoning_summary || 'Analysis pending',
     is_deductible: result.is_deductible || false,
-    
+
     // New enhanced analysis fields
     ai: {
       status_label: result.is_deductible ? 'Likely Deductible' : 'Unlikely Deductible',
       score_pct: typeof result.confidence === 'number' ? Math.round(result.confidence * 100) : 0,
       reasoning: result.customized_reason || result.reasoning_summary || 'Analysis pending',
-      irs: { 
-        publication: result.irs_refs?.[0] || 'IRS Pub 535 (Business Expenses)', 
-        section: null 
+      irs: {
+        publication: result.irs_refs?.[0] || 'IRS Pub 535 (Business Expenses)',
+        section: null
       },
       required_docs: [], // Removed as per user request
       model: process.env.OPENAI_MODEL || 'gpt-4o-mini',

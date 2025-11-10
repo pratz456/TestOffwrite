@@ -29,7 +29,35 @@ export async function GET(request: NextRequest) {
     }
 
     console.log(`✅ [Database Accounts API] Successfully fetched ${result.data.length} accounts`);
-    return NextResponse.json({ accounts: result.data })
+
+    // Check if any accounts are missing balance data
+    // Note: We check for balance being 0, null, or undefined, but 0 is a valid balance
+    // So we'll only flag accounts where balance is explicitly null/undefined
+    const accountsWithoutBalance = result.data.filter(acc => {
+      // Check if balance field is missing or if it's null/undefined (but not 0, as 0 is valid)
+      const hasBalanceField = acc.balance !== undefined && acc.balance !== null;
+      const hasBalanceData = hasBalanceField || acc.available_balance !== undefined || acc.current_balance !== undefined;
+      return !hasBalanceData;
+    });
+
+    if (accountsWithoutBalance.length > 0) {
+      console.log(`⚠️ [Database Accounts API] Found ${accountsWithoutBalance.length} account(s) without balance data:`);
+      accountsWithoutBalance.forEach(acc => {
+        console.log(`   - ${acc.name || acc.account_id}: balance=${acc.balance}, available_balance=${acc.available_balance}, current_balance=${acc.current_balance}`);
+      });
+      console.log(`💡 [Database Accounts API] Balance data can be refreshed via /api/plaid/refresh-balances endpoint`);
+    } else {
+      console.log(`✅ [Database Accounts API] All ${result.data.length} accounts have balance data`);
+    }
+
+    return NextResponse.json({
+      accounts: result.data,
+      metadata: {
+        totalAccounts: result.data.length,
+        accountsWithoutBalance: accountsWithoutBalance.length,
+        needsBalanceRefresh: accountsWithoutBalance.length > 0
+      }
+    })
   } catch (error) {
     console.error('❌ [Database Accounts API] Unexpected error:', error);
     return NextResponse.json({

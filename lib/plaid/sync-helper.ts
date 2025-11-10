@@ -78,32 +78,59 @@ export async function syncUserTransactions(
     }
 
     // Calculate date range based on timeframe
+    // Use the same robust date calculation as exchange-public-token
     const endDate = new Date();
+    endDate.setHours(23, 59, 59, 999); // End of today
     const startDate = new Date();
+
+    const MAX_PLAID_DAYS = 730; // Maximum days Plaid supports (2 years)
+    let daysToFetch = 365; // Default to 1 year
 
     switch (importTimeframe) {
       case '1month':
-        startDate.setMonth(endDate.getMonth() - 1);
+        daysToFetch = 30;
         break;
       case '6months':
-        startDate.setMonth(endDate.getMonth() - 6);
+        daysToFetch = 180;
         break;
       case '1year':
-        startDate.setFullYear(endDate.getFullYear() - 1);
+        daysToFetch = 365;
+        break;
+      case '2years':
+        daysToFetch = 730; // Maximum available from Plaid
         break;
       default:
-        startDate.setMonth(endDate.getMonth() - 6);
+        daysToFetch = 730; // Default to maximum (2 years / 730 days)
     }
 
-    console.log(`📅 [Sync Helper] Syncing transactions from ${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}`);
+    const actualDays = Math.min(daysToFetch, MAX_PLAID_DAYS);
+
+    // Calculate start date more reliably using milliseconds
+    const startDateMs = endDate.getTime() - (actualDays * 24 * 60 * 60 * 1000);
+    startDate.setTime(startDateMs);
+    startDate.setHours(0, 0, 0, 0); // Start of the day
+
+    const startDateStr = startDate.toISOString().split('T')[0];
+    const endDateStr = endDate.toISOString().split('T')[0];
+    const actualDateRange = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+
+    console.log(`📅 [Sync Helper] Transaction sync configuration:`);
+    console.log(`   📆 Date range: ${startDateStr} to ${endDateStr}`);
+    console.log(`   📊 Requested timeframe: ${importTimeframe} (${daysToFetch} days)`);
+    console.log(`   ✅ Calculated: ${actualDays} days (${actualDays === MAX_PLAID_DAYS ? 'MAXIMUM AVAILABLE' : 'within limit'})`);
+    console.log(`   🔍 Actual date range: ${actualDateRange} days`);
+    console.log(`   📅 Start date: ${startDate.toLocaleDateString()} (${startDateStr})`);
+    console.log(`   📅 End date: ${endDate.toLocaleDateString()} (${endDateStr})`);
+    console.log(`   ⚠️ NOTE: Plaid may only return transactions available from the bank.`);
+    console.log(`   ⚠️ NOTE: Sandbox environment may have limited test data (typically 30-40 days).`);
 
     // Fetch all transactions from Plaid with pagination
-    const { transactions, totalPages, totalTransactions } = await fetchAllPlaidTransactions(
+    const { transactions, totalPages, totalTransactions, plaidTotalTransactions } = await fetchAllPlaidTransactions(
       client,
       {
         access_token: userProfile.plaid_token,
-        start_date: startDate.toISOString().split('T')[0],
-        end_date: endDate.toISOString().split('T')[0],
+        start_date: startDateStr,
+        end_date: endDateStr,
         options: {
           include_personal_finance_category: true,
           include_logo_and_counterparty_beta: true,
@@ -111,6 +138,29 @@ export async function syncUserTransactions(
       },
       '[Sync Helper]'
     );
+
+    console.log(`📊 [Sync Helper] Fetched ${totalTransactions} transactions from Plaid`);
+    if (plaidTotalTransactions !== undefined) {
+      console.log(`📊 [Sync Helper] Plaid reported ${plaidTotalTransactions} total transactions available`);
+      if (totalTransactions < plaidTotalTransactions) {
+        console.warn(`⚠️ [Sync Helper] WARNING: Fetched ${totalTransactions} but Plaid reported ${plaidTotalTransactions} available. Some transactions may be missing.`);
+      }
+    }
+
+    // Log the date range of fetched transactions for debugging
+    if (transactions.length > 0) {
+      const transactionDates = transactions.map(tx => tx.date).sort();
+      const earliestTx = transactionDates[0];
+      const latestTx = transactionDates[transactionDates.length - 1];
+      console.log(`📊 [Sync Helper] Transaction date range in results: ${earliestTx} to ${latestTx}`);
+      console.log(`📊 [Sync Helper] Requested date range: ${startDateStr} to ${endDateStr}`);
+
+      if (earliestTx > startDateStr) {
+        console.warn(`⚠️ [Sync Helper] WARNING: Earliest transaction (${earliestTx}) is after requested start date (${startDateStr})`);
+        console.warn(`⚠️ [Sync Helper] This suggests Plaid/bank does not have transactions before ${earliestTx}`);
+        console.warn(`⚠️ [Sync Helper] Possible reasons: Account connected on ${earliestTx}, or bank/Plaid has limited historical data`);
+      }
+    }
 
     console.log(`📊 [Sync Helper] Fetched ${totalTransactions} transactions from Plaid across ${totalPages} page(s)`);
 

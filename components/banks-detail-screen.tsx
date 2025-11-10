@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { ArrowLeft, Building2, CheckCircle, AlertCircle, CreditCard, Smartphone, DollarSign, Calendar, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, Building2, CheckCircle, AlertCircle, CreditCard, Smartphone, DollarSign, Calendar, Plus, Trash2, RefreshCw } from 'lucide-react';
 import { auth } from '@/lib/firebase/client';
 
 interface BankConnection {
@@ -82,18 +82,99 @@ export const BanksDetailScreen: React.FC<BanksDetailScreenProps> = ({
         if (accountsResponse.ok) {
           const data = await accountsResponse.json();
           console.log('📊 [Banks Detail] Fetched accounts:', data);
-          const accounts: BankConnection[] = (data.accounts || []).map((account: any) => ({
-            id: account.account_id || account.id,
-            bankName: account.name || 'Unknown Bank',
-            accountType: `${account.subtype || account.type || 'Account'}`,
-            accountNumber: account.mask ? `****${account.mask}` : '****',
-            isConnected: true,
-            lastSync: account.updated_at ? new Date(account.updated_at.seconds * 1000 || account.updated_at).toISOString() : new Date().toISOString(),
-            balance: 0, // Balance would need to be fetched separately
-            transactionCount: 0, // Transaction count would need to be calculated
-            status: 'active' as const
-          }));
-          console.log('✅ [Banks Detail] Processed accounts:', accounts);
+
+          // First, refresh balances from Plaid to get the latest data
+          try {
+            console.log('🔄 [Banks Detail] Refreshing balances from Plaid...');
+            const refreshResponse = await fetch('/api/plaid/refresh-balances', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+            });
+
+            if (refreshResponse.ok) {
+              const refreshData = await refreshResponse.json();
+              console.log('✅ [Banks Detail] Balance refresh response:', refreshData);
+              console.log(`✅ [Banks Detail] Updated ${refreshData.updated || 0} account(s) with fresh balances`);
+
+              if (refreshData.skipped > 0) {
+                console.warn(`⚠️ [Banks Detail] ${refreshData.skipped} account(s) were skipped during refresh:`, refreshData.skippedAccounts);
+              }
+
+              // Re-fetch accounts to get updated balances
+              const refreshedAccountsResponse = await fetch('/api/database/accounts', {
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'Content-Type': 'application/json',
+                },
+              });
+              if (refreshedAccountsResponse.ok) {
+                const refreshedData = await refreshedAccountsResponse.json();
+                console.log(`✅ [Banks Detail] Fetched ${refreshedData.accounts?.length || 0} accounts after balance refresh`);
+
+                // Check if balances were actually updated
+                const accountsWithBalances = refreshedData.accounts.filter((acc: any) =>
+                  acc.balance !== undefined && acc.balance !== null
+                );
+                console.log(`✅ [Banks Detail] ${accountsWithBalances.length} account(s) now have balance data`);
+
+                data.accounts = refreshedData.accounts;
+              } else {
+                const errorText = await refreshedAccountsResponse.text().catch(() => 'Unknown error');
+                console.warn('⚠️ [Banks Detail] Failed to fetch accounts after refresh:', refreshedAccountsResponse.status, errorText);
+                // Continue with stored data if refresh fails
+              }
+            } else {
+              const errorText = await refreshResponse.text().catch(() => '');
+              let errorData;
+              try {
+                errorData = JSON.parse(errorText);
+              } catch {
+                errorData = { error: errorText || 'Unknown error' };
+              }
+              console.error('❌ [Banks Detail] Balance refresh failed:', refreshResponse.status, errorData);
+              console.error('❌ [Banks Detail] Error details:', {
+                status: refreshResponse.status,
+                error: errorData.error,
+                error_code: errorData.error_code,
+                error_message: errorData.error_message
+              });
+              // Continue with stored data if refresh fails
+            }
+          } catch (refreshError: any) {
+            console.warn('⚠️ [Banks Detail] Failed to refresh balances, using stored data:', refreshError?.message || refreshError);
+            // Continue with stored data if refresh fails
+          }
+
+          const accounts: BankConnection[] = (data.accounts || []).map((account: any) => {
+            // Calculate balance based on account type
+            let displayBalance = 0;
+            const isCreditCard = account.type === 'credit' || account.subtype === 'credit card';
+
+            if (isCreditCard) {
+              // For credit cards: show available credit
+              // balance field should already contain the calculated available credit
+              displayBalance = account.balance ?? account.available_balance ?? 0;
+            } else {
+              // For depository accounts: show available balance
+              displayBalance = account.balance ?? account.available_balance ?? account.current_balance ?? 0;
+            }
+
+            return {
+              id: account.account_id || account.id,
+              bankName: account.name || 'Unknown Bank',
+              accountType: `${account.subtype || account.type || 'Account'}`,
+              accountNumber: account.mask ? `****${account.mask}` : '****',
+              isConnected: true,
+              lastSync: account.updated_at ? new Date(account.updated_at.seconds * 1000 || account.updated_at).toISOString() : new Date().toISOString(),
+              balance: displayBalance,
+              transactionCount: 0, // Transaction count would need to be calculated
+              status: 'active' as const
+            };
+          });
+          console.log('✅ [Banks Detail] Processed accounts with balances:', accounts);
           setBankConnections(accounts);
         } else {
           const errorData = await accountsResponse.json().catch(() => ({}));
@@ -254,14 +335,157 @@ export const BanksDetailScreen: React.FC<BanksDetailScreenProps> = ({
       {/* Header */}
       <div className="bg-white border-b border-blue-100 sticky top-0 z-50 shadow-sm">
         <div className="max-w-6xl mx-auto px-6 py-4">
-          <div className="flex items-center gap-4">
-            <Button onClick={onBack} variant="outline" size="sm" className="gap-2">
-              <ArrowLeft className="w-4 h-4" />
-              Back
-            </Button>
-            <div>
-              <h1 className="text-xl font-semibold text-slate-900">Connected Banks</h1>
-              <p className="text-sm text-slate-600">Manage your bank connections and sync settings</p>
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <Button onClick={onBack} variant="outline" size="sm" className="gap-2">
+                <ArrowLeft className="w-4 h-4" />
+                Back
+              </Button>
+              <div>
+                <h1 className="text-xl font-semibold text-slate-900">Connected Banks</h1>
+                <p className="text-sm text-slate-600">Manage your bank connections and sync settings</p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  try {
+                    setLoading(true);
+                    const currentUser = auth.currentUser;
+                    if (!currentUser) return;
+
+                    const token = await currentUser.getIdToken();
+                    console.log('🔄 [Banks Detail] Refreshing all balances...');
+                    const refreshResponse = await fetch('/api/plaid/refresh-balances', {
+                      method: 'POST',
+                      headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                      },
+                    });
+
+                    if (refreshResponse.ok) {
+                      const refreshData = await refreshResponse.json();
+                      console.log('✅ [Banks Detail] Refreshed balances:', refreshData);
+
+                      // Re-fetch accounts to get updated balances
+                      const refreshedAccountsResponse = await fetch('/api/database/accounts', {
+                        headers: {
+                          'Authorization': `Bearer ${token}`,
+                          'Content-Type': 'application/json',
+                        },
+                      });
+                      if (refreshedAccountsResponse.ok) {
+                        const refreshedData = await refreshedAccountsResponse.json();
+                        const accounts: BankConnection[] = (refreshedData.accounts || []).map((account: any) => {
+                          let displayBalance = 0;
+                          const isCreditCard = account.type === 'credit' || account.subtype === 'credit card';
+
+                          if (isCreditCard) {
+                            displayBalance = account.balance ?? account.available_balance ?? 0;
+                          } else {
+                            displayBalance = account.balance ?? account.available_balance ?? account.current_balance ?? 0;
+                          }
+
+                          return {
+                            id: account.account_id || account.id,
+                            bankName: account.name || 'Unknown Bank',
+                            accountType: `${account.subtype || account.type || 'Account'}`,
+                            accountNumber: account.mask ? `****${account.mask}` : '****',
+                            isConnected: true,
+                            lastSync: account.updated_at ? new Date(account.updated_at.seconds * 1000 || account.updated_at).toISOString() : new Date().toISOString(),
+                            balance: displayBalance,
+                            transactionCount: 0,
+                            status: 'active' as const
+                          };
+                        });
+                        setBankConnections(accounts);
+                        alert(`Successfully refreshed balances for ${refreshData.updated || 0} account(s)`);
+                      }
+                    } else {
+                      const errorData = await refreshResponse.json().catch(() => ({}));
+                      console.error('❌ [Banks Detail] Failed to refresh balances:', errorData);
+                      alert('Failed to refresh balances. Please try again.');
+                    }
+                  } catch (error: any) {
+                    console.error('❌ [Banks Detail] Error refreshing balances:', error);
+                    alert('Error refreshing balances. Please try again.');
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+                disabled={loading}
+                className="gap-2"
+              >
+                <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                {loading ? 'Refreshing...' : 'Refresh Balances'}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async (e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+
+                  if (!confirm('This will re-sync all transactions with maximum date range (2 years). This may take a few minutes. Continue?')) {
+                    return;
+                  }
+
+                  const currentUser = auth.currentUser;
+                  if (!currentUser) {
+                    alert('Please log in to sync transactions');
+                    return;
+                  }
+
+                  try {
+                    setLoading(true);
+                    console.log('🔄 [Banks Detail] Starting transaction sync...');
+
+                    const token = await currentUser.getIdToken(true); // Force refresh token
+                    console.log('🔄 [Banks Detail] Got auth token, calling sync API...');
+
+                    const syncResponse = await fetch('/api/plaid/sync-transactions', {
+                      method: 'POST',
+                      headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                      },
+                      body: JSON.stringify({
+                        userId: currentUser.uid,
+                        import_timeframe: '2years'
+                      }),
+                    });
+
+                    console.log('📡 [Banks Detail] Sync response status:', syncResponse.status);
+
+                    if (syncResponse.ok) {
+                      const syncData = await syncResponse.json();
+                      console.log('✅ [Banks Detail] Transaction sync completed:', syncData);
+                      alert(`✅ Successfully synced ${syncData.transactions_saved || 0} transactions!\n\nThe page will reload to show updated data.`);
+                      setTimeout(() => {
+                        window.location.reload();
+                      }, 1500);
+                    } else {
+                      const errorData = await syncResponse.json().catch(() => ({}));
+                      console.error('❌ [Banks Detail] Failed to sync transactions:', errorData);
+                      const errorMessage = errorData.error || errorData.details || `HTTP ${syncResponse.status}: ${syncResponse.statusText}`;
+                      alert(`❌ Failed to sync transactions:\n\n${errorMessage}\n\nPlease check the console for more details.`);
+                    }
+                  } catch (error: any) {
+                    console.error('❌ [Banks Detail] Error syncing transactions:', error);
+                    alert(`❌ Error syncing transactions:\n\n${error.message || 'Unknown error'}\n\nPlease check the console for more details.`);
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+                disabled={loading}
+                className="gap-2"
+              >
+                <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                {loading ? 'Syncing...' : 'Re-sync Transactions'}
+              </Button>
             </div>
           </div>
         </div>
@@ -361,22 +585,46 @@ export const BanksDetailScreen: React.FC<BanksDetailScreenProps> = ({
                     className={`p-4 rounded-lg border-l-4 ${getStatusColor(connection.status)}`}
                   >
                     <div className="flex items-start justify-between">
-                      <div className="flex items-start gap-3">
+                      <div className="flex items-start gap-3 flex-1">
                         {getStatusIcon(connection.status)}
-                        <div>
-                          <h4 className="font-medium text-slate-900">{connection.bankName}</h4>
-                          <p className="text-sm text-slate-600">{connection.accountType} • {connection.accountNumber}</p>
+                        <div className="flex-1">
+                          <div className="flex items-start justify-between">
+                            <div>
+                              <h4 className="font-medium text-slate-900">{connection.bankName}</h4>
+                              <p className="text-sm text-slate-600">{connection.accountType} • {connection.accountNumber}</p>
+                            </div>
+                            <div className="text-right ml-4">
+                              {connection.balance !== undefined && connection.balance !== null ? (
+                                <>
+                                  <div className={`text-lg font-bold ${
+                                    connection.balance >= 0 ? 'text-green-600' : 'text-red-600'
+                                  }`}>
+                                    ${Math.abs(connection.balance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  </div>
+                                  <div className="text-xs text-slate-500 mt-1">
+                                    {connection.accountType?.toLowerCase().includes('credit')
+                                      ? 'Available Credit'
+                                      : connection.balance < 0
+                                        ? 'Balance Owed'
+                                        : 'Available Balance'}
+                                  </div>
+                                </>
+                              ) : (
+                                <>
+                                  <div className="text-lg font-bold text-slate-400">
+                                    $0.00
+                                  </div>
+                                  <div className="text-xs text-slate-400 mt-1">
+                                    Sync to update
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </div>
                           <div className="flex items-center gap-4 mt-2">
                             <span className="text-xs text-slate-500">
                               Last sync: {formatLastSync(connection.lastSync)}
                             </span>
-                            {connection.balance !== undefined && (
-                              <span className={`text-xs font-medium ${
-                                connection.balance >= 0 ? 'text-green-600' : 'text-red-600'
-                              }`}>
-                                Balance: ${connection.balance.toLocaleString()}
-                              </span>
-                            )}
                             <span className="text-xs text-slate-500">
                               {connection.transactionCount} transactions
                             </span>
@@ -389,7 +637,66 @@ export const BanksDetailScreen: React.FC<BanksDetailScreenProps> = ({
                             Fix Connection
                           </Button>
                         ) : (
-                          <Button variant="outline" size="sm">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={async () => {
+                              try {
+                                const currentUser = auth.currentUser;
+                                if (!currentUser) return;
+
+                                const token = await currentUser.getIdToken();
+                                const refreshResponse = await fetch('/api/plaid/refresh-balances', {
+                                  method: 'POST',
+                                  headers: {
+                                    'Authorization': `Bearer ${token}`,
+                                    'Content-Type': 'application/json',
+                                  },
+                                });
+
+                                if (refreshResponse.ok) {
+                                  // Reload accounts after refresh
+                                  const accountsResponse = await fetch('/api/database/accounts', {
+                                    headers: {
+                                      'Authorization': `Bearer ${token}`,
+                                      'Content-Type': 'application/json',
+                                    },
+                                  });
+                                  if (accountsResponse.ok) {
+                                    const data = await accountsResponse.json();
+                                    const accounts: BankConnection[] = (data.accounts || []).map((account: any) => {
+                                      // Calculate balance based on account type
+                                      let displayBalance = 0;
+                                      const isCreditCard = account.type === 'credit' || account.subtype === 'credit card';
+
+                                      if (isCreditCard) {
+                                        // For credit cards: show available credit
+                                        displayBalance = account.balance ?? account.available_balance ?? 0;
+                                      } else {
+                                        // For depository accounts: show available balance
+                                        displayBalance = account.balance ?? account.available_balance ?? account.current_balance ?? 0;
+                                      }
+
+                                      return {
+                                        id: account.account_id || account.id,
+                                        bankName: account.name || 'Unknown Bank',
+                                        accountType: `${account.subtype || account.type || 'Account'}`,
+                                        accountNumber: account.mask ? `****${account.mask}` : '****',
+                                        isConnected: true,
+                                        lastSync: account.updated_at ? new Date(account.updated_at.seconds * 1000 || account.updated_at).toISOString() : new Date().toISOString(),
+                                        balance: displayBalance,
+                                        transactionCount: 0,
+                                        status: 'active' as const
+                                      };
+                                    });
+                                    setBankConnections(accounts);
+                                  }
+                                }
+                              } catch (error) {
+                                console.error('Error syncing balances:', error);
+                              }
+                            }}
+                          >
                             Sync Now
                           </Button>
                         )}

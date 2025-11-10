@@ -1,51 +1,46 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { syncUserTransactions } from '../../../../lib/plaid/sync-helper';
-import { getAuthenticatedUser } from '../../../../lib/firebase/api-auth';
+import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 
 
-export async function POST(request: NextRequest) {
+export async function POST(req: Request) {
   try {
     console.log('🔄 [Plaid Sync] Starting manual transaction sync...');
 
     // Get the authenticated user
-    const { user, error: authError } = await getAuthenticatedUser(request);
+    const { uid } = await getUserFromReqOrThrow(req);
+    console.log('✅ [Plaid Sync] User authenticated:', uid);
 
-    if (authError || !user) {
-      console.error('❌ [Plaid Sync] Authentication failed:', authError);
-      return NextResponse.json({
-        error: 'Authentication failed. Please log in again.',
-        details: authError
-      }, { status: 401 });
-    }
-
-    console.log('✅ [Plaid Sync] User authenticated:', user.uid);
-
-    const { userId, import_timeframe = '1year' } = await request.json();
+    const { userId, import_timeframe = '2years' } = await req.json();
 
     if (!userId) {
       return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
     }
 
     // Verify the authenticated user matches the requested userId
-    if (user.uid !== userId) {
+    if (uid !== userId) {
+      console.error('❌ [Plaid Sync] User ID mismatch:', { uid, userId });
       return NextResponse.json({ error: 'Unauthorized access to user data' }, { status: 403 });
     }
 
+    console.log(`🔄 [Plaid Sync] Syncing transactions for user ${uid} with timeframe: ${import_timeframe}`);
+
     // Use the sync helper function
-    const syncResult = await syncUserTransactions(user.uid, import_timeframe);
+    const syncResult = await syncUserTransactions(uid, import_timeframe);
 
     if (syncResult.success) {
-      console.log(`✅ [Plaid Sync] Successfully synced ${syncResult.transactionsSaved} transactions for user ${user.uid}`);
+      console.log(`✅ [Plaid Sync] Successfully synced ${syncResult.transactionsSaved} transactions for user ${uid}`);
       return NextResponse.json({
         success: true,
         accounts_processed: 1,
         transactions_saved: syncResult.transactionsSaved,
+        message: `Successfully synced ${syncResult.transactionsSaved} transactions`
       });
     } else {
-      console.error(`❌ [Plaid Sync] Failed to sync transactions for user ${user.uid}:`, syncResult.error);
+      console.error(`❌ [Plaid Sync] Failed to sync transactions for user ${uid}:`, syncResult.error);
       return NextResponse.json({
         success: false,
-        error: syncResult.error
+        error: syncResult.error || 'Failed to sync transactions'
       }, { status: 500 });
     }
 

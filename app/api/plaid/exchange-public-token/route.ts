@@ -9,7 +9,8 @@ import { fetchAllPlaidTransactions } from '@/lib/plaid/pagination';
 export async function POST(req: Request) {
   try {
     const { uid } = await getUserFromReqOrThrow(req);
-    const { public_token, import_timeframe = '1year' } = await req.json();
+    // Default to 2 years (730 days) - maximum available from Plaid for comprehensive transaction history
+    const { public_token, import_timeframe = '2years' } = await req.json();
 
     if (!public_token) {
       return NextResponse.json({ error: 'Missing public_token' }, { status: 400 });
@@ -181,7 +182,43 @@ export async function POST(req: Request) {
         }, { status: 409 }); // 409 Conflict
       }
 
-      // Store account with all required fields (only if it doesn't exist)
+      // Extract balance information from Plaid account
+      const balances = plaidAccount.balances || {};
+      const availableBalance = balances.available;
+      const currentBalance = balances.current;
+      const limit = balances.limit;
+
+      // Calculate display balance based on account type (same logic as refresh-balances)
+      let displayBalance = 0;
+      if (plaidAccount.type === 'credit') {
+        // For credit cards: show available credit
+        // available = available credit (positive), current = amount owed (usually negative), limit = credit limit
+        if (availableBalance !== null && availableBalance !== undefined) {
+          displayBalance = availableBalance;
+        } else if (limit !== null && limit !== undefined && currentBalance !== null && currentBalance !== undefined) {
+          // Calculate available credit: limit - |currentBalance| (currentBalance is negative for amount owed)
+          const amountOwed = Math.abs(currentBalance);
+          displayBalance = Math.max(0, limit - amountOwed);
+        } else if (limit !== null && limit !== undefined) {
+          displayBalance = limit;
+        } else {
+          displayBalance = 0;
+        }
+        console.log(`💳 [Plaid] Credit card ${accountId}: limit=${limit}, current=${currentBalance}, available=${availableBalance}, display=${displayBalance}`);
+      } else {
+        // For depository accounts: show available balance
+        // available = available balance (after pending), current = current balance
+        if (availableBalance !== null && availableBalance !== undefined) {
+          displayBalance = availableBalance;
+        } else if (currentBalance !== null && currentBalance !== undefined) {
+          displayBalance = currentBalance;
+        } else {
+          displayBalance = 0;
+        }
+        console.log(`💰 [Plaid] Depository account ${accountId}: available=${availableBalance}, current=${currentBalance}, display=${displayBalance}`);
+      }
+
+      // Store account with all required fields including balance (only if it doesn't exist)
       await accountRef.set({
         id: accountId,
         account_id: accountId,
@@ -191,10 +228,20 @@ export async function POST(req: Request) {
         subtype: plaidAccount.subtype || 'checking',
         institution_id: institutionId || '',
         user_id: uid,
+        // Balance information
+        balance: displayBalance,
+        available_balance: availableBalance,
+        current_balance: currentBalance,
+        limit: limit,
+        iso_currency_code: balances.iso_currency_code || 'USD',
+        unofficial_currency_code: balances.unofficial_currency_code || null,
+        balance_last_updated: balances.last_updated_datetime || new Date().toISOString(),
         createdAt: Date.now(),
         created_at: new Date(),
         updated_at: new Date(),
       }); // Removed merge: true - we want to fail if it exists
+
+      console.log(`💵 [Plaid] Stored account ${accountId} with balance: $${displayBalance} (type: ${plaidAccount.type}, available: ${availableBalance}, current: ${currentBalance})`);
 
       storedAccounts.push({
         account_id: accountId,
@@ -207,337 +254,294 @@ export async function POST(req: Request) {
       console.log(`✅ [Plaid] Stored account: ${plaidAccount.name || plaidAccount.official_name} (${accountId})`);
     }
 
-    // For now, let's try to find the most likely account with transactions
-    // Priority: checking > credit card > savings > other
-    let plaidAccount = allAccounts.find(acc =>
-      acc.subtype === 'checking' || acc.type === 'depository'
-    ) || allAccounts.find(acc =>
-      acc.subtype === 'credit card' || acc.type === 'credit'
-    ) || allAccounts[0];
+    // 4) Import transactions for ALL accounts (not just one)
+    // Calculate date range - Plaid supports up to 730 days (2 years) of historical data
+    const endDate = new Date();
+    endDate.setHours(23, 59, 59, 999); // End of today
+    const startDate = new Date();
 
-    console.log(`🎯 [Plaid] Selected account for transaction import: ${plaidAccount.name || plaidAccount.official_name}`);
+    // Calculate days to go back based on timeframe
+    // Note: Plaid's maximum is 730 days (2 years) for transactions/get endpoint
+    const MAX_PLAID_DAYS = 730; // Maximum days Plaid supports
+    let daysToFetch = 365; // Default to 1 year
 
-    let accountId = plaidAccount.account_id;
-    let accountRef = adminDb.doc(`user_profiles/${uid}/accounts/${accountId}`);
-
-    // 3) Store account with Admin SDK (bypasses rules, enforces UID check)
-    await accountRef.set({
-      id: accountId,
-      name: plaidAccount.name ?? plaidAccount.official_name ?? `Account • ${plaidAccount.mask ?? ''}`,
-      mask: plaidAccount.mask ?? null,
-      createdAt: Date.now(),
-      user_id: uid, // Explicitly set for security
-    }, { merge: true });
-
-    // 4) Import transactions with Admin SDK using historical data
-    let imported = 0;
-    let successfulWrites = 0;
-    let failedWrites = 0;
-    const writeErrors: any[] = [];
-    let allTransactions: any[] = [];
-
-    try {
-      // Calculate date range based on timeframe
-      const endDate = new Date();
-      const startDate = new Date();
-
-      switch (import_timeframe) {
-        case '1month':
-          startDate.setMonth(endDate.getMonth() - 1);
-          break;
-        case '6months':
-          startDate.setMonth(endDate.getMonth() - 6);
-          break;
-        case '1year':
-          startDate.setFullYear(endDate.getFullYear() - 1);
-          break;
-        default:
-          startDate.setMonth(endDate.getMonth() - 6);
-      }
-
-      console.log(`📅 Importing transactions from ${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}`);
-
-      // Fetch all transactions with pagination and retry logic for PRODUCT_NOT_READY errors
-      let allTransactions: any[] = [];
-      let totalPages = 0;
-      const maxRetries = 3;
-
-      console.log(`🔄 [Plaid] Starting transaction fetch with pagination support and ${maxRetries} max retries per page`);
-
-      try {
-        // Use a custom wrapper that adds retry logic to the pagination helper
-        const fetchWithRetries = async () => {
-          let nextCursor: string | undefined = undefined;
-          let pageCount = 0;
-          const maxPages = 100; // Safety limit
-
-          do {
-            pageCount++;
-
-            if (pageCount > maxPages) {
-              console.warn(`[Plaid] ⚠️ Reached maximum page limit (${maxPages}), stopping pagination`);
-              break;
-            }
-
-            let retryCount = 0;
-            let pageTransactions: any[] = [];
-
-            // Retry logic for each page
-            while (retryCount < maxRetries) {
-              try {
-                console.log(`🔄 [Plaid] Fetching page ${pageCount}, attempt ${retryCount + 1}/${maxRetries}...`);
-                const transactionsResponse = await plaidClient.transactionsGet({
-                  access_token,
-                  start_date: startDate.toISOString().split('T')[0],
-                  end_date: endDate.toISOString().split('T')[0],
-                  options: {
-                    include_personal_finance_category: true,
-                    include_logo_and_counterparty_beta: true,
-                    cursor: nextCursor,
-                  },
-                });
-
-                pageTransactions = transactionsResponse.data.transactions || [];
-                allTransactions = allTransactions.concat(pageTransactions);
-
-                nextCursor = transactionsResponse.data.next_cursor || undefined;
-
-                console.log(
-                  `📊 [Plaid] Page ${pageCount}: Fetched ${pageTransactions.length} transactions, ` +
-                  `total so far: ${allTransactions.length}`
-                );
-
-                if (nextCursor) {
-                  console.log(`🔄 [Plaid] More transactions available, fetching next page...`);
-                } else {
-                  console.log(`✅ [Plaid] All transactions fetched (no more pages)`);
-                }
-
-                break; // Success, exit retry loop for this page
-              } catch (error: any) {
-                retryCount++;
-                console.log(`❌ [Plaid] Page ${pageCount}, attempt ${retryCount} failed:`, error.response?.data?.error_code || error.message);
-
-                if (error.response?.data?.error_code === 'PRODUCT_NOT_READY' && retryCount < maxRetries) {
-                  const waitTime = retryCount * 2;
-                  console.log(`⏳ [Plaid] PRODUCT_NOT_READY error, retrying in ${waitTime} seconds... (attempt ${retryCount}/${maxRetries})`);
-                  await new Promise(resolve => setTimeout(resolve, waitTime * 1000)); // Exponential backoff
-                } else {
-                  console.log(`❌ [Plaid] Final attempt failed or non-retryable error:`, error.response?.data || error.message);
-                  throw error; // Re-throw if not PRODUCT_NOT_READY or max retries reached
-                }
-              }
-            }
-          } while (nextCursor);
-
-          totalPages = pageCount;
-        };
-
-        await fetchWithRetries();
-
-        console.log(`📊 [Plaid] Fetched ${allTransactions.length} total transactions from Plaid for account: ${plaidAccount.name} across ${totalPages} page(s)`);
-      } catch (error: any) {
-        console.error(`❌ [Plaid] Error fetching transactions with pagination:`, error);
-        throw error;
-      }
-
-      // If no transactions found, try other accounts
-      if (allTransactions.length === 0 && allAccounts.length > 1) {
-        console.warn(`⚠️ No transactions found for selected account: ${plaidAccount.name} (${plaidAccount.type}/${plaidAccount.subtype})`);
-        console.log(`🔄 Trying other accounts...`);
-
-        for (const altAccount of allAccounts) {
-          if (altAccount.account_id === plaidAccount.account_id) continue;
-
-          console.log(`🔍 Trying account: ${altAccount.name} (${altAccount.type}/${altAccount.subtype})`);
-
-          try {
-            // Fetch all transactions for alternative account with pagination
-            const { transactions: altTransactions, totalPages: altTotalPages } = await fetchAllPlaidTransactions(
-              plaidClient,
-              {
-                access_token,
-                start_date: startDate.toISOString().split('T')[0],
-                end_date: endDate.toISOString().split('T')[0],
-                account_ids: [altAccount.account_id], // Only get transactions for this specific account
-                options: {
-                  include_personal_finance_category: true,
-                  include_logo_and_counterparty_beta: true,
-                },
-              },
-              `[Plaid] Alt Account ${altAccount.name}`
-            );
-
-            console.log(`📊 Found ${altTransactions.length} transactions in ${altAccount.name} across ${altTotalPages} page(s)`);
-
-            if (altTransactions.length > 0) {
-              console.log(`✅ Switching to account with transactions: ${altAccount.name}`);
-              plaidAccount = altAccount;
-              accountId = altAccount.account_id;
-              accountRef = adminDb.doc(`user_profiles/${uid}/accounts/${accountId}`);
-
-              // Update the stored account info
-              await accountRef.set({
-                id: accountId,
-                name: altAccount.name ?? altAccount.official_name ?? `Account • ${altAccount.mask ?? ''}`,
-                mask: altAccount.mask ?? null,
-                createdAt: Date.now(),
-                user_id: uid,
-              }, { merge: true });
-
-              // Use the transactions from this account
-              allTransactions = altTransactions;
-              totalPages = altTotalPages;
-              break;
-            }
-          } catch (altError) {
-            console.warn(`⚠️ Failed to get transactions for ${altAccount.name}:`, altError.message);
-          }
-        }
-      }
-
-      console.log(`📊 Final account selected: ${plaidAccount.name} with ${allTransactions.length} transactions across ${totalPages} page(s)`);
-
-      // Log sample transaction to see what Plaid returns
-      if (allTransactions.length > 0) {
-        console.log(`📊 Sample transaction from Plaid:`, JSON.stringify(allTransactions[0], null, 2));
-      } else {
-        console.warn(`⚠️ Plaid returned 0 transactions for date range ${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]} on ALL accounts`);
-      }
-
-      const transactions = allTransactions;
-
-      console.log(`🔄 [Transaction Import] Starting to save ${transactions.length} transactions to Firebase...`);
-
-      for (const tx of transactions) {
-        const txId = tx.transaction_id;
-
-        // Check if transaction already exists before importing
-        const txRef = adminDb.doc(
-          `user_profiles/${uid}/accounts/${accountId}/transactions/${txId}`
-        );
-        const existingTx = await txRef.get();
-
-        if (existingTx.exists) {
-          console.log(`🔄 Transaction ${txId} already exists, skipping import`);
-          successfulWrites++; // Count as successful since it already exists
-          continue; // Skip this transaction
-        }
-
-        const transactionData = {
-          analysis_status: 'pending',
-          analysisStatus: 'pending', // Add camelCase version for consistency
-          user_id: uid,        // Snake case for security rules
-          userId: uid,         // Camel case for queries
-          account_id: accountId,
-          accountId: accountId, // Add camelCase version
-          trans_id: txId,
-          date: tx.date,
-          datetime: tx.datetime, // Capture the full datetime from Plaid
-          amount: tx.amount,
-          merchant_name: tx.merchant_name || tx.name,
-          category: tx.personal_finance_category?.detailed || tx.category?.[0] || 'Other',
-          description: tx.name,
-          is_deductible: null,
-          deduction_score: null,
-          deductible_reason: null,
-          ai: null,
-          analyzed: false,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        };
-
-        console.log(`📊 [Import] Setting transaction ${txId} with analysis_status: 'pending' and analyzed: false`);
-        console.log(`📊 [Import] Transaction data:`, JSON.stringify(transactionData, null, 2));
-
-        try {
-          await txRef.set(transactionData);
-
-          console.log(`✅ [Import] Successfully wrote transaction ${txId} to Firebase`);
-          console.log(`📊 [Import] Document path: user_profiles/${uid}/accounts/${accountId}/transactions/${txId}`);
-
-          imported++;
-          successfulWrites++;
-        } catch (writeError) {
-          failedWrites++;
-          writeErrors.push({
-            transactionId: txId,
-            error: writeError.message,
-            code: writeError.code,
-            path: `user_profiles/${uid}/accounts/${accountId}/transactions/${txId}`
-          });
-
-          console.error(`❌ [Import] Failed to write transaction ${txId} to Firebase:`, writeError);
-          console.error(`❌ [Import] Write error details:`, {
-            error: writeError.message,
-            code: writeError.code,
-            transactionId: txId,
-            path: `user_profiles/${uid}/accounts/${accountId}/transactions/${txId}`,
-            userId: uid,
-            accountId: accountId,
-            stack: writeError.stack
-          });
-          // Continue with other transactions even if one fails
-        }
-      }
-    } catch (txError: any) {
-      console.error('❌ Transaction import failed:', txError);
-      console.error('❌ Error name:', txError.name);
-      console.error('❌ Error message:', txError.message);
-      console.error('❌ Error code:', txError.code);
-      console.error('❌ Error response:', txError.response?.data);
-      console.error('❌ Full error:', JSON.stringify(txError, Object.getOwnPropertyNames(txError), 2));
-      // Continue even if transaction import fails
+    switch (import_timeframe) {
+      case '1month':
+        daysToFetch = 30;
+        break;
+      case '6months':
+        daysToFetch = 180;
+        break;
+      case '1year':
+        daysToFetch = 365;
+        break;
+      case '2years':
+        daysToFetch = 730; // Maximum available from Plaid
+        break;
+      default:
+        daysToFetch = 730; // Default to maximum (2 years / 730 days)
     }
 
-      // Verify transactions were written and check their analysis status
-      const verifySnap = await adminDb
-        .collection(`user_profiles/${uid}/accounts/${accountId}/transactions`)
-        .get();
+    // Use maximum available days if timeframe exceeds Plaid's limit
+    const actualDays = Math.min(daysToFetch, MAX_PLAID_DAYS);
 
-      console.log(`✅ Verified ${verifySnap.size} transactions written to Firestore`);
-      console.log(`📊 Import summary: ${imported} new transactions, ${verifySnap.size} total in database`);
+    // Calculate start date more reliably using milliseconds
+    // This avoids issues with month boundaries and leap years
+    const startDateMs = endDate.getTime() - (actualDays * 24 * 60 * 60 * 1000);
+    startDate.setTime(startDateMs);
+    startDate.setHours(0, 0, 0, 0); // Start of the day
 
-      // Check analysis status of imported transactions
-      const pendingCount = verifySnap.docs.filter(doc => {
-        const data = doc.data();
-        return data.analysis_status === 'pending' || data.analyzed === false;
-      }).length;
+    // Format dates as YYYY-MM-DD for Plaid API
+    const startDateStr = startDate.toISOString().split('T')[0];
+    const endDateStr = endDate.toISOString().split('T')[0];
 
-      const sampleTxs = verifySnap.docs.slice(0, 3).map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          analysis_status: data.analysis_status,
-          analyzed: data.analyzed,
-          merchant_name: data.merchant_name
-        };
-      });
+    // Calculate and log the actual date range for debugging
+    const actualDateRange = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
 
-      console.log(`📊 Analysis status check: ${pendingCount} pending transactions out of ${verifySnap.size} total`);
-      console.log(`📊 Sample transactions:`, sampleTxs);
-      console.log(`📊 Import summary: ${successfulWrites} successful writes, ${failedWrites} failed writes`);
+    console.log(`📅 [Plaid] Transaction import configuration:`);
+    console.log(`   📆 Date range: ${startDateStr} to ${endDateStr}`);
+    console.log(`   📊 Requested timeframe: ${import_timeframe} (${daysToFetch} days)`);
+    console.log(`   ✅ Calculated: ${actualDays} days (${actualDays === MAX_PLAID_DAYS ? 'MAXIMUM AVAILABLE' : 'within limit'})`);
+    console.log(`   🔍 Actual date range: ${actualDateRange} days (${startDateStr} to ${endDateStr})`);
+    console.log(`   📅 Start date: ${startDate.toLocaleDateString()} (${startDateStr})`);
+    console.log(`   📅 End date: ${endDate.toLocaleDateString()} (${endDateStr})`);
+    console.log(`   🏦 Accounts to process: ${allAccounts.length}`);
+    console.log(`   🔄 Pagination: Will fetch ALL available transactions using cursor-based pagination`);
+    console.log(`   ⚠️ NOTE: Plaid may only return transactions available from the bank.`);
+    console.log(`   ⚠️ NOTE: If account was connected recently, historical data may be limited.`);
+    console.log(`   ⚠️ NOTE: Sandbox environment may have limited test data.`);
 
-      if (failedWrites > 0) {
-        console.error(`❌ Import had ${failedWrites} failed writes:`, writeErrors);
-      }
+    // Import transactions for ALL accounts
+    let totalImported = 0;
+    let totalSuccessfulWrites = 0;
+    let totalFailedWrites = 0;
+    const allWriteErrors: any[] = [];
+    const accountImportResults: any[] = [];
+    let primaryAccountId = allAccounts[0]?.account_id || '';
 
-      return NextResponse.json({
-        ok: true,
-        accountId,
-        imported: verifySnap.size, // Return actual count
-        successfulWrites,
-        failedWrites,
-        writeErrors: failedWrites > 0 ? writeErrors : undefined,
-        pendingTransactions: pendingCount,
-        timeframe: import_timeframe,
-        debug: {
-          totalTransactionsFromPlaid: allTransactions.length,
-          transactionsWrittenToFirebase: verifySnap.size,
-          pendingForAnalysis: pendingCount,
-          sampleTransactions: sampleTxs
+    // Iterate through each account and import its transactions
+    for (const plaidAccount of allAccounts) {
+      const accountId = plaidAccount.account_id;
+      let accountImported = 0;
+      let accountSuccessfulWrites = 0;
+      let accountFailedWrites = 0;
+      const accountWriteErrors: any[] = [];
+
+      console.log(`🔄 [Plaid] Importing transactions for account: ${plaidAccount.name || plaidAccount.official_name} (${accountId})`);
+
+      try {
+        // Fetch all transactions for this account with pagination
+        // This will automatically paginate through all available transactions using cursor
+        console.log(`🔄 [Plaid] Starting transaction fetch for account: ${plaidAccount.name} (${accountId})`);
+        const {
+          transactions: accountTransactions,
+          totalPages,
+          totalTransactions,
+          plaidTotalTransactions
+        } = await fetchAllPlaidTransactions(
+          plaidClient,
+          {
+            access_token,
+            start_date: startDateStr,
+            end_date: endDateStr,
+            account_ids: [accountId], // Only get transactions for this specific account
+            options: {
+              include_personal_finance_category: true,
+              include_logo_and_counterparty_beta: true,
+            },
+          },
+          `[Plaid] Account ${plaidAccount.name}`
+        );
+
+        console.log(`✅ [Plaid] Transaction fetch completed for account: ${plaidAccount.name}`);
+        console.log(`   📊 Fetched: ${totalTransactions} transactions`);
+        console.log(`   📄 Pages: ${totalPages}`);
+        if (plaidTotalTransactions !== undefined) {
+          console.log(`   📈 Plaid reported: ${plaidTotalTransactions} total transactions`);
+          if (totalTransactions === plaidTotalTransactions) {
+            console.log(`   ✅ SUCCESS: All available transactions fetched`);
+          } else {
+            console.warn(`   ⚠️ WARNING: Fetched ${totalTransactions} but Plaid reported ${plaidTotalTransactions} available`);
+          }
         }
-      });
+
+        // Log the date range of fetched transactions for debugging
+        if (accountTransactions.length > 0) {
+          const transactionDates = accountTransactions.map(tx => tx.date).sort();
+          const earliestTx = transactionDates[0];
+          const latestTx = transactionDates[transactionDates.length - 1];
+          console.log(`   📅 Transaction date range: ${earliestTx} to ${latestTx}`);
+          console.log(`   📅 Requested date range: ${startDateStr} to ${endDateStr}`);
+
+          if (earliestTx > startDateStr) {
+            const daysDifference = Math.ceil((new Date(earliestTx).getTime() - new Date(startDateStr).getTime()) / (1000 * 60 * 60 * 24));
+            console.warn(`   ⚠️ WARNING: Earliest transaction (${earliestTx}) is ${daysDifference} days after requested start date (${startDateStr})`);
+            console.warn(`   ⚠️ This suggests Plaid/bank does not have transactions before ${earliestTx}`);
+            console.warn(`   ⚠️ Possible reasons:`);
+            console.warn(`      - Account was connected on or after ${earliestTx}`);
+            console.warn(`      - Bank/Plaid has limited historical data available`);
+            console.warn(`      - Using Plaid Sandbox (typically limited to 30-40 days of test data)`);
+            console.warn(`      - Bank only provides recent transaction history through Plaid`);
+          }
+        } else {
+          console.warn(`   ⚠️ No transactions found in date range ${startDateStr} to ${endDateStr}`);
+        }
+
+        if (accountTransactions.length === 0) {
+          console.log(`⚠️ [Plaid] No transactions found for account: ${plaidAccount.name} (${plaidAccount.type}/${plaidAccount.subtype})`);
+          accountImportResults.push({
+            accountId,
+            accountName: plaidAccount.name || plaidAccount.official_name,
+            imported: 0,
+            totalTransactions: 0,
+            status: 'no_transactions'
+          });
+          continue;
+        }
+
+        // Store transactions for this account
+        console.log(`🔄 [Transaction Import] Starting to save ${accountTransactions.length} transactions to Firebase for account: ${plaidAccount.name}...`);
+
+        for (const tx of accountTransactions) {
+          const txId = tx.transaction_id;
+
+          // Check if transaction already exists before importing
+          const txRef = adminDb.doc(
+            `user_profiles/${uid}/accounts/${accountId}/transactions/${txId}`
+          );
+          const existingTx = await txRef.get();
+
+          if (existingTx.exists) {
+            console.log(`🔄 Transaction ${txId} already exists, skipping import`);
+            accountSuccessfulWrites++; // Count as successful since it already exists
+            continue; // Skip this transaction
+          }
+
+          const transactionData = {
+            analysis_status: 'pending',
+            analysisStatus: 'pending', // Add camelCase version for consistency
+            user_id: uid,        // Snake case for security rules
+            userId: uid,         // Camel case for queries
+            account_id: accountId,
+            accountId: accountId, // Add camelCase version
+            trans_id: txId,
+            date: tx.date,
+            datetime: tx.datetime, // Capture the full datetime from Plaid
+            amount: tx.amount,
+            merchant_name: tx.merchant_name || tx.name,
+            category: tx.personal_finance_category?.detailed || tx.category?.[0] || 'Other',
+            description: tx.name,
+            is_deductible: null,
+            deduction_score: null,
+            deductible_reason: null,
+            ai: null,
+            analyzed: false,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          };
+
+          try {
+            await txRef.set(transactionData);
+            accountImported++;
+            accountSuccessfulWrites++;
+          } catch (writeError: any) {
+            accountFailedWrites++;
+            accountWriteErrors.push({
+              transactionId: txId,
+              error: writeError.message,
+              code: writeError.code,
+              path: `user_profiles/${uid}/accounts/${accountId}/transactions/${txId}`
+            });
+            console.error(`❌ [Import] Failed to write transaction ${txId} to Firebase:`, writeError);
+            // Continue with other transactions even if one fails
+          }
+        }
+
+        // Verify transactions were written for this account
+        const verifySnap = await adminDb
+          .collection(`user_profiles/${uid}/accounts/${accountId}/transactions`)
+          .get();
+
+        console.log(`✅ [Plaid] Account ${plaidAccount.name}: ${accountImported} new transactions imported, ${verifySnap.size} total in database`);
+
+        totalImported += accountImported;
+        totalSuccessfulWrites += accountSuccessfulWrites;
+        totalFailedWrites += accountFailedWrites;
+        allWriteErrors.push(...accountWriteErrors);
+
+        accountImportResults.push({
+          accountId,
+          accountName: plaidAccount.name || plaidAccount.official_name,
+          imported: accountImported,
+          totalTransactions: verifySnap.size,
+          successfulWrites: accountSuccessfulWrites,
+          failedWrites: accountFailedWrites,
+          status: 'success'
+        });
+
+        // Set the first account with transactions as the primary account
+        if (!primaryAccountId && accountTransactions.length > 0) {
+          primaryAccountId = accountId;
+        }
+
+      } catch (accountError: any) {
+        console.error(`❌ [Plaid] Error importing transactions for account ${plaidAccount.name}:`, accountError);
+        accountImportResults.push({
+          accountId,
+          accountName: plaidAccount.name || plaidAccount.official_name,
+          imported: 0,
+          totalTransactions: 0,
+          status: 'error',
+          error: accountError.message
+        });
+        // Continue with other accounts even if one fails
+      }
+    }
+
+    console.log(`✅ [Plaid] ========================================`);
+    console.log(`✅ [Plaid] TRANSACTION IMPORT SUMMARY`);
+    console.log(`✅ [Plaid] ========================================`);
+    console.log(`   📊 Total transactions imported: ${totalImported}`);
+    console.log(`   ✅ Successful writes: ${totalSuccessfulWrites}`);
+    console.log(`   ❌ Failed writes: ${totalFailedWrites}`);
+    console.log(`   🏦 Accounts processed: ${accountImportResults.length}`);
+    console.log(`   📅 Date range: ${startDateStr} to ${endDateStr} (${actualDays} days)`);
+    console.log(`   🔄 Pagination: Completed for all accounts`);
+    console.log(`✅ [Plaid] ========================================`);
+
+    // Log detailed results for each account
+    accountImportResults.forEach((result, index) => {
+      console.log(`   Account ${index + 1}: ${result.accountName || result.accountId}`);
+      console.log(`     - Status: ${result.status}`);
+      console.log(`     - Transactions imported: ${result.imported || 0}`);
+      console.log(`     - Total in database: ${result.totalTransactions || 0}`);
+      if (result.failedWrites > 0) {
+        console.log(`     - Failed writes: ${result.failedWrites}`);
+      }
+    });
+
+    // Return the primary account ID (first account with transactions, or first account)
+    if (!primaryAccountId) {
+      primaryAccountId = allAccounts[0]?.account_id || '';
+    }
+
+    return NextResponse.json({
+      ok: true,
+      accountId: primaryAccountId,
+      imported: totalImported,
+      successfulWrites: totalSuccessfulWrites,
+      failedWrites: totalFailedWrites,
+      writeErrors: totalFailedWrites > 0 ? allWriteErrors : undefined,
+      timeframe: import_timeframe,
+      accountsProcessed: accountImportResults.length,
+      accountResults: accountImportResults,
+      debug: {
+        totalAccounts: allAccounts.length,
+        accountsProcessed: accountImportResults.length,
+        totalTransactionsImported: totalImported,
+        accountImportResults
+      }
+    });
   } catch (err: any) {
     console.error('exchange-public-token failed:', err);
     const message = err?.message || 'Internal server error';

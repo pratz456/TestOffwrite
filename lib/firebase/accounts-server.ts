@@ -14,6 +14,14 @@ export interface Account {
   user_id: string;
   usageType?: AccountUsageType;
   businessUsePercent?: number | null;
+  // Balance fields
+  balance?: number;
+  available_balance?: number | null;
+  current_balance?: number | null;
+  limit?: number | null;
+  iso_currency_code?: string;
+  unofficial_currency_code?: string | null;
+  balance_last_updated?: string;
   created_at?: any;
   updated_at?: any;
 }
@@ -36,6 +44,14 @@ export async function getAccountsServer(userId: string): Promise<{ data: Account
         subtype: data.subtype || '',
         institution_id: data.institution_id || '',
         user_id: userId,
+        // Balance fields
+        balance: data.balance ?? data.available_balance ?? data.current_balance ?? 0,
+        available_balance: data.available_balance ?? null,
+        current_balance: data.current_balance ?? null,
+        limit: data.limit ?? null,
+        iso_currency_code: data.iso_currency_code || 'USD',
+        unofficial_currency_code: data.unofficial_currency_code || null,
+        balance_last_updated: data.balance_last_updated || null,
         created_at: data.created_at,
         updated_at: data.updated_at,
       });

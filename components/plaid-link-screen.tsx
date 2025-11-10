@@ -24,7 +24,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [importTimeframe, setImportTimeframe] = useState<'1month' | '6months' | '1year'>('6months');
+  const [importTimeframe, setImportTimeframe] = useState<'1month' | '6months' | '1year' | '2years'>('2years');
   const [isConnected, setIsConnected] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState({ current: 0, total: 0, status: 'running' as const });
   const [analysisStatus, setAnalysisStatus] = useState<'connecting' | 'importing' | 'analyzing' | 'completed' | 'error'>('connecting');
@@ -1266,9 +1266,22 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
                     <div className="font-semibold">1 Year</div>
                     <div className="text-xs opacity-75">Full year</div>
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setImportTimeframe('2years')}
+                    className={`p-3 rounded-lg border text-sm font-medium transition-all ${
+                      importTimeframe === '2years'
+                        ? 'bg-primary text-white border-primary'
+                        : 'bg-white text-foreground border-border hover:bg-muted'
+                    }`}
+                  >
+                    <div className="font-semibold">2 Years</div>
+                    <div className="text-xs opacity-75">Maximum available</div>
+                  </button>
                 </div>
                 <p className="text-xs text-muted-foreground mt-2">
-                  You can always import more historical data later from your dashboard.
+                  Maximum transaction history (2 years) is recommended for comprehensive tax tracking.
+                  All transactions will be fetched using automatic pagination.
                 </p>
               </div>
 

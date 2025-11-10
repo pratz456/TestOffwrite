@@ -7,7 +7,7 @@ function getPlaidConfig() {
   let plaidClientId: string | undefined = process.env.PLAID_CLIENT_ID;
   let plaidSecret: string | undefined = process.env.PLAID_SECRET;
   let plaidEnv: string | undefined = process.env.PLAID_ENV;
-  
+
   // If not found in process.env, try functions.config() (for legacy Firebase Functions)
   if (!plaidClientId || !plaidSecret) {
     try {
@@ -24,10 +24,10 @@ function getPlaidConfig() {
       console.log('⚠️ [Plaid Config] functions.config() not available, using process.env only');
     }
   }
-  
+
   // Default to sandbox if env not set
   plaidEnv = plaidEnv || 'sandbox';
-  
+
   // Log what we found (without exposing secrets)
   console.log('🔍 [Plaid Config] Configuration check:', {
     hasClientId: !!plaidClientId,
@@ -36,7 +36,7 @@ function getPlaidConfig() {
     clientIdLength: plaidClientId?.length || 0,
     secretLength: plaidSecret?.length || 0
   });
-  
+
   return { plaidClientId, plaidSecret, plaidEnv };
 }
 
@@ -66,7 +66,7 @@ const client = new PlaidApi(configuration);
 export async function POST(request: NextRequest) {
   try {
     console.log('🔄 [Plaid Link Token] Creating link token...');
-    
+
     const { userId } = await request.json();
 
     if (!userId) {
@@ -89,15 +89,15 @@ export async function POST(request: NextRequest) {
 
     console.log('🔄 [Plaid Link Token] Calling Plaid API...');
     const createTokenResponse = await client.linkTokenCreate(configs);
-    
+
     console.log('✅ [Plaid Link Token] Link token created successfully');
-    
+
     return NextResponse.json({
       link_token: createTokenResponse.data.link_token,
     });
   } catch (error) {
     console.error('❌ [Plaid Link Token] Error creating link token:', error);
-    
+
     // More detailed error logging
     if (error instanceof Error) {
       console.error('❌ [Plaid Link Token] Error details:', {
@@ -105,7 +105,7 @@ export async function POST(request: NextRequest) {
         name: error.name,
         stack: error.stack
       });
-      
+
       // Handle specific error types
       if (error.message.includes('ENOTFOUND') || error.message.includes('getaddrinfo')) {
         return NextResponse.json(
@@ -113,14 +113,14 @@ export async function POST(request: NextRequest) {
           { status: 503 }
         );
       }
-      
+
       if (error.message.includes('credentials not configured')) {
         return NextResponse.json(
           { error: 'Plaid credentials not configured. Please contact support.' },
           { status: 500 }
         );
       }
-      
+
       if (error.message.includes('Request failed with status code 400')) {
         return NextResponse.json(
           { error: 'Invalid Plaid configuration. Please check your Plaid credentials and environment settings.' },
@@ -128,7 +128,7 @@ export async function POST(request: NextRequest) {
         );
       }
     }
-    
+
     return NextResponse.json(
       { error: 'Failed to create link token. Please check your Plaid configuration.' },
       { status: 500 }

@@ -9,7 +9,7 @@ import { fetchAllPlaidTransactions } from '@/lib/plaid/pagination';
 export async function POST(req: Request) {
   try {
     const { uid } = await getUserFromReqOrThrow(req);
-    const { account_id, import_timeframe = '1year', access_token } = await req.json();
+    const { account_id, import_timeframe = '2years', access_token } = await req.json();
 
     if (!account_id || !access_token) {
       return NextResponse.json({ error: 'Missing account_id or access_token' }, { status: 400 });
@@ -42,33 +42,59 @@ export async function POST(req: Request) {
     // Import transactions for this specific account
     let imported = 0;
     try {
-      // Calculate date range based on timeframe
+      // Calculate date range based on timeframe - use same robust calculation
       const endDate = new Date();
+      endDate.setHours(23, 59, 59, 999); // End of today
       const startDate = new Date();
+
+      const MAX_PLAID_DAYS = 730; // Maximum days Plaid supports (2 years)
+      let daysToFetch = 365; // Default to 1 year
 
       switch (import_timeframe) {
         case '1month':
-          startDate.setMonth(endDate.getMonth() - 1);
+          daysToFetch = 30;
           break;
         case '6months':
-          startDate.setMonth(endDate.getMonth() - 6);
+          daysToFetch = 180;
           break;
         case '1year':
-          startDate.setFullYear(endDate.getFullYear() - 1);
+          daysToFetch = 365;
+          break;
+        case '2years':
+          daysToFetch = 730; // Maximum available from Plaid
           break;
         default:
-          startDate.setMonth(endDate.getMonth() - 6);
+          daysToFetch = 730; // Default to maximum (2 years / 730 days)
       }
 
-      console.log(`📅 [Import Transactions] Importing transactions from ${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}`);
+      const actualDays = Math.min(daysToFetch, MAX_PLAID_DAYS);
+
+      // Calculate start date more reliably using milliseconds
+      const startDateMs = endDate.getTime() - (actualDays * 24 * 60 * 60 * 1000);
+      startDate.setTime(startDateMs);
+      startDate.setHours(0, 0, 0, 0); // Start of the day
+
+      const startDateStr = startDate.toISOString().split('T')[0];
+      const endDateStr = endDate.toISOString().split('T')[0];
+      const actualDateRange = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+
+      console.log(`📅 [Import Transactions] Transaction import configuration:`);
+      console.log(`   📆 Date range: ${startDateStr} to ${endDateStr}`);
+      console.log(`   📊 Requested timeframe: ${import_timeframe} (${daysToFetch} days)`);
+      console.log(`   ✅ Calculated: ${actualDays} days (${actualDays === MAX_PLAID_DAYS ? 'MAXIMUM AVAILABLE' : 'within limit'})`);
+      console.log(`   🔍 Actual date range: ${actualDateRange} days`);
+      console.log(`   📅 Start date: ${startDate.toLocaleDateString()} (${startDateStr})`);
+      console.log(`   📅 End date: ${endDate.toLocaleDateString()} (${endDateStr})`);
+      console.log(`   ⚠️ NOTE: Plaid may only return transactions available from the bank.`);
+      console.log(`   ⚠️ NOTE: Sandbox environment may have limited test data (typically 30-40 days).`);
 
       // Get all transactions for the specific account with pagination
-      const { transactions: allTransactions, totalPages, totalTransactions } = await fetchAllPlaidTransactions(
+      const { transactions: allTransactions, totalPages, totalTransactions, plaidTotalTransactions } = await fetchAllPlaidTransactions(
         plaidClient,
         {
           access_token,
-          start_date: startDate.toISOString().split('T')[0],
-          end_date: endDate.toISOString().split('T')[0],
+          start_date: startDateStr,
+          end_date: endDateStr,
           account_ids: [account_id], // Only get transactions for this specific account
           options: {
             include_personal_finance_category: true,
@@ -79,6 +105,29 @@ export async function POST(req: Request) {
       );
 
       console.log(`📊 [Import Transactions] Fetched ${totalTransactions} transactions from Plaid for account: ${selectedAccount.name} across ${totalPages} page(s)`);
+      if (plaidTotalTransactions !== undefined) {
+        console.log(`📊 [Import Transactions] Plaid reported ${plaidTotalTransactions} total transactions available`);
+      }
+
+      // Log the date range of fetched transactions for debugging
+      if (allTransactions.length > 0) {
+        const transactionDates = allTransactions.map(tx => tx.date).sort();
+        const earliestTx = transactionDates[0];
+        const latestTx = transactionDates[transactionDates.length - 1];
+        console.log(`📊 [Import Transactions] Transaction date range in results: ${earliestTx} to ${latestTx}`);
+        console.log(`📊 [Import Transactions] Requested date range: ${startDateStr} to ${endDateStr}`);
+
+        if (earliestTx > startDateStr) {
+          console.warn(`⚠️ [Import Transactions] WARNING: Earliest transaction (${earliestTx}) is after requested start date (${startDateStr})`);
+          console.warn(`⚠️ [Import Transactions] Difference: ${Math.ceil((new Date(earliestTx).getTime() - new Date(startDateStr).getTime()) / (1000 * 60 * 60 * 24))} days`);
+          console.warn(`⚠️ [Import Transactions] Possible reasons:`);
+          console.warn(`   - Account was connected on or after ${earliestTx}`);
+          console.warn(`   - Bank/Plaid has limited historical data available`);
+          console.warn(`   - Using Plaid Sandbox (typically limited to 30-40 days of test data)`);
+        }
+      } else {
+        console.warn(`⚠️ [Import Transactions] No transactions found in date range ${startDateStr} to ${endDateStr}`);
+      }
 
       if (allTransactions.length === 0) {
         console.warn(`⚠️ [Import Transactions] No transactions found for account ${selectedAccount.name} (${selectedAccount.type}/${selectedAccount.subtype})`);

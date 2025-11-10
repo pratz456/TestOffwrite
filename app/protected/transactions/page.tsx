@@ -21,7 +21,7 @@ function Modal({ open, onClose, children }: ModalProps) {
     </div>
   );
 }
-import { Search, Calendar, ArrowUpDown, Filter, Camera, Plus, X, FileText, ChevronDown } from 'lucide-react';
+import { Search, Calendar, ArrowUpDown, Filter, Camera, Plus, X, FileText, ChevronDown, RefreshCw } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/firebase/auth-context';
@@ -104,6 +104,7 @@ export default function TransactionsPage() {
   const [amountRange, setAmountRange] = useState<'all' | 'under-50' | '50-200' | '200-500' | 'over-500'>('all');
   const [customDateStart, setCustomDateStart] = useState('');
   const [customDateEnd, setCustomDateEnd] = useState('');
+  const [isRefreshingBalances, setIsRefreshingBalances] = useState(false);
   const router = useRouter();
 
   // useAuth() is already called at the top of this component
@@ -316,8 +317,58 @@ export default function TransactionsPage() {
       {/* Header */}
       <div className="bg-background">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4">
-          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-foreground mb-1">Transactions</h1>
-          <p className="text-sm sm:text-base text-muted-foreground">Your transaction management and categorization overview</p>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div>
+              <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-foreground mb-1">Transactions</h1>
+              <p className="text-sm sm:text-base text-muted-foreground">Your transaction management and categorization overview</p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                if (isRefreshingBalances) return;
+                try {
+                  setIsRefreshingBalances(true);
+                  console.log('🔄 [Transactions] Refreshing balances...');
+                  const { auth } = await import('@/lib/firebase/client');
+                  const currentUser = auth.currentUser;
+                  if (!currentUser) {
+                    alert('Please log in to refresh balances');
+                    return;
+                  }
+                  const token = await currentUser.getIdToken();
+                  const response = await fetch('/api/plaid/refresh-balances', {
+                    method: 'POST',
+                    headers: {
+                      'Authorization': `Bearer ${token}`,
+                      'Content-Type': 'application/json',
+                    },
+                  });
+                  if (response.ok) {
+                    const data = await response.json();
+                    console.log('✅ [Transactions] Balances refreshed:', data);
+                    alert(`Successfully refreshed balances for ${data.updated || 0} account(s)`);
+                    // Optionally reload the page to show updated data
+                    window.location.reload();
+                  } else {
+                    const errorData = await response.json().catch(() => ({}));
+                    console.error('❌ [Transactions] Failed to refresh balances:', errorData);
+                    alert('Failed to refresh balances. Please try again.');
+                  }
+                } catch (error) {
+                  console.error('❌ [Transactions] Error refreshing balances:', error);
+                  alert('Error refreshing balances. Please try again.');
+                } finally {
+                  setIsRefreshingBalances(false);
+                }
+              }}
+              disabled={isRefreshingBalances}
+              className="gap-2"
+            >
+              <RefreshCw className={`h-4 w-4 ${isRefreshingBalances ? 'animate-spin' : ''}`} />
+              {isRefreshingBalances ? 'Refreshing...' : 'Refresh Balances'}
+            </Button>
+          </div>
         </div>
       </div>
 
