@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { adminDb } from '@/lib/firebase/admin';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
+import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 
 // Category mapping to Schedule C line items
 const CATEGORY_MAP: { [key: string]: { line: string; name: string; code: string } } = {
@@ -84,14 +85,21 @@ interface LineItemSummary {
 
 export async function POST(request: NextRequest) {
   try {
-    // Get the authenticated user
-    const { user, error: authError } = await getAuthenticatedUser(request);
-    
-    if (authError || !user) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+    // Get the authenticated user (support Authorization header or session cookie)
+    let uid: string | null = null;
+    try {
+      const { uid: headerUid } = await getUserFromReqOrThrow(request);
+      uid = headerUid;
+    } catch (headerAuthError) {
+      const { user, error: authError } = await getAuthenticatedUser(request);
+      if (authError || !user) {
+        console.warn('⚠️ [Schedule C Export] Authentication failed:', headerAuthError || authError);
+        return NextResponse.json(
+          { error: 'Unauthorized' },
+          { status: 401 }
+        );
+      }
+      uid = user.uid;
     }
 
     const { year } = await request.json();
@@ -105,15 +113,15 @@ export async function POST(request: NextRequest) {
 
     // Fetch transactions for the given year using Firebase
     const allTransactions: Transaction[] = [];
-    
+
     try {
       // Use collectionGroup query to get all transactions for this user
       const transactionsQuery = adminDb.collectionGroup('transactions')
-        .where('user_id', '==', user.uid);
-      
+        .where('user_id', '==', uid);
+
       const querySnapshot = await transactionsQuery.get();
-      console.log(`📊 [Schedule C Export] Found ${querySnapshot.size} transactions for user ${user.uid}`);
-    
+      console.log(`📊 [Schedule C Export] Found ${querySnapshot.size} transactions for user ${uid}`);
+
       querySnapshot.forEach((doc) => {
         const data = doc.data();
         allTransactions.push({
@@ -130,25 +138,25 @@ export async function POST(request: NextRequest) {
           notes: data.notes,
         });
       });
-      
+
       // Sort transactions by date in descending order
       allTransactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-      
+
     } catch (collectionGroupError: unknown) {
       console.warn('⚠️ [Schedule C Export] CollectionGroup query failed, trying fallback method:', collectionGroupError);
-      
+
       // Fallback: Try to get transactions from individual accounts
       try {
-        const accountsSnapshot = await adminDb.collection('user_profiles').doc(user.uid).collection('accounts').get();
-        console.log(`📊 [Schedule C Export] Found ${accountsSnapshot.size} accounts for user ${user.uid}`);
-        
+        const accountsSnapshot = await adminDb.collection('user_profiles').doc(uid).collection('accounts').get();
+        console.log(`📊 [Schedule C Export] Found ${accountsSnapshot.size} accounts for user ${uid}`);
+
         for (const accountDoc of accountsSnapshot.docs) {
-          const transactionsSnapshot = await adminDb.collection('user_profiles').doc(user.uid)
+          const transactionsSnapshot = await adminDb.collection('user_profiles').doc(uid)
             .collection('accounts').doc(accountDoc.id)
             .collection('transactions').get();
-          
+
           console.log(`📊 [Schedule C Export] Found ${transactionsSnapshot.size} transactions for account ${accountDoc.id}`);
-          
+
           transactionsSnapshot.forEach((doc) => {
             const data = doc.data();
             allTransactions.push({
@@ -185,12 +193,12 @@ export async function POST(request: NextRequest) {
     // Filter for deductible transactions (confirmed and potential business categories)
     const deductibleTransactions = yearTransactions.filter((t: Transaction) => {
       if (t.is_deductible === true) return true;
-      
+
       // Include potentially deductible transactions (business categories where is_deductible is null)
       if (t.is_deductible === null && CATEGORY_MAP[t.category]) {
         return t.amount > 0; // Only expenses, not income
       }
-      
+
       return false;
     });
     console.log(`📊 [Schedule C Export] Deductible transactions: ${deductibleTransactions.length}`);
@@ -207,7 +215,7 @@ export async function POST(request: NextRequest) {
     deductibleTransactions.forEach(transaction => {
       const categoryInfo = CATEGORY_MAP[transaction.category];
       const lineKey = categoryInfo ? categoryInfo.line : '27a'; // Default to Other expenses
-      
+
       if (!lineItems[lineKey]) {
         lineItems[lineKey] = {
           lineCode: lineKey,

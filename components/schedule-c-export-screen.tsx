@@ -47,7 +47,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
 }) => {
   // Ensure transactions is always an array
   const transactions = Array.isArray(transactionsProp) ? transactionsProp : [];
-  
+
   const [selectedYear, setSelectedYear] = useState('2025'); // Default to current year
   const [exportFormat, setExportFormat] = useState('CSV (Spreadsheet)');
   const [categorySummaries, setCategorySummaries] = useState<CategorySummary[]>([]);
@@ -186,7 +186,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
       t.is_deductible === true
     );
 
-    // Find potentially deductible transactions (business categories) 
+    // Find potentially deductible transactions (business categories)
     // where is_deductible is null or undefined (not yet reviewed)
     const potentiallyDeductible = yearTransactions.filter(t =>
       (t.is_deductible === null || t.is_deductible === undefined) &&
@@ -265,18 +265,18 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
     const fetchLatest = async () => {
       try {
         if (!user) return;
-        
+
         const response = await fetch('/api/transactions', {
           credentials: 'include', // Include cookies for authentication
         });
         const result = await response.json();
         const allTransactions = result.transactions || [];
-        
+
         // Filter by year
         const start = `${selectedYear}-01-01`;
         const end = `${selectedYear}-12-31`;
         const data = allTransactions.filter((t: any) => t.date >= start && t.date <= end);
-        
+
         if (data && Array.isArray(data) && data.length > 0) {
           // Map trans_id -> id for internal consistency if needed
           const mapped = data.map((t: any) => ({
@@ -418,11 +418,20 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
 
   const generatePDF = async (data: any) => {
     try {
+      const { auth } = await import('@/lib/firebase/client');
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        throw new Error('User not authenticated. Please log in again.');
+      }
+      const token = await currentUser.getIdToken();
+
       const response = await fetch('/api/tax/schedule-c/export', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
         },
+        credentials: 'include',
         body: JSON.stringify({
           year: selectedYear
         }),
@@ -434,7 +443,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
 
       // Get the PDF blob
       const pdfBlob = await response.blob();
-      
+
       // Create download link
       const url = window.URL.createObjectURL(pdfBlob);
       const link = document.createElement('a');
@@ -444,7 +453,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
       link.click();
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
-      
+
     } catch (error) {
       console.error('PDF generation error:', error);
       alert('Failed to generate PDF. Please try again.');

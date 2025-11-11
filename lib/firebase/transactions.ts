@@ -1,10 +1,10 @@
-import { 
+import {
   collection,
-  doc, 
+  doc,
   getDoc,
   getDocs,
-  setDoc, 
-  updateDoc, 
+  setDoc,
+  updateDoc,
   query,
   where,
   orderBy,
@@ -34,7 +34,7 @@ export interface Transaction {
   notes?: string;
   receipt_url?: string; // URL to uploaded receipt image
   receipt_filename?: string; // Original filename of the receipt
-  
+
   // Transaction-Specific Context Fields
   business_purpose?: string; // Why this expense was necessary for business
   attendees?: string[]; // For meal expenses - who attended
@@ -99,22 +99,182 @@ export interface Transaction {
   updated_at?: any;
 }
 
+interface NormalizedAiResult {
+  ai: Transaction["ai"];
+  deductionStatus?: Transaction["deductionStatus"];
+  confidence?: Transaction["confidence"];
+  reasoning?: Transaction["reasoning"];
+  irsPublication?: Transaction["irsPublication"];
+  irsSection?: Transaction["irsSection"];
+  analysisUpdatedAt?: Transaction["analysisUpdatedAt"];
+}
+
+const normalizeAiPayload = (rawAi: any, rawAiAnalysis: any): NormalizedAiResult => {
+  let source: any = null;
+
+  if (rawAi && typeof rawAi === "object") {
+    source = rawAi;
+  } else if (typeof rawAiAnalysis === "string") {
+    try {
+      source = JSON.parse(rawAiAnalysis);
+    } catch {
+      source = null;
+    }
+  } else if (rawAiAnalysis && typeof rawAiAnalysis === "object") {
+    source = rawAiAnalysis;
+  }
+
+  if (!source || typeof source !== "object") {
+    return { ai: rawAi && typeof rawAi === "object" ? rawAi : null };
+  }
+
+  const irsRefs = Array.isArray(source.irs_refs)
+    ? source.irs_refs
+    : source.irsReference
+    ? [source.irsReference]
+    : source.irsPublication
+    ? [source.irsPublication]
+    : undefined;
+
+  const reasoning =
+    source.customized_reason ||
+    source.reason ||
+    source.key_analysis_factor ||
+    source.reasoning ||
+    undefined;
+
+  const deductionStatus =
+    source.deductionStatus ||
+    source.status ||
+    source.status_label ||
+    undefined;
+
+  const confidence =
+    typeof source.confidence === "number"
+      ? source.confidence
+      : typeof source.score_pct === "number"
+      ? source.score_pct
+      : typeof source.deductible_percent === "number"
+      ? source.deductible_percent / 100
+      : undefined;
+
+  const analysisUpdatedAt =
+    typeof source.analysisUpdatedAt === "string"
+      ? source.analysisUpdatedAt
+      : typeof source.last_analyzed_at === "number"
+      ? new Date(source.last_analyzed_at).toISOString()
+      : undefined;
+
+  const firstIrsRef =
+    (Array.isArray(irsRefs) && irsRefs.length > 0 ? irsRefs[0] : undefined) ||
+    source.irsPublication ||
+    undefined;
+
+  const ai: Transaction["ai"] = {
+    status_label: deductionStatus,
+    score_pct:
+      typeof source.deductible_percent === "number"
+        ? source.deductible_percent
+        : typeof source.score_pct === "number"
+        ? source.score_pct
+        : undefined,
+    reasoning,
+    irs: {
+      publication: firstIrsRef,
+      section: source.irsSection,
+    },
+    required_docs: source.required_docs || source.documentation_required || source.questions,
+    category_hint: source.category || source.category_hint,
+    risk_flags: Array.isArray(source.audit_risk)
+      ? source.audit_risk
+      : source.audit_risk
+      ? [source.audit_risk]
+      : undefined,
+    model: source.model,
+    last_analyzed_at: analysisUpdatedAt ? new Date(analysisUpdatedAt).getTime() : undefined,
+    key_analysis_factors: {
+      deduction_status: deductionStatus,
+      deduction_percentage: source.deductible_percent,
+      reasoning_summary: reasoning,
+      irs_reference: Array.isArray(irsRefs) ? irsRefs.join(", ") : irsRefs,
+      audit_risk: source.audit_risk,
+      documentation_required: source.required_docs || source.documentation_required || undefined,
+      specific_rules: source.specific_rules,
+      limitations: source.limitations,
+    },
+  };
+
+  return {
+    ai,
+    deductionStatus,
+    confidence,
+    reasoning,
+    irsPublication: firstIrsRef,
+    irsSection: source.irsSection,
+    analysisUpdatedAt,
+  };
+};
+
+export const hydrateTransactionRecord = (data: DocumentData, fallbackId: string): Transaction => {
+  const normalizedAi = normalizeAiPayload(data.ai, data.ai_analysis);
+
+  return {
+    id: data.trans_id || fallbackId,
+    trans_id: data.trans_id || fallbackId,
+    merchant_name: data.merchant_name || '',
+    amount: data.amount || 0,
+    category: data.category || '',
+    date: data.date || '',
+    datetime: data.datetime,
+    type: data.amount < 0 ? 'income' : 'expense',
+    is_deductible: data.is_deductible,
+    deductible_reason: data.deductible_reason || normalizedAi.reasoning,
+    deduction_score: data.deduction_score,
+    ai_analysis: data.ai_analysis,
+    user_classification_reason: data.user_classification_reason,
+    description: data.description,
+    notes: data.notes,
+    receipt_url: data.receipt_url,
+    receipt_filename: data.receipt_filename,
+
+    // AI analysis data
+    ai: normalizedAi.ai,
+
+    // Analysis status
+    analyzed: data.analyzed,
+    analysisStatus: data.analysisStatus,
+
+    // New AI Analysis Fields (combine existing with normalized values)
+    deductionStatus: data.deductionStatus || normalizedAi.deductionStatus,
+    confidence: data.confidence ?? normalizedAi.confidence,
+    reasoning: data.reasoning || normalizedAi.reasoning,
+    irsPublication: data.irsPublication || normalizedAi.irsPublication,
+    irsSection: data.irsSection || normalizedAi.irsSection,
+    analysisUpdatedAt: data.analysisUpdatedAt || normalizedAi.analysisUpdatedAt,
+
+    account_id: data.account_id,
+    userId: data.userId || data.user_id,
+    created_at: data.created_at,
+    updated_at: data.updated_at,
+  };
+};
+
 // Client-side function (for use in components)
 export async function getTransactions(userId: string): Promise<{ data: Transaction[]; error: any }> {
   try {
     console.log('🔍 [Firebase] Fetching transactions for user:', userId);
-    
+
     // Get all transactions across all accounts for this user
     const transactionsQuery = query(
       collectionGroup(db, 'transactions'),
       where('userId', '==', userId)
     );
-    
+
     const querySnapshot = await getDocs(transactionsQuery);
     console.log('📊 [Firebase] Query returned', querySnapshot.size, 'transactions');
-    
+
     const transactions: Transaction[] = [];
-    
+
     querySnapshot.forEach((doc) => {
       const data = doc.data() as DocumentData;
       console.log('🔍 [Firebase] Processing transaction:', {
@@ -124,48 +284,18 @@ export async function getTransactions(userId: string): Promise<{ data: Transacti
         is_deductible: data.is_deductible,
         is_deductible_type: typeof data.is_deductible,
       });
-      
-      transactions.push({
-        id: data.trans_id || doc.id,
-        trans_id: data.trans_id || doc.id,
-        merchant_name: data.merchant_name || '',
-        amount: data.amount || 0,
-        category: data.category || '',
-        date: data.date || '',
-        type: data.amount < 0 ? 'income' : 'expense',
-        is_deductible: data.is_deductible,
-        deductible_reason: data.deductible_reason,
-        deduction_score: data.deduction_score,
-        ai_analysis: data.ai_analysis,
-        user_classification_reason: data.user_classification_reason,
-        description: data.description,
-        notes: data.notes,
-        receipt_url: data.receipt_url,
-        receipt_filename: data.receipt_filename,
 
-        // New AI Analysis Fields
-        deductionStatus: data.deductionStatus,
-        confidence: data.confidence,
-        reasoning: data.reasoning,
-        irsPublication: data.irsPublication,
-        irsSection: data.irsSection,
-        analysisUpdatedAt: data.analysisUpdatedAt,
-
-        account_id: data.account_id,
-        userId: data.userId || data.user_id,
-        created_at: data.created_at,
-        updated_at: data.updated_at,
-      });
+      transactions.push(hydrateTransactionRecord(data, doc.id));
     });
-    
+
     // Sort transactions by date in descending order
     transactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    
+
     console.log('✅ [Firebase] Successfully processed', transactions.length, 'transactions');
     return { data: transactions, error: null };
   } catch (error: any) {
     console.error('❌ [Firebase] Error getting transactions:', error);
-    
+
     // Handle specific Firebase errors
     if (error.code === 'permission-denied') {
       console.error('❌ [Firebase] Permission denied - check Firestore rules');
@@ -177,7 +307,7 @@ export async function getTransactions(userId: string): Promise<{ data: Transacti
       console.error('❌ [Firebase] Query failed precondition - likely missing index');
       return { data: [], error: { code: 'failed-precondition', message: 'Database query failed. Missing required index.' } };
     }
-    
+
     return { data: [], error };
   }
 }
@@ -190,7 +320,7 @@ export async function updateTransaction(
     deductible_reason?: string;
     deduction_score?: number;
     notes?: string;
-    
+
     // New AI Analysis Fields
     deductionStatus?: 'Likely Deductible' | 'Possibly Deductible' | 'Non-Deductible';
     confidence?: number;
@@ -202,7 +332,7 @@ export async function updateTransaction(
 ): Promise<{ data: any; error: any }> {
   try {
     console.log('🔄 [UPDATE→DB] Updating transaction:', transactionId, updates);
-    
+
     // Filter updates to only allowed client-writable fields per Firestore rules
     const allowedKeys: (keyof typeof updates)[] = [
       'notes',
@@ -224,22 +354,22 @@ export async function updateTransaction(
       where('trans_id', '==', transactionId),
       limit(1)
     );
-    
+
     const querySnapshot = await getDocs(transactionsQuery);
-    
+
     if (querySnapshot.empty) {
       console.error('❌ [UPDATE→DB] No transaction found with ID:', transactionId);
       return { data: null, error: new Error('Transaction not found') };
     }
-    
+
     const docRef = querySnapshot.docs[0].ref;
     const updateData = {
       ...filteredUpdates,
       updated_at: serverTimestamp(),
     };
-    
+
     await updateDoc(docRef, updateData);
-    
+
     // Read back to verify the update
     const updatedDoc = await getDoc(docRef);
     if (updatedDoc.exists()) {
@@ -252,7 +382,7 @@ export async function updateTransaction(
       });
       return { data: data, error: null };
     }
-    
+
     return { data: null, error: new Error('Failed to verify update') };
   } catch (error) {
     console.error('❌ [UPDATE→DB] Update failed:', error);
@@ -269,7 +399,7 @@ export async function createTransaction(
   try {
     const transId = transactionData.trans_id || `trans_${Date.now()}`;
     const docRef = doc(db, "user_profiles", userId, "accounts", accountId, "transactions", transId);
-    
+
     const newTransaction = {
       ...transactionData,
       trans_id: transId,
@@ -278,9 +408,9 @@ export async function createTransaction(
       created_at: serverTimestamp(),
       updated_at: serverTimestamp(),
     };
-    
+
     await setDoc(docRef, newTransaction);
-    
+
     // Return the created transaction
     const createdDoc = await getDoc(docRef);
     if (createdDoc.exists()) {
@@ -308,7 +438,7 @@ export async function createTransaction(
           error: null
         };
     }
-    
+
     return { data: null, error: new Error('Failed to retrieve created transaction') };
   } catch (error) {
     console.error('Error creating transaction:', error);
