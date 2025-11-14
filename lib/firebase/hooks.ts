@@ -3,6 +3,7 @@ import {
   collectionGroup,
   query,
   where,
+  or,
   orderBy,
   onSnapshot,
   DocumentData,
@@ -47,7 +48,10 @@ export function useTransactions(uid: string) {
     // Try the collectionGroup query first
     const transactionsQuery = query(
       collectionGroup(db, 'transactions'),
-      where('userId', '==', uid),
+      or(
+        where('userId', '==', uid),
+        where('user_id', '==', uid)
+      ),
       orderBy('date', 'desc')
     );
 

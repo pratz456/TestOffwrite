@@ -14,27 +14,48 @@ interface TutorialManagerProps {
 export function TutorialManager({ userId, userProfile, onProfileUpdate }: TutorialManagerProps) {
   const [showIntroTutorial, setShowIntroTutorial] = useState(false);
   const [showPlaidGuide, setShowPlaidGuide] = useState(false);
+  const [profileLoaded, setProfileLoaded] = useState(false);
 
   // Check if tutorials should be shown on mount
+  // Only check after profile is confirmed loaded to prevent showing on initial render
   useEffect(() => {
-    if (userProfile) {
-      // Show intro tutorial if not completed
-      if (!userProfile.onboardingIntroCompleted) {
-        setShowIntroTutorial(true);
-      }
-      // Show Plaid guide if intro is completed but Plaid guide is not
-      else if (userProfile.onboardingIntroCompleted && !userProfile.onboardingPlaidGuideCompleted && userProfile.plaid_token) {
-        setShowPlaidGuide(true);
-      }
+    if (userProfile && userProfile.id && !profileLoaded) {
+      // Mark profile as loaded once we have a profile with an id
+      setProfileLoaded(true);
+
+      // Delay to ensure the page has fully rendered and is interactive before showing tutorial
+      // This prevents the overlay from blocking interaction on initial page load
+      // Wait for next frame + additional delay to ensure page is fully interactive
+      const timer = setTimeout(() => {
+        // Show intro tutorial if onboarding is not completed (false or undefined)
+        const onboardingNotCompleted = userProfile.onboardingIntroCompleted === false ||
+                                      userProfile.onboardingIntroCompleted === undefined;
+
+        if (onboardingNotCompleted) {
+          setShowIntroTutorial(true);
+        }
+        // Show Plaid guide if intro is completed but Plaid guide is not
+        else if (userProfile.onboardingIntroCompleted === true && !userProfile.onboardingPlaidGuideCompleted && userProfile.plaid_token) {
+          setShowPlaidGuide(true);
+        }
+      }, 500); // Increased delay to ensure page is fully interactive
+
+      return () => clearTimeout(timer);
+    } else if (!userProfile) {
+      // Reset profileLoaded when profile is cleared
+      setProfileLoaded(false);
+      // Also close any open tutorials
+      setShowIntroTutorial(false);
+      setShowPlaidGuide(false);
     }
-  }, [userProfile]);
+  }, [userProfile, profileLoaded]);
 
   const handleIntroComplete = async () => {
     try {
       await updateUserProfile(userId, { onboardingIntroCompleted: true });
       setShowIntroTutorial(false);
       onProfileUpdate();
-      
+
       // If user has Plaid token, show Plaid guide next
       if (userProfile?.plaid_token && !userProfile?.onboardingPlaidGuideCompleted) {
         setShowPlaidGuide(true);
@@ -49,7 +70,7 @@ export function TutorialManager({ userId, userProfile, onProfileUpdate }: Tutori
       await updateUserProfile(userId, { onboardingIntroCompleted: true });
       setShowIntroTutorial(false);
       onProfileUpdate();
-      
+
       // If user has Plaid token, show Plaid guide next
       if (userProfile?.plaid_token && !userProfile?.onboardingPlaidGuideCompleted) {
         setShowPlaidGuide(true);
