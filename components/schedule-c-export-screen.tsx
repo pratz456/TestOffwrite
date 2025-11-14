@@ -266,9 +266,8 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
       try {
         if (!user) return;
 
-        const response = await fetch('/api/transactions', {
-          credentials: 'include', // Include cookies for authentication
-        });
+        const { makeAuthenticatedRequest } = await import('@/lib/firebase/api-client');
+        const response = await makeAuthenticatedRequest('/api/transactions');
         const result = await response.json();
         const allTransactions = result.transactions || [];
 
@@ -351,7 +350,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
       // Include both confirmed and potentially deductible transactions
       const confirmedDeductible = yearTransactions.filter(t => t.is_deductible === true);
       const potentiallyDeductible = yearTransactions.filter(t =>
-        t.is_deductible === null &&
+        t.is_deductible == null &&
         potentialBusinessCategories.includes(t.category) &&
         t.amount > 0
       );
