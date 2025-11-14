@@ -7,13 +7,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/simple-select';
+import { Badge } from '@/components/ui/badge';
 import {
-  ArrowLeft,
   User,
-  Mail,
   Briefcase,
   DollarSign,
-  MapPin,
   FileText,
   Save,
   Loader2,
@@ -32,7 +30,7 @@ const SimpleSelectWrapper: React.FC<{
 }> = ({ value, onValueChange, placeholder, options }) => {
   return (
     <Select value={value} onValueChange={onValueChange}>
-      <SelectTrigger className="h-12 rounded-xl border-2">
+      <SelectTrigger className="h-12 rounded-xl border border-border bg-background">
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>
       <SelectContent>
@@ -58,6 +56,8 @@ interface SettingsScreenProps {
   onNavigate: (screen: string) => void;
   inAppNavigation?: boolean;
 }
+
+type SettingsTab = 'profile' | 'businessDetails' | 'taxSettings' | 'advancedSettings';
 
 export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   user,
@@ -111,9 +111,35 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [activeTab, setActiveTab] = useState<'profile' | 'businessDetails' | 'taxSettings' | 'advancedSettings'>('profile');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [originalProfile, setOriginalProfile] = useState<any>(null);
+  const [editState, setEditState] = useState<Record<SettingsTab, boolean>>({
+    profile: false,
+    businessDetails: false,
+    taxSettings: false,
+    advancedSettings: false,
+  });
+
+  const isEditingCurrentTab = editState[activeTab];
+
+  const startEditing = (tab: SettingsTab) => {
+    setEditState(prev => ({ ...prev, [tab]: true }));
+    setSaveStatus('idle');
+    setErrorMessage('');
+    setHasUnsavedChanges(false);
+  };
+
+  const cancelEditing = (tab: SettingsTab) => {
+    if (originalProfile) {
+      setProfile(JSON.parse(JSON.stringify(originalProfile)));
+    }
+    setEditState(prev => ({ ...prev, [tab]: false }));
+    setHasUnsavedChanges(false);
+    setSaveStatus('idle');
+    setErrorMessage('');
+  };
 
   // Track changes to show unsaved indicator
   const handleProfileChange = (updates: any) => {
+    if (!isEditingCurrentTab) return;
     setProfile(prev => ({ ...prev, ...updates }));
     setHasUnsavedChanges(true);
   };
@@ -224,6 +250,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
   // Handle profession selection (multiple selection)
   const handleProfessionChange = (profession: string, checked: boolean) => {
+    if (!editState.profile) return;
     setProfile(prev => ({
       ...prev,
       profession: checked
@@ -232,10 +259,13 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       // Clear custom profession if "Other" is deselected
       customProfession: profession === 'Other' && !checked ? '' : prev.customProfession
     }));
-    setSaveStatus('idle');
+    setHasUnsavedChanges(true);
   };
 
   const handleSave = async () => {
+    if (!editState[activeTab]) {
+      return;
+    }
     try {
       setIsSaving(true);
       setSaveStatus('idle');
@@ -305,6 +335,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       setSaveStatus('success');
       setHasUnsavedChanges(false);
       setOriginalProfile(JSON.parse(JSON.stringify(profile)));
+      setEditState(prev => ({ ...prev, [activeTab]: false }));
 
       // Clear success message after 3 seconds
       setTimeout(() => {
@@ -441,10 +472,44 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     { value: 'not_applicable', label: 'This does not apply to me' }
   ];
 
+  const displayedProfessions = React.useMemo(() => {
+    if (!profile.profession?.length) return [];
+    if (profile.profession.includes('Other') && profile.customProfession) {
+      return profile.profession
+        .filter(p => p !== 'Other')
+        .concat(profile.customProfession.split(',').map(item => item.trim()).filter(Boolean));
+    }
+    return profile.profession;
+  }, [profile.profession, profile.customProfession]);
+
+  const formatCurrency = (value?: number) => {
+    if (value === undefined || value === null || Number.isNaN(value)) return '—';
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(value);
+  };
+
+  const formatDate = (value?: string) => {
+    if (!value) return '—';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+    return parsed.toLocaleDateString();
+  };
+
+  const renderViewField = (label: string, value: React.ReactNode) => {
+    const content = value !== undefined && value !== null && value !== '' ? value : '—';
+    return (
+      <div className="space-y-1 rounded-lg border border-border bg-muted/40 px-4 py-3">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+        <div className="text-sm md:text-base text-foreground">
+          {typeof content === 'string' ? <span>{content}</span> : content}
+        </div>
+      </div>
+    );
+  };
+
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-muted flex items-center justify-center">
+      <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center space-y-4">
           <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
           <p className="text-muted-foreground">Loading profile settings...</p>
@@ -454,13 +519,13 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   }
 
   return (
-    <div className="min-h-screen bg-muted">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="bg-white border-b border-border sticky top-0 z-50 shadow-sm">
+      <div className="bg-card border-b border-border sticky top-0 z-50 shadow-sm">
         <div className="flex items-center justify-between p-6">
           {/* <button
             onClick={onBack}
-            className="w-12 h-12 bg-white border border-border rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-all duration-200 shadow-sm"
+            className="w-12 h-12 bg-card border border-border rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-all duration-200 shadow-sm"
           >
             <ArrowLeft className="w-5 h-5" />
           </button> */}
@@ -481,7 +546,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         </div>
       </div>
 
-      <div className="p-6 max-w-4xl mx-auto">
+      <div className="p-6">
+        <div className="max-w-5xl mx-auto space-y-6">
         {/* Save Status Messages */}
         {saveStatus === 'success' && (
           <Card className="p-4 bg-accent/5 border-accent/20 shadow-sm mb-6">
@@ -508,12 +574,12 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         )}
 
         {/* Tab Navigation */}
-        <div className="flex space-x-1 mb-6 bg-white rounded-lg p-1 w-fit overflow-x-auto">
+        <div className="flex space-x-1 mb-6 bg-card/80 rounded-lg p-1 w-fit overflow-x-auto border border-border">
           <button
             onClick={() => setActiveTab('profile')}
             className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'profile'
-              ? 'bg-white text-gray-900 shadow-sm'
-              : 'text-gray-500 hover:text-gray-700'
+              ? 'bg-primary/10 text-primary shadow-sm'
+              : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
               }`}
           >
             <User className="w-4 h-4" />
@@ -522,8 +588,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           <button
             onClick={() => setActiveTab('businessDetails')}
             className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'businessDetails'
-              ? 'bg-white text-gray-900 shadow-sm'
-              : 'text-gray-500 hover:text-gray-700'
+              ? 'bg-primary/10 text-primary shadow-sm'
+              : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
               }`}
           >
             <Briefcase className="w-4 h-4" />
@@ -532,8 +598,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           <button
             onClick={() => setActiveTab('taxSettings')}
             className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'taxSettings'
-              ? 'bg-white text-gray-900 shadow-sm'
-              : 'text-gray-500 hover:text-gray-700'
+              ? 'bg-primary/10 text-primary shadow-sm'
+              : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
               }`}
           >
             <FileText className="w-4 h-4" />
@@ -542,8 +608,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           <button
             onClick={() => setActiveTab('advancedSettings')}
             className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'advancedSettings'
-              ? 'bg-white text-gray-900 shadow-sm'
-              : 'text-gray-500 hover:text-gray-700'
+              ? 'bg-primary/10 text-primary shadow-sm'
+              : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
               }`}
           >
             <Shield className="w-4 h-4" />
@@ -553,364 +619,502 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
         {/* Profile Tab */}
         {activeTab === 'profile' && (
-          <Card className="p-8 bg-white border border-border shadow-lg">
-            <div className="text-center mb-8">
-              <div className="w-20 h-20 bg-primary rounded-lg flex items-center justify-center mx-auto mb-4">
-                <User className="w-10 h-10 text-white" />
+          <Card className="p-8 bg-card border border-border shadow-lg">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6 mb-8">
+              <div className="flex items-center gap-4">
+                <div className="w-16 h-16 md:w-20 md:h-20 rounded-xl bg-primary/90 flex items-center justify-center">
+                  <User className="w-10 h-10 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-2xl font-semibold text-foreground">Profile Settings</h2>
+                  <p className="text-sm text-muted-foreground">Manage your personal and professional information</p>
+                </div>
               </div>
-              <h2 className="text-2xl font-medium text-foreground mb-2">Profile Settings</h2>
-              <p className="text-muted-foreground">Essential information needed for AI analysis</p>
+              {!editState.profile && (
+                <Button
+                  variant="outline"
+                  className="h-11 rounded-lg border-border"
+                  onClick={() => startEditing('profile')}
+                >
+                  Edit Profile
+                </Button>
+              )}
             </div>
 
-            <div className="space-y-6">
+            <div className="space-y-8">
               {/* Personal Information Section */}
-              <div>
-                <h3 className="text-lg font-medium text-foreground mb-4 flex items-center gap-2">
+              <section className="space-y-4">
+                <div className="flex items-center gap-2">
                   <User className="w-5 h-5 text-primary" />
-                  Personal Information
-                </h3>
-
+                  <h3 className="text-lg font-semibold text-foreground">Personal Information</h3>
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-2">
-                      Full Name <span className="text-red-500">*</span>
-                    </label>
-                    <Input
-                      type="text"
-                      value={profile.name}
-                      onChange={(e) => handleProfileChange({ name: e.target.value })}
-                      placeholder="Enter your full name"
-                      className="h-12 rounded-lg border-2"
-                      required
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">Required for AI analysis</p>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-2">
-                      Email Address <span className="text-red-500">*</span>
-                    </label>
-                    <Input
-                      type="email"
-                      value={profile.email}
-                      onChange={(e) => handleProfileChange({ email: e.target.value })}
-                      placeholder="Enter your email"
-                      className="h-12 rounded-lg border-2"
-                      required
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">Required for account management</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Professional Information Section */}
-              <div>
-                <h3 className="text-lg font-medium text-foreground mb-4 flex items-center gap-2">
-                  <Briefcase className="w-5 h-5 text-primary" />
-                  Professional Information
-                </h3>
-
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">
-                    Profession(s) <span className="text-red-500">*</span>
-                  </label>
-                  <p className="text-xs text-muted-foreground mb-3">Select all that apply to your work - required for AI analysis</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-48 overflow-y-auto border border-border rounded-lg p-3 bg-white">
-                    {professionOptions.map((option) => (
-                      <label key={option.value} className="flex items-center space-x-2 cursor-pointer hover:bg-muted/50 p-2 rounded-md transition-colors">
-                        <Checkbox
-                          checked={profile.profession.includes(option.label)}
-                          onCheckedChange={(checked) => handleProfessionChange(option.label, checked as boolean)}
-                          className="text-primary"
-                        />
-                        <span className="text-sm text-foreground">{option.label}</span>
-                      </label>
-                    ))}
-                  </div>
-                  {profile.profession.length > 0 && (
-                    <div className="mt-2">
-                      <p className="text-xs text-muted-foreground">Selected: {profile.profession.join(', ')}</p>
-                    </div>
-                  )}
-
-                  {/* Custom profession input - only show when "Other" is selected */}
-                  {profile.profession.includes('Other') && (
-                    <div className="mt-3">
-                      <label className="block text-sm font-medium text-foreground mb-2">
-                        Please specify your profession <span className="text-red-500">*</span>
-                      </label>
-                      <Input
-                        type="text"
-                        value={profile.customProfession || ''}
-                        onChange={(e) => handleProfileChange({ customProfession: e.target.value })}
-                        placeholder="Enter your profession"
-                        className="h-10 text-sm rounded-lg border-2"
-                        required
-                      />
-                      <p className="text-xs text-muted-foreground mt-1">This will replace "Other" in your profession list</p>
-                    </div>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-2">
-                      Business Entity Type <span className="text-red-500">*</span>
-                    </label>
-                    <SimpleSelectWrapper
-                      value={profile.businessEntityType}
-                      onValueChange={(value) => handleProfileChange({ businessEntityType: value })}
-                      placeholder="Select your business entity type"
-                      options={businessEntityTypeOptions}
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">Required for tax calculations</p>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-2">
-                      State <span className="text-red-500">*</span>
-                    </label>
-                    <SimpleSelectWrapper
-                      value={profile.state}
-                      onValueChange={(value) => handleProfileChange({ state: value })}
-                      placeholder="Select your state"
-                      options={stateOptions}
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">Required for state tax calculations</p>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-2">
-                      Filing Status <span className="text-red-500">*</span>
-                    </label>
-                    <SimpleSelectWrapper
-                      value={profile.filing_status}
-                      onValueChange={(value) => handleProfileChange({ filing_status: value })}
-                      placeholder="Select filing status"
-                      options={filingStatusOptions}
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">Required for tax calculations</p>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-2">
-                      Annual Income <span className="text-red-500">*</span>
-                    </label>
-                    <SimpleSelectWrapper
-                      value={profile.income}
-                      onValueChange={(value) => handleProfileChange({ income: value })}
-                      placeholder="Select income range"
-                      options={incomeOptions}
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">Required for AI analysis</p>
-                  </div>
-                </div>
-              </div>
-
-
-              {/* Save Button */}
-              <div className="pt-6 border-t border-border">
-                <div className="flex gap-4">
-                  <Button
-                    onClick={handleSave}
-                    disabled={!isFormValid || isSaving}
-                    className="flex-1 h-14 bg-primary hover:bg-primary/90 text-white rounded-lg transition-all duration-200 shadow-sm text-base font-medium"
-                  >
-                    {isSaving ? (
+                  <div className="space-y-2">
+                    {editState.profile ? (
                       <>
-                        <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                        Saving...
+                        <Label className="text-sm font-medium text-foreground">
+                          Full Name <span className="text-destructive">*</span>
+                        </Label>
+                        <Input
+                          type="text"
+                          value={profile.name}
+                          onChange={(e) => handleProfileChange({ name: e.target.value })}
+                          placeholder="Enter your full name"
+                          className="h-12 rounded-lg border-border bg-background"
+                          required
+                        />
+                        <p className="text-xs text-muted-foreground">Required for AI analysis</p>
                       </>
                     ) : (
-                      <>
-                        <Save className="w-5 h-5 mr-2" />
-                        Save Changes
-                      </>
+                      renderViewField('Full Name', profile.name || '—')
                     )}
-                  </Button>
-
-                  <Button
-                    onClick={onBack}
-                    variant="outline"
-                    className="h-14 px-8 rounded-lg border-2"
-                  >
-                    Cancel
-                  </Button>
+                  </div>
+                  <div className="space-y-2">
+                    {editState.profile ? (
+                      <>
+                        <Label className="text-sm font-medium text-foreground">
+                          Email Address <span className="text-destructive">*</span>
+                        </Label>
+                        <Input
+                          type="email"
+                          value={profile.email}
+                          onChange={(e) => handleProfileChange({ email: e.target.value })}
+                          placeholder="Enter your email"
+                          className="h-12 rounded-lg border-border bg-background"
+                          required
+                        />
+                        <p className="text-xs text-muted-foreground">Required for account management</p>
+                      </>
+                    ) : (
+                      renderViewField('Email Address', profile.email || '—')
+                    )}
+                  </div>
                 </div>
-                {!isFormValid && (
-                  <p className="text-sm text-red-600 mt-2">
-                    Please fill in all required fields (marked with *) to save your profile.
-                  </p>
+              </section>
+
+              {/* Professional Information Section */}
+              <section className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Briefcase className="w-5 h-5 text-primary" />
+                  <h3 className="text-lg font-semibold text-foreground">Professional Information</h3>
+                </div>
+
+                <div className="space-y-3">
+                  {editState.profile ? (
+                    <>
+                      <Label className="text-sm font-medium text-foreground">
+                        Profession(s) <span className="text-destructive">*</span>
+                      </Label>
+                      <p className="text-xs text-muted-foreground">Select all that apply to your work</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-52 overflow-y-auto rounded-lg border border-border bg-muted/30 p-3">
+                        {professionOptions.map((option) => (
+                          <label key={option.value} className="flex items-center space-x-2 rounded-md px-3 py-2 hover:bg-muted transition-colors cursor-pointer">
+                            <Checkbox
+                              checked={profile.profession.includes(option.label)}
+                              onCheckedChange={(checked) => handleProfessionChange(option.label, checked as boolean)}
+                              className="text-primary"
+                            />
+                            <span className="text-sm text-foreground">{option.label}</span>
+                          </label>
+                        ))}
+                      </div>
+                      {profile.profession.includes('Other') && (
+                        <div className="space-y-2">
+                          <Label className="text-sm font-medium text-foreground">
+                            Custom Profession <span className="text-destructive">*</span>
+                          </Label>
+                          <Input
+                            type="text"
+                            value={profile.customProfession || ''}
+                            onChange={(e) => handleProfileChange({ customProfession: e.target.value })}
+                            placeholder="Enter your profession"
+                            className="h-10 rounded-lg border-border bg-background text-sm"
+                          />
+                          <p className="text-xs text-muted-foreground">Separate multiple professions with commas</p>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    renderViewField(
+                      'Professions',
+                      displayedProfessions.length ? (
+                        <div className="flex flex-wrap gap-2">
+                          {displayedProfessions.map((item, idx) => (
+                            <Badge key={`${item}-${idx}`} variant="secondary" className="rounded-full px-3 py-1 text-xs">
+                              {item}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : (
+                        '—'
+                      )
+                    )
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    {editState.profile ? (
+                      <>
+                        <Label className="text-sm font-medium text-foreground">
+                          Business Entity Type <span className="text-destructive">*</span>
+                        </Label>
+                        <SimpleSelectWrapper
+                          value={profile.businessEntityType}
+                          onValueChange={(value) => handleProfileChange({ businessEntityType: value })}
+                          placeholder="Select your business entity type"
+                          options={businessEntityTypeOptions}
+                        />
+                        <p className="text-xs text-muted-foreground">Required for tax calculations</p>
+                      </>
+                    ) : (
+                      renderViewField('Business Entity Type', profile.businessEntityType || '—')
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    {editState.profile ? (
+                      <>
+                        <Label className="text-sm font-medium text-foreground">
+                          State <span className="text-destructive">*</span>
+                        </Label>
+                        <SimpleSelectWrapper
+                          value={profile.state}
+                          onValueChange={(value) => handleProfileChange({ state: value })}
+                          placeholder="Select your state"
+                          options={stateOptions}
+                        />
+                        <p className="text-xs text-muted-foreground">Required for state tax calculations</p>
+                      </>
+                    ) : (
+                      renderViewField('State', profile.state || '—')
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    {editState.profile ? (
+                      <>
+                        <Label className="text-sm font-medium text-foreground">
+                          Filing Status <span className="text-destructive">*</span>
+                        </Label>
+                        <SimpleSelectWrapper
+                          value={profile.filing_status}
+                          onValueChange={(value) => handleProfileChange({ filing_status: value })}
+                          placeholder="Select filing status"
+                          options={filingStatusOptions}
+                        />
+                        <p className="text-xs text-muted-foreground">Required for tax calculations</p>
+                      </>
+                    ) : (
+                      renderViewField('Filing Status', profile.filing_status || '—')
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    {editState.profile ? (
+                      <>
+                        <Label className="text-sm font-medium text-foreground">
+                          Annual Income <span className="text-destructive">*</span>
+                        </Label>
+                        <SimpleSelectWrapper
+                          value={profile.income}
+                          onValueChange={(value) => handleProfileChange({ income: value })}
+                          placeholder="Select income range"
+                          options={incomeOptions}
+                        />
+                        <p className="text-xs text-muted-foreground">Required for AI analysis</p>
+                      </>
+                    ) : (
+                      renderViewField('Annual Income', profile.income || '—')
+                    )}
+                  </div>
+                </div>
+              </section>
+
+              {/* Save Button */}
+              <div className="flex justify-end gap-3 pt-6 border-t border-border">
+                {editState.profile ? (
+                  <>
+                    <Button
+                      variant="outline"
+                      className="h-11 px-6 rounded-lg"
+                      onClick={() => cancelEditing('profile')}
+                      disabled={isSaving}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={handleSave}
+                      disabled={!isFormValid || isSaving}
+                      className="h-11 px-6 rounded-lg"
+                    >
+                      {isSaving ? (
+                        <>
+                          <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <Save className="w-5 h-5 mr-2" />
+                          Save Changes
+                        </>
+                      )}
+                    </Button>
+                  </>
+                ) : (
+                  <Button variant="outline" className="h-11 px-6 rounded-lg" onClick={onBack}>
+                    Close
+                  </Button>
                 )}
               </div>
+              {editState.profile && !isFormValid && (
+                <p className="text-sm text-destructive">
+                  Please fill in all required fields (marked with *) to save your profile.
+                </p>
+              )}
             </div>
           </Card>
         )}
 
         {/* Tax Settings Tab */}
         {activeTab === 'taxSettings' && (
-          <Card className="p-8 bg-white border border-border shadow-lg">
-            <div className="text-center mb-8">
-              <div className="w-20 h-20 bg-purple-500 rounded-lg flex items-center justify-center mx-auto mb-4">
-                <FileText className="w-10 h-10 text-white" />
-              </div>
-              <h2 className="text-2xl font-medium text-foreground mb-2">Tax Settings</h2>
-              <p className="text-muted-foreground">Configure your tax preferences and deduction methods</p>
-            </div>
-
-            <div className="space-y-6">
-              {/* Home Office Section */}
-              <div>
-                <h3 className="text-lg font-medium text-foreground mb-4 flex items-center gap-2">
-                  <FileText className="w-5 h-5 text-purple-600" />
-                  Home Office Deduction
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <Label htmlFor="home_office_sqft" className="text-sm font-medium text-foreground">
-                      Home Office Square Footage <span className="text-red-500">*</span>
-                    </Label>
-                    <Input
-                      type="number"
-                      value={profile.home_office_sqft || ''}
-                      onChange={(e) => handleProfileChange({ home_office_sqft: parseInt(e.target.value) || undefined })}
-                      placeholder="e.g., 150"
-                      className="h-12 rounded-lg border-2"
-                      required
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">Required if you have a home office</p>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="total_home_sqft" className="text-sm font-medium text-foreground">
-                      Total Home Square Footage <span className="text-red-500">*</span>
-                    </Label>
-                    <Input
-                      type="number"
-                      value={profile.total_home_sqft || ''}
-                      onChange={(e) => handleProfileChange({ total_home_sqft: parseInt(e.target.value) || undefined })}
-                      placeholder="e.g., 2000"
-                      className="h-12 rounded-lg border-2"
-                      required
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">Required for home office calculation</p>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="home_office_method" className="text-sm font-medium text-foreground">
-                      Home Office Method <span className="text-red-500">*</span>
-                    </Label>
-                    <SimpleSelectWrapper
-                      value={profile.home_office_method}
-                      onValueChange={(value) => handleProfileChange({ home_office_method: value })}
-                      placeholder="Select method"
-                      options={[
-                        { value: 'simplified', label: 'Simplified Method ($5/sq ft)' },
-                        { value: 'actual', label: 'Actual Expenses' }
-                      ]}
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">Choose your deduction method</p>
-                  </div>
+          <Card className="p-8 bg-card border border-border shadow-lg">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6 mb-8">
+              <div className="flex items-center gap-4">
+                <div className="w-16 h-16 md:w-20 md:h-20 rounded-xl bg-purple-500/90 flex items-center justify-center">
+                  <FileText className="w-10 h-10 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-2xl font-semibold text-foreground">Tax Settings</h2>
+                  <p className="text-sm text-muted-foreground">Configure your tax preferences and deduction methods</p>
                 </div>
               </div>
-
-              {/* Vehicle Section */}
-              <div>
-                <h3 className="text-lg font-medium text-foreground mb-4 flex items-center gap-2">
-                  <FileText className="w-5 h-5 text-purple-600" />
-                  Vehicle Deduction
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <Label htmlFor="vehicle_business_use_percentage" className="text-sm font-medium text-foreground">
-                      Vehicle Business Use % <span className="text-red-500">*</span>
-                    </Label>
-                    <Input
-                      type="number"
-                      min="0"
-                      max="100"
-                      value={profile.vehicle_business_use_percentage || ''}
-                      onChange={(e) => handleProfileChange({ vehicle_business_use_percentage: parseInt(e.target.value) || undefined })}
-                      placeholder="e.g., 75"
-                      className="h-12 rounded-lg border-2"
-                      required
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">Required if you use a vehicle for business</p>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="vehicle_deduction_method" className="text-sm font-medium text-foreground">
-                      Vehicle Deduction Method <span className="text-red-500">*</span>
-                    </Label>
-                    <SimpleSelectWrapper
-                      value={profile.vehicle_deduction_method}
-                      onValueChange={(value) => handleProfileChange({ vehicle_deduction_method: value })}
-                      placeholder="Select method"
-                      options={[
-                        { value: 'standard_mileage', label: 'Standard Mileage Rate' },
-                        { value: 'actual_expense', label: 'Actual Expenses' }
-                      ]}
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">Choose your deduction method</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Tax Preferences */}
-              <div>
-                <h3 className="text-lg font-medium text-foreground mb-4 flex items-center gap-2">
-                  <FileText className="w-5 h-5 text-purple-600" />
-                  Tax Preferences
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <Label htmlFor="itemization_status" className="text-sm font-medium text-foreground">
-                      Itemization Status <span className="text-red-500">*</span>
-                    </Label>
-                    <SimpleSelectWrapper
-                      value={profile.itemization_status}
-                      onValueChange={(value) => handleProfileChange({ itemization_status: value })}
-                      placeholder="Select itemization status"
-                      options={[
-                        { value: 'itemize', label: 'I itemize deductions' },
-                        { value: 'standard', label: 'I take standard deduction' },
-                        { value: 'unsure', label: 'I\'m not sure' }
-                      ]}
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">Required for tax calculations</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Save Button for Tax Settings Tab */}
-            <div className="pt-6 border-t border-border">
-              <div className="flex gap-4">
+              {!editState.taxSettings && (
                 <Button
-                  onClick={handleSave}
-                  disabled={isSaving}
-                  className="flex-1 h-14 bg-primary hover:bg-primary/90 text-white rounded-lg transition-all duration-200 shadow-sm text-base font-medium"
-                >
-                  {isSaving ? (
-                    <>
-                      <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <Save className="w-5 h-5 mr-2" />
-                      Save Changes
-                    </>
-                  )}
-                </Button>
-
-                <Button
-                  onClick={onBack}
                   variant="outline"
-                  className="h-14 px-8 rounded-lg border-2"
+                  className="h-11 rounded-lg border-border"
+                  onClick={() => startEditing('taxSettings')}
                 >
-                  Cancel
+                  Edit Tax Settings
                 </Button>
+              )}
+            </div>
+
+            <div className="space-y-8">
+              <section className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-purple-500" />
+                  <h3 className="text-lg font-semibold text-foreground">Home Office Deduction</h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    {editState.taxSettings ? (
+                      <>
+                        <Label className="text-sm font-medium text-foreground">
+                          Home Office Square Footage <span className="text-destructive">*</span>
+                        </Label>
+                        <Input
+                          type="number"
+                          value={profile.home_office_sqft ?? ''}
+                          onChange={(e) => handleProfileChange({ home_office_sqft: e.target.value ? parseInt(e.target.value, 10) : undefined })}
+                          placeholder="e.g., 150"
+                          className="h-12 rounded-lg border-border bg-background"
+                          required
+                        />
+                        <p className="text-xs text-muted-foreground">Required if you have a home office</p>
+                      </>
+                    ) : (
+                      renderViewField('Home Office Square Footage', profile.home_office_sqft ?? '—')
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    {editState.taxSettings ? (
+                      <>
+                        <Label className="text-sm font-medium text-foreground">
+                          Total Home Square Footage <span className="text-destructive">*</span>
+                        </Label>
+                        <Input
+                          type="number"
+                          value={profile.total_home_sqft ?? ''}
+                          onChange={(e) => handleProfileChange({ total_home_sqft: e.target.value ? parseInt(e.target.value, 10) : undefined })}
+                          placeholder="e.g., 2000"
+                          className="h-12 rounded-lg border-border bg-background"
+                          required
+                        />
+                        <p className="text-xs text-muted-foreground">Required for home office calculation</p>
+                      </>
+                    ) : (
+                      renderViewField('Total Home Square Footage', profile.total_home_sqft ?? '—')
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    {editState.taxSettings ? (
+                      <>
+                        <Label className="text-sm font-medium text-foreground">
+                          Home Office Method <span className="text-destructive">*</span>
+                        </Label>
+                        <SimpleSelectWrapper
+                          value={profile.home_office_method}
+                          onValueChange={(value) => handleProfileChange({ home_office_method: value })}
+                          placeholder="Select method"
+                          options={[
+                            { value: 'simplified', label: 'Simplified Method ($5/sq ft)' },
+                            { value: 'actual', label: 'Actual Expenses' }
+                          ]}
+                        />
+                        <p className="text-xs text-muted-foreground">Choose your deduction method</p>
+                      </>
+                    ) : (
+                      renderViewField(
+                        'Home Office Method',
+                        profile.home_office_method
+                          ? profile.home_office_method === 'simplified'
+                            ? 'Simplified Method'
+                            : 'Actual Expenses'
+                          : '—'
+                      )
+                    )}
+                  </div>
+                </div>
+              </section>
+
+              <section className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-purple-500" />
+                  <h3 className="text-lg font-semibold text-foreground">Vehicle Deduction</h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    {editState.taxSettings ? (
+                      <>
+                        <Label className="text-sm font-medium text-foreground">
+                          Vehicle Business Use % <span className="text-destructive">*</span>
+                        </Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={profile.vehicle_business_use_percentage ?? ''}
+                          onChange={(e) => handleProfileChange({
+                            vehicle_business_use_percentage: e.target.value ? parseInt(e.target.value, 10) : undefined
+                          })}
+                          placeholder="e.g., 75"
+                          className="h-12 rounded-lg border-border bg-background"
+                          required
+                        />
+                        <p className="text-xs text-muted-foreground">Required if you use a vehicle for business</p>
+                      </>
+                    ) : (
+                      renderViewField(
+                        'Vehicle Business Use %',
+                        profile.vehicle_business_use_percentage !== undefined && profile.vehicle_business_use_percentage !== null
+                          ? `${profile.vehicle_business_use_percentage}%`
+                          : '—'
+                      )
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    {editState.taxSettings ? (
+                      <>
+                        <Label className="text-sm font-medium text-foreground">
+                          Vehicle Deduction Method <span className="text-destructive">*</span>
+                        </Label>
+                        <SimpleSelectWrapper
+                          value={profile.vehicle_deduction_method}
+                          onValueChange={(value) => handleProfileChange({ vehicle_deduction_method: value })}
+                          placeholder="Select method"
+                          options={[
+                            { value: 'standard_mileage', label: 'Standard Mileage Rate' },
+                            { value: 'actual_expense', label: 'Actual Expenses' }
+                          ]}
+                        />
+                        <p className="text-xs text-muted-foreground">Choose your deduction method</p>
+                      </>
+                    ) : (
+                      renderViewField(
+                        'Vehicle Deduction Method',
+                        profile.vehicle_deduction_method
+                          ? profile.vehicle_deduction_method === 'standard_mileage'
+                            ? 'Standard Mileage Rate'
+                            : 'Actual Expenses'
+                          : '—'
+                      )
+                    )}
+                  </div>
+                </div>
+              </section>
+
+              <section className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-purple-500" />
+                  <h3 className="text-lg font-semibold text-foreground">Tax Preferences</h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    {editState.taxSettings ? (
+                      <>
+                        <Label className="text-sm font-medium text-foreground">
+                          Itemization Status <span className="text-destructive">*</span>
+                        </Label>
+                        <SimpleSelectWrapper
+                          value={profile.itemization_status}
+                          onValueChange={(value) => handleProfileChange({ itemization_status: value })}
+                          placeholder="Select itemization status"
+                          options={[
+                            { value: 'itemize', label: 'I itemize deductions' },
+                            { value: 'standard', label: 'I take standard deduction' },
+                            { value: 'unsure', label: 'I\'m not sure' }
+                          ]}
+                        />
+                        <p className="text-xs text-muted-foreground">Required for tax calculations</p>
+                      </>
+                    ) : (
+                      renderViewField(
+                        'Itemization Status',
+                        profile.itemization_status
+                          ? profile.itemization_status === 'itemize'
+                            ? 'I itemize deductions'
+                            : profile.itemization_status === 'standard'
+                              ? 'I take standard deduction'
+                              : 'I\'m not sure'
+                          : '—'
+                      )
+                    )}
+                  </div>
+                </div>
+              </section>
+
+              <div className="flex justify-end gap-3 pt-6 border-t border-border">
+                {editState.taxSettings ? (
+                  <>
+                    <Button
+                      variant="outline"
+                      className="h-11 px-6 rounded-lg"
+                      onClick={() => cancelEditing('taxSettings')}
+                      disabled={isSaving}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={handleSave}
+                      disabled={isSaving}
+                      className="h-11 px-6 rounded-lg"
+                    >
+                      {isSaving ? (
+                        <>
+                          <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <Save className="w-5 h-5 mr-2" />
+                          Save Changes
+                        </>
+                      )}
+                    </Button>
+                  </>
+                ) : (
+                  <Button variant="outline" className="h-11 px-6 rounded-lg" onClick={onBack}>
+                    Close
+                  </Button>
+                )}
               </div>
             </div>
           </Card>
@@ -918,146 +1122,182 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
         {/* Business Details Tab */}
         {activeTab === 'businessDetails' && (
-          <Card className="p-8 bg-white border border-border shadow-lg">
-            <div className="text-center mb-8">
-              <div className="w-20 h-20 bg-orange-500 rounded-lg flex items-center justify-center mx-auto mb-4">
-                <Briefcase className="w-10 h-10 text-white" />
-              </div>
-              <h2 className="text-2xl font-medium text-foreground mb-2">Business Details</h2>
-              <p className="text-muted-foreground">Configure your business structure and income information</p>
-            </div>
-
-            <div className="space-y-6">
-              {/* Business Information */}
-              <div>
-                <h3 className="text-lg font-medium text-foreground mb-4 flex items-center gap-2">
-                  <Briefcase className="w-5 h-5 text-orange-600" />
-                  Business Information
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <Label htmlFor="business_purpose" className="text-sm font-medium text-foreground">
-                      Business Purpose
-                    </Label>
-                    <Input
-                      type="text"
-                      value={profile.business_purpose || ''}
-                      onChange={(e) => handleProfileChange({ business_purpose: e.target.value })}
-                      placeholder="Describe your business"
-                      className="h-12 rounded-lg border-2"
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">Helps AI understand your business context</p>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="business_start_date" className="text-sm font-medium text-foreground">
-                      Business Start Date
-                    </Label>
-                    <Input
-                      type="date"
-                      value={profile.business_start_date || ''}
-                      onChange={(e) => handleProfileChange({ business_start_date: e.target.value })}
-                      className="h-12 rounded-lg border-2"
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">When did you start your business?</p>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="ein" className="text-sm font-medium text-foreground">
-                      EIN (Optional)
-                    </Label>
-                    <Input
-                      type="text"
-                      value={profile.ein || ''}
-                      onChange={(e) => handleProfileChange({ ein: e.target.value })}
-                      placeholder="XX-XXXXXXX"
-                      className="h-12 rounded-lg border-2"
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">Employer Identification Number</p>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="naics_code" className="text-sm font-medium text-foreground">
-                      NAICS Code (Optional)
-                    </Label>
-                    <Input
-                      type="text"
-                      value={profile.naics_code || ''}
-                      onChange={(e) => handleProfileChange({ naics_code: e.target.value })}
-                      placeholder="e.g., 541511"
-                      className="h-12 rounded-lg border-2"
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">North American Industry Classification System</p>
-                  </div>
+          <Card className="p-8 bg-card border border-border shadow-lg">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6 mb-8">
+              <div className="flex items-center gap-4">
+                <div className="w-16 h-16 md:w-20 md:h-20 rounded-xl bg-orange-500/90 flex items-center justify-center">
+                  <Briefcase className="w-10 h-10 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-2xl font-semibold text-foreground">Business Details</h2>
+                  <p className="text-sm text-muted-foreground">Configure your business structure and income information</p>
                 </div>
               </div>
-
-              {/* Income Information */}
-              <div>
-                <h3 className="text-lg font-medium text-foreground mb-4 flex items-center gap-2">
-                  <DollarSign className="w-5 h-5 text-orange-600" />
-                  Income Information
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <Label htmlFor="w2_income" className="text-sm font-medium text-foreground">
-                      W-2 Income (Annual)
-                    </Label>
-                    <Input
-                      type="number"
-                      value={profile.w2_income || ''}
-                      onChange={(e) => handleProfileChange({ w2_income: parseInt(e.target.value) || undefined })}
-                      placeholder="e.g., 50000"
-                      className="h-12 rounded-lg border-2"
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">Income from employment (W-2)</p>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="business_income" className="text-sm font-medium text-foreground">
-                      Business Income (Annual)
-                    </Label>
-                    <Input
-                      type="number"
-                      value={profile.business_income || ''}
-                      onChange={(e) => handleProfileChange({ business_income: parseInt(e.target.value) || undefined })}
-                      placeholder="e.g., 30000"
-                      className="h-12 rounded-lg border-2"
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">Income from business activities</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Save Button for Business Details Tab */}
-            <div className="pt-6 border-t border-border">
-              <div className="flex gap-4">
+              {!editState.businessDetails && (
                 <Button
-                  onClick={handleSave}
-                  disabled={isSaving}
-                  className="flex-1 h-14 bg-primary hover:bg-primary/90 text-white rounded-lg transition-all duration-200 shadow-sm text-base font-medium"
-                >
-                  {isSaving ? (
-                    <>
-                      <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <Save className="w-5 h-5 mr-2" />
-                      Save Changes
-                    </>
-                  )}
-                </Button>
-
-                <Button
-                  onClick={onBack}
                   variant="outline"
-                  className="h-14 px-8 rounded-lg border-2"
+                  className="h-11 rounded-lg border-border"
+                  onClick={() => startEditing('businessDetails')}
                 >
-                  Cancel
+                  Edit Business Details
                 </Button>
+              )}
+            </div>
+
+            <div className="space-y-8">
+              <section className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Briefcase className="w-5 h-5 text-orange-500" />
+                  <h3 className="text-lg font-semibold text-foreground">Business Information</h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    {editState.businessDetails ? (
+                      <>
+                        <Label className="text-sm font-medium text-foreground">Business Purpose</Label>
+                        <Input
+                          type="text"
+                          value={profile.business_purpose || ''}
+                          onChange={(e) => handleProfileChange({ business_purpose: e.target.value })}
+                          placeholder="Describe your business"
+                          className="h-12 rounded-lg border-border bg-background"
+                        />
+                        <p className="text-xs text-muted-foreground">Helps AI understand your business context</p>
+                      </>
+                    ) : (
+                      renderViewField('Business Purpose', profile.business_purpose || '—')
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    {editState.businessDetails ? (
+                      <>
+                        <Label className="text-sm font-medium text-foreground">Business Start Date</Label>
+                        <Input
+                          type="date"
+                          value={profile.business_start_date || ''}
+                          onChange={(e) => handleProfileChange({ business_start_date: e.target.value })}
+                          className="h-12 rounded-lg border-border bg-background"
+                        />
+                        <p className="text-xs text-muted-foreground">When did you start your business?</p>
+                      </>
+                    ) : (
+                      renderViewField('Business Start Date', formatDate(profile.business_start_date))
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    {editState.businessDetails ? (
+                      <>
+                        <Label className="text-sm font-medium text-foreground">EIN (Optional)</Label>
+                        <Input
+                          type="text"
+                          value={profile.ein || ''}
+                          onChange={(e) => handleProfileChange({ ein: e.target.value })}
+                          placeholder="XX-XXXXXXX"
+                          className="h-12 rounded-lg border-border bg-background"
+                        />
+                        <p className="text-xs text-muted-foreground">Employer Identification Number</p>
+                      </>
+                    ) : (
+                      renderViewField('EIN', profile.ein || '—')
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    {editState.businessDetails ? (
+                      <>
+                        <Label className="text-sm font-medium text-foreground">NAICS Code (Optional)</Label>
+                        <Input
+                          type="text"
+                          value={profile.naics_code || ''}
+                          onChange={(e) => handleProfileChange({ naics_code: e.target.value })}
+                          placeholder="e.g., 541511"
+                          className="h-12 rounded-lg border-border bg-background"
+                        />
+                        <p className="text-xs text-muted-foreground">North American Industry Classification System</p>
+                      </>
+                    ) : (
+                      renderViewField('NAICS Code', profile.naics_code || '—')
+                    )}
+                  </div>
+                </div>
+              </section>
+
+              <section className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <DollarSign className="w-5 h-5 text-orange-500" />
+                  <h3 className="text-lg font-semibold text-foreground">Income Information</h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    {editState.businessDetails ? (
+                      <>
+                        <Label className="text-sm font-medium text-foreground">W-2 Income (Annual)</Label>
+                        <Input
+                          type="number"
+                          value={profile.w2_income ?? ''}
+                          onChange={(e) => handleProfileChange({ w2_income: e.target.value ? parseInt(e.target.value, 10) : undefined })}
+                          placeholder="e.g., 50000"
+                          className="h-12 rounded-lg border-border bg-background"
+                        />
+                        <p className="text-xs text-muted-foreground">Income from employment (W-2)</p>
+                      </>
+                    ) : (
+                      renderViewField('W-2 Income', formatCurrency(profile.w2_income))
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    {editState.businessDetails ? (
+                      <>
+                        <Label className="text-sm font-medium text-foreground">Business Income (Annual)</Label>
+                        <Input
+                          type="number"
+                          value={profile.business_income ?? ''}
+                          onChange={(e) => handleProfileChange({ business_income: e.target.value ? parseInt(e.target.value, 10) : undefined })}
+                          placeholder="e.g., 30000"
+                          className="h-12 rounded-lg border-border bg-background"
+                        />
+                        <p className="text-xs text-muted-foreground">Income from business activities</p>
+                      </>
+                    ) : (
+                      renderViewField('Business Income', formatCurrency(profile.business_income))
+                    )}
+                  </div>
+                </div>
+              </section>
+
+              <div className="flex justify-end gap-3 pt-6 border-t border-border">
+                {editState.businessDetails ? (
+                  <>
+                    <Button
+                      variant="outline"
+                      className="h-11 px-6 rounded-lg"
+                      onClick={() => cancelEditing('businessDetails')}
+                      disabled={isSaving}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={handleSave}
+                      disabled={isSaving}
+                      className="h-11 px-6 rounded-lg"
+                    >
+                      {isSaving ? (
+                        <>
+                          <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <Save className="w-5 h-5 mr-2" />
+                          Save Changes
+                        </>
+                      )}
+                    </Button>
+                  </>
+                ) : (
+                  <Button variant="outline" className="h-11 px-6 rounded-lg" onClick={onBack}>
+                    Close
+                  </Button>
+                )}
               </div>
             </div>
           </Card>
@@ -1065,158 +1305,224 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
         {/* Advanced Settings Tab */}
         {activeTab === 'advancedSettings' && (
-          <Card className="p-8 bg-white border border-border shadow-lg">
-            <div className="text-center mb-8">
-              <div className="w-20 h-20 bg-indigo-500 rounded-lg flex items-center justify-center mx-auto mb-4">
-                <Shield className="w-10 h-10 text-white" />
-              </div>
-              <h2 className="text-2xl font-medium text-foreground mb-2">Advanced Settings</h2>
-              <p className="text-muted-foreground">Optional advanced tax preferences and professional settings</p>
-            </div>
-
-            <div className="space-y-6">
-              {/* Professional Settings */}
-              <div>
-                <h3 className="text-lg font-medium text-foreground mb-4 flex items-center gap-2">
-                  <Shield className="w-5 h-5 text-indigo-600" />
-                  Professional Settings
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <Label htmlFor="audit_history" className="text-sm font-medium text-foreground">
-                      Audit History
-                    </Label>
-                    <SimpleSelectWrapper
-                      value={profile.audit_history || 'none'}
-                      onValueChange={(value) => handleProfileChange({ audit_history: value })}
-                      placeholder="Select audit history"
-                      options={[
-                        { value: 'none', label: 'No audit history' },
-                        { value: 'minor', label: 'Minor audit (simple questions)' },
-                        { value: 'major', label: 'Major audit (detailed examination)' }
-                      ]}
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">Helps AI provide appropriate advice</p>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="tax_bracket" className="text-sm font-medium text-foreground">
-                      Tax Bracket (Optional)
-                    </Label>
-                    <Input
-                      type="number"
-                      min="0"
-                      max="100"
-                      value={profile.tax_bracket || ''}
-                      onChange={(e) => handleProfileChange({ tax_bracket: parseInt(e.target.value) || undefined })}
-                      placeholder="e.g., 22"
-                      className="h-12 rounded-lg border-2"
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">Your marginal tax rate percentage</p>
-                  </div>
+          <Card className="p-8 bg-card border border-border shadow-lg">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6 mb-8">
+              <div className="flex items-center gap-4">
+                <div className="w-16 h-16 md:w-20 md:h-20 rounded-xl bg-indigo-500/90 flex items-center justify-center">
+                  <Shield className="w-10 h-10 text-white" />
                 </div>
-
-                <div className="mt-6 space-y-4">
-                  <div className="flex items-center space-x-2">
-                    <input
-                      type="checkbox"
-                      id="tax_professional"
-                      checked={profile.tax_professional || false}
-                      onChange={(e) => handleProfileChange({ tax_professional: e.target.checked })}
-                      className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
-                    />
-                    <label htmlFor="tax_professional" className="text-sm font-medium text-foreground">
-                      I use a tax professional
-                    </label>
-                  </div>
-
-                  <div className="flex items-center space-x-2">
-                    <input
-                      type="checkbox"
-                      id="international_business"
-                      checked={profile.international_business || false}
-                      onChange={(e) => handleProfileChange({ international_business: e.target.checked })}
-                      className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
-                    />
-                    <label htmlFor="international_business" className="text-sm font-medium text-foreground">
-                      International business activities
-                    </label>
-                  </div>
+                <div>
+                  <h2 className="text-2xl font-semibold text-foreground">Advanced Settings</h2>
+                  <p className="text-sm text-muted-foreground">Optional advanced tax preferences and professional settings</p>
                 </div>
               </div>
-
-              {/* Business Preferences */}
-              <div>
-                <h3 className="text-lg font-medium text-foreground mb-4 flex items-center gap-2">
-                  <Briefcase className="w-5 h-5 text-indigo-600" />
-                  Business Preferences
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <Label htmlFor="documentation_habits" className="text-sm font-medium text-foreground">
-                      Documentation Habits
-                    </Label>
-                    <SimpleSelectWrapper
-                      value={profile.documentation_habits || 'moderate'}
-                      onValueChange={(value) => handleProfileChange({ documentation_habits: value })}
-                      placeholder="Select documentation habits"
-                      options={[
-                        { value: 'minimal', label: 'Minimal (basic receipts)' },
-                        { value: 'moderate', label: 'Moderate (organized records)' },
-                        { value: 'detailed', label: 'Detailed (comprehensive documentation)' }
-                      ]}
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">How detailed are your expense records?</p>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="business_seasonality" className="text-sm font-medium text-foreground">
-                      Business Seasonality
-                    </Label>
-                    <SimpleSelectWrapper
-                      value={profile.business_seasonality || 'year_round'}
-                      onValueChange={(value) => handleProfileChange({ business_seasonality: value })}
-                      placeholder="Select business pattern"
-                      options={[
-                        { value: 'year_round', label: 'Year-round business' },
-                        { value: 'seasonal', label: 'Seasonal business' },
-                        { value: 'project_based', label: 'Project-based work' }
-                      ]}
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">How does your business operate throughout the year?</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Save Button for Advanced Settings Tab */}
-            <div className="pt-6 border-t border-border">
-              <div className="flex gap-4">
+              {!editState.advancedSettings && (
                 <Button
-                  onClick={handleSave}
-                  disabled={isSaving}
-                  className="flex-1 h-14 bg-primary hover:bg-primary/90 text-white rounded-lg transition-all duration-200 shadow-sm text-base font-medium"
-                >
-                  {isSaving ? (
-                    <>
-                      <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <Save className="w-5 h-5 mr-2" />
-                      Save Changes
-                    </>
-                  )}
-                </Button>
-
-                <Button
-                  onClick={onBack}
                   variant="outline"
-                  className="h-14 px-8 rounded-lg border-2"
+                  className="h-11 rounded-lg border-border"
+                  onClick={() => startEditing('advancedSettings')}
                 >
-                  Cancel
+                  Edit Advanced Settings
                 </Button>
+              )}
+            </div>
+
+            <div className="space-y-8">
+              <section className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Shield className="w-5 h-5 text-indigo-500" />
+                  <h3 className="text-lg font-semibold text-foreground">Professional Settings</h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    {editState.advancedSettings ? (
+                      <>
+                        <Label className="text-sm font-medium text-foreground">Audit History</Label>
+                        <SimpleSelectWrapper
+                          value={profile.audit_history || 'none'}
+                          onValueChange={(value) => handleProfileChange({ audit_history: value })}
+                          placeholder="Select audit history"
+                          options={[
+                            { value: 'none', label: 'No audit history' },
+                            { value: 'minor', label: 'Minor audit (simple questions)' },
+                            { value: 'major', label: 'Major audit (detailed examination)' }
+                          ]}
+                        />
+                        <p className="text-xs text-muted-foreground">Helps AI provide appropriate advice</p>
+                      </>
+                    ) : (
+                      renderViewField(
+                        'Audit History',
+                        profile.audit_history === 'minor'
+                          ? 'Minor audit (simple questions)'
+                          : profile.audit_history === 'major'
+                            ? 'Major audit (detailed examination)'
+                            : 'No audit history'
+                      )
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    {editState.advancedSettings ? (
+                      <>
+                        <Label className="text-sm font-medium text-foreground">Tax Bracket (Optional)</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={profile.tax_bracket ?? ''}
+                          onChange={(e) => handleProfileChange({ tax_bracket: e.target.value ? parseInt(e.target.value, 10) : undefined })}
+                          placeholder="e.g., 22"
+                          className="h-12 rounded-lg border-border bg-background"
+                        />
+                        <p className="text-xs text-muted-foreground">Your marginal tax rate percentage</p>
+                      </>
+                    ) : (
+                      renderViewField(
+                        'Tax Bracket',
+                        profile.tax_bracket !== undefined && profile.tax_bracket !== null
+                          ? `${profile.tax_bracket}%`
+                          : '—'
+                      )
+                    )}
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    {editState.advancedSettings ? (
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          id="tax_professional"
+                          checked={profile.tax_professional || false}
+                          onChange={(e) => handleProfileChange({ tax_professional: e.target.checked })}
+                          className="w-4 h-4 text-indigo-600 border-border rounded focus:ring-indigo-500"
+                        />
+                        <Label htmlFor="tax_professional" className="text-sm font-medium text-foreground">
+                          I use a tax professional
+                        </Label>
+                      </div>
+                    ) : (
+                      renderViewField('Uses Tax Professional', profile.tax_professional ? 'Yes' : 'No')
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    {editState.advancedSettings ? (
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          id="international_business"
+                          checked={profile.international_business || false}
+                          onChange={(e) => handleProfileChange({ international_business: e.target.checked })}
+                          className="w-4 h-4 text-indigo-600 border-border rounded focus:ring-indigo-500"
+                        />
+                        <Label htmlFor="international_business" className="text-sm font-medium text-foreground">
+                          International business activities
+                        </Label>
+                      </div>
+                    ) : (
+                      renderViewField('International Business Activities', profile.international_business ? 'Yes' : 'No')
+                    )}
+                  </div>
+                </div>
+              </section>
+
+              <section className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Briefcase className="w-5 h-5 text-indigo-500" />
+                  <h3 className="text-lg font-semibold text-foreground">Business Preferences</h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    {editState.advancedSettings ? (
+                      <>
+                        <Label className="text-sm font-medium text-foreground">Documentation Habits</Label>
+                        <SimpleSelectWrapper
+                          value={profile.documentation_habits || 'moderate'}
+                          onValueChange={(value) => handleProfileChange({ documentation_habits: value })}
+                          placeholder="Select documentation habits"
+                          options={[
+                            { value: 'minimal', label: 'Minimal (basic receipts)' },
+                            { value: 'moderate', label: 'Moderate (organized records)' },
+                            { value: 'detailed', label: 'Detailed (comprehensive documentation)' }
+                          ]}
+                        />
+                        <p className="text-xs text-muted-foreground">How detailed are your expense records?</p>
+                      </>
+                    ) : (
+                      renderViewField(
+                        'Documentation Habits',
+                        profile.documentation_habits === 'minimal'
+                          ? 'Minimal (basic receipts)'
+                          : profile.documentation_habits === 'detailed'
+                            ? 'Detailed (comprehensive documentation)'
+                            : 'Moderate (organized records)'
+                      )
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    {editState.advancedSettings ? (
+                      <>
+                        <Label className="text-sm font-medium text-foreground">Business Seasonality</Label>
+                        <SimpleSelectWrapper
+                          value={profile.business_seasonality || 'year_round'}
+                          onValueChange={(value) => handleProfileChange({ business_seasonality: value })}
+                          placeholder="Select business pattern"
+                          options={[
+                            { value: 'year_round', label: 'Year-round business' },
+                            { value: 'seasonal', label: 'Seasonal business' },
+                            { value: 'project_based', label: 'Project-based work' }
+                          ]}
+                        />
+                        <p className="text-xs text-muted-foreground">How does your business operate throughout the year?</p>
+                      </>
+                    ) : (
+                      renderViewField(
+                        'Business Seasonality',
+                        profile.business_seasonality === 'seasonal'
+                          ? 'Seasonal business'
+                          : profile.business_seasonality === 'project_based'
+                            ? 'Project-based work'
+                            : 'Year-round business'
+                      )
+                    )}
+                  </div>
+                </div>
+              </section>
+
+              <div className="flex justify-end gap-3 pt-6 border-t border-border">
+                {editState.advancedSettings ? (
+                  <>
+                    <Button
+                      variant="outline"
+                      className="h-11 px-6 rounded-lg"
+                      onClick={() => cancelEditing('advancedSettings')}
+                      disabled={isSaving}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={handleSave}
+                      disabled={isSaving}
+                      className="h-11 px-6 rounded-lg"
+                    >
+                      {isSaving ? (
+                        <>
+                          <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <Save className="w-5 h-5 mr-2" />
+                          Save Changes
+                        </>
+                      )}
+                    </Button>
+                  </>
+                ) : (
+                  <Button variant="outline" className="h-11 px-6 rounded-lg" onClick={onBack}>
+                    Close
+                  </Button>
+                )}
               </div>
             </div>
           </Card>
@@ -1226,7 +1532,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         {activeTab === 'profile' && (
           <div className="space-y-6 mt-6">
             {/* Bank Account Management */}
-            <Card className="p-6 bg-white border border-border shadow-lg">
+            <Card className="p-6 bg-card border border-border shadow-lg">
               <h3 className="text-lg font-medium text-foreground mb-4 flex items-center gap-2">
                 <DollarSign className="w-5 h-5 text-primary" />
                 Bank Account Management
@@ -1253,7 +1559,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             </Card>
 
             {/* Data Rights & Privacy */}
-            <Card className="p-6 bg-white border border-border shadow-lg">
+            <Card className="p-6 bg-card border border-border shadow-lg">
               <h3 className="text-lg font-medium text-foreground mb-4 flex items-center gap-2">
                 <Shield className="w-5 h-5 text-primary" />
                 Data Rights & Privacy
@@ -1378,7 +1684,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             </Card>
 
             {/* Quick Actions */}
-            <Card className="p-6 bg-white border border-border shadow-lg">
+            <Card className="p-6 bg-card border border-border shadow-lg">
               <h3 className="text-lg font-medium text-foreground mb-4 flex items-center gap-2">
                 <FileText className="w-5 h-5 text-primary" />
                 Quick Actions
@@ -1389,7 +1695,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   variant="outline"
                   className="h-12 justify-start gap-3"
                 >
-                  <ArrowLeft className="w-4 h-4" />
+                  <Briefcase className="w-4 h-4" />
                   Back to Dashboard
                 </Button>
                 <Button
@@ -1407,5 +1713,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
       </div>
     </div>
+  </div>
   );
 };
