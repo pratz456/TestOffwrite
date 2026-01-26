@@ -1,14 +1,16 @@
 "use client";
 
 import dynamic from 'next/dynamic';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/lib/firebase/auth-context';
 
 const PlaidLinkScreen = dynamic(() => import('@/components/plaid-link-screen').then(mod => mod.PlaidLinkScreen), { ssr: false });
 
 export default function PlaidLinkPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user } = useAuth();
+  const fromSettings = searchParams.get('from') === 'settings';
 
   if (!user) {
     return (
@@ -29,5 +31,5 @@ export default function PlaidLinkPage() {
     router.push('/protected/plaid');
   };
 
-  return <PlaidLinkScreen user={user} onSuccess={handleSuccess} onBack={handleBack} />;
+  return <PlaidLinkScreen user={user} onSuccess={handleSuccess} onBack={handleBack} fromSettings={fromSettings} />;
 }

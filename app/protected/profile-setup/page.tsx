@@ -36,9 +36,29 @@ export default function ProfileSetupPage() {
       try {
         const { data: profile, error } = await getUserProfile(user.id);
 
+        // Check if error exists and is not just "profile not found"
         if (error) {
-          console.error('Error checking profile:', error);
-          setHasProfile(false);
+          // Check if error is an empty object or has no meaningful properties
+          const hasErrorContent = error && typeof error === 'object' && (
+            error.code ||
+            error.message ||
+            (Object.keys(error).length > 0 && Object.keys(error).some(key => error[key] !== undefined && error[key] !== null))
+          );
+
+          // Only log actual errors, not "profile not found" which is expected for new users
+          // Also skip logging if error is empty or has no meaningful content
+          if (hasErrorContent && error.code !== 'PROFILE_NOT_FOUND' && error.code !== 'PGRST116') {
+            console.error('Error checking profile:', error);
+          }
+
+          // Treat "profile not found" as no profile (not an error)
+          if (error.code === 'PROFILE_NOT_FOUND' || error.code === 'PGRST116' || !hasErrorContent) {
+            // Profile not found or empty error - treat as no profile
+            setHasProfile(false);
+          } else {
+            // Actual error occurred, but still allow profile setup
+            setHasProfile(false);
+          }
         } else if (profile) {
           // User already has a profile, redirect to dashboard
           setHasProfile(true);

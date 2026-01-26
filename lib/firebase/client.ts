@@ -18,10 +18,21 @@ const getAuthDomain = () => {
   return process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || 'writeoff-23910.firebaseapp.com';
 };
 
+// Graceful environment variable handling - fails gracefully in dev instead of crashing
 const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "AIzaSyCVvpY-M571W0I3Faz-i8mAyofLobqm5ZE",
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || (() => {
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('[Firebase Client] NEXT_PUBLIC_FIREBASE_API_KEY not set, using fallback');
+    }
+    return "AIzaSyCVvpY-M571W0I3Faz-i8mAyofLobqm5ZE";
+  })(),
   authDomain: getAuthDomain(),
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "writeoff-23910",
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || (() => {
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('[Firebase Client] NEXT_PUBLIC_FIREBASE_PROJECT_ID not set, using fallback');
+    }
+    return "writeoff-23910";
+  })(),
   storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "writeoff-23910.firebasestorage.app",
   messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "930596534802",
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || "1:930596534802:web:e4c7c12ead77a9d92336cb",

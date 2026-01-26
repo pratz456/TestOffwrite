@@ -806,11 +806,14 @@ export default function ProtectedPage() {
 
     if (currentScreen === 'plaid-link') {
       const safeUser = { ...user, email: user.email ?? undefined };
+      // Check if this is from settings by checking the search params
+      const isFromSettings = searchParams?.get('from') === 'settings';
       return (
         <PlaidLinkScreen
           user={safeUser}
           onSuccess={handlePlaidConnectionSuccess}
           onBack={handleGoBack}
+          fromSettings={isFromSettings || false}
         />
       );
     }

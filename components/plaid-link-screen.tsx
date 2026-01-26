@@ -6,7 +6,9 @@ import { useRouter } from 'next/navigation';
 import { PlaidProgress } from './PlaidProgress';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Loader2, CreditCard, CheckCircle, ArrowLeft, ArrowRight, Shield, Building2 } from 'lucide-react';
+import { Loader2, CreditCard, CheckCircle, ArrowLeft, ArrowRight, Shield, Building2, Sparkles, Calendar, TrendingUp } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import { auth } from '@/lib/firebase/client';
 import { useJobProgress } from '@/lib/hooks/useJobProgress';
 import { errorLogger, logPollingError, logAPIError } from '@/lib/error-logger';
@@ -15,16 +17,17 @@ interface PlaidLinkScreenProps {
   user: any;
   onSuccess: () => void;
   onBack: () => void;
+  fromSettings?: boolean; // If true, hide subscription options and connect directly
 }
 
-export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess, onBack }) => {
+export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess, onBack, fromSettings = false }) => {
   const router = useRouter();
   // Consent for Plaid data access
   const [bankConsent, setBankConsent] = useState(false);
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [importTimeframe, setImportTimeframe] = useState<'1month' | '6months' | '1year' | '2years'>('2years');
+  // Removed subscription selection state - free trial is automatically started
   const [isConnected, setIsConnected] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState({ current: 0, total: 0, status: 'running' as const });
   const [analysisStatus, setAnalysisStatus] = useState<'connecting' | 'importing' | 'analyzing' | 'completed' | 'error'>('connecting');
@@ -58,6 +61,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
       return () => clearTimeout(fallbackTimer);
     }
   }, [accountId, jobProgressError, jobProgress]);
+
 
   useEffect(() => {
     if (!accountId) return;
@@ -132,23 +136,34 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
 
     const createLinkToken = async () => {
       try {
+        // Get Firebase auth token for authentication
+        const currentUser = auth.currentUser;
+        if (!currentUser) {
+          throw new Error('No authenticated user found');
+        }
+
+        const token = await currentUser.getIdToken(true); // Force refresh the token
+        console.log('🔑 Got Firebase token for Plaid link token creation');
+
         const response = await fetch('/api/plaid/create-link-token', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
           },
-          body: JSON.stringify({ userId: user.id }),
         });
 
         if (!response.ok) {
-          throw new Error('Failed to create link token');
+          const errorData = await response.json().catch(() => ({}));
+          console.error('❌ Failed to create link token:', errorData);
+          throw new Error(errorData.error || 'Failed to create link token');
         }
 
         const data = await response.json();
         setLinkToken(data.link_token);
       } catch (err: any) {
         console.error('Error creating link token:', err);
-        setError('Failed to initialize bank connection. Please try again.');
+        setError(err.message || 'Failed to initialize bank connection. Please try again.');
       }
     };
 
@@ -795,6 +810,9 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
     setLoading(true);
     setError(null);
 
+    // Note: Free trial is automatically started when creating link token or exchanging public token
+    // No need to pass subscription info - trial is app-managed
+
     try {
       // Guard Plaid public_token early
       if (!public_token) {
@@ -819,7 +837,8 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
         },
         body: JSON.stringify({
           public_token,
-          import_timeframe: importTimeframe,
+          // Free trial is app-managed, backend will automatically use 1 year if trial is active, 3 months otherwise
+          // No need to pass import_timeframe - backend determines based on subscription status
         }),
       });
 
@@ -887,8 +906,11 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
     onExit: onPlaidExit,
   });
 
-  const handleConnectBank = () => {
+  const handleConnectBank = async () => {
     if (!bankConsent) return;
+
+    // Free trial is automatically started when creating link token
+    // Just connect the bank - no subscription selection needed
     if (ready) {
       open();
     }
@@ -1223,67 +1245,28 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
               </div>
             </div>
 
-            <div className="space-y-3">
-              {/* Import Timeframe Selection */}
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-foreground mb-2">
-                  How far back should we import transactions?
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setImportTimeframe('1month')}
-                    className={`p-3 rounded-lg border text-sm font-medium transition-all ${
-                      importTimeframe === '1month'
-                        ? 'bg-primary text-white border-primary'
-                        : 'bg-white text-foreground border-border hover:bg-muted'
-                    }`}
-                  >
-                    <div className="font-semibold">1 Month</div>
-                    <div className="text-xs opacity-75">Recent activity</div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setImportTimeframe('6months')}
-                    className={`p-3 rounded-lg border text-sm font-medium transition-all ${
-                      importTimeframe === '6months'
-                        ? 'bg-primary text-white border-primary'
-                        : 'bg-white text-foreground border-border hover:bg-muted'
-                    }`}
-                  >
-                    <div className="font-semibold">6 Months</div>
-                    <div className="text-xs opacity-75">Recommended</div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setImportTimeframe('1year')}
-                    className={`p-3 rounded-lg border text-sm font-medium transition-all ${
-                      importTimeframe === '1year'
-                        ? 'bg-primary text-white border-primary'
-                        : 'bg-white text-foreground border-border hover:bg-muted'
-                    }`}
-                  >
-                    <div className="font-semibold">1 Year</div>
-                    <div className="text-xs opacity-75">Full year</div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setImportTimeframe('2years')}
-                    className={`p-3 rounded-lg border text-sm font-medium transition-all ${
-                      importTimeframe === '2years'
-                        ? 'bg-primary text-white border-primary'
-                        : 'bg-white text-foreground border-border hover:bg-muted'
-                    }`}
-                  >
-                    <div className="font-semibold">2 Years</div>
-                    <div className="text-xs opacity-75">Maximum available</div>
-                  </button>
+            {!fromSettings && (
+              <div className="space-y-3">
+                {/* Free Trial Info */}
+                <div className="p-4 bg-primary/5 border border-primary/20 rounded-lg">
+                  <div className="flex items-start gap-3">
+                    <Sparkles className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <h3 className="font-semibold text-foreground">1 Month Free Trial</h3>
+                        <Badge variant="default" className="text-xs bg-green-600">Free</Badge>
+                      </div>
+                      <p className="text-sm text-muted-foreground mb-2">
+                        Get started with <strong>1 year of transaction history</strong> - completely free for 30 days. No credit card required.
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        After your trial ends, you can continue with a paid subscription to keep 1-year access, or use the free tier with 3 months of history.
+                      </p>
+                    </div>
+                  </div>
                 </div>
-                <p className="text-xs text-muted-foreground mt-2">
-                  Maximum transaction history (2 years) is recommended for comprehensive tax tracking.
-                  All transactions will be fetched using automatic pagination.
-                </p>
               </div>
+            )}
 
               {/* Explicit Bank Data Consent */}
               <div className="flex items-start gap-2 mb-2">
@@ -1313,7 +1296,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
                 ) : (
                   <>
                     <Building2 className="w-4 h-4" />
-                    <span>Connect Bank Account</span>
+                    <span>{fromSettings ? 'Connect Bank Account' : 'Connect Bank Account (Start Free Trial)'}</span>
                   </>
                 )}
               </Button>
@@ -1325,7 +1308,6 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
               >
                 Skip for now (connect later)
               </Button>
-            </div>
           </Card>
 
           <div className="text-center">

@@ -9,6 +9,11 @@ const hasEnvCredentials = Boolean(
   process.env.FIREBASE_ADMIN_PRIVATE_KEY
 );
 
+// Warn in development if credentials are missing
+if (process.env.NODE_ENV === 'development' && !hasEnvCredentials) {
+  console.warn('[Firebase Admin] Missing FIREBASE_ADMIN_* environment variables. Falling back to Application Default Credentials.');
+}
+
 // Initialize the app only if it hasn't been initialized yet
 const app = getApps().length === 0
   ? (() => {

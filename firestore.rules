@@ -4,12 +4,36 @@ service cloud.firestore {
 
     // Allow collection-group reads to any transactions doc, but only for the owner
     // This supports queries like collectionGroup('transactions') with where('user_id','==', uid)
+    // Note: More specific rules below (user_profiles/{uid}/accounts/{accountId}/transactions) take precedence
     match /{path=**}/transactions/{txId} {
       allow read: if request.auth != null
                   && (resource.data.user_id == request.auth.uid
                       || resource.data.userId == request.auth.uid);
-      // All writes to transactions are server-only via Admin SDK
-      allow create, update, delete: if false;
+      // Allow updates to specific user-editable fields for transactions in top-level or other collections
+      // This is a fallback for transactions not under user_profiles/{uid}/accounts/{accountId}/transactions
+      allow update: if request.auth != null
+                    && (resource.data.user_id == request.auth.uid
+                        || resource.data.userId == request.auth.uid)
+                    && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+                         'notes',
+                         'user_classification_reason',
+                         'receipt_url',
+                         'receipt_filename',
+                         'is_deductible',
+                         'deduction_score',
+                         'deductible_reason',
+                         'business_purpose',
+                         'attendees',
+                         'travel_destination',
+                         'equipment_details',
+                         'client_project',
+                         'documentation_status',
+                         'meeting_notes',
+                         'mileage_details',
+                         'updated_at'
+                       ]);
+      // Prevent creates/deletes from client (server-only)
+      allow create, delete: if false;
     }
 
     // Analysis Jobs - for tracking analysis progress (new system)
@@ -38,8 +62,21 @@ service cloud.firestore {
                     && request.auth.uid == uid
                     && request.resource.id == uid;
 
-      // Allow the user to update their own profile doc
-      allow update: if request.auth != null && request.auth.uid == uid;
+      // Allow the user to update their own profile doc, but restrict subscription fields
+      // Subscription fields can only be updated via Admin SDK (webhooks, API routes)
+      allow update: if request.auth != null
+                    && request.auth.uid == uid
+                    // Prevent clients from updating subscription-related fields
+                    && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+                         'hasHistoricalAccess',
+                         'subscriptionStatus', // App-managed subscription status
+                         'trialStart', // App-managed trial start
+                         'trialEnd', // App-managed trial end
+                         'subscriptionEnd', // Stripe subscription period end
+                         'stripeCustomerId',
+                         'stripeSubscriptionId',
+                         'stripeSubscriptionStatus'
+                       ]);
 
       // No client deletes
       allow delete: if false;
@@ -48,12 +85,12 @@ service cloud.firestore {
       match /accounts/{accountId} {
         allow read: if request.auth != null && request.auth.uid == uid;
         allow write: if false; // write via Admin/API only
-        
+
         // Transactions
         match /transactions/{txId} {
           // Allow reading transactions
           allow read: if request.auth != null && request.auth.uid == uid;
-          
+
           // Allow user updates to transaction fields
           allow update: if request.auth != null
                         && request.auth.uid == uid
@@ -75,7 +112,7 @@ service cloud.firestore {
                              'mileage_details',
                              'updated_at'
                            ]);
-          
+
           // Prevent arbitrary creates/deletes from client
           // Server-side analysis updates use Admin SDK (bypasses these rules)
           allow create, delete: if false;

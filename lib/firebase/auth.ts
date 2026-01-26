@@ -137,12 +137,20 @@ export async function signInWithGoogle(): Promise<{ data: { user: AuthUser } | n
 
     const provider = new GoogleAuthProvider();
 
-    // Always use popup (do not fall back to redirect)
+    // Try popup first, fall back to redirect if blocked
     let userCredential;
     try {
       userCredential = await signInWithPopup(auth, provider);
-    } catch (popupErr) {
-      // Popup blocked or cancelled
+    } catch (popupErr: any) {
+      // Check if popup was blocked
+      if (popupErr?.code === 'auth/popup-blocked' || popupErr?.code === 'auth/popup-closed-by-user') {
+        // Fall back to redirect flow
+        console.log('Popup blocked, falling back to redirect flow');
+        await signInWithRedirect(auth, provider);
+        // Return null to indicate redirect was initiated (will be handled by handleAuthRedirectResult)
+        return { data: null, error: null };
+      }
+      // For other popup errors, return the error
       return { data: null, error: popupErr };
     }
 

@@ -45,6 +45,7 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { formatCategory, consolidateCategory } from '@/lib/utils';
+import { HistoricalAccessUpgradeCard } from '@/components/historical-access-upgrade-card';
 
 interface Transaction {
   id: string;
@@ -373,6 +374,9 @@ export default function TransactionsPage() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 space-y-4 sm:space-y-6">
+        {/* Historical Access Upgrade Card */}
+        <HistoricalAccessUpgradeCard />
+
         {/* Summary Cards */}
         <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-6">
           <div

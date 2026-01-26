@@ -116,7 +116,16 @@ export function LoginForm({
         if (process.env.NODE_ENV === 'development') {
           console.error('Google sign in error:', error);
         }
-        setError(error.message || "Google sign-in failed. Please try again.");
+        // Provide user-friendly error messages
+        let errorMessage = "Google sign-in failed. Please try again.";
+        if (error.code === 'auth/popup-blocked') {
+          errorMessage = "Popup was blocked. Please allow popups for this site and try again, or the redirect flow will be used automatically.";
+        } else if (error.code === 'auth/popup-closed-by-user') {
+          errorMessage = "Sign-in was cancelled. Please try again.";
+        } else if (error.message) {
+          errorMessage = error.message;
+        }
+        setError(errorMessage);
         return;
       }
 

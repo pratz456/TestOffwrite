@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Configuration, PlaidApi, PlaidEnvironments, LinkTokenCreateRequest, Products, CountryCode } from 'plaid';
+import { startFreeTrial } from '@/lib/subscriptions/trial-manager';
+import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 
 // Helper function to get Plaid config from both environment variables and functions.config()
 function getPlaidConfig() {
@@ -67,23 +69,33 @@ export async function POST(request: NextRequest) {
   try {
     console.log('🔄 [Plaid Link Token] Creating link token...');
 
-    const { userId } = await request.json();
+    // Get authenticated user
+    const { uid } = await getUserFromReqOrThrow(request);
 
-    if (!userId) {
-      console.error('❌ [Plaid Link Token] No user ID provided');
-      return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
+    // Start free trial if user doesn't have one yet (when they first access Plaid)
+    try {
+      const trialResult = await startFreeTrial(uid);
+      if (trialResult.success) {
+        console.log(`✅ [Plaid Link Token] Free trial started/verified for user ${uid}`);
+      }
+    } catch (trialError) {
+      console.error('⚠️ [Plaid Link Token] Error starting trial (non-fatal):', trialError);
+      // Continue even if trial start fails - don't block Plaid token creation
     }
 
-    console.log('✅ [Plaid Link Token] User ID received:', userId);
+    console.log('✅ [Plaid Link Token] User ID received:', uid);
 
     const configs: LinkTokenCreateRequest = {
       user: {
-        client_user_id: userId,
+        client_user_id: uid,
       },
       client_name: 'WriteOff',
       products: [Products.Transactions],
       country_codes: [CountryCode.Us],
       language: 'en',
+      transactions: {
+        days_requested: 365, // Request 365 days (1 year) of transaction history
+      },
       webhook: `${process.env.NEXT_PUBLIC_SITE_URL || process.env.VERCEL_URL || 'http://localhost:3000'}/api/plaid/webhook`,
     };
 

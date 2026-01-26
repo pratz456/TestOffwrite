@@ -1,6 +1,7 @@
 import { adminAuth, adminDb } from './admin';
 import { disconnectPlaidItem } from '@/lib/plaid/delete-item';
 import { deleteSubcollection, deleteQueryBatch } from './delete-helpers';
+import { cancelUserStripeSubscriptions } from '@/lib/stripe/cancel-subscription';
 
 /**
  * Delete all user data from Firestore and Firebase Auth.
@@ -16,6 +17,20 @@ import { deleteSubcollection, deleteQueryBatch } from './delete-helpers';
 export async function deleteUserData(uid: string): Promise<{ error?: any }> {
   try {
     console.log(`🔄 [Delete User Data] Starting deletion for user ${uid}`);
+
+    // Step 0: Cancel all Stripe subscriptions and delete customer
+    try {
+      const stripeResult = await cancelUserStripeSubscriptions(uid);
+      if (stripeResult.success) {
+        console.log(`✅ [Delete User Data] Canceled ${stripeResult.canceledSubscriptions || 0} Stripe subscription(s)`);
+      } else {
+        console.warn(`⚠️ [Delete User Data] Stripe cancellation had issues:`, stripeResult.error);
+        // Continue with deletion even if Stripe cancellation fails
+      }
+    } catch (stripeError) {
+      console.warn(`⚠️ [Delete User Data] Error canceling Stripe subscriptions, continuing:`, stripeError);
+      // Continue with deletion
+    }
 
     // Step 1: Disconnect all Plaid items
     try {

@@ -20,6 +20,326 @@ import {
   Shield
 } from '@/lib/icons';
 import { getUserProfile, upsertUserProfile, UserProfile } from '@/lib/firebase/profiles';
+import { CreditCard, Calendar, Sparkles, ExternalLink, XCircle, AlertTriangle } from 'lucide-react';
+import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
+import { TrialCountdown } from '@/components/trial-countdown';
+
+// Payment Settings Tab Component
+const PaymentSettingsTab: React.FC<{ user: any }> = ({ user }) => {
+  const [loading, setLoading] = useState(true);
+  const [cancelLoading, setCancelLoading] = useState(false);
+  const [accessStatus, setAccessStatus] = useState<any>(null);
+
+  useEffect(() => {
+    const fetchAccessStatus = async () => {
+      try {
+        const response = await makeAuthenticatedRequest('/api/subscriptions/check-access');
+        if (response.ok) {
+          const data = await response.json();
+          setAccessStatus(data.data);
+        }
+      } catch (error) {
+        console.error('Error fetching access status:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchAccessStatus();
+
+    // Refresh every minute to update countdown
+    const interval = setInterval(fetchAccessStatus, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleManageBilling = () => {
+    // Navigate to subscription selection page to choose a plan
+    window.location.href = '/protected/subscriptions';
+  };
+
+  const handleCancelSubscription = async () => {
+    if (!window.confirm('Are you sure you want to cancel your subscription? You will lose access to 1-year historical transactions after the current period ends.')) {
+      return;
+    }
+
+    setCancelLoading(true);
+    try {
+      const response = await makeAuthenticatedRequest('/api/stripe/cancel-subscription', {
+        method: 'POST',
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        alert('Subscription cancelled successfully. Your access will continue until the end of the current billing period.');
+        // Refresh access status
+        const statusResponse = await makeAuthenticatedRequest('/api/subscriptions/check-access');
+        if (statusResponse.ok) {
+          const statusData = await statusResponse.json();
+          setAccessStatus(statusData.data);
+        }
+      } else {
+        const errorData = await response.json().catch(() => ({}));
+        alert(errorData.error || 'Failed to cancel subscription. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error cancelling subscription:', error);
+      alert('Failed to cancel subscription. Please try again.');
+    } finally {
+      setCancelLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <Card className="p-8 bg-card border border-border shadow-lg">
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="p-8 bg-card border border-border shadow-lg">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6 mb-8">
+        <div className="flex items-center gap-4">
+          <div className="w-16 h-16 md:w-20 md:h-20 rounded-xl bg-primary/90 flex items-center justify-center">
+            <CreditCard className="w-10 h-10 text-white" />
+          </div>
+          <div>
+            <h2 className="text-2xl font-semibold text-foreground">Payment & Billing</h2>
+            <p className="text-sm text-muted-foreground">Manage your subscription and payment methods</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-6">
+        {/* Subscription Status */}
+        <section className="space-y-4">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-5 h-5 text-primary" />
+            <h3 className="text-lg font-semibold text-foreground">Historical Transactions Subscription</h3>
+          </div>
+
+          {accessStatus?.hasAccess ? (
+            <div className="space-y-4">
+              {/* Trial Countdown Timer */}
+              {accessStatus.isTrial && accessStatus.trialEnd && (
+                <TrialCountdown
+                  trialEnd={new Date(accessStatus.trialEnd)}
+                  isTrial={true}
+                />
+              )}
+
+              {/* Subscription Status Card */}
+              <div className="p-6 bg-accent/5 border border-accent/20 rounded-lg space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-medium text-foreground">Status</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <Badge variant={accessStatus.isTrial ? 'default' : 'default'}>
+                        {accessStatus.isTrial ? 'Trial Active' : accessStatus.subscription?.status === 'canceled' ? 'Cancelled' : 'Active'}
+                      </Badge>
+                      {accessStatus.subscription?.cancelAtPeriodEnd && (
+                        <Badge variant="secondary" className="bg-yellow-500/20 text-yellow-700 dark:text-yellow-300">
+                          Cancelling at period end
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                  {!accessStatus.isTrial && accessStatus.daysRemaining !== undefined && (
+                    <div className="text-right">
+                      <p className="text-sm text-muted-foreground">Renews in</p>
+                      <p className="text-lg font-semibold text-foreground">
+                        {accessStatus.daysRemaining} day{accessStatus.daysRemaining !== 1 ? 's' : ''}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Plan Details */}
+                {accessStatus.subscription && (
+                  <div className="space-y-2 pt-2 border-t border-accent/20">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Plan</span>
+                      <span className="font-medium text-foreground">
+                        {accessStatus.subscription.planInterval === 'year' ? 'Yearly' : 'Monthly'} Plan
+                        {accessStatus.subscription.planAmount && (
+                          <span className="ml-2">
+                            ${accessStatus.subscription.planAmount.toFixed(2)}/{accessStatus.subscription.planInterval === 'year' ? 'year' : 'month'}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                    {accessStatus.subscription.currentPeriodStart && (
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">Current Period</span>
+                        <span className="text-foreground">
+                          {new Date(accessStatus.subscription.currentPeriodStart).toLocaleDateString()} - {accessStatus.subscription.currentPeriodEnd ? new Date(accessStatus.subscription.currentPeriodEnd).toLocaleDateString() : 'N/A'}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {accessStatus.trialEnd && !accessStatus.isTrial && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Calendar className="w-4 h-4" />
+                    <span>
+                      Next billing: {accessStatus.subscriptionEnd ? new Date(accessStatus.subscriptionEnd).toLocaleDateString() : 'N/A'}
+                    </span>
+                  </div>
+                )}
+
+                {accessStatus.subscription?.cancelAtPeriodEnd && (
+                  <div className="p-3 bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="w-4 h-4 text-yellow-600 dark:text-yellow-400 mt-0.5 flex-shrink-0" />
+                      <div className="text-xs text-yellow-800 dark:text-yellow-200">
+                        <p className="font-medium mb-1">Subscription Cancelled</p>
+                        <p>Your subscription will end on {accessStatus.subscription.currentPeriodEnd ? new Date(accessStatus.subscription.currentPeriodEnd).toLocaleDateString() : 'the end of the current period'}. You'll continue to have access until then.</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex gap-3">
+                  <Button
+                    onClick={handleManageBilling}
+                    className="flex-1"
+                    size="lg"
+                  >
+                    Manage Subscription
+                    <ExternalLink className="ml-2 w-4 h-4" />
+                  </Button>
+
+                  {accessStatus.subscription && accessStatus.subscription.status !== 'canceled' && !accessStatus.subscription.cancelAtPeriodEnd && (
+                    <Button
+                      onClick={handleCancelSubscription}
+                      disabled={cancelLoading}
+                      variant="destructive"
+                      size="lg"
+                      className="flex-1"
+                    >
+                      {cancelLoading ? (
+                        <>
+                          <Loader2 className="mr-2 w-4 h-4 animate-spin" />
+                          Cancelling...
+                        </>
+                      ) : (
+                        <>
+                          <XCircle className="mr-2 w-4 h-4" />
+                          Cancel Subscription
+                        </>
+                      )}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="p-6 bg-muted/30 border border-border rounded-lg space-y-4">
+              <p className="text-muted-foreground mb-4">
+                You don't have an active subscription. Upgrade to access up to 1 year of historical transactions.
+              </p>
+              <div className="flex gap-3">
+                <Button
+                  onClick={() => window.location.href = '/protected/subscriptions'}
+                  variant="outline"
+                  className="flex-1"
+                >
+                  View Upgrade Options
+                  <ExternalLink className="ml-2 w-4 h-4" />
+                </Button>
+                <Button
+                  onClick={async () => {
+                    if (!window.confirm('This will check Stripe for your subscription and sync it to your account. Continue?')) {
+                      return;
+                    }
+                    setLoading(true);
+                    try {
+                      const response = await makeAuthenticatedRequest('/api/subscriptions/fix-access', {
+                        method: 'POST',
+                      });
+                      if (response.ok) {
+                        const data = await response.json();
+                        alert('✅ Subscription synced successfully! Refreshing...');
+                        window.location.reload();
+                      } else {
+                        const errorData = await response.json().catch(() => ({}));
+                        alert(errorData.error || 'No subscription found in Stripe. Please subscribe first.');
+                      }
+                    } catch (error) {
+                      console.error('Error fixing access:', error);
+                      alert('Failed to sync subscription. Please try again.');
+                    } finally {
+                      setLoading(false);
+                    }
+                  }}
+                  disabled={loading}
+                  variant="secondary"
+                  className="flex-1"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="mr-2 w-4 h-4 animate-spin" />
+                      Checking...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="mr-2 w-4 h-4" />
+                      Sync Subscription
+                    </>
+                  )}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground text-center">
+                If you just paid, click "Sync Subscription" to update your account
+              </p>
+            </div>
+          )}
+        </section>
+
+        {/* Payment Methods */}
+        <section className="space-y-4">
+          <div className="flex items-center gap-2">
+            <CreditCard className="w-5 h-5 text-primary" />
+            <h3 className="text-lg font-semibold text-foreground">Payment Methods</h3>
+          </div>
+          <div className="p-6 bg-muted/30 border border-border rounded-lg">
+            <p className="text-sm text-muted-foreground mb-4">
+              Manage your payment methods, billing address, and invoice history through the Stripe billing portal.
+            </p>
+            <Button
+              onClick={handleManageBilling}
+              disabled={!accessStatus?.hasAccess}
+              variant="outline"
+              className="w-full"
+            >
+              Open Billing Portal
+              <ExternalLink className="ml-2 w-4 h-4" />
+            </Button>
+            {!accessStatus?.hasAccess && (
+              <p className="text-xs text-muted-foreground mt-2">
+                Subscribe first to access billing management
+              </p>
+            )}
+          </div>
+        </section>
+
+        {/* Information */}
+        <section className="space-y-4">
+          <div className="p-4 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+            <p className="text-sm text-blue-800 dark:text-blue-200">
+              <strong>Note:</strong> The billing portal allows you to update payment methods, view invoices,
+              cancel your subscription, and manage all billing-related settings securely through Stripe.
+            </p>
+          </div>
+        </section>
+      </div>
+    </Card>
+  );
+};
 
 // Simple wrapper for Select components
 const SimpleSelectWrapper: React.FC<{
@@ -57,7 +377,7 @@ interface SettingsScreenProps {
   inAppNavigation?: boolean;
 }
 
-type SettingsTab = 'profile' | 'businessDetails' | 'taxSettings' | 'advancedSettings';
+type SettingsTab = 'profile' | 'businessDetails' | 'taxSettings' | 'advancedSettings' | 'payment';
 
 export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   user,
@@ -108,7 +428,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState('');
-  const [activeTab, setActiveTab] = useState<'profile' | 'businessDetails' | 'taxSettings' | 'advancedSettings'>('profile');
+  const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [originalProfile, setOriginalProfile] = useState<any>(null);
   const [editState, setEditState] = useState<Record<SettingsTab, boolean>>({
@@ -116,6 +436,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     businessDetails: false,
     taxSettings: false,
     advancedSettings: false,
+    payment: false,
   });
 
   const isEditingCurrentTab = editState[activeTab];
@@ -604,6 +925,16 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           >
             <FileText className="w-4 h-4" />
             Tax Settings
+          </button>
+          <button
+            onClick={() => setActiveTab('payment')}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'payment'
+              ? 'bg-primary/10 text-primary shadow-sm'
+              : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
+              }`}
+          >
+            <CreditCard className="w-4 h-4" />
+            Payment
           </button>
           <button
             onClick={() => setActiveTab('advancedSettings')}
@@ -1303,6 +1634,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           </Card>
         )}
 
+        {/* Payment Tab */}
+        {activeTab === 'payment' && (
+          <PaymentSettingsTab user={user} />
+        )}
+
         {/* Advanced Settings Tab */}
         {activeTab === 'advancedSettings' && (
           <Card className="p-8 bg-card border border-border shadow-lg">
@@ -1540,7 +1876,13 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               <div className="space-y-4">
                 <Button
                   type="button"
-                  onClick={() => onNavigate('plaid-link')}
+                  onClick={() => {
+                    if (inAppNavigation) {
+                      onNavigate('plaid-link?from=settings');
+                    } else {
+                      window.location.href = '/protected/plaid-link?from=settings';
+                    }
+                  }}
                   className="w-full h-12 bg-primary hover:bg-primary/90 text-white rounded-lg flex items-center justify-center gap-3"
                 >
                   <DollarSign className="w-5 h-5" />

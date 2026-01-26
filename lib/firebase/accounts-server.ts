@@ -175,7 +175,7 @@ export const addAccountServer = createAccountServer;
 export async function deleteAccountServer(
   userId: string,
   accountId: string
-): Promise<{ success: boolean; error: any }> {
+): Promise<{ success: boolean; error: any; deletedTransactions?: number }> {
   try {
     const docRef = adminDb.collection("user_profiles").doc(userId).collection("accounts").doc(accountId);
 
@@ -185,25 +185,103 @@ export async function deleteAccountServer(
       return { success: false, error: new Error('Account not found') };
     }
 
-    // Delete the account document
-    // Note: Firestore will automatically delete subcollections (transactions) if cascade delete is configured
-    await docRef.delete();
+    console.log(`🗑️ [Delete Account] Starting deletion for account ${accountId} (user: ${userId})`);
 
-    // Also delete any transactions associated with this account
-    const transactionsRef = adminDb.collection("user_profiles").doc(userId).collection("accounts").doc(accountId).collection("transactions");
-    const transactionsSnapshot = await transactionsRef.get();
+    // Step 1: Delete all transactions associated with this account
+    // First, delete from the subcollection path
+    const { deleteSubcollection, deleteQueryBatch } = await import('@/lib/firebase/delete-helpers');
+    let transactionsDeleted = 0;
 
-    if (!transactionsSnapshot.empty) {
-      const batch = adminDb.batch();
-      transactionsSnapshot.forEach((doc) => {
-        batch.delete(doc.ref);
-      });
-      await batch.commit();
+    try {
+      transactionsDeleted = await deleteSubcollection(docRef, 'transactions');
+      console.log(`✅ [Delete Account] Deleted ${transactionsDeleted} transactions from subcollection`);
+    } catch (subcollectionError) {
+      console.warn('⚠️ [Delete Account] Error deleting subcollection transactions:', subcollectionError);
     }
 
-    return { success: true, error: null };
+    // Step 2: Also delete transactions from top-level collection if they exist
+    // Search for transactions with this account_id in collectionGroup (with pagination)
+    try {
+
+      // Try with userId first (more efficient)
+      let topLevelQuery = adminDb
+        .collectionGroup('transactions')
+        .where('account_id', '==', accountId)
+        .where('userId', '==', userId);
+
+      let topLevelDeleted = 0;
+      try {
+        topLevelDeleted = await deleteQueryBatch(topLevelQuery, 500);
+        transactionsDeleted += topLevelDeleted;
+        console.log(`✅ [Delete Account] Deleted ${topLevelDeleted} transactions from collectionGroup (userId)`);
+      } catch (userIdError: any) {
+        // If query fails (e.g., missing index), try with user_id (snake_case)
+        if (userIdError?.code === 9 || userIdError?.code === 'FAILED_PRECONDITION') {
+          console.log('⚠️ [Delete Account] userId query failed, trying user_id...');
+          topLevelQuery = adminDb
+            .collectionGroup('transactions')
+            .where('account_id', '==', accountId)
+            .where('user_id', '==', userId);
+
+          topLevelDeleted = await deleteQueryBatch(topLevelQuery, 500);
+          transactionsDeleted += topLevelDeleted;
+          console.log(`✅ [Delete Account] Deleted ${topLevelDeleted} transactions from collectionGroup (user_id)`);
+        } else {
+          throw userIdError;
+        }
+      }
+    } catch (topLevelError) {
+      console.warn('⚠️ [Delete Account] Error deleting top-level transactions:', topLevelError);
+      // Continue with account deletion even if top-level transaction deletion fails
+    }
+
+    // Step 2b: Also check top-level transactions collection (if transactions are stored there)
+    try {
+      const topLevelCollectionQuery = adminDb
+        .collection('transactions')
+        .where('account_id', '==', accountId)
+        .where('userId', '==', userId);
+
+      const topCollectionDeleted = await deleteQueryBatch(topLevelCollectionQuery, 500);
+      transactionsDeleted += topCollectionDeleted;
+
+      if (topCollectionDeleted > 0) {
+        console.log(`✅ [Delete Account] Deleted ${topCollectionDeleted} transactions from top-level transactions collection`);
+      }
+    } catch (topCollectionError: any) {
+      // If query fails, try with user_id (snake_case)
+      if (topCollectionError?.code === 9 || topCollectionError?.code === 'FAILED_PRECONDITION') {
+        try {
+          const topLevelCollectionQuery = adminDb
+            .collection('transactions')
+            .where('account_id', '==', accountId)
+            .where('user_id', '==', userId);
+
+          const topCollectionDeleted = await deleteQueryBatch(topLevelCollectionQuery, 500);
+          transactionsDeleted += topCollectionDeleted;
+
+          if (topCollectionDeleted > 0) {
+            console.log(`✅ [Delete Account] Deleted ${topCollectionDeleted} transactions from top-level transactions collection (user_id)`);
+          }
+        } catch (error) {
+          console.warn('⚠️ [Delete Account] Error deleting from top-level transactions collection:', error);
+        }
+      } else {
+        console.warn('⚠️ [Delete Account] Error deleting from top-level transactions collection:', topCollectionError);
+      }
+    }
+
+    // Step 3: Delete the account document (after transactions are deleted)
+    await docRef.delete();
+    console.log(`✅ [Delete Account] Deleted account ${accountId}`);
+
+    return {
+      success: true,
+      error: null,
+      deletedTransactions: transactionsDeleted
+    };
   } catch (error) {
-    console.error('Error deleting account (server):', error);
+    console.error('❌ [Delete Account] Error deleting account:', error);
     return { success: false, error };
   }
 }

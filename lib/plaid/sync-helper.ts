@@ -3,6 +3,7 @@ import { getUserProfileServer, upsertUserProfileServer } from '../firebase/profi
 import { createTransactionServer } from '../firebase/transactions-server';
 import { adminDb } from '../firebase/admin';
 import { fetchAllPlaidTransactions } from './pagination';
+import { getTransactionDateRange } from '../subscriptions/historical-access';
 
 // Helper function to get Plaid config from both environment variables and functions.config()
 function getPlaidConfig() {
@@ -83,25 +84,37 @@ export async function syncUserTransactions(
     endDate.setHours(23, 59, 59, 999); // End of today
     const startDate = new Date();
 
+    // Get user's historical access to determine max allowed days
+    const userHistoricalAccessDays = await getTransactionDateRange(userId);
+
     const MAX_PLAID_DAYS = 730; // Maximum days Plaid supports (2 years)
-    let daysToFetch = 365; // Default to 1 year
+    let daysToFetch = userHistoricalAccessDays; // Default based on user's access level
 
     switch (importTimeframe) {
       case '1month':
         daysToFetch = 30;
         break;
+      case '3months':
+        daysToFetch = 90;
+        break;
       case '6months':
         daysToFetch = 180;
         break;
       case '1year':
-        daysToFetch = 365;
+        // Only allow 1 year if user has historical access
+        daysToFetch = userHistoricalAccessDays >= 365 ? 365 : 90;
         break;
       case '2years':
-        daysToFetch = 730; // Maximum available from Plaid
+        // Only allow 2 years if user has historical access
+        daysToFetch = userHistoricalAccessDays >= 365 ? 730 : 90;
         break;
       default:
-        daysToFetch = 730; // Default to maximum (2 years / 730 days)
+        // Use user's access level as default
+        daysToFetch = userHistoricalAccessDays;
     }
+
+    // Ensure we don't exceed user's access level
+    daysToFetch = Math.min(daysToFetch, userHistoricalAccessDays >= 365 ? MAX_PLAID_DAYS : 90);
 
     const actualDays = Math.min(daysToFetch, MAX_PLAID_DAYS);
 

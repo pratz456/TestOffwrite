@@ -2,7 +2,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack --port 3000",
-    "build": "next build --no-lint",
+    "build": "next build",
     "start": "next start",
     "lint": "next lint",
     "deploy": "node scripts/deploy-firebase.js",
@@ -10,7 +10,15 @@
     "upload:bundle": "ts-node scripts/make-upload-bundle.ts",
     "upload:find-large": "ts-node scripts/find-large.ts",
     "firebase:deploy-indexes": "node scripts/deploy-firestore-indexes.js",
-    "optimize-dev": "node scripts/optimize-dev.js"
+    "optimize-dev": "node scripts/optimize-dev.js",
+    "stripe:check": "node scripts/setup-stripe-test.js",
+    "test:plaid": "node scripts/test-plaid-transactions.js",
+    "test:plaid:quick": "node scripts/quick-test-plaid.js",
+    "test:plaid:force-1year": "node scripts/test-force-1year.js",
+    "test:plaid:full-history": "node scripts/test-full-history.js",
+    "test:plaid:reconnect": "node scripts/test-reconnect-max-transactions.js",
+    "test:plaid:reconnect-simple": "node scripts/test-reconnect-simple.js",
+    "list:users": "node scripts/list-users.js"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.12",
@@ -55,20 +63,21 @@
     "idb": "^8.0.3",
     "input-otp": "^1.4.2",
     "lucide-react": "^0.511.0",
-    "next": "latest",
+    "next": "^16.1.4",
     "next-themes": "^0.4.6",
     "node-fetch": "^3.3.2",
     "openai": "^5.11.0",
     "pdf-lib": "^1.17.1",
     "plaid": "^37.0.0",
-    "react": "^19.0.0",
+    "react": "19.2.1",
     "react-day-picker": "^9.10.0",
-    "react-dom": "^19.0.0",
+    "react-dom": "19.2.1",
     "react-hook-form": "^7.62.0",
     "react-plaid-link": "^4.0.1",
     "react-resizable-panels": "^3.0.6",
     "recharts": "^3.2.1",
     "sonner": "^2.0.7",
+    "stripe": "^19.3.1",
     "tailwind-merge": "^3.3.0",
     "tesseract.js": "^5.1.1",
     "vaul": "^1.1.2",
@@ -78,14 +87,14 @@
     "@eslint/eslintrc": "^3",
     "@types/archiver": "^6.0.2",
     "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
     "@types/uuid": "^10.0.0",
     "@vitest/ui": "^3.2.4",
     "archiver": "^6.0.1",
     "autoprefixer": "^10.4.20",
     "eslint": "^9",
-    "eslint-config-next": "15.3.1",
+    "eslint-config-next": "^16.1.4",
     "firebase-tools": "^14.15.1",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
@@ -95,6 +104,10 @@
     "vitest": "^3.2.4"
   },
   "engines": {
-    "node": "20"
+    "node": ">=20"
+  },
+  "overrides": {
+    "cookie": ">=0.7.0",
+    "js-yaml": ">=4.1.1"
   }
 }

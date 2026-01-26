@@ -5,12 +5,40 @@ import { plaidClient } from '@/lib/plaid/client';
 import { adminDb } from '@/lib/firebase/admin';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import { fetchAllPlaidTransactions } from '@/lib/plaid/pagination';
+import { getTransactionDateRange } from '@/lib/subscriptions/historical-access';
+import { startFreeTrial } from '@/lib/subscriptions/trial-manager';
 
 export async function POST(req: Request) {
   try {
     const { uid } = await getUserFromReqOrThrow(req);
-    // Default to 2 years (730 days) - maximum available from Plaid for comprehensive transaction history
-    const { public_token, import_timeframe = '2years' } = await req.json();
+
+    // Get user's historical access to determine default timeframe
+    const userHistoricalAccessDays = await getTransactionDateRange(uid);
+
+    // Convert days to timeframe string for backward compatibility
+    let defaultTimeframe = '3months'; // Default to 3 months for standard users
+    if (userHistoricalAccessDays >= 365) {
+      defaultTimeframe = '1year'; // Historical access users get 1 year
+    } else if (userHistoricalAccessDays >= 180) {
+      defaultTimeframe = '6months';
+    } else if (userHistoricalAccessDays >= 30) {
+      defaultTimeframe = '3months';
+    } else {
+      defaultTimeframe = '1month';
+    }
+
+    const { public_token, import_timeframe = defaultTimeframe } = await req.json();
+
+    // Ensure free trial is started (in case it wasn't started during link token creation)
+    try {
+      const trialResult = await startFreeTrial(uid);
+      if (trialResult.success) {
+        console.log(`✅ [Exchange Token] Free trial started/verified for user ${uid}`);
+      }
+    } catch (trialError) {
+      console.error('⚠️ [Exchange Token] Error starting trial (non-fatal):', trialError);
+      // Continue even if trial start fails
+    }
 
     if (!public_token) {
       return NextResponse.json({ error: 'Missing public_token' }, { status: 400 });
@@ -263,24 +291,16 @@ export async function POST(req: Request) {
     // Calculate days to go back based on timeframe
     // Note: Plaid's maximum is 730 days (2 years) for transactions/get endpoint
     const MAX_PLAID_DAYS = 730; // Maximum days Plaid supports
-    let daysToFetch = 365; // Default to 1 year
 
-    switch (import_timeframe) {
-      case '1month':
-        daysToFetch = 30;
-        break;
-      case '6months':
-        daysToFetch = 180;
-        break;
-      case '1year':
-        daysToFetch = 365;
-        break;
-      case '2years':
-        daysToFetch = 730; // Maximum available from Plaid
-        break;
-      default:
-        daysToFetch = 730; // Default to maximum (2 years / 730 days)
-    }
+    // Free trial is app-managed, so we always use the user's access level
+    // No need to check import_timeframe - backend determines based on subscription status
+    // Trial users get 1 year (365 days), expired trial/no subscription get 3 months (90 days)
+    console.log(`[Exchange Token] User ${uid} historical access days: ${userHistoricalAccessDays}`);
+
+    // Calculate days to fetch based on user's access level
+    // Ensure we don't exceed user's access level and Plaid's maximum
+    const maxAllowedDays = userHistoricalAccessDays >= 365 ? MAX_PLAID_DAYS : 90;
+    const daysToFetch = Math.min(userHistoricalAccessDays, maxAllowedDays);
 
     // Use maximum available days if timeframe exceeds Plaid's limit
     const actualDays = Math.min(daysToFetch, MAX_PLAID_DAYS);

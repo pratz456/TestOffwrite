@@ -27,6 +27,8 @@ import { useTransactions, useUserStats } from '@/lib/firebase/hooks';
 import { calculateEffectiveTaxRate } from '@/lib/tax-rules/federal-brackets';
 import { ToastContainer, useToasts } from '@/components/ui/toast';
 import { auth } from '@/lib/firebase/client';
+import { HistoricalAccessNotification } from '@/components/historical-access-notification';
+import { HistoricalAccessUpgradeCard } from '@/components/historical-access-upgrade-card';
 import {
   TrendingUp,
   DollarSign,
@@ -198,6 +200,8 @@ export default function DashboardScreen({
         {/* Header */}
         <div className="bg-background">
           <div className="max-w-7xl mx-auto px-4 md:px-6 py-4">
+            {/* Historical Access Notification */}
+            <HistoricalAccessNotification />
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
               <div>
                 <h1 className="text-2xl md:text-3xl font-bold text-foreground mb-1">Dashboard</h1>
@@ -264,6 +268,11 @@ export default function DashboardScreen({
         </div>
 
         <div className="max-w-7xl mx-auto px-4 md:px-6 py-4">
+          {/* Historical Access Upgrade Card */}
+          <div className="mb-4">
+            <HistoricalAccessUpgradeCard />
+          </div>
+
           {/* Top Row - KPI Cards */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 mb-4">
         {/* YTD Tax Savings - 8 cols */}

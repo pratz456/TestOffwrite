@@ -13,6 +13,12 @@ const nextConfig: NextConfig = {
     optimizePackageImports: ["lucide-react", "@radix-ui/react-icons"],
   },
 
+  // Allow cross-origin requests in development (for remote access/tunnels)
+  // This prevents warnings when accessing dev server from different IPs
+  allowedDevOrigins: process.env.NODE_ENV === 'development' 
+    ? (process.env.ALLOWED_DEV_ORIGINS?.split(',') || ['100.70.31.123'])
+    : undefined,
+
   // External packages for server components
   serverExternalPackages: ["firebase-admin"],
 
@@ -70,10 +76,7 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   generateEtags: false,
 
-  // ✅ Ignore lint + TS errors during builds
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
+  // ✅ Ignore TS errors during builds (eslint config removed - Next.js 16 handles this differently)
   typescript: {
     ignoreBuildErrors: true,
   },

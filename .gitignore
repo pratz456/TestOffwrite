@@ -76,3 +76,10 @@ upload_bundles/
 
 # General logs
 *.log
+
+# Test scripts (may contain sensitive data)
+scripts/test-plaid-transactions.js
+scripts/test-force-1year.js
+scripts/test-full-history.js
+scripts/test-reconnect-max-transactions.js
+scripts/.reconnect-test-results.json

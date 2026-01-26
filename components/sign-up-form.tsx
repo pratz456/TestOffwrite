@@ -1,13 +1,13 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { signUpUser, signInWithGoogle } from "@/lib/firebase/auth";
+import { signUpUser, signInWithGoogle, handleAuthRedirectResult } from "@/lib/firebase/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import writeOffLogo from '@/public/writeofflogo.png';
 import Image from 'next/image';
 import { Eye, EyeOff } from "lucide-react";
@@ -31,6 +31,42 @@ export function SignUpForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const router = useRouter();
+  const mountedRef = useRef(true);
+
+  // Handle Google sign-in redirect result (when popup is blocked and redirect is used)
+  useEffect(() => {
+    mountedRef.current = true;
+    // On mount, check if we're returning from a Google sign-in redirect.
+    // If so, process the redirect result, exchange the ID token for a session
+    // cookie, and return the user. If so, navigate to profile setup.
+    const checkRedirect = async () => {
+      try {
+        // Indicate we're handling a possible redirect result (keeps button disabled)
+        setIsGoogleLoading(true);
+        const { data, error } = await handleAuthRedirectResult();
+        if (!mountedRef.current) return;
+        if (error) {
+          if (process.env.NODE_ENV === 'development') console.error('handleAuthRedirectResult error', error);
+          setError(error.message || 'Failed to complete sign-in.');
+        } else if (data && data.user) {
+          router.push("/protected/profile-setup");
+        }
+      } catch (e) {
+        if (process.env.NODE_ENV === 'development') console.error('Error handling redirect result', e);
+        if (mountedRef.current) {
+          setError('An error occurred during sign-in.');
+        }
+      } finally {
+        if (mountedRef.current) {
+          setIsGoogleLoading(false);
+        }
+      }
+    };
+    checkRedirect();
+    return () => {
+      mountedRef.current = false;
+    };
+  }, [router]);
 
   const handlePasswordChange = (newPassword: string) => {
     setPassword(newPassword);
@@ -92,7 +128,16 @@ export function SignUpForm({
         if (process.env.NODE_ENV === 'development') {
           console.error('Google sign in error:', error);
         }
-        setError(error.message || "Google sign-in failed. Please try again.");
+        // Provide user-friendly error messages
+        let errorMessage = "Google sign-in failed. Please try again.";
+        if (error.code === 'auth/popup-blocked') {
+          errorMessage = "Popup was blocked. Please allow popups for this site and try again, or the redirect flow will be used automatically.";
+        } else if (error.code === 'auth/popup-closed-by-user') {
+          errorMessage = "Sign-in was cancelled. Please try again.";
+        } else if (error.message) {
+          errorMessage = error.message;
+        }
+        setError(errorMessage);
         return;
       }
       
@@ -102,6 +147,13 @@ export function SignUpForm({
         await new Promise(resolve => setTimeout(resolve, 500));
         // For Google sign-in, redirect to profile setup (same as email sign-up flow)
         router.push("/protected/profile-setup");
+      } else if (data == null && error == null) {
+        // No immediate user returned: this indicates the provider flow
+        // used a redirect (signInWithRedirect) and the browser will
+        // navigate away and return to this app where the redirect result
+        // will be processed by handleAuthRedirectResult (see useEffect).
+        console.log('Google sign-in triggered redirect; awaiting redirect result.');
+        return;
       } else {
         setError("Google sign-in failed. Please try again.");
       }
