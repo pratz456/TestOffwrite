@@ -72,9 +72,28 @@ export function HistoricalAccessUpgradeCard() {
           alert('Failed to get checkout URL. Please try again.');
         }
       } else {
-        const errorData = await response.json().catch(() => ({}));
-        const errorMessage = errorData.error || errorData.details || 'Failed to start checkout. Please try again.';
-        console.error('Checkout error:', errorData);
+        // Try to get error message from response
+        // Note: Response body can only be read once, so we need to clone it or read as text first
+        let errorMessage = 'Failed to start checkout. Please try again.';
+        const responseText = await response.text();
+        
+        try {
+          const errorData = JSON.parse(responseText);
+          errorMessage = errorData.error || errorData.details || errorData.message || errorMessage;
+          console.error('Checkout error response:', {
+            status: response.status,
+            statusText: response.statusText,
+            error: errorData
+          });
+        } catch (jsonError) {
+          // If JSON parsing fails, use the text response
+          console.error('Checkout error (non-JSON response):', {
+            status: response.status,
+            statusText: response.statusText,
+            body: responseText || '(empty response)'
+          });
+          errorMessage = responseText || `Server returned ${response.status} ${response.statusText}`;
+        }
         alert(errorMessage);
       }
     } catch (error) {

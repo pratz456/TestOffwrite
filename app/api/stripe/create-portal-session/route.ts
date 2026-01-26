@@ -17,7 +17,28 @@ export async function POST(req: Request) {
 
     let customerId = userData?.stripeCustomerId;
 
-    // If no customer ID exists, create one (similar to checkout flow)
+    // Verify customer exists in Stripe if we have a customer ID
+    if (customerId) {
+      try {
+        const customer = await stripe.customers.retrieve(customerId);
+        // Check if customer was deleted
+        if (customer.deleted) {
+          console.log(`[Portal Session] Customer ${customerId} was deleted in Stripe, creating new customer`);
+          customerId = null; // Reset to trigger creation
+        }
+      } catch (error: any) {
+        // If customer doesn't exist (404) or other error, create a new one
+        if (error.code === 'resource_missing' || error.statusCode === 404) {
+          console.log(`[Portal Session] Customer ${customerId} not found in Stripe, creating new customer`);
+          customerId = null; // Reset to trigger creation
+        } else {
+          // Re-throw unexpected errors
+          throw error;
+        }
+      }
+    }
+
+    // If no customer ID exists or was deleted, create one (similar to checkout flow)
     // This allows users in trial to access the portal to subscribe
     if (!customerId) {
       try {

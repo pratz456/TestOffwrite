@@ -29,7 +29,28 @@ export async function POST(req: Request) {
 
     let customerId = userData?.stripeCustomerId;
 
-    // Create Stripe customer if doesn't exist
+    // Verify customer exists in Stripe if we have a customer ID
+    if (customerId) {
+      try {
+        const customer = await stripe.customers.retrieve(customerId);
+        // Check if customer was deleted
+        if (customer.deleted) {
+          console.log(`Customer ${customerId} was deleted in Stripe, creating new customer`);
+          customerId = null; // Reset to trigger creation
+        }
+      } catch (error: any) {
+        // If customer doesn't exist (404) or other error, create a new one
+        if (error.code === 'resource_missing' || error.statusCode === 404) {
+          console.log(`Customer ${customerId} not found in Stripe, creating new customer`);
+          customerId = null; // Reset to trigger creation
+        } else {
+          // Re-throw unexpected errors
+          throw error;
+        }
+      }
+    }
+
+    // Create Stripe customer if doesn't exist or was deleted
     if (!customerId) {
       const customer = await stripe.customers.create({
         email: userData?.email,
@@ -43,6 +64,7 @@ export async function POST(req: Request) {
       await adminDb.doc(`user_profiles/${uid}`).update({
         stripeCustomerId: customerId,
       });
+      console.log(`✅ Created new Stripe customer ${customerId} for user ${uid}`);
     }
 
     // Get price ID based on interval
