@@ -13,6 +13,9 @@ import { auth } from '@/lib/firebase/client';
 import { useJobProgress } from '@/lib/hooks/useJobProgress';
 import { errorLogger, logPollingError, logAPIError } from '@/lib/error-logger';
 
+// Global flag to prevent duplicate Plaid script loading
+let plaidScriptLoaded = false;
+
 interface PlaidLinkScreenProps {
   user: any;
   onSuccess: () => void;
@@ -899,6 +902,18 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
       setError('Bank connection was cancelled or failed. Please try again.');
     }
   }, []);
+
+  // Check for duplicate script loading and warn if detected
+  useEffect(() => {
+    if (linkToken) {
+      // Check if Plaid script is already in the DOM (indicates potential duplicate loading)
+      const existingScript = document.querySelector('script[src*="plaid.com/link/v2/stable/link-initialize.js"]');
+      if (existingScript && !plaidScriptLoaded) {
+        console.warn('⚠️ [Plaid] Script may be loaded multiple times. This can happen in development with React Strict Mode.');
+        plaidScriptLoaded = true;
+      }
+    }
+  }, [linkToken]);
 
   const { open, ready } = usePlaidLink({
     token: linkToken,

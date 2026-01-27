@@ -4,6 +4,13 @@ export async function updateSession(request: NextRequest) {
   const response = NextResponse.next({ request });
 
   try {
+    // Add Permissions-Policy headers to fix console violations
+    // Allow accelerometer and encrypted-media for Plaid integration
+    response.headers.set(
+      'Permissions-Policy',
+      'accelerometer=(), encrypted-media=(), geolocation=(), microphone=(), camera=()'
+    );
+
     // Enforce canonical domain in production
     if (process.env.NODE_ENV === 'production') {
       const host = request.headers.get('host')?.toLowerCase() || '';

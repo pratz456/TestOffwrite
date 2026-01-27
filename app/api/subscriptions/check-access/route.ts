@@ -5,23 +5,136 @@ import { adminDb } from '@/lib/firebase/admin';
 import Stripe from 'stripe';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2024-12-18.acacia',
+  apiVersion: '2024-12-18.acacia' as any,
 });
 
 export async function GET(req: Request) {
   try {
     const { uid } = await getUserFromReqOrThrow(req);
-    const accessStatus = await checkHistoricalAccess(uid);
-
-    // Get additional subscription details from Stripe if subscription exists
-    let subscriptionDetails: any = null;
+    
+    // Get user profile first
     const userDoc = await adminDb.doc(`user_profiles/${uid}`).get();
     const userData = userDoc.data();
     const subscriptionId = userData?.stripeSubscriptionId;
+    const customerId = userData?.stripeCustomerId;
 
+    // Sync subscription status from Stripe if subscription exists
     if (subscriptionId) {
       try {
-        const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+        const subscription = await stripe.subscriptions.retrieve(subscriptionId) as any;
+        const isActive = subscription.status === 'active';
+        let currentPeriodEnd = subscription.current_period_end ? new Date(subscription.current_period_end * 1000) : null;
+
+        // TEST MODE: Set subscription end to 0 days (today) for testing expiration behavior
+        if (process.env.STRIPE_TEST_MODE_EXPIRE_TODAY === 'true') {
+          currentPeriodEnd = new Date(); // Set to now (0 days remaining)
+          console.log(`🧪 TEST MODE: Setting subscriptionEnd to today for testing`);
+        }
+        
+        // Check if Firestore is out of sync with Stripe
+        const firestoreStatus = userData?.subscriptionStatus || 'none';
+        const firestoreStripeStatus = userData?.stripeSubscriptionStatus;
+        const needsSync = 
+          (isActive && firestoreStatus !== 'active') ||
+          (subscription.status !== firestoreStripeStatus) ||
+          (isActive && !userData?.hasHistoricalAccess);
+
+        // Always update if test mode is enabled (to force subscriptionEnd to today)
+        const testModeEnabled = process.env.STRIPE_TEST_MODE_EXPIRE_TODAY === 'true';
+        const shouldUpdate = needsSync || testModeEnabled;
+
+        if (shouldUpdate) {
+          if (testModeEnabled) {
+            console.log(`🧪 TEST MODE: Updating subscriptionEnd to today for user ${uid}`);
+          } else {
+            console.log(`🔄 Syncing subscription status from Stripe for user ${uid}`);
+          }
+          
+          const updateData: any = {
+            stripeSubscriptionId: subscription.id,
+            stripeSubscriptionStatus: subscription.status,
+            subscriptionStatus: isActive ? 'active' : (subscription.status === 'trialing' ? 'trial' : 'expired'),
+            hasHistoricalAccess: isActive || subscription.status === 'trialing',
+            subscriptionEnd: currentPeriodEnd,
+          };
+
+          // Update customer ID if missing
+          if (!customerId && subscription.customer) {
+            updateData.stripeCustomerId = typeof subscription.customer === 'string' 
+              ? subscription.customer 
+              : (subscription.customer as any).id;
+          }
+
+          await adminDb.doc(`user_profiles/${uid}`).update(updateData);
+          console.log(`✅ Updated subscription status: ${subscription.status} -> subscriptionStatus: ${updateData.subscriptionStatus}, subscriptionEnd: ${currentPeriodEnd?.toISOString()}`);
+        }
+      } catch (error: any) {
+        // If subscription doesn't exist in Stripe, mark as expired
+        if (error.code === 'resource_missing' || error.statusCode === 404) {
+          console.log(`⚠️ Subscription ${subscriptionId} not found in Stripe, marking as expired`);
+          await adminDb.doc(`user_profiles/${uid}`).update({
+            subscriptionStatus: 'expired',
+            stripeSubscriptionStatus: 'deleted',
+            hasHistoricalAccess: false,
+          });
+        } else {
+          console.error('Error fetching subscription from Stripe:', error);
+        }
+      }
+    } else if (customerId) {
+      // If no subscription ID but we have customer ID, try to find active subscription
+      try {
+        const subscriptions = await stripe.subscriptions.list({
+          customer: customerId,
+          status: 'all',
+          limit: 10,
+        });
+
+        const activeSubscription = subscriptions.data.find(
+          sub => sub.status === 'active' || sub.status === 'trialing'
+        ) as any;
+
+        if (activeSubscription) {
+          const isActive = activeSubscription.status === 'active';
+          let currentPeriodEnd: Date | null = null;
+          if (activeSubscription.current_period_end) {
+            currentPeriodEnd = new Date(activeSubscription.current_period_end * 1000);
+          }
+
+          // TEST MODE: Set subscription end to 0 days (today) for testing expiration behavior
+          const testModeEnabled = process.env.STRIPE_TEST_MODE_EXPIRE_TODAY === 'true';
+          if (testModeEnabled) {
+            currentPeriodEnd = new Date(); // Set to now (0 days remaining)
+            console.log(`🧪 TEST MODE: Setting subscriptionEnd to today for testing`);
+          }
+
+          await adminDb.doc(`user_profiles/${uid}`).update({
+            stripeSubscriptionId: activeSubscription.id,
+            stripeCustomerId: customerId,
+            stripeSubscriptionStatus: activeSubscription.status,
+            subscriptionStatus: isActive ? 'active' : 'trial',
+            hasHistoricalAccess: isActive || activeSubscription.status === 'trialing',
+            subscriptionEnd: currentPeriodEnd,
+          });
+          console.log(`✅ Synced subscription ${activeSubscription.id} for user ${uid}, subscriptionEnd: ${currentPeriodEnd?.toISOString()}`);
+        }
+      } catch (error) {
+        console.error('Error searching for subscriptions:', error);
+      }
+    }
+
+    // Now check access status (after sync)
+    const accessStatus = await checkHistoricalAccess(uid);
+
+    // Get subscription details for response
+    let subscriptionDetails: any = null;
+    const updatedUserDoc = await adminDb.doc(`user_profiles/${uid}`).get();
+    const updatedUserData = updatedUserDoc.data();
+    const finalSubscriptionId = updatedUserData?.stripeSubscriptionId || subscriptionId;
+
+    if (finalSubscriptionId) {
+      try {
+        const subscription = await stripe.subscriptions.retrieve(finalSubscriptionId) as any;
         const priceId = subscription.items.data[0]?.price?.id;
         const price = priceId ? await stripe.prices.retrieve(priceId) : null;
 

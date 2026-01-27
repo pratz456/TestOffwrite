@@ -23,7 +23,12 @@ export async function userHasHistoricalAccess(userId: string): Promise<boolean> 
     const subscriptionStatus = userData?.subscriptionStatus || 'none';
     const trialEnd = userData?.trialEnd?.toDate?.() || (userData?.trialEnd ? new Date(userData.trialEnd) : undefined);
     const stripeSubscriptionStatus = userData?.stripeSubscriptionStatus;
-    const subscriptionEnd = userData?.subscriptionEnd?.toDate?.() || (userData?.subscriptionEnd ? new Date(userData.subscriptionEnd) : undefined);
+    let subscriptionEnd = userData?.subscriptionEnd?.toDate?.() || (userData?.subscriptionEnd ? new Date(userData.subscriptionEnd) : undefined);
+
+    // TEST MODE: Override subscriptionEnd to today (0 days) for testing
+    if (process.env.STRIPE_TEST_MODE_EXPIRE_TODAY === 'true' && subscriptionEnd) {
+      subscriptionEnd = new Date(); // Set to now (0 days remaining)
+    }
 
     const now = new Date();
 
@@ -155,7 +160,12 @@ export async function getUserSubscriptionStatus(userId: string): Promise<{
     const subscriptionStatus = (userData?.subscriptionStatus || 'none') as SubscriptionStatus;
     const trialStart = userData?.trialStart?.toDate?.() || (userData?.trialStart ? new Date(userData.trialStart) : undefined);
     const trialEnd = userData?.trialEnd?.toDate?.() || (userData?.trialEnd ? new Date(userData.trialEnd) : undefined);
-    const subscriptionEnd = userData?.subscriptionEnd?.toDate?.() || (userData?.subscriptionEnd ? new Date(userData.subscriptionEnd) : undefined);
+    let subscriptionEnd = userData?.subscriptionEnd?.toDate?.() || (userData?.subscriptionEnd ? new Date(userData.subscriptionEnd) : undefined);
+
+    // TEST MODE: Override subscriptionEnd to today (0 days) for testing
+    if (process.env.STRIPE_TEST_MODE_EXPIRE_TODAY === 'true' && subscriptionEnd) {
+      subscriptionEnd = new Date(); // Set to now (0 days remaining)
+    }
 
     const now = new Date();
     const isTrialActive = subscriptionStatus === 'trial' && trialEnd && now <= trialEnd;

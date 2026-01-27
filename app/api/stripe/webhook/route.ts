@@ -150,7 +150,13 @@ async function handleSubscriptionUpdate(subscription: Stripe.Subscription) {
   const customerId = subscription.customer as string;
   // Active includes subscriptions that are active even if scheduled for cancellation
   const isActive = subscription.status === 'active';
-  const currentPeriodEnd = subscription.current_period_end ? new Date(subscription.current_period_end * 1000) : null;
+  let currentPeriodEnd = subscription.current_period_end ? new Date(subscription.current_period_end * 1000) : null;
+
+  // TEST MODE: Set subscription end to 0 days (today) for testing expiration behavior
+  if (process.env.STRIPE_TEST_MODE_EXPIRE_TODAY === 'true') {
+    currentPeriodEnd = new Date(); // Set to now (0 days remaining)
+    console.log(`🧪 TEST MODE: Setting subscriptionEnd to today for testing`);
+  }
 
   // Update user profile with subscription info
   // When user pays, set subscriptionStatus to 'active' and grant 1-year access

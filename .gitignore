@@ -83,3 +83,89 @@ scripts/test-force-1year.js
 scripts/test-full-history.js
 scripts/test-reconnect-max-transactions.js
 scripts/.reconnect-test-results.json
+
+
+# IDE/editor - Additional entries
+.cursor/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+*.sublime-project
+*.sublime-workspace
+.vscode-test/
+
+# OS-specific files
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Desktop.ini
+.AppleDouble
+.LSOverride
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# Environment files (explicit list)
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Vercel
+.vercelignore
+
+# Next.js specific
+.nextignore
+
+# User data files (may contain sensitive information)
+users.json
+
+# Cache directories
+.cache/
+.parcel-cache/
+.eslintcache
+.stylelintcache
+.node_repl_history
+
+# Additional logs
+logs/
+*.log.*
+lerna-debug.log*
+
+# Temporary files
+*.temp
+*.cache
+*.pid
+*.seed
+*.pid.lock
+
+# Yarn v2
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+.yarn-integrity
+
+# Build artifacts
+*.tgz
+
+# Deployment & Services
+.sentryclirc
+.netlify
+.serverless/
+.fusebox/
+.dynamodb/
+.tern-port

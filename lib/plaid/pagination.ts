@@ -62,6 +62,7 @@ export async function fetchAllPlaidTransactions(
         ...request,
         options: {
           ...request.options,
+          count: 500, // Request up to 500 transactions per page (max allowed by Plaid)
           cursor: nextCursor, // undefined on first request, then uses the cursor from previous response
         },
       });
@@ -77,6 +78,22 @@ export async function fetchAllPlaidTransactions(
 
       allTransactions = allTransactions.concat(transactions);
       nextCursor = responseData.next_cursor || undefined;
+
+      // Debug logging for cursor issue
+      console.log(`${logPrefix} 🔍 DEBUG: next_cursor value:`, nextCursor === null ? 'null' : nextCursor === undefined ? 'undefined' : `"${nextCursor.substring(0, 50)}..."`);
+      console.log(`${logPrefix} 🔍 DEBUG: responseData keys:`, Object.keys(responseData));
+      
+      // If we have fewer transactions than reported, log full response structure for debugging
+      if (plaidTotalTransactions !== undefined && allTransactions.length < plaidTotalTransactions && !nextCursor) {
+        console.error(`${logPrefix} 🐛 BUG DETECTED: Plaid reported ${plaidTotalTransactions} transactions but only ${allTransactions.length} fetched and next_cursor is ${nextCursor === null ? 'null' : 'undefined'}`);
+        console.error(`${logPrefix} 🐛 Full response structure:`, JSON.stringify({
+          total_transactions: responseData.total_transactions,
+          transactions_count: responseData.transactions?.length,
+          next_cursor: responseData.next_cursor,
+          has_more: responseData.has_more,
+          request_id: responseData.request_id,
+        }, null, 2));
+      }
 
       console.log(
         `${logPrefix} 📊 Page ${pageCount}: Fetched ${transactions.length} transactions ` +
