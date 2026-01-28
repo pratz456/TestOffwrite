@@ -688,26 +688,26 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="max-w-5xl mx-auto px-4">
+    <div className="min-h-screen bg-background safe-area-inset-top safe-area-inset-bottom">
+      <div className="max-w-5xl mx-auto px-3 sm:px-4">
         {/* Sticky Header */}
-        <div className="sticky top-0 bg-background z-10 py-4">
-          <div className="flex items-center justify-between mb-4">
+        <div className="sticky top-0 bg-background/95 backdrop-blur-sm z-10 py-3 sm:py-4 border-b border-border/50">
+          <div className="flex items-center justify-between mb-2 sm:mb-4">
             <button
               onClick={onBack}
-              className="p-2 hover:bg-muted rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary"
+              className="p-2.5 sm:p-2 hover:bg-muted active:bg-muted/80 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary no-tap-highlight min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 flex items-center justify-center"
               aria-label="Go back"
             >
               <ArrowLeft className="w-5 h-5 text-muted-foreground" />
             </button>
 
-            <div className="text-center">
-              <h1 className="text-lg font-semibold text-foreground">Review Transactions</h1>
+            <div className="text-center flex-1 px-2">
+              <h1 className="text-base sm:text-lg font-semibold text-foreground">Review Transactions</h1>
               <div className="flex flex-col items-center gap-1">
                 <p className="text-xs text-muted-foreground">
                   {currentIndex + 1} of {originalTotal || needsReviewTransactions.length}
                 </p>
-                <div className="w-24 h-1.5 bg-muted rounded-full overflow-hidden">
+                <div className="w-28 sm:w-24 h-2 sm:h-1.5 bg-muted rounded-full overflow-hidden">
                   <div
                     className="h-full bg-primary transition-all duration-300 ease-out"
                     style={{
@@ -718,13 +718,14 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
               </div>
             </div>
 
-            <div className="w-9 h-9" /> {/* Spacer for alignment */}
+            <div className="w-11 h-11 sm:w-9 sm:h-9" /> {/* Spacer for alignment */}
           </div>
 
-          <div className="border-b border-border mb-4" />
-
-          <p className="text-center text-xs text-muted-foreground">
+          <p className="text-center text-xs text-muted-foreground px-2 hidden sm:block">
             Swipe right to deduct • Swipe left for personal • Use Skip to keep AI analysis
+          </p>
+          <p className="text-center text-xs text-muted-foreground px-2 sm:hidden">
+            Swipe or tap buttons below
           </p>
 
           {/* Success Message */}
@@ -775,14 +776,14 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
               {/* View Details Button */}
               <button
                 onClick={() => onTransactionClick?.({ ...currentTransaction, _source: 'review-transactions' })}
-                className="w-full flex items-center justify-between p-3 border border-border bg-muted hover:bg-muted/80 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-primary mb-4"
+                className="w-full flex items-center justify-between p-3.5 sm:p-3 border border-border bg-muted hover:bg-muted/80 active:bg-muted/60 rounded-xl sm:rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-primary mb-4 min-h-[52px] sm:min-h-0 no-tap-highlight"
                 aria-label="View transaction details"
               >
-                <div className="flex items-center gap-2">
-                  <Info className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-sm font-medium text-card-foreground">View Details</span>
+                <div className="flex items-center gap-2.5 sm:gap-2">
+                  <Info className="w-5 h-5 sm:w-4 sm:h-4 text-muted-foreground" />
+                  <span className="text-base sm:text-sm font-medium text-card-foreground">View Details</span>
                 </div>
-                <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                <ChevronRight className="w-5 h-5 sm:w-4 sm:h-4 text-muted-foreground" />
               </button>
 
               {/* Category Pill */}
@@ -933,52 +934,55 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
               </div>
             </div>
 
-            {/* Bottom Rail */}
-            <div className="border-t border-border p-5 sm:p-6">
-              <div className="flex items-center justify-between">
-                <button
-                  onClick={() => handleSwipe('left')}
-                  disabled={isProcessing}
-                  className="flex items-center gap-2 text-destructive hover:text-destructive/80 transition-colors focus:outline-none focus:ring-2 focus:ring-destructive focus:ring-offset-2 rounded-lg p-2 min-h-[40px] disabled:opacity-50"
-                  aria-label="Mark as personal expense"
-                >
-                  <XCircle className="w-5 h-5" />
-                  <span className="font-medium">Personal</span>
-                </button>
-
-                {/* Skip Button */}
-                <button
-                  onClick={handleSkip}
-                  disabled={isProcessing}
-                  className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 rounded-lg p-2 min-h-[40px] disabled:opacity-50"
-                  aria-label="Skip transaction"
-                >
-                  <SkipForward className="w-5 h-5" />
-                  <span className="font-medium">Skip</span>
-                </button>
-
-                {/* Ask a CPA Button */}
-                <div className="flex flex-col items-center mx-2" style={{ minWidth: 0 }}>
-                  <Button
-                    variant="outline"
-                    className="flex items-center gap-2 px-5 py-2 text-purple-600 dark:text-purple-400 border border-purple-500/20 bg-purple-500/10 hover:bg-purple-500/20 hover:border-purple-500/30 focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 rounded-lg shadow-sm font-semibold transition-colors"
-                    style={{ whiteSpace: 'nowrap' }}
-                    onClick={() => setAskCpaOpen(true)}
+            {/* Bottom Rail - Mobile optimized */}
+            <div className="border-t border-border p-4 sm:p-6">
+              {/* Mobile: Stack buttons, Desktop: Row */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-2 sm:justify-between">
+                {/* Main action buttons row */}
+                <div className="flex items-center justify-between sm:justify-start gap-2 sm:gap-4 order-1 sm:order-none">
+                  <button
+                    onClick={() => handleSwipe('left')}
+                    disabled={isProcessing}
+                    className="flex-1 sm:flex-none flex items-center justify-center gap-2 text-destructive hover:text-destructive/80 active:bg-destructive/10 transition-colors focus:outline-none focus:ring-2 focus:ring-destructive focus:ring-offset-2 rounded-xl sm:rounded-lg p-3 sm:p-2 min-h-[52px] sm:min-h-[40px] disabled:opacity-50 no-tap-highlight border border-destructive/20 sm:border-0"
+                    aria-label="Mark as personal expense"
                   >
-                    <HelpCircle className="w-5 h-5 mr-1" />
-                    Ask a CPA
-                  </Button>
+                    <XCircle className="w-5 h-5" />
+                    <span className="font-medium text-sm">Personal</span>
+                  </button>
+
+                  {/* Skip Button */}
+                  <button
+                    onClick={handleSkip}
+                    disabled={isProcessing}
+                    className="flex-1 sm:flex-none flex items-center justify-center gap-2 text-muted-foreground hover:text-foreground active:bg-muted transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 rounded-xl sm:rounded-lg p-3 sm:p-2 min-h-[52px] sm:min-h-[40px] disabled:opacity-50 no-tap-highlight border border-border sm:border-0"
+                    aria-label="Skip transaction"
+                  >
+                    <SkipForward className="w-5 h-5" />
+                    <span className="font-medium text-sm">Skip</span>
+                  </button>
+
+                  <button
+                    onClick={() => handleSwipe('right')}
+                    disabled={isProcessing}
+                    className="flex-1 sm:flex-none flex items-center justify-center gap-2 text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 active:bg-emerald-500/10 transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 rounded-xl sm:rounded-lg p-3 sm:p-2 min-h-[52px] sm:min-h-[40px] disabled:opacity-50 no-tap-highlight border border-emerald-500/20 sm:border-0"
+                    aria-label="Mark as deductible expense"
+                  >
+                    <CheckCircle className="w-5 h-5" />
+                    <span className="font-medium text-sm">Deductible</span>
+                  </button>
                 </div>
 
-                <button
-                  onClick={() => handleSwipe('right')}
-                  disabled={isProcessing}
-                  className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 rounded-lg p-2 min-h-[40px] disabled:opacity-50"
-                  aria-label="Mark as deductible expense"
-                >
-                  <CheckCircle className="w-5 h-5" />
-                  <span className="font-medium">Deductible</span>
-                </button>
+                {/* Ask a CPA Button - Full width on mobile */}
+                <div className="order-2 sm:order-none sm:ml-auto">
+                  <Button
+                    variant="outline"
+                    className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 sm:px-5 py-2.5 sm:py-2 text-purple-600 dark:text-purple-400 border border-purple-500/20 bg-purple-500/10 hover:bg-purple-500/20 active:bg-purple-500/30 hover:border-purple-500/30 focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 rounded-xl sm:rounded-lg shadow-sm font-semibold transition-colors min-h-[48px] sm:min-h-[40px] no-tap-highlight"
+                    onClick={() => setAskCpaOpen(true)}
+                  >
+                    <HelpCircle className="w-5 h-5" />
+                    <span>Ask a CPA</span>
+                  </Button>
+                </div>
               </div>
             </div>
           </div>

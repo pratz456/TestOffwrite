@@ -196,18 +196,18 @@ export default function DashboardScreen({
       {/* Toast Container */}
       <ToastContainer toasts={toasts} onClose={removeToast} />
 
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen bg-background safe-area-inset-bottom">
         {/* Header */}
-        <div className="bg-background">
-          <div className="max-w-7xl mx-auto px-4 md:px-6 py-4">
+        <div className="bg-background sticky top-0 z-10 border-b border-border/50 backdrop-blur-sm bg-background/95">
+          <div className="max-w-7xl mx-auto px-4 md:px-6 py-3 sm:py-4">
             {/* Historical Access Notification */}
             <HistoricalAccessNotification />
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3">
               <div>
-                <h1 className="text-2xl md:text-3xl font-bold text-foreground mb-1">Dashboard</h1>
-                <p className="text-sm md:text-base text-muted-foreground">Welcome back, {profile?.name?.split(' ')[0] || 'there'}</p>
+                <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-foreground">Dashboard</h1>
+                <p className="text-sm text-muted-foreground">Welcome back, {profile?.name?.split(' ')[0] || 'there'}</p>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
                 <Button
                   variant="outline"
                   size="sm"
@@ -239,10 +239,11 @@ export default function DashboardScreen({
                     }
                   }}
                   disabled={isRefreshingBalances}
-                  className="gap-2"
+                  className="gap-2 flex-1 sm:flex-none h-10 sm:h-9 text-sm no-tap-highlight"
                 >
                   <RefreshCw className={`h-4 w-4 ${isRefreshingBalances ? 'animate-spin' : ''}`} />
-                  {isRefreshingBalances ? 'Refreshing...' : 'Refresh Balances'}
+                  <span className="hidden xs:inline">{isRefreshingBalances ? 'Refreshing...' : 'Refresh'}</span>
+                  <span className="xs:hidden">{isRefreshingBalances ? '...' : 'Refresh'}</span>
                 </Button>
                 {/* <Button
                   variant="outline"
@@ -267,22 +268,22 @@ export default function DashboardScreen({
           </div>
         </div>
 
-        <div className="max-w-7xl mx-auto px-4 md:px-6 py-4">
+        <div className="max-w-7xl mx-auto px-4 md:px-6 py-3 sm:py-4">
           {/* Historical Access Upgrade Card */}
-          <div className="mb-4">
+          <div className="mb-3 sm:mb-4">
             <HistoricalAccessUpgradeCard />
           </div>
 
           {/* Top Row - KPI Cards */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 mb-4">
-        {/* YTD Tax Savings - 8 cols */}
-        <div className="lg:col-span-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 mb-3 sm:mb-4">
+        {/* YTD Tax Savings - 8 cols on lg, full width on mobile */}
+        <div className="sm:col-span-2 lg:col-span-8">
           <Card className="h-full">
-            <CardContent className="p-4 md:p-5">
-              <div className="flex flex-col sm:flex-row items-start justify-between h-full gap-3">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Badge variant="success" className="text-xs">
+            <CardContent className="p-4 sm:p-5">
+              <div className="flex items-start justify-between h-full gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-2 sm:mb-3">
+                    <Badge variant="success" className="text-xs shrink-0">
                       YTD +${taxSavings.toFixed(0)}
                     </Badge>
                     <Button
@@ -306,32 +307,32 @@ export default function DashboardScreen({
                         };
                         fetchTaxSavings();
                       }}
-                      className="h-6 w-6 p-0 hover:bg-primary/10"
+                      className="h-7 w-7 sm:h-6 sm:w-6 p-0 hover:bg-primary/10 no-tap-highlight"
                       disabled={isLoadingTaxSavings}
                     >
-                      <RefreshCw className={`h-3 w-3 ${isLoadingTaxSavings ? 'animate-spin' : ''}`} />
+                      <RefreshCw className={`h-3.5 w-3.5 sm:h-3 sm:w-3 ${isLoadingTaxSavings ? 'animate-spin' : ''}`} />
                     </Button>
                   </div>
-                  <div className="text-2xl sm:text-3xl md:text-4xl font-semibold text-foreground mb-2">
+                  <div className="text-2xl sm:text-3xl lg:text-4xl font-semibold text-foreground mb-1 sm:mb-2">
                     {isLoadingTaxSavings ? (
                       <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
-                        <span>Calculating...</span>
+                        <div className="w-5 h-5 sm:w-6 sm:h-6 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+                        <span className="text-lg sm:text-xl">Calculating...</span>
                       </div>
                     ) : (
                       `$${taxSavings.toFixed(0)}`
                     )}
                   </div>
-                  <p className="text-muted-foreground mb-1">
+                  <p className="text-sm text-muted-foreground mb-0.5 sm:mb-1">
                     Confirmed savings to date
                   </p>
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-xs sm:text-sm text-muted-foreground">
                     Projected: <span className="font-medium text-foreground">${projectedAnnualSavingsFinal.toFixed(0)}</span> annually
                   </p>
                 </div>
-                <div className="flex-shrink-0 ml-0 sm:ml-4 mt-3 sm:mt-0">
-                  <div className="w-12 h-12 sm:w-16 sm:h-16 bg-accent/10 rounded-lg flex items-center justify-center">
-                    <DollarSign className="h-6 w-6 sm:h-8 sm:w-8 text-accent" />
+                <div className="flex-shrink-0">
+                  <div className="w-11 h-11 sm:w-14 sm:h-14 lg:w-16 lg:h-16 bg-accent/10 rounded-lg flex items-center justify-center">
+                    <DollarSign className="h-5 w-5 sm:h-7 sm:w-7 lg:h-8 lg:w-8 text-accent" />
                   </div>
                 </div>
               </div>
@@ -339,15 +340,15 @@ export default function DashboardScreen({
           </Card>
         </div>
 
-        {/* Total Deductions - 4 cols */}
-        <div className="lg:col-span-4">
+        {/* Total Deductions - 4 cols on lg */}
+        <div className="sm:col-span-2 lg:col-span-4">
           <KPICard
             title="Total Deductions"
             value={`$${totalDeductions.toFixed(2)}`}
             subtitle={`${deductibleTransactions.length} deductible transactions`}
             icon={
-              <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
-                <TrendingUp className="h-6 w-6 text-primary" />
+              <div className="w-11 h-11 sm:w-12 sm:h-12 bg-primary/10 rounded-lg flex items-center justify-center">
+                <TrendingUp className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
               </div>
             }
           />
@@ -360,23 +361,23 @@ export default function DashboardScreen({
         <div className="lg:col-span-8 space-y-3">
           {/* Top Deductible Categories */}
           <Card>
-            <CardHeader className="pb-3">
+            <CardHeader className="pb-2 sm:pb-3 px-4 sm:px-6">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-lg font-medium">Top Deductible Categories</CardTitle>
+                <CardTitle className="text-base sm:text-lg font-medium">Top Categories</CardTitle>
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={() => onNavigate('categories')}
-                  className="text-primary hover:text-primary hover:bg-primary/5"
+                  className="text-primary hover:text-primary hover:bg-primary/5 h-9 sm:h-8 px-2 sm:px-3 text-sm no-tap-highlight"
                 >
                   View All
                   <ChevronRight className="h-4 w-4 ml-1" />
                 </Button>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="px-4 sm:px-6">
               {topCategories.length > 0 ? (
-                <div className="space-y-4">
+                <div className="space-y-2 sm:space-y-4">
                   {topCategories.map(([category, amount]) => {
                     const percentage = totalDeductions > 0 ? (amount / totalDeductions) * 100 : 0;
                     const IconComponent = getCategoryIcon(category);
@@ -384,30 +385,30 @@ export default function DashboardScreen({
                     return (
                       <div
                         key={category}
-                        className="space-y-2 cursor-pointer hover:bg-muted/50 p-2 rounded-lg transition-colors"
+                        className="space-y-2 cursor-pointer hover:bg-muted/50 active:bg-muted/70 p-3 sm:p-2 rounded-lg transition-colors no-tap-highlight"
                         onClick={() => {
                           // Navigate to categories page for detailed view
                           onNavigate('categories');
                         }}
                       >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 bg-muted rounded-lg flex items-center justify-center">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            <div className="w-9 h-9 sm:w-8 sm:h-8 bg-muted rounded-lg flex items-center justify-center flex-shrink-0">
                               <IconComponent className="h-4 w-4 text-muted-foreground" />
                             </div>
-                            <div>
-                              <span className="font-medium text-foreground text-sm">{consolidateCategory(category).displayName}</span>
-                              <div className="text-xs text-muted-foreground">{percentage.toFixed(1)}% of deductions</div>
+                            <div className="min-w-0 flex-1">
+                              <span className="font-medium text-foreground text-sm block truncate">{consolidateCategory(category).displayName}</span>
+                              <div className="text-xs text-muted-foreground">{percentage.toFixed(1)}%</div>
                             </div>
                           </div>
-                          <div className="text-right">
-                            <span className="font-semibold text-foreground text-sm">${amount.toFixed(0)}</span>
-                            <span className="text-xs text-muted-foreground ml-2">(${(amount * (calculateEffectiveTaxRate(profile) / 100)).toFixed(0)} saved)</span>
+                          <div className="text-right flex-shrink-0">
+                            <span className="font-semibold text-foreground text-sm block">${amount.toFixed(0)}</span>
+                            <span className="text-xs text-muted-foreground hidden sm:inline">(${(amount * (calculateEffectiveTaxRate(profile) / 100)).toFixed(0)} saved)</span>
                           </div>
                         </div>
-                        <div className="w-full bg-muted rounded-full h-1">
+                        <div className="w-full bg-muted rounded-full h-1.5 sm:h-1">
                           <div
-                            className="bg-accent h-1 rounded-full transition-all duration-500"
+                            className="bg-accent h-1.5 sm:h-1 rounded-full transition-all duration-500"
                             style={{ width: `${Math.min(percentage, 100)}%` }}
                           ></div>
                         </div>
@@ -439,22 +440,22 @@ export default function DashboardScreen({
 
           {/* Recent Activity */}
           <Card>
-            <CardHeader className="pb-3">
+            <CardHeader className="pb-2 sm:pb-3 px-4 sm:px-6">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-lg font-medium">Recent Activity</CardTitle>
+                <CardTitle className="text-base sm:text-lg font-medium">Recent Activity</CardTitle>
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={() => onNavigate('transactions')}
-                  className="text-primary hover:text-primary hover:bg-primary/5"
+                  className="text-primary hover:text-primary hover:bg-primary/5 h-9 sm:h-8 px-2 sm:px-3 text-sm no-tap-highlight"
                 >
                   View All
                   <ChevronRight className="h-4 w-4 ml-1" />
                 </Button>
               </div>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
+            <CardContent className="px-2 sm:px-6">
+              <div className="space-y-1 sm:space-y-2">
                 {transactions.length > 0 ? (
                   transactions.slice(0, 5).map((transaction) => {
                     const isIncome = transaction.amount < 0;
@@ -463,11 +464,11 @@ export default function DashboardScreen({
                     return (
                       <div
                         key={transaction.id}
-                        className="flex items-center justify-between py-2 px-3 hover:bg-muted rounded-lg cursor-pointer group transition-colors"
+                        className="flex items-center justify-between py-3 sm:py-2 px-3 hover:bg-muted active:bg-muted/70 rounded-lg cursor-pointer group transition-colors min-h-[56px] sm:min-h-0 no-tap-highlight"
                         onClick={() => onTransactionClick({ ...transaction, _source: 'dashboard' })}
                       >
                         <div className="flex items-center gap-3 flex-1 min-w-0">
-                          <div className={`w-2 h-2 rounded-full ${
+                          <div className={`w-2.5 h-2.5 sm:w-2 sm:h-2 rounded-full flex-shrink-0 ${
                             transaction.is_deductible === true ? 'bg-accent' :
                             transaction.is_deductible === null ? 'bg-orange-500' :
                             'bg-muted-foreground'
@@ -476,29 +477,31 @@ export default function DashboardScreen({
                             <div className="font-medium text-foreground group-hover:text-primary transition-colors text-sm truncate">
                               {transaction.merchant_name || transaction.description || 'Unknown Merchant'}
                             </div>
-                            <div className="flex items-center gap-2 text-xs text-muted-foreground truncate">
-                              <span>{isIncome ? 'Income' : consolidateCategory(transaction.category).displayName}</span>
-                              <span>•</span>
-                              <span>{new Date(transaction.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
-                              <span>•</span>
+                            <div className="flex items-center gap-1.5 sm:gap-2 text-xs text-muted-foreground">
+                              <span className="truncate max-w-[100px] sm:max-w-none">{isIncome ? 'Income' : consolidateCategory(transaction.category).displayName}</span>
+                              <span className="hidden sm:inline">•</span>
+                              <span className="hidden sm:inline">{new Date(transaction.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
                               <Badge
                                 variant={
                                   transaction.is_deductible === true ? "success" :
                                   transaction.is_deductible === null ? "outline" :
                                   "secondary"
                                 }
-                                className="text-xs"
+                                className="text-xs ml-1 sm:ml-0"
                               >
-                                {transaction.is_deductible === true ? 'Deductible' :
+                                {transaction.is_deductible === true ? 'Ded.' :
                                  transaction.is_deductible === null ? 'Pending' :
                                  'Personal'}
                               </Badge>
                             </div>
                           </div>
                         </div>
-                        <div className="text-right flex-shrink-0 ml-2 sm:ml-3">
+                        <div className="text-right flex-shrink-0 ml-2">
                           <div className={`font-semibold text-sm ${isIncome ? 'text-accent' : 'text-foreground'} whitespace-nowrap`}>
                             {isIncome ? '+' : ''}${amount.toFixed(2)}
+                          </div>
+                          <div className="text-xs text-muted-foreground sm:hidden">
+                            {new Date(transaction.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                           </div>
                         </div>
                       </div>
@@ -518,26 +521,27 @@ export default function DashboardScreen({
           </Card>
         </div>
 
-        {/* Sidebar - 4 cols */}
+        {/* Sidebar - 4 cols on desktop, full width on mobile */}
         <div className="lg:col-span-4 space-y-3">
           {/* Quick Actions */}
           <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-lg font-medium">Quick Actions</CardTitle>
+            <CardHeader className="pb-2 px-4 sm:px-6">
+              <CardTitle className="text-base sm:text-lg font-medium">Quick Actions</CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
+            <CardContent className="px-3 sm:px-6">
+              {/* Mobile: 2x2 grid, Desktop: list */}
+              <div className="grid grid-cols-2 sm:grid-cols-1 gap-2 sm:gap-3">
                 {(needsAnalysisCount > 0 || needsReviewCount > 0) && (
                   <button
                     onClick={() => onNavigate('review-transactions')}
-                    className={`w-full p-3 rounded-lg text-left transition-colors group min-h-[44px] ${
+                    className={`col-span-2 sm:col-span-1 w-full p-3 sm:p-3 rounded-lg text-left transition-colors group min-h-[60px] sm:min-h-[44px] no-tap-highlight ${
                       needsAnalysisCount > 0
-                        ? 'bg-primary/5 hover:bg-primary/10 border border-primary/20'
-                        : 'bg-accent/5 hover:bg-accent/10 border border-accent/20'
+                        ? 'bg-primary/5 hover:bg-primary/10 active:bg-primary/15 border border-primary/20'
+                        : 'bg-accent/5 hover:bg-accent/10 active:bg-accent/15 border border-accent/20'
                     }`}
                   >
                     <div className="flex items-center gap-3">
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                      <div className={`w-9 h-9 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
                         needsAnalysisCount > 0 ? 'bg-primary/10' : 'bg-accent/10'
                       }`}>
                         <ClipboardList className={`h-4 w-4 ${
@@ -545,75 +549,75 @@ export default function DashboardScreen({
                         }`} />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="font-medium text-foreground text-sm">Review Transactions</div>
+                        <div className="font-medium text-foreground text-sm">Review</div>
                         <div className="text-xs text-muted-foreground">{needsReviewCount} pending</div>
                       </div>
-                      <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+                      <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors hidden sm:block" />
                     </div>
                   </button>
                 )}
 
                 <button
                   onClick={() => onNavigate('transactions')}
-                  className="w-full p-3 bg-muted hover:bg-muted/80 border border-border rounded-lg text-left transition-colors group min-h-[44px]"
+                  className="w-full p-3 bg-muted hover:bg-muted/80 active:bg-muted/60 border border-border rounded-lg text-left transition-colors group min-h-[60px] sm:min-h-[44px] no-tap-highlight"
                 >
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-muted-foreground/10 rounded-lg flex items-center justify-center">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3">
+                    <div className="w-9 h-9 sm:w-8 sm:h-8 bg-muted-foreground/10 rounded-lg flex items-center justify-center flex-shrink-0">
                       <FileText className="h-4 w-4 text-muted-foreground" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="font-medium text-foreground text-sm">Transactions</div>
-                      <div className="text-xs text-muted-foreground">View All</div>
+                      <div className="text-xs text-muted-foreground hidden sm:block">View All</div>
                     </div>
-                    <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+                    <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors hidden sm:block" />
                   </div>
                 </button>
 
                 <button
                   onClick={() => onNavigate('schedule-c-export')}
-                  className="w-full p-3 bg-muted hover:bg-muted/80 border border-border rounded-lg text-left transition-colors group min-h-[44px]"
+                  className="w-full p-3 bg-muted hover:bg-muted/80 active:bg-muted/60 border border-border rounded-lg text-left transition-colors group min-h-[60px] sm:min-h-[44px] no-tap-highlight"
                 >
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-muted-foreground/10 rounded-lg flex items-center justify-center">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3">
+                    <div className="w-9 h-9 sm:w-8 sm:h-8 bg-muted-foreground/10 rounded-lg flex items-center justify-center flex-shrink-0">
                       <FileText className="h-4 w-4 text-muted-foreground" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="font-medium text-foreground text-sm">Export</div>
-                      <div className="text-xs text-muted-foreground">Schedule C</div>
+                      <div className="text-xs text-muted-foreground hidden sm:block">Schedule C</div>
                     </div>
-                    <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+                    <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors hidden sm:block" />
                   </div>
                 </button>
 
                 <button
                   onClick={() => onNavigate('ai-insights')}
-                  className="w-full p-3 bg-accent/10 hover:bg-accent/20 border border-accent/20 rounded-lg text-left transition-colors group min-h-[44px]"
+                  className="w-full p-3 bg-accent/10 hover:bg-accent/20 active:bg-accent/30 border border-accent/20 rounded-lg text-left transition-colors group min-h-[60px] sm:min-h-[44px] no-tap-highlight"
                 >
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-accent/20 rounded-lg flex items-center justify-center">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3">
+                    <div className="w-9 h-9 sm:w-8 sm:h-8 bg-accent/20 rounded-lg flex items-center justify-center flex-shrink-0">
                       <Lightbulb className="h-4 w-4 text-accent" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="font-medium text-foreground text-sm">AI Tax Insights</div>
-                      <div className="text-xs text-muted-foreground">Personalized advice</div>
+                      <div className="font-medium text-foreground text-sm">AI Insights</div>
+                      <div className="text-xs text-muted-foreground hidden sm:block">Personalized advice</div>
                     </div>
-                    <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+                    <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors hidden sm:block" />
                   </div>
                 </button>
 
                 <button
                   onClick={() => onNavigate('quarterly-taxes')}
-                  className="w-full p-3 bg-primary/10 hover:bg-primary/20 border border-primary/20 rounded-lg text-left transition-colors group min-h-[44px]"
+                  className="w-full p-3 bg-primary/10 hover:bg-primary/20 active:bg-primary/30 border border-primary/20 rounded-lg text-left transition-colors group min-h-[60px] sm:min-h-[44px] no-tap-highlight"
                 >
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-primary/20 rounded-lg flex items-center justify-center">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3">
+                    <div className="w-9 h-9 sm:w-8 sm:h-8 bg-primary/20 rounded-lg flex items-center justify-center flex-shrink-0">
                       <Calculator className="h-4 w-4 text-primary" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="font-medium text-foreground text-sm">Quarterly Taxes</div>
-                      <div className="text-xs text-muted-foreground">Estimate & pay</div>
+                      <div className="font-medium text-foreground text-sm">Quarterly</div>
+                      <div className="text-xs text-muted-foreground hidden sm:block">Estimate & pay</div>
                     </div>
-                    <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+                    <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors hidden sm:block" />
                   </div>
                 </button>
 

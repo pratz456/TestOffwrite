@@ -186,14 +186,14 @@ export function SignUpForm({
   const isFormValid = email && password && confirmPassword && password === confirmPassword && passwordErrors.length === 0 && bankConsent && aiConsent && !isSubmitting;
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background safe-area-inset-top safe-area-inset-bottom">
       {/* Background with subtle gradient */}
       <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-background to-muted/20"></div>
       
-      <div className="relative min-h-screen flex flex-col px-6 py-8 lg:px-8">
-        <div className="sm:mx-auto sm:w-full sm:max-w-2xl">
+      <div className="relative min-h-screen flex flex-col px-4 sm:px-6 py-6 sm:py-8 lg:px-8">
+        <div className="w-full sm:mx-auto sm:max-w-2xl">
           {/* Header */}
-          <div className="text-center space-y-4 mb-8">
+          <div className="text-center space-y-4 mb-6 sm:mb-8">
             <button
               onClick={() => {
                 if (window.history.length > 1) {
@@ -202,38 +202,38 @@ export function SignUpForm({
                   window.location.href = '/';
                 }
               }}
-              className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
+              className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors py-2 no-tap-highlight"
             >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="w-5 h-5 sm:w-4 sm:h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
-              Back
+              <span className="text-base sm:text-sm">Back</span>
             </button>
             
             <div className="flex justify-center">
-              <Image src={writeOffLogo} alt="WriteOff" className="w-24 h-auto"/>
+              <Image src={writeOffLogo} alt="WriteOff" className="w-20 sm:w-24 h-auto"/>
             </div>
             
             <div className="space-y-1">
               <h1 className="text-2xl font-semibold text-foreground">
                 Create your account
               </h1>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-base sm:text-sm text-muted-foreground">
                 Start maximizing your tax deductions today
               </p>
             </div>
           </div>
 
           {/* Sign up form */}
-          <div className="bg-card/80 backdrop-blur-xl rounded-2xl shadow-lg shadow-gray-900/5 ring-1 ring-border p-6">
+          <div className="bg-card/80 backdrop-blur-xl rounded-xl sm:rounded-2xl shadow-lg shadow-gray-900/5 ring-1 ring-border p-4 sm:p-6">
             {/* Notice at Collection */}
-            <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-900">
-              <strong>Notice at Collection:</strong> We collect your name, email, password, and, after signup, your bank transactions, employer/workstyle answers, and state. This information is used to provide tax deduction analysis, generate reports, and personalize your experience. See our <a href="/privacy" className="underline text-blue-700" target="_blank" rel="noopener noreferrer">Privacy Policy</a> for details.
+            <div className="mb-4 p-3 sm:p-4 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-900">
+              <strong>Notice at Collection:</strong> We collect your name, email, password, and, after signup, your bank transactions, employer/workstyle answers, and state. This information is used to provide tax deduction analysis, generate reports, and personalize your experience. See our <a href="/privacy" className="underline text-blue-700 no-tap-highlight" target="_blank" rel="noopener noreferrer">Privacy Policy</a> for details.
             </div>
-            <form onSubmit={handleSignUp} className="space-y-5">
-              <div className="space-y-3">
+            <form onSubmit={handleSignUp} className="space-y-4 sm:space-y-5">
+              <div className="space-y-4 sm:space-y-3">
                 <div>
-                  <Label htmlFor="email" className="text-sm font-medium text-foreground" required>
+                  <Label htmlFor="email" className="text-base sm:text-sm font-medium text-foreground" required>
                     Email address
                   </Label>
                   <Input
@@ -242,13 +242,13 @@ export function SignUpForm({
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="example@gmail.com"
-                    className="mt-1 h-11 rounded-lg border-border bg-input-background focus:border-primary focus:ring-primary/20"
+                    className="mt-1.5 sm:mt-1 h-12 sm:h-11 rounded-lg border-border bg-input-background focus:border-primary focus:ring-primary/20 text-base sm:text-sm"
                     required
                   />
                 </div>
 
                 <div>
-                  <Label htmlFor="password" className="text-sm font-medium text-foreground" required>
+                  <Label htmlFor="password" className="text-base sm:text-sm font-medium text-foreground" required>
                     Password
                   </Label>
                   <div className="relative">
@@ -257,14 +257,14 @@ export function SignUpForm({
                       type={showPassword ? 'text' : 'password'}
                       value={password}
                       onChange={(e) => handlePasswordChange(e.target.value)}
-                      placeholder="Create a strong password (min 10 chars, 1 uppercase, 1 special char)"
-                      className="mt-1 h-11 rounded-lg border-border bg-input-background focus:border-primary focus:ring-primary/20 pr-12"
+                      placeholder="Min 10 chars, 1 uppercase, 1 special"
+                      className="mt-1.5 sm:mt-1 h-12 sm:h-11 rounded-lg border-border bg-input-background focus:border-primary focus:ring-primary/20 pr-14 text-base sm:text-sm"
                       required
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors p-1.5 no-tap-highlight"
                     >
                       {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                     </button>
@@ -281,7 +281,7 @@ export function SignUpForm({
                 </div>
 
                 <div>
-                  <Label htmlFor="confirmPassword" className="text-sm font-medium text-foreground" required>
+                  <Label htmlFor="confirmPassword" className="text-base sm:text-sm font-medium text-foreground" required>
                     Confirm password
                   </Label>
                   <div className="relative">
@@ -291,13 +291,13 @@ export function SignUpForm({
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
                       placeholder="Confirm your password"
-                      className="mt-1 h-11 rounded-lg border-border bg-input-background focus:border-primary focus:ring-primary/20 pr-12"
+                      className="mt-1.5 sm:mt-1 h-12 sm:h-11 rounded-lg border-border bg-input-background focus:border-primary focus:ring-primary/20 pr-14 text-base sm:text-sm"
                       required
                     />
                     <button
                       type="button"
                       onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors p-1.5 no-tap-highlight"
                     >
                       {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                     </button>
@@ -312,57 +312,57 @@ export function SignUpForm({
               {error && <p className="text-sm text-destructive">{error}</p>}
 
               {/* Explicit Consents */}
-              <div className="space-y-3 bg-muted/40 border border-border rounded-xl p-4">
-                <div className="flex items-start gap-2">
+              <div className="space-y-3 sm:space-y-3 bg-muted/40 border border-border rounded-xl p-3 sm:p-4">
+                <div className="flex items-start gap-3 sm:gap-2">
                   <input
                     type="checkbox"
                     id="bankConsent"
                     checked={bankConsent}
                     onChange={e => setBankConsent(e.target.checked)}
-                    className="mt-1"
+                    className="mt-0.5 w-5 h-5 sm:w-4 sm:h-4 flex-shrink-0"
                     required
                   />
-                  <label htmlFor="bankConsent" className="text-xs text-foreground">
-                    I authorize WriteOff to access and use my account and transaction data via Plaid to analyze potential tax deductions and generate reports, including Schedule C. I understand I can revoke access anytime. (<a href="/privacy" className="underline text-blue-700" target="_blank" rel="noopener noreferrer">Privacy Policy</a> | <a href="https://plaid.com/legal/#end-user-privacy-policy" className="underline text-blue-700" target="_blank" rel="noopener noreferrer">Plaid Privacy Policy</a>)
+                  <label htmlFor="bankConsent" className="text-xs text-foreground leading-relaxed">
+                    I authorize WriteOff to access and use my account and transaction data via Plaid to analyze potential tax deductions and generate reports. (<a href="/privacy" className="underline text-blue-700 no-tap-highlight" target="_blank" rel="noopener noreferrer">Privacy</a> | <a href="https://plaid.com/legal/#end-user-privacy-policy" className="underline text-blue-700 no-tap-highlight" target="_blank" rel="noopener noreferrer">Plaid</a>)
                     <span className="text-red-600 ml-0.5">*</span>
                   </label>
                 </div>
-                <div className="flex items-start gap-2">
+                <div className="flex items-start gap-3 sm:gap-2">
                   <input
                     type="checkbox"
                     id="aiConsent"
                     checked={aiConsent}
                     onChange={e => setAiConsent(e.target.checked)}
-                    className="mt-1"
+                    className="mt-0.5 w-5 h-5 sm:w-4 sm:h-4 flex-shrink-0"
                     required
                   />
-                  <label htmlFor="aiConsent" className="text-xs text-foreground">
-                    I understand that WriteOff uses automated (AI) analysis to help identify tax deductions. I may request a human review and can opt out of model improvement if offered in the future.
+                  <label htmlFor="aiConsent" className="text-xs text-foreground leading-relaxed">
+                    I understand that WriteOff uses automated (AI) analysis to help identify tax deductions.
                     <span className="text-red-600 ml-0.5">*</span>
                   </label>
                 </div>
-                <div className="flex items-start gap-2">
+                <div className="flex items-start gap-3 sm:gap-2">
                   <input
                     type="checkbox"
                     id="commConsent"
                     checked={commConsent}
                     onChange={e => setCommConsent(e.target.checked)}
-                    className="mt-1"
+                    className="mt-0.5 w-5 h-5 sm:w-4 sm:h-4 flex-shrink-0"
                   />
-                  <label htmlFor="commConsent" className="text-xs text-foreground">
-                    I consent to receive communications about my account, product updates, and support via email or SMS.
+                  <label htmlFor="commConsent" className="text-xs text-foreground leading-relaxed">
+                    I consent to receive communications about my account and product updates.
                   </label>
                 </div>
               </div>
 
-              <div className="bg-muted/50 border border-border rounded-xl p-4">
+              <div className="bg-muted/50 border border-border rounded-xl p-3 sm:p-4">
                 <div className="flex items-start gap-3">
                   <svg className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                   <div className="text-sm text-muted-foreground">
                     <p className="font-medium text-foreground mb-1">What happens next?</p>
-                    <p>After creating your account, you'll set up your profile with basic information to personalize your tax optimization experience.</p>
+                    <p className="text-xs sm:text-sm">After creating your account, you'll set up your profile to personalize your experience.</p>
                   </div>
                 </div>
               </div>
@@ -370,7 +370,7 @@ export function SignUpForm({
               <Button
                 type="submit"
                 disabled={!isFormValid || isSubmitting || isGoogleLoading}
-                className="w-full h-11 bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg font-medium transition-all duration-200 disabled:opacity-50"
+                className="w-full h-12 sm:h-11 bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg font-medium text-base sm:text-sm transition-all duration-200 disabled:opacity-50 no-tap-highlight"
               >
                 {isSubmitting ? (
                   <div className="flex items-center gap-2">
@@ -384,12 +384,12 @@ export function SignUpForm({
             </form>
 
             {/* Divider */}
-            <div className="relative my-6">
+            <div className="relative my-5 sm:my-6">
               <div className="absolute inset-0 flex items-center">
                 <span className="w-full border-t border-border" />
               </div>
               <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
+                <span className="bg-card px-3 text-muted-foreground">Or continue with</span>
               </div>
             </div>
 
@@ -398,7 +398,7 @@ export function SignUpForm({
               type="button"
               onClick={handleGoogleSignIn}
               disabled={isSubmitting || isGoogleLoading}
-              className="w-full h-11 bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 rounded-lg font-medium transition-all duration-200 disabled:opacity-50 flex items-center gap-3"
+              className="w-full h-12 sm:h-11 bg-white hover:bg-gray-50 active:bg-gray-100 text-gray-700 border border-gray-300 rounded-lg font-medium text-base sm:text-sm transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-3 no-tap-highlight"
             >
               {isGoogleLoading ? (
                 <div className="flex items-center gap-2">
@@ -419,12 +419,12 @@ export function SignUpForm({
             </Button>
 
             {/* Sign in link */}
-            <div className="mt-6 text-center">
-              <p className="text-sm text-muted-foreground">
+            <div className="mt-5 sm:mt-6 text-center pb-2">
+              <p className="text-base sm:text-sm text-muted-foreground">
                 Already have an account?{' '}
                 <Link
                   href="/auth/login"
-                  className="font-medium text-primary hover:text-primary/80 transition-colors"
+                  className="font-medium text-primary hover:text-primary/80 transition-colors no-tap-highlight"
                 >
                   Sign in
                 </Link>

@@ -610,54 +610,54 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
 
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-background safe-area-inset-top safe-area-inset-bottom">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 sticky top-0 z-50">
-        <div className="flex items-center justify-between p-6">
+      <div className="bg-white dark:bg-card border-b border-gray-200 dark:border-border sticky top-0 z-50">
+        <div className="flex items-center justify-between p-4 sm:p-6">
           <button
             onClick={handleBackNavigation}
-            className="w-12 h-12 bg-gray-100 border border-gray-200 rounded-xl flex items-center justify-center text-gray-600 hover:bg-gray-200 transition-all duration-200"
+            className="w-11 h-11 sm:w-12 sm:h-12 bg-gray-100 dark:bg-muted border border-gray-200 dark:border-border rounded-xl flex items-center justify-center text-gray-600 dark:text-foreground hover:bg-gray-200 dark:hover:bg-muted/80 active:bg-gray-300 dark:active:bg-muted/60 transition-all duration-200 no-tap-highlight"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
-          <div className="text-center">
-            <h1 className="text-xl font-semibold text-gray-900 mb-1">
+          <div className="text-center flex-1 px-2">
+            <h1 className="text-lg sm:text-xl font-semibold text-gray-900 dark:text-foreground">
               Transaction Details
             </h1>
             {hasUnsavedChanges && (
-              <div className="flex items-center justify-center gap-2 text-orange-600 bg-orange-50 border border-orange-200 rounded-lg px-3 py-1 mt-2">
+              <div className="flex items-center justify-center gap-2 text-orange-600 bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20 rounded-lg px-2 sm:px-3 py-1 mt-2">
                 <AlertTriangle className="w-3 h-3" />
-                <span className="text-xs font-medium">Unsaved Changes</span>
+                <span className="text-xs font-medium">Unsaved</span>
               </div>
             )}
             {isSaving && (
               <div className="flex items-center justify-center gap-2 text-sm text-blue-600">
                 <div className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                <span>Saving changes...</span>
+                <span className="text-xs sm:text-sm">Saving...</span>
               </div>
             )}
           </div>
-          <div className="w-12"></div>
+          <div className="w-11 sm:w-12"></div>
         </div>
       </div>
 
-      <div className="p-4 max-w-6xl mx-auto">
+      <div className="p-3 sm:p-4 max-w-6xl mx-auto pb-8">
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* Left Column - Transaction Info & AI Analysis */}
           <div className="lg:col-span-2 space-y-4">
             {/* Transaction Header Card */}
-            <Card className="p-4 bg-white border border-gray-200 rounded-xl shadow-sm">
-              <div className="flex items-start justify-between mb-3">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-blue-100 rounded-2xl flex items-center justify-center">
-                    <span className="text-blue-600 font-bold text-lg">
+            <Card className="p-4 bg-white dark:bg-card border border-gray-200 dark:border-border rounded-xl shadow-sm">
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4 mb-3">
+                <div className="flex items-center gap-3 sm:gap-4">
+                  <div className="w-11 h-11 sm:w-12 sm:h-12 bg-blue-100 dark:bg-primary/10 rounded-2xl flex items-center justify-center flex-shrink-0">
+                    <span className="text-blue-600 dark:text-primary font-bold text-base sm:text-lg">
                       {transaction.merchant_name ? transaction.merchant_name.charAt(0).toUpperCase() : 'T'}
                     </span>
                   </div>
-                  <div>
-                    <h2 className="text-xl font-bold text-gray-900">{transaction.merchant_name}</h2>
-                    <p className="text-gray-500 text-sm">
+                  <div className="min-w-0 flex-1">
+                    <h2 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-foreground truncate">{transaction.merchant_name}</h2>
+                    <p className="text-gray-500 dark:text-muted-foreground text-sm">
                       {new Date(transaction.date).toLocaleDateString('en-US', {
                         month: 'numeric',
                         day: 'numeric',
@@ -675,11 +675,11 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                     </p>
                   </div>
                 </div>
-                <div className="text-right">
-                  <div className="text-2xl font-bold text-gray-900">
+                <div className="text-left sm:text-right flex sm:block items-center justify-between sm:justify-end gap-2">
+                  <div className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-foreground">
                     ${Math.abs(transaction.amount).toFixed(2)}
                   </div>
-                  <div className={`text-sm font-medium ${classification === 'business' ? 'text-emerald-600' : 'text-gray-500'
+                  <div className={`text-sm font-medium ${classification === 'business' ? 'text-emerald-600 dark:text-accent' : 'text-gray-500 dark:text-muted-foreground'
                     }`}>
                     {classification === 'business' ? `${deductiblePercent}% deductible` : '0% deductible'}
                   </div>

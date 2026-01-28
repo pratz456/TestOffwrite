@@ -326,111 +326,119 @@ export default function ReportsPage() {
   return (
     <div className="p-4 sm:p-6 bg-background min-h-screen">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start mb-6 gap-4">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-foreground mb-1">Tax Reports & Analytics</h1>
-          <p className="text-sm sm:text-base text-muted-foreground">Comprehensive tax deduction analysis and savings insights</p>
+      <div className="mb-4 sm:mb-6">
+        <div className="mb-3">
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-foreground mb-0.5">Tax Reports & Analytics</h1>
+          <p className="text-xs sm:text-sm text-muted-foreground">Comprehensive tax deduction analysis and savings insights</p>
         </div>
-        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+        {/* Buttons - Row 1: Refresh + Other Reports, Row 2: Export + Schedule C on mobile */}
+        <div className="grid grid-cols-4 sm:flex sm:flex-wrap gap-2">
           <Button
             onClick={() => refetch()}
             variant="outline"
-            className="w-full sm:w-auto"
+            size="sm"
+            className="col-span-1 h-9 px-2 sm:px-3 no-tap-highlight"
             title="Refresh reports data"
           >
-            <RefreshCw className="w-4 h-4 mr-2" />
-            Refresh
+            <RefreshCw className="w-4 h-4" />
           </Button>
           <OtherReportsDropdown disabled={isGeneratingReport} />
           <Button
-            className="bg-green-600 hover:bg-green-700 dark:bg-green-500 dark:hover:bg-green-600 text-white w-full sm:w-auto touch-target disabled:opacity-50 disabled:cursor-not-allowed"
+            size="sm"
+            className="col-span-1 h-9 px-2 sm:px-3 bg-green-600 hover:bg-green-700 dark:bg-green-500 dark:hover:bg-green-600 text-white no-tap-highlight disabled:opacity-50"
             onClick={() => setShowExportModal(true)}
             disabled={!canExport || isGeneratingReport}
             title={!canExport ? "No data available to export" : "Export tax deduction report"}
           >
-            <FileText className="w-4 h-4 sm:mr-2" />
-            <span className="hidden sm:inline">Export Report</span>
-            <span className="sm:hidden">Export</span>
+            <FileText className="w-4 h-4 sm:mr-1.5" />
+            <span className="hidden sm:inline">Export</span>
           </Button>
           <Button
-            className="bg-primary hover:bg-primary/90 text-primary-foreground w-full sm:w-auto touch-target"
+            size="sm"
+            className="col-span-1 h-9 px-2 sm:px-3 bg-primary hover:bg-primary/90 text-primary-foreground no-tap-highlight whitespace-nowrap"
             onClick={() => router.push('/protected/schedule-c')}
           >
-            <Download className="w-4 h-4 sm:mr-2" />
-            <span className="hidden sm:inline">Schedule C</span>
-            <span className="sm:hidden">Schedule C</span>
+            <Download className="w-4 h-4 mr-1" />
+            <span className="text-xs sm:text-sm">Sch C</span>
           </Button>
         </div>
       </div>
 
-      {/* Summary Cards - Top Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      {/* Summary Cards - Compact 2x2 grid on mobile */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-4 sm:mb-6">
         {/* Year to Date Total */}
-        <Card className="p-5 bg-gradient-to-br from-blue-500 to-blue-600 dark:from-blue-600 dark:to-blue-700 text-white border-0 shadow-lg">
-          <div className="flex items-center justify-between mb-2">
-            <DollarSign className="w-5 h-5 opacity-90" />
-            <span className="text-xs opacity-90">Year to Date</span>
+        <Card className="p-3 sm:p-4 bg-gradient-to-br from-blue-500 to-blue-600 dark:from-blue-600 dark:to-blue-700 text-white border-0 shadow-md">
+          <div className="flex items-center justify-between mb-1">
+            <DollarSign className="w-4 h-4 opacity-90" />
+            <span className="text-[10px] sm:text-xs opacity-90">Year to Date</span>
           </div>
-          <div className="text-2xl sm:text-3xl font-bold mb-1">
+          <div className="text-lg sm:text-2xl font-bold">
             ${summary.yearToDateTotal.toFixed(2)}
           </div>
-          <div className="text-xs opacity-90">Total tax savings</div>
+          <div className="text-[10px] sm:text-xs opacity-90">Total tax savings</div>
         </Card>
 
         {/* Current Month */}
-        <Card className="p-5 bg-gradient-to-br from-green-500 to-green-600 dark:from-green-600 dark:to-green-700 text-white border-0 shadow-lg cursor-pointer hover:shadow-xl transition-shadow"
+        <Card className="p-3 sm:p-4 bg-gradient-to-br from-green-500 to-green-600 dark:from-green-600 dark:to-green-700 text-white border-0 shadow-md cursor-pointer hover:shadow-lg transition-shadow no-tap-highlight"
           onClick={() => {
             const currentMonth = monthlyData.find(m => m.month === new Date().getMonth());
             if (currentMonth && currentMonth.total > 0) {
               handleMonthClick(currentMonth);
             }
           }}>
-          <div className="flex items-center justify-between mb-2">
-            <Calendar className="w-5 h-5 opacity-90" />
-            <span className="text-xs opacity-90">This Month</span>
+          <div className="flex items-center justify-between mb-1">
+            <Calendar className="w-4 h-4 opacity-90" />
+            <span className="text-[10px] sm:text-xs opacity-90">This Month</span>
           </div>
-          <div className="text-2xl sm:text-3xl font-bold mb-1">
+          <div className="text-lg sm:text-2xl font-bold">
             ${summary.currentMonthTotal.toFixed(2)}
           </div>
-          <div className="flex items-center gap-1 text-xs opacity-90">
+          <div className="flex items-center gap-0.5 text-[10px] sm:text-xs opacity-90">
             {isPositiveChange ? (
               <>
                 <ArrowUpRight className="w-3 h-3" />
-                <span>{Math.abs(monthOverMonthChange).toFixed(1)}% vs last month</span>
+                <span>{Math.abs(monthOverMonthChange).toFixed(1)}%</span>
               </>
             ) : monthOverMonthChange !== 0 ? (
               <>
                 <ArrowDownRight className="w-3 h-3" />
-                <span>{Math.abs(monthOverMonthChange).toFixed(1)}% vs last month</span>
+                <span>{Math.abs(monthOverMonthChange).toFixed(1)}%</span>
               </>
             ) : (
               <span>No change</span>
             )}
+            <span className="hidden sm:inline ml-0.5">vs last month</span>
           </div>
         </Card>
 
         {/* Average Monthly */}
-        <Card className="p-5 bg-gradient-to-br from-purple-500 to-purple-600 dark:from-purple-600 dark:to-purple-700 text-white border-0 shadow-lg">
-          <div className="flex items-center justify-between mb-2">
-            <TrendingUp className="w-5 h-5 opacity-90" />
-            <span className="text-xs opacity-90">Monthly Avg</span>
+        <Card className="p-3 sm:p-4 bg-gradient-to-br from-purple-500 to-purple-600 dark:from-purple-600 dark:to-purple-700 text-white border-0 shadow-md">
+          <div className="flex items-center justify-between mb-1">
+            <TrendingUp className="w-4 h-4 opacity-90" />
+            <span className="text-[10px] sm:text-xs opacity-90">Monthly Avg</span>
           </div>
-          <div className="text-2xl sm:text-3xl font-bold mb-1">
+          <div className="text-lg sm:text-2xl font-bold">
             ${summary.avgMonthly.toFixed(2)}
           </div>
-          <div className="text-xs opacity-90">Based on {summary.monthsWithData} {summary.monthsWithData === 1 ? 'month' : 'months'}</div>
+          <div className="text-[10px] sm:text-xs opacity-90">
+            <span className="sm:hidden">{summary.monthsWithData}mo data</span>
+            <span className="hidden sm:inline">Based on {summary.monthsWithData} {summary.monthsWithData === 1 ? 'month' : 'months'}</span>
+          </div>
         </Card>
 
         {/* Projected Annual */}
-        <Card className="p-5 bg-gradient-to-br from-orange-500 to-orange-600 dark:from-orange-600 dark:to-orange-700 text-white border-0 shadow-lg">
-          <div className="flex items-center justify-between mb-2">
-            <Target className="w-5 h-5 opacity-90" />
-            <span className="text-xs opacity-90">Projected Annual</span>
+        <Card className="p-3 sm:p-4 bg-gradient-to-br from-orange-500 to-orange-600 dark:from-orange-600 dark:to-orange-700 text-white border-0 shadow-md">
+          <div className="flex items-center justify-between mb-1">
+            <Target className="w-4 h-4 opacity-90" />
+            <span className="text-[10px] sm:text-xs opacity-90">Projected</span>
           </div>
-          <div className="text-2xl sm:text-3xl font-bold mb-1">
+          <div className="text-lg sm:text-2xl font-bold">
             ${projectedAnnual.toFixed(2)}
           </div>
-          <div className="text-xs opacity-90">Estimated yearly savings</div>
+          <div className="text-[10px] sm:text-xs opacity-90">
+            <span className="sm:hidden">Yearly</span>
+            <span className="hidden sm:inline">Estimated yearly savings</span>
+          </div>
         </Card>
       </div>
 
@@ -715,51 +723,50 @@ export default function ReportsPage() {
         )}
       </Card>
 
-      {/* Ready to File Section */}
-      <Card className="p-6 bg-card/50 dark:bg-card border shadow-sm mb-6">
-        <div className="flex items-center justify-between mb-4">
+      {/* Ready to File Section - Compact */}
+      <Card className="p-3 sm:p-5 bg-card/50 dark:bg-card border shadow-sm mb-4 sm:mb-6">
+        <div className="flex items-center justify-between mb-3">
           <div>
-            <h3 className="text-lg font-semibold text-card-foreground">Tax Filing Summary</h3>
-            <p className="text-sm text-muted-foreground mt-1">Your estimated tax situation for 2024</p>
+            <h3 className="text-sm sm:text-lg font-semibold text-card-foreground">Tax Filing Summary</h3>
+            <p className="text-xs text-muted-foreground">Your estimated tax situation for 2024</p>
           </div>
-          <FileText className="w-6 h-6 text-muted-foreground" />
+          <FileText className="w-5 h-5 text-muted-foreground hidden sm:block" />
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="p-4 bg-card dark:bg-card/50 rounded-lg border border-border">
-            <div className="text-xs text-muted-foreground mb-1">Estimated Federal Refund</div>
-            <div className="text-2xl font-bold text-green-600 dark:text-green-400 mb-2">
-              ${summary.estimatedRefund.toFixed(2)}
+        {/* 3 cards in a row on all screen sizes */}
+        <div className="grid grid-cols-3 gap-2 sm:gap-3">
+          <div className="p-2 sm:p-3 bg-card dark:bg-card/50 rounded-lg border border-border text-center">
+            <div className="text-[10px] sm:text-xs text-muted-foreground mb-0.5">Est. Refund</div>
+            <div className="text-sm sm:text-xl font-bold text-green-600 dark:text-green-400">
+              ${summary.estimatedRefund.toFixed(0)}
             </div>
-            <div className="text-xs text-muted-foreground">Based on current deductions</div>
           </div>
-          <div className="p-4 bg-card dark:bg-card/50 rounded-lg border border-border">
-            <div className="text-xs text-muted-foreground mb-1">Year-to-Date Savings</div>
-            <div className="text-2xl font-bold text-primary mb-2">
-              ${summary.yearToDateTotal.toFixed(2)}
+          <div className="p-2 sm:p-3 bg-card dark:bg-card/50 rounded-lg border border-border text-center">
+            <div className="text-[10px] sm:text-xs text-muted-foreground mb-0.5">YTD Savings</div>
+            <div className="text-sm sm:text-xl font-bold text-primary">
+              ${summary.yearToDateTotal.toFixed(0)}
             </div>
-            <div className="text-xs text-muted-foreground">Total tax savings this year</div>
           </div>
-          <div className="p-4 bg-card dark:bg-card/50 rounded-lg border border-border">
-            <div className="text-xs text-muted-foreground mb-1">Projected Annual Savings</div>
-            <div className="text-2xl font-bold text-purple-600 dark:text-purple-400 mb-2">
-              ${projectedAnnual.toFixed(2)}
+          <div className="p-2 sm:p-3 bg-card dark:bg-card/50 rounded-lg border border-border text-center">
+            <div className="text-[10px] sm:text-xs text-muted-foreground mb-0.5">Projected</div>
+            <div className="text-sm sm:text-xl font-bold text-purple-600 dark:text-purple-400">
+              ${projectedAnnual.toFixed(0)}
             </div>
-            <div className="text-xs text-muted-foreground">If current pace continues</div>
           </div>
         </div>
-        <div className="mt-4 pt-4 border-t border-border">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-sm font-medium text-card-foreground">Ready to file your taxes?</div>
-              <div className="text-xs text-muted-foreground mt-1">Export your reports and forms for tax preparation</div>
+        <div className="mt-3 pt-3 border-t border-border">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex-1 min-w-0">
+              <div className="text-xs sm:text-sm font-medium text-card-foreground">Ready to file?</div>
+              <div className="text-[10px] sm:text-xs text-muted-foreground hidden sm:block">Export reports for tax preparation</div>
             </div>
             <Button
+              size="sm"
               onClick={() => setShowExportModal(true)}
-              className="bg-primary hover:bg-primary/90 text-primary-foreground"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground h-8 px-3 no-tap-highlight"
               disabled={!canExport}
             >
-              <Download className="w-4 h-4 mr-2" />
-              Export Reports
+              <Download className="w-3.5 h-3.5 sm:mr-1.5" />
+              <span className="hidden sm:inline">Export</span>
             </Button>
           </div>
         </div>

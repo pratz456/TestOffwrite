@@ -53,15 +53,17 @@ export function OtherReportsDropdown({ disabled = false }: OtherReportsDropdownP
       <DropdownMenuTrigger asChild>
         <Button 
           variant="outline" 
-          className="border-gray-300 hover:bg-gray-50"
+          size="sm"
+          className="col-span-1 h-9 px-2 sm:px-3 border-border hover:bg-muted no-tap-highlight"
           disabled={disabled}
         >
-          <FileText className="w-4 h-4 mr-2" />
-          Generate Other Reports
-          <ChevronDown className="w-4 h-4 ml-2" />
+          <FileText className="w-4 h-4" />
+          <ChevronDown className="w-3 h-3 ml-0.5 sm:hidden" />
+          <span className="hidden sm:inline ml-1.5">Other Reports</span>
+          <ChevronDown className="w-3.5 h-3.5 ml-1.5 hidden sm:inline" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-80" align="end">
+      <DropdownMenuContent className="w-72 sm:w-80" align="end">
         {Object.entries(formConfig).map(([formType, config]) => {
           const Icon = config.icon;
           
@@ -70,16 +72,16 @@ export function OtherReportsDropdown({ disabled = false }: OtherReportsDropdownP
               key={formType}
               onClick={() => handleFormGeneration(formType as FormType)}
               disabled={disabled}
-              className="flex items-start gap-3 p-3 cursor-pointer"
+              className="flex items-start gap-2.5 p-2.5 cursor-pointer"
             >
               <div className="flex-shrink-0 mt-0.5">
-                <Icon className="w-4 h-4 text-gray-600" />
+                <Icon className="w-4 h-4 text-muted-foreground" />
               </div>
               <div className="flex-1 min-w-0">
-                <div className="font-medium text-sm text-gray-900">
+                <div className="font-medium text-sm text-foreground">
                   {config.label}
                 </div>
-                <div className="text-xs text-gray-500 mt-1">
+                <div className="text-xs text-muted-foreground mt-0.5">
                   {config.description}
                 </div>
               </div>
@@ -89,10 +91,9 @@ export function OtherReportsDropdown({ disabled = false }: OtherReportsDropdownP
         
         <DropdownMenuSeparator />
         
-        <div className="px-3 py-2">
-          <div className="text-xs text-gray-500">
-            All forms are generated based on your transaction data and settings.
-            Missing information will be highlighted during generation.
+        <div className="px-2.5 py-2">
+          <div className="text-xs text-muted-foreground">
+            Forms generated from your transaction data.
           </div>
         </div>
       </DropdownMenuContent>

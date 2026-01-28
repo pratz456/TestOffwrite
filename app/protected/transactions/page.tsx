@@ -421,33 +421,34 @@ export default function TransactionsPage() {
           </div>
         </div>
 
-        {/* Search and Filter Bar */}
-        <div className="bg-card rounded-lg p-3 sm:p-4 shadow-sm border border-border">
-          <div className="flex flex-col lg:flex-row lg:items-center gap-3 sm:gap-4">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
+        {/* Search and Filter Bar - All in one line */}
+        <div className="bg-card rounded-lg p-2 sm:p-3 shadow-sm border border-border">
+          <div className="flex items-center gap-2">
+            {/* Search Input - Flexible width */}
+            <div className="flex-1 relative min-w-0">
+              <Search className="absolute left-2.5 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
               <input
                 type="text"
-                placeholder="Search transactions..."
+                placeholder="Search..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-border rounded-lg bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                className="w-full pl-8 pr-2 py-2 text-sm border border-border rounded-lg bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
 
-            {/* Date Range Selector */}
+            {/* Date Range Selector - Compact */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="flex items-center gap-2">
+                <Button variant="outline" size="sm" className="flex items-center gap-1 px-2 sm:px-3 h-9 sm:h-10 shrink-0 no-tap-highlight">
                   <Calendar className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">
-                    {dateRange === 'all' ? 'All time' :
+                  <span className="text-xs sm:text-sm text-muted-foreground hidden sm:inline">
+                    {dateRange === 'all' ? 'All' :
                       dateRange === 'today' ? 'Today' :
-                        dateRange === 'week' ? 'This week' :
-                          dateRange === 'month' ? 'This month' :
-                            dateRange === 'quarter' ? 'This quarter' :
-                              dateRange === 'year' ? 'This year' :
-                                dateRange === 'custom' ? 'Custom range' : 'All time'}
+                        dateRange === 'week' ? 'Week' :
+                          dateRange === 'month' ? 'Month' :
+                            dateRange === 'quarter' ? 'Quarter' :
+                              dateRange === 'year' ? 'Year' :
+                                dateRange === 'custom' ? 'Custom' : 'All'}
                   </span>
                   <ChevronDown className="w-3 h-3" />
                 </Button>
@@ -480,33 +481,12 @@ export default function TransactionsPage() {
               </DropdownMenuContent>
             </DropdownMenu>
 
-            {/* Custom Date Range Inputs */}
-            {dateRange === 'custom' && (
-              <div className="flex items-center gap-2">
-                <input
-                  type="date"
-                  value={customDateStart}
-                  onChange={(e) => setCustomDateStart(e.target.value)}
-                  className="px-2 py-1 text-xs border border-border rounded bg-background text-foreground"
-                  placeholder="Start date"
-                />
-                <span className="text-xs text-muted-foreground">to</span>
-                <input
-                  type="date"
-                  value={customDateEnd}
-                  onChange={(e) => setCustomDateEnd(e.target.value)}
-                  className="px-2 py-1 text-xs border border-border rounded bg-background text-foreground"
-                  placeholder="End date"
-                />
-              </div>
-            )}
-
-            {/* Sort Dropdown */}
+            {/* Sort Dropdown - Compact */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="flex items-center gap-2">
+                <Button variant="outline" size="sm" className="flex items-center gap-1 px-2 sm:px-3 h-9 sm:h-10 shrink-0 no-tap-highlight">
                   <ArrowUpDown className="w-4 h-4" />
-                  <span className="text-sm">Sort</span>
+                  <span className="text-xs sm:text-sm hidden sm:inline">Sort</span>
                   <ChevronDown className="w-3 h-3" />
                 </Button>
               </DropdownMenuTrigger>
@@ -534,14 +514,14 @@ export default function TransactionsPage() {
               </DropdownMenuContent>
             </DropdownMenu>
 
-            {/* Filter Dropdown */}
+            {/* Filter Dropdown - Compact */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="relative flex items-center gap-2">
+                <Button variant="outline" size="sm" className="relative flex items-center gap-1 px-2 sm:px-3 h-9 sm:h-10 shrink-0 no-tap-highlight">
                   <Filter className="w-4 h-4" />
-                  <span className="text-sm">Filters</span>
+                  <span className="text-xs sm:text-sm hidden sm:inline">Filter</span>
                   {activeFiltersCount > 0 && (
-                    <Badge className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-xs">
+                    <Badge className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[10px] px-1.5 py-0.5 min-w-[18px] h-[18px] flex items-center justify-center">
                       {activeFiltersCount}
                     </Badge>
                   )}
@@ -598,12 +578,33 @@ export default function TransactionsPage() {
             </DropdownMenu>
           </div>
 
+          {/* Custom Date Range Inputs - Shows below when custom is selected */}
+          {dateRange === 'custom' && (
+            <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border">
+              <input
+                type="date"
+                value={customDateStart}
+                onChange={(e) => setCustomDateStart(e.target.value)}
+                className="flex-1 px-2 py-1.5 text-xs border border-border rounded bg-background text-foreground"
+                placeholder="Start date"
+              />
+              <span className="text-xs text-muted-foreground">to</span>
+              <input
+                type="date"
+                value={customDateEnd}
+                onChange={(e) => setCustomDateEnd(e.target.value)}
+                className="flex-1 px-2 py-1.5 text-xs border border-border rounded bg-background text-foreground"
+                placeholder="End date"
+              />
+            </div>
+          )}
+
           {/* Active Filters Display */}
           {activeFiltersCount > 0 && (
-            <div className="flex items-center gap-2 mt-3 text-sm text-muted-foreground">
+            <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border text-xs text-muted-foreground">
               <span>{activeFiltersCount} filter{activeFiltersCount > 1 ? 's' : ''} active</span>
               <button
-                className="text-muted-foreground hover:text-foreground"
+                className="text-muted-foreground hover:text-foreground p-1"
                 onClick={clearAllFilters}
               >
                 <X className="w-3 h-3" />

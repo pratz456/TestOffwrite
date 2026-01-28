@@ -171,44 +171,44 @@ export function LoginForm({
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background safe-area-inset-top safe-area-inset-bottom">
       {/* Background with subtle gradient */}
       <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-background to-muted/20"></div>
 
-      <div className="relative min-h-screen flex flex-col px-6 py-8 lg:px-8">
-        <div className="sm:mx-auto sm:w-full sm:max-w-lg">
+      <div className="relative min-h-screen flex flex-col px-4 sm:px-6 py-6 sm:py-8 lg:px-8">
+        <div className="w-full sm:mx-auto sm:max-w-lg">
           {/* Header */}
-          <div className="text-center space-y-4 mb-8">
+          <div className="text-center space-y-4 mb-6 sm:mb-8">
             <Link
               href="/"
-              className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
+              className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors py-2 no-tap-highlight"
             >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="w-5 h-5 sm:w-4 sm:h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
-              Back
+              <span className="text-base sm:text-sm">Back</span>
             </Link>
 
             <div className="flex justify-center">
-              <Image src={writeOffLogo} alt="WriteOff" className="w-24 h-auto"/>
+              <Image src={writeOffLogo} alt="WriteOff" className="w-20 sm:w-24 h-auto"/>
             </div>
 
             <div className="space-y-1">
-              <h1 className="text-2xl font-semibold text-foreground">
+              <h1 className="text-2xl sm:text-2xl font-semibold text-foreground">
                 Welcome back
               </h1>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-base sm:text-sm text-muted-foreground">
                 Sign in to your WriteOff account
               </p>
             </div>
           </div>
 
           {/* Sign in form */}
-          <div className="bg-card/80 backdrop-blur-xl rounded-2xl shadow-lg shadow-gray-900/5 ring-1 ring-border p-6">
-            <form onSubmit={handleLogin} className="space-y-5">
-              <div className="space-y-3">
+          <div className="bg-card/80 backdrop-blur-xl rounded-xl sm:rounded-2xl shadow-lg shadow-gray-900/5 ring-1 ring-border p-5 sm:p-6">
+            <form onSubmit={handleLogin} className="space-y-4 sm:space-y-5">
+              <div className="space-y-4 sm:space-y-3">
                 <div>
-                  <Label htmlFor="email" className="text-sm font-medium text-foreground" required>
+                  <Label htmlFor="email" className="text-base sm:text-sm font-medium text-foreground" required>
                     Email address
                   </Label>
                   <Input
@@ -217,19 +217,19 @@ export function LoginForm({
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="example@gmail.com"
-                    className="mt-1 h-11 rounded-lg border-border bg-input-background focus:border-primary focus:ring-primary/20"
+                    className="mt-1.5 sm:mt-1 h-12 sm:h-11 rounded-lg border-border bg-input-background focus:border-primary focus:ring-primary/20 text-base sm:text-sm"
                     required
                   />
                 </div>
 
                 <div>
                   <div className="flex items-center justify-between">
-                    <Label htmlFor="password" className="text-sm font-medium text-foreground" required>
+                    <Label htmlFor="password" className="text-base sm:text-sm font-medium text-foreground" required>
                       Password
                     </Label>
                     <Link
                       href="/auth/forgot-password"
-                      className="text-sm text-primary hover:text-primary/80 transition-colors"
+                      className="text-sm text-primary hover:text-primary/80 transition-colors py-1 no-tap-highlight"
                     >
                       Forgot password?
                     </Link>
@@ -241,13 +241,13 @@ export function LoginForm({
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="Enter your password"
-                      className="mt-1 h-11 rounded-lg border-border bg-input-background focus:border-primary focus:ring-primary/20 pr-12"
+                      className="mt-1.5 sm:mt-1 h-12 sm:h-11 rounded-lg border-border bg-input-background focus:border-primary focus:ring-primary/20 pr-14 text-base sm:text-sm"
                       required
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors p-1.5 no-tap-highlight"
                     >
                       {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                     </button>
@@ -256,13 +256,13 @@ export function LoginForm({
               </div>
 
               {error && (
-                <div className="text-sm text-destructive bg-destructive/10 p-3 rounded-lg">
+                <div className="text-sm text-destructive bg-destructive/10 p-3 sm:p-3 rounded-lg">
                   <p>{error}</p>
                   {error.includes("verify your email") && (
                     <p className="mt-2">
                       <Link
                         href="/auth/sign-up-success"
-                        className="text-primary hover:text-primary/80 underline"
+                        className="text-primary hover:text-primary/80 underline no-tap-highlight"
                       >
                         Resend verification email →
                       </Link>
@@ -274,7 +274,7 @@ export function LoginForm({
               <Button
                 type="submit"
                 disabled={!email || !password || isLoading || isGoogleLoading}
-                className="w-full h-11 bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg font-medium transition-all duration-200 disabled:opacity-50"
+                className="w-full h-12 sm:h-11 bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg font-medium text-base sm:text-sm transition-all duration-200 disabled:opacity-50 no-tap-highlight"
               >
                 {isLoading ? (
                   <div className="flex items-center gap-2">
@@ -288,12 +288,12 @@ export function LoginForm({
             </form>
 
             {/* Divider */}
-            <div className="relative my-6">
+            <div className="relative my-5 sm:my-6">
               <div className="absolute inset-0 flex items-center">
                 <span className="w-full border-t border-border" />
               </div>
               <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
+                <span className="bg-card px-3 text-muted-foreground">Or continue with</span>
               </div>
             </div>
 
@@ -302,7 +302,7 @@ export function LoginForm({
               type="button"
               onClick={handleGoogleSignIn}
               disabled={isLoading || isGoogleLoading}
-              className="w-full h-11 bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 rounded-lg font-medium transition-all duration-200 disabled:opacity-50 flex items-center gap-3"
+              className="w-full h-12 sm:h-11 bg-white hover:bg-gray-50 active:bg-gray-100 text-gray-700 border border-gray-300 rounded-lg font-medium text-base sm:text-sm transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-3 no-tap-highlight"
             >
               {isGoogleLoading ? (
                 <div className="flex items-center gap-2">
@@ -323,12 +323,12 @@ export function LoginForm({
             </Button>
 
             {/* Sign up link */}
-            <div className="mt-6 text-center">
-              <p className="text-sm text-muted-foreground">
+            <div className="mt-5 sm:mt-6 text-center pb-2">
+              <p className="text-base sm:text-sm text-muted-foreground">
                 Don't have an account?{' '}
                 <Link
                   href="/auth/sign-up"
-                  className="font-medium text-primary hover:text-primary/80 transition-colors"
+                  className="font-medium text-primary hover:text-primary/80 transition-colors no-tap-highlight"
                 >
                   Create one
                 </Link>

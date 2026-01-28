@@ -93,25 +93,40 @@ export const MobileNav: React.FC<MobileNavProps> = ({ user, userProfile }) => {
   return (
     <>
       {/* Mobile Header */}
-      <div className="lg:hidden bg-card border-b border-border px-4 py-3 flex items-center justify-between sticky top-0 z-50">
-        <div className="flex items-center gap-2">
-          <img src="/writeofflogo.png" alt="WriteOff" className="w-6 h-6 rounded" />
-          <h1 className="text-lg font-bold text-foreground">WriteOff</h1>
-        </div>
+      <div className="lg:hidden bg-card border-b border-border px-3 py-3 flex items-center justify-between sticky top-0 z-50 safe-area-inset-top">
+        {/* Left: Menu Button */}
         <button
           onClick={() => setIsOpen(!isOpen)}
-          className="p-2 rounded-lg hover:bg-muted transition-colors"
+          className="p-2.5 rounded-lg hover:bg-muted active:bg-muted/80 transition-colors no-tap-highlight min-w-[44px] min-h-[44px] flex items-center justify-center"
           aria-label="Toggle navigation menu"
         >
           {isOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
         </button>
+
+        {/* Center: Logo and Title */}
+        <div className="flex items-center gap-2">
+          <img src="/writeofflogo.png" alt="WriteOff" className="w-6 h-6 rounded" />
+          <h1 className="text-lg font-bold text-foreground">WriteOff</h1>
+        </div>
+
+        {/* Right: Settings Button */}
+        <button
+          onClick={() => {
+            setIsOpen(false);
+            router.push('/protected/settings');
+          }}
+          className="p-2.5 rounded-lg hover:bg-muted active:bg-muted/80 transition-colors no-tap-highlight min-w-[44px] min-h-[44px] flex items-center justify-center"
+          aria-label="Settings"
+        >
+          <Settings className="w-5 h-5" />
+        </button>
       </div>
 
-      {/* Mobile Navigation Overlay */}
+      {/* Mobile Navigation Overlay - Slides in from left */}
       {isOpen && (
-        <div className="lg:hidden fixed inset-0 z-50 bg-black bg-opacity-50" onClick={() => setIsOpen(false)}>
+        <div className="lg:hidden fixed inset-0 z-50 bg-black/50 backdrop-blur-sm" onClick={() => setIsOpen(false)}>
           <div 
-            className="w-80 max-w-[90vw] h-full bg-card shadow-xl overflow-y-auto"
+            className="w-80 max-w-[85vw] h-full bg-card shadow-xl overflow-y-auto animate-in slide-in-from-left duration-200"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Logo/Brand */}
@@ -142,18 +157,18 @@ export const MobileNav: React.FC<MobileNavProps> = ({ user, userProfile }) => {
                   <button
                     key={item.name}
                     onClick={() => handleNavClick(item.href)}
-                    className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors group w-full text-left ${active
+                    className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-colors group w-full text-left min-h-[52px] no-tap-highlight ${active
                       ? 'bg-primary/10 text-primary border border-primary/20'
-                      : 'text-foreground hover:bg-muted hover:text-foreground'
+                      : 'text-foreground hover:bg-muted active:bg-muted/80 hover:text-foreground'
                       }`}
                   >
                     <Icon
-                      className={`w-5 h-5 ${active ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground'
+                      className={`w-5 h-5 flex-shrink-0 ${active ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground'
                         }`}
                     />
-                    <div className="flex-1">
-                      <div className="font-medium">{item.name}</div>
-                      <div className={`text-xs ${active ? 'text-primary' : 'text-muted-foreground'
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-sm">{item.name}</div>
+                      <div className={`text-xs truncate ${active ? 'text-primary/80' : 'text-muted-foreground'
                         }`}>
                         {item.description}
                       </div>

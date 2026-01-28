@@ -841,29 +841,21 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
+      {/* Header - Compact on mobile */}
       <div className="bg-card border-b border-border sticky top-0 z-50 shadow-sm">
-        <div className="flex items-center justify-between p-6">
-          {/* <button
-            onClick={onBack}
-            className="w-12 h-12 bg-card border border-border rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-all duration-200 shadow-sm"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </button> */}
+        <div className="flex items-center justify-between p-3 sm:p-6">
           <div className="w-full flex flex-col items-center">
-            <h2 className="text-4xl font-bold text-primary mb-2 text-center">Settings</h2>
-            <p className="text-lg text-muted-foreground text-center">Manage your profile and preferences</p>
+            <h2 className="text-2xl sm:text-4xl font-bold text-primary mb-1 text-center">Settings</h2>
+            <p className="text-sm sm:text-lg text-muted-foreground text-center">Manage your profile and preferences</p>
           </div>
 
           {/* Save Status Indicator */}
-          <div className="flex items-center gap-3">
-            {hasUnsavedChanges && (
-              <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
-                <AlertCircle className="w-4 h-4 text-amber-600" />
-                <span className="text-sm font-medium text-amber-800">Unsaved changes</span>
-              </div>
-            )}
-          </div>
+          {hasUnsavedChanges && (
+            <div className="absolute right-3 top-3 flex items-center gap-1.5 px-2 py-1.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg">
+              <AlertCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+              <span className="text-xs font-medium text-amber-800 dark:text-amber-300 hidden sm:inline">Unsaved</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -894,58 +886,118 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           </Card>
         )}
 
-        {/* Tab Navigation */}
-        <div className="flex space-x-1 mb-6 bg-card/80 rounded-lg p-1 w-fit overflow-x-auto border border-border">
-          <button
-            onClick={() => setActiveTab('profile')}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'profile'
-              ? 'bg-primary/10 text-primary shadow-sm'
-              : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
-              }`}
-          >
-            <User className="w-4 h-4" />
-            Profile
-          </button>
-          <button
-            onClick={() => setActiveTab('businessDetails')}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'businessDetails'
-              ? 'bg-primary/10 text-primary shadow-sm'
-              : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
-              }`}
-          >
-            <Briefcase className="w-4 h-4" />
-            Business Details
-          </button>
-          <button
-            onClick={() => setActiveTab('taxSettings')}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'taxSettings'
-              ? 'bg-primary/10 text-primary shadow-sm'
-              : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
-              }`}
-          >
-            <FileText className="w-4 h-4" />
-            Tax Settings
-          </button>
-          <button
-            onClick={() => setActiveTab('payment')}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'payment'
-              ? 'bg-primary/10 text-primary shadow-sm'
-              : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
-              }`}
-          >
-            <CreditCard className="w-4 h-4" />
-            Payment
-          </button>
-          <button
-            onClick={() => setActiveTab('advancedSettings')}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'advancedSettings'
-              ? 'bg-primary/10 text-primary shadow-sm'
-              : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
-              }`}
-          >
-            <Shield className="w-4 h-4" />
-            Advanced
-          </button>
+        {/* Tab Navigation - Grid layout: 3 tabs on first row, 2 tabs on second row for mobile */}
+        <div className="mb-4 sm:mb-6">
+          {/* Mobile: Grid layout */}
+          <div className="grid grid-cols-3 gap-1 sm:hidden bg-card/80 rounded-lg p-1 border border-border">
+            <button
+              onClick={() => setActiveTab('profile')}
+              className={`px-2 py-2 rounded-md text-xs font-medium transition-colors flex flex-col items-center gap-1 no-tap-highlight ${activeTab === 'profile'
+                ? 'bg-primary/10 text-primary shadow-sm'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
+                }`}
+            >
+              <User className="w-4 h-4" />
+              <span>Profile</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('businessDetails')}
+              className={`px-2 py-2 rounded-md text-xs font-medium transition-colors flex flex-col items-center gap-1 no-tap-highlight ${activeTab === 'businessDetails'
+                ? 'bg-primary/10 text-primary shadow-sm'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
+                }`}
+            >
+              <Briefcase className="w-4 h-4" />
+              <span>Business</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('taxSettings')}
+              className={`px-2 py-2 rounded-md text-xs font-medium transition-colors flex flex-col items-center gap-1 no-tap-highlight ${activeTab === 'taxSettings'
+                ? 'bg-primary/10 text-primary shadow-sm'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
+                }`}
+            >
+              <FileText className="w-4 h-4" />
+              <span>Tax</span>
+            </button>
+          </div>
+          {/* Mobile: Second row with 2 tabs */}
+          <div className="grid grid-cols-2 gap-1 sm:hidden bg-card/80 rounded-lg p-1 border border-border mt-1">
+            <button
+              onClick={() => setActiveTab('payment')}
+              className={`px-2 py-2 rounded-md text-xs font-medium transition-colors flex flex-col items-center gap-1 no-tap-highlight ${activeTab === 'payment'
+                ? 'bg-primary/10 text-primary shadow-sm'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
+                }`}
+            >
+              <CreditCard className="w-4 h-4" />
+              <span>Payment</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('advancedSettings')}
+              className={`px-2 py-2 rounded-md text-xs font-medium transition-colors flex flex-col items-center gap-1 no-tap-highlight ${activeTab === 'advancedSettings'
+                ? 'bg-primary/10 text-primary shadow-sm'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
+                }`}
+            >
+              <Shield className="w-4 h-4" />
+              <span>Advanced</span>
+            </button>
+          </div>
+          
+          {/* Desktop: Horizontal tabs */}
+          <div className="hidden sm:flex space-x-1 bg-card/80 rounded-lg p-1 w-fit overflow-x-auto border border-border">
+            <button
+              onClick={() => setActiveTab('profile')}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'profile'
+                ? 'bg-primary/10 text-primary shadow-sm'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
+                }`}
+            >
+              <User className="w-4 h-4" />
+              Profile
+            </button>
+            <button
+              onClick={() => setActiveTab('businessDetails')}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'businessDetails'
+                ? 'bg-primary/10 text-primary shadow-sm'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
+                }`}
+            >
+              <Briefcase className="w-4 h-4" />
+              Business Details
+            </button>
+            <button
+              onClick={() => setActiveTab('taxSettings')}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'taxSettings'
+                ? 'bg-primary/10 text-primary shadow-sm'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
+                }`}
+            >
+              <FileText className="w-4 h-4" />
+              Tax Settings
+            </button>
+            <button
+              onClick={() => setActiveTab('payment')}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'payment'
+                ? 'bg-primary/10 text-primary shadow-sm'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
+                }`}
+            >
+              <CreditCard className="w-4 h-4" />
+              Payment
+            </button>
+            <button
+              onClick={() => setActiveTab('advancedSettings')}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'advancedSettings'
+                ? 'bg-primary/10 text-primary shadow-sm'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
+                }`}
+            >
+              <Shield className="w-4 h-4" />
+              Advanced
+            </button>
+          </div>
         </div>
 
         {/* Profile Tab */}
@@ -1868,12 +1920,13 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         {activeTab === 'profile' && (
           <div className="space-y-6 mt-6">
             {/* Bank Account Management */}
-            <Card className="p-6 bg-card border border-border shadow-lg">
-              <h3 className="text-lg font-medium text-foreground mb-4 flex items-center gap-2">
+            <Card className="p-4 sm:p-6 bg-card border border-border shadow-lg">
+              <h3 className="text-base sm:text-lg font-medium text-foreground mb-3 flex items-center gap-2">
                 <DollarSign className="w-5 h-5 text-primary" />
                 Bank Account Management
               </h3>
-              <div className="space-y-4">
+              {/* Buttons in one row */}
+              <div className="grid grid-cols-2 gap-2 sm:gap-3">
                 <Button
                   type="button"
                   onClick={() => {
@@ -1883,109 +1936,126 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                       window.location.href = '/protected/plaid-link?from=settings';
                     }
                   }}
-                  className="w-full h-12 bg-primary hover:bg-primary/90 text-white rounded-lg flex items-center justify-center gap-3"
+                  size="sm"
+                  className="h-10 sm:h-11 bg-primary hover:bg-primary/90 text-white rounded-lg flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 no-tap-highlight"
                 >
-                  <DollarSign className="w-5 h-5" />
-                  Connect Bank Account with Plaid
+                  <DollarSign className="w-4 h-4 flex-shrink-0" />
+                  <span className="text-xs sm:text-sm truncate">Connect Bank</span>
                 </Button>
                 <Button
                   type="button"
                   onClick={() => onNavigate('plaid')}
                   variant="outline"
-                  className="w-full h-12 justify-center gap-3 rounded-lg"
+                  size="sm"
+                  className="h-10 sm:h-11 justify-center gap-1.5 sm:gap-2 rounded-lg px-2 sm:px-4 no-tap-highlight"
                 >
-                  <DollarSign className="w-4 h-4" />
-                  Manage Connected Accounts
+                  <DollarSign className="w-4 h-4 flex-shrink-0" />
+                  <span className="text-xs sm:text-sm truncate">Manage Accounts</span>
                 </Button>
               </div>
             </Card>
 
             {/* Data Rights & Privacy */}
-            <Card className="p-6 bg-card border border-border shadow-lg">
-              <h3 className="text-lg font-medium text-foreground mb-4 flex items-center gap-2">
+            <Card className="p-4 sm:p-6 bg-card border border-border shadow-lg">
+              <h3 className="text-base sm:text-lg font-medium text-foreground mb-3 flex items-center gap-2">
                 <Shield className="w-5 h-5 text-primary" />
                 Data Rights & Privacy
               </h3>
-              <div className="space-y-4">
-                <div className="text-sm text-muted-foreground">
-                  <p>You have the right to view, export, and delete your data, and to revoke access to your bank data at any time.</p>
+              <div className="space-y-3">
+                <div className="text-xs sm:text-sm text-muted-foreground">
+                  <p>You have the right to view, export, and delete your data.</p>
                 </div>
-                <Button
-                  onClick={async () => {
-                    try {
-                      // Check if user can export (rate limiting)
-                      const statusRes = await fetch('/api/user/export');
-                      const statusData = await statusRes.json();
+                {/* Buttons in grid */}
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    onClick={async () => {
+                      try {
+                        // Check if user can export (rate limiting)
+                        const statusRes = await fetch('/api/user/export');
+                        const statusData = await statusRes.json();
 
-                      if (!statusData.canExport) {
-                        alert(`You can only export your data once per hour. Please wait ${statusData.timeRemaining} minutes.`);
-                        return;
+                        if (!statusData.canExport) {
+                          alert(`You can only export your data once per hour. Please wait ${statusData.timeRemaining} minutes.`);
+                          return;
+                        }
+
+                        // Request the export
+                        const res = await fetch('/api/user/export', {
+                          method: 'POST',
+                          headers: {
+                            'Content-Type': 'application/json',
+                          },
+                        });
+
+                        if (res.ok) {
+                          const exportData = await res.json();
+
+                          // Create downloadable files
+                          const timestamp = new Date().toISOString().split('T')[0];
+                          const exportId = exportData.exportId;
+
+                          // Download JSON data
+                          const jsonBlob = new Blob([JSON.stringify(exportData.data.json, null, 2)], { type: 'application/json' });
+                          const jsonUrl = window.URL.createObjectURL(jsonBlob);
+                          const jsonLink = document.createElement('a');
+                          jsonLink.href = jsonUrl;
+                          jsonLink.download = `writeoff-export-${timestamp}-${exportId}.json`;
+                          document.body.appendChild(jsonLink);
+                          jsonLink.click();
+                          jsonLink.remove();
+                          window.URL.revokeObjectURL(jsonUrl);
+
+                          // Download CSV data
+                          const csvBlob = new Blob([exportData.data.csv], { type: 'text/csv' });
+                          const csvUrl = window.URL.createObjectURL(csvBlob);
+                          const csvLink = document.createElement('a');
+                          csvLink.href = csvUrl;
+                          csvLink.download = `writeoff-transactions-${timestamp}-${exportId}.csv`;
+                          document.body.appendChild(csvLink);
+                          csvLink.click();
+                          csvLink.remove();
+                          window.URL.revokeObjectURL(csvUrl);
+
+                          // Download README
+                          const readmeBlob = new Blob([exportData.data.readme], { type: 'text/plain' });
+                          const readmeUrl = window.URL.createObjectURL(readmeBlob);
+                          const readmeLink = document.createElement('a');
+                          readmeLink.href = readmeUrl;
+                          readmeLink.download = `writeoff-export-readme-${timestamp}-${exportId}.txt`;
+                          document.body.appendChild(readmeLink);
+                          readmeLink.click();
+                          readmeLink.remove();
+                          window.URL.revokeObjectURL(readmeUrl);
+
+                          alert(`Export completed! Downloaded ${exportData.summary.transactions} transactions, ${exportData.summary.accounts} accounts, and ${exportData.summary.receipts} receipts.`);
+                        } else {
+                          const errorData = await res.json();
+                          alert(`Failed to export data: ${errorData.message || 'Unknown error'}`);
+                        }
+                      } catch (err) {
+                        console.error('Export error:', err);
+                        alert('Failed to export data. Please try again.');
                       }
-
-                      // Request the export
-                      const res = await fetch('/api/user/export', {
-                        method: 'POST',
-                        headers: {
-                          'Content-Type': 'application/json',
-                        },
-                      });
-
-                      if (res.ok) {
-                        const exportData = await res.json();
-
-                        // Create downloadable files
-                        const timestamp = new Date().toISOString().split('T')[0];
-                        const exportId = exportData.exportId;
-
-                        // Download JSON data
-                        const jsonBlob = new Blob([JSON.stringify(exportData.data.json, null, 2)], { type: 'application/json' });
-                        const jsonUrl = window.URL.createObjectURL(jsonBlob);
-                        const jsonLink = document.createElement('a');
-                        jsonLink.href = jsonUrl;
-                        jsonLink.download = `writeoff-export-${timestamp}-${exportId}.json`;
-                        document.body.appendChild(jsonLink);
-                        jsonLink.click();
-                        jsonLink.remove();
-                        window.URL.revokeObjectURL(jsonUrl);
-
-                        // Download CSV data
-                        const csvBlob = new Blob([exportData.data.csv], { type: 'text/csv' });
-                        const csvUrl = window.URL.createObjectURL(csvBlob);
-                        const csvLink = document.createElement('a');
-                        csvLink.href = csvUrl;
-                        csvLink.download = `writeoff-transactions-${timestamp}-${exportId}.csv`;
-                        document.body.appendChild(csvLink);
-                        csvLink.click();
-                        csvLink.remove();
-                        window.URL.revokeObjectURL(csvUrl);
-
-                        // Download README
-                        const readmeBlob = new Blob([exportData.data.readme], { type: 'text/plain' });
-                        const readmeUrl = window.URL.createObjectURL(readmeBlob);
-                        const readmeLink = document.createElement('a');
-                        readmeLink.href = readmeUrl;
-                        readmeLink.download = `writeoff-export-readme-${timestamp}-${exportId}.txt`;
-                        document.body.appendChild(readmeLink);
-                        readmeLink.click();
-                        readmeLink.remove();
-                        window.URL.revokeObjectURL(readmeUrl);
-
-                        alert(`Export completed! Downloaded ${exportData.summary.transactions} transactions, ${exportData.summary.accounts} accounts, and ${exportData.summary.receipts} receipts.`);
-                      } else {
-                        const errorData = await res.json();
-                        alert(`Failed to export data: ${errorData.message || 'Unknown error'}`);
-                      }
-                    } catch (err) {
-                      console.error('Export error:', err);
-                      alert('Failed to export data. Please try again.');
-                    }
-                  }}
-                  variant="outline"
-                  className="w-full h-12 justify-center gap-3 rounded-lg"
-                >
-                  <FileText className="w-4 h-4" />
-                  Export My Data (JSON + CSV)
-                </Button>
+                    }}
+                    variant="outline"
+                    size="sm"
+                    className="h-10 justify-center gap-1.5 rounded-lg text-xs sm:text-sm no-tap-highlight"
+                  >
+                    <FileText className="w-4 h-4 flex-shrink-0" />
+                    <span className="truncate">Export Data</span>
+                  </Button>
+                  <Button
+                    asChild
+                    variant="outline"
+                    size="sm"
+                    className="h-10 justify-center gap-1.5 rounded-lg text-xs sm:text-sm no-tap-highlight"
+                  >
+                    <a href="https://my.plaid.com/" target="_blank" rel="noopener noreferrer">
+                      <Shield className="w-4 h-4 flex-shrink-0" />
+                      <span className="truncate">Revoke Plaid</span>
+                    </a>
+                  </Button>
+                </div>
                 <Button
                   onClick={async () => {
                     if (window.confirm('Are you sure you want to delete your account and all associated data? This includes all Plaid connections, accounts, transactions, and receipts. This action cannot be undone.')) {
@@ -2007,46 +2077,39 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     }
                   }}
                   variant="destructive"
-                  className="w-full h-12 justify-center gap-3 rounded-lg"
+                  size="sm"
+                  className="w-full h-10 justify-center gap-2 rounded-lg text-xs sm:text-sm no-tap-highlight"
                 >
                   <Shield className="w-4 h-4" />
                   Delete My Account & Data
-                </Button>
-                <Button
-                  asChild
-                  variant="outline"
-                  className="w-full h-12 justify-center gap-3 rounded-lg"
-                >
-                  <a href="https://my.plaid.com/" target="_blank" rel="noopener noreferrer">
-                    <Shield className="w-4 h-4" />
-                    Revoke Plaid Access (Plaid Portal)
-                  </a>
                 </Button>
               </div>
             </Card>
 
             {/* Quick Actions */}
-            <Card className="p-6 bg-card border border-border shadow-lg">
-              <h3 className="text-lg font-medium text-foreground mb-4 flex items-center gap-2">
+            <Card className="p-4 sm:p-6 bg-card border border-border shadow-lg">
+              <h3 className="text-base sm:text-lg font-medium text-foreground mb-3 flex items-center gap-2">
                 <FileText className="w-5 h-5 text-primary" />
                 Quick Actions
               </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-2">
                 <Button
                   onClick={() => onNavigate('dashboard')}
                   variant="outline"
-                  className="h-12 justify-start gap-3"
+                  size="sm"
+                  className="h-10 justify-center gap-1.5 text-xs sm:text-sm no-tap-highlight"
                 >
                   <Briefcase className="w-4 h-4" />
-                  Back to Dashboard
+                  <span className="truncate">Dashboard</span>
                 </Button>
                 <Button
                   onClick={() => onNavigate('transactions')}
                   variant="outline"
-                  className="h-12 justify-start gap-3"
+                  size="sm"
+                  className="h-10 justify-center gap-1.5 text-xs sm:text-sm no-tap-highlight"
                 >
                   <FileText className="w-4 h-4" />
-                  View Transactions
+                  <span className="truncate">Transactions</span>
                 </Button>
               </div>
             </Card>
