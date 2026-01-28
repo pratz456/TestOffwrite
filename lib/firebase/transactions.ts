@@ -26,6 +26,7 @@ export interface Transaction {
   datetime?: string; // Full datetime from Plaid (ISO format)
   type?: 'expense' | 'income';
   is_deductible?: boolean | null;
+  expense_type?: 'business' | 'personal'; // Explicit classification from AI or user
   deductible_reason?: string;
   deduction_score?: number;
   ai_analysis?: string; // Original AI analysis text - never overwritten
@@ -55,6 +56,29 @@ export interface Transaction {
     miles?: number;
     business_purpose?: string;
   };
+
+  // Additional Plaid Transaction Fields
+  merchant_category_code?: string;
+  location?: {
+    address?: string;
+    city?: string;
+    state?: string;
+    lat?: number;
+    lon?: number;
+  };
+  payment_channel?: 'in_store' | 'online' | 'other';
+  authorized_date?: string;
+  iso_currency_code?: string;
+  unofficial_currency_code?: string;
+  personal_finance_category?: {
+    primary?: string;
+    detailed?: string;
+    confidence?: string;
+  };
+  pending?: boolean;
+  pending_transaction_id?: string;
+  account_owner?: string;
+  transaction_code?: string;
 
   // AI Analysis Fields from initial analysis
   ai?: {

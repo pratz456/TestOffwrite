@@ -404,6 +404,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
     try {
       const updateData = {
         is_deductible: isDeductible,
+        expense_type: isDeductible ? 'business' : 'personal', // Explicit classification
         user_classification_reason: isDeductible
           ? 'Classified as business expense by user'
           : 'Classified as personal expense by user',

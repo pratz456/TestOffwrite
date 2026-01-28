@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import { checkHistoricalAccess } from '@/lib/subscriptions/historical-access';
+import { startFreeTrial } from '@/lib/subscriptions/trial-manager';
 import { adminDb } from '@/lib/firebase/admin';
 import Stripe from 'stripe';
 
@@ -11,7 +12,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
 export async function GET(req: Request) {
   try {
     const { uid } = await getUserFromReqOrThrow(req);
-    
+
     // Get user profile first
     const userDoc = await adminDb.doc(`user_profiles/${uid}`).get();
     const userData = userDoc.data();
@@ -30,11 +31,11 @@ export async function GET(req: Request) {
           currentPeriodEnd = new Date(); // Set to now (0 days remaining)
           console.log(`🧪 TEST MODE: Setting subscriptionEnd to today for testing`);
         }
-        
+
         // Check if Firestore is out of sync with Stripe
         const firestoreStatus = userData?.subscriptionStatus || 'none';
         const firestoreStripeStatus = userData?.stripeSubscriptionStatus;
-        const needsSync = 
+        const needsSync =
           (isActive && firestoreStatus !== 'active') ||
           (subscription.status !== firestoreStripeStatus) ||
           (isActive && !userData?.hasHistoricalAccess);
@@ -49,7 +50,7 @@ export async function GET(req: Request) {
           } else {
             console.log(`🔄 Syncing subscription status from Stripe for user ${uid}`);
           }
-          
+
           const updateData: any = {
             stripeSubscriptionId: subscription.id,
             stripeSubscriptionStatus: subscription.status,
@@ -60,8 +61,8 @@ export async function GET(req: Request) {
 
           // Update customer ID if missing
           if (!customerId && subscription.customer) {
-            updateData.stripeCustomerId = typeof subscription.customer === 'string' 
-              ? subscription.customer 
+            updateData.stripeCustomerId = typeof subscription.customer === 'string'
+              ? subscription.customer
               : (subscription.customer as any).id;
           }
 
@@ -123,7 +124,23 @@ export async function GET(req: Request) {
       }
     }
 
-    // Now check access status (after sync)
+    // Auto-start free trial if user has no trial/subscription
+    // This ensures all users get historical access
+    const updatedUserDocBeforeTrial = await adminDb.doc(`user_profiles/${uid}`).get();
+    const userDataBeforeTrial = updatedUserDocBeforeTrial.data();
+    const subscriptionStatusBeforeTrial = userDataBeforeTrial?.subscriptionStatus || 'none';
+
+    if (subscriptionStatusBeforeTrial === 'none' || subscriptionStatusBeforeTrial === 'expired') {
+      console.log(`🔄 [Check Access] User ${uid} has no active trial/subscription, starting free trial...`);
+      const trialResult = await startFreeTrial(uid);
+      if (trialResult.success) {
+        console.log(`✅ [Check Access] Free trial started for user ${uid}`);
+      } else {
+        console.warn(`⚠️ [Check Access] Failed to start trial for user ${uid}:`, trialResult.error);
+      }
+    }
+
+    // Now check access status (after sync and trial start)
     const accessStatus = await checkHistoricalAccess(uid);
 
     // Get subscription details for response

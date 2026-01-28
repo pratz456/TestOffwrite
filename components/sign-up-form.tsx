@@ -12,6 +12,7 @@ import writeOffLogo from '@/public/writeofflogo.png';
 import Image from 'next/image';
 import { Eye, EyeOff } from "lucide-react";
 import { validatePassword } from "@/lib/utils/passwordValidation";
+import { useAuth } from "@/lib/firebase/auth-context";
 
 export function SignUpForm({
   className,
@@ -32,6 +33,20 @@ export function SignUpForm({
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const router = useRouter();
   const mountedRef = useRef(true);
+  const { user, loading: authLoading } = useAuth();
+  const hasRedirected = useRef(false);
+
+  // Redirect already-authenticated users away from sign-up page
+  useEffect(() => {
+    if (!authLoading && user && !hasRedirected.current) {
+      hasRedirected.current = true;
+      console.log('[SignUpForm] User already authenticated, redirecting to /protected');
+      router.replace('/protected');
+    }
+    if (!user) {
+      hasRedirected.current = false;
+    }
+  }, [user, authLoading, router]);
 
   // Handle Google sign-in redirect result (when popup is blocked and redirect is used)
   useEffect(() => {

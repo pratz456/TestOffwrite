@@ -7,6 +7,7 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const OutputSchema = z.object({
   status: z.enum(['ok', 'needs_more_info', 'blocked']),
   is_deductible: z.boolean().optional(),
+  expense_type: z.enum(['business', 'personal']).optional(), // Explicit classification: business or personal expense
   category: z.enum([
     'advertising_marketing',
     'supplies_small_tools',
@@ -74,6 +75,30 @@ export interface TransactionInput {
   state?: string;
   channel?: string;
   note?: string;
+  
+  // Additional Plaid Transaction Fields
+  location?: {
+    address?: string;
+    city?: string;
+    state?: string;
+    lat?: number;
+    lon?: number;
+  };
+  payment_channel?: 'in_store' | 'online' | 'other';
+  authorized_date?: string;
+  iso_currency_code?: string;
+  unofficial_currency_code?: string;
+  personal_finance_category?: {
+    primary?: string;
+    detailed?: string;
+    confidence?: string;
+  };
+  pending?: boolean;
+  pending_transaction_id?: string;
+  account_owner?: string;
+  transaction_code?: string;
+  merchant_category_code?: string;
+  
   // Legacy fields for backward compatibility
   merchant_name?: string;
   amount?: number;
@@ -108,6 +133,7 @@ export interface UserContext {
   // Phase 1: High Impact Fields
   itemization_status?: 'itemize' | 'standard';
   business_start_date?: string;
+  years_in_business?: number; // Computed from business_start_date
   home_office_sqft?: number;
   total_home_sqft?: number;
   home_office_method?: 'simplified' | 'actual';
@@ -228,11 +254,25 @@ function convertIncomeToNumber(incomeRange: string): number {
   return ranges[incomeRange] || 50000; // Default to middle range
 }
 
+// Helper function to calculate years in business from start date
+function calculateYearsInBusiness(businessStartDate?: string): number | undefined {
+  if (!businessStartDate) return undefined;
+  try {
+    const startDate = new Date(businessStartDate);
+    const currentDate = new Date();
+    const years = (currentDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+    return Math.floor(years);
+  } catch {
+    return undefined;
+  }
+}
+
 // Helper function to convert user profile to enhanced context
 export function convertToEnhancedContext(userProfile: any, transactionDate: string): UserContext {
   const professions = userProfile.profession ? userProfile.profession.split(',').map((p: string) => p.trim()) : [];
   const age = userProfile.year_of_birth ? calculateAge(userProfile.year_of_birth) : 30; // Default age
   const income = userProfile.income ? convertIncomeToNumber(userProfile.income) : 50000;
+  const yearsInBusiness = calculateYearsInBusiness(userProfile.business_start_date);
   
   return {
     user_id: userProfile.id || '',
@@ -257,6 +297,7 @@ export function convertToEnhancedContext(userProfile: any, transactionDate: stri
     // Phase 1: High Impact Fields
     itemization_status: userProfile.itemization_status,
     business_start_date: userProfile.business_start_date,
+    years_in_business: yearsInBusiness,
     home_office_sqft: userProfile.home_office_sqft,
     total_home_sqft: userProfile.total_home_sqft,
     home_office_method: userProfile.home_office_method,
@@ -553,6 +594,7 @@ function applyMinimalHeuristics(transaction: TransactionInput): OutputType | nul
     return {
       status: 'ok',
       is_deductible: false,
+      expense_type: 'personal', // Refunds are personal (reduce expenses but not deductible themselves)
       category: 'other',
       key_analysis_factor: 'Negative amount indicates a refund or credit transaction. Refunds are not deductible business expenses.',
       customized_reason: `This is a refund of $${Math.abs(transaction.amount_usd || transaction.amount || 0)} from ${transaction.merchant || transaction.merchant_name}. Refunds reduce your business expenses but are not themselves deductible.`,
@@ -620,6 +662,14 @@ export async function analyzeTransaction(
   
   const systemPrompt = `You are a meticulous U.S. small-business tax analyst. Your job is to classify a single bank/credit transaction for deductibility and produce a SPECIFIC, PROFILE-AWARE explanation tied to the user's profession, entity type, travel pattern, and state.
 
+CRITICAL CLASSIFICATION REQUIREMENT:
+- You MUST explicitly classify each transaction as either "business" or "personal" in the expense_type field
+- "business" = expense is related to the user's business/profession and may be tax-deductible
+- "personal" = expense is for personal use and is NOT tax-deductible
+- Use ALL available context (merchant, location, time, user profile, transaction details) to make this determination
+- If uncertain, err on the side of "personal" to be conservative
+- The expense_type field should align with is_deductible (business = true, personal = false)
+
 Strict rules:
 - Be precise and user-specific. Always mention the user's profession and relevant profile attributes inside the reasoning_summary.
 - Cite only IRS primary sources by publication name/number (e.g., IRS Pub 535, IRS Pub 463). Do not invent sections. If a section is unknown, set section=null.
@@ -642,7 +692,7 @@ ANALYSIS RULES:
 - Key Analysis Factor (KAF) must be EXACTLY THREE DISTINCT sentences, ≤ 400 characters total, tailored to the user's profession(s).
 - NEVER use generic reasoning like "Travel expenses for business purposes are generally deductible."
 - ALWAYS explain WHY the expense is necessary for the user's specific profession(s).
-- Use ALL available transaction context: time_24h, city/state, work_related_travel pattern, office_location, business_purpose, attendees, travel_destination, equipment_details, client_project, documentation_status, meeting_notes, mileage_details, etc.
+- Use ALL available transaction context: time_24h, city/state, location (address, lat/lon), payment_channel, authorized_date, work_related_travel pattern, office_location, business_purpose, attendees, travel_destination, equipment_details, client_project, documentation_status, meeting_notes, mileage_details, personal_finance_category, pending status, currency codes, etc.
 - Use ALL available user context: age, income, business_entity, work_related_travel frequency, documentation_habits, business_purpose, home_office_sqft, vehicle_business_use_percentage, audit_history, tax_professional, business_seasonality, multiple_locations, international_business, professional_licenses, prior_year_deductions, etc.
 - Consider age and income for expense reasonableness (e.g., $50 meal for $30k income vs $100k income).
 - Use business_entity to determine deduction rules (LLC vs Corporation vs Sole Proprietor).
@@ -675,6 +725,7 @@ REQUIRED JSON OUTPUT FORMAT:
 {
   "status": "ok",
   "is_deductible": true,
+  "expense_type": "business",
   "category": "meals_50",
   "deductible_percent": 50,
   "key_analysis_factor": "First sentence explains profession-specific need. Second sentence considers timing context. Third sentence provides tax rule context.",
@@ -718,6 +769,7 @@ CONTEXT (JSON):
     
     "itemization_status": "${(ctx as UserContext).itemization_status || 'Not specified'}",
     "business_start_date": "${(ctx as UserContext).business_start_date || 'Not specified'}",
+    "years_in_business": ${(ctx as UserContext).years_in_business !== undefined ? (ctx as UserContext).years_in_business : 'null'},
     "home_office_sqft": ${(ctx as UserContext).home_office_sqft || 0},
     "total_home_sqft": ${(ctx as UserContext).total_home_sqft || 0},
     "home_office_method": "${(ctx as UserContext).home_office_method || 'Not specified'}",
@@ -745,14 +797,24 @@ CONTEXT (JSON):
   "tx": {
     "tx_id": "${transaction.tx_id || ''}",
     "merchant": "${transaction.merchant || transaction.merchant_name || ''}",
-    "mcc": "${transaction.mcc || ''}",
+    "mcc": "${transaction.mcc || transaction.merchant_category_code || ''}",
     "amount_usd": ${transaction.amount_usd || transaction.amount || 0},
     "date_iso": "${transaction.date_iso || transaction.date || ''}",
     "time_24h": "${timeToUse || ''}",
-    "city": "${transaction.city || ''}",
-    "state": "${transaction.state || ''}",
+    "city": "${transaction.location?.city || transaction.city || ''}",
+    "state": "${transaction.location?.state || transaction.state || ''}",
     "channel": "${transaction.channel || ''}",
     "note": "${transaction.note || transaction.notes || transaction.description || ''}",
+    "location": ${JSON.stringify(transaction.location || {})},
+    "payment_channel": "${transaction.payment_channel || ''}",
+    "authorized_date": "${transaction.authorized_date || ''}",
+    "iso_currency_code": "${transaction.iso_currency_code || 'USD'}",
+    "unofficial_currency_code": "${transaction.unofficial_currency_code || ''}",
+    "personal_finance_category": ${JSON.stringify(transaction.personal_finance_category || {})},
+    "pending": ${transaction.pending || false},
+    "pending_transaction_id": "${transaction.pending_transaction_id || ''}",
+    "account_owner": "${transaction.account_owner || ''}",
+    "transaction_code": "${transaction.transaction_code || ''}",
     "business_purpose": "${transaction.business_purpose || ''}",
     "attendees": ${JSON.stringify(transaction.attendees || [])},
     "travel_destination": "${transaction.travel_destination || ''}",
@@ -768,9 +830,17 @@ ${professionHints}
 
 CRITICAL RULES:
 1. ALWAYS include "status": "ok" in your response
-2. Use EXACT category values from the list above (e.g., "meals_50" not "Meals and Entertainment")
-3. For travel expenses: Explain WHY travel is necessary for the user's specific profession(s)
-4. Use ALL transaction context: Consider time_24h, city/state, work_related_travel pattern, office_location
+2. ALWAYS include "expense_type": "business" or "expense_type": "personal" to explicitly classify the transaction
+   - "business" = expense is related to the user's business/profession (may be tax-deductible)
+   - "personal" = expense is for personal use (NOT tax-deductible)
+   - Use ALL available context (merchant, location, time, user profile, transaction details, personal_finance_category) to determine this
+   - Consider merchant name, MCC code, location, time of day, user's profession, and transaction context
+   - If uncertain, err on the side of "personal" to be conservative
+   - expense_type should align with is_deductible (business = true, personal = false)
+   - The expense_type field is REQUIRED and must be explicitly set for every transaction
+3. Use EXACT category values from the list above (e.g., "meals_50" not "Meals and Entertainment")
+4. For travel expenses: Explain WHY travel is necessary for the user's specific profession(s)
+4. Use ALL transaction context: Consider time_24h, city/state, location (address, lat/lon), payment_channel, authorized_date, work_related_travel pattern, office_location
 5. Distinguish commuting vs business travel: Commuting to regular workplace is NOT deductible
 6. KAF must be THREE distinct sentences: (1) profession-specific need, (2) timing context, (3) tax rule context
 7. ALWAYS mention the time_24h in your analysis if available - timing matters for tax deductions
@@ -782,12 +852,35 @@ CRITICAL RULES:
    - If date_iso is "2025-09-12", use "September 12" not "September 13"
    - If date_iso is "2025-09-13", use "September 13" not "September 12"
    - Always match the exact date provided by Plaid
-10. Consider user's age and income level for reasonableness of expenses
-11. Use business_entity type to determine appropriate deduction rules (e.g., LLC vs Corporation)
-12. Consider office_location for travel deductions (home office vs external office)
-13. Use work_related_travel frequency to assess travel expense reasonableness
-14. Customized_reason should be unique to this user's profession and transaction context
-15. Use comprehensive IRS references based on expense type:
+10. Use location data (address, lat/lon) for travel deduction analysis:
+    - Location coordinates help verify business travel distance and purpose
+    - Address helps identify if transaction is at business location vs personal location
+    - Use location.city and location.state if available, otherwise fall back to city/state fields
+11. Use payment_channel to understand transaction context:
+    - "in_store" may indicate physical business purchases
+    - "online" may indicate software subscriptions or remote services
+    - Consider payment method when determining business purpose
+12. Use authorized_date vs date_iso for timing analysis:
+    - authorized_date is when transaction was authorized (may differ from posted date)
+    - Use date_iso for tax year determination
+    - Consider timing differences for expense timing rules
+13. Use personal_finance_category for better categorization:
+    - primary: High-level category (e.g., "GENERAL_MERCHANDISE")
+    - detailed: Specific category (e.g., "GENERAL_MERCHANDISE_OFFICE_SUPPLIES")
+    - confidence: How confident Plaid is in the categorization
+14. Use pending status for transaction timing:
+    - Pending transactions may not be finalized
+    - Consider pending status when determining tax year
+15. Use currency codes for international transactions:
+    - iso_currency_code: Standard currency (e.g., "USD", "EUR")
+    - unofficial_currency_code: Non-standard currency if applicable
+    - International transactions may have different deduction rules
+16. Consider user's age and income level for reasonableness of expenses
+17. Use business_entity type to determine appropriate deduction rules (e.g., LLC vs Corporation)
+18. Consider office_location for travel deductions (home office vs external office)
+19. Use work_related_travel frequency to assess travel expense reasonableness
+20. Customized_reason should be unique to this user's profession and transaction context
+21. Use comprehensive IRS references based on expense type:
     - Travel/Transportation: "IRS Pub 463 (Travel, Entertainment, Gift, and Car Expenses)"
     - Meals/Entertainment: "IRS Pub 463 (Travel, Entertainment, Gift, and Car Expenses)"
     - Home Office: "IRS Pub 587 (Business Use of Your Home)"
@@ -866,6 +959,23 @@ Your reasoning_summary MUST include:
 FORMULA FOR REASONING_SUMMARY:
 "As a [AGE]-year-old [PROFESSION] earning $[INCOME]k annually in [STATE], operating as [ENTITY_TYPE] with [OFFICE_LOCATION] and [TRAVEL_PATTERN] work-related travel, this $[AMOUNT] [TRANSACTION_TYPE] is [REASONABLENESS_ASSESSMENT] and [DEDUCTIBILITY_STATUS] under [IRS_REFERENCE] for [SPECIFIC_BUSINESS_PURPOSE], [CONSISTENCY_WITH_PATTERN]"
 
+EXPENSE_TYPE CLASSIFICATION GUIDELINES:
+- Classify as "business" if:
+  * Expense is necessary for the user's profession/business operations
+  * Expense is ordinary and necessary for the business
+  * Expense is directly related to generating business income
+  * Examples: software subscriptions for work, travel to client meetings, business meals, office supplies, professional services
+- Classify as "personal" if:
+  * Expense is for personal use or enjoyment
+  * Expense is not related to business operations
+  * Expense is a personal lifestyle choice
+  * Examples: personal groceries, personal entertainment, personal clothing, personal travel for vacation
+- When uncertain, consider:
+  * User's profession and typical business needs
+  * Transaction context (time, location, merchant type)
+  * User's business entity and work patterns
+  * If still uncertain, err on the side of "personal" to be conservative
+
 DATE USAGE EXAMPLES:
 - If date_iso is "2025-09-12": "The transaction at Starbucks on September 12 indicates..."
 - If date_iso is "2025-09-13": "The transaction at Starbucks on September 13 indicates..."
@@ -916,6 +1026,15 @@ If information is insufficient, return:
     if (!parsed.reason_hash) {
       parsed.reason_hash = generateReasonHash(transaction);
     }
+    
+    // Ensure expense_type is always set (infer from is_deductible if not provided by AI)
+    if (!parsed.expense_type && parsed.is_deductible !== undefined) {
+      parsed.expense_type = parsed.is_deductible ? 'business' : 'personal';
+    } else if (!parsed.expense_type) {
+      // Default to personal if neither is set (conservative approach)
+      parsed.expense_type = 'personal';
+      parsed.is_deductible = false;
+    }
 
     try {
       const validated = OutputSchema.parse(parsed);
@@ -931,6 +1050,14 @@ If information is insufficient, return:
       // Fix missing status
       if (!fixedParsed.status) {
         fixedParsed.status = 'ok';
+      }
+      
+      // Ensure expense_type is set (infer from is_deductible if needed)
+      if (!fixedParsed.expense_type && fixedParsed.is_deductible !== undefined) {
+        fixedParsed.expense_type = fixedParsed.is_deductible ? 'business' : 'personal';
+      } else if (!fixedParsed.expense_type) {
+        fixedParsed.expense_type = 'personal';
+        fixedParsed.is_deductible = false;
       }
       
       // Fix invalid category values

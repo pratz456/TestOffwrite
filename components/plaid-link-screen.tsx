@@ -12,6 +12,7 @@ import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import { auth } from '@/lib/firebase/client';
 import { useJobProgress } from '@/lib/hooks/useJobProgress';
 import { errorLogger, logPollingError, logAPIError } from '@/lib/error-logger';
+import { debugLog } from '@/lib/utils/debug';
 
 // Global flag to prevent duplicate Plaid script loading
 let plaidScriptLoaded = false;
@@ -1141,7 +1142,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
                     </p>
                     <button
                       onClick={() => {
-                        console.log('🔄 [User Action] Skipping analysis, proceeding to review transactions');
+                        debugLog('🔄 [User Action] Skipping analysis, proceeding to review transactions');
                         onSuccess();
                       }}
                       className="px-3 py-1 bg-amber-600 hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-600 text-white font-semibold rounded-md transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 text-xs"

@@ -1,12 +1,12 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { SidebarNav } from './sidebar-nav';
 import { MobileNav } from './mobile-nav';
 import { TutorialManager } from './tutorial/tutorial-manager';
 import { getUserProfile } from '@/lib/firebase/profiles';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { ToastContainer, useToasts } from '@/components/ui/toast';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
 
@@ -17,10 +17,12 @@ interface ProtectedLayoutClientProps {
 export const ProtectedLayoutClient: React.FC<ProtectedLayoutClientProps> = ({ children }) => {
   const { user, loading } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
   const [userProfile, setUserProfile] = useState<any>(null);
   const [profileLoading, setProfileLoading] = useState(true);
   const [isProfileSetup, setIsProfileSetup] = useState(false);
   const { toasts, removeToast } = useToasts();
+  const hasRedirected = useRef(false);
 
   // Fetch user profile on mount
   useEffect(() => {
@@ -77,12 +79,24 @@ export const ProtectedLayoutClient: React.FC<ProtectedLayoutClientProps> = ({ ch
     }
   }, [user]);
 
-  // Handle redirect when user is not authenticated
+  // Fallback: Client-side redirect if middleware couldn't handle it
+  // (e.g., if cookies aren't accessible in middleware on Firebase Hosting)
   useEffect(() => {
-    if (!loading && !user) {
-      router.push('/auth/login');
+    // Only redirect if middleware didn't catch it (user reached protected page without auth)
+    // This component only renders for /protected routes, so we know we're on a protected route
+    if (!loading && !user && !hasRedirected.current) {
+      const isAuthPage = pathname?.startsWith('/auth/');
+      // Only redirect if we're on a protected route (not already on auth page)
+      if (!isAuthPage) {
+        hasRedirected.current = true;
+        console.log('[ProtectedLayoutClient] Fallback: No user, redirecting to login from:', pathname);
+        router.replace('/auth/login');
+      }
     }
-  }, [user, loading, router]);
+    if (user) {
+      hasRedirected.current = false;
+    }
+  }, [user, loading, router, pathname]);
 
   // If loading, show loading state
   if (loading || profileLoading) {

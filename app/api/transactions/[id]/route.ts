@@ -16,6 +16,7 @@ function normalizeDoc(doc: any): any {
     date: data.date || '',
     type: data.amount < 0 ? 'income' : 'expense',
     is_deductible: data.is_deductible,
+    expense_type: data.expense_type, // Explicit classification: business or personal
     deductible_reason: data.deductible_reason || null,
     deduction_score: data.deduction_score || null,
     ai_analysis: data.ai_analysis || null,

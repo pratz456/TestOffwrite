@@ -1,4 +1,5 @@
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { plaidClient } from '@/lib/plaid/client';
@@ -13,7 +14,23 @@ export async function POST(req: Request) {
     const { uid } = await getUserFromReqOrThrow(req);
 
     // Get user's historical access to determine default timeframe
-    const userHistoricalAccessDays = await getTransactionDateRange(uid);
+    // This will auto-start a free trial if the user doesn't have one
+    let userHistoricalAccessDays = await getTransactionDateRange(uid);
+
+    // Ensure free trial is started (in case it wasn't started during getTransactionDateRange)
+    // This is a safety check - getTransactionDateRange should have already started it
+    try {
+      const trialResult = await startFreeTrial(uid);
+      if (trialResult.success) {
+        console.log(`✅ [Exchange Token] Free trial started/verified for user ${uid}`);
+        // Refresh date range after starting trial to ensure we use maximum range
+        userHistoricalAccessDays = await getTransactionDateRange(uid);
+        console.log(`✅ [Exchange Token] Refreshed date range: ${userHistoricalAccessDays} days`);
+      }
+    } catch (trialError) {
+      console.error('⚠️ [Exchange Token] Error starting trial (non-fatal):', trialError);
+      // Continue even if trial start fails
+    }
 
     // Convert days to timeframe string for backward compatibility
     let defaultTimeframe = '3months'; // Default to 3 months for standard users
@@ -28,17 +45,6 @@ export async function POST(req: Request) {
     }
 
     const { public_token, import_timeframe = defaultTimeframe } = await req.json();
-
-    // Ensure free trial is started (in case it wasn't started during link token creation)
-    try {
-      const trialResult = await startFreeTrial(uid);
-      if (trialResult.success) {
-        console.log(`✅ [Exchange Token] Free trial started/verified for user ${uid}`);
-      }
-    } catch (trialError) {
-      console.error('⚠️ [Exchange Token] Error starting trial (non-fatal):', trialError);
-      // Continue even if trial start fails
-    }
 
     if (!public_token) {
       return NextResponse.json({ error: 'Missing public_token' }, { status: 400 });
@@ -298,11 +304,20 @@ export async function POST(req: Request) {
     console.log(`[Exchange Token] User ${uid} historical access days: ${userHistoricalAccessDays}`);
 
     // Calculate days to fetch based on user's access level
-    // Ensure we don't exceed user's access level and Plaid's maximum
-    const maxAllowedDays = userHistoricalAccessDays >= 365 ? MAX_PLAID_DAYS : 90;
-    const daysToFetch = Math.min(userHistoricalAccessDays, maxAllowedDays);
+    // If user has historical access (365 days), use maximum Plaid allows (730 days)
+    // Otherwise, use the user's access level (90 days for standard users)
+    let daysToFetch: number;
+    if (userHistoricalAccessDays >= 365) {
+      // User has historical access - use maximum available from Plaid (730 days)
+      daysToFetch = MAX_PLAID_DAYS;
+      console.log(`✅ [Exchange Token] User has historical access (${userHistoricalAccessDays} days), using maximum Plaid range: ${MAX_PLAID_DAYS} days`);
+    } else {
+      // Standard user - use their access level (typically 90 days)
+      daysToFetch = userHistoricalAccessDays;
+      console.log(`ℹ️ [Exchange Token] User has standard access (${userHistoricalAccessDays} days)`);
+    }
 
-    // Use maximum available days if timeframe exceeds Plaid's limit
+    // Ensure we don't exceed Plaid's maximum (safety check)
     const actualDays = Math.min(daysToFetch, MAX_PLAID_DAYS);
 
     // Calculate start date more reliably using milliseconds
@@ -451,6 +466,24 @@ export async function POST(req: Request) {
             merchant_name: tx.merchant_name || tx.name,
             category: tx.personal_finance_category?.detailed || tx.category?.[0] || 'Other',
             description: tx.name,
+            // Additional Plaid fields
+            merchant_category_code: tx.merchant_category_code,
+            location: tx.location ? {
+              address: tx.location.address,
+              city: tx.location.city,
+              state: tx.location.region,
+              lat: tx.location.lat,
+              lon: tx.location.lon
+            } : undefined,
+            payment_channel: tx.payment_channel,
+            authorized_date: tx.authorized_date,
+            iso_currency_code: tx.iso_currency_code,
+            unofficial_currency_code: tx.unofficial_currency_code,
+            personal_finance_category: tx.personal_finance_category,
+            pending: tx.pending,
+            pending_transaction_id: tx.pending_transaction_id,
+            account_owner: tx.account_owner,
+            transaction_code: tx.transaction_code,
             is_deductible: null,
             deduction_score: null,
             deductible_reason: null,

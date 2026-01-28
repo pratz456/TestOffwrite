@@ -4,6 +4,7 @@ import { adminDb } from '../../../../lib/firebase/admin';
 import { createHash } from 'crypto';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 interface PlaidWebhookPayload {
   webhook_type: string;

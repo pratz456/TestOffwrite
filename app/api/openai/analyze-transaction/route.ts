@@ -1,4 +1,5 @@
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server'
 import { analyzeTransactionWithRetry, TransactionInput, UserContext, convertToEnhancedContext } from '@/lib/ai/analyzeTransaction'
@@ -59,6 +60,30 @@ export async function POST(request: NextRequest) {
       date_iso: transaction.date,
       datetime_iso: transaction.datetime, // Include datetime from Plaid
       note: transaction.description || transaction.notes,
+      // Additional Plaid fields
+      mcc: transaction.merchant_category_code || transaction.mcc,
+      location: transaction.location,
+      payment_channel: transaction.payment_channel,
+      authorized_date: transaction.authorized_date,
+      iso_currency_code: transaction.iso_currency_code,
+      unofficial_currency_code: transaction.unofficial_currency_code,
+      personal_finance_category: transaction.personal_finance_category,
+      pending: transaction.pending,
+      pending_transaction_id: transaction.pending_transaction_id,
+      account_owner: transaction.account_owner,
+      transaction_code: transaction.transaction_code,
+      merchant_category_code: transaction.merchant_category_code,
+      // User-added context fields
+      business_purpose: transaction.business_purpose,
+      attendees: transaction.attendees,
+      travel_destination: transaction.travel_destination,
+      equipment_details: transaction.equipment_details,
+      client_project: transaction.client_project,
+      documentation_status: transaction.documentation_status,
+      meeting_notes: transaction.meeting_notes,
+      mileage_details: transaction.mileage_details,
+      city: transaction.location?.city || transaction.city,
+      state: transaction.location?.state || transaction.state,
       // Legacy fields for backward compatibility
       merchant_name: transaction.merchant_name,
       amount: transaction.amount,

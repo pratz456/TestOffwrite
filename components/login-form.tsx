@@ -7,11 +7,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import writeOffLogo from '@/public/writeofflogo.png';
 import Image from 'next/image';
 import { Eye, EyeOff } from "lucide-react";
 import { handleAuthRedirectResult } from "@/lib/firebase/auth";
+import { useAuth } from "@/lib/firebase/auth-context";
 
 export function LoginForm({
   className,
@@ -26,6 +27,20 @@ export function LoginForm({
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirect = searchParams.get('redirect') || '/protected';
+  const { user, loading: authLoading } = useAuth();
+  const hasRedirected = useRef(false);
+
+  // Redirect already-authenticated users away from login page
+  useEffect(() => {
+    if (!authLoading && user && !hasRedirected.current) {
+      hasRedirected.current = true;
+      console.log('[LoginForm] User already authenticated, redirecting to:', redirect);
+      router.replace(redirect);
+    }
+    if (!user) {
+      hasRedirected.current = false;
+    }
+  }, [user, authLoading, router, redirect]);
 
   // Handle OAuth redirect completion (Google redirect flow)
   useEffect(() => {

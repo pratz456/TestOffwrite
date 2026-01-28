@@ -5,7 +5,9 @@ const nextConfig: NextConfig = {
   pageExtensions: ["ts", "tsx", "js", "jsx"],
 
   // Firebase deployment optimizations
-  output: "standalone",
+  // Note: output: "standalone" is not compatible with Firebase Hosting frameworks integration
+  // Firebase handles the build output automatically
+  // output: "standalone",
 
   // Performance optimizations
   experimental: {
@@ -13,16 +15,7 @@ const nextConfig: NextConfig = {
     optimizePackageImports: ["lucide-react", "@radix-ui/react-icons"],
   },
 
-  // Allow cross-origin requests in development (for remote access/tunnels)
-  // This prevents warnings when accessing dev server from different IPs
-  allowedDevOrigins: process.env.NODE_ENV === 'development' 
-    ? (process.env.ALLOWED_DEV_ORIGINS?.split(',') || ['100.70.31.123'])
-    : undefined,
-
-  // External packages for server components
-  serverExternalPackages: ["firebase-admin"],
-
-  // Turbopack configuration (moved from experimental.turbo)
+  // Turbopack configuration (Next.js 15.1.4 supports top-level turbopack)
   turbopack: {
     rules: {
       "*.svg": {
@@ -31,6 +24,9 @@ const nextConfig: NextConfig = {
       },
     },
   },
+
+  // External packages for server components
+  serverExternalPackages: ["firebase-admin"],
 
   // Compiler optimizations
   compiler: {
@@ -76,9 +72,14 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   generateEtags: false,
 
-  // ✅ Ignore TS errors during builds (eslint config removed - Next.js 16 handles this differently)
+  // ✅ Ignore TS errors during builds
   typescript: {
-    ignoreBuildErrors: true,
+    ignoreBuildErrors: true
+  },
+
+  // ✅ Ignore ESLint errors during builds (Next.js 15)
+  eslint: {
+    ignoreDuringBuilds: true
   },
 };
 

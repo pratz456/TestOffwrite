@@ -67,7 +67,9 @@ const client = new PlaidApi(configuration);
 
 export async function POST(request: NextRequest) {
   try {
-    console.log('🔄 [Plaid Link Token] Creating link token...');
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('🔄 [Plaid Link Token] Creating link token...');
+    }
 
     // Get authenticated user
     const { uid } = await getUserFromReqOrThrow(request);
@@ -76,14 +78,20 @@ export async function POST(request: NextRequest) {
     try {
       const trialResult = await startFreeTrial(uid);
       if (trialResult.success) {
-        console.log(`✅ [Plaid Link Token] Free trial started/verified for user ${uid}`);
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`✅ [Plaid Link Token] Free trial started/verified for user ${uid}`);
+        }
       }
     } catch (trialError) {
-      console.error('⚠️ [Plaid Link Token] Error starting trial (non-fatal):', trialError);
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('⚠️ [Plaid Link Token] Error starting trial (non-fatal):', trialError);
+      }
       // Continue even if trial start fails - don't block Plaid token creation
     }
 
-    console.log('✅ [Plaid Link Token] User ID received:', uid);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('✅ [Plaid Link Token] User ID received:', uid);
+    }
 
     const configs: LinkTokenCreateRequest = {
       user: {

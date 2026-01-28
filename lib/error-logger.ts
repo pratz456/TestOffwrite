@@ -1,5 +1,6 @@
 // Comprehensive Error Logging System
 // This system tracks all errors and provides detailed debugging information
+import { isDev } from './utils/debug';
 
 export interface ErrorLog {
   id: string;
@@ -51,38 +52,40 @@ class ErrorLogger {
       this.logs = this.logs.slice(-this.maxLogs);
     }
 
-    // Console logging with color coding
-    const colors = {
-      error: '\x1b[31m', // Red
-      warning: '\x1b[33m', // Yellow
-      info: '\x1b[36m', // Cyan
-      debug: '\x1b[90m', // Gray
-    };
-    
-    const reset = '\x1b[0m';
-    const color = colors[logEntry.level] || colors.error;
-    
-    console.log(`${color}[${logEntry.level.toUpperCase()}] ${logEntry.component}:${logEntry.function}${reset}`);
-    console.log(`${color}Message: ${logEntry.message}${reset}`);
-    
-    if (logEntry.details) {
-      console.log(`${color}Details:`, logEntry.details, reset);
-    }
-    
-    if (logEntry.stack) {
-      console.log(`${color}Stack:`, logEntry.stack, reset);
-    }
-    
-    if (logEntry.firebaseError) {
-      console.log(`${color}Firebase Error:`, logEntry.firebaseError, reset);
-    }
-    
-    if (logEntry.plaidError) {
-      console.log(`${color}Plaid Error:`, logEntry.plaidError, reset);
-    }
-    
-    if (logEntry.openaiError) {
-      console.log(`${color}OpenAI Error:`, logEntry.openaiError, reset);
+    // Console logging with color coding (only in development/test)
+    if (isDev()) {
+      const colors = {
+        error: '\x1b[31m', // Red
+        warning: '\x1b[33m', // Yellow
+        info: '\x1b[36m', // Cyan
+        debug: '\x1b[90m', // Gray
+      };
+      
+      const reset = '\x1b[0m';
+      const color = colors[logEntry.level] || colors.error;
+      
+      console.log(`${color}[${logEntry.level.toUpperCase()}] ${logEntry.component}:${logEntry.function}${reset}`);
+      console.log(`${color}Message: ${logEntry.message}${reset}`);
+      
+      if (logEntry.details) {
+        console.log(`${color}Details:`, logEntry.details, reset);
+      }
+      
+      if (logEntry.stack) {
+        console.log(`${color}Stack:`, logEntry.stack, reset);
+      }
+      
+      if (logEntry.firebaseError) {
+        console.log(`${color}Firebase Error:`, logEntry.firebaseError, reset);
+      }
+      
+      if (logEntry.plaidError) {
+        console.log(`${color}Plaid Error:`, logEntry.plaidError, reset);
+      }
+      
+      if (logEntry.openaiError) {
+        console.log(`${color}OpenAI Error:`, logEntry.openaiError, reset);
+      }
     }
   }
 

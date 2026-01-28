@@ -19,6 +19,8 @@ interface HistoricalAccessStatus {
   trialEnd?: Date;
   subscriptionEnd?: Date;
   daysRemaining?: number;
+  cancelAtPeriodEnd?: boolean;
+  currentPeriodEnd?: Date;
 }
 
 export function HistoricalAccessUpgradeCard() {
@@ -37,7 +39,15 @@ export function HistoricalAccessUpgradeCard() {
         const response = await makeAuthenticatedRequest('/api/subscriptions/check-access');
         if (response.ok) {
           const data = await response.json();
-          setAccessStatus(data.data);
+          const accessData = data.data;
+          // Map subscription details to access status
+          setAccessStatus({
+            ...accessData,
+            cancelAtPeriodEnd: data.data.subscription?.cancelAtPeriodEnd || false,
+            currentPeriodEnd: data.data.subscription?.currentPeriodEnd 
+              ? new Date(data.data.subscription.currentPeriodEnd) 
+              : undefined,
+          });
         }
       } catch (error) {
         console.error('Error fetching access status:', error);
@@ -104,6 +114,55 @@ export function HistoricalAccessUpgradeCard() {
     }
   };
 
+  const handleReactivate = async () => {
+    if (!user?.id) return;
+
+    setCheckoutLoading(true);
+    try {
+      const response = await makeAuthenticatedRequest('/api/stripe/reactivate-subscription', {
+        method: 'POST',
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          // Refresh access status to update UI
+          const statusResponse = await makeAuthenticatedRequest('/api/subscriptions/check-access');
+          if (statusResponse.ok) {
+            const statusData = await statusResponse.json();
+            const accessData = statusData.data;
+            setAccessStatus({
+              ...accessData,
+              cancelAtPeriodEnd: statusData.data.subscription?.cancelAtPeriodEnd || false,
+              currentPeriodEnd: statusData.data.subscription?.currentPeriodEnd 
+                ? new Date(statusData.data.subscription.currentPeriodEnd) 
+                : undefined,
+            });
+          }
+          alert('Subscription reactivated successfully! Your subscription will continue after the current billing period.');
+        } else {
+          alert(data.message || 'Failed to reactivate subscription. Please try again.');
+        }
+      } else {
+        let errorMessage = 'Failed to reactivate subscription. Please try again.';
+        const responseText = await response.text();
+        
+        try {
+          const errorData = JSON.parse(responseText);
+          errorMessage = errorData.error || errorData.details || errorData.message || errorMessage;
+        } catch (jsonError) {
+          errorMessage = responseText || `Server returned ${response.status} ${response.statusText}`;
+        }
+        alert(errorMessage);
+      }
+    } catch (error) {
+      console.error('Error reactivating subscription:', error);
+      alert('Failed to reactivate subscription. Please check the console for details and try again.');
+    } finally {
+      setCheckoutLoading(false);
+    }
+  };
+
   // Calculate savings for yearly plan
   const monthlyPrice = 14.99;
   const yearlyPrice = 150;
@@ -122,32 +181,69 @@ export function HistoricalAccessUpgradeCard() {
     );
   }
 
-  // If user already has paid access, show status card only
-  // If user is in trial, show subscription options so they can upgrade
-  if (accessStatus?.hasAccess && accessStatus.isPaid) {
+  // Hide card completely when user has active subscription (not cancelled)
+  if (accessStatus?.hasAccess && accessStatus.isPaid && !accessStatus.cancelAtPeriodEnd) {
+    return null; // Don't render card for active subscriptions
+  }
+
+  // Show re-enable card when subscription is cancelled but still has access
+  if (accessStatus?.hasAccess && accessStatus.isPaid && accessStatus.cancelAtPeriodEnd) {
     return (
-      <Card className="border-primary/40 dark:border-primary/20 bg-gradient-to-br from-primary/20 via-primary/15 to-primary/25 dark:from-primary/5 dark:to-primary/10 shadow-md">
+      <Card className="border-yellow-400/40 dark:border-yellow-500/20 bg-gradient-to-br from-yellow-50/50 via-yellow-50/30 to-yellow-100/50 dark:from-yellow-950/20 dark:via-yellow-950/10 dark:to-yellow-900/20 shadow-md">
         <CardHeader>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-primary" />
-              <CardTitle className="text-lg">Historical Transactions Active</CardTitle>
+              <Sparkles className="w-5 h-5 text-yellow-600 dark:text-yellow-400" />
+              <CardTitle className="text-lg">Subscription Scheduled to Cancel</CardTitle>
             </div>
-            <Badge variant="default" className="bg-primary">
-              Active
+            <Badge variant="outline" className="border-yellow-500 text-yellow-700 dark:text-yellow-400">
+              Cancelling
             </Badge>
           </div>
           <CardDescription>
-            You have access to up to 1 year of transaction history
+            Your subscription is scheduled to cancel, but you'll continue to have access until the end of your billing period.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {accessStatus.subscriptionEnd && (
-            <TrialCountdown
-              trialEnd={new Date(accessStatus.subscriptionEnd)}
-              isTrial={false}
-            />
+          {accessStatus.currentPeriodEnd && (
+            <div className="space-y-2">
+              <div className="text-sm text-muted-foreground">
+                Access until: <span className="font-semibold text-foreground">
+                  {new Date(accessStatus.currentPeriodEnd).toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                  })}
+                </span>
+              </div>
+              <TrialCountdown
+                trialEnd={new Date(accessStatus.currentPeriodEnd)}
+                isTrial={false}
+              />
+            </div>
           )}
+          <Button
+            onClick={handleReactivate}
+            disabled={checkoutLoading}
+            className="w-full"
+            size="lg"
+            variant="default"
+          >
+            {checkoutLoading ? (
+              <>
+                <Loader2 className="mr-2 w-4 h-4 animate-spin" />
+                Re-enabling...
+              </>
+            ) : (
+              <>
+                Re-enable Subscription
+                <Sparkles className="ml-2 w-4 h-4" />
+              </>
+            )}
+          </Button>
+          <p className="text-xs text-center text-muted-foreground">
+            Re-enable your subscription to continue access after the current billing period ends.
+          </p>
         </CardContent>
       </Card>
     );

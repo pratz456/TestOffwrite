@@ -1,4 +1,5 @@
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { plaidClient } from '@/lib/plaid/client';
@@ -176,6 +177,24 @@ export async function POST(req: Request) {
           merchant_name: tx.merchant_name || tx.name,
           category: tx.personal_finance_category?.detailed || tx.category?.[0] || 'Other',
           description: tx.name,
+          // Additional Plaid fields
+          merchant_category_code: tx.merchant_category_code,
+          location: tx.location ? {
+            address: tx.location.address,
+            city: tx.location.city,
+            state: tx.location.region,
+            lat: tx.location.lat,
+            lon: tx.location.lon
+          } : undefined,
+          payment_channel: tx.payment_channel,
+          authorized_date: tx.authorized_date,
+          iso_currency_code: tx.iso_currency_code,
+          unofficial_currency_code: tx.unofficial_currency_code,
+          personal_finance_category: tx.personal_finance_category,
+          pending: tx.pending,
+          pending_transaction_id: tx.pending_transaction_id,
+          account_owner: tx.account_owner,
+          transaction_code: tx.transaction_code,
           is_deductible: null,
           deduction_score: null,
           deductible_reason: null,

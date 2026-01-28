@@ -46,6 +46,7 @@ interface TransactionDetailScreenProps {
     description?: string;
     notes?: string;
     is_deductible?: boolean | null;
+    expense_type?: 'business' | 'personal'; // Explicit classification from AI or user
     deductible_reason?: string;
     deduction_score?: number;
     ai_analysis?: string; // Original AI analysis text - never overwritten
@@ -150,12 +151,21 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
       }, 60);
     }
   };
+  // Initialize classification from expense_type (AI classification) or fall back to is_deductible
+  const getInitialClassification = (): 'business' | 'personal' | null => {
+    // Prefer explicit expense_type from AI analysis
+    if (transaction.expense_type) {
+      return transaction.expense_type;
+    }
+    // Fall back to is_deductible if expense_type not available
+    if (transaction.is_deductible === null) {
+      return null; // No default for needs review items - user must choose
+    }
+    return transaction.is_deductible ? 'business' : 'personal';
+  };
+
   const [classification, setClassification] = useState<'business' | 'personal' | null>(
-    transaction.is_deductible === null
-      ? null // No default for needs review items - user must choose
-      : transaction.is_deductible
-        ? 'business'
-        : 'personal'
+    getInitialClassification()
   );
   const [additionalContext, setAdditionalContext] = useState(transaction.notes || '');
   const [isUploadingReceipt, setIsUploadingReceipt] = useState(false);
@@ -186,13 +196,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
 
   // Update local state when transaction prop changes
   useEffect(() => {
-    setClassification(
-      transaction.is_deductible === null
-        ? null
-        : transaction.is_deductible
-          ? 'business'
-          : 'personal'
-    );
+    setClassification(getInitialClassification());
     setAdditionalContext(transaction.notes || '');
   }, [transaction]);
 
@@ -248,6 +252,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
 
     const updates = {
       is_deductible: classification === 'business',
+      expense_type: classification, // Store explicit classification
       user_classification_reason: classification === 'business'
         ? (additionalContext || 'Classified as business expense by user')
         : 'Classified as personal expense by user',

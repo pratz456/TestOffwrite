@@ -1,4 +1,5 @@
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
@@ -490,6 +491,30 @@ async function analyzeOneTransaction(
     date_iso: tx.date,
     datetime_iso: tx.datetime, // Include datetime from Plaid
     note: tx.description,
+    // Additional Plaid fields
+    mcc: tx.merchant_category_code || tx.mcc,
+    location: tx.location,
+    payment_channel: tx.payment_channel,
+    authorized_date: tx.authorized_date,
+    iso_currency_code: tx.iso_currency_code,
+    unofficial_currency_code: tx.unofficial_currency_code,
+    personal_finance_category: tx.personal_finance_category,
+    pending: tx.pending,
+    pending_transaction_id: tx.pending_transaction_id,
+    account_owner: tx.account_owner,
+    transaction_code: tx.transaction_code,
+    merchant_category_code: tx.merchant_category_code,
+    // User-added context fields
+    business_purpose: tx.business_purpose,
+    attendees: tx.attendees,
+    travel_destination: tx.travel_destination,
+    equipment_details: tx.equipment_details,
+    client_project: tx.client_project,
+    documentation_status: tx.documentation_status,
+    meeting_notes: tx.meeting_notes,
+    mileage_details: tx.mileage_details,
+    city: tx.location?.city || tx.city,
+    state: tx.location?.state || tx.state,
     // Legacy fields for backward compatibility
     merchant_name: tx.merchant_name,
     amount: tx.amount,
@@ -510,12 +535,16 @@ async function analyzeOneTransaction(
 
   const result = analysisResult.result;
 
+  // Determine expense_type from AI result or infer from is_deductible
+  const expenseType = result.expense_type || (result.is_deductible ? 'business' : 'personal');
+
   // Update transaction with analysis results using new schema
   await txRef.set({
     // Legacy fields for backward compatibility
     deduction_score: result.confidence || 0,
     deductible_reason: result.customized_reason || result.reasoning_summary || 'Analysis pending',
-    is_deductible: result.is_deductible || false,
+    is_deductible: result.is_deductible ?? (expenseType === 'business'),
+    expense_type: expenseType, // Explicit classification: business or personal
 
     // New enhanced analysis fields
     ai: {

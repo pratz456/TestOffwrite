@@ -15,27 +15,7 @@
     ],
     "frameworksBackend": {
       "region": "us-central1"
-    },
-    "redirects": [
-      {
-        "source": "**",
-        "destination": "https://writeoffapp.com",
-        "type": 301,
-        "host": "www.writeoffapp.com"
-      },
-      {
-        "source": "**",
-        "destination": "https://writeoffapp.com",
-        "type": 301,
-        "host": "*.web.app"
-      },
-      {
-        "source": "**",
-        "destination": "https://writeoffapp.com",
-        "type": 301,
-        "host": "*.firebaseapp.com"
-      }
-    ]
+    }
   },
   "functions": [
     {
