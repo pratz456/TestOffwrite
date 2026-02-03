@@ -249,111 +249,58 @@ export function HistoricalAccessUpgradeCard() {
     );
   }
 
-  // If user is in trial, show both status and upgrade options
+  // If user is in trial, show compact combined card
   if (accessStatus?.hasAccess && accessStatus.isTrial) {
     return (
-      <div className="space-y-4">
-        {/* Trial Status Card */}
-        <Card className="border-primary/40 dark:border-primary/20 bg-gradient-to-br from-primary/20 via-primary/15 to-primary/25 dark:from-primary/5 dark:to-primary/10 shadow-md">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-primary" />
-                <CardTitle className="text-lg">Free Trial Active</CardTitle>
+      <Card className="border-primary/40 dark:border-primary/20 bg-gradient-to-br from-primary/20 via-primary/15 to-primary/25 dark:from-primary/5 dark:to-primary/10 shadow-md">
+        <CardContent className="pt-4 pb-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            {/* Left: Trial Status */}
+            <div className="flex items-center gap-3">
+              <Sparkles className="w-5 h-5 text-primary flex-shrink-0" />
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <h3 className="font-semibold text-base">Free Trial Active</h3>
+                  <Badge variant="default" className="bg-primary text-xs">Trial</Badge>
+                </div>
+                {accessStatus.trialEnd && (
+                  <p className="text-sm text-muted-foreground">
+                    {Math.ceil((new Date(accessStatus.trialEnd).getTime() - Date.now()) / (1000 * 60 * 60 * 24))} days remaining
+                  </p>
+                )}
               </div>
-              <Badge variant="default" className="bg-primary">
-                Trial
-              </Badge>
             </div>
-            <CardDescription>
-              Enjoy full access to all premium features during your trial period
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {accessStatus.trialEnd && (
-              <TrialCountdown
-                trialEnd={new Date(accessStatus.trialEnd)}
-                isTrial={true}
-              />
-            )}
-          </CardContent>
-        </Card>
 
-        {/* Upgrade Options Card */}
-        <Card className="border-primary/40 dark:border-primary/20 bg-gradient-to-br from-primary/20 via-primary/15 to-primary/25 dark:from-primary/5 dark:to-primary/10 shadow-md">
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-primary" />
-              <CardTitle className="text-lg">Upgrade to Keep Access</CardTitle>
-            </div>
-            <CardDescription>
-              Subscribe now to keep premium access after your trial ends
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* Billing Interval Selector */}
-            <div className="flex justify-center">
-              <div className="w-full">
-                <Tabs value={billingInterval} onValueChange={(value) => setBillingInterval(value as 'monthly' | 'yearly')} className="w-full">
-                  <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="monthly" className="text-sm">
-                      Monthly
-                    </TabsTrigger>
-                    <TabsTrigger value="yearly" className="text-sm">
+            {/* Middle: Pricing */}
+            <div className="flex items-center gap-3">
+              <div className="text-center">
+                <Tabs value={billingInterval} onValueChange={(value) => setBillingInterval(value as 'monthly' | 'yearly')} className="mb-2">
+                  <TabsList className="h-8">
+                    <TabsTrigger value="monthly" className="text-xs px-3">Monthly</TabsTrigger>
+                    <TabsTrigger value="yearly" className="text-xs px-3">
                       Yearly
-                      {yearlySavings > 0 && (
-                        <Badge variant="secondary" className="ml-2 text-xs">
-                          Save {yearlySavingsPercent}%
-                        </Badge>
-                      )}
+                      <Badge variant="secondary" className="ml-1 text-[10px] px-1">-{yearlySavingsPercent}%</Badge>
                     </TabsTrigger>
                   </TabsList>
                 </Tabs>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-2xl font-bold">${billingInterval === 'monthly' ? monthlyPrice.toFixed(2) : yearlyPrice.toFixed(2)}</span>
+                  <span className="text-xs text-muted-foreground">/{billingInterval === 'monthly' ? 'mo' : 'yr'}</span>
+                </div>
               </div>
             </div>
 
-            {/* Pricing Display */}
-            <div className="text-center py-4">
-              <div className="flex items-baseline justify-center gap-2">
-                <span className="text-4xl font-bold text-foreground">
-                  ${billingInterval === 'monthly' ? monthlyPrice.toFixed(2) : yearlyPrice.toFixed(2)}
-                </span>
-                <span className="text-muted-foreground">
-                  /{billingInterval === 'monthly' ? 'month' : 'year'}
-                </span>
-              </div>
-              {billingInterval === 'yearly' && yearlySavings > 0 && (
-                <p className="text-sm text-muted-foreground mt-1">
-                  Save ${yearlySavings.toFixed(2)} per year vs monthly
-                </p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 text-sm">
-                <TrendingUp className="w-4 h-4 text-primary" />
-                <span>Export Schedule C reports as PDF or CSV</span>
-              </div>
-              <div className="flex items-center gap-2 text-sm">
-                <Sparkles className="w-4 h-4 text-primary" />
-                <span>Access up to 1 year of transaction history</span>
-              </div>
-              <div className="flex items-center gap-2 text-sm">
-                <Calendar className="w-4 h-4 text-primary" />
-                <span>Cancel anytime - no commitment</span>
-              </div>
-            </div>
-
+            {/* Right: Action Button */}
             <Button
               onClick={handleUpgrade}
               disabled={checkoutLoading}
-              className="w-full"
-              size="lg"
+              size="sm"
+              className="whitespace-nowrap"
             >
               {checkoutLoading ? (
                 <>
                   <Loader2 className="mr-2 w-4 h-4 animate-spin" />
-                  Redirecting to checkout...
+                  Loading...
                 </>
               ) : (
                 <>
@@ -362,13 +309,9 @@ export function HistoricalAccessUpgradeCard() {
                 </>
               )}
             </Button>
-
-            <p className="text-xs text-center text-muted-foreground">
-              Instant activation after payment. Cancel anytime.
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+        </CardContent>
+      </Card>
     );
   }
 
