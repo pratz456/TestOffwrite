@@ -74,7 +74,7 @@ export default function ReportsPage() {
     isLoading,
     error,
     refetch
-  } = useMonthlyDeductions(user?.id || '', chartYear);
+  } = useMonthlyDeductions(user?.id || '', chartYear, !authLoading);
 
   const reportsData = reportsResult?.data as ReportsData | undefined;
 

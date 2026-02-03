@@ -76,10 +76,12 @@ const api = {
     const currentUser = auth.currentUser;
     if (!currentUser) throw new Error('No authenticated user');
     
-    const token = await currentUser.getIdToken();
+    // Force refresh token to avoid 401 from expired token (e.g. after tab idle)
+    const token = await currentUser.getIdToken(true);
     const params = year != null ? `?year=${year}` : '';
     
     const response = await fetch(`/api/monthly-deductions${params}`, {
+      credentials: 'include',
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
@@ -162,11 +164,11 @@ export function useUserProfile(userId: string) {
   });
 }
 
-export function useMonthlyDeductions(userId: string, year?: number) {
+export function useMonthlyDeductions(userId: string, year?: number, authReady = true) {
   return useQuery({
     queryKey: queryKeys.monthlyDeductions(userId, year),
     queryFn: () => api.getMonthlyDeductions(userId, year),
-    enabled: !!userId,
+    enabled: !!userId && authReady,
     staleTime: 5 * 60 * 1000, // 5 minutes
     gcTime: 10 * 60 * 1000, // 10 minutes
   });
