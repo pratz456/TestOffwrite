@@ -266,7 +266,7 @@ export function HistoricalAccessUpgradeCard() {
               </Badge>
             </div>
             <CardDescription>
-              You have access to up to 1 year of transaction history during your trial
+              Enjoy full access to all premium features during your trial period
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -287,7 +287,7 @@ export function HistoricalAccessUpgradeCard() {
               <CardTitle className="text-lg">Upgrade to Keep Access</CardTitle>
             </div>
             <CardDescription>
-              Subscribe now to continue 1-year access after your trial ends
+              Subscribe now to keep premium access after your trial ends
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -332,15 +332,15 @@ export function HistoricalAccessUpgradeCard() {
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-sm">
                 <TrendingUp className="w-4 h-4 text-primary" />
-                <span>Access up to 1 year of transaction history</span>
+                <span>Export Schedule C reports as PDF or CSV</span>
               </div>
               <div className="flex items-center gap-2 text-sm">
                 <Sparkles className="w-4 h-4 text-primary" />
-                <span>Immediate access - subscription starts right away</span>
+                <span>Access up to 1 year of transaction history</span>
               </div>
               <div className="flex items-center gap-2 text-sm">
                 <Calendar className="w-4 h-4 text-primary" />
-                <span>Automatic renewal - cancel anytime</span>
+                <span>Cancel anytime - no commitment</span>
               </div>
             </div>
 
@@ -364,7 +364,7 @@ export function HistoricalAccessUpgradeCard() {
             </Button>
 
             <p className="text-xs text-center text-muted-foreground">
-              Your subscription will be activated immediately after payment. Cancel anytime.
+              Instant activation after payment. Cancel anytime.
             </p>
           </CardContent>
         </Card>
@@ -378,10 +378,10 @@ export function HistoricalAccessUpgradeCard() {
       <CardHeader>
         <div className="flex items-center gap-2">
           <Sparkles className="w-5 h-5 text-primary" />
-          <CardTitle className="text-lg">Get Up to 1 Year of Historical Transactions</CardTitle>
+          <CardTitle className="text-lg">Unlock WriteOff Premium</CardTitle>
         </div>
         <CardDescription>
-          Currently you see about 3 months of data. Upgrade to access up to 12 months of transaction history.
+          Get full access to all premium features including report exports and extended transaction history.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -426,15 +426,15 @@ export function HistoricalAccessUpgradeCard() {
         <div className="space-y-2">
           <div className="flex items-center gap-2 text-sm">
             <TrendingUp className="w-4 h-4 text-primary" />
-            <span>Access up to 1 year of transaction history</span>
+            <span>Export Schedule C reports as PDF or CSV</span>
           </div>
           <div className="flex items-center gap-2 text-sm">
             <Sparkles className="w-4 h-4 text-primary" />
-            <span>Immediate access - subscription starts right away</span>
+            <span>Access up to 1 year of transaction history</span>
           </div>
           <div className="flex items-center gap-2 text-sm">
             <Calendar className="w-4 h-4 text-primary" />
-            <span>Automatic renewal - cancel anytime</span>
+            <span>Cancel anytime - no commitment</span>
           </div>
         </div>
 
@@ -458,7 +458,7 @@ export function HistoricalAccessUpgradeCard() {
         </Button>
 
         <p className="text-xs text-center text-muted-foreground">
-          Your subscription will be activated immediately after payment. Cancel anytime.
+          Instant activation after payment. Cancel anytime.
         </p>
       </CardContent>
     </Card>

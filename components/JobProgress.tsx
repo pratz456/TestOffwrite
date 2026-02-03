@@ -128,7 +128,7 @@ export function JobProgress({ accountId, onComplete }: JobProgressProps) {
               router.push(`/protected/review?accountId=${accountId}`);
             }
           }}
-          className="w-full bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl"
+          className="w-full bg-gradient-to-r from-emerald-400 to-green-500 dark:from-emerald-500 dark:to-green-600 hover:from-emerald-500 hover:to-green-600 dark:hover:from-emerald-400 dark:hover:to-green-500 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 shadow-md shadow-green-500/20 dark:shadow-green-500/30 hover:shadow-lg"
         >
           <div className="flex items-center justify-center gap-2">
             <CheckCircle className="w-4 h-4" />

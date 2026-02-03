@@ -6,6 +6,7 @@ import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { adminDb } from '@/lib/firebase/admin';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
+import { checkHistoricalAccess } from '@/lib/subscriptions/historical-access';
 
 // Category mapping to Schedule C line items
 const CATEGORY_MAP: { [key: string]: { line: string; name: string; code: string } } = {
@@ -101,6 +102,20 @@ export async function POST(request: NextRequest) {
         );
       }
       uid = user.uid;
+    }
+
+    // Check subscription access - require active subscription for Schedule C export
+    const access = await checkHistoricalAccess(uid);
+    if (!access.hasAccess) {
+      console.log(`⚠️ [Schedule C Export] User ${uid} does not have subscription access`);
+      return NextResponse.json(
+        { 
+          error: 'Subscription required', 
+          requiresSubscription: true,
+          message: 'An active subscription is required to export Schedule C reports. Please subscribe to access this feature.'
+        },
+        { status: 403 }
+      );
     }
 
     const { year } = await request.json();
@@ -397,8 +412,14 @@ export async function POST(request: NextRequest) {
 
     yPosition -= 20;
 
-    // Draw line separator
-    page.drawLine({
+    // Check if we need a new page for totals section
+    if (yPosition < margin + 150) {
+      currentPage = pdfDoc.addPage([612, 792]);
+      yPosition = currentPage.getHeight() - margin;
+    }
+
+    // Draw line separator (use currentPage for multi-page support)
+    currentPage.drawLine({
       start: { x: margin, y: yPosition },
       end: { x: pageWidth - margin, y: yPosition },
       thickness: 1,
@@ -407,8 +428,8 @@ export async function POST(request: NextRequest) {
 
     yPosition -= 20;
 
-    // Totals
-    page.drawText('Total Expenses:', {
+    // Totals (use currentPage for multi-page support)
+    currentPage.drawText('Total Expenses:', {
       x: col2,
       y: yPosition,
       size: 14,
@@ -416,7 +437,7 @@ export async function POST(request: NextRequest) {
       color: rgb(0, 0, 0)
     });
 
-    page.drawText(`$${totalExpenses.toFixed(2)}`, {
+    currentPage.drawText(`$${totalExpenses.toFixed(2)}`, {
       x: col3,
       y: yPosition,
       size: 14,
@@ -424,7 +445,7 @@ export async function POST(request: NextRequest) {
       color: rgb(0, 0, 0)
     });
 
-    page.drawText(`$${totalDeductible.toFixed(2)}`, {
+    currentPage.drawText(`$${totalDeductible.toFixed(2)}`, {
       x: col4,
       y: yPosition,
       size: 14,
@@ -436,7 +457,13 @@ export async function POST(request: NextRequest) {
 
     // Special sections
     if (lineItems['24b']) {
-      page.drawText('Meals and Entertainment (Line 24b)', {
+      // Check if we need a new page for meals section
+      if (yPosition < margin + 100) {
+        currentPage = pdfDoc.addPage([612, 792]);
+        yPosition = currentPage.getHeight() - margin;
+      }
+
+      currentPage.drawText('Meals and Entertainment (Line 24b)', {
         x: margin,
         y: yPosition,
         size: 14,
@@ -445,7 +472,7 @@ export async function POST(request: NextRequest) {
       });
       yPosition -= 20;
 
-      page.drawText(`Total Meals: $${lineItems['24b'].total.toFixed(2)}`, {
+      currentPage.drawText(`Total Meals: $${lineItems['24b'].total.toFixed(2)}`, {
         x: margin + 20,
         y: yPosition,
         size: 12,
@@ -454,7 +481,7 @@ export async function POST(request: NextRequest) {
       });
       yPosition -= 20;
 
-      page.drawText(`Deductible (50%): $${lineItems['24b'].deductible.toFixed(2)}`, {
+      currentPage.drawText(`Deductible (50%): $${lineItems['24b'].deductible.toFixed(2)}`, {
         x: margin + 20,
         y: yPosition,
         size: 12,
@@ -465,7 +492,13 @@ export async function POST(request: NextRequest) {
     }
 
     if (lineItems['27a']) {
-      page.drawText('Other Expenses (Line 27a)', {
+      // Check if we need a new page for other expenses section
+      if (yPosition < margin + 100) {
+        currentPage = pdfDoc.addPage([612, 792]);
+        yPosition = currentPage.getHeight() - margin;
+      }
+
+      currentPage.drawText('Other Expenses (Line 27a)', {
         x: margin,
         y: yPosition,
         size: 14,
@@ -491,11 +524,10 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Footer
-    yPosition = margin + 50;
-    page.drawText('Note: This is a summary document. Always consult with a tax professional for proper filing.', {
+    // Footer - add to the last page at the bottom
+    currentPage.drawText('Note: This is a summary document. Always consult with a tax professional for proper filing.', {
       x: margin,
-      y: yPosition,
+      y: margin + 30,
       size: 10,
       font: font,
       color: rgb(0.5, 0.5, 0.5)

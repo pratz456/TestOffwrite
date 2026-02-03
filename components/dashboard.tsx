@@ -240,7 +240,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Button 
-                  className="h-16 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white rounded-xl shadow-lg justify-start gap-4 px-6"
+                  className="h-16 bg-gradient-to-r from-emerald-400 to-green-500 dark:from-emerald-500 dark:to-green-600 hover:from-emerald-500 hover:to-green-600 dark:hover:from-emerald-400 dark:hover:to-green-500 text-white font-medium shadow-md shadow-green-500/20 dark:shadow-green-500/30 hover:shadow-lg rounded-xl justify-start gap-4 px-6 transition-all duration-200"
                 >
                   <PlusCircle className="w-6 h-6" />
                   <div className="text-left">

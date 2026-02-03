@@ -614,7 +614,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
               ) : (
                 <Button
                   onClick={onBack}
-                  className="w-full bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-semibold py-3 px-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 flex items-center justify-center gap-2"
+                  className="w-full bg-gradient-to-r from-emerald-400 to-green-500 dark:from-emerald-500 dark:to-green-600 hover:from-emerald-500 hover:to-green-600 dark:hover:from-emerald-400 dark:hover:to-green-500 text-white font-semibold py-3 px-6 rounded-xl shadow-md shadow-green-500/20 dark:shadow-green-500/30 hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2"
                 >
                   <ArrowLeft className="w-4 h-4" />
                   Back to Dashboard
@@ -666,7 +666,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
             {/* Action Button */}
             <Button
               onClick={onBack}
-              className="w-full bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-semibold py-3 px-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 flex items-center justify-center gap-2"
+              className="w-full bg-gradient-to-r from-emerald-400 to-green-500 dark:from-emerald-500 dark:to-green-600 hover:from-emerald-500 hover:to-green-600 dark:hover:from-emerald-400 dark:hover:to-green-500 text-white font-semibold py-3 px-6 rounded-xl shadow-md shadow-green-500/20 dark:shadow-green-500/30 hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2"
             >
               <ArrowLeft className="w-4 h-4" />
               Back to Dashboard

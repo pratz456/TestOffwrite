@@ -71,14 +71,15 @@ const api = {
     return response.json();
   },
 
-  // Get monthly deductions (reports data)
-  async getMonthlyDeductions(userId: string) {
+  // Get monthly deductions (reports data); optional year for viewing previous years
+  async getMonthlyDeductions(userId: string, year?: number) {
     const currentUser = auth.currentUser;
     if (!currentUser) throw new Error('No authenticated user');
     
     const token = await currentUser.getIdToken();
+    const params = year != null ? `?year=${year}` : '';
     
-    const response = await fetch('/api/monthly-deductions', {
+    const response = await fetch(`/api/monthly-deductions${params}`, {
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
@@ -126,8 +127,8 @@ export const queryKeys = {
     ['accounts', userId, fields],
   userProfile: (userId: string) => 
     ['userProfile', userId],
-  monthlyDeductions: (userId: string) => 
-    ['monthlyDeductions', userId],
+  monthlyDeductions: (userId: string, year?: number) => 
+    ['monthlyDeductions', userId, year],
 };
 
 // Optimized hooks
@@ -161,10 +162,10 @@ export function useUserProfile(userId: string) {
   });
 }
 
-export function useMonthlyDeductions(userId: string) {
+export function useMonthlyDeductions(userId: string, year?: number) {
   return useQuery({
-    queryKey: queryKeys.monthlyDeductions(userId),
-    queryFn: () => api.getMonthlyDeductions(userId),
+    queryKey: queryKeys.monthlyDeductions(userId, year),
+    queryFn: () => api.getMonthlyDeductions(userId, year),
     enabled: !!userId,
     staleTime: 5 * 60 * 1000, // 5 minutes
     gcTime: 10 * 60 * 1000, // 10 minutes
@@ -186,9 +187,9 @@ export function useUpdateTransaction() {
       queryClient.invalidateQueries({
         queryKey: queryKeys.transactions(userId),
       });
-      // Invalidate monthly deductions since they depend on transactions
+      // Invalidate all monthly deductions (all years) since they depend on transactions
       queryClient.invalidateQueries({
-        queryKey: queryKeys.monthlyDeductions(userId),
+        queryKey: ['monthlyDeductions', userId],
       });
     },
   });
@@ -223,9 +224,10 @@ export function usePrefetchMonthlyDeductions(userId: string) {
   const queryClient = useQueryClient();
   
   return () => {
+    const currentYear = new Date().getFullYear();
     queryClient.prefetchQuery({
-      queryKey: queryKeys.monthlyDeductions(userId),
-      queryFn: () => api.getMonthlyDeductions(userId),
+      queryKey: queryKeys.monthlyDeductions(userId, currentYear),
+      queryFn: () => api.getMonthlyDeductions(userId, currentYear),
       staleTime: 5 * 60 * 1000,
     });
   };

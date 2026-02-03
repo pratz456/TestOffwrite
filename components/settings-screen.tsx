@@ -841,7 +841,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header - Compact on mobile */}
+      {/* Header - Compact on mobile; same stacking as other pages so menu overlay covers it normally */}
       <div className="bg-card border-b border-border sticky top-0 z-50 shadow-sm">
         <div className="flex items-center justify-between p-3 sm:p-6">
           <div className="w-full flex flex-col items-center">

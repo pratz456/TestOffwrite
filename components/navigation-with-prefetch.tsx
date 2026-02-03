@@ -146,7 +146,7 @@ export function QuickActions() {
       
       <Link
         href="/protected/reports"
-        className="flex items-center px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
+        className="flex items-center px-4 py-2 bg-gradient-to-r from-emerald-400 to-green-500 dark:from-emerald-500 dark:to-green-600 hover:from-emerald-500 hover:to-green-600 dark:hover:from-emerald-400 dark:hover:to-green-500 text-white font-medium rounded-md shadow-md shadow-green-500/20 dark:shadow-green-500/30 transition-all duration-200"
         onMouseEnter={() => {
           prefetchMonthlyDeductions();
           prefetchTransactions();

@@ -19,8 +19,14 @@ export async function GET(request: NextRequest) {
 
     console.log('✅ [Monthly Deductions API] User authenticated:', user.uid);
 
-    // Get current year
-    const currentYear = new Date().getFullYear();
+    // Support optional year query param for viewing previous years (e.g. ?year=2024)
+    const now = new Date();
+    const currentYearActual = now.getFullYear();
+    const yearParam = request.nextUrl.searchParams.get('year');
+    const requestedYear = yearParam ? parseInt(yearParam, 10) : currentYearActual;
+    const currentYear = Number.isNaN(requestedYear) || requestedYear < 2000 || requestedYear > currentYearActual
+      ? currentYearActual
+      : requestedYear;
     const startOfYear = new Date(currentYear, 0, 1);
     const endOfYear = new Date(currentYear, 11, 31);
 
@@ -36,6 +42,13 @@ export async function GET(request: NextRequest) {
         details: error.message || error
       }, { status: 500 });
     }
+
+    // Years that have transaction activity (for year selector)
+    const availableYears = allTransactions && allTransactions.length > 0
+      ? [...new Set(allTransactions.map((t: { date: string }) => new Date(t.date).getFullYear()))]
+          .filter((y: number) => y >= 2000 && y <= currentYearActual)
+          .sort((a: number, b: number) => b - a)
+      : [currentYearActual];
 
     if (!allTransactions || allTransactions.length === 0) {
       console.log('⚠️ [Monthly Deductions API] No transactions found for user:', user.uid);
@@ -59,7 +72,8 @@ export async function GET(request: NextRequest) {
             monthsWithData: 0,
             yearToDateTotal: 0,
             estimatedRefund: 0
-          }
+          },
+          availableYears
         }
       });
     }
@@ -127,13 +141,14 @@ export async function GET(request: NextRequest) {
 
     console.log(`📊 [Monthly Deductions API] Deductible transactions: ${totalDeductibleTransactions}, Non-deductible: ${totalNonDeductibleTransactions}`);
 
-    // Calculate summary statistics
-    const currentMonth = new Date().getMonth();
+    // Calculate summary statistics (for past years use full year; for current year use up to current month)
+    const isCurrentYear = currentYear === currentYearActual;
+    const currentMonth = isCurrentYear ? now.getMonth() : 11; // Past year: treat as through December
     const currentMonthTotal = monthlyData[currentMonth].total;
     const lastMonthTotal = currentMonth > 0 ? monthlyData[currentMonth - 1].total : 0;
     const monthOverMonthChange = lastMonthTotal > 0 ? ((currentMonthTotal - lastMonthTotal) / lastMonthTotal) * 100 : 0;
 
-    // Calculate average monthly deductions (excluding future months)
+    // Calculate average monthly deductions (excluding future months for current year)
     const monthsWithData = monthlyData.slice(0, currentMonth + 1).filter(m => m.total > 0);
     const avgMonthly = monthsWithData.length > 0 
       ? monthsWithData.reduce((sum, m) => sum + m.total, 0) / monthsWithData.length 
@@ -154,7 +169,8 @@ export async function GET(request: NextRequest) {
         monthsWithData: monthsWithData.length,
         yearToDateTotal,
         estimatedRefund
-      }
+      },
+      availableYears
     };
 
     console.log('✅ [Monthly Deductions API] Successfully calculated reports data:', {

@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { FileText, TrendingUp, TrendingDown, Calendar, BarChart3, AlertCircle, Download, Eye, X, Filter, ChevronDown, DollarSign, ArrowUpRight, ArrowDownRight, Info, RefreshCw, Target } from 'lucide-react';
+import { FileText, TrendingUp, TrendingDown, Calendar, BarChart3, AlertCircle, Download, Eye, X, Filter, ChevronDown, DollarSign, ArrowUpRight, ArrowDownRight, Info, RefreshCw, Target, Lock, Sparkles } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/firebase/auth-context';
@@ -10,6 +10,7 @@ import { useMonthlyDeductions } from '@/lib/react-query/hooks';
 import { ReportsChartSkeleton, PageHeaderSkeleton } from '@/components/ui/skeleton';
 import { OtherReportsDropdown } from './components/OtherReportsDropdown';
 import { ToastContainer, useToasts } from '@/components/ui/toast';
+import { useSubscription } from '@/lib/hooks/use-subscription';
 
 interface MonthlyData {
   month: number;
@@ -28,6 +29,8 @@ interface ReportsData {
     yearToDateTotal: number;
     estimatedRefund: number;
   };
+  /** Years that have transaction activity (for year selector); may be absent from older API */
+  availableYears?: number[];
 }
 
 interface TransactionDetail {
@@ -58,15 +61,20 @@ export default function ReportsPage() {
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportFormat, setExportFormat] = useState<'PDF' | 'CSV'>('PDF');
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+  const currentYear = new Date().getFullYear();
+  const [chartYear, setChartYear] = useState(currentYear);
   const { toasts, removeToast } = useToasts();
+  
+  // Check subscription status for feature gating
+  const { hasAccess, isLoading: subscriptionLoading } = useSubscription();
 
-  // Use React Query for data fetching with caching
+  // Use React Query for data fetching with caching (year param for viewing previous years)
   const {
     data: reportsResult,
     isLoading,
     error,
     refetch
-  } = useMonthlyDeductions(user?.id || '');
+  } = useMonthlyDeductions(user?.id || '', chartYear);
 
   const reportsData = reportsResult?.data as ReportsData | undefined;
 
@@ -113,11 +121,21 @@ export default function ReportsPage() {
     };
   }, [reportsData]);
 
+  // Years that have transaction activity (from API); fallback to current year while loading
+  const availableYears = reportsData?.availableYears ?? [currentYear];
+
+  // When available years load, if current chartYear isn't in the list, switch to most recent available
+  useEffect(() => {
+    if (reportsData?.availableYears && reportsData.availableYears.length > 0 && !reportsData.availableYears.includes(chartYear)) {
+      setChartYear(reportsData.availableYears[0]);
+    }
+  }, [reportsData?.availableYears, chartYear]);
+
   // Function to handle monthly breakdown
   const handleMonthClick = async (monthData: MonthlyData) => {
     try {
       // Fetch detailed transactions for the selected month
-      const response = await fetch(`/api/transactions?month=${monthData.month}&year=2024`);
+      const response = await fetch(`/api/transactions?month=${monthData.month}&year=${chartYear}`);
       const { data: transactions } = await response.json();
 
       // Filter for deductible transactions
@@ -178,6 +196,15 @@ export default function ReportsPage() {
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
           console.error('❌ [Reports Page] PDF generation failed:', errorData);
+          
+          // Check if it's a subscription required error
+          if (errorData.requiresSubscription) {
+            alert('An active subscription is required to export reports. Please subscribe to access this feature.');
+            router.push('/protected/subscriptions');
+            setShowExportModal(false);
+            return;
+          }
+          
           throw new Error(errorData.error || `Failed to generate PDF: ${response.status} ${response.statusText}`);
         }
 
@@ -331,35 +358,36 @@ export default function ReportsPage() {
           <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-foreground mb-0.5">Tax Reports & Analytics</h1>
           <p className="text-xs sm:text-sm text-muted-foreground">Comprehensive tax deduction analysis and savings insights</p>
         </div>
-        {/* Buttons - Row 1: Refresh + Other Reports, Row 2: Export + Schedule C on mobile */}
-        <div className="grid grid-cols-4 sm:flex sm:flex-wrap gap-2">
+        {/* Action Buttons */}
+        <div className="flex flex-wrap gap-2 sm:gap-3">
           <Button
             onClick={() => refetch()}
             variant="outline"
             size="sm"
-            className="col-span-1 h-9 px-2 sm:px-3 no-tap-highlight"
+            className="h-10 px-3 sm:px-4 border-2 border-gray-300 dark:border-gray-500 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 hover:border-primary/60 dark:hover:border-primary/60 text-gray-700 dark:text-gray-200 transition-all duration-200 no-tap-highlight group"
             title="Refresh reports data"
           >
-            <RefreshCw className="w-4 h-4" />
+            <RefreshCw className="w-4 h-4 group-hover:text-primary transition-colors" />
+            <span className="hidden sm:inline ml-2 text-sm font-medium">Refresh</span>
           </Button>
           <OtherReportsDropdown disabled={isGeneratingReport} />
           <Button
             size="sm"
-            className="col-span-1 h-9 px-2 sm:px-3 bg-green-600 hover:bg-green-700 dark:bg-green-500 dark:hover:bg-green-600 text-white no-tap-highlight disabled:opacity-50"
+            className="h-10 px-3 sm:px-4 bg-gradient-to-r from-emerald-400 to-green-500 dark:from-emerald-500 dark:to-green-600 hover:from-emerald-500 hover:to-green-600 dark:hover:from-emerald-400 dark:hover:to-green-500 text-white font-medium shadow-md shadow-green-500/20 dark:shadow-green-500/30 hover:shadow-lg hover:shadow-green-500/30 dark:hover:shadow-green-500/40 transition-all duration-200 no-tap-highlight disabled:opacity-50 disabled:shadow-none"
             onClick={() => setShowExportModal(true)}
             disabled={!canExport || isGeneratingReport}
             title={!canExport ? "No data available to export" : "Export tax deduction report"}
           >
-            <FileText className="w-4 h-4 sm:mr-1.5" />
-            <span className="hidden sm:inline">Export</span>
+            <FileText className="w-4 h-4" />
+            <span className="ml-2 text-sm font-medium">Export</span>
           </Button>
           <Button
             size="sm"
-            className="col-span-1 h-9 px-2 sm:px-3 bg-primary hover:bg-primary/90 text-primary-foreground no-tap-highlight whitespace-nowrap"
+            className="h-10 px-3 sm:px-4 bg-gradient-to-r from-blue-400 to-indigo-500 dark:from-blue-500 dark:to-indigo-600 hover:from-blue-500 hover:to-indigo-600 dark:hover:from-blue-400 dark:hover:to-indigo-500 text-white font-medium shadow-md shadow-blue-500/20 dark:shadow-blue-500/30 hover:shadow-lg hover:shadow-blue-500/30 dark:hover:shadow-blue-500/40 transition-all duration-200 no-tap-highlight"
             onClick={() => router.push('/protected/schedule-c')}
           >
-            <Download className="w-4 h-4 mr-1" />
-            <span className="text-xs sm:text-sm">Sch C</span>
+            <Download className="w-4 h-4" />
+            <span className="ml-2 text-sm font-medium">Schedule C</span>
           </Button>
         </div>
       </div>
@@ -449,16 +477,25 @@ export default function ReportsPage() {
             <h2 className="text-xl font-semibold text-card-foreground mb-1">Monthly Tax Savings Trend</h2>
             <p className="text-sm text-muted-foreground">Click on any bar to see detailed breakdown</p>
           </div>
-          <div className="flex items-center gap-4">
-            <div className="text-right">
-              <div className="text-xs text-muted-foreground">2024</div>
-              {trend !== 0 && (
-                <div className={`text-xs font-medium flex items-center gap-1 ${trend > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                  {trend > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                  {Math.abs(trend).toFixed(1)}% trend
-                </div>
-              )}
-            </div>
+          <div className="flex items-center gap-4 flex-wrap">
+            <label className="flex items-center gap-2 text-sm text-muted-foreground">
+              <span>Year</span>
+              <select
+                value={chartYear}
+                onChange={(e) => setChartYear(Number(e.target.value))}
+                className="h-9 px-3 rounded-md border border-border bg-background text-foreground text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
+              >
+                {availableYears.map((y) => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
+            </label>
+            {chartYear === currentYear && trend !== 0 && (
+              <div className={`text-xs font-medium flex items-center gap-1 ${trend > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                {trend > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                {Math.abs(trend).toFixed(1)}% trend
+              </div>
+            )}
           </div>
         </div>
 
@@ -728,7 +765,7 @@ export default function ReportsPage() {
         <div className="flex items-center justify-between mb-3">
           <div>
             <h3 className="text-sm sm:text-lg font-semibold text-card-foreground">Tax Filing Summary</h3>
-            <p className="text-xs text-muted-foreground">Your estimated tax situation for 2024</p>
+            <p className="text-xs text-muted-foreground">Your estimated tax situation for {chartYear}</p>
           </div>
           <FileText className="w-5 h-5 text-muted-foreground hidden sm:block" />
         </div>
@@ -779,7 +816,7 @@ export default function ReportsPage() {
             <div className="p-6 border-b border-border sticky top-0 bg-card z-10">
               <div className="flex justify-between items-center">
                 <h2 className="text-2xl font-bold text-card-foreground">
-                  {selectedMonth.monthName} 2024 Detailed Breakdown
+                  {selectedMonth.monthName} {chartYear} Detailed Breakdown
                 </h2>
                 <button
                   onClick={() => setShowMonthlyModal(false)}
@@ -878,31 +915,63 @@ export default function ReportsPage() {
             </div>
 
             <div className="p-6">
+              {/* Subscription Required Banner */}
+              {!subscriptionLoading && !hasAccess && (
+                <div className="mb-6 p-4 bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 bg-purple-100 dark:bg-purple-800/50 rounded-lg">
+                      <Lock className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-1">
+                        Subscription Required
+                      </h3>
+                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                        Export reports as PDF or CSV with an active subscription.
+                      </p>
+                      <Button
+                        onClick={() => {
+                          setShowExportModal(false);
+                          router.push('/protected/subscriptions');
+                        }}
+                        className="bg-purple-600 hover:bg-purple-700 text-white"
+                        size="sm"
+                      >
+                        <Sparkles className="w-4 h-4 mr-2" />
+                        Subscribe Now
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="mb-6">
                 <label className="block text-sm font-medium text-card-foreground mb-3">
                   Export Format
                 </label>
                 <div className="space-y-3">
-                  <label className="flex items-center p-3 border-2 border-border rounded-lg cursor-pointer hover:bg-muted/50 dark:hover:bg-muted/30 transition-colors">
+                  <label className={`flex items-center p-3 border-2 border-border rounded-lg transition-colors ${hasAccess ? 'cursor-pointer hover:bg-muted/50 dark:hover:bg-muted/30' : 'opacity-50 cursor-not-allowed'}`}>
                     <input
                       type="radio"
                       value="PDF"
                       checked={exportFormat === 'PDF'}
                       onChange={(e) => setExportFormat(e.target.value as 'PDF' | 'CSV')}
                       className="mr-3"
+                      disabled={!hasAccess}
                     />
                     <div>
                       <div className="font-medium text-card-foreground">PDF Report</div>
                       <div className="text-xs text-muted-foreground">Formatted document with charts and summaries</div>
                     </div>
                   </label>
-                  <label className="flex items-center p-3 border-2 border-border rounded-lg cursor-pointer hover:bg-muted/50 dark:hover:bg-muted/30 transition-colors">
+                  <label className={`flex items-center p-3 border-2 border-border rounded-lg transition-colors ${hasAccess ? 'cursor-pointer hover:bg-muted/50 dark:hover:bg-muted/30' : 'opacity-50 cursor-not-allowed'}`}>
                     <input
                       type="radio"
                       value="CSV"
                       checked={exportFormat === 'CSV'}
                       onChange={(e) => setExportFormat(e.target.value as 'PDF' | 'CSV')}
                       className="mr-3"
+                      disabled={!hasAccess}
                     />
                     <div>
                       <div className="font-medium text-card-foreground">CSV Spreadsheet</div>
@@ -913,23 +982,33 @@ export default function ReportsPage() {
               </div>
 
               <div className="flex flex-col sm:flex-row gap-3">
-                <Button
-                  onClick={handleGenerateReport}
-                  disabled={isGeneratingReport}
-                  className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground"
-                >
-                  {isGeneratingReport ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                      Generating...
-                    </>
-                  ) : (
-                    <>
-                      <Download className="w-4 h-4 mr-2" />
-                      Generate Report
-                    </>
-                  )}
-                </Button>
+                {!subscriptionLoading && !hasAccess ? (
+                  <Button
+                    disabled
+                    className="flex-1 bg-gray-400 text-white cursor-not-allowed"
+                  >
+                    <Lock className="w-4 h-4 mr-2" />
+                    Subscription Required
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={handleGenerateReport}
+                    disabled={isGeneratingReport || subscriptionLoading}
+                    className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground"
+                  >
+                    {isGeneratingReport ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <Download className="w-4 h-4 mr-2" />
+                        Generate Report
+                      </>
+                    )}
+                  </Button>
+                )}
                 <Button
                   onClick={() => setShowExportModal(false)}
                   variant="outline"

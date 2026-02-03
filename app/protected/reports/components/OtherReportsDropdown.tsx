@@ -54,13 +54,12 @@ export function OtherReportsDropdown({ disabled = false }: OtherReportsDropdownP
         <Button 
           variant="outline" 
           size="sm"
-          className="col-span-1 h-9 px-2 sm:px-3 border-border hover:bg-muted no-tap-highlight"
+          className="h-10 px-3 sm:px-4 border-2 border-gray-300 dark:border-gray-500 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 hover:border-primary/60 dark:hover:border-primary/60 text-gray-700 dark:text-gray-200 transition-all duration-200 no-tap-highlight group"
           disabled={disabled}
         >
-          <FileText className="w-4 h-4" />
-          <ChevronDown className="w-3 h-3 ml-0.5 sm:hidden" />
-          <span className="hidden sm:inline ml-1.5">Other Reports</span>
-          <ChevronDown className="w-3.5 h-3.5 ml-1.5 hidden sm:inline" />
+          <FileText className="w-4 h-4 group-hover:text-primary transition-colors" />
+          <span className="ml-2 text-sm font-medium">Reports</span>
+          <ChevronDown className="w-3.5 h-3.5 ml-1.5 opacity-60 group-hover:opacity-100 transition-opacity" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-72 sm:w-80" align="end">

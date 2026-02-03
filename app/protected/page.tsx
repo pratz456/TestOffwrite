@@ -25,6 +25,7 @@ import { QuarterlyTaxCalculator } from "@/components/quarterly-tax-calculator";
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useTransactions } from "@/lib/firebase/hooks";
+import { useTransactionPolling } from "@/lib/hooks/use-transaction-polling";
 import type { Transaction as FirebaseTransaction } from "@/lib/firebase/transactions";
 
 interface UserProfile {
@@ -61,6 +62,18 @@ export default function ProtectedPage() {
   const {
     transactions
   } = useTransactions(user?.id || '');
+
+  // Enable background transaction polling (every 15 minutes)
+  // This syncs new transactions from Plaid even when webhooks don't fire
+  const { 
+    isSyncing: isPollingSync, 
+    lastSyncTime,
+    syncNow: manualSync 
+  } = useTransactionPolling({
+    interval: 15 * 60 * 1000, // 15 minutes
+    enabled: bankConnected, // Only poll when bank is connected
+    timeframe: '6months',
+  });
 
   // Force re-renders when transactions are updated
   useEffect(() => {

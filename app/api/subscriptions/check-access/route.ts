@@ -19,6 +19,9 @@ export async function GET(req: Request) {
     const subscriptionId = userData?.stripeSubscriptionId;
     const customerId = userData?.stripeCustomerId;
 
+    // Flag to track if subscription was found to be deleted/missing in Stripe
+    let subscriptionDeleted = false;
+
     // Sync subscription status from Stripe if subscription exists
     if (subscriptionId) {
       try {
@@ -70,13 +73,15 @@ export async function GET(req: Request) {
           console.log(`✅ Updated subscription status: ${subscription.status} -> subscriptionStatus: ${updateData.subscriptionStatus}, subscriptionEnd: ${currentPeriodEnd?.toISOString()}`);
         }
       } catch (error: any) {
-        // If subscription doesn't exist in Stripe, mark as expired
+        // If subscription doesn't exist in Stripe, mark as expired and clear invalid ID
         if (error.code === 'resource_missing' || error.statusCode === 404) {
-          console.log(`⚠️ Subscription ${subscriptionId} not found in Stripe, marking as expired`);
+          subscriptionDeleted = true;  // Set flag to skip second retrieval
+          console.log(`⚠️ Subscription ${subscriptionId} not found in Stripe, marking as expired and clearing ID`);
           await adminDb.doc(`user_profiles/${uid}`).update({
             subscriptionStatus: 'expired',
             stripeSubscriptionStatus: 'deleted',
             hasHistoricalAccess: false,
+            stripeSubscriptionId: null,  // Clear the invalid subscription ID
           });
         } else {
           console.error('Error fetching subscription from Stripe:', error);
@@ -147,9 +152,10 @@ export async function GET(req: Request) {
     let subscriptionDetails: any = null;
     const updatedUserDoc = await adminDb.doc(`user_profiles/${uid}`).get();
     const updatedUserData = updatedUserDoc.data();
-    const finalSubscriptionId = updatedUserData?.stripeSubscriptionId || subscriptionId;
+    const finalSubscriptionId = updatedUserData?.stripeSubscriptionId;
 
-    if (finalSubscriptionId) {
+    // Only fetch subscription details if we have a valid ID and it wasn't deleted
+    if (finalSubscriptionId && !subscriptionDeleted) {
       try {
         const subscription = await stripe.subscriptions.retrieve(finalSubscriptionId) as any;
         const priceId = subscription.items.data[0]?.price?.id;

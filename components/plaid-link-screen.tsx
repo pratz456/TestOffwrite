@@ -1159,7 +1159,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
               <div className="text-center">
                 <button
                   onClick={() => onSuccess()}
-                  className="w-full bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white font-semibold py-4 px-8 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105"
+                  className="w-full bg-gradient-to-r from-emerald-400 to-green-500 dark:from-emerald-500 dark:to-green-600 hover:from-emerald-500 hover:to-green-600 dark:hover:from-emerald-400 dark:hover:to-green-500 text-white font-semibold py-4 px-8 rounded-xl transition-all duration-200 shadow-md shadow-green-500/20 dark:shadow-green-500/30 hover:shadow-lg transform hover:scale-105"
                 >
                   <div className="flex items-center justify-center gap-3">
                     <CheckCircle className="w-5 h-5" />
@@ -1302,7 +1302,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
               <Button
                 onClick={handleConnectBank}
                 disabled={!ready || loading || !bankConsent}
-                className="w-full h-12 bg-primary hover:bg-primary-hover text-white rounded-lg transition-all duration-200 flex items-center justify-center gap-3 disabled:opacity-50 text-base font-medium"
+                className="w-full h-12 bg-gradient-to-r from-blue-400 to-indigo-500 dark:from-blue-500 dark:to-indigo-600 hover:from-blue-500 hover:to-indigo-600 dark:hover:from-blue-400 dark:hover:to-indigo-500 text-white font-medium shadow-md shadow-blue-500/20 dark:shadow-blue-500/30 hover:shadow-lg rounded-lg transition-all duration-200 flex items-center justify-center gap-3 disabled:opacity-50 text-base"
               >
                 {loading ? (
                   <>
@@ -1320,7 +1320,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
               <Button
                 onClick={handleSkip}
                 variant="outline"
-                className="w-full h-10 bg-background hover:bg-muted text-foreground border border-border hover:border-primary/30 rounded-lg transition-all duration-200 text-sm font-medium"
+                className="w-full h-10 border-2 border-gray-300 dark:border-gray-500 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 hover:border-primary/60 dark:hover:border-primary/60 text-gray-700 dark:text-gray-200 rounded-lg transition-all duration-200 text-sm font-medium"
               >
                 Skip for now (connect later)
               </Button>

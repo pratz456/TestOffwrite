@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { checkHistoricalAccess } from '@/lib/subscriptions/historical-access';
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,6 +19,20 @@ export async function POST(request: NextRequest) {
     }
 
     console.log('✅ [Reports Generate PDF API] User authenticated:', user.uid);
+
+    // Check subscription access - require active subscription for report exports
+    const access = await checkHistoricalAccess(user.uid);
+    if (!access.hasAccess) {
+      console.log(`⚠️ [Reports Generate PDF API] User ${user.uid} does not have subscription access`);
+      return NextResponse.json(
+        { 
+          error: 'Subscription required', 
+          requiresSubscription: true,
+          message: 'An active subscription is required to export reports. Please subscribe to access this feature.'
+        },
+        { status: 403 }
+      );
+    }
 
     const reportData = await request.json();
 

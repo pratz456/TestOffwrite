@@ -1159,7 +1159,7 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
             <Button
               onClick={handleSubmit}
               disabled={!isFormValid || isSubmitting}
-              className="h-10 px-6 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white shadow-lg shadow-emerald-500/20 disabled:opacity-50"
+              className="h-10 px-6 rounded-xl bg-gradient-to-r from-emerald-400 to-green-500 dark:from-emerald-500 dark:to-green-600 hover:from-emerald-500 hover:to-green-600 dark:hover:from-emerald-400 dark:hover:to-green-500 text-white font-medium shadow-md shadow-green-500/20 dark:shadow-green-500/30 disabled:opacity-50 transition-all duration-200"
             >
               {isSubmitting ? (
                 <>

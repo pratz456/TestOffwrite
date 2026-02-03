@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { usePathname, useSearchParams, useRouter } from 'next/navigation';
 import { Menu, X, Home, CreditCard, BarChart3, Settings, FolderOpen, HelpCircle, Shield, Info } from 'lucide-react';
 import { LogoutButton } from './logout-button';
@@ -90,10 +90,21 @@ export const MobileNav: React.FC<MobileNavProps> = ({ user, userProfile }) => {
     }
   };
 
+  // Lock body scroll when menu is open to prevent background scrolling
+  useEffect(() => {
+    if (isOpen) {
+      const prev = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = prev;
+      };
+    }
+  }, [isOpen]);
+
   return (
     <>
       {/* Mobile Header */}
-      <div className="lg:hidden bg-card border-b border-border px-3 py-3 flex items-center justify-between sticky top-0 z-50 safe-area-inset-top">
+      <div className="lg:hidden bg-card border-b border-border px-3 py-3 flex items-center justify-between sticky top-0 z-[100] safe-area-inset-top">
         {/* Left: Menu Button */}
         <button
           onClick={() => setIsOpen(!isOpen)}
@@ -122,9 +133,9 @@ export const MobileNav: React.FC<MobileNavProps> = ({ user, userProfile }) => {
         </button>
       </div>
 
-      {/* Mobile Navigation Overlay - Slides in from left */}
+      {/* Mobile Navigation Overlay - z-[55] so it stays above page content (e.g. Settings header z-50) */}
       {isOpen && (
-        <div className="lg:hidden fixed inset-0 z-50 bg-black/50 backdrop-blur-sm" onClick={() => setIsOpen(false)}>
+        <div className="lg:hidden fixed inset-0 z-[55] bg-black/50 backdrop-blur-sm" onClick={() => setIsOpen(false)}>
           <div 
             className="w-80 max-w-[85vw] h-full bg-card shadow-xl overflow-y-auto animate-in slide-in-from-left duration-200"
             onClick={(e) => e.stopPropagation()}
