@@ -41,6 +41,9 @@ yarn-error.log*
 #.env
 .env*
 
+# Secrets reference (contains variable names; keep local copy only)
+secretskey.md
+
 # vercel
 .vercel
 
