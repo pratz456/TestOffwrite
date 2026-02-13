@@ -1,0 +1,38 @@
+import { AuthButtons } from "./cta-button";
+import { Sparkles } from "lucide-react";
+
+export function HeroSection() {
+  return (
+    <section className="relative overflow-hidden py-20 sm:py-28 lg:py-36">
+      <div className="pointer-events-none absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/3 h-[600px] w-[900px] rounded-full opacity-[0.10]" aria-hidden="true" style={{ background: "radial-gradient(ellipse, hsl(221 83% 53%), hsl(199 89% 48% / 0.3) 50%, transparent 70%)" }} />
+      <div className="pointer-events-none absolute -right-20 top-20 h-[300px] w-[300px] rounded-full opacity-[0.06]" aria-hidden="true" style={{ background: "radial-gradient(circle, hsl(160 60% 45%), transparent 70%)" }} />
+
+      <div className="relative mx-auto max-w-4xl px-4 text-center sm:px-6 lg:px-8">
+        <div className="animate-hero-enter mb-8 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-4 py-1.5 text-sm font-medium text-primary">
+          <Sparkles className="h-4 w-4" />
+          AI-Powered Tax Automation
+        </div>
+
+        <h1 className="animate-hero-enter-delay-1 text-4xl font-extrabold tracking-tight sm:text-5xl lg:text-6xl">
+          <span className="text-foreground">Stop Overpaying Taxes.</span><br />
+          <span className="bg-gradient-to-r from-primary via-blue-500 to-cyan-500 bg-clip-text text-transparent">WriteOff</span>{" "}
+          <span className="text-foreground">Finds Every Deduction.</span>
+        </h1>
+
+        <p className="animate-hero-enter-delay-2 mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-muted-foreground sm:text-xl">
+          The first <span className="font-semibold text-primary">AI-powered</span> tax autopilot that finds, categorizes, and tracks every business expense in real-time. Turn your smartphone into a tax-saving machine.
+        </p>
+
+        <div className="animate-hero-enter-delay-3 mt-10 flex flex-col items-center gap-5">
+          <AuthButtons size="lg" />
+          <div className="flex flex-col items-center gap-1.5 rounded-xl border border-green-200/60 bg-green-50/50 px-6 py-3">
+            <p className="text-sm font-medium text-foreground">
+              Start your <span className="bg-gradient-to-r from-green-600 to-emerald-500 bg-clip-text font-bold text-transparent">30-day free trial</span> &mdash; no credit card required
+            </p>
+            <p className="text-xs text-muted-foreground">Then $14.99/mo or $150/yr &middot; Cancel anytime</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}

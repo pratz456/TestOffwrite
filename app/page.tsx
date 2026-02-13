@@ -1,50 +1,38 @@
-"use client";
+import type { Metadata } from "next";
+import { LandingPage } from "@/components/landing/landing-page";
 
-import { HomeContent } from "@/components/home-content";
-import { useAuth } from "@/lib/firebase/auth-context";
-import { useRouter } from "next/navigation";
-import { useEffect, useRef } from "react";
+export const metadata: Metadata = {
+  title: "WriteOff - AI Tax Deduction Tracker for Freelancers",
+  description:
+    "The first AI-powered tax autopilot that finds, categorizes, and tracks every business expense in real-time. Stop overpaying taxes.",
+};
 
 export default function Home() {
-  const { user, loading } = useAuth();
-  const router = useRouter();
-  const hasRedirected = useRef(false);
-
-  // Redirect authenticated users from root to /protected
-  useEffect(() => {
-    if (!loading && user && !hasRedirected.current) {
-      hasRedirected.current = true;
-      console.log('[HomePage] User is logged in, redirecting to /protected');
-      router.replace('/protected');
-    }
-    // Reset redirect flag if user becomes unauthenticated
-    if (!user) {
-      hasRedirected.current = false;
-    }
-  }, [user, loading, router]);
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <div className="animate-spin rounded-full h-8 w-8 border-2 border-primary border-t-transparent mx-auto"></div>
-          <p className="text-muted-foreground">Loading...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Show loading state while redirecting authenticated user
-  if (user) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <div className="animate-spin rounded-full h-8 w-8 border-2 border-primary border-t-transparent mx-auto"></div>
-          <p className="text-muted-foreground">Redirecting...</p>
-        </div>
-      </div>
-    );
-  }
-
-  return <HomeContent />;
+  return (
+    <>
+      <script
+        type="application/ld+json"
+        suppressHydrationWarning
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "SoftwareApplication",
+            name: "WriteOff",
+            applicationCategory: "FinanceApplication",
+            operatingSystem: "Web",
+            description:
+              "AI-powered tax autopilot that automatically finds, categorizes, and tracks every business expense in real-time.",
+            url:
+              process.env.NEXT_PUBLIC_SITE_URL || "https://writeoffapp.com",
+            offers: {
+              "@type": "Offer",
+              price: "14.99",
+              priceCurrency: "USD",
+            },
+          }),
+        }}
+      />
+      <LandingPage />
+    </>
+  );
 }

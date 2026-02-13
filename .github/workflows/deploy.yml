@@ -1,0 +1,125 @@
+name: Deploy to Firebase
+
+on:
+  push:
+    branches: [main, master]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    env:
+      # Secrets (repository-level)
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}
+      FIREBASE_ADMIN_CLIENT_EMAIL: ${{ secrets.FIREBASE_ADMIN_CLIENT_EMAIL }}
+      FIREBASE_ADMIN_PRIVATE_KEY: ${{ secrets.FIREBASE_ADMIN_PRIVATE_KEY }}
+      PLAID_CLIENT_ID: ${{ secrets.PLAID_CLIENT_ID }}
+      PLAID_SECRET: ${{ secrets.PLAID_SECRET }}
+      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+      STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+      STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY }}
+      # Variables (repository-level)
+      PLAID_ENV: ${{ vars.PLAID_ENV }}
+      NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ vars.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}
+      NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ vars.NEXT_PUBLIC_FIREBASE_PROJECT_ID }}
+      NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${{ vars.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET }}
+      NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ vars.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }}
+      NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID: ${{ vars.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID }}
+      FIREBASE_ADMIN_PROJECT_ID: ${{ vars.FIREBASE_ADMIN_PROJECT_ID }}
+      STRIPE_PRICE_ID_MONTHLY: ${{ vars.STRIPE_PRICE_ID_MONTHLY }}
+      NEXT_PUBLIC_STRIPE_PRICE_ID_MONTHLY: ${{ vars.NEXT_PUBLIC_STRIPE_PRICE_ID_MONTHLY }}
+      STRIPE_PRICE_ID_YEARLY: ${{ vars.STRIPE_PRICE_ID_YEARLY }}
+      NEXT_PUBLIC_STRIPE_PRICE_ID_YEARLY: ${{ vars.NEXT_PUBLIC_STRIPE_PRICE_ID_YEARLY }}
+      NEXT_PUBLIC_SITE_URL: ${{ vars.NEXT_PUBLIC_SITE_URL }}
+      STRIPE_TEST_MODE_EXPIRE_TODAY: ${{ vars.STRIPE_TEST_MODE_EXPIRE_TODAY }}
+      ENABLE_TRANSACTION_RESET: ${{ vars.ENABLE_TRANSACTION_RESET }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint, test, and build
+        run: npm run ci
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: ci
+    env:
+      # Secrets (repository-level) -- needed for the Firebase Frameworks build during deploy
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}
+      FIREBASE_ADMIN_CLIENT_EMAIL: ${{ secrets.FIREBASE_ADMIN_CLIENT_EMAIL }}
+      FIREBASE_ADMIN_PRIVATE_KEY: ${{ secrets.FIREBASE_ADMIN_PRIVATE_KEY }}
+      PLAID_CLIENT_ID: ${{ secrets.PLAID_CLIENT_ID }}
+      PLAID_SECRET: ${{ secrets.PLAID_SECRET }}
+      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+      STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+      STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY }}
+      # Variables (repository-level)
+      PLAID_ENV: ${{ vars.PLAID_ENV }}
+      NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ vars.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}
+      NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ vars.NEXT_PUBLIC_FIREBASE_PROJECT_ID }}
+      NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${{ vars.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET }}
+      NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ vars.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }}
+      NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID: ${{ vars.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID }}
+      FIREBASE_ADMIN_PROJECT_ID: ${{ vars.FIREBASE_ADMIN_PROJECT_ID }}
+      STRIPE_PRICE_ID_MONTHLY: ${{ vars.STRIPE_PRICE_ID_MONTHLY }}
+      NEXT_PUBLIC_STRIPE_PRICE_ID_MONTHLY: ${{ vars.NEXT_PUBLIC_STRIPE_PRICE_ID_MONTHLY }}
+      STRIPE_PRICE_ID_YEARLY: ${{ vars.STRIPE_PRICE_ID_YEARLY }}
+      NEXT_PUBLIC_STRIPE_PRICE_ID_YEARLY: ${{ vars.NEXT_PUBLIC_STRIPE_PRICE_ID_YEARLY }}
+      NEXT_PUBLIC_SITE_URL: ${{ vars.NEXT_PUBLIC_SITE_URL }}
+      STRIPE_TEST_MODE_EXPIRE_TODAY: ${{ vars.STRIPE_TEST_MODE_EXPIRE_TODAY }}
+      ENABLE_TRANSACTION_RESET: ${{ vars.ENABLE_TRANSACTION_RESET }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # need previous commit for diff
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Determine deploy targets
+        id: targets
+        run: |
+          TARGETS="hosting"
+          CHANGED=$(git diff HEAD~1 --name-only 2>/dev/null || echo "")
+
+          if echo "$CHANGED" | grep -qE "^(firestore\.rules|firestore\.indexes\.json)$"; then
+            TARGETS="$TARGETS,firestore"
+            echo "Firestore rules/indexes changed -- adding firestore target"
+          fi
+
+          if echo "$CHANGED" | grep -qE "^storage\.rules$"; then
+            TARGETS="$TARGETS,storage"
+            echo "Storage rules changed -- adding storage target"
+          fi
+
+          echo "targets=$TARGETS" >> "$GITHUB_OUTPUT"
+          echo "Deploy targets: $TARGETS"
+
+      - name: Authenticate with Firebase
+        run: |
+          echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > "$RUNNER_TEMP/sa_key.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/sa_key.json" >> "$GITHUB_ENV"
+
+      - name: Deploy to Firebase
+        run: npx firebase-tools deploy --only "${{ steps.targets.outputs.targets }}" --project writeoff-23910 --non-interactive --force
+
+      - name: Clean up credentials
+        if: always()
+        run: rm -f "$RUNNER_TEMP/sa_key.json"

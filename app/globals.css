@@ -63,6 +63,34 @@
     --chart-5: 27 87% 60%;
   }
 
+  /* Force light-mode variables on .light wrapper (landing page) */
+  .light {
+    --background: 0 0% 100%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 221 83% 53%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 214 95% 93%;
+    --secondary-foreground: 222 47% 15%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215 16% 47%;
+    --accent: 217 92% 95%;
+    --accent-foreground: 221 83% 30%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 221 83% 53%;
+    --chart-1: 221 83% 53%;
+    --chart-2: 199 89% 48%;
+    --chart-3: 160 60% 45%;
+    --chart-4: 43 74% 55%;
+    --chart-5: 27 87% 55%;
+  }
+
   @media (prefers-color-scheme: dark) {
     :root:not(.light) {
       /* Brand-consistent dark mode - fallback for system preference when no class is set */
@@ -106,39 +134,40 @@
   }
 
   /* Dark mode overrides for hardcoded colors - use semantic classes instead */
-  .dark .bg-white,
-  .dark .bg-gray-50,
-  .dark .bg-slate-50 {
+  /* Skip these overrides inside .light wrappers (landing page) */
+  .dark :not(.light) .bg-white,
+  .dark :not(.light) .bg-gray-50,
+  .dark :not(.light) .bg-slate-50 {
     background-color: hsl(var(--card)) !important;
   }
-  .dark .bg-gray-50 {
+  .dark :not(.light) .bg-gray-50 {
     background-color: hsl(var(--background)) !important;
   }
-  .dark .text-gray-900,
-  .dark .text-black {
+  .dark :not(.light) .text-gray-900,
+  .dark :not(.light) .text-black {
     color: hsl(var(--foreground)) !important;
   }
-  .dark .text-gray-800,
-  .dark .text-gray-700,
-  .dark .text-gray-600,
-  .dark .text-gray-500,
-  .dark .text-gray-400 {
+  .dark :not(.light) .text-gray-800,
+  .dark :not(.light) .text-gray-700,
+  .dark :not(.light) .text-gray-600,
+  .dark :not(.light) .text-gray-500,
+  .dark :not(.light) .text-gray-400 {
     color: hsl(var(--muted-foreground)) !important;
   }
-  .dark .border-gray-200,
-  .dark .border-gray-100,
-  .dark .border-slate-200 {
+  .dark :not(.light) .border-gray-200,
+  .dark :not(.light) .border-gray-100,
+  .dark :not(.light) .border-slate-200 {
     border-color: hsl(var(--border)) !important;
   }
-  .dark .bg-blue-600,
-  .dark .bg-blue-500 {
+  .dark :not(.light) .bg-blue-600,
+  .dark :not(.light) .bg-blue-500 {
     background-color: hsl(var(--primary)) !important;
     color: hsl(var(--primary-foreground)) !important;
   }
-  .dark .hover\:bg-gray-50:hover {
+  .dark :not(.light) .hover\:bg-gray-50:hover {
     background-color: hsl(var(--muted)) !important;
   }
-  .dark .text-blue-600 {
+  .dark :not(.light) .text-blue-600 {
     color: hsl(var(--primary)) !important;
   }
 
@@ -308,4 +337,42 @@
   .text-responsive-3xl {
     @apply text-2xl sm:text-3xl;
   }
+}
+
+/* ─── Landing page scroll-reveal animations ─── */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-on-scroll {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, transform;
+}
+.animate-on-scroll.in-view {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.stagger-children > .animate-on-scroll:nth-child(1) { transition-delay: 0ms; }
+.stagger-children > .animate-on-scroll:nth-child(2) { transition-delay: 80ms; }
+.stagger-children > .animate-on-scroll:nth-child(3) { transition-delay: 160ms; }
+.stagger-children > .animate-on-scroll:nth-child(4) { transition-delay: 240ms; }
+.stagger-children > .animate-on-scroll:nth-child(5) { transition-delay: 320ms; }
+.stagger-children > .animate-on-scroll:nth-child(6) { transition-delay: 400ms; }
+
+.animate-hero-enter { animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.animate-hero-enter-delay-1 { animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.15s both; }
+.animate-hero-enter-delay-2 { animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.3s both; }
+.animate-hero-enter-delay-3 { animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.45s both; }
+
+html { scroll-behavior: smooth; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-on-scroll, .animate-on-scroll.in-view { opacity: 1; transform: none; transition: none; }
+  .animate-hero-enter, .animate-hero-enter-delay-1, .animate-hero-enter-delay-2, .animate-hero-enter-delay-3 { animation: none; opacity: 1; }
+  html { scroll-behavior: auto; }
 }
