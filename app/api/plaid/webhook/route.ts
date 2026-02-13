@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { syncUserTransactions, findUserByPlaidItemId } from '../../../../lib/plaid/sync-helper';
+import { syncUserTransactionsIncremental, findUserByPlaidItemId } from '../../../../lib/plaid/sync-helper';
 import { adminDb } from '../../../../lib/firebase/admin';
 import { createHash } from 'crypto';
 
@@ -113,8 +113,8 @@ export async function POST(request: NextRequest) {
           });
         }
 
-        // Sync transactions for the user
-        const syncResult = await syncUserTransactions(userId, '6months');
+        // Sync transactions for the user (incremental, cursor-based)
+        const syncResult = await syncUserTransactionsIncremental(userId);
 
         if (syncResult.success) {
           console.log(`✅ [Webhook] Successfully synced ${syncResult.transactionsSaved} transactions for user ${userId}`);

@@ -123,29 +123,26 @@ export function FAQSection() {
       </div>
 
       {/* Still Need Help */}
-      <Card className="bg-blue-50 border-blue-200">
+      <Card className="bg-muted/50 border-border dark:bg-card dark:border-border">
         <CardContent className="pt-6">
           <div className="text-center space-y-3">
-            <HelpCircle className="w-8 h-8 text-blue-600 mx-auto" />
-            <h3 className="text-lg font-semibold text-blue-900">Still Need Help?</h3>
-            <p className="text-sm text-blue-700">
+            <HelpCircle className="w-8 h-8 text-primary mx-auto" />
+            <h3 className="text-lg font-semibold text-foreground">Still Need Help?</h3>
+            <p className="text-sm text-muted-foreground">
               Can't find the answer you're looking for? Our support team is here to help.
             </p>
-            <div className="flex gap-3 justify-center">
-              <Button 
-                size="sm" 
-                className="bg-blue-600 hover:bg-blue-700 text-white"
-                onClick={() => window.location.href = 'mailto:writeoffapp@gmail.com?subject=WriteOff Support Request'}
-              >
-                Contact Support
-              </Button>
-              <Button 
-                variant="outline" 
+            <div className="flex gap-3 justify-center flex-wrap">
+              <Button
                 size="sm"
-                className="border-blue-300 text-blue-700 hover:bg-blue-100"
-                onClick={() => window.open('/protected/help', '_blank')}
+                className="bg-primary text-primary-foreground hover:bg-primary/90"
+                asChild
               >
-                View Help Center
+                <a href="/contact">Contact Support</a>
+              </Button>
+              <Button variant="outline" size="sm" className="border-border text-foreground hover:bg-muted" asChild>
+                <a href="/help" target="_blank" rel="noopener noreferrer">
+                  View Help Center
+                </a>
               </Button>
             </div>
           </div>

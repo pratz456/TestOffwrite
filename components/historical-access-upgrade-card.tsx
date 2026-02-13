@@ -251,64 +251,75 @@ export function HistoricalAccessUpgradeCard() {
 
   // If user is in trial, show compact combined card
   if (accessStatus?.hasAccess && accessStatus.isTrial) {
+    const daysRemaining = accessStatus.trialEnd
+      ? Math.ceil((new Date(accessStatus.trialEnd).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+      : 0;
     return (
-      <Card className="border-primary/40 dark:border-primary/20 bg-gradient-to-br from-primary/20 via-primary/15 to-primary/25 dark:from-primary/5 dark:to-primary/10 shadow-md">
-        <CardContent className="pt-4 pb-4">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            {/* Left: Trial Status */}
-            <div className="flex items-center gap-3">
-              <Sparkles className="w-5 h-5 text-primary flex-shrink-0" />
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <h3 className="font-semibold text-base">Free Trial Active</h3>
-                  <Badge variant="default" className="bg-primary text-xs">Trial</Badge>
+      <Card className="max-w-5xl overflow-hidden border border-border/80 dark:border-border/50 bg-card shadow-md rounded-xl">
+        <CardContent className="p-0">
+          <div className="flex flex-col md:flex-row md:items-stretch">
+            {/* Left: Trial status block - stacks first on mobile */}
+            <div className="flex items-center gap-3 sm:gap-4 p-4 sm:p-5 md:p-6 md:border-r border-border/60 bg-muted/20 dark:bg-muted/15 min-h-[72px] sm:min-h-0">
+              <div className="flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-xl bg-green-700/20 dark:bg-green-600/15">
+                <Sparkles className="h-5 w-5 text-green-700 dark:text-green-400" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2 mb-0.5">
+                  <h3 className="font-semibold text-base md:text-lg text-foreground">Free Trial Active</h3>
+                  <Badge className="bg-green-700/90 dark:bg-green-600 text-white border-0 text-xs font-medium">Trial</Badge>
                 </div>
                 {accessStatus.trialEnd && (
-                  <p className="text-sm text-muted-foreground">
-                    {Math.ceil((new Date(accessStatus.trialEnd).getTime() - Date.now()) / (1000 * 60 * 60 * 24))} days remaining
+                  <p className="text-sm md:text-base text-muted-foreground mt-0.5">
+                    <span className="font-semibold text-foreground">{daysRemaining}</span> days remaining
                   </p>
                 )}
               </div>
             </div>
 
-            {/* Middle: Pricing */}
-            <div className="flex items-center gap-3">
-              <div className="text-center">
-                <Tabs value={billingInterval} onValueChange={(value) => setBillingInterval(value as 'monthly' | 'yearly')} className="mb-2">
-                  <TabsList className="h-8">
-                    <TabsTrigger value="monthly" className="text-xs px-3">Monthly</TabsTrigger>
-                    <TabsTrigger value="yearly" className="text-xs px-3">
-                      Yearly
-                      <Badge variant="secondary" className="ml-1 text-[10px] px-1">-{yearlySavingsPercent}%</Badge>
-                    </TabsTrigger>
-                  </TabsList>
-                </Tabs>
-                <div className="flex items-baseline gap-1">
-                  <span className="text-2xl font-bold">${billingInterval === 'monthly' ? monthlyPrice.toFixed(2) : yearlyPrice.toFixed(2)}</span>
-                  <span className="text-xs text-muted-foreground">/{billingInterval === 'monthly' ? 'mo' : 'yr'}</span>
+            {/* Right: Pricing + CTA - stacks on mobile with clear spacing */}
+            <div className="flex flex-col sm:flex-row flex-1 items-stretch sm:items-center justify-between gap-4 p-4 sm:p-5 md:p-6 md:gap-6">
+              <div className="flex flex-col sm:flex-row items-center sm:items-center gap-4 md:gap-6 w-full sm:w-auto">
+                <div className="w-full sm:w-auto text-center sm:text-left">
+                  <Tabs value={billingInterval} onValueChange={(value) => setBillingInterval(value as 'monthly' | 'yearly')} className="w-full sm:w-auto">
+                    <TabsList className="h-9 md:h-10 w-full sm:w-auto inline-flex bg-muted/40 dark:bg-muted/25 p-0.5 rounded-lg">
+                      <TabsTrigger value="monthly" className="text-xs md:text-sm px-4 md:px-5 flex-1 sm:flex-none rounded-md min-h-[44px] sm:min-h-0">
+                        Monthly
+                      </TabsTrigger>
+                      <TabsTrigger value="yearly" className="text-xs md:text-sm px-4 md:px-5 flex-1 sm:flex-none rounded-md min-h-[44px] sm:min-h-0 data-[data-active=true]:bg-green-700 data-[data-active=true]:text-white data-[data-active=true]:shadow-sm">
+                        Yearly
+                        <Badge variant="secondary" className="ml-1.5 text-[10px] md:text-xs px-1.5 hidden sm:inline bg-green-600/20 text-green-800 dark:text-green-200">-{yearlySavingsPercent}%</Badge>
+                      </TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+                  <div className="flex items-baseline justify-center sm:justify-start gap-1.5 mt-3">
+                    <span className="text-2xl md:text-3xl font-bold text-foreground">${billingInterval === 'monthly' ? monthlyPrice.toFixed(2) : yearlyPrice.toFixed(2)}</span>
+                    <span className="text-sm text-muted-foreground">/{billingInterval === 'monthly' ? 'mo' : 'yr'}</span>
+                  </div>
+                  {billingInterval === 'yearly' && yearlySavingsPercent > 0 && (
+                    <p className="text-xs text-muted-foreground mt-1">Save {yearlySavingsPercent}% vs monthly</p>
+                  )}
                 </div>
               </div>
-            </div>
 
-            {/* Right: Action Button */}
-            <Button
-              onClick={handleUpgrade}
-              disabled={checkoutLoading}
-              size="sm"
-              className="whitespace-nowrap"
-            >
-              {checkoutLoading ? (
-                <>
-                  <Loader2 className="mr-2 w-4 h-4 animate-spin" />
-                  Loading...
-                </>
-              ) : (
-                <>
-                  Subscribe Now
-                  <Sparkles className="ml-2 w-4 h-4" />
-                </>
-              )}
-            </Button>
+              <Button
+                onClick={handleUpgrade}
+                disabled={checkoutLoading}
+                size="sm"
+                className="w-full sm:w-auto h-11 sm:h-10 md:h-11 px-5 md:px-6 rounded-lg bg-green-700 hover:bg-green-800 dark:bg-green-800 dark:hover:bg-green-700 text-white font-medium shadow-sm hover:shadow transition-all no-tap-highlight min-h-[44px] sm:min-h-0"
+              >
+                {checkoutLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Loading...
+                  </>
+                ) : (
+                  <>
+                    Subscribe Now
+                    <Sparkles className="ml-2 h-4 w-4" />
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>

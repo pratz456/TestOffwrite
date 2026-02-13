@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { syncUserTransactions } from '@/lib/plaid/sync-helper';
+import { syncUserTransactionsIncremental } from '@/lib/plaid/sync-helper';
 
 /**
  * Internal API endpoint for scheduled Cloud Function to sync transactions
@@ -40,8 +40,8 @@ export async function POST(req: NextRequest) {
 
     console.log(`🔄 [Internal Sync] Syncing transactions for user ${userId} with timeframe: ${import_timeframe}`);
 
-    // Use the sync helper function
-    const syncResult = await syncUserTransactions(userId, import_timeframe);
+    // Use incremental sync (cursor-based)
+    const syncResult = await syncUserTransactionsIncremental(userId);
 
     if (syncResult.success) {
       console.log(`✅ [Internal Sync] Successfully synced ${syncResult.transactionsSaved} transactions for user ${userId}`);

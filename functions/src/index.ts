@@ -34,12 +34,12 @@ const siteUrl = defineString("SITE_URL", {
 setGlobalOptions({maxInstances: 10});
 
 /**
- * Scheduled function that syncs transactions for all users every 15 minutes
- * This provides server-side polling for maximum real-time updates
+ * Scheduled function that syncs transactions for all users every 2 hours (incremental sync).
+ * Webhooks are the primary trigger; this is a fallback for missed webhooks.
  */
 export const syncAllUsersTransactions = onSchedule(
   {
-    schedule: "every 15 minutes",
+    schedule: "every 2 hours",
     timeZone: "America/New_York",
     retryCount: 1,
     maxInstances: 1, // Only one instance to avoid rate limits

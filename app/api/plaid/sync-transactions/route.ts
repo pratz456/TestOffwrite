@@ -1,17 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { syncUserTransactions } from '../../../../lib/plaid/sync-helper';
+import { syncUserTransactions, syncUserTransactionsIncremental } from '../../../../lib/plaid/sync-helper';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 
 
 export async function POST(req: Request) {
   try {
-    console.log('🔄 [Plaid Sync] Starting manual transaction sync...');
+    console.log('🔄 [Plaid Sync] Starting transaction sync...');
 
     // Get the authenticated user
     const { uid } = await getUserFromReqOrThrow(req);
     console.log('✅ [Plaid Sync] User authenticated:', uid);
 
-    const { userId, import_timeframe = '2years' } = await req.json();
+    const body = await req.json().catch(() => ({}));
+    const { userId = uid, import_timeframe = '2years', incremental = false } = body;
 
     if (!userId) {
       return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
@@ -23,10 +24,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Unauthorized access to user data' }, { status: 403 });
     }
 
-    console.log(`🔄 [Plaid Sync] Syncing transactions for user ${uid} with timeframe: ${import_timeframe}`);
+    const syncResult = incremental
+      ? await syncUserTransactionsIncremental(uid)
+      : await syncUserTransactions(uid, import_timeframe);
 
-    // Use the sync helper function
-    const syncResult = await syncUserTransactions(uid, import_timeframe);
+    if (incremental) {
+      console.log(`🔄 [Plaid Sync] Incremental sync for user ${uid}`);
+    } else {
+      console.log(`🔄 [Plaid Sync] Full sync for user ${uid} with timeframe: ${import_timeframe}`);
+    }
 
     if (syncResult.success) {
       console.log(`✅ [Plaid Sync] Successfully synced ${syncResult.transactionsSaved} transactions for user ${uid}`);

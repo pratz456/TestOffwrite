@@ -12,6 +12,9 @@ export interface UserProfile {
   state: string;
   filing_status: string;
   plaid_token?: string;
+  plaid_item_id?: string;
+  plaid_transactions_cursor?: string;
+  last_sync_source?: 'incremental' | 'full';
   created_at?: any;
   updated_at?: any;
 
@@ -104,6 +107,8 @@ export async function getUserProfileServer(userId: string): Promise<{ data: User
           state: data.state || '',
           filing_status: data.filing_status || '',
           plaid_token: data.plaid_token,
+          plaid_item_id: data.plaid_item_id,
+          plaid_transactions_cursor: data.plaid_transactions_cursor,
           created_at: data.created_at,
           updated_at: data.updated_at,
         },
@@ -205,6 +210,9 @@ export async function upsertUserProfileServer(
           state: data.state || '',
           filing_status: data.filing_status || '',
           plaid_token: data.plaid_token,
+          plaid_item_id: data.plaid_item_id,
+          plaid_transactions_cursor: data.plaid_transactions_cursor,
+          last_sync_source: data.last_sync_source,
           created_at: data.created_at,
           updated_at: data.updated_at,
 

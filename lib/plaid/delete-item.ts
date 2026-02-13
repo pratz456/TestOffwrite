@@ -96,10 +96,11 @@ export async function disconnectPlaidItem(
       console.log(`🗑️ [Delete Plaid Item] Deleted account ${accountDoc.id}`);
     }
 
-    // Step 4: Remove Plaid credentials from user profile
+    // Step 4: Remove Plaid credentials and sync cursor from user profile
     await adminDb.collection('user_profiles').doc(userId).update({
       plaid_token: FieldValue.delete(),
       plaid_item_id: FieldValue.delete(),
+      plaid_transactions_cursor: FieldValue.delete(),
       last_updated: FieldValue.delete(),
     });
     console.log(`✅ [Delete Plaid Item] Removed Plaid credentials from user profile`);

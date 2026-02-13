@@ -22,10 +22,11 @@ import { AIInsightsPage } from "@/components/ai-insights-page";
 import { TaxEducationModal } from "@/components/tax-education-modal";
 import { MobileQuickActions } from "@/components/mobile-quick-actions";
 import { QuarterlyTaxCalculator } from "@/components/quarterly-tax-calculator";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useTransactions } from "@/lib/firebase/hooks";
 import { useTransactionPolling } from "@/lib/hooks/use-transaction-polling";
+import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 import type { Transaction as FirebaseTransaction } from "@/lib/firebase/transactions";
 
 interface UserProfile {
@@ -63,17 +64,27 @@ export default function ProtectedPage() {
     transactions
   } = useTransactions(user?.id || '');
 
-  // Enable background transaction polling (every 15 minutes)
-  // This syncs new transactions from Plaid even when webhooks don't fire
-  const { 
-    isSyncing: isPollingSync, 
+  // No background polling; rely on webhooks + one sync on visit when bank connected
+  const {
+    isSyncing: isPollingSync,
     lastSyncTime,
-    syncNow: manualSync 
+    syncNow: manualSync
   } = useTransactionPolling({
-    interval: 15 * 60 * 1000, // 15 minutes
-    enabled: bankConnected, // Only poll when bank is connected
+    interval: 2 * 60 * 60 * 1000, // 2 hours (fallback only if enabled)
+    enabled: false, // Disabled: webhooks drive incremental sync; optional sync on mount below
     timeframe: '6months',
   });
+
+  // One-time incremental sync when user lands on protected app with bank connected
+  const hasSyncedOnVisitRef = useRef(false);
+  useEffect(() => {
+    if (!bankConnected || !user?.id || hasSyncedOnVisitRef.current) return;
+    hasSyncedOnVisitRef.current = true;
+    makeAuthenticatedRequest('/api/plaid/sync-transactions', {
+      method: 'POST',
+      body: JSON.stringify({ userId: user.id, incremental: true }),
+    }).catch((err) => console.warn('[Protected] Sync on visit failed:', err));
+  }, [bankConnected, user?.id]);
 
   // Force re-renders when transactions are updated
   useEffect(() => {

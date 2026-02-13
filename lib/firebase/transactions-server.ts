@@ -457,6 +457,72 @@ export async function updateTransactionServerWithUserId(
 }
 
 /**
+ * Update core transaction fields from Plaid (used by Transactions Sync API for "modified").
+ * Finds transaction by userId + trans_id via collectionGroup, then updates only the given fields.
+ */
+export async function updateTransactionFromPlaidServer(
+  userId: string,
+  transactionId: string,
+  plaidFields: {
+    date?: string;
+    amount?: number;
+    merchant_name?: string;
+    category?: string;
+    description?: string;
+  }
+): Promise<{ data: any; error: any }> {
+  try {
+    const transactionsQuery = adminDb
+      .collectionGroup('transactions')
+      .where('userId', '==', userId)
+      .where('trans_id', '==', transactionId)
+      .limit(1);
+    const querySnapshot = await transactionsQuery.get();
+    if (querySnapshot.empty) {
+      return { data: null, error: new Error('Transaction not found') };
+    }
+    const docRef = querySnapshot.docs[0].ref;
+    const updateData: any = {
+      ...plaidFields,
+      updated_at: new Date(),
+    };
+    Object.keys(updateData).forEach((k) => updateData[k] === undefined && delete updateData[k]);
+    await docRef.update(updateData);
+    const updatedDoc = await docRef.get();
+    return { data: updatedDoc.exists ? updatedDoc.data() : null, error: null };
+  } catch (error: any) {
+    console.error('❌ [updateTransactionFromPlaidServer]', error);
+    return { data: null, error };
+  }
+}
+
+/**
+ * Delete a transaction by userId and trans_id (used by Transactions Sync API for "removed").
+ */
+export async function deleteTransactionByUserIdAndTransId(
+  userId: string,
+  transactionId: string
+): Promise<{ deleted: boolean; error: any }> {
+  try {
+    const transactionsQuery = adminDb
+      .collectionGroup('transactions')
+      .where('userId', '==', userId)
+      .where('trans_id', '==', transactionId)
+      .limit(1);
+    const querySnapshot = await transactionsQuery.get();
+    if (querySnapshot.empty) {
+      return { deleted: false, error: null };
+    }
+    const docRef = querySnapshot.docs[0].ref;
+    await docRef.delete();
+    return { deleted: true, error: null };
+  } catch (error: any) {
+    console.error('❌ [deleteTransactionByUserIdAndTransId]', error);
+    return { deleted: false, error };
+  }
+}
+
+/**
  * Paginated transactions using collectionGroup with optional filters.
  * NOTE: offset-based pagination used for simplicity — consider cursor-based for large datasets.
  */

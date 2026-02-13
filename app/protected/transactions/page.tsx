@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import type { Account } from '@/lib/firebase/accounts';
 // Simple modal component
 type ModalProps = {
@@ -111,6 +111,24 @@ export default function TransactionsPage() {
 
   // Use real-time transactions hook for instant updates
   const { transactions, isLoading: loading, error } = useTransactions(user?.id || '');
+
+  // Apply learning to pending transactions once per session when we have pending items
+  const applyLearningRunRef = useRef(false);
+  useEffect(() => {
+    if (loading || !user?.id || applyLearningRunRef.current) return;
+    const pending = transactions.filter((t) => t.is_deductible === null || t.is_deductible === undefined);
+    if (pending.length === 0) return;
+    applyLearningRunRef.current = true;
+    fetch('/api/transactions/apply-learning', { method: 'POST', credentials: 'include' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && (data.applied as number) > 0) {
+          // Real-time hook will re-render with updated transactions
+        }
+      })
+      .catch(() => {})
+      .finally(() => {});
+  }, [loading, user?.id, transactions.length]);
 
   // Handle error state
   if (error) {
@@ -285,18 +303,18 @@ export default function TransactionsPage() {
     const { consolidatedName, displayName } = consolidateCategory(category);
 
     const categoryColors: { [key: string]: string } = {
-      'FOOD_AND_DRINK': 'bg-accent/10 text-accent border-accent/20',
-      'TRANSPORTATION': 'bg-primary/10 text-primary border-primary/20',
-      'TRAVEL': 'bg-primary/10 text-primary border-primary/20',
-      'ENTERTAINMENT': 'bg-secondary/10 text-secondary-foreground border-secondary/20',
-      'PROFESSIONAL_SERVICES': 'bg-primary/10 text-primary border-primary/20',
-      'OFFICE_AND_EQUIPMENT': 'bg-primary/10 text-primary border-primary/20',
-      'LOAN_AND_FINANCIAL': 'bg-destructive/10 text-destructive border-destructive/20',
-      'GENERAL_MERCHANDISE': 'bg-muted-foreground/10 text-muted-foreground border-muted-foreground/20',
-      'INCOME': 'bg-accent/10 text-accent border-accent/20'
+      'FOOD_AND_DRINK': 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-200 border-emerald-300 dark:border-emerald-600',
+      'TRANSPORTATION': 'bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-200 border-blue-300 dark:border-blue-600',
+      'TRAVEL': 'bg-violet-100 dark:bg-violet-900/40 text-violet-800 dark:text-violet-200 border-violet-300 dark:border-violet-600',
+      'ENTERTAINMENT': 'bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200 border-amber-300 dark:border-amber-600',
+      'PROFESSIONAL_SERVICES': 'bg-teal-100 dark:bg-teal-900/40 text-teal-800 dark:text-teal-200 border-teal-300 dark:border-teal-600',
+      'OFFICE_AND_EQUIPMENT': 'bg-sky-100 dark:bg-sky-900/40 text-sky-800 dark:text-sky-200 border-sky-300 dark:border-sky-600',
+      'LOAN_AND_FINANCIAL': 'bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-200 border-red-300 dark:border-red-600',
+      'GENERAL_MERCHANDISE': 'bg-slate-100 dark:bg-slate-700/50 text-slate-800 dark:text-slate-200 border-slate-300 dark:border-slate-600',
+      'INCOME': 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-200 border-green-300 dark:border-green-600'
     };
 
-    const colorClass = categoryColors[consolidatedName] || 'bg-muted-foreground/10 text-muted-foreground border-muted-foreground/20';
+    const colorClass = categoryColors[consolidatedName] || 'bg-muted/50 dark:bg-muted/30 text-foreground border-border';
 
     return <Badge className={`${colorClass} border`}>{displayName}</Badge>;
   };

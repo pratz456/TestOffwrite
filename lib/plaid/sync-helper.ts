@@ -1,6 +1,10 @@
 import { Configuration, PlaidApi, PlaidEnvironments } from 'plaid';
 import { getUserProfileServer, upsertUserProfileServer } from '../firebase/profiles-server';
-import { createTransactionServer } from '../firebase/transactions-server';
+import {
+  createTransactionServer,
+  updateTransactionFromPlaidServer,
+  deleteTransactionByUserIdAndTransId,
+} from '../firebase/transactions-server';
 import { adminDb } from '../firebase/admin';
 import { fetchAllPlaidTransactions } from './pagination';
 import { getTransactionDateRange } from '../subscriptions/historical-access';
@@ -51,6 +55,90 @@ export interface SyncResult {
   success: boolean;
   transactionsSaved: number;
   error?: string;
+}
+
+/**
+ * Incremental sync using Plaid Transactions Sync API (cursor-based).
+ * Fetches only new/updated/removed transactions since last cursor; persists cursor after full pagination.
+ */
+export async function syncUserTransactionsIncremental(userId: string): Promise<SyncResult> {
+  try {
+    console.log(`🔄 [Sync Helper] Starting incremental transaction sync for user ${userId}...`);
+
+    const { data: userProfile, error: profileError } = await getUserProfileServer(userId);
+    if (profileError || !userProfile?.plaid_token) {
+      console.error('❌ [Sync Helper] No Plaid token found for user:', userId);
+      return { success: false, transactionsSaved: 0, error: 'No Plaid token found for user' };
+    }
+
+    const cursor = userProfile.plaid_transactions_cursor || undefined;
+    const allAdded: any[] = [];
+    const allModified: any[] = [];
+    const allRemoved: { transaction_id: string; account_id: string }[] = [];
+    let nextCursor = cursor;
+    let hasMore = true;
+
+    while (hasMore) {
+      const response = await client.transactionsSync({
+        access_token: userProfile.plaid_token,
+        cursor: nextCursor,
+        options: { include_personal_finance_category: true },
+      });
+      const data = response.data;
+      allAdded.push(...(data.added || []));
+      allModified.push(...(data.modified || []));
+      allRemoved.push(...(data.removed || []).map((r: { transaction_id: string; account_id: string }) => ({ transaction_id: r.transaction_id, account_id: r.account_id })));
+      nextCursor = data.next_cursor ?? '';
+      hasMore = data.has_more === true;
+    }
+
+    let transactionsSaved = 0;
+    for (const tx of allAdded) {
+      const category = tx.personal_finance_category?.detailed || tx.category?.[0] || 'Other';
+      const { data: saved } = await createTransactionServer(userId, tx.account_id, {
+        trans_id: tx.transaction_id,
+        date: tx.date,
+        amount: tx.amount,
+        merchant_name: tx.merchant_name || tx.name,
+        category,
+        description: tx.name,
+        is_deductible: null,
+        analyzed: false,
+        analysis_status: 'pending',
+        analysisStatus: 'pending',
+      });
+      if (saved) transactionsSaved++;
+    }
+    for (const tx of allModified) {
+      const category = tx.personal_finance_category?.detailed || tx.category?.[0] || 'Other';
+      await updateTransactionFromPlaidServer(userId, tx.transaction_id, {
+        date: tx.date,
+        amount: tx.amount,
+        merchant_name: tx.merchant_name || tx.name,
+        category,
+        description: tx.name,
+      });
+    }
+    for (const r of allRemoved) {
+      await deleteTransactionByUserIdAndTransId(userId, r.transaction_id);
+    }
+
+    await upsertUserProfileServer(userId, {
+      plaid_transactions_cursor: nextCursor || undefined,
+      last_sync: Date.now(),
+      last_sync_source: 'incremental',
+    } as any);
+
+    console.log(`🎉 [Sync Helper] Incremental sync completed. Added: ${transactionsSaved}, modified: ${allModified.length}, removed: ${allRemoved.length}`);
+    return { success: true, transactionsSaved };
+  } catch (error) {
+    console.error(`❌ [Sync Helper] Incremental sync error for user ${userId}:`, error);
+    return {
+      success: false,
+      transactionsSaved: 0,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
 }
 
 /**

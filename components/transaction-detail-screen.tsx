@@ -429,9 +429,9 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
     if (!userId) return;
 
     try {
-      const updates = {
-        receipt_url: null,
-        receipt_filename: null
+      const updates: { receipt_url?: string; receipt_filename?: string } = {
+        receipt_url: undefined,
+        receipt_filename: undefined
       };
 
       await updateTransactionMutation.mutateAsync({
@@ -605,41 +605,58 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
     ? Math.abs(transaction.amount) * (estimatedTaxRatePercent / 100)
     : 0;
 
+  // Legible category badge colors (matches transactions list)
+  const getCategoryBadgeClass = (category: string) => {
+    const { consolidatedName } = consolidateCategory(category);
+    const map: Record<string, string> = {
+      FOOD_AND_DRINK: 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-200 border-emerald-300 dark:border-emerald-600',
+      TRANSPORTATION: 'bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-200 border-blue-300 dark:border-blue-600',
+      TRAVEL: 'bg-violet-100 dark:bg-violet-900/40 text-violet-800 dark:text-violet-200 border-violet-300 dark:border-violet-600',
+      ENTERTAINMENT: 'bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200 border-amber-300 dark:border-amber-600',
+      PROFESSIONAL_SERVICES: 'bg-teal-100 dark:bg-teal-900/40 text-teal-800 dark:text-teal-200 border-teal-300 dark:border-teal-600',
+      OFFICE_AND_EQUIPMENT: 'bg-sky-100 dark:bg-sky-900/40 text-sky-800 dark:text-sky-200 border-sky-300 dark:border-sky-600',
+      LOAN_AND_FINANCIAL: 'bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-200 border-red-300 dark:border-red-600',
+      GENERAL_MERCHANDISE: 'bg-slate-100 dark:bg-slate-700/50 text-slate-800 dark:text-slate-200 border-slate-300 dark:border-slate-600',
+      INCOME: 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-200 border-green-300 dark:border-green-600',
+    };
+    return map[consolidatedName] || 'bg-muted/50 dark:bg-muted/30 text-foreground border-border';
+  };
+
 
 
 
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-background safe-area-inset-top safe-area-inset-bottom">
+    <div className="min-h-screen bg-background safe-area-inset-top safe-area-inset-bottom">
       {/* Header */}
-      <div className="bg-white dark:bg-card border-b border-gray-200 dark:border-border sticky top-0 z-50">
+      <header className="bg-card border-b border-border sticky top-0 z-50 shadow-sm">
         <div className="flex items-center justify-between p-4 sm:p-6">
           <button
             onClick={handleBackNavigation}
-            className="w-11 h-11 sm:w-12 sm:h-12 bg-gray-100 dark:bg-muted border border-gray-200 dark:border-border rounded-xl flex items-center justify-center text-gray-600 dark:text-foreground hover:bg-gray-200 dark:hover:bg-muted/80 active:bg-gray-300 dark:active:bg-muted/60 transition-all duration-200 no-tap-highlight"
+            className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center text-foreground border border-border bg-muted/50 hover:bg-muted transition-colors no-tap-highlight"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div className="text-center flex-1 px-2">
-            <h1 className="text-lg sm:text-xl font-semibold text-gray-900 dark:text-foreground">
+            <h1 className="text-lg sm:text-xl font-semibold text-foreground">
               Transaction Details
             </h1>
             {hasUnsavedChanges && (
-              <div className="flex items-center justify-center gap-2 text-orange-600 bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20 rounded-lg px-2 sm:px-3 py-1 mt-2">
+              <div className="flex items-center justify-center gap-2 text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-600/50 rounded-lg px-2 sm:px-3 py-1 mt-2">
                 <AlertTriangle className="w-3 h-3" />
                 <span className="text-xs font-medium">Unsaved</span>
               </div>
             )}
             {isSaving && (
-              <div className="flex items-center justify-center gap-2 text-sm text-blue-600">
-                <div className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+              <div className="flex items-center justify-center gap-2 text-sm text-green-600 dark:text-green-400 mt-2">
+                <div className="w-3 h-3 border-2 border-green-600 dark:border-green-400 border-t-transparent rounded-full animate-spin" />
                 <span className="text-xs sm:text-sm">Saving...</span>
               </div>
             )}
           </div>
           <div className="w-11 sm:w-12"></div>
         </div>
-      </div>
+      </header>
 
       <div className="p-3 sm:p-4 max-w-6xl mx-auto pb-8">
         {/* Main Content Grid */}
@@ -647,17 +664,17 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
           {/* Left Column - Transaction Info & AI Analysis */}
           <div className="lg:col-span-2 space-y-4">
             {/* Transaction Header Card */}
-            <Card className="p-4 bg-white dark:bg-card border border-gray-200 dark:border-border rounded-xl shadow-sm">
+            <Card className="p-4 sm:p-5 bg-card border border-border rounded-xl shadow-sm">
               <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4 mb-3">
                 <div className="flex items-center gap-3 sm:gap-4">
-                  <div className="w-11 h-11 sm:w-12 sm:h-12 bg-blue-100 dark:bg-primary/10 rounded-2xl flex items-center justify-center flex-shrink-0">
-                    <span className="text-blue-600 dark:text-primary font-bold text-base sm:text-lg">
+                  <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl flex items-center justify-center flex-shrink-0 bg-green-600/15 dark:bg-green-500/20 border border-green-600/30 dark:border-green-500/30">
+                    <span className="text-green-700 dark:text-green-300 font-bold text-lg sm:text-xl">
                       {transaction.merchant_name ? transaction.merchant_name.charAt(0).toUpperCase() : 'T'}
                     </span>
                   </div>
                   <div className="min-w-0 flex-1">
-                    <h2 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-foreground truncate">{transaction.merchant_name}</h2>
-                    <p className="text-gray-500 dark:text-muted-foreground text-sm">
+                    <h2 className="text-lg sm:text-xl font-bold text-foreground truncate">{transaction.merchant_name}</h2>
+                    <p className="text-muted-foreground text-sm">
                       {new Date(transaction.date).toLocaleDateString('en-US', {
                         month: 'numeric',
                         day: 'numeric',
@@ -676,47 +693,44 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                   </div>
                 </div>
                 <div className="text-left sm:text-right flex sm:block items-center justify-between sm:justify-end gap-2">
-                  <div className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-foreground">
+                  <div className="text-xl sm:text-2xl font-bold text-foreground">
                     ${Math.abs(transaction.amount).toFixed(2)}
                   </div>
-                  <div className={`text-sm font-medium ${classification === 'business' ? 'text-emerald-600 dark:text-accent' : 'text-gray-500 dark:text-muted-foreground'
-                    }`}>
+                  <div className={`text-sm font-medium ${classification === 'business' ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}`}>
                     {classification === 'business' ? `${deductiblePercent}% deductible` : '0% deductible'}
                   </div>
                 </div>
               </div>
 
-              <div className="flex gap-2 mb-3">
-                <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100 rounded-full">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge className={`border ${getCategoryBadgeClass(transaction.category)} rounded-lg`}>
                   {consolidateCategory(transaction.category).displayName}
                 </Badge>
                 {transaction.description && (
-                  <span className="text-gray-600 text-sm">{transaction.description}</span>
+                  <span className="text-muted-foreground text-sm truncate max-w-full">{transaction.description}</span>
                 )}
               </div>
             </Card>
 
             {/* AI Analysis Card */}
-            <Card className="p-4 bg-white border border-gray-200 rounded-xl shadow-sm">
-              <div className="flex items-center justify-between mb-3">
+            <Card className="p-4 sm:p-5 bg-card border border-border rounded-xl shadow-sm">
+              <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center">
-                    <Bot className="w-4 h-4 text-white" />
+                  <div className="w-9 h-9 rounded-lg bg-green-600/15 dark:bg-green-500/20 flex items-center justify-center">
+                    <Bot className="w-4 h-4 text-green-700 dark:text-green-300" />
                   </div>
-                  <span className="font-semibold text-gray-900">AI Analysis</span>
+                  <span className="font-semibold text-foreground">AI Analysis</span>
                 </div>
-
-                {/* Re-run Analysis Button */}
                 <Button
                   onClick={handleAnalyzeTransaction}
                   disabled={isAnalyzing}
                   variant="outline"
                   size="sm"
-                  className="text-blue-600 border-blue-200 hover:bg-blue-50"
+                  className="text-green-700 dark:text-green-300 border-green-600/50 dark:border-green-500/50 hover:bg-green-600/10 dark:hover:bg-green-500/10"
                 >
                   {isAnalyzing ? (
                     <>
-                      <div className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mr-2"></div>
+                      <div className="w-3 h-3 border-2 border-green-600 dark:border-green-400 border-t-transparent rounded-full animate-spin mr-2" />
                       Analyzing...
                     </>
                   ) : (
@@ -728,38 +742,34 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                 </Button>
               </div>
 
-              {/* Analysis Error */}
               {analysisError && (
-                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-                  <div className="flex items-center gap-2 text-red-700">
+                <div className="mb-4 p-3 rounded-lg bg-red-500/10 dark:bg-red-900/20 border border-red-300 dark:border-red-700">
+                  <div className="flex items-center gap-2 text-red-700 dark:text-red-300">
                     <AlertTriangle className="w-4 h-4" />
                     <span className="text-sm font-medium">Analysis Error</span>
                   </div>
-                  <p className="text-sm text-red-600 mt-1">{analysisError}</p>
+                  <p className="text-sm text-red-600 dark:text-red-400 mt-1">{analysisError}</p>
                 </div>
               )}
 
-              {/* Analysis Results or Loading State */}
               {isAnalyzing ? (
                 <div className="space-y-4">
-                  <div className="flex items-center gap-3 text-blue-600">
-                    <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                  <div className="flex items-center gap-3 text-green-600 dark:text-green-400">
+                    <div className="w-4 h-4 border-2 border-green-600 dark:border-green-400 border-t-transparent rounded-full animate-spin" />
                     <span className="text-sm font-medium">Analyzing transaction...</span>
                   </div>
                   <div className="space-y-2">
-                    <div className="h-4 bg-gray-200 rounded animate-pulse"></div>
-                    <div className="h-4 bg-gray-200 rounded animate-pulse w-3/4"></div>
-                    <div className="h-4 bg-gray-200 rounded animate-pulse w-1/2"></div>
+                    <div className="h-4 bg-muted rounded animate-pulse" />
+                    <div className="h-4 bg-muted rounded animate-pulse w-3/4" />
+                    <div className="h-4 bg-muted rounded animate-pulse w-1/2" />
                   </div>
                 </div>
               ) : (transaction.deductionStatus || transaction.ai) ? (
                 <div className="space-y-4">
-                  {/* Key Analysis Factors */}
                   <div className="space-y-3">
-                    <h4 className="font-semibold text-gray-900">Key Analysis Factors</h4>
-
-                    <div className="p-4 bg-gray-50 rounded-lg">
-                      <ul className="text-sm text-gray-600 space-y-2">
+                    <h4 className="font-semibold text-foreground">Key Analysis Factors</h4>
+                    <div className="p-4 rounded-lg bg-muted/50 dark:bg-muted/30 border border-border">
+                      <ul className="text-sm text-muted-foreground space-y-2">
                         <li>• <strong>Date:</strong> {new Date(transaction.date).toLocaleDateString('en-US', {
                           month: 'short',
                           day: 'numeric',
@@ -790,12 +800,12 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                       <>
                         {/* Suggested Documents */}
                         {transaction.ai.required_docs && transaction.ai.required_docs.length > 0 && (
-                          <div className="p-3 bg-gray-50 rounded-lg">
+                          <div className="p-3 rounded-lg bg-muted/50 dark:bg-muted/30 border border-border">
                             <div className="flex items-start gap-2">
-                              <div className="w-2 h-2 bg-blue-600 rounded-full mt-2 flex-shrink-0"></div>
+                              <div className="w-2 h-2 rounded-full mt-2 flex-shrink-0 bg-green-600 dark:bg-green-400" />
                               <div>
-                                <span className="text-sm font-medium text-gray-700 block mb-1">Suggested Documents</span>
-                                <ul className="text-sm text-gray-600 space-y-1">
+                                <span className="text-sm font-medium text-foreground block mb-1">Suggested Documents</span>
+                                <ul className="text-sm text-muted-foreground space-y-1">
                                   {transaction.ai.required_docs.map((doc: string, index: number) => (
                                     <li key={index}>• {doc}</li>
                                   ))}
@@ -811,24 +821,21 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
 
                   {/* Analysis timestamp */}
                   {(transaction.analysisUpdatedAt || transaction.ai?.last_analyzed_at) && (
-                    <div className="text-xs text-gray-500 text-center">
+                    <div className="text-xs text-muted-foreground text-center">
                       Last analyzed: {new Date(transaction.analysisUpdatedAt || transaction.ai?.last_analyzed_at || Date.now()).toLocaleString()}
                     </div>
                   )}
                 </div>
               ) : (
                 <div className="space-y-4">
-                  <p className="text-gray-700">
+                  <p className="text-foreground/90">
                     {transaction.ai_analysis || transaction.deductible_reason || `${formatCategory(transaction.category)} at ${transaction.merchant_name} are commonly deductible for freelancer/creator businesses. Keep detailed records of services provided and business purpose.`}
                   </p>
-
-                  {/* Key Analysis Factors for fallback case */}
                   <div className="space-y-3">
-                    <h4 className="font-semibold text-gray-900">Key Analysis Factors</h4>
-
-                    <div className="p-4 bg-gray-50 rounded-lg">
-                      <ul className="text-sm text-gray-600 space-y-2">
-                        <li>• <strong>Date:</strong> {new Date(transaction.date).toLocaleDateString('en-US', {
+                    <h4 className="font-semibold text-foreground">Key Analysis Factors</h4>
+                    <div className="p-4 rounded-lg bg-muted/50 dark:bg-muted/30 border border-border">
+                      <ul className="text-sm text-muted-foreground space-y-2">
+                        <li>• <strong className="text-foreground">Date:</strong> {new Date(transaction.date).toLocaleDateString('en-US', {
                           month: 'short',
                           day: 'numeric',
                           year: 'numeric'
@@ -843,22 +850,21 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                           </span>
                         )}
                         </li>
-                        <li>• <strong>Deduction Status:</strong> Not Analyzed</li>
-                        <li>• <strong>Reasoning:</strong> Professional analysis pending</li>
+                        <li>• <strong className="text-foreground">Deduction Status:</strong> Not Analyzed</li>
+                        <li>• <strong className="text-foreground">Reasoning:</strong> Professional analysis pending</li>
                       </ul>
                     </div>
                   </div>
-
                   <div className="text-center py-4">
-                    <p className="text-sm text-gray-500 mb-3">No AI analysis available</p>
+                    <p className="text-sm text-muted-foreground mb-3">No AI analysis available</p>
                     <Button
                       onClick={handleAnalyzeTransaction}
                       disabled={isAnalyzing}
-                      className="bg-blue-600 hover:bg-blue-700 text-white"
+                      className="bg-green-600 hover:bg-green-700 dark:bg-green-700 dark:hover:bg-green-600 text-white"
                     >
                       {isAnalyzing ? (
                         <>
-                          <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                          <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
                           Analyzing...
                         </>
                       ) : (
@@ -874,44 +880,39 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
             </Card>
 
             {/* Add Context Card */}
-            <Card className="p-4 bg-white border border-gray-200 rounded-xl shadow-sm">
-              <h3 className="text-lg font-semibold text-gray-900 mb-3">Add Context</h3>
+            <Card className="p-4 sm:p-5 bg-card border border-border rounded-xl shadow-sm">
+              <h3 className="text-lg font-semibold text-foreground mb-3">Add Context</h3>
               <Textarea
                 placeholder="Tell us more about this purchase..."
                 value={additionalContext}
-                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
-                  setAdditionalContext(e.target.value);
-                }}
-                className="min-h-[100px] rounded-lg border border-gray-200 bg-white"
+                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setAdditionalContext(e.target.value)}
+                className="min-h-[100px] rounded-lg border-border bg-background text-foreground placeholder:text-muted-foreground"
               />
               {additionalContext !== (transaction.notes || '') && (
-                <div className="mt-2 text-sm text-blue-600">
-                  ✏️ Notes modified - click Save Changes to save
-                </div>
+                <p className="mt-2 text-sm text-green-600 dark:text-green-400">Notes modified — click Save Changes to save</p>
               )}
             </Card>
 
             {/* Receipt Upload Card */}
-            <Card className="p-4 bg-white border border-gray-200 rounded-xl shadow-sm">
-              <h3 className="text-lg font-semibold text-gray-900 mb-3">Receipt</h3>
+            <Card className="p-4 sm:p-5 bg-card border border-border rounded-xl shadow-sm">
+              <h3 className="text-lg font-semibold text-foreground mb-3">Receipt</h3>
 
               {transaction.receipt_url ? (
-                // Receipt already uploaded
                 <div className="space-y-4">
-                  <div className="flex items-center gap-3 p-4 bg-green-50 border border-green-200 rounded-lg">
-                    <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
-                      <FileText className="w-5 h-5 text-green-600" />
+                  <div className="flex flex-wrap items-center gap-3 p-4 rounded-lg bg-green-500/10 dark:bg-green-600/20 border border-green-600/30 dark:border-green-500/30">
+                    <div className="w-10 h-10 rounded-full flex items-center justify-center bg-green-600/20 dark:bg-green-500/20">
+                      <FileText className="w-5 h-5 text-green-700 dark:text-green-300" />
                     </div>
-                    <div className="flex-1">
-                      <p className="font-medium text-green-900">{transaction.receipt_filename}</p>
-                      <p className="text-sm text-green-700">Receipt attached to this transaction</p>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-foreground truncate">{transaction.receipt_filename}</p>
+                      <p className="text-sm text-muted-foreground">Receipt attached to this transaction</p>
                     </div>
                     <div className="flex gap-2">
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={() => window.open(transaction.receipt_url, '_blank')}
-                        className="border-green-300 text-green-700 hover:bg-green-100"
+                        className="border-green-600/50 text-green-700 dark:text-green-300 hover:bg-green-600/10"
                       >
                         <Eye className="w-4 h-4 mr-1" />
                         View
@@ -920,7 +921,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                         variant="outline"
                         size="sm"
                         onClick={handleReceiptDelete}
-                        className="border-red-300 text-red-700 hover:bg-red-100"
+                        className="border-red-600/50 text-red-700 dark:text-red-300 hover:bg-red-600/10"
                       >
                         <Trash2 className="w-4 h-4 mr-1" />
                         Delete
@@ -949,7 +950,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                   <div className="flex gap-3">
                     <Button
                       onClick={takePhoto}
-                      className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+                      className="flex-1 bg-green-600 hover:bg-green-700 dark:bg-green-700 dark:hover:bg-green-600 text-white"
                     >
                       <Camera className="w-4 h-4 mr-2" />
                       Take Photo
@@ -965,36 +966,21 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                   <canvas ref={canvasRef} className="hidden" />
                 </div>
               ) : (
-                // No receipt uploaded yet - enhanced upload options
                 <div className="space-y-3">
-                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center">
-                    <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                      <Upload className="w-4 h-4 text-gray-400" />
+                  <div className="border-2 border-dashed border-border rounded-xl p-6 text-center bg-muted/20 dark:bg-muted/10">
+                    <div className="w-10 h-10 rounded-full flex items-center justify-center mx-auto mb-3 bg-muted">
+                      <Upload className="w-5 h-5 text-muted-foreground" />
                     </div>
-                    <h4 className="text-base font-medium text-gray-900 mb-2">Add Receipt</h4>
-                    <p className="text-sm text-gray-600 mb-4">
+                    <h4 className="text-base font-medium text-foreground mb-2">Add Receipt</h4>
+                    <p className="text-sm text-muted-foreground mb-4">
                       Attach a receipt to support this transaction
                     </p>
-
                     <div className="flex gap-2 justify-center">
-                      <Button
-                        onClick={startCamera}
-                        variant="outline"
-                        size="sm"
-                        className="flex-1 max-w-28"
-                      >
+                      <Button onClick={startCamera} variant="outline" size="sm" className="flex-1 max-w-28">
                         <Camera className="w-4 h-4 mr-1" />
                         Photo
                       </Button>
-
-                      <input
-                        type="file"
-                        id="receipt-upload"
-                        accept="image/*,.pdf"
-                        onChange={handleReceiptFileSelect}
-                        className="hidden"
-                      />
-
+                      <input type="file" id="receipt-upload" accept="image/*,.pdf" onChange={handleReceiptFileSelect} className="hidden" />
                       <Button
                         variant="outline"
                         size="sm"
@@ -1005,26 +991,23 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                         Upload
                       </Button>
                     </div>
-
                     {receiptFile && (
-                      <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                        <div className="flex items-center gap-2">
-                          <FileText className="w-4 h-4 text-blue-600" />
-                          <div className="flex-1">
-                            <p className="text-sm font-medium text-blue-900">{receiptFile.name}</p>
-                            <p className="text-xs text-blue-700">
-                              {(receiptFile.size / 1024 / 1024).toFixed(2)} MB
-                            </p>
+                      <div className="mt-4 p-3 rounded-lg bg-green-500/10 dark:bg-green-600/20 border border-green-600/30">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <FileText className="w-4 h-4 text-green-700 dark:text-green-300 shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-foreground truncate">{receiptFile.name}</p>
+                            <p className="text-xs text-muted-foreground">{(receiptFile.size / 1024 / 1024).toFixed(2)} MB</p>
                           </div>
                           <Button
                             onClick={handleReceiptUpload}
                             disabled={isUploadingReceipt}
                             size="sm"
-                            className="bg-blue-600 hover:bg-blue-700 text-white"
+                            className="bg-green-600 hover:bg-green-700 dark:bg-green-700 dark:hover:bg-green-600 text-white shrink-0"
                           >
                             {isUploadingReceipt ? (
                               <div className="flex items-center gap-1">
-                                <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
                                 <span className="text-xs">Uploading...</span>
                               </div>
                             ) : (
@@ -1034,10 +1017,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                         </div>
                       </div>
                     )}
-
-                    <p className="text-xs text-gray-500 mt-3">
-                      JPG, PNG, GIF, PDF (max 10MB)
-                    </p>
+                    <p className="text-xs text-muted-foreground mt-3">JPG, PNG, GIF, PDF (max 10MB)</p>
                   </div>
                 </div>
               )}
@@ -1047,17 +1027,17 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
           {/* Right Column - Status & Tax Info */}
           <div className="space-y-4">
             {/* Status Card */}
-            <Card className="p-4 bg-white border border-gray-200 rounded-xl shadow-sm">
-              <h3 className="font-semibold text-gray-900 mb-3">Status</h3>
+            <Card className="p-4 sm:p-5 bg-card border border-border rounded-xl shadow-sm">
+              <h3 className="font-semibold text-foreground mb-3">Status</h3>
 
               <div className="space-y-3 mb-4">
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Classification</span>
+                  <span className="text-sm text-muted-foreground">Classification</span>
                   <Badge className={`border-0 rounded-full ${classification === null
-                      ? 'bg-orange-100 text-orange-700'
+                      ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200'
                       : classification === 'business'
-                        ? 'bg-emerald-100 text-emerald-700'
-                        : 'bg-red-100 text-red-700'
+                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200'
+                        : 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200'
                     }`}>
                     {classification === null
                       ? 'Needs Review'
@@ -1069,24 +1049,23 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                 </div>
 
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Deductible %</span>
-                  <span className="font-semibold text-emerald-600">
+                  <span className="text-sm text-muted-foreground">Deductible %</span>
+                  <span className="font-semibold text-emerald-600 dark:text-emerald-400">
                     {classification === 'business' ? `${deductiblePercent}%` : classification === 'personal' ? '0%' : '—'}
                   </span>
                 </div>
 
                 {isSaving && (
-                  <div className="flex items-center gap-2 text-sm text-blue-600">
-                    <div className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                  <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
+                    <div className="w-3 h-3 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
                     <span>Saving changes...</span>
                   </div>
                 )}
               </div>
 
-              {/* Classification Toggle */}
               {classification === null && (
-                <div className="mb-2 p-2 bg-blue-50 border border-blue-200 rounded-lg">
-                  <p className="text-sm text-blue-700 text-center">
+                <div className="mb-2 p-3 rounded-lg bg-green-500/10 dark:bg-green-600/20 border border-green-600/30 dark:border-green-500/30">
+                  <p className="text-sm text-foreground text-center">
                     Please select whether this is a business or personal expense
                   </p>
                 </div>
@@ -1098,24 +1077,22 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                   aria-label="Mark as business expense - tax deductible"
                   aria-describedby="business-expense-description"
                   className={`w-full p-3 rounded-lg border-2 transition-all duration-200 ${classification === 'business'
-                      ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                      : classification === null
-                        ? 'bg-gray-50 border-gray-300 text-gray-600 hover:bg-gray-100'
-                        : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                      ? 'bg-emerald-50 border-emerald-300 text-emerald-800 dark:bg-emerald-900/30 dark:border-emerald-600/50 dark:text-emerald-200'
+                      : 'bg-muted/50 border-border text-foreground hover:bg-muted dark:bg-muted/30 dark:border-border dark:hover:bg-muted/50'
                     } ${isSaving ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   <div className="flex items-center gap-3">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center ${classification === 'business' ? 'bg-emerald-600' : 'bg-gray-300'
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center ${classification === 'business' ? 'bg-emerald-600 dark:bg-emerald-500' : 'bg-muted dark:bg-muted/80'
                       }`}>
                       {classification === 'business' ? (
                         <CheckCircle className="w-4 h-4 text-white" />
                       ) : (
-                        <Building2 className="w-4 h-4 text-white" />
+                        <Building2 className="w-4 h-4 text-muted-foreground" />
                       )}
                     </div>
                     <div className="text-left">
-                      <p className="font-medium">Business Expense</p>
-                      <p className="text-sm opacity-75" id="business-expense-description">
+                      <p className="font-medium text-foreground">Business Expense</p>
+                      <p className="text-sm text-muted-foreground" id="business-expense-description">
                         Tax deductible
                       </p>
                     </div>
@@ -1125,7 +1102,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                         ? 'business'
                         : 'personal') && (
                         <div className="ml-auto">
-                          <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
+                          <span className="text-xs bg-green-500/20 text-green-700 dark:text-green-300 px-2 py-1 rounded-full">
                             Modified
                           </span>
                         </div>
@@ -1139,24 +1116,22 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                   aria-label="Mark as personal expense - not tax deductible"
                   aria-describedby="personal-expense-description"
                   className={`w-full p-3 rounded-lg border-2 transition-all duration-200 ${classification === 'personal'
-                      ? 'bg-red-50 border-red-200 text-red-800'
-                      : classification === null
-                        ? 'bg-gray-50 border-gray-300 text-gray-600 hover:bg-gray-100'
-                        : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                      ? 'bg-red-50 border-red-300 text-red-800 dark:bg-red-900/30 dark:border-red-600/50 dark:text-red-200'
+                      : 'bg-muted/50 border-border text-foreground hover:bg-muted dark:bg-muted/30 dark:border-border dark:hover:bg-muted/50'
                     } ${isSaving ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   <div className="flex items-center gap-3">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center ${classification === 'personal' ? 'bg-red-600' : 'bg-gray-300'
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center ${classification === 'personal' ? 'bg-red-600 dark:bg-red-500' : 'bg-muted dark:bg-muted/80'
                       }`}>
                       {classification === 'personal' ? (
                         <XCircle className="w-4 h-4 text-white" />
                       ) : (
-                        <User className="w-4 h-4 text-white" />
+                        <User className="w-4 h-4 text-muted-foreground" />
                       )}
                     </div>
                     <div className="text-left">
-                      <p className="font-medium">Personal Expense</p>
-                      <p className="text-sm opacity-75" id="personal-expense-description">
+                      <p className="font-medium text-foreground">Personal Expense</p>
+                      <p className="text-sm text-muted-foreground" id="personal-expense-description">
                         Not deductible
                       </p>
                     </div>
@@ -1166,7 +1141,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                         ? 'business'
                         : 'personal') && (
                         <div className="ml-auto">
-                          <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
+                          <span className="text-xs bg-green-500/20 text-green-700 dark:text-green-300 px-2 py-1 rounded-full">
                             Modified
                           </span>
                         </div>
@@ -1177,15 +1152,15 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
             </Card>
 
             {/* Ask a CPA Card */}
-            <Card className="p-4 bg-white border border-gray-200 rounded-xl shadow-sm">
-              <h3 className="font-semibold text-gray-900 mb-3">Need Help?</h3>
-              <p className="text-sm text-gray-600 mb-4">
+            <Card className="p-4 sm:p-5 bg-card border border-border rounded-xl shadow-sm">
+              <h3 className="font-semibold text-foreground mb-3">Need Help?</h3>
+              <p className="text-sm text-muted-foreground mb-4">
                 Get expert tax advice on this transaction from our CPA team.
               </p>
               <Button
                 onClick={() => setShowCpaModal(true)}
                 variant="outline"
-                className="w-full h-10 rounded-lg border border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100 hover:border-purple-300"
+                className="w-full h-10 rounded-lg border-purple-500/50 bg-purple-500/10 text-purple-700 dark:text-purple-300 hover:bg-purple-500/20 dark:hover:bg-purple-500/20"
               >
                 <HelpCircle className="w-4 h-4 mr-2" />
                 Ask a CPA
@@ -1193,24 +1168,24 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
             </Card>
 
             {/* Tax Information Card */}
-            <Card className="p-4 bg-white border border-gray-200 rounded-xl shadow-sm">
-              <h3 className="font-semibold text-gray-900 mb-3">Tax Information</h3>
+            <Card className="p-4 sm:p-5 bg-card border border-border rounded-xl shadow-sm">
+              <h3 className="font-semibold text-foreground mb-3">Tax Information</h3>
               <div className="space-y-3">
-                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
-                  <div className="text-sm text-gray-600 mb-1">Estimated Tax Rate</div>
-                  <div className="font-medium text-emerald-700">{estimatedTaxRatePercent}%</div>
+                <div className="rounded-lg p-3 bg-emerald-500/10 dark:bg-emerald-600/20 border border-emerald-600/30 dark:border-emerald-500/30">
+                  <div className="text-sm text-muted-foreground mb-1">Estimated Tax Rate</div>
+                  <div className="font-medium text-emerald-700 dark:text-emerald-300">{estimatedTaxRatePercent}%</div>
                 </div>
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                  <div className="text-sm text-gray-600 mb-1">Estimated Tax Savings</div>
-                  <div className="font-medium text-blue-700">
+                <div className="rounded-lg p-3 bg-blue-500/10 dark:bg-blue-600/20 border border-blue-600/30 dark:border-blue-500/30">
+                  <div className="text-sm text-muted-foreground mb-1">Estimated Tax Savings</div>
+                  <div className="font-medium text-blue-700 dark:text-blue-300">
                     {classification === null ? '—' : `$${deductibleSavingsAmount.toFixed(2)} ${classification === 'business' ? `(${estimatedTaxRatePercent}% of $${Math.abs(transaction.amount).toFixed(2)})` : '(0%)'}`}
                   </div>
                 </div>
 
                 {classification && (
-                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
-                    <div className="text-sm text-gray-600 mb-1">Last Updated</div>
-                    <div className="font-medium text-gray-700">
+                  <div className="rounded-lg p-3 bg-muted/50 dark:bg-muted/30 border border-border">
+                    <div className="text-sm text-muted-foreground mb-1">Last Updated</div>
+                    <div className="font-medium text-foreground">
                       {isSaving ? 'Saving...' : 'Just now'}
                     </div>
                   </div>
@@ -1219,11 +1194,11 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
             </Card>
 
             {/* Transaction Context Card */}
-            <Card className="p-4 bg-white border border-gray-200 rounded-xl shadow-sm">
-              <h3 className="font-semibold text-gray-900 mb-3">Transaction Context</h3>
+            <Card className="p-4 sm:p-5 bg-card border border-border rounded-xl shadow-sm">
+              <h3 className="font-semibold text-foreground mb-3">Transaction Context</h3>
               <div className="space-y-4">
                 <div>
-                  <label htmlFor="business-purpose" className="block text-sm font-medium text-gray-700 mb-2">
+                  <label htmlFor="business-purpose" className="block text-sm font-medium text-foreground mb-2">
                     Business Purpose
                   </label>
                   <Textarea
@@ -1234,13 +1209,13 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                       const updates = { business_purpose: e.target.value };
                       debouncedSave(updates);
                     }}
-                    className="min-h-[80px] rounded-lg border border-gray-200 bg-white"
+                    className="min-h-[80px] rounded-lg border-border bg-background text-foreground placeholder:text-muted-foreground"
                     maxLength={500}
                   />
                 </div>
 
                 <div>
-                  <label htmlFor="client-project" className="block text-sm font-medium text-gray-700 mb-2">
+                  <label htmlFor="client-project" className="block text-sm font-medium text-foreground mb-2">
                     Client/Project
                   </label>
                   <input
@@ -1252,13 +1227,13 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                       const updates = { client_project: e.target.value };
                       debouncedSave(updates);
                     }}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-3 py-2 rounded-lg border border-border bg-background text-foreground placeholder:text-muted-foreground focus:ring-2 focus:ring-green-500/50 focus:border-green-500"
                     maxLength={100}
                   />
                 </div>
 
                 <div>
-                  <label htmlFor="documentation-status" className="block text-sm font-medium text-gray-700 mb-2">
+                  <label htmlFor="documentation-status" className="block text-sm font-medium text-foreground mb-2">
                     Documentation Status
                   </label>
                   <select
@@ -1268,7 +1243,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                       const updates = { documentation_status: e.target.value as 'complete' | 'partial' | 'missing' };
                       debouncedSave(updates);
                     }}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-3 py-2 rounded-lg border border-border bg-background text-foreground focus:ring-2 focus:ring-green-500/50 focus:border-green-500"
                   >
                     <option value="missing">Missing</option>
                     <option value="partial">Partial</option>
@@ -1277,7 +1252,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                 </div>
 
                 <div>
-                  <label htmlFor="meeting-notes" className="block text-sm font-medium text-gray-700 mb-2">
+                  <label htmlFor="meeting-notes" className="block text-sm font-medium text-foreground mb-2">
                     Meeting Notes
                   </label>
                   <Textarea
@@ -1288,7 +1263,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                       const updates = { meeting_notes: e.target.value };
                       debouncedSave(updates);
                     }}
-                    className="min-h-[80px] rounded-lg border border-gray-200 bg-white"
+                    className="min-h-[80px] rounded-lg border-border bg-background text-foreground placeholder:text-muted-foreground"
                     maxLength={500}
                   />
                 </div>
@@ -1299,18 +1274,18 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
 
         {/* Action Buttons */}
         <div className="mt-6">
-          <div className="flex justify-center gap-4">
+          <div className="flex flex-wrap justify-center items-center gap-4">
             <Button
               onClick={handleBackNavigation}
               variant="outline"
-              className="h-12 px-8 rounded-lg border border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+              className="h-12 px-8 rounded-lg border-border bg-card text-foreground hover:bg-muted"
             >
               Back to Transactions
             </Button>
 
             {classification === null && (
-              <div className="flex items-center justify-center gap-2 text-blue-600 bg-blue-50 border border-blue-200 rounded-lg p-3">
-                <AlertTriangle className="w-4 h-4" />
+              <div className="flex items-center justify-center gap-2 rounded-lg p-3 bg-amber-500/10 dark:bg-amber-600/20 border border-amber-600/30 dark:border-amber-500/30 text-amber-800 dark:text-amber-200">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
                 <span className="text-sm font-medium">Please select whether this is a business or personal expense</span>
               </div>
             )}
@@ -1319,11 +1294,11 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
               <Button
                 onClick={handleSaveChanges}
                 disabled={isSaving}
-                className="h-12 px-8 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                className="h-12 px-8 rounded-lg bg-green-600 hover:bg-green-700 dark:bg-green-700 dark:hover:bg-green-600 text-white font-semibold disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
               >
                 {isSaving ? (
                   <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                     <span>Saving...</span>
                   </div>
                 ) : (
@@ -1333,8 +1308,8 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
             )}
 
             {classification && !hasUnsavedChanges && (
-              <div className="flex items-center justify-center gap-2 text-green-600 bg-green-50 border border-green-200 rounded-lg p-3">
-                <CheckCircle className="w-4 h-4" />
+              <div className="flex items-center justify-center gap-2 rounded-lg p-3 bg-green-500/10 dark:bg-green-600/20 border border-green-600/30 dark:border-green-500/30 text-green-700 dark:text-green-300">
+                <CheckCircle className="w-4 h-4 shrink-0" />
                 <span className="text-sm font-medium">All changes saved</span>
               </div>
             )}
@@ -1344,66 +1319,64 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
 
       {/* CPA Question Modal */}
       {showCpaModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-card border border-border rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6">
-              {/* Modal Header */}
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
-                    <HelpCircle className="w-5 h-5 text-purple-600" />
+                  <div className="w-10 h-10 rounded-full flex items-center justify-center bg-purple-500/20 dark:bg-purple-600/30">
+                    <HelpCircle className="w-5 h-5 text-purple-600 dark:text-purple-400" />
                   </div>
                   <div>
-                    <h2 className="text-xl font-semibold text-gray-900">Ask a CPA</h2>
-                    <p className="text-sm text-gray-600">Get expert tax advice on this transaction</p>
+                    <h2 className="text-xl font-semibold text-foreground">Ask a CPA</h2>
+                    <p className="text-sm text-muted-foreground">Get expert tax advice on this transaction</p>
                   </div>
                 </div>
                 <button
                   onClick={() => setShowCpaModal(false)}
-                  className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center hover:bg-gray-200 transition-colors"
+                  className="w-8 h-8 rounded-full flex items-center justify-center bg-muted hover:bg-muted/80 transition-colors text-muted-foreground hover:text-foreground"
                 >
-                  <X className="w-4 h-4 text-gray-600" />
+                  <X className="w-4 h-4" />
                 </button>
               </div>
 
-              {/* Transaction Context */}
-              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-6">
-                <h3 className="font-medium text-gray-900 mb-2">Transaction Details</h3>
+              <div className="rounded-lg p-4 mb-6 bg-muted/50 dark:bg-muted/30 border border-border">
+                <h3 className="font-medium text-foreground mb-2">Transaction Details</h3>
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
-                    <span className="font-semibold text-gray-900">Merchant:</span>
-                    <span className="ml-1 text-gray-900 font-medium">{transaction.merchant_name || '-'}</span>
+                    <span className="font-semibold text-foreground">Merchant:</span>
+                    <span className="ml-1 text-foreground font-medium">{transaction.merchant_name || '-'}</span>
                   </div>
                   <div>
-                    <span className="font-semibold text-gray-900">Amount:</span>
-                    <span className="ml-1 text-gray-900 font-medium">${typeof transaction.amount === 'number' ? Math.abs(transaction.amount).toFixed(2) : '-'}</span>
+                    <span className="font-semibold text-foreground">Amount:</span>
+                    <span className="ml-1 text-foreground font-medium">${typeof transaction.amount === 'number' ? Math.abs(transaction.amount).toFixed(2) : '-'}</span>
                   </div>
                   <div>
-                    <span className="font-semibold text-gray-900">Date:</span>
-                    <span className="ml-1 text-gray-900 font-medium">
+                    <span className="font-semibold text-foreground">Date:</span>
+                    <span className="ml-1 text-foreground font-medium">
                       {transaction.date ? new Date(transaction.date).toLocaleDateString('en-US') : '-'}
-                      {transaction.datetime && (
-                        <span className="ml-2 text-xs text-gray-500">
-                          {new Date(transaction.datetime).toLocaleTimeString('en-US', {
-                            hour: 'numeric',
-                            minute: '2-digit',
-                            hour12: true
-                          })}
-                        </span>
-                      )}
+                      {transaction.datetime
+                        ? (() => {
+                            const dt = transaction.datetime;
+                            return dt ? (
+                              <span className="ml-2 text-xs text-muted-foreground">
+                                {new Date(dt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+                              </span>
+                            ) : null;
+                          })()
+                        : null}
                     </span>
                   </div>
                   <div>
-                    <span className="font-semibold text-gray-900">Category:</span>
-                    <span className="ml-1 text-gray-900 font-medium break-words max-w-[180px] inline-block align-top">{consolidateCategory(transaction.category).displayName || '-'}</span>
+                    <span className="font-semibold text-foreground">Category:</span>
+                    <span className="ml-1 text-foreground font-medium break-words max-w-[180px] inline-block align-top">{consolidateCategory(transaction.category).displayName || '-'}</span>
                   </div>
                 </div>
               </div>
 
-              {/* Question Form */}
               <div className="space-y-4">
                 <div>
-                  <label htmlFor="cpa-question" className="block text-sm font-medium text-gray-700 mb-2">
+                  <label htmlFor="cpa-question" className="block text-sm font-medium text-foreground mb-2">
                     Your Question
                   </label>
                   <Textarea
@@ -1411,28 +1384,27 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                     placeholder="Ask about deductibility, documentation requirements, or any other tax-related questions about this transaction..."
                     value={cpaQuestion}
                     onChange={(e) => setCpaQuestion(e.target.value)}
-                    className="min-h-[120px] rounded-lg border border-gray-200 bg-white"
+                    className="min-h-[120px] rounded-lg border-border bg-background text-foreground placeholder:text-muted-foreground"
                     maxLength={1000}
                   />
                   <div className="flex justify-between items-center mt-1">
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-muted-foreground">
                       Be specific about your business use case and any concerns you have
                     </p>
-                    <span className="text-xs text-gray-400">
+                    <span className="text-xs text-muted-foreground">
                       {cpaQuestion.length}/1000
                     </span>
                   </div>
                 </div>
 
-                {/* Response Info */}
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="rounded-lg p-4 bg-blue-500/10 dark:bg-blue-600/20 border border-blue-600/30 dark:border-blue-500/30">
                   <div className="flex items-start gap-3">
-                    <div className="w-5 h-5 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 bg-blue-600 dark:bg-blue-500">
                       <span className="text-white text-xs font-bold">i</span>
                     </div>
                     <div>
-                      <h4 className="font-medium text-blue-900 mb-1">What to expect</h4>
-                      <ul className="text-sm text-blue-800 space-y-1">
+                      <h4 className="font-medium text-blue-900 dark:text-blue-200 mb-1">What to expect</h4>
+                      <ul className="text-sm text-blue-800 dark:text-blue-200/90 space-y-1">
                         <li>• Our CPA team will review your question within 24 hours</li>
                         <li>• You'll receive a detailed response via email</li>
                         <li>• The response will include specific guidance for your situation</li>
@@ -1443,19 +1415,18 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                 </div>
               </div>
 
-              {/* Modal Actions */}
               <div className="flex gap-3 mt-6">
                 <Button
                   onClick={() => setShowCpaModal(false)}
                   variant="outline"
-                  className="flex-1 h-12 rounded-lg border border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+                  className="flex-1 h-12 rounded-lg border-border bg-card text-foreground hover:bg-muted"
                 >
                   Cancel
                 </Button>
                 <Button
                   onClick={handleCpaQuestionSubmit}
                   disabled={!cpaQuestion.trim() || isSubmittingCpaQuestion}
-                  className="flex-1 h-12 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex-1 h-12 rounded-lg bg-purple-600 hover:bg-purple-700 dark:bg-purple-700 dark:hover:bg-purple-600 text-white font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isSubmittingCpaQuestion ? (
                     <div className="flex items-center gap-2">

@@ -950,7 +950,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             <button
               onClick={() => setActiveTab('profile')}
               className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'profile'
-                ? 'bg-primary/10 text-primary shadow-sm'
+                ? 'bg-green-900/70 text-green-300 shadow-sm'
                 : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
                 }`}
             >
@@ -960,7 +960,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             <button
               onClick={() => setActiveTab('businessDetails')}
               className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'businessDetails'
-                ? 'bg-primary/10 text-primary shadow-sm'
+                ? 'bg-green-900/70 text-green-300 shadow-sm'
                 : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
                 }`}
             >
@@ -970,7 +970,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             <button
               onClick={() => setActiveTab('taxSettings')}
               className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'taxSettings'
-                ? 'bg-primary/10 text-primary shadow-sm'
+                ? 'bg-green-900/70 text-green-300 shadow-sm'
                 : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
                 }`}
             >
@@ -980,7 +980,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             <button
               onClick={() => setActiveTab('payment')}
               className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'payment'
-                ? 'bg-primary/10 text-primary shadow-sm'
+                ? 'bg-green-900/70 text-green-300 shadow-sm'
                 : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
                 }`}
             >
@@ -990,7 +990,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             <button
               onClick={() => setActiveTab('advancedSettings')}
               className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'advancedSettings'
-                ? 'bg-primary/10 text-primary shadow-sm'
+                ? 'bg-green-900/70 text-green-300 shadow-sm'
                 : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
                 }`}
             >
@@ -1947,7 +1947,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   onClick={() => onNavigate('plaid')}
                   variant="outline"
                   size="sm"
-                  className="h-10 sm:h-11 justify-center gap-1.5 sm:gap-2 rounded-lg px-2 sm:px-4 no-tap-highlight"
+                  className="h-10 sm:h-11 justify-center gap-1.5 sm:gap-2 rounded-lg px-2 sm:px-4 no-tap-highlight text-foreground border-foreground/50 hover:bg-foreground/10 hover:border-foreground/70"
                 >
                   <DollarSign className="w-4 h-4 flex-shrink-0" />
                   <span className="text-xs sm:text-sm truncate">Manage Accounts</span>
@@ -2039,7 +2039,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     }}
                     variant="outline"
                     size="sm"
-                    className="h-10 justify-center gap-1.5 rounded-lg text-xs sm:text-sm no-tap-highlight"
+                    className="h-10 justify-center gap-1.5 rounded-lg text-xs sm:text-sm no-tap-highlight text-foreground border-foreground/50 hover:bg-foreground/10 hover:border-foreground/70"
                   >
                     <FileText className="w-4 h-4 flex-shrink-0" />
                     <span className="truncate">Export Data</span>
@@ -2048,7 +2048,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     asChild
                     variant="outline"
                     size="sm"
-                    className="h-10 justify-center gap-1.5 rounded-lg text-xs sm:text-sm no-tap-highlight"
+                    className="h-10 justify-center gap-1.5 rounded-lg text-xs sm:text-sm no-tap-highlight text-foreground border-foreground/50 hover:bg-foreground/10 hover:border-foreground/70"
                   >
                     <a href="https://my.plaid.com/" target="_blank" rel="noopener noreferrer">
                       <Shield className="w-4 h-4 flex-shrink-0" />
@@ -2097,7 +2097,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   onClick={() => onNavigate('dashboard')}
                   variant="outline"
                   size="sm"
-                  className="h-10 justify-center gap-1.5 text-xs sm:text-sm no-tap-highlight"
+                  className="h-10 justify-center gap-1.5 text-xs sm:text-sm no-tap-highlight text-foreground border-foreground/50 hover:bg-foreground/10 hover:border-foreground/70"
                 >
                   <Briefcase className="w-4 h-4" />
                   <span className="truncate">Dashboard</span>
@@ -2106,7 +2106,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   onClick={() => onNavigate('transactions')}
                   variant="outline"
                   size="sm"
-                  className="h-10 justify-center gap-1.5 text-xs sm:text-sm no-tap-highlight"
+                  className="h-10 justify-center gap-1.5 text-xs sm:text-sm no-tap-highlight text-foreground border-foreground/50 hover:bg-foreground/10 hover:border-foreground/70"
                 >
                   <FileText className="w-4 h-4" />
                   <span className="truncate">Transactions</span>

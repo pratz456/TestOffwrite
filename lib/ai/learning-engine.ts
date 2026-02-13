@@ -136,6 +136,46 @@ export class AILearningEngine {
   }
 
   /**
+   * Suggest is_deductible from learning patterns (merchant + category).
+   * Used to auto-classify pending transactions when confidence is high enough.
+   * If merchant and category disagree, the higher-confidence preference wins.
+   */
+  async suggestClassification(
+    userId: string,
+    transactionData: { merchant_name?: string; category?: string; mcc?: string; amount?: number }
+  ): Promise<{ suggestedIsDeductible: boolean; confidence: number } | null> {
+    const MIN_CONFIDENCE = 0.65;
+    const context = await this.getLearningContext(userId, transactionData);
+    if (!context) return null;
+
+    const prefs: Array<{ isDeductible: boolean; confidence: number }> = [];
+    if (context.merchantPreference && context.merchantPreference.confidence >= MIN_CONFIDENCE) {
+      prefs.push({
+        isDeductible: context.merchantPreference.preferredClassification,
+        confidence: context.merchantPreference.confidence
+      });
+    }
+    if (context.categoryPreference && context.categoryPreference.confidence >= MIN_CONFIDENCE) {
+      prefs.push({
+        isDeductible: context.categoryPreference.preferredClassification,
+        confidence: context.categoryPreference.confidence
+      });
+    }
+
+    if (prefs.length === 0) return null;
+    if (prefs.length === 1) {
+      return prefs[0].confidence >= 0.7 ? prefs[0] : null;
+    }
+    const [a, b] = prefs;
+    if (a.isDeductible === b.isDeductible) {
+      const confidence = Math.max(a.confidence, b.confidence);
+      return confidence >= 0.7 ? { suggestedIsDeductible: a.isDeductible, confidence } : null;
+    }
+    const higher = a.confidence >= b.confidence ? a : b;
+    return higher.confidence >= 0.7 ? higher : null;
+  }
+
+  /**
    * Get user's correction history for insights
    */
   async getCorrectionHistory(userId: string, limitCount: number = 50): Promise<UserCorrection[]> {
@@ -463,6 +503,13 @@ export const aiLearningEngine = {
       _aiLearningEngine = new AILearningEngine();
     }
     return _aiLearningEngine.getLearningContext(...args);
+  },
+
+  async suggestClassification(...args: Parameters<AILearningEngine['suggestClassification']>) {
+    if (!_aiLearningEngine) {
+      _aiLearningEngine = new AILearningEngine();
+    }
+    return _aiLearningEngine.suggestClassification(...args);
   },
   
   async getCorrectionHistory(...args: Parameters<AILearningEngine['getCorrectionHistory']>) {

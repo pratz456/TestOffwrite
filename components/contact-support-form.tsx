@@ -36,32 +36,41 @@ export function ContactSupportForm() {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const handleInputChange = (field: keyof ContactFormData, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+    setSubmitError(null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
+    setSubmitError(null);
 
     try {
-      // Simulate form submission
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // In a real implementation, you'd send this to your backend
-      console.log('Support request submitted:', formData);
-      
+      const res = await fetch("/api/contact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setSubmitError(typeof data.error === "string" ? data.error : "Something went wrong. Please try again.");
+        return;
+      }
+
       setIsSubmitted(true);
       setFormData({
-        name: '',
-        email: '',
-        subject: '',
-        category: '',
-        message: ''
+        name: "",
+        email: "",
+        subject: "",
+        category: "",
+        message: "",
       });
-    } catch (error) {
-      console.error('Error submitting form:', error);
+    } catch {
+      setSubmitError("Failed to send. Please try again or email writeoffapp@gmail.com.");
     } finally {
       setIsSubmitting(false);
     }
@@ -73,16 +82,16 @@ export function ContactSupportForm() {
 
   if (isSubmitted) {
     return (
-      <Card className="bg-green-50 border-green-200">
+      <Card className="bg-muted/30 border-border">
         <CardContent className="pt-6">
           <div className="text-center space-y-4">
-            <CheckCircle className="w-16 h-16 text-green-600 mx-auto" />
-            <h3 className="text-xl font-semibold text-green-900">Thank You!</h3>
-            <p className="text-green-700">
-              Your support request has been submitted successfully. We'll get back to you within 24 hours.
+            <CheckCircle className="w-16 h-16 text-green-600 dark:text-green-500 mx-auto" />
+            <h3 className="text-xl font-semibold text-foreground">Thank you!</h3>
+            <p className="text-muted-foreground">
+              Your support request has been submitted. We&apos;ll get back to you within 24 hours on business days.
             </p>
-            <Button onClick={handleReset} variant="outline" className="border-green-300 text-green-700 hover:bg-green-100">
-              Submit Another Request
+            <Button onClick={handleReset} variant="outline" className="border-border text-foreground hover:bg-muted">
+              Submit another request
             </Button>
           </div>
         </CardContent>
@@ -94,11 +103,16 @@ export function ContactSupportForm() {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <MessageCircle className="w-5 h-5 text-blue-600" />
+          <MessageCircle className="w-5 h-5 text-primary" />
           Contact Support
         </CardTitle>
       </CardHeader>
       <CardContent>
+        {submitError && (
+          <div className="mb-4 rounded-md border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            {submitError}
+          </div>
+        )}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
@@ -108,6 +122,7 @@ export function ContactSupportForm() {
                 value={formData.name}
                 onChange={(e) => handleInputChange('name', e.target.value)}
                 placeholder="Your full name"
+                className="placeholder:text-foreground/70"
                 required
               />
             </div>
@@ -118,7 +133,8 @@ export function ContactSupportForm() {
                 type="email"
                 value={formData.email}
                 onChange={(e) => handleInputChange('email', e.target.value)}
-                placeholder="writeoffapp@gmail.com"
+                placeholder="you@example.com"
+                className="placeholder:text-foreground/70"
                 required
               />
             </div>
@@ -132,13 +148,14 @@ export function ContactSupportForm() {
                 value={formData.subject}
                 onChange={(e) => handleInputChange('subject', e.target.value)}
                 placeholder="Brief description of your issue"
+                className="placeholder:text-foreground/70"
                 required
               />
             </div>
             <div className="space-y-2">
               <Label htmlFor="category" required>Category</Label>
               <Select value={formData.category} onValueChange={(value) => handleInputChange('category', value)}>
-                <SelectTrigger>
+                <SelectTrigger className="data-[placeholder]:text-foreground/70">
                   <SelectValue placeholder="Select a category" />
                 </SelectTrigger>
                 <SelectContent>
@@ -159,19 +176,20 @@ export function ContactSupportForm() {
               value={formData.message}
               onChange={(e) => handleInputChange('message', e.target.value)}
               placeholder="Please describe your issue or question in detail..."
+              className="placeholder:text-foreground/70"
               rows={5}
               required
             />
           </div>
 
           <div className="flex items-center justify-between pt-4">
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-foreground/90">
               We typically respond within 24 hours during business days.
             </p>
-            <Button 
-              type="submit" 
+            <Button
+              type="submit"
               disabled={isSubmitting}
-              className="bg-blue-600 hover:bg-blue-700 text-white"
+              className="bg-primary text-primary-foreground hover:bg-primary/90"
             >
               {isSubmitting ? (
                 <>
@@ -192,19 +210,19 @@ export function ContactSupportForm() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
             <div>
               <h4 className="font-medium text-foreground mb-1">Email Support</h4>
-              <p className="text-sm text-muted-foreground">
-                <a href="mailto:writeoffapp@gmail.com" className="text-blue-600 hover:underline">
+              <p className="text-sm text-foreground/90">
+                <a href="mailto:writeoffapp@gmail.com" className="text-green-600 font-medium hover:text-green-500 hover:underline">
                   writeoffapp@gmail.com
                 </a>
               </p>
             </div>
             <div>
               <h4 className="font-medium text-foreground mb-1">Response Time</h4>
-              <p className="text-sm text-muted-foreground">Within 24 hours</p>
+              <p className="text-sm text-foreground/90">Within 24 hours</p>
             </div>
             <div>
               <h4 className="font-medium text-foreground mb-1">Business Hours</h4>
-              <p className="text-sm text-muted-foreground">Mon-Fri, 9AM-6PM EST</p>
+              <p className="text-sm text-foreground/90">Mon-Fri, 9AM-6PM EST</p>
             </div>
           </div>
         </div>

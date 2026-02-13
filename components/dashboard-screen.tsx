@@ -207,7 +207,7 @@ export default function DashboardScreen({
                 <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-foreground">Dashboard</h1>
                 <p className="text-sm text-muted-foreground">Welcome back, {profile?.name?.split(' ')[0] || 'there'}</p>
               </div>
-              <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
+              <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto justify-end sm:justify-start">
                 <Button
                   variant="outline"
                   size="sm"
@@ -239,11 +239,10 @@ export default function DashboardScreen({
                     }
                   }}
                   disabled={isRefreshingBalances}
-                  className="gap-2 flex-1 sm:flex-none h-10 sm:h-9 text-sm no-tap-highlight"
+                  className="gap-2 h-9 w-9 p-0 min-w-0 sm:h-10 sm:min-w-[7.5rem] sm:pl-3 sm:pr-4 sm:py-2 flex-none text-sm no-tap-highlight rounded-lg border border-border bg-muted/40 hover:bg-muted/70 dark:bg-muted/30 dark:hover:bg-muted/50 text-foreground font-medium transition-colors"
                 >
-                  <RefreshCw className={`h-4 w-4 ${isRefreshingBalances ? 'animate-spin' : ''}`} />
-                  <span className="hidden xs:inline">{isRefreshingBalances ? 'Refreshing...' : 'Refresh'}</span>
-                  <span className="xs:hidden">{isRefreshingBalances ? '...' : 'Refresh'}</span>
+                  <RefreshCw className={`h-4 w-4 shrink-0 ${isRefreshingBalances ? 'animate-spin' : ''}`} />
+                  <span className="hidden sm:inline whitespace-nowrap">{isRefreshingBalances ? 'Refreshing…' : 'Refresh'}</span>
                 </Button>
                 {/* <Button
                   variant="outline"
@@ -307,7 +306,7 @@ export default function DashboardScreen({
                         };
                         fetchTaxSavings();
                       }}
-                      className="h-7 w-7 sm:h-6 sm:w-6 p-0 hover:bg-primary/10 no-tap-highlight"
+                      className="h-7 w-7 sm:h-6 sm:w-6 p-0 text-foreground hover:bg-primary/10 no-tap-highlight"
                       disabled={isLoadingTaxSavings}
                     >
                       <RefreshCw className={`h-3.5 w-3.5 sm:h-3 sm:w-3 ${isLoadingTaxSavings ? 'animate-spin' : ''}`} />
