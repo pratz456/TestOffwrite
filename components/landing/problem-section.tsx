@@ -26,12 +26,12 @@ export function ProblemSection() {
           <p className="mx-auto mt-4 max-w-2xl text-muted-foreground">Most individuals overpay taxes simply because traditional tax tools only show up in April &mdash; when it&rsquo;s already too late.</p>
         </div>
 
-        <div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-4 stagger-children">
+        <div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
           {PROBLEMS.map((item, i) => {
             const Icon = item.icon;
             const isActive = i === active;
             return (
-              <button key={item.title} type="button" onClick={() => setActive(i)} className={`animate-on-scroll group relative rounded-xl border p-6 text-left transition-all duration-300 ${isActive ? `${item.border} bg-card shadow-lg ring-2 ${item.ring}` : "border-border bg-card/60 hover:border-border hover:shadow-md hover:-translate-y-0.5"}`}>
+              <button key={item.title} type="button" onClick={() => setActive(i)} className={`group relative rounded-xl border p-6 text-left transition-all duration-300 ${isActive ? `${item.border} bg-card shadow-lg ring-2 ${item.ring}` : "border-border bg-card/60 hover:border-border hover:shadow-md hover:-translate-y-0.5"}`}>
                 <div className={`mb-4 inline-flex rounded-lg p-2.5 transition-colors duration-300 ${isActive ? item.bg : "bg-muted"}`}>
                   <Icon className={`h-6 w-6 transition-colors duration-300 ${isActive ? item.color : "text-muted-foreground"}`} />
                 </div>
@@ -42,7 +42,7 @@ export function ProblemSection() {
           })}
         </div>
 
-        <div className="animate-on-scroll mt-8 flex justify-center gap-2">
+        <div className="mt-8 flex justify-center gap-2">
           {PROBLEMS.map((_, i) => (
             <button key={i} type="button" aria-label={`Show card ${i + 1}`} onClick={() => setActive(i)} className={`h-2.5 rounded-full transition-all duration-300 ${i === active ? `w-8 ${DOT_COLORS[i]}` : "w-2.5 bg-muted-foreground/25"}`} />
           ))}

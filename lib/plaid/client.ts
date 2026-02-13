@@ -8,7 +8,7 @@ function getPlaidConfig() {
   let plaidEnv: string | undefined;
   
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+     
     const functions = require('firebase-functions');
     const config = functions.config();
     if (config.plaid) {

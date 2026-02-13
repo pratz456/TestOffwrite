@@ -6,7 +6,8 @@
     "start": "next start",
     "clean": "node scripts/clean-next.js",
     "clean:all": "node scripts/clean-next.js .next node_modules/.cache",
-    "lint": "next lint",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "test": "vitest run",
     "test:watch": "vitest",
     "ci": "npm run lint && npm test && npm run build",
@@ -89,7 +90,6 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
-    "@eslint/eslintrc": "^3",
     "@types/archiver": "^6.0.2",
     "@types/node": "^20",
     "@types/react": "^18.3.12",

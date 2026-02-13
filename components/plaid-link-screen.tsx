@@ -202,8 +202,8 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
     // Set polling flag
     isPollingRef.current = true;
 
-    let importComplete = false;
-    let analysisStarted = false;
+    const importComplete = false;
+    const analysisStarted = false;
     let pollCount = 0;
     const maxPolls = 200; // Maximum 200 polls (5 minutes at 1.5s intervals)
     const startTime = Date.now();

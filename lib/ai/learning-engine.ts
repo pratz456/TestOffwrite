@@ -203,7 +203,7 @@ export class AILearningEngine {
       const patternsRef = this.db.collection('learning_patterns').doc(userId);
       const patternsDoc = await patternsRef.get();
       
-      let patterns: LearningPattern = patternsDoc.exists 
+      const patterns: LearningPattern = patternsDoc.exists 
         ? patternsDoc.data() as LearningPattern
         : this.createEmptyPatterns(userId);
 

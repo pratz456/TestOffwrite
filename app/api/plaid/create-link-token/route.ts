@@ -13,7 +13,7 @@ function getPlaidConfig() {
   // If not found in process.env, try functions.config() (for legacy Firebase Functions)
   if (!plaidClientId || !plaidSecret) {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
+       
       const functions = require('firebase-functions');
       const config = functions.config();
       if (config.plaid) {

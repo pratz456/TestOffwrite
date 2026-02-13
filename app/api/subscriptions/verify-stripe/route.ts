@@ -18,7 +18,7 @@ export async function POST(req: Request) {
     const customerId = userData?.stripeCustomerId;
     const subscriptionId = userData?.stripeSubscriptionId;
 
-    let stripeData: any = {
+    const stripeData: any = {
       hasCustomer: !!customerId,
       hasSubscription: !!subscriptionId,
     };

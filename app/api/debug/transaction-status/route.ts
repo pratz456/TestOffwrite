@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
     // 4. Calculate transaction date range
     let oldestTransaction: Date | null = null;
     let newestTransaction: Date | null = null;
-    let transactionCountByMonth: Record<string, number> = {};
+    const transactionCountByMonth: Record<string, number> = {};
 
     if (allTransactions && allTransactions.length > 0) {
       const dates = allTransactions
