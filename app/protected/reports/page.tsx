@@ -6,7 +6,7 @@ import { FileText, TrendingUp, TrendingDown, Calendar, BarChart3, AlertCircle, D
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/firebase/auth-context';
-import { useMonthlyDeductions } from '@/lib/react-query/hooks';
+import { useMonthlyDeductions, useTransactions } from '@/lib/react-query/hooks';
 import { ReportsChartSkeleton, PageHeaderSkeleton } from '@/components/ui/skeleton';
 import { OtherReportsDropdown } from './components/OtherReportsDropdown';
 import { ToastContainer, useToasts } from '@/components/ui/toast';
@@ -43,6 +43,18 @@ interface TransactionDetail {
   deduction_score?: number;
 }
 
+const TAX_RATE = 0.3;
+
+/** Transaction from API may have type, receipt_url (if API includes it) */
+interface ReportTransaction {
+  date: string;
+  amount: number;
+  type?: 'expense' | 'income';
+  is_deductible?: boolean | null;
+  receipt_url?: string;
+  receipt_filename?: string;
+}
+
 interface MonthlyBreakdown {
   month: string;
   monthName: string;
@@ -77,6 +89,84 @@ export default function ReportsPage() {
   } = useMonthlyDeductions(user?.id || '', chartYear, !authLoading);
 
   const reportsData = reportsResult?.data as ReportsData | undefined;
+
+  // Transactions for Paid/Received and receipts (existing API, no backend change)
+  const { data: transactionsResponse } = useTransactions(user?.id || '');
+  const allTransactions = (transactionsResponse?.transactions ?? transactionsResponse?.data ?? []) as ReportTransaction[];
+
+  // Memoized aggregates: per-month and summary for chart year (paid, received, deductible, receipts)
+  const transactionAggregates = useMemo(() => {
+    if (!allTransactions.length) {
+      return {
+        perMonth: [] as { paid: number; received: number; deductibleSavings: number; withReceipt: number; missingReceipt: number }[],
+        totalPaid: 0,
+        totalReceived: 0,
+        categorizedCount: 0,
+        totalCount: 0,
+        missingReceipts: 0,
+        hasReceiptField: false,
+        readyPct: 0
+      };
+    }
+    const yearStart = new Date(chartYear, 0, 1);
+    const yearEnd = new Date(chartYear, 11, 31, 23, 59, 59);
+    const inYear = allTransactions.filter((t) => {
+      const d = new Date(t.date);
+      return d >= yearStart && d <= yearEnd;
+    });
+    const hasReceiptField = 'receipt_url' in (inYear[0] || {}) || 'receipt_filename' in (inYear[0] || {});
+    const perMonth = Array.from({ length: 12 }, () => ({
+      paid: 0,
+      received: 0,
+      deductibleSavings: 0,
+      withReceipt: 0,
+      missingReceipt: 0
+    }));
+    let totalPaid = 0;
+    let totalReceived = 0;
+    let categorizedCount = 0;
+    let missingReceipts = 0;
+
+    inYear.forEach((t) => {
+      const amount = Number(t.amount);
+      const abs = Math.abs(amount);
+      const isIncome = amount < 0 || t.type === 'income';
+      const month = new Date(t.date).getMonth();
+      if (isIncome) {
+        perMonth[month].received += abs;
+        totalReceived += abs;
+      } else {
+        perMonth[month].paid += abs;
+        totalPaid += abs;
+        if (t.is_deductible === true) {
+          perMonth[month].deductibleSavings += abs * TAX_RATE;
+        }
+      }
+      if (t.is_deductible !== null && t.is_deductible !== undefined) categorizedCount++;
+      if (hasReceiptField) {
+        const hasReceipt = !!(t.receipt_url || t.receipt_filename);
+        if (hasReceipt) perMonth[month].withReceipt++;
+        else {
+          perMonth[month].missingReceipt++;
+          missingReceipts++;
+        }
+      }
+    });
+
+    const totalCount = inYear.length;
+    const readyPct = totalCount > 0 ? Math.round((categorizedCount / totalCount) * 100) : 0;
+
+    return {
+      perMonth,
+      totalPaid,
+      totalReceived,
+      categorizedCount,
+      totalCount,
+      missingReceipts,
+      hasReceiptField,
+      readyPct
+    };
+  }, [allTransactions, chartYear]);
 
   // Calculate additional metrics
   const metrics = useMemo(() => {
@@ -350,8 +440,13 @@ export default function ReportsPage() {
     0
   ];
 
+  const { perMonth, totalPaid, totalReceived } = transactionAggregates;
+  const currentMonthIdx = new Date().getMonth();
+  const thisMonthAgg = perMonth[currentMonthIdx];
+  const formatCur = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
   return (
-    <div className="p-4 sm:p-6 bg-background min-h-screen">
+    <div className="p-4 sm:p-6 bg-background min-h-screen overflow-x-hidden min-w-0">
       {/* Header */}
       <div className="mb-4 sm:mb-6">
         <div className="mb-3">
@@ -364,7 +459,7 @@ export default function ReportsPage() {
             onClick={() => refetch()}
             variant="outline"
             size="sm"
-            className="h-10 px-3 sm:px-4 border-2 border-gray-300 dark:border-gray-500 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 hover:border-primary/60 dark:hover:border-primary/60 text-gray-700 dark:text-gray-200 transition-all duration-200 no-tap-highlight group"
+            className="min-h-[44px] sm:h-10 px-3 sm:px-4 border-2 border-gray-300 dark:border-gray-500 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 hover:border-primary/60 dark:hover:border-primary/60 text-gray-700 dark:text-gray-200 transition-colors duration-200 no-tap-highlight group focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             title="Refresh reports data"
           >
             <RefreshCw className="w-4 h-4 group-hover:text-primary transition-colors" />
@@ -373,7 +468,7 @@ export default function ReportsPage() {
           <OtherReportsDropdown disabled={isGeneratingReport} />
           <Button
             size="sm"
-            className="h-10 px-3 sm:px-4 bg-gradient-to-r from-emerald-400 to-green-500 dark:from-emerald-500 dark:to-green-600 hover:from-emerald-500 hover:to-green-600 dark:hover:from-emerald-400 dark:hover:to-green-500 text-white font-medium shadow-md shadow-green-500/20 dark:shadow-green-500/30 hover:shadow-lg hover:shadow-green-500/30 dark:hover:shadow-green-500/40 transition-all duration-200 no-tap-highlight disabled:opacity-50 disabled:shadow-none"
+            className="min-h-[44px] sm:h-10 px-3 sm:px-4 bg-gradient-to-r from-emerald-400 to-green-500 dark:from-emerald-500 dark:to-green-600 hover:from-emerald-500 hover:to-green-600 dark:hover:from-emerald-400 dark:hover:to-green-500 text-white font-medium shadow-md shadow-green-500/20 dark:shadow-green-500/30 hover:shadow-lg hover:shadow-green-500/30 dark:hover:shadow-green-500/40 transition-colors duration-200 no-tap-highlight disabled:opacity-50 disabled:shadow-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             onClick={() => setShowExportModal(true)}
             disabled={!canExport || isGeneratingReport}
             title={!canExport ? "No data available to export" : "Export tax deduction report"}
@@ -383,7 +478,7 @@ export default function ReportsPage() {
           </Button>
           <Button
             size="sm"
-            className="h-10 px-3 sm:px-4 bg-gradient-to-r from-blue-400 to-indigo-500 dark:from-blue-500 dark:to-indigo-600 hover:from-blue-500 hover:to-indigo-600 dark:hover:from-blue-400 dark:hover:to-indigo-500 text-white font-medium shadow-md shadow-blue-500/20 dark:shadow-blue-500/30 hover:shadow-lg hover:shadow-blue-500/30 dark:hover:shadow-blue-500/40 transition-all duration-200 no-tap-highlight"
+            className="min-h-[44px] sm:h-10 px-3 sm:px-4 bg-gradient-to-r from-blue-400 to-indigo-500 dark:from-blue-500 dark:to-indigo-600 hover:from-blue-500 hover:to-indigo-600 dark:hover:from-blue-400 dark:hover:to-indigo-500 text-white font-medium shadow-md shadow-blue-500/20 dark:shadow-blue-500/30 hover:shadow-lg hover:shadow-blue-500/30 dark:hover:shadow-blue-500/40 transition-colors duration-200 no-tap-highlight focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             onClick={() => router.push('/protected/schedule-c')}
           >
             <Download className="w-4 h-4" />
@@ -400,10 +495,15 @@ export default function ReportsPage() {
             <DollarSign className="w-4 h-4 opacity-90" />
             <span className="text-[10px] sm:text-xs opacity-90">Year to Date</span>
           </div>
-          <div className="text-lg sm:text-2xl font-bold">
+          <div className="text-2xl sm:text-3xl font-bold tabular-nums">
             ${summary.yearToDateTotal.toFixed(2)}
           </div>
           <div className="text-[10px] sm:text-xs opacity-90">Total tax savings</div>
+          <div className="text-[10px] sm:text-xs opacity-90 mt-0.5 flex flex-wrap gap-x-1.5 gap-y-0">
+            <span>Paid: <span className="tabular-nums text-red-200 dark:text-red-300">${formatCur(totalPaid)}</span></span>
+            <span>·</span>
+            <span>Received: <span className="tabular-nums text-green-200 dark:text-green-300">${formatCur(totalReceived)}</span></span>
+          </div>
         </Card>
 
         {/* Current Month */}
@@ -418,7 +518,7 @@ export default function ReportsPage() {
             <Calendar className="w-4 h-4 opacity-90" />
             <span className="text-[10px] sm:text-xs opacity-90">This Month</span>
           </div>
-          <div className="text-lg sm:text-2xl font-bold">
+          <div className="text-2xl sm:text-3xl font-bold tabular-nums">
             ${summary.currentMonthTotal.toFixed(2)}
           </div>
           <div className="flex items-center gap-0.5 text-[10px] sm:text-xs opacity-90">
@@ -437,6 +537,13 @@ export default function ReportsPage() {
             )}
             <span className="hidden sm:inline ml-0.5">vs last month</span>
           </div>
+          {thisMonthAgg && (thisMonthAgg.paid > 0 || thisMonthAgg.received > 0) && (
+            <div className="text-[10px] sm:text-xs opacity-90 mt-0.5 flex flex-wrap gap-x-1.5 gap-y-0">
+              <span>Paid: <span className="tabular-nums text-red-200 dark:text-red-300">${formatCur(thisMonthAgg.paid)}</span></span>
+              <span>·</span>
+              <span>Received: <span className="tabular-nums text-green-200 dark:text-green-300">${formatCur(thisMonthAgg.received)}</span></span>
+            </div>
+          )}
         </Card>
 
         {/* Average Monthly */}
@@ -445,12 +552,17 @@ export default function ReportsPage() {
             <TrendingUp className="w-4 h-4 opacity-90" />
             <span className="text-[10px] sm:text-xs opacity-90">Monthly Avg</span>
           </div>
-          <div className="text-lg sm:text-2xl font-bold">
+          <div className="text-2xl sm:text-3xl font-bold tabular-nums">
             ${summary.avgMonthly.toFixed(2)}
           </div>
           <div className="text-[10px] sm:text-xs opacity-90">
             <span className="sm:hidden">{summary.monthsWithData}mo data</span>
             <span className="hidden sm:inline">Based on {summary.monthsWithData} {summary.monthsWithData === 1 ? 'month' : 'months'}</span>
+          </div>
+          <div className="text-[10px] sm:text-xs opacity-90 mt-0.5 flex flex-wrap gap-x-1.5 gap-y-0">
+            <span>Paid: <span className="tabular-nums text-red-200 dark:text-red-300">${formatCur(totalPaid)}</span></span>
+            <span>·</span>
+            <span>Received: <span className="tabular-nums text-green-200 dark:text-green-300">${formatCur(totalReceived)}</span></span>
           </div>
         </Card>
 
@@ -460,12 +572,17 @@ export default function ReportsPage() {
             <Target className="w-4 h-4 opacity-90" />
             <span className="text-[10px] sm:text-xs opacity-90">Projected</span>
           </div>
-          <div className="text-lg sm:text-2xl font-bold">
+          <div className="text-2xl sm:text-3xl font-bold tabular-nums">
             ${projectedAnnual.toFixed(2)}
           </div>
           <div className="text-[10px] sm:text-xs opacity-90">
             <span className="sm:hidden">Yearly</span>
             <span className="hidden sm:inline">Estimated yearly savings</span>
+          </div>
+          <div className="text-[10px] sm:text-xs opacity-90 mt-0.5 flex flex-wrap gap-x-1.5 gap-y-0">
+            <span>Paid: <span className="tabular-nums text-red-200 dark:text-red-300">${formatCur(totalPaid)}</span></span>
+            <span>·</span>
+            <span>Received: <span className="tabular-nums text-green-200 dark:text-green-300">${formatCur(totalReceived)}</span></span>
           </div>
         </Card>
       </div>
@@ -473,9 +590,23 @@ export default function ReportsPage() {
       {/* Monthly Tax Savings Chart */}
       <Card className="p-6 bg-card border shadow-sm mb-6">
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-6 gap-4">
-          <div>
+          <div className="min-w-0">
             <h2 className="text-xl font-semibold text-card-foreground mb-1">Monthly Tax Savings Trend</h2>
             <p className="text-sm text-muted-foreground">Click on any bar to see detailed breakdown</p>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1.5">
+                <span className="rounded-full w-2 h-2 bg-green-500 dark:bg-green-400" aria-hidden />
+                Received
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="rounded-full w-2 h-2 bg-red-500 dark:bg-red-400" aria-hidden />
+                Paid
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="rounded-full w-2 h-2 bg-primary" aria-hidden />
+                Tax Savings
+              </span>
+            </div>
           </div>
           <div className="flex items-center gap-4 flex-wrap">
             <label className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -483,7 +614,8 @@ export default function ReportsPage() {
               <select
                 value={chartYear}
                 onChange={(e) => setChartYear(Number(e.target.value))}
-                className="h-9 px-3 rounded-md border border-border bg-background text-foreground text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
+                className="min-h-[44px] sm:h-9 px-3 rounded-md border border-border bg-background text-foreground text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
+                aria-label="Select year for chart"
               >
                 {availableYears.map((y) => (
                   <option key={y} value={y}>{y}</option>
@@ -510,7 +642,7 @@ export default function ReportsPage() {
         ) : (
           <>
             {/* Chart Container */}
-            <div className="relative w-full">
+            <div className="relative w-full min-w-0">
               {/* Desktop Chart Layout */}
               <div className="hidden md:flex relative" style={{ height: '360px' }}>
                 {/* Y-axis labels container - positioned absolutely to align with grid */}
@@ -560,15 +692,16 @@ export default function ReportsPage() {
 
                     {/* Bars container - positioned to align with chart area */}
                     <div className="relative h-full flex items-end justify-between gap-1.5 px-2">
-                      {monthlyData.map((month, index) => {
+                      {monthlyData.map((month) => {
                         const barHeight = month.total > 0 ? Math.max((month.total / maxAmount) * 100, 2) : 0;
                         const isCurrentMonth = month.month === new Date().getMonth();
                         const isClickable = month.total > 0;
+                        const agg = perMonth[month.month];
 
                         return (
                           <div
                             key={month.month}
-                            className="flex-1 flex items-end justify-center h-full group relative"
+                            className="flex-1 flex items-end justify-center h-full group relative min-w-0"
                             style={{ minWidth: '0' }}
                           >
                             {/* Bar */}
@@ -584,14 +717,23 @@ export default function ReportsPage() {
                                   minHeight: '4px',
                                 }}
                                 onClick={() => isClickable && handleMonthClick(month)}
+                                role="button"
+                                tabIndex={isClickable ? 0 : -1}
+                                aria-label={`${month.monthName}: tax savings $${month.total.toFixed(2)}. Click for breakdown.`}
+                                onKeyDown={(e) => isClickable && (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), handleMonthClick(month))}
                               >
                                 {/* Tooltip */}
-                                <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-1.5 bg-popover border border-border text-popover-foreground text-xs rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap pointer-events-none z-20">
+                                <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-1.5 bg-popover border border-border text-popover-foreground text-xs rounded-lg shadow-xl opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-200 pointer-events-none z-20 min-w-[140px]">
                                   <div className="font-semibold">{month.monthName}</div>
-                                  <div className="text-primary dark:text-blue-400 font-bold">${month.total.toFixed(2)}</div>
+                                  <div className="text-primary dark:text-blue-400 font-bold tabular-nums">${month.total.toFixed(2)} <span className="text-muted-foreground font-normal text-[10px]">savings</span></div>
+                                  {agg && (agg.paid > 0 || agg.received > 0) && (
+                                    <div className="mt-1 space-y-0.5 text-[10px]">
+                                      <div className="text-red-600 dark:text-red-400 tabular-nums">Paid: ${formatCur(agg.paid)}</div>
+                                      <div className="text-green-600 dark:text-green-400 tabular-nums">Received: ${formatCur(agg.received)}</div>
+                                    </div>
+                                  )}
                                   <div className="text-muted-foreground text-[10px] mt-0.5">{month.count} transactions</div>
-                                  {/* Arrow */}
-                                  <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-popover"></div>
+                                  <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-popover" aria-hidden />
                                 </div>
                               </div>
                             ) : (
@@ -678,11 +820,12 @@ export default function ReportsPage() {
                       const barHeight = month.total > 0 ? Math.max((month.total / maxAmount) * 100, 2) : 0;
                       const isCurrentMonth = month.month === new Date().getMonth();
                       const isClickable = month.total > 0;
+                      const agg = perMonth[month.month];
 
                       return (
                         <div
                           key={month.month}
-                          className="flex-1 flex flex-col items-center justify-end h-full group relative"
+                          className="flex-1 flex flex-col items-center justify-end h-full group relative min-w-0"
                           style={{ minWidth: '0' }}
                         >
                           {/* Bar */}
@@ -697,12 +840,23 @@ export default function ReportsPage() {
                               minHeight: month.total > 0 ? '4px' : '0px',
                             }}
                             onClick={() => isClickable && handleMonthClick(month)}
+                            role={isClickable ? 'button' : undefined}
+                            tabIndex={isClickable ? 0 : undefined}
+                            aria-label={isClickable ? `${month.monthName}: $${month.total.toFixed(2)} savings. Tap for breakdown.` : undefined}
+                            onKeyDown={isClickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleMonthClick(month); } } : undefined}
                           >
                             {/* Tooltip */}
                             {month.total > 0 && (
-                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-popover border border-border text-popover-foreground text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap pointer-events-none z-20">
+                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1.5 bg-popover border border-border text-popover-foreground text-xs rounded shadow-xl opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-200 pointer-events-none z-20 min-w-[120px]">
                                 <div className="font-semibold">{month.monthName}</div>
-                                <div className="text-primary dark:text-blue-400">${month.total.toFixed(2)}</div>
+                                <div className="text-primary dark:text-blue-400 font-bold tabular-nums">${month.total.toFixed(2)} savings</div>
+                                {agg && (agg.paid > 0 || agg.received > 0) && (
+                                  <div className="mt-1 space-y-0.5 text-[10px]">
+                                    <div className="text-red-600 dark:text-red-400 tabular-nums">Paid: ${formatCur(agg.paid)}</div>
+                                    <div className="text-green-600 dark:text-green-400 tabular-nums">Received: ${formatCur(agg.received)}</div>
+                                  </div>
+                                )}
+                                <div className="text-muted-foreground text-[10px]">{month.count} txns</div>
                               </div>
                             )}
                           </div>
@@ -799,13 +953,19 @@ export default function ReportsPage() {
             <Button
               size="sm"
               onClick={() => setShowExportModal(true)}
-              className="bg-primary hover:bg-primary/90 text-primary-foreground h-8 px-3 no-tap-highlight"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground min-h-[44px] sm:h-8 px-3 no-tap-highlight focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               disabled={!canExport}
             >
               <Download className="w-3.5 h-3.5 sm:mr-1.5" />
               <span className="hidden sm:inline">Export</span>
             </Button>
           </div>
+          <p className="text-xs sm:text-sm text-muted-foreground mt-2">
+            Ready: {transactionAggregates.readyPct}% categorized
+            {transactionAggregates.hasReceiptField && transactionAggregates.totalCount > 0 && (
+              <> · Missing receipts: {transactionAggregates.missingReceipts}</>
+            )}
+          </p>
         </div>
       </Card>
 
@@ -830,12 +990,12 @@ export default function ReportsPage() {
 
             <div className="p-6">
               {/* Summary Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
                 <div className="text-center p-5 bg-blue-500/10 dark:bg-blue-500/20 rounded-lg border border-blue-500/20">
-                  <div className="text-3xl font-bold text-blue-600 dark:text-blue-400 mb-1">
+                  <div className="text-3xl font-bold text-blue-600 dark:text-blue-400 mb-1 tabular-nums">
                     ${selectedMonth.total.toFixed(2)}
                   </div>
-                  <div className="text-sm text-muted-foreground font-medium">Tax Savings</div>
+                  <div className="text-sm text-muted-foreground font-medium">Tax Savings (Deductible)</div>
                 </div>
                 <div className="text-center p-5 bg-green-500/10 dark:bg-green-500/20 rounded-lg border border-green-500/20">
                   <div className="text-3xl font-bold text-green-600 dark:text-green-400 mb-1">
@@ -850,6 +1010,19 @@ export default function ReportsPage() {
                   <div className="text-sm text-muted-foreground font-medium">Categories</div>
                 </div>
               </div>
+              {(() => {
+                const modalMonthIdx = parseInt(selectedMonth.month, 10);
+                const modalAgg = perMonth[modalMonthIdx];
+                if (modalAgg && (modalAgg.paid > 0 || modalAgg.received > 0)) {
+                  return (
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-6 text-sm text-muted-foreground">
+                      <span>Paid: <span className="tabular-nums font-medium text-red-600 dark:text-red-400">${formatCur(modalAgg.paid)}</span></span>
+                      <span>Received: <span className="tabular-nums font-medium text-green-600 dark:text-green-400">${formatCur(modalAgg.received)}</span></span>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
 
               {/* Category Breakdown */}
               <div className="mb-6">

@@ -142,6 +142,10 @@ export async function signInWithGoogle(): Promise<{ data: { user: AuthUser } | n
     try {
       userCredential = await signInWithPopup(auth, provider);
     } catch (popupErr: any) {
+      // User triggered a second popup before the first finished; ignore and don't surface as error
+      if (popupErr?.code === 'auth/cancelled-popup-request') {
+        return { data: null, error: null };
+      }
       // Check if popup was blocked
       if (popupErr?.code === 'auth/popup-blocked' || popupErr?.code === 'auth/popup-closed-by-user') {
         // Fall back to redirect flow

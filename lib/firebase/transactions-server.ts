@@ -101,6 +101,8 @@ function normalizeDoc(doc: FirebaseFirestore.QueryDocumentSnapshot): Transaction
     user_classification_reason: data.user_classification_reason || null,
     description: data.description,
     notes: data.notes,
+    receipt_url: data.receipt_url ?? undefined,
+    receipt_filename: data.receipt_filename ?? undefined,
 
     account_id: data.account_id || data.accountId || null,
     userId: data.userId || data.user_id || null,

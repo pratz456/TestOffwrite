@@ -496,7 +496,7 @@ export default function DashboardScreen({
                           </div>
                         </div>
                         <div className="text-right flex-shrink-0 ml-2">
-                          <div className={`font-semibold text-sm ${isIncome ? 'text-accent' : 'text-foreground'} whitespace-nowrap`}>
+                          <div className={`font-semibold text-sm font-tabular-nums ${isIncome ? 'text-success' : 'text-foreground'} whitespace-nowrap`}>
                             {isIncome ? '+' : ''}${amount.toFixed(2)}
                           </div>
                           <div className="text-xs text-muted-foreground sm:hidden">

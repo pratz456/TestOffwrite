@@ -62,6 +62,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
   const [confirmedCount, setConfirmedCount] = useState(0);
   const [potentialCount, setPotentialCount] = useState(0);
   const [isExporting, setIsExporting] = useState(false);
+  const [includeAppendix, setIncludeAppendix] = useState(true);
   const [lineDetails, setLineDetails] = useState<Record<string, { confirmed: number; potential: number; amount: number; transactions: Transaction[] }>>({});
 
 
@@ -448,7 +449,8 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
         },
         credentials: 'include',
         body: JSON.stringify({
-          year: selectedYear
+          year: selectedYear,
+          includeAppendix
         }),
       });
 
@@ -474,7 +476,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
       const url = window.URL.createObjectURL(pdfBlob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `schedule-c-${selectedYear}.pdf`;
+      link.download = `WriteOff_ScheduleC_Summary_${selectedYear}.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -506,37 +508,37 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-background min-w-0 overflow-x-hidden">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 sticky top-0 z-50 shadow-sm">
-        <div className="flex items-center justify-between p-6">
+      <div className="bg-card border-b border-border sticky top-0 z-50 shadow-sm min-w-0">
+        <div className="flex items-center justify-between p-4 sm:p-6 min-w-0">
           <button
             onClick={onBack}
-            className="flex items-center gap-2 text-gray-600 hover:text-gray-800 transition-colors"
+            className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 rounded min-h-[44px] min-w-[44px] justify-center"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div className="text-center">
-            <h1 className="text-xl font-semibold text-gray-900">Schedule C Export</h1>
-            <p className="text-sm text-gray-600">Export your business expenses for tax filing</p>
+            <h1 className="text-xl font-semibold text-foreground">Schedule C Export</h1>
+            <p className="text-sm text-muted-foreground">Export your business expenses for tax filing</p>
           </div>
-          <div className="w-12"></div>
+          <div className="w-12" />
         </div>
       </div>
 
-      <div className="p-6 max-w-4xl mx-auto space-y-6">
+      <div className="p-4 sm:p-6 max-w-4xl mx-auto space-y-6 min-w-0">
         {/* Export Configuration */}
-        <Card className="p-6 bg-white border-0 shadow-sm">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <Card className="p-4 sm:p-6 bg-card border border-border shadow-sm min-w-0">
+          <div className="grid grid-cols-1 sm:grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
             {/* Tax Year */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+            <div className="min-w-0 w-full">
+              <label className="block text-sm font-medium text-foreground mb-2">
                 Tax Year
               </label>
               <select
                 value={selectedYear}
                 onChange={(e) => setSelectedYear(e.target.value)}
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full min-h-[44px] p-3 border border-input rounded-lg bg-background text-foreground focus:ring-2 focus:ring-primary focus:border-primary focus:outline-none"
               >
                 <option value="2025">2025</option>
                 <option value="2024">2024</option>
@@ -546,14 +548,14 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
             </div>
 
             {/* Export Format */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+            <div className="min-w-0 w-full">
+              <label className="block text-sm font-medium text-foreground mb-2">
                 Export Format
               </label>
               <select
                 value={exportFormat}
                 onChange={(e) => setExportFormat(e.target.value)}
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full min-h-[44px] p-3 border border-input rounded-lg bg-background text-foreground focus:ring-2 focus:ring-primary focus:border-primary focus:outline-none"
               >
                 <option value="CSV (Spreadsheet)">CSV (Spreadsheet)</option>
                 <option value="PDF">PDF</option>
@@ -561,12 +563,35 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
             </div>
           </div>
 
+          {/* Include Detailed Appendix toggle (PDF only) */}
+          {exportFormat === 'PDF' && (
+            <div className="col-span-1 md:col-span-2 flex items-center gap-3 pt-2">
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={includeAppendix}
+                  onChange={(e) => setIncludeAppendix(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-9 h-5 bg-muted peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-primary rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+              </label>
+              <div>
+                <span className="text-sm font-medium text-foreground">Include Detailed Appendix</span>
+                <p className="text-xs text-muted-foreground">
+                  {includeAppendix
+                    ? 'PDF will include full transaction detail by Schedule C line.'
+                    : 'PDF will include summary and breakdown only (no transaction detail).'}
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Export Button */}
-          <div className="mt-6">
+          <div className="mt-4 sm:mt-6 w-full">
             {!subscriptionLoading && !hasAccess ? (
               <Button
                 disabled
-                className="w-full h-12 bg-gray-400 dark:bg-gray-600 text-white rounded-lg cursor-not-allowed flex items-center justify-center gap-2"
+                className="w-full min-h-[44px] h-12 bg-muted text-muted-foreground rounded-lg cursor-not-allowed flex items-center justify-center gap-2"
               >
                 <Lock className="w-5 h-5" />
                 Subscription Required to Export
@@ -575,7 +600,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
               <Button
                 onClick={handleExport}
                 disabled={isExporting || categorySummaries.length === 0 || subscriptionLoading}
-                className="w-full h-12 bg-gradient-to-r from-blue-400 to-indigo-500 dark:from-blue-500 dark:to-indigo-600 hover:from-blue-500 hover:to-indigo-600 dark:hover:from-blue-400 dark:hover:to-indigo-500 text-white font-medium shadow-md shadow-blue-500/20 dark:shadow-blue-500/30 hover:shadow-lg rounded-lg transition-all duration-200 flex items-center justify-center gap-2"
+                className="w-full min-h-[44px] h-12 font-medium rounded-lg flex items-center justify-center gap-2 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
               >
                 <Download className="w-5 h-5" />
                 {isExporting ? 'Exporting...' : `Export ${selectedYear} Schedule C Data`}
@@ -592,10 +617,10 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
                 <Sparkles className="w-6 h-6 text-purple-600 dark:text-purple-400" />
               </div>
               <div className="flex-1">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">
+                <h3 className="text-lg font-semibold text-foreground mb-1">
                   Unlock Schedule C Export
                 </h3>
-                <p className="text-gray-600 dark:text-gray-300 mb-4">
+                <p className="text-muted-foreground mb-4">
                   Subscribe to download your Schedule C data as PDF or CSV. Get organized tax reports ready for your accountant or tax software.
                 </p>
                 <div className="flex flex-wrap gap-3">
@@ -609,7 +634,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
                   <Button
                     variant="outline"
                     onClick={() => router.push('/protected/subscriptions')}
-                    className="border-2 border-purple-300 dark:border-purple-500 text-purple-700 dark:text-purple-300 bg-white dark:bg-gray-800 hover:bg-purple-50 dark:hover:bg-purple-900/30 transition-all duration-200"
+                    className="border-2 border-purple-300 dark:border-purple-500 text-purple-700 dark:text-purple-300 bg-card hover:bg-purple-50 dark:hover:bg-purple-900/30 transition-all duration-200"
                   >
                     View Plans
                   </Button>
@@ -620,8 +645,8 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
         )}
 
         {/* Schedule C Preview */}
-        <Card className="p-6 bg-white border-0 shadow-sm">
-          <h3 className="text-lg font-semibold text-gray-900 mb-6">
+        <Card className="p-4 sm:p-6 bg-card border border-border shadow-sm min-w-0 overflow-hidden">
+          <h3 className="text-lg font-semibold text-foreground mb-6">
             Schedule C Preview - Tax Year {selectedYear}
           </h3>
 
@@ -629,12 +654,12 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
           {categorySummaries.length > 0 && (
             <div className="mb-10">
               <div className="mb-4">
-                <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">Form 1040 - Schedule C (Draft Preview)</h4>
-                <p className="text-xs text-slate-500">Part II - Expenses (aggregated from your classified and potential business transactions)</p>
+                <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Form 1040 - Schedule C (Draft Preview)</h4>
+                <p className="text-xs text-muted-foreground">Part II - Expenses (aggregated from your classified and potential business transactions)</p>
               </div>
-              <div className="overflow-x-auto rounded-lg border border-slate-200">
-                <table className="min-w-full text-sm">
-                  <thead className="bg-slate-50 text-slate-600 text-xs uppercase">
+              <div className="overflow-x-auto max-w-full rounded-lg border border-border">
+                <table className="w-full min-w-[480px] text-sm">
+                  <thead className="bg-muted text-muted-foreground text-xs uppercase">
                     <tr>
                       <th className="px-3 py-2 text-left font-medium">Line</th>
                       <th className="px-3 py-2 text-left font-medium">Expense Category</th>
@@ -644,81 +669,81 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
                       <th className="px-3 py-2 text-right font-medium">Potential</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 bg-white/60">
+                  <tbody className="divide-y divide-border bg-card/60">
                     {categorySummaries.map(summary => {
                       const line = getScheduleCLineNumber(summary.lineItem);
                       const det = lineDetails[summary.lineItem];
                       const pct = totalDeductible > 0 ? (summary.amount / totalDeductible) * 100 : 0;
                       return (
-                        <tr key={summary.lineItem} className="hover:bg-blue-50/40 transition-colors">
-                          <td className="px-3 py-2 font-mono text-xs text-slate-700">{line}</td>
-                          <td className="px-3 py-2 text-slate-800">{summary.lineItem}</td>
-                          <td className="px-3 py-2 text-right font-medium text-slate-900">{formatCurrency(summary.amount)}</td>
-                          <td className="px-3 py-2 text-right text-slate-600">{pct.toFixed(1)}%</td>
-                          <td className="px-3 py-2 text-right text-emerald-600 font-medium">{det?.confirmed || 0}</td>
-                          <td className="px-3 py-2 text-right text-amber-600 font-medium">{det?.potential || 0}</td>
+                        <tr key={summary.lineItem} className="hover:bg-muted/50 transition-colors">
+                          <td className="px-3 py-2 font-mono text-xs text-foreground tabular-nums">{line}</td>
+                          <td className="px-3 py-2 text-foreground">{summary.lineItem}</td>
+                          <td className="px-3 py-2 text-right font-medium text-foreground tabular-nums">{formatCurrency(summary.amount)}</td>
+                          <td className="px-3 py-2 text-right text-muted-foreground tabular-nums">{pct.toFixed(1)}%</td>
+                          <td className="px-3 py-2 text-right text-emerald-600 dark:text-emerald-400 font-medium tabular-nums">{det?.confirmed || 0}</td>
+                          <td className="px-3 py-2 text-right text-amber-600 dark:text-amber-400 font-medium tabular-nums">{det?.potential || 0}</td>
                         </tr>
                       );
                     })}
-                    <tr className="bg-slate-100 font-semibold">
-                      <td className="px-3 py-2 font-mono text-xs">28</td>
+                    <tr className="bg-muted font-semibold">
+                      <td className="px-3 py-2 font-mono text-xs tabular-nums">28</td>
                       <td className="px-3 py-2">Total Expenses</td>
-                      <td className="px-3 py-2 text-right">{formatCurrency(totalDeductible)}</td>
-                      <td className="px-3 py-2 text-right">100%</td>
-                      <td className="px-3 py-2 text-right">{Object.values(lineDetails).reduce((s,d)=>s+d.confirmed,0)}</td>
-                      <td className="px-3 py-2 text-right">{Object.values(lineDetails).reduce((s,d)=>s+d.potential,0)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(totalDeductible)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">100%</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{Object.values(lineDetails).reduce((s,d)=>s+d.confirmed,0)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{Object.values(lineDetails).reduce((s,d)=>s+d.potential,0)}</td>
                     </tr>
                   </tbody>
                 </table>
               </div>
-              <p className="mt-2 text-xs text-slate-500">This table is a dynamic approximation for planning. Always verify with the official IRS form and a tax professional.</p>
+              <p className="mt-2 text-xs text-muted-foreground">This table is a dynamic approximation for planning. Always verify with the official IRS form and a tax professional.</p>
             </div>
           )}
 
           {/* Summary Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-            <div className="bg-emerald-50 rounded-xl p-4 border border-emerald-200">
-              <div className="text-2xl font-bold text-emerald-800 mb-1">{confirmedCount}</div>
-              <div className="text-sm text-emerald-600">Confirmed Deductible</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <div className="bg-card rounded-xl p-4 border border-border">
+              <div className="text-2xl font-bold text-foreground mb-1 tabular-nums">{confirmedCount}</div>
+              <div className="text-sm text-muted-foreground">Confirmed Deductible</div>
             </div>
 
-            <div className="bg-yellow-50 rounded-xl p-4 border border-yellow-200">
-              <div className="text-2xl font-bold text-yellow-800 mb-1">{potentialCount}</div>
-              <div className="text-sm text-yellow-600">Needs Review</div>
+            <div className="bg-card rounded-xl p-4 border border-border">
+              <div className="text-2xl font-bold text-foreground mb-1 tabular-nums">{potentialCount}</div>
+              <div className="text-sm text-muted-foreground">Needs Review</div>
             </div>
 
-            <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
-              <div className="text-2xl font-bold text-blue-800 mb-1">{categorySummaries.length}</div>
-              <div className="text-sm text-blue-600">Schedule C Categories</div>
+            <div className="bg-card rounded-xl p-4 border border-border">
+              <div className="text-2xl font-bold text-foreground mb-1 tabular-nums">{categorySummaries.length}</div>
+              <div className="text-sm text-muted-foreground">Schedule C Categories</div>
             </div>
 
-            <div className="bg-purple-50 rounded-xl p-4 border border-purple-200">
-              <div className="text-2xl font-bold text-purple-800 mb-1">{formatCurrency(totalDeductible)}</div>
-              <div className="text-sm text-purple-600">Total Business Expenses</div>
+            <div className="bg-card rounded-xl p-4 border border-border">
+              <div className="text-2xl font-bold text-foreground mb-1 tabular-nums">{formatCurrency(totalDeductible)}</div>
+              <div className="text-sm text-muted-foreground">Total Business Expenses</div>
             </div>
           </div>
 
           {/* IRS Schedule C Line Items */}
           <div>
-            <h4 className="text-md font-semibold text-gray-900 mb-4">IRS Schedule C Line Items</h4>
+            <h4 className="text-lg font-semibold text-foreground mb-4">IRS Schedule C Line Items</h4>
 
             {categorySummaries.length > 0 ? (
               <div className="space-y-3">
                 {categorySummaries.map((category, index) => (
-                  <div key={index} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200">
+                  <div key={index} className="flex items-center justify-between p-4 bg-muted/50 rounded-lg border border-border">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-blue-600 text-white rounded-lg flex items-center justify-center text-sm font-bold">
+                      <div className="w-10 h-10 bg-primary text-primary-foreground rounded-lg flex items-center justify-center text-sm font-bold">
                         {getScheduleCLineNumber(category.lineItem)}
                       </div>
                       <div>
-                        <div className="font-medium text-gray-900">{category.lineItem}</div>
-                        <div className="text-sm text-gray-600">
+                        <div className="font-medium text-foreground">{category.lineItem}</div>
+                        <div className="text-sm text-muted-foreground">
                           {category.transactionCount} transaction{category.transactionCount !== 1 ? 's' : ''}
                         </div>
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="text-lg font-bold text-gray-900">
+                      <div className="text-lg font-bold text-foreground tabular-nums">
                         {formatCurrency(category.amount)}
                       </div>
                     </div>
@@ -726,26 +751,26 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
                 ))}
 
                 {/* Total */}
-                <div className="border-t border-gray-200 pt-4 mt-4">
-                  <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg border border-blue-200">
-                    <div className="font-bold text-gray-900">
+                <div className="border-t border-border pt-4 mt-4">
+                  <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg border border-border">
+                    <div className="font-bold text-foreground">
                       Total Business Expenses (Line 28)
                     </div>
-                    <div className="text-xl font-bold text-blue-800">
+                    <div className="text-xl font-bold text-foreground tabular-nums">
                       {formatCurrency(totalDeductible)}
                     </div>
                   </div>
                 </div>
               </div>
             ) : (
-              <div className="text-center py-8 text-gray-500">
-                <FileText className="w-12 h-12 mx-auto mb-3 text-gray-400" />
+              <div className="text-center py-8 text-muted-foreground">
+                <FileText className="w-12 h-12 mx-auto mb-3 text-muted-foreground/70" />
                 <p>No deductible business expenses found for {selectedYear}</p>
-                <p className="text-sm mb-4 text-gray-400">Make sure to categorize your transactions as business expenses first.</p>
+                <p className="text-sm mb-4 text-muted-foreground/70">Make sure to categorize your transactions as business expenses first.</p>
                 {potentialCount > 0 && (
-                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mt-4">
-                    <p className="text-yellow-800 font-medium">💡 Found {potentialCount} transactions that might be deductible</p>
-                    <p className="text-sm text-yellow-700 mt-1">
+                  <div className="bg-muted border border-border rounded-lg p-4 mt-4 text-foreground">
+                    <p className="font-medium">💡 Found {potentialCount} transactions that might be deductible</p>
+                    <p className="text-sm text-muted-foreground mt-1">
                       Go to "Review Transactions" to classify these as business expenses.
                     </p>
                   </div>
@@ -756,9 +781,9 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
         </Card>
 
         {/* Instructions */}
-        <Card className="p-6 bg-white border-0 shadow-sm">
-          <h4 className="font-semibold text-gray-900 mb-3">How to use this export:</h4>
-          <ul className="space-y-2 text-sm text-gray-700">
+        <Card className="p-4 sm:p-6 bg-card border border-border shadow-sm min-w-0">
+          <h4 className="text-lg font-semibold text-foreground mb-3">How to use this export:</h4>
+          <ul className="space-y-2 text-sm text-muted-foreground">
             <li>• Download the CSV file and open it in Excel or Google Sheets</li>
             <li>• Use the Schedule C line numbers to enter amounts in your tax software</li>
             <li>• Keep the detailed transaction records for your tax files</li>
@@ -766,8 +791,8 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
           </ul>
 
           {potentialCount > 0 && (
-            <div className="mt-4 p-3 bg-yellow-100 border border-yellow-300 rounded-lg">
-              <p className="text-yellow-800 font-medium text-sm">
+            <div className="mt-4 p-3 bg-muted border border-border rounded-lg">
+              <p className="text-foreground font-medium text-sm">
                 📝 Note: This export includes {potentialCount} potentially deductible transactions that haven't been confirmed yet.
                 Review these in the "Review Transactions" section before filing.
               </p>

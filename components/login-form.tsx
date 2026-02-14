@@ -127,6 +127,10 @@ export function LoginForm({
       const { data, error } = await signInWithGoogle();
 
       if (error) {
+        // Don't show an error for cancelled popup (e.g. user clicked twice or closed and reopened)
+        if (error.code === 'auth/cancelled-popup-request') {
+          return;
+        }
         // Only log errors in development
         if (process.env.NODE_ENV === 'development') {
           console.error('Google sign in error:', error);

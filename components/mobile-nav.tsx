@@ -168,19 +168,17 @@ export const MobileNav: React.FC<MobileNavProps> = ({ user, userProfile }) => {
                   <button
                     key={item.name}
                     onClick={() => handleNavClick(item.href)}
-                    className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-colors group w-full text-left min-h-[52px] no-tap-highlight ${active
-                      ? 'bg-primary/10 text-primary border border-primary/20'
+                    className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-[background-color,color,box-shadow] duration-150 ease-out group w-full text-left min-h-[52px] no-tap-highlight focus-visible:outline-none ${active
+                      ? 'bg-[var(--sidebar-item-active-bg)] text-foreground shadow-[inset_0_0_0_1px_var(--sidebar-item-active-border)]'
                       : 'text-foreground hover:bg-muted active:bg-muted/80 hover:text-foreground'
                       }`}
                   >
                     <Icon
-                      className={`w-5 h-5 flex-shrink-0 ${active ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground'
-                        }`}
+                      className={`w-5 h-5 flex-shrink-0 ${active ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground'}`}
                     />
                     <div className="flex-1 min-w-0">
                       <div className="font-medium text-sm">{item.name}</div>
-                      <div className={`text-xs truncate ${active ? 'text-primary/80' : 'text-muted-foreground'
-                        }`}>
+                      <div className={`text-xs truncate ${active ? 'text-muted-foreground' : 'text-muted-foreground'}`}>
                         {item.description}
                       </div>
                     </div>

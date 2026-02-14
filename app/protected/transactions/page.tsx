@@ -704,7 +704,7 @@ export default function TransactionsPage() {
                         </div>
                       )}
                     </td>
-                    <td className="px-6 py-4 text-right text-sm font-medium text-foreground">
+                    <td className="px-6 py-4 text-right text-sm font-medium text-foreground font-tabular-nums">
                       {(transaction.type ?? (transaction.amount < 0 ? 'income' : 'expense')) === 'income' ? '+' : '-'}${Math.abs(transaction.amount).toFixed(2)}
                     </td>
                   </tr>
@@ -743,10 +743,10 @@ export default function TransactionsPage() {
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="text-lg font-bold text-foreground mb-1">
+                    <div className="text-lg font-bold text-foreground mb-1 font-tabular-nums">
                       {(transaction.type ?? (transaction.amount < 0 ? 'income' : 'expense')) === 'income' ? '+' : '-'}${Math.abs(transaction.amount).toFixed(2)}
                     </div>
-                    <div className={`text-xs font-medium ${(transaction.type ?? (transaction.amount < 0 ? 'income' : 'expense')) === 'income' ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}`}>
+                    <div className={`text-xs font-medium ${(transaction.type ?? (transaction.amount < 0 ? 'income' : 'expense')) === 'income' ? 'text-success' : 'text-muted-foreground'}`}>
                       {(transaction.type ?? (transaction.amount < 0 ? 'income' : 'expense')) === 'income' ? 'Received' : 'Paid'}
                     </div>
                     {transaction.receipt_url ? (

@@ -22,10 +22,10 @@ export default {
           foreground: "hsl(var(--popover-foreground))",
         },
         primary: {
-          DEFAULT: "#1E40AF", // Royal navy blue
+          DEFAULT: "hsl(var(--primary))",
           foreground: "hsl(var(--primary-foreground))",
         },
-        "primary-hover": "#1E3A8A", // Darker royal navy for hover
+        "primary-hover": "hsl(var(--primary-hover))",
         secondary: {
           DEFAULT: "hsl(var(--secondary))",
           foreground: "hsl(var(--secondary-foreground))",
@@ -35,13 +35,17 @@ export default {
           foreground: "hsl(var(--muted-foreground))",
         },
         accent: {
-          DEFAULT: "#22A06B", // Emerald
+          DEFAULT: "hsl(var(--accent))",
           foreground: "hsl(var(--accent-foreground))",
         },
         destructive: {
           DEFAULT: "hsl(var(--destructive))",
           foreground: "hsl(var(--destructive-foreground))",
         },
+        success: "hsl(var(--success))",
+        danger: "hsl(var(--danger))",
+        warning: "hsl(var(--warning))",
+        info: "hsl(var(--info))",
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
@@ -66,9 +70,16 @@ export default {
         },
       },
       borderRadius: {
-        lg: "8px", // 8px radius
-        md: "6px",
-        sm: "4px",
+        lg: "var(--radius-lg, 8px)",
+        md: "var(--radius-md, 6px)",
+        sm: "var(--radius-sm, 4px)",
+      },
+      boxShadow: {
+        soft: "var(--shadow-soft)",
+        tight: "var(--shadow-tight)",
+        "glow-primary": "var(--glow-primary)",
+        "glow-success": "var(--glow-success)",
+        "glow-danger": "var(--glow-danger)",
       },
     },
   },

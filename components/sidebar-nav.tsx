@@ -108,6 +108,13 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ user, userProfile }) => 
           const Icon = item.icon;
           const active = isActive(item.href);
 
+          const baseClasses = 'flex items-center gap-3 px-3 py-2 rounded-lg transition-[background-color,color,box-shadow] duration-150 ease-out group w-full text-left focus-visible:outline-none';
+          const activeClasses = active
+            ? 'bg-[var(--sidebar-item-active-bg)] text-foreground shadow-[inset_0_0_0_1px_var(--sidebar-item-active-border)]'
+            : 'text-foreground hover:bg-muted hover:text-foreground';
+          const iconClasses = active ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground';
+          const descClasses = active ? 'text-muted-foreground' : 'text-muted-foreground';
+
           // Special handling for Home button to ensure proper navigation
           if (item.isHome) {
             return (
@@ -116,21 +123,12 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ user, userProfile }) => 
                 onClick={() => {
                   router.push('/protected');
                 }}
-                className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors group w-full text-left ${active
-                  ? 'bg-green-700/15 dark:bg-green-600/15 border border-green-600/30 dark:border-green-500/25 text-green-800 dark:text-green-200'
-                  : 'text-foreground hover:bg-muted hover:text-foreground'
-                  }`}
+                className={`${baseClasses} ${activeClasses}`}
               >
-                <Icon
-                  className={`w-5 h-5 shrink-0 ${active ? 'text-green-700 dark:text-green-400' : 'text-muted-foreground group-hover:text-foreground'
-                    }`}
-                />
+                <Icon className={`w-5 h-5 shrink-0 ${iconClasses}`} />
                 <div className="flex-1 min-w-0">
                   <div className="font-medium">{item.name}</div>
-                  <div className={`text-xs truncate ${active ? 'text-green-700/90 dark:text-green-300' : 'text-muted-foreground'
-                    }`}>
-                    {item.description}
-                  </div>
+                  <div className={`text-xs truncate ${descClasses}`}>{item.description}</div>
                 </div>
               </button>
             );
@@ -140,21 +138,12 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ user, userProfile }) => 
             <Link
               key={item.name}
               href={item.href}
-              className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors group ${active
-                ? 'bg-green-700/15 dark:bg-green-600/15 border border-green-600/30 dark:border-green-500/25 text-green-800 dark:text-green-200'
-                : 'text-foreground hover:bg-muted hover:text-foreground'
-                }`}
+              className={`${baseClasses} ${activeClasses}`}
             >
-              <Icon
-                className={`w-5 h-5 shrink-0 ${active ? 'text-green-700 dark:text-green-400' : 'text-muted-foreground group-hover:text-foreground'
-                  }`}
-              />
+              <Icon className={`w-5 h-5 shrink-0 ${iconClasses}`} />
               <div className="flex-1 min-w-0">
                 <div className="font-medium">{item.name}</div>
-                <div className={`text-xs truncate ${active ? 'text-green-700/90 dark:text-green-300' : 'text-muted-foreground'
-                  }`}>
-                  {item.description}
-                </div>
+                <div className={`text-xs truncate ${descClasses}`}>{item.description}</div>
               </div>
             </Link>
           );

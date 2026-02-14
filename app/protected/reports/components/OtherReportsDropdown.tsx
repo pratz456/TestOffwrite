@@ -54,7 +54,7 @@ export function OtherReportsDropdown({ disabled = false }: OtherReportsDropdownP
         <Button 
           variant="outline" 
           size="sm"
-          className="h-10 px-3 sm:px-4 border-2 border-gray-300 dark:border-gray-500 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 hover:border-primary/60 dark:hover:border-primary/60 text-gray-700 dark:text-gray-200 transition-all duration-200 no-tap-highlight group"
+          className="min-h-[44px] sm:h-10 px-3 sm:px-4 border-2 border-gray-300 dark:border-gray-500 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 hover:border-primary/60 dark:hover:border-primary/60 text-gray-700 dark:text-gray-200 transition-colors duration-200 no-tap-highlight group focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           disabled={disabled}
         >
           <FileText className="w-4 h-4 group-hover:text-primary transition-colors" />
