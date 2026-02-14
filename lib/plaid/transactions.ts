@@ -88,7 +88,7 @@ export async function fetchTransactions(userId: string) {
           trans_id: txn.transaction_id,
           account_id: account.account_id,
           date: txn.date,
-          amount: Math.abs(txn.amount),
+          amount: txn.amount,
           merchant_name: txn.merchant_name || 'Unknown Merchant',
           category: txn.category?.join(', ') || 'Uncategorized',
         }

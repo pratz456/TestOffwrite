@@ -4,10 +4,10 @@ import { Briefcase, Video, Car, PiggyBank, Star } from "lucide-react";
 import { useScrollReveal } from "./use-scroll-reveal";
 
 const TESTIMONIALS = [
-  { icon: Briefcase, category: "Small Business Owner", name: "Lila Freeman", role: "Owner of Bloom & Bark Studios", avatarBg: "bg-gradient-to-br from-amber-400 to-orange-500", accentBorder: "hover:border-amber-400/30", quote: "\u201cI run my business, not a spreadsheet \u2014 WriteOff does the rest.\u201d", body: "As a small business owner, I was drowning in receipts, spreadsheets, and missed deductions. WriteOff changed everything. It automatically tracks my business expenses, flags write-offs I didn\u2019t know existed, and even builds my Schedule C. This year alone, it saved me $4,100 in taxes \u2014 and probably 40 hours of busywork.", saved: "$4,100" },
-  { icon: Video, category: "TikToker / Content Creator", name: "Jordan Ellis", role: "Beauty Content Creator", avatarBg: "bg-gradient-to-br from-pink-400 to-rose-500", accentBorder: "hover:border-pink-400/30", quote: "\u201cI didn\u2019t know snacks and camera gear were tax-deductible until WriteOff showed me.\u201d", body: "I started creating on TikTok and Instagram last year, and no one teaches you how to handle taxes. WriteOff flagged things like makeup, studio lights, and even props as valid deductions. It helped me recover $3,200 from last year alone.", saved: "$3,200" },
-  { icon: Car, category: "Uber/Lyft/Instacart Driver", name: "Carlos Mendoza", role: "Rideshare & Delivery Driver", avatarBg: "bg-gradient-to-br from-blue-400 to-cyan-500", accentBorder: "hover:border-blue-400/30", quote: "\u201cMileage, gas, car washes \u2014 WriteOff caught it all.\u201d", body: "Before WriteOff, I was guessing my business miles and forgetting half my expenses. Now, everything\u2019s automatic. It tracks my trips in real time, categorizes my spending, and gives me weekly savings updates. I saved $1,580 from better mileage tracking.", saved: "$1,580" },
-  { icon: PiggyBank, category: "W-2 Worker with a Side Hustle", name: "Ashley Kim", role: "Marketing Analyst & Side Hustler", avatarBg: "bg-gradient-to-br from-violet-400 to-purple-500", accentBorder: "hover:border-violet-400/30", quote: "\u201cI thought I couldn\u2019t deduct anything with a W-2 job \u2014 I was wrong.\u201d", body: "I work full-time in marketing but freelance on the side. WriteOff helped me track side hustle income separately, organize my expenses, and find write-offs like my laptop, Wi-Fi, and software. I ended up saving $2,200 I didn\u2019t expect.", saved: "$2,200" },
+  { icon: Briefcase, category: "Small Business Owner", name: "Lila Freeman", role: "Owner of Bloom & Bark Studios", avatarBg: "bg-gradient-to-br from-amber-400 to-orange-500", accentBorder: "hover:border-amber-400/30", quote: "I run my business, not a spreadsheet. WriteOff does the rest.", body: "As a small business owner I was drowning in receipts and missed deductions. WriteOff changed that. It tracks my expenses, flags write-offs I didn't know existed, and builds my Schedule C. This year it saved me $4,100 in taxes and a ton of busywork.", saved: "$4,100" },
+  { icon: Video, category: "TikToker / Content Creator", name: "Jordan Ellis", role: "Beauty Content Creator", avatarBg: "bg-gradient-to-br from-pink-400 to-rose-500", accentBorder: "hover:border-pink-400/30", quote: "I had no idea snacks and camera gear were deductible until WriteOff showed me.", body: "I started creating on TikTok and Instagram last year. Nobody teaches you taxes. WriteOff flagged makeup, studio lights, props. I recovered $3,200 from last year alone.", saved: "$3,200" },
+  { icon: Car, category: "Uber/Lyft/Instacart Driver", name: "Carlos Mendoza", role: "Rideshare & Delivery Driver", avatarBg: "bg-gradient-to-br from-blue-400 to-cyan-500", accentBorder: "hover:border-blue-400/30", quote: "Mileage, gas, car washes. WriteOff caught it all.", body: "Before WriteOff I was guessing my business miles and forgetting half my expenses. Now it's automatic. Real-time tracking, weekly savings updates. I saved $1,580 from better mileage tracking.", saved: "$1,580" },
+  { icon: PiggyBank, category: "W-2 Worker with a Side Hustle", name: "Ashley Kim", role: "Marketing Analyst & Side Hustler", avatarBg: "bg-gradient-to-br from-violet-400 to-purple-500", accentBorder: "hover:border-violet-400/30", quote: "I thought I couldn't deduct anything with a W-2 job. I was wrong.", body: "I work full-time in marketing and freelance on the side. WriteOff helped me track my side hustle separately and find write-offs like my laptop, Wi-Fi, and software. Saved $2,200 I wasn't expecting.", saved: "$2,200" },
 ];
 
 function Stars() {
@@ -18,15 +18,15 @@ export function TestimonialsSection() {
   const sectionRef = useScrollReveal<HTMLElement>();
 
   return (
-    <section id="reviews" className="py-20 sm:py-24" ref={sectionRef}>
+    <section id="reviews" className="py-12 sm:py-16" ref={sectionRef}>
       <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
         <div className="animate-on-scroll text-center">
           <span className="mb-3 inline-block rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-primary">Testimonials</span>
-          <h2 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">Trusted by Tax Savers Everywhere</h2>
-          <p className="mx-auto mt-4 max-w-xl text-muted-foreground">See how WriteOff is helping people across different industries maximize their refunds.</p>
+          <h2 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">Loved by people who'd rather not think about taxes</h2>
+          <p className="mx-auto mt-4 max-w-xl text-muted-foreground">See how WriteOff is helping people in different lines of work keep more of what they earn.</p>
         </div>
 
-        <div className="mt-14 grid gap-6 sm:grid-cols-2 stagger-children">
+        <div className="mt-10 grid gap-6 sm:grid-cols-2 stagger-children">
           {TESTIMONIALS.map((t) => {
             const Icon = t.icon;
             return (

@@ -4,7 +4,7 @@ import React, { useState, useEffect, Suspense } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { HelpCircle, Shield, Info, Mail, MessageCircle, BookOpen, CreditCard, FileText, Users, Heart, Camera, Calculator, TrendingUp, Smartphone, GraduationCap, Bell, Mic } from 'lucide-react';
+import { HelpCircle, Shield, Info, Mail, MessageCircle, BookOpen, CreditCard, FileText, Users, Heart, Camera, Calculator, TrendingUp, Smartphone, GraduationCap } from 'lucide-react';
 import Link from 'next/link';
 import writeOffLogo from '@/public/writeofflogo.png';
 import Image from 'next/image';
@@ -50,12 +50,6 @@ function HelpPageContent() {
   const handleFAQ = () => {
     // Switch to FAQ tab
     setActiveTab('faq');
-  };
-
-  const handleCommunity = () => {
-    // For now, open community page or forum
-    // In a real implementation, you'd have a community platform
-    alert('Community features coming soon!');
   };
 
   return (
@@ -231,56 +225,6 @@ function HelpPageContent() {
                 </CardContent>
               </Card>
 
-              {/* Mobile App */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Smartphone className="w-5 h-5 text-cyan-600" />
-                    Mobile App
-                  </CardTitle>
-                  <CardDescription>
-                    Install WriteOff on your phone
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <p className="text-sm text-muted-foreground">
-                    Access WriteOff anywhere with our mobile app. Quick actions for expense tracking.
-                  </p>
-                  <Button 
-                    className="w-full" 
-                    size="sm"
-                    onClick={() => alert('Install WriteOff app from your browser menu')}
-                  >
-                    Install App
-                  </Button>
-                </CardContent>
-              </Card>
-
-              {/* Tax Education */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <GraduationCap className="w-5 h-5 text-violet-600" />
-                    Tax Education
-                  </CardTitle>
-                  <CardDescription>
-                    Learn from IRS-backed content
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <p className="text-sm text-muted-foreground">
-                    Access comprehensive tax education with official IRS publications and examples.
-                  </p>
-                  <Button 
-                    className="w-full" 
-                    size="sm"
-                    onClick={() => alert('Tax education features coming soon!')}
-                  >
-                    Learn More
-                  </Button>
-                </CardContent>
-              </Card>
-
               {/* Reports & Analytics */}
               <Card>
                 <CardHeader>
@@ -302,31 +246,6 @@ function HelpPageContent() {
                     onClick={() => handleTutorialClick('reports')}
                   >
                     Learn More
-                  </Button>
-                </CardContent>
-              </Card>
-
-              {/* Smart Notifications */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Bell className="w-5 h-5 text-orange-600" />
-                    Smart Notifications
-                  </CardTitle>
-                  <CardDescription>
-                    Never miss important tax deadlines
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <p className="text-sm text-muted-foreground">
-                    Get timely reminders for quarterly payments and tax deadlines.
-                  </p>
-                  <Button 
-                    className="w-full" 
-                    size="sm"
-                    onClick={() => alert('Notification settings available in your profile')}
-                  >
-                    Manage Alerts
                   </Button>
                 </CardContent>
               </Card>
@@ -402,56 +321,6 @@ function HelpPageContent() {
                     onClick={() => window.open('/protected/schedule-c', '_blank')}
                   >
                     Generate Tax Forms
-                  </Button>
-                </CardContent>
-              </Card>
-
-              {/* Voice Input */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Mic className="w-5 h-5 text-pink-600" />
-                    Voice Input
-                  </CardTitle>
-                  <CardDescription>
-                    Add expenses using voice commands
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <p className="text-sm text-muted-foreground">
-                    Quickly add expenses by speaking them aloud. Perfect for hands-free expense tracking.
-                  </p>
-                  <Button 
-                    className="w-full" 
-                    size="sm"
-                    onClick={() => alert('Voice input available in the mobile app and dashboard')}
-                  >
-                    Try Voice Input
-                  </Button>
-                </CardContent>
-              </Card>
-
-              {/* Community */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Users className="w-5 h-5 text-teal-600" />
-                    Community
-                  </CardTitle>
-                  <CardDescription>
-                    Connect with other users
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <p className="text-sm text-muted-foreground">
-                    Join our community to share tips and get help from other users.
-                  </p>
-                  <Button 
-                    className="w-full" 
-                    size="sm"
-                    onClick={handleCommunity}
-                  >
-                    Join Community
                   </Button>
                 </CardContent>
               </Card>

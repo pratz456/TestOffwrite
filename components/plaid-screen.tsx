@@ -27,6 +27,7 @@ export const PlaidScreen: React.FC<PlaidScreenProps> = ({ user, onBack, onConnec
   const [pendingAccounts] = useState<BankAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletingAccountId, setDeletingAccountId] = useState<string | null>(null);
+  const [syncingAccountId, setSyncingAccountId] = useState<string | null>(null);
   const [disconnectingPlaid, setDisconnectingPlaid] = useState(false);
   const [hasPlaidConnection, setHasPlaidConnection] = useState(false);
 
@@ -73,12 +74,45 @@ export const PlaidScreen: React.FC<PlaidScreenProps> = ({ user, onBack, onConnec
             name: account.name || 'Unknown Account',
             type: account.subtype || account.type || 'checking',
             mask: account.mask || '****',
-            balance: 0, // Balance would need to be fetched separately
+            balance: account.balance ?? account.available_balance ?? account.current_balance ?? 0,
             isConnected: true,
             lastSync: account.updated_at ? 'Recently' : 'Never'
           }));
           console.log('✅ [Plaid Screen] Processed accounts:', accounts);
           setConnectedAccounts(accounts);
+
+          if (data.metadata?.needsBalanceRefresh) {
+            try {
+              await fetch('/api/plaid/refresh-balances', {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'Content-Type': 'application/json',
+                },
+              });
+              const refetch = await fetch('/api/database/accounts', {
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'Content-Type': 'application/json',
+                },
+              });
+              if (refetch.ok) {
+                const refetchData = await refetch.json();
+                const refreshedAccounts: BankAccount[] = (refetchData.accounts || []).map((account: any) => ({
+                  id: account.account_id || account.id,
+                  name: account.name || 'Unknown Account',
+                  type: account.subtype || account.type || 'checking',
+                  mask: account.mask || '****',
+                  balance: account.balance ?? account.available_balance ?? account.current_balance ?? 0,
+                  isConnected: true,
+                  lastSync: account.updated_at ? 'Recently' : 'Never'
+                }));
+                setConnectedAccounts(refreshedAccounts);
+              }
+            } catch (refreshErr) {
+              console.warn('[Plaid Screen] Balance refresh failed:', refreshErr);
+            }
+          }
         } else {
           const errorData = await accountsResponse.json().catch(() => ({}));
           console.error('❌ [Plaid Screen] Failed to fetch accounts:', accountsResponse.status, errorData);
@@ -98,11 +132,19 @@ export const PlaidScreen: React.FC<PlaidScreenProps> = ({ user, onBack, onConnec
       return;
     }
 
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      alert('Please sign in to delete an account.');
+      return;
+    }
+
     try {
       setDeletingAccountId(accountId);
+      const token = await currentUser.getIdToken();
       const response = await fetch('/api/database/accounts', {
         method: 'DELETE',
         headers: {
+          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ accountId }),
@@ -131,11 +173,19 @@ export const PlaidScreen: React.FC<PlaidScreenProps> = ({ user, onBack, onConnec
       return;
     }
 
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      alert('Please sign in to disconnect.');
+      return;
+    }
+
     try {
       setDisconnectingPlaid(true);
+      const token = await currentUser.getIdToken();
       const response = await fetch('/api/plaid/items', {
         method: 'DELETE',
         headers: {
+          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
       });
@@ -156,6 +206,58 @@ export const PlaidScreen: React.FC<PlaidScreenProps> = ({ user, onBack, onConnec
       alert('Failed to disconnect bank. Please try again.');
     } finally {
       setDisconnectingPlaid(false);
+    }
+  };
+
+  const handleSyncNow = async (accountId: string) => {
+    const currentUser = auth.currentUser;
+    if (!currentUser) return;
+
+    try {
+      setSyncingAccountId(accountId);
+      const token = await currentUser.getIdToken();
+
+      await fetch('/api/plaid/sync-transactions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ userId: currentUser.uid, incremental: true }),
+      });
+
+      await fetch('/api/plaid/refresh-balances', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const refetch = await fetch('/api/database/accounts', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      if (refetch.ok) {
+        const refetchData = await refetch.json();
+        const refreshedAccounts: BankAccount[] = (refetchData.accounts || []).map((account: any) => ({
+          id: account.account_id || account.id,
+          name: account.name || 'Unknown Account',
+          type: account.subtype || account.type || 'checking',
+          mask: account.mask || '****',
+          balance: account.balance ?? account.available_balance ?? account.current_balance ?? 0,
+          isConnected: true,
+          lastSync: account.updated_at ? 'Recently' : 'Never'
+        }));
+        setConnectedAccounts(refreshedAccounts);
+      }
+    } catch (err) {
+      console.warn('[Plaid Screen] Sync failed:', err);
+      alert('Sync failed. Please try again.');
+    } finally {
+      setSyncingAccountId(null);
     }
   };
 
@@ -259,14 +361,16 @@ export const PlaidScreen: React.FC<PlaidScreenProps> = ({ user, onBack, onConnec
                         <Button
                           variant="outline"
                           size="sm"
-                          className="text-primary border-primary/20 hover:bg-primary/10"
+                          className="text-primary border-primary/20 hover:bg-primary/10 dark:text-sky-300 dark:border-sky-400 dark:bg-sky-500/10 dark:hover:bg-sky-500/20 dark:hover:border-sky-300 dark:hover:text-sky-200"
+                          onClick={(e) => { e.stopPropagation(); handleSyncNow(account.id); }}
+                          disabled={syncingAccountId === account.id}
                         >
-                          Sync Now
+                          {syncingAccountId === account.id ? 'Syncing...' : 'Sync Now'}
                         </Button>
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => handleDeleteAccount(account.id)}
+                          onClick={(e) => { e.stopPropagation(); handleDeleteAccount(account.id); }}
                           disabled={deletingAccountId === account.id}
                           className="text-destructive border-destructive/20 hover:bg-destructive/10 hover:text-destructive"
                         >

@@ -6,14 +6,14 @@ export function LandingFooter() {
   return (
     <footer className="relative border-t border-border overflow-hidden">
       <div className="absolute inset-0 -z-10 bg-gradient-to-b from-card via-card to-background" />
-      <div className="mx-auto max-w-6xl px-4 py-14 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
         <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
           <div className="lg:col-span-1">
             <Link href="/" className="flex items-center gap-2.5">
               <Image src="/writeofflogo.png" alt="WriteOff" width={28} height={28} className="rounded-md" />
               <span className="text-lg font-bold text-foreground">WriteOff</span>
             </Link>
-            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">The AI-powered tax assistant that works year-round to help freelancers and gig workers save money.</p>
+            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">We help freelancers and gig workers save on taxes all year, not just in April.</p>
           </div>
           <div>
             <h4 className="text-sm font-semibold text-foreground">Product</h4>
@@ -32,7 +32,7 @@ export function LandingFooter() {
           </div>
           <div>
             <h4 className="text-sm font-semibold text-foreground">Get Started</h4>
-            <p className="mt-4 text-sm text-muted-foreground">Ready to stop overpaying taxes? Start your free 30-day trial &mdash; no credit card required.</p>
+            <p className="mt-4 text-sm text-muted-foreground">Ready to stop overpaying? Try free for 30 days. No credit card required.</p>
             <div className="mt-4"><AuthButtons size="default" /></div>
           </div>
         </div>

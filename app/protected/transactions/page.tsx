@@ -52,6 +52,7 @@ interface Transaction {
   trans_id?: string;
   merchant_name: string;
   amount: number;
+  type?: 'expense' | 'income';
   category: string;
   date: string;
   is_deductible?: boolean | null;
@@ -642,6 +643,9 @@ export default function TransactionsPage() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                     Status
                   </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    Direction
+                  </th>
                   <th className="px-6 py-3 text-center text-xs font-medium text-muted-foreground uppercase tracking-wider">
                     Receipt
                   </th>
@@ -682,6 +686,9 @@ export default function TransactionsPage() {
                     <td className="px-6 py-4">
                       {getStatusBadge(transaction)}
                     </td>
+                    <td className="px-6 py-4 text-sm text-foreground">
+                      {(transaction.type ?? (transaction.amount < 0 ? 'income' : 'expense')) === 'income' ? 'Received' : 'Paid'}
+                    </td>
                     <td className="px-6 py-4 text-center">
                       {transaction.receipt_url ? (
                         <div className="flex items-center justify-center">
@@ -698,7 +705,7 @@ export default function TransactionsPage() {
                       )}
                     </td>
                     <td className="px-6 py-4 text-right text-sm font-medium text-foreground">
-                      ${Math.abs(transaction.amount).toFixed(2)}
+                      {(transaction.type ?? (transaction.amount < 0 ? 'income' : 'expense')) === 'income' ? '+' : '-'}${Math.abs(transaction.amount).toFixed(2)}
                     </td>
                   </tr>
                 ))}
@@ -737,7 +744,10 @@ export default function TransactionsPage() {
                   </div>
                   <div className="text-right">
                     <div className="text-lg font-bold text-foreground mb-1">
-                      ${Math.abs(transaction.amount).toFixed(2)}
+                      {(transaction.type ?? (transaction.amount < 0 ? 'income' : 'expense')) === 'income' ? '+' : '-'}${Math.abs(transaction.amount).toFixed(2)}
+                    </div>
+                    <div className={`text-xs font-medium ${(transaction.type ?? (transaction.amount < 0 ? 'income' : 'expense')) === 'income' ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}`}>
+                      {(transaction.type ?? (transaction.amount < 0 ? 'income' : 'expense')) === 'income' ? 'Received' : 'Paid'}
                     </div>
                     {transaction.receipt_url ? (
                       <div className="w-8 h-8 bg-accent/20 rounded-full flex items-center justify-center mx-auto">
