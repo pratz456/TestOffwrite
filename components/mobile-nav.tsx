@@ -136,7 +136,7 @@ export const MobileNav: React.FC<MobileNavProps> = ({ user, userProfile }) => {
       {/* Mobile Navigation Overlay - z-[55] so it stays above page content (e.g. Settings header z-50) */}
       {isOpen && (
         <div className="lg:hidden fixed inset-0 z-[55] bg-black/50 backdrop-blur-sm" onClick={() => setIsOpen(false)}>
-          <div 
+          <div
             className="w-80 max-w-[85vw] h-full bg-card shadow-xl overflow-y-auto animate-in slide-in-from-left duration-200"
             onClick={(e) => e.stopPropagation()}
           >
@@ -205,10 +205,10 @@ export const MobileNav: React.FC<MobileNavProps> = ({ user, userProfile }) => {
                   </p>
                 </div>
               </div>
-              
+
               {/* Sign Out Button */}
-              <LogoutButton 
-                className="w-full border border-destructive/20 text-destructive bg-card hover:bg-destructive/10 hover:text-destructive font-semibold py-2 rounded-lg transition-all duration-200 flex items-center justify-center gap-2" 
+              <LogoutButton
+                className="w-full border border-destructive/20 text-destructive bg-card hover:bg-destructive/10 hover:text-destructive font-semibold py-2 rounded-lg transition-all duration-200 flex items-center justify-center gap-2"
                 icon={true}
               />
             </div>

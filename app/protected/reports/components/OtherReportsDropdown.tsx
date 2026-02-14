@@ -44,15 +44,15 @@ export function OtherReportsDropdown({ disabled = false }: OtherReportsDropdownP
       form4562: '/protected/form4562',
       scheduleSE: '/protected/scheduleSE'
     };
-    
+
     window.location.href = routes[formType];
   };
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button 
-          variant="outline" 
+        <Button
+          variant="outline"
           size="sm"
           className="min-h-[44px] sm:h-10 px-3 sm:px-4 border-2 border-gray-300 dark:border-gray-500 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 hover:border-primary/60 dark:hover:border-primary/60 text-gray-700 dark:text-gray-200 transition-colors duration-200 no-tap-highlight group focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           disabled={disabled}
@@ -65,7 +65,7 @@ export function OtherReportsDropdown({ disabled = false }: OtherReportsDropdownP
       <DropdownMenuContent className="w-72 sm:w-80" align="end">
         {Object.entries(formConfig).map(([formType, config]) => {
           const Icon = config.icon;
-          
+
           return (
             <DropdownMenuItem
               key={formType}
@@ -87,9 +87,9 @@ export function OtherReportsDropdown({ disabled = false }: OtherReportsDropdownP
             </DropdownMenuItem>
           );
         })}
-        
+
         <DropdownMenuSeparator />
-        
+
         <div className="px-2.5 py-2">
           <div className="text-xs text-muted-foreground">
             Forms generated from your transaction data.

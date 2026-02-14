@@ -111,7 +111,7 @@ export default function PrivacyPolicyPage() {
                 <li>Protected AI model training with user corrections</li>
               </ul>
               <p className="mt-3">
-                While no system is 100% secure, we continuously work to safeguard your data. 
+                While no system is 100% secure, we continuously work to safeguard your data.
                 All data processing is done securely and in compliance with applicable privacy regulations.
               </p>
             </div>

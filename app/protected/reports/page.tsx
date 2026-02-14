@@ -76,7 +76,7 @@ export default function ReportsPage() {
   const currentYear = new Date().getFullYear();
   const [chartYear, setChartYear] = useState(currentYear);
   const { toasts, removeToast } = useToasts();
-  
+
   // Check subscription status for feature gating
   const { hasAccess, isLoading: subscriptionLoading } = useSubscription();
 
@@ -286,7 +286,7 @@ export default function ReportsPage() {
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
           console.error('❌ [Reports Page] PDF generation failed:', errorData);
-          
+
           // Check if it's a subscription required error
           if (errorData.requiresSubscription) {
             alert('An active subscription is required to export reports. Please subscribe to access this feature.');
@@ -294,7 +294,7 @@ export default function ReportsPage() {
             setShowExportModal(false);
             return;
           }
-          
+
           throw new Error(errorData.error || `Failed to generate PDF: ${response.status} ${response.statusText}`);
         }
 

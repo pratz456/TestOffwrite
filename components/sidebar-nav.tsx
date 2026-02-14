@@ -171,11 +171,11 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ user, userProfile }) => 
             </div>
           </div>
         </div>
-        
+
         {/* Sign Out Button */}
         <div className="p-3 border-t border-border">
-          <LogoutButton 
-            className="w-full border border-destructive/20 text-destructive bg-card hover:bg-destructive/10 hover:text-destructive font-semibold py-2 rounded-lg transition-all duration-200 flex items-center justify-center gap-2" 
+          <LogoutButton
+            className="w-full border border-destructive/20 text-destructive bg-card hover:bg-destructive/10 hover:text-destructive font-semibold py-2 rounded-lg transition-all duration-200 flex items-center justify-center gap-2"
             icon={true}
           />
         </div>
