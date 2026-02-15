@@ -248,14 +248,14 @@ export default function ProtectedPage() {
   // Refresh transactions when navigating to dashboard
   // Real-time updates are handled automatically by useTransactions hook
 
-  // Handle URL parameters for navigation
+  // Handle URL parameters for navigation (single source of truth for screen when present)
   useEffect(() => {
-    if (searchParams) {
-      const screen = searchParams.get('screen');
-      const transactionId = searchParams.get('transactionId');
-      const fromPage = searchParams.get('from');
+    if (!searchParams) return;
+    const screen = searchParams.get('screen');
+    const transactionId = searchParams.get('transactionId');
+    const fromPage = searchParams.get('from');
 
-      if (screen === 'transaction-detail' && transactionId) {
+    if (screen === 'transaction-detail' && transactionId) {
         // Try to find the transaction by id or trans_id in the loaded transactions
         let transaction = transactions.find(t => t.id === transactionId || (t as any).trans_id === transactionId);
         if (!transaction) {
@@ -319,21 +319,17 @@ export default function ProtectedPage() {
           setViewingTransaction(transaction);
           setCurrentScreen('transaction-detail');
         }
-      } else if (screen) {
-        // Add current screen to navigation stack before changing screens
-        setNavigationStack(prev => [...prev, currentScreen]);
-        setCurrentScreen(screen as any);
-      }
+    } else if (screen && screen !== currentScreen) {
+      // Only sync when URL screen differs from state to avoid overwriting after redirect (e.g. AI analysis → review-transactions)
+      setNavigationStack(prev => [...prev, currentScreen]);
+      setCurrentScreen(screen as any);
     }
   }, [searchParams, transactions, currentScreen]);
 
-  // Watch for pathname changes to detect home navigation
+  // Don't overwrite screen when URL has ?screen= (e.g. after redirect from AI analysis to review-transactions)
   useEffect(() => {
-    console.log('Pathname changed:', pathname);
-
-    // If we're on /protected without query params, we're on the home/dashboard
-    if (pathname === '/protected' && !searchParams.has('screen')) {
-      console.log('Navigated to home page, updating currentScreen to dashboard');
+    const urlScreen = searchParams?.get('screen');
+    if (pathname === '/protected' && !urlScreen) {
       setCurrentScreen('dashboard');
     }
   }, [pathname, searchParams]);
@@ -445,6 +441,7 @@ export default function ProtectedPage() {
       // Navigate to transactions page using Next.js router
       router.push('/protected/transactions');
     } else if (screen === 'review-transactions') {
+      router.push('/protected?screen=review-transactions');
       setCurrentScreen('review-transactions');
     } else if (screen === 'schedule-c-export') {
       setCurrentScreen('schedule-c-export');

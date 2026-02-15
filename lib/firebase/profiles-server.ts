@@ -15,6 +15,10 @@ export interface UserProfile {
   plaid_item_id?: string;
   plaid_transactions_cursor?: string;
   last_sync_source?: 'incremental' | 'full';
+  plaid_connected_at?: Date | any;
+  plaid_requested_start_date?: string;
+  plaid_earliest_returned_tx_date?: string;
+  plaid_imported_count?: number;
   created_at?: any;
   updated_at?: any;
 
@@ -109,6 +113,10 @@ export async function getUserProfileServer(userId: string): Promise<{ data: User
           plaid_token: data.plaid_token,
           plaid_item_id: data.plaid_item_id,
           plaid_transactions_cursor: data.plaid_transactions_cursor,
+          plaid_connected_at: data.plaid_connected_at,
+          plaid_requested_start_date: data.plaid_requested_start_date,
+          plaid_earliest_returned_tx_date: data.plaid_earliest_returned_tx_date,
+          plaid_imported_count: data.plaid_imported_count,
           created_at: data.created_at,
           updated_at: data.updated_at,
         },

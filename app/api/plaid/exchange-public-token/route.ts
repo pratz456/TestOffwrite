@@ -6,6 +6,7 @@ import { plaidClient } from '@/lib/plaid/client';
 import { adminDb } from '@/lib/firebase/admin';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import { fetchAllPlaidTransactions } from '@/lib/plaid/pagination';
+import { logPlaidRequest, debugPlaid } from '@/lib/plaid/debug';
 import { getTransactionDateRange } from '@/lib/subscriptions/historical-access';
 import { startFreeTrial } from '@/lib/subscriptions/trial-manager';
 
@@ -62,8 +63,15 @@ export async function POST(req: Request) {
     let institutionId = '';
     try {
       const itemResponse = await plaidClient.itemGet({ access_token });
-      institutionId = itemResponse.data.item.institution_id || '';
+      const item = itemResponse.data.item;
+      institutionId = item.institution_id || '';
       console.log(`🔍 [Plaid] Institution ID: ${institutionId}`);
+      debugPlaid('[Plaid] Item status', {
+        item_id,
+        institution_id: institutionId,
+        status: item.status,
+        error: item.error ?? null,
+      });
     } catch (err) {
       console.warn('Could not fetch institution ID:', err);
     }
@@ -344,7 +352,9 @@ export async function POST(req: Request) {
     console.log(`   🔄 Pagination: Will fetch ALL available transactions using cursor-based pagination`);
     console.log(`   ⚠️ NOTE: Plaid may only return transactions available from the bank.`);
     console.log(`   ⚠️ NOTE: If account was connected recently, historical data may be limited.`);
-    console.log(`   ⚠️ NOTE: Sandbox environment may have limited test data.`);
+    if (process.env.PLAID_ENV === 'sandbox') {
+      console.log(`   ⚠️ NOTE: Sandbox environment may have limited test data.`);
+    }
 
     // Import transactions for ALL accounts
     let totalImported = 0;
@@ -353,6 +363,7 @@ export async function POST(req: Request) {
     const allWriteErrors: any[] = [];
     const accountImportResults: any[] = [];
     let primaryAccountId = allAccounts[0]?.account_id || '';
+    let plaidEarliestReturnedTxDate: string | undefined;
 
     // Iterate through each account and import its transactions
     for (const plaidAccount of allAccounts) {
@@ -368,19 +379,28 @@ export async function POST(req: Request) {
         // Fetch all transactions for this account with pagination
         // This will automatically paginate through all available transactions using cursor
         console.log(`🔄 [Plaid] Starting transaction fetch for account: ${plaidAccount.name} (${accountId})`);
+        logPlaidRequest(`[Plaid] Account ${plaidAccount.name}`, {
+          endpoint: 'transactionsGet',
+          start_date: startDateStr,
+          end_date: endDateStr,
+          options: { account_ids: [accountId], include_personal_finance_category: true, include_logo_and_counterparty_beta: true },
+          item_id,
+          institution_id: institutionId || undefined,
+        });
         const {
           transactions: accountTransactions,
           totalPages,
           totalTransactions,
-          plaidTotalTransactions
+          plaidTotalTransactions,
+          earliestTxDate: accountEarliestTxDate,
         } = await fetchAllPlaidTransactions(
           plaidClient,
           {
             access_token,
             start_date: startDateStr,
             end_date: endDateStr,
-            account_ids: [accountId], // Only get transactions for this specific account
             options: {
+              account_ids: [accountId], // Filter to this specific account
               include_personal_finance_category: true,
               include_logo_and_counterparty_beta: true,
             },
@@ -400,6 +420,14 @@ export async function POST(req: Request) {
           }
         }
 
+        // Track earliest tx date across accounts for metadata
+        if (accountEarliestTxDate) {
+          plaidEarliestReturnedTxDate =
+            !plaidEarliestReturnedTxDate || accountEarliestTxDate < plaidEarliestReturnedTxDate
+              ? accountEarliestTxDate
+              : plaidEarliestReturnedTxDate;
+        }
+
         // Log the date range of fetched transactions for debugging
         if (accountTransactions.length > 0) {
           const transactionDates = accountTransactions.map(tx => tx.date).sort();
@@ -415,7 +443,9 @@ export async function POST(req: Request) {
             console.warn(`   ⚠️ Possible reasons:`);
             console.warn(`      - Account was connected on or after ${earliestTx}`);
             console.warn(`      - Bank/Plaid has limited historical data available`);
-            console.warn(`      - Using Plaid Sandbox (typically limited to 30-40 days of test data)`);
+            if (process.env.PLAID_ENV === 'sandbox') {
+              console.warn(`      - Using Plaid Sandbox (typically limited to 30-40 days of test data)`);
+            }
             console.warn(`      - Bank only provides recent transaction history through Plaid`);
           }
         } else {
@@ -493,8 +523,13 @@ export async function POST(req: Request) {
             updatedAt: Date.now(),
           };
 
+          // Strip undefined values — Firestore rejects them
+          const cleanedData = Object.fromEntries(
+            Object.entries(transactionData).filter(([_, v]) => v !== undefined)
+          );
+
           try {
-            await txRef.set(transactionData);
+            await txRef.set(cleanedData);
             accountImported++;
             accountSuccessfulWrites++;
           } catch (writeError: any) {
@@ -549,6 +584,21 @@ export async function POST(req: Request) {
         });
         // Continue with other accounts even if one fails
       }
+    }
+
+    // Store import metadata in user_profiles for UX and diagnostics
+    try {
+      await adminDb.doc(`user_profiles/${uid}`).set(
+        {
+          plaid_connected_at: new Date(),
+          plaid_requested_start_date: startDateStr,
+          plaid_earliest_returned_tx_date: plaidEarliestReturnedTxDate || null,
+          plaid_imported_count: totalImported,
+        },
+        { merge: true }
+      );
+    } catch (metaErr: any) {
+      console.warn('⚠️ [Plaid] Failed to store import metadata:', metaErr?.message);
     }
 
     console.log(`✅ [Plaid] ========================================`);

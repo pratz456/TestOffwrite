@@ -8,6 +8,8 @@ import {
 import { adminDb } from '../firebase/admin';
 import { fetchAllPlaidTransactions } from './pagination';
 import { getTransactionDateRange } from '../subscriptions/historical-access';
+import { debugPlaid } from './debug';
+import { aiLearningEngine } from '../ai/learning-engine';
 
 // Helper function to get Plaid config from both environment variables and functions.config()
 function getPlaidConfig() {
@@ -17,7 +19,7 @@ function getPlaidConfig() {
   let plaidEnv: string | undefined;
 
   try {
-     
+
     const functions = require('firebase-functions');
     const config = functions.config();
     if (config.plaid) {
@@ -54,7 +56,95 @@ const client = new PlaidApi(configuration);
 export interface SyncResult {
   success: boolean;
   transactionsSaved: number;
+  autoClassified?: number;
   error?: string;
+}
+
+/**
+ * Auto-classify newly synced transactions using the learning engine.
+ * Only applies when the engine has high confidence (>=0.8) for a merchant pattern.
+ */
+async function autoClassifyFromLearning(
+  userId: string,
+  accountId: string,
+  newTransactions: Array<{ trans_id: string; merchant_name: string; amount: number; category: string; date: string }>
+): Promise<number> {
+  let classified = 0;
+  for (const tx of newTransactions) {
+    try {
+      const learningCtx = await aiLearningEngine.getLearningContext(userId, {
+        tx_id: tx.trans_id,
+        merchant: tx.merchant_name,
+        amount_usd: tx.amount,
+        date_iso: tx.date,
+        category: tx.category,
+      });
+
+      if (
+        learningCtx &&
+        typeof learningCtx === 'object' &&
+        'overallConfidence' in learningCtx &&
+        (learningCtx as any).overallConfidence >= 0.8 &&
+        'merchantPreference' in learningCtx &&
+        (learningCtx as any).merchantPreference
+      ) {
+        const pref = (learningCtx as any).merchantPreference;
+        const docRef = adminDb
+          .collection('user_profiles')
+          .doc(userId)
+          .collection('accounts')
+          .doc(accountId)
+          .collection('transactions')
+          .doc(tx.trans_id);
+
+        await docRef.update({
+          is_deductible: pref.preferredClassification,
+          deduction_score: (learningCtx as any).overallConfidence,
+          analysis_status: 'completed',
+          analysisStatus: 'completed',
+          analyzed: true,
+          auto_classified: true,
+          auto_classified_source: 'learning_engine',
+          updated_at: new Date(),
+          updatedAt: Date.now(),
+        });
+        classified++;
+      }
+    } catch (err) {
+      // Non-fatal — skip this transaction if learning lookup fails
+      console.warn(`⚠️ [Auto-Classify] Failed for ${tx.trans_id}:`, err);
+    }
+  }
+  return classified;
+}
+
+/**
+ * Check if a transaction is a likely duplicate by (merchant, amount, date).
+ * Used as secondary dedup when Plaid transaction IDs change (pending -> settled).
+ */
+async function isDuplicateByContent(
+  userId: string,
+  accountId: string,
+  merchantName: string,
+  amount: number,
+  date: string
+): Promise<boolean> {
+  try {
+    const snapshot = await adminDb
+      .collection('user_profiles')
+      .doc(userId)
+      .collection('accounts')
+      .doc(accountId)
+      .collection('transactions')
+      .where('merchant_name', '==', merchantName)
+      .where('amount', '==', amount)
+      .where('date', '==', date)
+      .limit(1)
+      .get();
+    return !snapshot.empty;
+  } catch {
+    return false; // If query fails, don't block the import
+  }
 }
 
 /**
@@ -72,6 +162,20 @@ export async function syncUserTransactionsIncremental(userId: string): Promise<S
     }
 
     const cursor = userProfile.plaid_transactions_cursor || undefined;
+    if (process.env.DEBUG_PLAID === 'true') {
+      try {
+        const itemRes = await client.itemGet({ access_token: userProfile.plaid_token });
+        const item = itemRes.data.item;
+        debugPlaid('[Sync Helper] Item status before sync', {
+          item_id: item.item_id,
+          institution_id: item.institution_id ?? null,
+          status: item.status,
+          error: item.error ?? null,
+        });
+      } catch (itemErr: any) {
+        debugPlaid('[Sync Helper] Failed to get item status', { error: itemErr?.message });
+      }
+    }
     const allAdded: any[] = [];
     const allModified: any[] = [];
     const allRemoved: { transaction_id: string; account_id: string }[] = [];
@@ -92,23 +196,57 @@ export async function syncUserTransactionsIncremental(userId: string): Promise<S
       hasMore = data.has_more === true;
     }
 
-    let transactionsSaved = 0;
-    for (const tx of allAdded) {
-      const category = tx.personal_finance_category?.detailed || tx.category?.[0] || 'Other';
-      const { data: saved } = await createTransactionServer(userId, tx.account_id, {
-        trans_id: tx.transaction_id,
-        date: tx.date,
-        amount: tx.amount,
-        merchant_name: tx.merchant_name || tx.name,
-        category,
-        description: tx.name,
-        is_deductible: null,
-        analyzed: false,
-        analysis_status: 'pending',
-        analysisStatus: 'pending',
-      });
-      if (saved) transactionsSaved++;
+    // Filter out pending transactions (they'll be picked up when settled)
+    const settledAdded = allAdded.filter(tx => !tx.pending);
+    const skippedPending = allAdded.length - settledAdded.length;
+    if (skippedPending > 0) {
+      console.log(`⏳ [Sync Helper] Skipped ${skippedPending} pending transactions`);
     }
+
+    let transactionsSaved = 0;
+    const newlySaved: Array<{ trans_id: string; merchant_name: string; amount: number; category: string; date: string; account_id: string }> = [];
+
+    // Batch writes for performance (Firestore batch limit: 500)
+    const BATCH_SIZE = 400; // Leave room for metadata updates
+    for (let i = 0; i < settledAdded.length; i += BATCH_SIZE) {
+      const chunk = settledAdded.slice(i, i + BATCH_SIZE);
+      for (const tx of chunk) {
+        const category = tx.personal_finance_category?.detailed || tx.category?.[0] || 'Other';
+        const merchantName = tx.merchant_name || tx.name;
+
+        // Secondary dedup by content (catches pending->settled ID changes)
+        const contentDup = await isDuplicateByContent(userId, tx.account_id, merchantName, tx.amount, tx.date);
+        if (contentDup) {
+          console.log(`🔄 [Sync Helper] Skipped content-duplicate: ${merchantName} $${tx.amount} on ${tx.date}`);
+          continue;
+        }
+
+        const { data: saved } = await createTransactionServer(userId, tx.account_id, {
+          trans_id: tx.transaction_id,
+          date: tx.date,
+          amount: tx.amount,
+          merchant_name: merchantName,
+          category,
+          description: tx.name,
+          is_deductible: null,
+          analyzed: false,
+          analysis_status: 'pending',
+          analysisStatus: 'pending',
+        });
+        if (saved) {
+          transactionsSaved++;
+          newlySaved.push({
+            trans_id: tx.transaction_id,
+            merchant_name: merchantName,
+            amount: tx.amount,
+            category,
+            date: tx.date,
+            account_id: tx.account_id,
+          });
+        }
+      }
+    }
+
     for (const tx of allModified) {
       const category = tx.personal_finance_category?.detailed || tx.category?.[0] || 'Other';
       await updateTransactionFromPlaidServer(userId, tx.transaction_id, {
@@ -123,14 +261,32 @@ export async function syncUserTransactionsIncremental(userId: string): Promise<S
       await deleteTransactionByUserIdAndTransId(userId, r.transaction_id);
     }
 
+    // Auto-classify using learning engine for high-confidence patterns
+    let autoClassified = 0;
+    if (newlySaved.length > 0) {
+      // Group by account_id for auto-classification
+      const byAccount = new Map<string, typeof newlySaved>();
+      for (const tx of newlySaved) {
+        const existing = byAccount.get(tx.account_id) || [];
+        existing.push(tx);
+        byAccount.set(tx.account_id, existing);
+      }
+      for (const [accountId, txs] of byAccount) {
+        autoClassified += await autoClassifyFromLearning(userId, accountId, txs);
+      }
+      if (autoClassified > 0) {
+        console.log(`🤖 [Sync Helper] Auto-classified ${autoClassified} transactions from learning patterns`);
+      }
+    }
+
     await upsertUserProfileServer(userId, {
       plaid_transactions_cursor: nextCursor || undefined,
       last_sync: Date.now(),
       last_sync_source: 'incremental',
     } as any);
 
-    console.log(`🎉 [Sync Helper] Incremental sync completed. Added: ${transactionsSaved}, modified: ${allModified.length}, removed: ${allRemoved.length}`);
-    return { success: true, transactionsSaved };
+    console.log(`🎉 [Sync Helper] Incremental sync completed. Added: ${transactionsSaved}, modified: ${allModified.length}, removed: ${allRemoved.length}, auto-classified: ${autoClassified}`);
+    return { success: true, transactionsSaved, autoClassified };
   } catch (error) {
     console.error(`❌ [Sync Helper] Incremental sync error for user ${userId}:`, error);
     return {
@@ -223,7 +379,9 @@ export async function syncUserTransactions(
     console.log(`   📅 Start date: ${startDate.toLocaleDateString()} (${startDateStr})`);
     console.log(`   📅 End date: ${endDate.toLocaleDateString()} (${endDateStr})`);
     console.log(`   ⚠️ NOTE: Plaid may only return transactions available from the bank.`);
-    console.log(`   ⚠️ NOTE: Sandbox environment may have limited test data (typically 30-40 days).`);
+    if (process.env.PLAID_ENV === 'sandbox') {
+      console.log(`   ⚠️ NOTE: Sandbox environment may have limited test data (typically 30-40 days).`);
+    }
 
     // Fetch all transactions from Plaid with pagination
     const { transactions, totalPages, totalTransactions, plaidTotalTransactions } = await fetchAllPlaidTransactions(
@@ -265,14 +423,28 @@ export async function syncUserTransactions(
 
     console.log(`📊 [Sync Helper] Fetched ${totalTransactions} transactions from Plaid across ${totalPages} page(s)`);
 
+    // Filter out pending transactions (they'll be picked up when settled)
+    const settledTransactions = transactions.filter(tx => !tx.pending);
+    const skippedPending = transactions.length - settledTransactions.length;
+    if (skippedPending > 0) {
+      console.log(`⏳ [Sync Helper] Skipped ${skippedPending} pending transactions`);
+    }
+
     let transactionsSaved = 0;
+    const newlySaved: Array<{ trans_id: string; merchant_name: string; amount: number; category: string; date: string; account_id: string }> = [];
 
-    // Process all transactions
-    if (transactions.length > 0) {
-      for (const transaction of transactions) {
+    // Process settled transactions
+    if (settledTransactions.length > 0) {
+      for (const transaction of settledTransactions) {
         const category = transaction.personal_finance_category?.detailed || transaction.category?.[0] || 'Other';
+        const merchantName = transaction.merchant_name || transaction.name;
 
-        console.log(`📝 [Sync Helper] Processing transaction: ${transaction.merchant_name || transaction.name} - ${category}`);
+        // Secondary dedup by content (catches pending->settled ID changes)
+        const contentDup = await isDuplicateByContent(userId, transaction.account_id, merchantName, transaction.amount, transaction.date);
+        if (contentDup) {
+          console.log(`🔄 [Sync Helper] Skipped content-duplicate: ${merchantName} $${transaction.amount} on ${transaction.date}`);
+          continue;
+        }
 
         const { data: savedTransaction, error: transactionError } = await createTransactionServer(
           userId,
@@ -281,27 +453,51 @@ export async function syncUserTransactions(
             trans_id: transaction.transaction_id,
             date: transaction.date,
             amount: transaction.amount,
-            merchant_name: transaction.merchant_name || transaction.name,
+            merchant_name: merchantName,
             category: category,
             description: transaction.name,
-            is_deductible: null, // Will be updated by AI analysis
+            is_deductible: null,
             deductible_reason: undefined,
             deduction_score: null,
             ai: null,
             analyzed: false,
             analysis_status: 'pending',
-            analysisStatus: 'pending', // Add camelCase version for consistency
+            analysisStatus: 'pending',
           }
         );
 
         if (transactionError) {
           console.error(`❌ [Sync Helper] Failed to save transaction ${transaction.transaction_id}:`, transactionError);
         } else if (savedTransaction) {
-          // Only count as saved if it was actually created (not skipped due to duplicate)
           console.log(`✅ [Sync Helper] Processed transaction: ${transaction.transaction_id} - ${savedTransaction?.merchant_name}`);
           transactionsSaved++;
+          newlySaved.push({
+            trans_id: transaction.transaction_id,
+            merchant_name: merchantName,
+            amount: transaction.amount,
+            category,
+            date: transaction.date,
+            account_id: transaction.account_id,
+          });
         } else {
           console.log(`🔄 [Sync Helper] Skipped duplicate transaction: ${transaction.transaction_id}`);
+        }
+      }
+
+      // Auto-classify using learning engine for high-confidence patterns
+      let autoClassified = 0;
+      if (newlySaved.length > 0) {
+        const byAccount = new Map<string, typeof newlySaved>();
+        for (const tx of newlySaved) {
+          const existing = byAccount.get(tx.account_id) || [];
+          existing.push(tx);
+          byAccount.set(tx.account_id, existing);
+        }
+        for (const [accountId, txs] of byAccount) {
+          autoClassified += await autoClassifyFromLearning(userId, accountId, txs);
+        }
+        if (autoClassified > 0) {
+          console.log(`🤖 [Sync Helper] Auto-classified ${autoClassified} transactions from learning patterns`);
         }
       }
 

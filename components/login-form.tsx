@@ -208,7 +208,7 @@ export function LoginForm({
           </div>
 
           {/* Sign in form */}
-          <div className="bg-card/80 backdrop-blur-xl rounded-xl sm:rounded-2xl shadow-lg shadow-gray-900/5 ring-1 ring-border p-5 sm:p-6">
+          <div className="bg-card/80 backdrop-blur-xl rounded-xl sm:rounded-2xl shadow-lg shadow-black/5 dark:shadow-black/25 ring-1 ring-border p-5 sm:p-6">
             <form onSubmit={handleLogin} className="space-y-4 sm:space-y-5">
               <div className="space-y-4 sm:space-y-3">
                 <div>
@@ -306,11 +306,11 @@ export function LoginForm({
               type="button"
               onClick={handleGoogleSignIn}
               disabled={isLoading || isGoogleLoading}
-              className="w-full h-12 sm:h-11 bg-white hover:bg-gray-50 active:bg-gray-100 text-gray-700 border border-gray-300 rounded-lg font-medium text-base sm:text-sm transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-3 no-tap-highlight"
+              className="w-full h-12 sm:h-11 bg-card hover:bg-muted active:bg-muted/80 text-foreground border border-border rounded-lg font-medium text-base sm:text-sm transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-3 no-tap-highlight"
             >
               {isGoogleLoading ? (
                 <div className="flex items-center gap-2">
-                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-400 border-t-transparent"></div>
+                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-muted-foreground border-t-transparent"></div>
                   Signing in...
                 </div>
               ) : (

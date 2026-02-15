@@ -8,7 +8,6 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { useMonthlyDeductions, useTransactions } from '@/lib/react-query/hooks';
 import { ReportsChartSkeleton, PageHeaderSkeleton } from '@/components/ui/skeleton';
-import { OtherReportsDropdown } from './components/OtherReportsDropdown';
 import { ToastContainer, useToasts } from '@/components/ui/toast';
 import { useSubscription } from '@/lib/hooks/use-subscription';
 
@@ -357,20 +356,17 @@ export default function ReportsPage() {
   // Show loading state while auth is loading or data is fetching
   if (authLoading || isLoading) {
     return (
-      <div className="p-4 sm:p-6 bg-background min-h-screen">
+      <div className="p-4 sm:p-6 bg-background min-h-screen max-w-7xl mx-auto">
         <PageHeaderSkeleton />
         <ReportsChartSkeleton />
-        <div className="grid grid-cols-2 gap-4 mb-6">
-          <div className="bg-card p-6 rounded-lg border animate-pulse">
-            <div className="h-4 w-24 mb-3 bg-muted rounded"></div>
-            <div className="h-8 w-32 mb-2 bg-muted rounded"></div>
-            <div className="h-3 w-20 bg-muted rounded"></div>
-          </div>
-          <div className="bg-card p-6 rounded-lg border animate-pulse">
-            <div className="h-4 w-24 mb-3 bg-muted rounded"></div>
-            <div className="h-8 w-32 mb-2 bg-muted rounded"></div>
-            <div className="h-3 w-20 bg-muted rounded"></div>
-          </div>
+        <div className="grid grid-cols-1 min-[480px]:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="bg-card p-4 sm:p-5 rounded-xl border border-border animate-pulse">
+              <div className="h-4 w-24 mb-3 bg-muted rounded-md" />
+              <div className="h-8 w-32 mb-2 bg-muted rounded-md" />
+              <div className="h-3 w-20 bg-muted rounded-md" />
+            </div>
+          ))}
         </div>
       </div>
     );
@@ -378,8 +374,8 @@ export default function ReportsPage() {
 
   if (error) {
     return (
-      <div className="p-4 sm:p-6 bg-background min-h-screen">
-        <div className="text-center">
+      <div className="p-4 sm:p-6 bg-background min-h-screen max-w-7xl mx-auto">
+        <div className="text-center py-12">
           <AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4" />
           <h2 className="text-xl font-semibold text-foreground mb-2">Error Loading Reports</h2>
           <p className="text-muted-foreground mb-4">
@@ -387,7 +383,7 @@ export default function ReportsPage() {
           </p>
           <Button
             onClick={() => refetch()}
-            className="bg-primary hover:bg-primary/90 text-primary-foreground"
+            className="min-h-[44px] bg-primary hover:bg-primary-hover text-primary-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             <RefreshCw className="w-4 h-4 mr-2" />
             Try Again
@@ -399,21 +395,21 @@ export default function ReportsPage() {
 
   if (!reportsData || !metrics) {
     return (
-      <div className="p-4 sm:p-6 bg-background min-h-screen">
-        <div className="text-center text-muted-foreground">
-          <AlertCircle className="w-16 h-16 text-muted mx-auto mb-4" />
+      <div className="p-4 sm:p-6 bg-background min-h-screen max-w-7xl mx-auto">
+        <div className="text-center py-12">
+          <AlertCircle className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
           <h2 className="text-xl font-semibold text-foreground mb-2">No Reports Data</h2>
           <p className="text-muted-foreground mb-4">
             No reports data is available. This could be because:
           </p>
-          <ul className="text-muted-foreground text-left max-w-md mx-auto mb-4">
-            <li>• You haven't imported any transactions yet</li>
-            <li>• Your transactions haven't been analyzed for deductions</li>
-            <li>• There was an issue loading your data</li>
+          <ul className="text-muted-foreground text-left max-w-md mx-auto mb-4 list-disc list-inside">
+            <li>You haven&apos;t imported any transactions yet</li>
+            <li>Your transactions haven&apos;t been analyzed for deductions</li>
+            <li>There was an issue loading your data</li>
           </ul>
           <Button
             onClick={() => refetch()}
-            className="bg-primary hover:bg-primary/90 text-primary-foreground"
+            className="min-h-[44px] bg-primary hover:bg-primary-hover text-primary-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             <RefreshCw className="w-4 h-4 mr-2" />
             Refresh
@@ -446,39 +442,28 @@ export default function ReportsPage() {
   const formatCur = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   return (
-    <div className="p-4 sm:p-6 bg-background min-h-screen overflow-x-hidden min-w-0">
+    <div className="p-4 sm:p-6 bg-background min-h-screen overflow-x-hidden min-w-0 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="mb-4 sm:mb-6">
-        <div className="mb-3">
+      <div className="mb-5 sm:mb-6">
+        <div className="mb-4">
           <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-foreground mb-0.5">Tax Reports & Analytics</h1>
           <p className="text-xs sm:text-sm text-muted-foreground">Comprehensive tax deduction analysis and savings insights</p>
         </div>
-        {/* Action Buttons */}
+        {/* Action Bar — Refresh (outline) + Schedule C (emerald accent) */}
         <div className="flex flex-wrap gap-2 sm:gap-3">
           <Button
             onClick={() => refetch()}
             variant="outline"
             size="sm"
-            className="min-h-[44px] sm:h-10 px-3 sm:px-4 border-2 border-gray-300 dark:border-gray-500 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 hover:border-primary/60 dark:hover:border-primary/60 text-gray-700 dark:text-gray-200 transition-colors duration-200 no-tap-highlight group focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            className="min-h-[44px] h-11 px-4 border border-border bg-card hover:bg-muted/60 hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.08)] text-foreground transition-all duration-150 no-tap-highlight focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             title="Refresh reports data"
           >
-            <RefreshCw className="w-4 h-4 group-hover:text-primary transition-colors" />
+            <RefreshCw className="w-4 h-4" />
             <span className="hidden sm:inline ml-2 text-sm font-medium">Refresh</span>
           </Button>
-          <OtherReportsDropdown disabled={isGeneratingReport} />
           <Button
             size="sm"
-            className="min-h-[44px] sm:h-10 px-3 sm:px-4 bg-gradient-to-r from-emerald-400 to-green-500 dark:from-emerald-500 dark:to-green-600 hover:from-emerald-500 hover:to-green-600 dark:hover:from-emerald-400 dark:hover:to-green-500 text-white font-medium shadow-md shadow-green-500/20 dark:shadow-green-500/30 hover:shadow-lg hover:shadow-green-500/30 dark:hover:shadow-green-500/40 transition-colors duration-200 no-tap-highlight disabled:opacity-50 disabled:shadow-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            onClick={() => setShowExportModal(true)}
-            disabled={!canExport || isGeneratingReport}
-            title={!canExport ? "No data available to export" : "Export tax deduction report"}
-          >
-            <FileText className="w-4 h-4" />
-            <span className="ml-2 text-sm font-medium">Export</span>
-          </Button>
-          <Button
-            size="sm"
-            className="min-h-[44px] sm:h-10 px-3 sm:px-4 bg-gradient-to-r from-blue-400 to-indigo-500 dark:from-blue-500 dark:to-indigo-600 hover:from-blue-500 hover:to-indigo-600 dark:hover:from-blue-400 dark:hover:to-indigo-500 text-white font-medium shadow-md shadow-blue-500/20 dark:shadow-blue-500/30 hover:shadow-lg hover:shadow-blue-500/30 dark:hover:shadow-blue-500/40 transition-colors duration-200 no-tap-highlight focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            className="min-h-[44px] h-11 px-4 bg-[hsl(var(--success))] hover:bg-[hsl(var(--success)/0.9)] text-white font-medium shadow-[0_2px_8px_-2px_hsl(var(--success)/0.35)] hover:shadow-[0_4px_12px_-2px_hsl(var(--success)/0.4)] transition-all duration-150 no-tap-highlight focus-visible:ring-2 focus-visible:ring-[hsl(var(--success)/0.5)] focus-visible:ring-offset-2"
             onClick={() => router.push('/protected/schedule-c')}
           >
             <Download className="w-4 h-4" />
@@ -487,149 +472,142 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      {/* Summary Cards - Compact 2x2 grid on mobile */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-4 sm:mb-6">
-        {/* Year to Date Total */}
-        <Card className="p-3 sm:p-4 bg-gradient-to-br from-blue-500 to-blue-600 dark:from-blue-600 dark:to-blue-700 text-white border-0 shadow-md">
+      {/* KPI Summary Cards — semantic accents (2–3px left border + soft glow), no full fills; mobile 2-col then 1-col */}
+      <div className="grid grid-cols-1 min-[480px]:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-5 sm:mb-6">
+        {/* Year to Date — Savings: emerald accent */}
+        <Card className="p-4 sm:p-5 bg-card border border-border border-l-[3px] border-l-[hsl(var(--success)/0.8)] shadow-[0_0_0_1px_hsl(var(--success)/0.05),0_2px_6px_-2px_hsl(var(--success)/0.08)] rounded-xl overflow-hidden">
           <div className="flex items-center justify-between mb-1">
-            <DollarSign className="w-4 h-4 opacity-90" />
-            <span className="text-[10px] sm:text-xs opacity-90">Year to Date</span>
+            <div className="w-8 h-8 rounded-lg bg-[hsl(var(--success)/0.15)] flex items-center justify-center">
+              <DollarSign className="w-4 h-4 text-[hsl(var(--success))]" />
+            </div>
+            <span className="text-[10px] sm:text-xs text-muted-foreground/80 uppercase tracking-wide">Year to Date</span>
           </div>
-          <div className="text-2xl sm:text-3xl font-bold tabular-nums">
-            ${summary.yearToDateTotal.toFixed(2)}
-          </div>
-          <div className="text-[10px] sm:text-xs opacity-90">Total tax savings</div>
-          <div className="text-[10px] sm:text-xs opacity-90 mt-0.5 flex flex-wrap gap-x-1.5 gap-y-0">
-            <span>Paid: <span className="tabular-nums text-red-200 dark:text-red-300">${formatCur(totalPaid)}</span></span>
-            <span>·</span>
-            <span>Received: <span className="tabular-nums text-green-200 dark:text-green-300">${formatCur(totalReceived)}</span></span>
+          <div className="text-xl sm:text-2xl font-bold text-foreground tabular-nums whitespace-nowrap overflow-hidden text-ellipsis">${summary.yearToDateTotal.toFixed(2)}</div>
+          <div className="text-[10px] sm:text-xs text-muted-foreground/80 mt-0.5">Total tax savings</div>
+          <div className="text-[10px] text-muted-foreground/75 mt-2 flex flex-wrap gap-x-2 gap-y-0.5">
+            <span>Paid: <span className="tabular-nums text-destructive/85">${formatCur(totalPaid)}</span></span>
+            <span aria-hidden>·</span>
+            <span>Received: <span className="tabular-nums text-[hsl(var(--success))]">${formatCur(totalReceived)}</span></span>
           </div>
         </Card>
 
-        {/* Current Month */}
-        <Card className="p-3 sm:p-4 bg-gradient-to-br from-green-500 to-green-600 dark:from-green-600 dark:to-green-700 text-white border-0 shadow-md cursor-pointer hover:shadow-lg transition-shadow no-tap-highlight"
+        {/* This Month — emerald accent */}
+        <Card
+          className="p-4 sm:p-5 bg-card border border-border border-l-[3px] border-l-[hsl(var(--success)/0.7)] shadow-[0_0_0_1px_hsl(var(--success)/0.05),0_2px_6px_-2px_hsl(var(--success)/0.08)] rounded-xl cursor-pointer hover:shadow-[0_0_0_1px_hsl(var(--success)/0.1),0_4px_10px_-2px_hsl(var(--success)/0.12)] transition-all duration-150 no-tap-highlight min-h-[44px]"
           onClick={() => {
             const currentMonth = monthlyData.find(m => m.month === new Date().getMonth());
-            if (currentMonth && currentMonth.total > 0) {
-              handleMonthClick(currentMonth);
-            }
-          }}>
+            if (currentMonth && currentMonth.total > 0) handleMonthClick(currentMonth);
+          }}
+        >
           <div className="flex items-center justify-between mb-1">
-            <Calendar className="w-4 h-4 opacity-90" />
-            <span className="text-[10px] sm:text-xs opacity-90">This Month</span>
+            <div className="w-8 h-8 rounded-lg bg-[hsl(var(--success)/0.15)] flex items-center justify-center">
+              <Calendar className="w-4 h-4 text-[hsl(var(--success))]" />
+            </div>
+            <span className="text-[10px] sm:text-xs text-muted-foreground/80 uppercase tracking-wide">This Month</span>
           </div>
-          <div className="text-2xl sm:text-3xl font-bold tabular-nums">
-            ${summary.currentMonthTotal.toFixed(2)}
-          </div>
-          <div className="flex items-center gap-0.5 text-[10px] sm:text-xs opacity-90">
-            {isPositiveChange ? (
-              <>
-                <ArrowUpRight className="w-3 h-3" />
-                <span>{Math.abs(monthOverMonthChange).toFixed(1)}%</span>
-              </>
-            ) : monthOverMonthChange !== 0 ? (
-              <>
-                <ArrowDownRight className="w-3 h-3" />
-                <span>{Math.abs(monthOverMonthChange).toFixed(1)}%</span>
-              </>
-            ) : (
-              <span>No change</span>
-            )}
+          <div className="text-xl sm:text-2xl font-bold text-foreground tabular-nums whitespace-nowrap overflow-hidden text-ellipsis">${summary.currentMonthTotal.toFixed(2)}</div>
+          <div className="flex items-center gap-0.5 text-[10px] sm:text-xs text-muted-foreground/80 mt-0.5">
+            {isPositiveChange ? <><ArrowUpRight className="w-3 h-3 text-[hsl(var(--success))]" /><span>{Math.abs(monthOverMonthChange).toFixed(1)}%</span></> : monthOverMonthChange !== 0 ? <><ArrowDownRight className="w-3 h-3 text-destructive/80" /><span>{Math.abs(monthOverMonthChange).toFixed(1)}%</span></> : <span>No change</span>}
             <span className="hidden sm:inline ml-0.5">vs last month</span>
           </div>
           {thisMonthAgg && (thisMonthAgg.paid > 0 || thisMonthAgg.received > 0) && (
-            <div className="text-[10px] sm:text-xs opacity-90 mt-0.5 flex flex-wrap gap-x-1.5 gap-y-0">
-              <span>Paid: <span className="tabular-nums text-red-200 dark:text-red-300">${formatCur(thisMonthAgg.paid)}</span></span>
-              <span>·</span>
-              <span>Received: <span className="tabular-nums text-green-200 dark:text-green-300">${formatCur(thisMonthAgg.received)}</span></span>
+            <div className="text-[10px] text-muted-foreground/75 mt-2 flex flex-wrap gap-x-2 gap-y-0.5">
+              <span>Paid: <span className="tabular-nums text-destructive/85">${formatCur(thisMonthAgg.paid)}</span></span>
+              <span aria-hidden>·</span>
+              <span>Received: <span className="tabular-nums text-[hsl(var(--success))]">${formatCur(thisMonthAgg.received)}</span></span>
             </div>
           )}
         </Card>
 
-        {/* Average Monthly */}
-        <Card className="p-3 sm:p-4 bg-gradient-to-br from-purple-500 to-purple-600 dark:from-purple-600 dark:to-purple-700 text-white border-0 shadow-md">
+        {/* Monthly Avg — violet/blue accent */}
+        <Card className="p-4 sm:p-5 bg-card border border-border border-l-[3px] border-l-[hsl(var(--chart-4)/0.7)] shadow-[0_0_0_1px_hsl(var(--chart-4)/0.05),0_2px_6px_-2px_hsl(var(--chart-4)/0.08)] rounded-xl overflow-hidden">
           <div className="flex items-center justify-between mb-1">
-            <TrendingUp className="w-4 h-4 opacity-90" />
-            <span className="text-[10px] sm:text-xs opacity-90">Monthly Avg</span>
+            <div className="w-8 h-8 rounded-lg bg-[hsl(var(--chart-4)/0.15)] flex items-center justify-center">
+              <TrendingUp className="w-4 h-4 text-[hsl(var(--chart-4))]" />
+            </div>
+            <span className="text-[10px] sm:text-xs text-muted-foreground/80 uppercase tracking-wide">Monthly Avg</span>
           </div>
-          <div className="text-2xl sm:text-3xl font-bold tabular-nums">
-            ${summary.avgMonthly.toFixed(2)}
-          </div>
-          <div className="text-[10px] sm:text-xs opacity-90">
+          <div className="text-xl sm:text-2xl font-bold text-foreground tabular-nums whitespace-nowrap overflow-hidden text-ellipsis">${summary.avgMonthly.toFixed(2)}</div>
+          <div className="text-[10px] sm:text-xs text-muted-foreground/80 mt-0.5">
             <span className="sm:hidden">{summary.monthsWithData}mo data</span>
             <span className="hidden sm:inline">Based on {summary.monthsWithData} {summary.monthsWithData === 1 ? 'month' : 'months'}</span>
           </div>
-          <div className="text-[10px] sm:text-xs opacity-90 mt-0.5 flex flex-wrap gap-x-1.5 gap-y-0">
-            <span>Paid: <span className="tabular-nums text-red-200 dark:text-red-300">${formatCur(totalPaid)}</span></span>
-            <span>·</span>
-            <span>Received: <span className="tabular-nums text-green-200 dark:text-green-300">${formatCur(totalReceived)}</span></span>
+          <div className="text-[10px] text-muted-foreground/75 mt-2 flex flex-wrap gap-x-2 gap-y-0.5">
+            <span>Paid: <span className="tabular-nums text-destructive/85">${formatCur(totalPaid)}</span></span>
+            <span aria-hidden>·</span>
+            <span>Received: <span className="tabular-nums text-[hsl(var(--success))]">${formatCur(totalReceived)}</span></span>
           </div>
         </Card>
 
-        {/* Projected Annual */}
-        <Card className="p-3 sm:p-4 bg-gradient-to-br from-orange-500 to-orange-600 dark:from-orange-600 dark:to-orange-700 text-white border-0 shadow-md">
+        {/* Projected — violet/blue accent */}
+        <Card className="p-4 sm:p-5 bg-card border border-border border-l-[3px] border-l-primary/70 shadow-[0_0_0_1px_hsl(var(--primary)/0.05),0_2px_6px_-2px_hsl(var(--primary)/0.08)] rounded-xl overflow-hidden">
           <div className="flex items-center justify-between mb-1">
-            <Target className="w-4 h-4 opacity-90" />
-            <span className="text-[10px] sm:text-xs opacity-90">Projected</span>
+            <div className="w-8 h-8 rounded-lg bg-primary/15 flex items-center justify-center">
+              <Target className="w-4 h-4 text-primary" />
+            </div>
+            <span className="text-[10px] sm:text-xs text-muted-foreground/80 uppercase tracking-wide">Projected</span>
           </div>
-          <div className="text-2xl sm:text-3xl font-bold tabular-nums">
-            ${projectedAnnual.toFixed(2)}
-          </div>
-          <div className="text-[10px] sm:text-xs opacity-90">
+          <div className="text-xl sm:text-2xl font-bold text-foreground tabular-nums whitespace-nowrap overflow-hidden text-ellipsis">${projectedAnnual.toFixed(2)}</div>
+          <div className="text-[10px] sm:text-xs text-muted-foreground/80 mt-0.5">
             <span className="sm:hidden">Yearly</span>
             <span className="hidden sm:inline">Estimated yearly savings</span>
           </div>
-          <div className="text-[10px] sm:text-xs opacity-90 mt-0.5 flex flex-wrap gap-x-1.5 gap-y-0">
-            <span>Paid: <span className="tabular-nums text-red-200 dark:text-red-300">${formatCur(totalPaid)}</span></span>
-            <span>·</span>
-            <span>Received: <span className="tabular-nums text-green-200 dark:text-green-300">${formatCur(totalReceived)}</span></span>
+          <div className="text-[10px] text-muted-foreground/75 mt-2 flex flex-wrap gap-x-2 gap-y-0.5">
+            <span>Paid: <span className="tabular-nums text-destructive/85">${formatCur(totalPaid)}</span></span>
+            <span aria-hidden>·</span>
+            <span>Received: <span className="tabular-nums text-[hsl(var(--success))]">${formatCur(totalReceived)}</span></span>
           </div>
         </Card>
       </div>
 
-      {/* Monthly Tax Savings Chart */}
-      <Card className="p-6 bg-card border shadow-sm mb-6">
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-6 gap-4">
-          <div className="min-w-0">
-            <h2 className="text-xl font-semibold text-card-foreground mb-1">Monthly Tax Savings Trend</h2>
-            <p className="text-sm text-muted-foreground">Click on any bar to see detailed breakdown</p>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1.5">
-                <span className="rounded-full w-2 h-2 bg-green-500 dark:bg-green-400" aria-hidden />
-                Received
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="rounded-full w-2 h-2 bg-red-500 dark:bg-red-400" aria-hidden />
-                Paid
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="rounded-full w-2 h-2 bg-primary" aria-hidden />
-                Tax Savings
-              </span>
+      {/* Monthly Tax Savings Chart — radial glow, softer grid, premium bars/tooltip */}
+      <div className="relative mb-6">
+        <div className="absolute inset-0 rounded-xl bg-[radial-gradient(ellipse_80%_50%_at_50%_0%,hsl(var(--primary)/0.04),transparent)] pointer-events-none" aria-hidden />
+        <Card className="relative p-4 sm:p-6 bg-card border border-border shadow-[0_2px_12px_-4px_rgba(0,0,0,0.08)] dark:shadow-[0_2px_12px_-4px_rgba(0,0,0,0.25)] rounded-xl overflow-hidden">
+          <div className="flex flex-col gap-4 mb-5">
+            <div className="min-w-0">
+              <h2 className="text-lg sm:text-xl font-semibold text-foreground mb-0.5">Monthly Tax Savings Trend</h2>
+              <p className="text-sm text-muted-foreground">Click on any bar to see detailed breakdown</p>
+            </div>
+            {/* Year + legend: mobile stack year under title, full-width year */}
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1.5">
+                  <span className="rounded-full w-2 h-2 bg-[hsl(var(--success))]" aria-hidden />
+                  Received
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="rounded-full w-2 h-2 bg-destructive/90" aria-hidden />
+                  Paid
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="rounded-full w-2 h-2 bg-primary" aria-hidden />
+                  Tax Savings
+                </span>
+              </div>
+              <div className="flex items-center gap-3 flex-wrap">
+                <label className="flex items-center gap-2 text-sm text-muted-foreground w-full sm:w-auto">
+                  <span className="shrink-0">Year</span>
+                  <select
+                    value={chartYear}
+                    onChange={(e) => setChartYear(Number(e.target.value))}
+                    className="min-h-[44px] flex-1 sm:w-auto min-w-0 px-3 rounded-xl border border-border bg-background text-foreground text-sm font-medium focus:outline-none focus:ring-2 focus:ring-ring focus:border-primary/30 transition-all duration-150"
+                    aria-label="Select year for chart"
+                  >
+                    {availableYears.map((y) => (
+                      <option key={y} value={y}>{y}</option>
+                    ))}
+                  </select>
+                </label>
+                {chartYear === currentYear && trend !== 0 && (
+                  <div className={`text-xs font-medium flex items-center gap-1 ${trend > 0 ? 'text-[hsl(var(--success))]' : 'text-destructive/90'}`}>
+                    {trend > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                    {Math.abs(trend).toFixed(1)}% trend
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-          <div className="flex items-center gap-4 flex-wrap">
-            <label className="flex items-center gap-2 text-sm text-muted-foreground">
-              <span>Year</span>
-              <select
-                value={chartYear}
-                onChange={(e) => setChartYear(Number(e.target.value))}
-                className="min-h-[44px] sm:h-9 px-3 rounded-md border border-border bg-background text-foreground text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
-                aria-label="Select year for chart"
-              >
-                {availableYears.map((y) => (
-                  <option key={y} value={y}>{y}</option>
-                ))}
-              </select>
-            </label>
-            {chartYear === currentYear && trend !== 0 && (
-              <div className={`text-xs font-medium flex items-center gap-1 ${trend > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                {trend > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                {Math.abs(trend).toFixed(1)}% trend
-              </div>
-            )}
-          </div>
-        </div>
 
         {!hasData ? (
           <div className="text-center py-16">
@@ -678,7 +656,7 @@ export default function ReportsPage() {
                         return (
                           <div
                             key={index}
-                            className="absolute left-0 right-0 border-t border-border/40"
+                            className="absolute left-0 right-0 border-t border-border/30"
                             style={{
                               top: `${position}%`,
                               transform: 'translateY(-50%)'
@@ -707,11 +685,11 @@ export default function ReportsPage() {
                             {/* Bar */}
                             {month.total > 0 ? (
                               <div
-                                className={`w-full max-w-[44px] mx-auto rounded-t-md transition-all duration-300 relative ${
+                                className={`w-full max-w-[44px] mx-auto rounded-t-lg transition-all duration-200 relative ${
                                   isCurrentMonth
-                                    ? 'bg-gradient-to-t from-blue-600 to-blue-500 dark:from-blue-500 dark:to-blue-400 shadow-lg ring-2 ring-blue-300/50 dark:ring-blue-500/50'
-                                    : 'bg-gradient-to-t from-blue-500 to-blue-400 dark:from-blue-600 dark:to-blue-500'
-                                } ${isClickable ? 'hover:from-blue-600 hover:to-blue-500 dark:hover:from-blue-500 dark:hover:to-blue-400 hover:shadow-xl hover:ring-2 hover:ring-blue-400/70 dark:hover:ring-blue-400/70 cursor-pointer' : 'cursor-default'}`}
+                                    ? 'bg-gradient-to-t from-primary/90 to-primary shadow-[0_0_0_1px_hsl(var(--primary)/0.3)]'
+                                    : 'bg-gradient-to-t from-primary/80 to-primary/60'
+                                } ${isClickable ? 'hover:shadow-[0_0_12px_hsl(var(--primary)/0.25)] md:hover:-translate-y-0.5 cursor-pointer' : 'cursor-default'}`}
                                 style={{
                                   height: `${barHeight}%`,
                                   minHeight: '4px',
@@ -722,14 +700,14 @@ export default function ReportsPage() {
                                 aria-label={`${month.monthName}: tax savings $${month.total.toFixed(2)}. Click for breakdown.`}
                                 onKeyDown={(e) => isClickable && (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), handleMonthClick(month))}
                               >
-                                {/* Tooltip */}
-                                <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-1.5 bg-popover border border-border text-popover-foreground text-xs rounded-lg shadow-xl opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-200 pointer-events-none z-20 min-w-[140px]">
+                                {/* Tooltip — glass, never off-screen */}
+                                <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-popover/95 backdrop-blur-sm border border-border text-popover-foreground text-xs rounded-xl shadow-xl opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-200 pointer-events-none z-20 min-w-[140px] max-w-[min(200px,90vw)]">
                                   <div className="font-semibold">{month.monthName}</div>
-                                  <div className="text-primary dark:text-blue-400 font-bold tabular-nums">${month.total.toFixed(2)} <span className="text-muted-foreground font-normal text-[10px]">savings</span></div>
+                                  <div className="text-primary font-bold tabular-nums">${month.total.toFixed(2)} <span className="text-muted-foreground font-normal text-[10px]">savings</span></div>
                                   {agg && (agg.paid > 0 || agg.received > 0) && (
                                     <div className="mt-1 space-y-0.5 text-[10px]">
-                                      <div className="text-red-600 dark:text-red-400 tabular-nums">Paid: ${formatCur(agg.paid)}</div>
-                                      <div className="text-green-600 dark:text-green-400 tabular-nums">Received: ${formatCur(agg.received)}</div>
+                                      <div className="text-destructive/90 tabular-nums">Paid: ${formatCur(agg.paid)}</div>
+                                      <div className="text-[hsl(var(--success))] tabular-nums">Received: ${formatCur(agg.received)}</div>
                                     </div>
                                   )}
                                   <div className="text-muted-foreground text-[10px] mt-0.5">{month.count} transactions</div>
@@ -787,24 +765,20 @@ export default function ReportsPage() {
                 </div>
               </div>
 
-              {/* Mobile Chart Layout */}
+              {/* Mobile Chart Layout — reduced height, softer grid */}
               <div className="md:hidden">
-                {/* Y-axis labels */}
                 <div className="flex justify-between text-xs text-muted-foreground mb-2 px-2">
                   <span className="font-medium">${maxAmount.toLocaleString()}</span>
                   <span className="font-medium">$0</span>
                 </div>
-
-                {/* Chart area */}
-                <div className="relative" style={{ height: '280px' }}>
-                  {/* Grid lines */}
+                <div className="relative h-[220px] min-[375px]:h-[260px] sm:h-[280px]">
                   <div className="absolute inset-0 pointer-events-none">
                     {yAxisLabels.map((_, index) => {
                       const position = (index / (yAxisLabels.length - 1)) * 100;
                       return (
                         <div
                           key={index}
-                          className="absolute left-0 right-0 border-t border-border/30"
+                          className="absolute left-0 right-0 border-t border-border/25"
                           style={{
                             top: `${position}%`,
                             transform: 'translateY(-50%)'
@@ -830,11 +804,11 @@ export default function ReportsPage() {
                         >
                           {/* Bar */}
                           <div
-                            className={`w-full max-w-[32px] mx-auto rounded-t-lg transition-all duration-300 relative ${
+                            className={`w-full max-w-[32px] mx-auto rounded-t-lg transition-all duration-200 relative ${
                               isCurrentMonth
-                                ? 'bg-gradient-to-t from-blue-600 to-blue-500 dark:from-blue-500 dark:to-blue-400 shadow-lg'
-                                : 'bg-gradient-to-t from-blue-500 to-blue-400 dark:from-blue-600 dark:to-blue-500'
-                            } ${isClickable ? 'hover:from-blue-600 hover:to-blue-500 dark:hover:from-blue-500 dark:hover:to-blue-400 hover:shadow-xl cursor-pointer' : 'opacity-30 cursor-default'}`}
+                                ? 'bg-gradient-to-t from-primary/90 to-primary'
+                                : 'bg-gradient-to-t from-primary/80 to-primary/60'
+                            } ${isClickable ? 'hover:shadow-[0_0_8px_hsl(var(--primary)/0.2)] cursor-pointer' : 'opacity-30 cursor-default'}`}
                             style={{
                               height: `${barHeight}%`,
                               minHeight: month.total > 0 ? '4px' : '0px',
@@ -847,13 +821,13 @@ export default function ReportsPage() {
                           >
                             {/* Tooltip */}
                             {month.total > 0 && (
-                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1.5 bg-popover border border-border text-popover-foreground text-xs rounded shadow-xl opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-200 pointer-events-none z-20 min-w-[120px]">
+                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1.5 bg-popover/95 backdrop-blur-sm border border-border text-popover-foreground text-xs rounded-xl shadow-xl opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-200 pointer-events-none z-20 min-w-[120px] max-w-[min(180px,90vw)]">
                                 <div className="font-semibold">{month.monthName}</div>
-                                <div className="text-primary dark:text-blue-400 font-bold tabular-nums">${month.total.toFixed(2)} savings</div>
+                                <div className="text-primary font-bold tabular-nums">${month.total.toFixed(2)} savings</div>
                                 {agg && (agg.paid > 0 || agg.received > 0) && (
                                   <div className="mt-1 space-y-0.5 text-[10px]">
-                                    <div className="text-red-600 dark:text-red-400 tabular-nums">Paid: ${formatCur(agg.paid)}</div>
-                                    <div className="text-green-600 dark:text-green-400 tabular-nums">Received: ${formatCur(agg.received)}</div>
+                                    <div className="text-destructive/90 tabular-nums">Paid: ${formatCur(agg.paid)}</div>
+                                    <div className="text-[hsl(var(--success))] tabular-nums">Received: ${formatCur(agg.received)}</div>
                                   </div>
                                 )}
                                 <div className="text-muted-foreground text-[10px]">{month.count} txns</div>
@@ -873,94 +847,88 @@ export default function ReportsPage() {
               </div>
             </div>
 
-            {/* Chart Insights */}
+            {/* Lower summary cards — unified radius, padding, border, icon badges, hover 150–200ms */}
             {bestMonth.total > 0 && (
               <div className="mt-6 pt-6 border-t border-border grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="flex items-center gap-3 p-3 bg-green-500/10 dark:bg-green-500/20 rounded-lg border border-green-500/20">
-                  <div className="p-2 bg-green-500/20 dark:bg-green-500/30 rounded-full">
-                    <TrendingUp className="w-4 h-4 text-green-600 dark:text-green-400" />
+                <div className="flex items-center gap-3 p-4 bg-card rounded-xl border border-border shadow-sm hover:shadow-[0_2px_8px_-2px_rgba(0,0,0,0.06)] hover:bg-muted/20 transition-all duration-150 focus-within:ring-2 focus-within:ring-ring">
+                  <div className="w-10 h-10 rounded-xl bg-[hsl(var(--success)/0.15)] flex items-center justify-center shrink-0">
+                    <TrendingUp className="w-5 h-5 text-[hsl(var(--success))]" />
                   </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground">Best Month</div>
-                    <div className="font-semibold text-card-foreground">{bestMonth.monthName}</div>
-                    <div className="text-sm text-green-600 dark:text-green-400 font-medium">${bestMonth.total.toFixed(2)}</div>
+                  <div className="min-w-0">
+                    <div className="text-xs text-muted-foreground uppercase tracking-wide">Best Month</div>
+                    <div className="font-semibold text-foreground">{bestMonth.monthName}</div>
+                    <div className="text-sm font-medium text-[hsl(var(--success))] tabular-nums">${bestMonth.total.toFixed(2)}</div>
                   </div>
                 </div>
-                <div className="flex items-center gap-3 p-3 bg-primary/10 dark:bg-primary/20 rounded-lg border border-primary/20">
-                  <div className="p-2 bg-primary/20 dark:bg-primary/30 rounded-full">
-                    <BarChart3 className="w-4 h-4 text-primary" />
+                <div className="flex items-center gap-3 p-4 bg-card rounded-xl border border-border shadow-sm hover:shadow-[0_2px_8px_-2px_rgba(0,0,0,0.06)] hover:bg-muted/20 transition-all duration-150 focus-within:ring-2 focus-within:ring-ring">
+                  <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center shrink-0">
+                    <BarChart3 className="w-5 h-5 text-primary" />
                   </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground">Total Transactions</div>
-                    <div className="font-semibold text-card-foreground">
-                      {monthlyData.reduce((sum, m) => sum + m.count, 0)}
-                    </div>
+                  <div className="min-w-0">
+                    <div className="text-xs text-muted-foreground uppercase tracking-wide">Total Transactions</div>
+                    <div className="font-semibold text-foreground tabular-nums">{monthlyData.reduce((sum, m) => sum + m.count, 0)}</div>
                     <div className="text-sm text-primary font-medium">Deductible items</div>
                   </div>
                 </div>
-                <div className="flex items-center gap-3 p-3 bg-purple-500/10 dark:bg-purple-500/20 rounded-lg border border-purple-500/20">
-                  <div className="p-2 bg-purple-500/20 dark:bg-purple-500/30 rounded-full">
-                    <Info className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                <div className="flex items-center gap-3 p-4 bg-card rounded-xl border border-border shadow-sm hover:shadow-[0_2px_8px_-2px_rgba(0,0,0,0.06)] hover:bg-muted/20 transition-all duration-150 focus-within:ring-2 focus-within:ring-ring">
+                  <div className="w-10 h-10 rounded-xl bg-[hsl(var(--chart-4)/0.15)] flex items-center justify-center shrink-0">
+                    <Info className="w-5 h-5 text-[hsl(var(--chart-4))]" />
                   </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground">Estimated Refund</div>
-                    <div className="font-semibold text-card-foreground">${summary.estimatedRefund.toFixed(2)}</div>
-                    <div className="text-sm text-purple-600 dark:text-purple-400 font-medium">Based on 30% rate</div>
+                  <div className="min-w-0">
+                    <div className="text-xs text-muted-foreground uppercase tracking-wide">Estimated Refund</div>
+                    <div className="font-semibold text-foreground tabular-nums">${summary.estimatedRefund.toFixed(2)}</div>
+                    <div className="text-sm text-[hsl(var(--chart-4))] font-medium">Based on 30% rate</div>
                   </div>
                 </div>
               </div>
             )}
           </>
         )}
-      </Card>
+        </Card>
+      </div>
 
-      {/* Ready to File Section - Compact */}
-      <Card className="p-3 sm:p-5 bg-card/50 dark:bg-card border shadow-sm mb-4 sm:mb-6">
-        <div className="flex items-center justify-between mb-3">
+      {/* Tax Filing Summary — stronger hierarchy, aligned metrics, Export CTA, callout */}
+      <Card className="p-4 sm:p-5 bg-card border border-border shadow-[0_2px_8px_-2px_rgba(0,0,0,0.06)] rounded-xl mb-5 sm:mb-6">
+        <div className="flex items-start justify-between gap-3 mb-4">
           <div>
-            <h3 className="text-sm sm:text-lg font-semibold text-card-foreground">Tax Filing Summary</h3>
-            <p className="text-xs text-muted-foreground">Your estimated tax situation for {chartYear}</p>
+            <h3 className="text-base sm:text-lg font-semibold text-foreground">Tax Filing Summary</h3>
+            <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">Your estimated tax situation for {chartYear}</p>
           </div>
-          <FileText className="w-5 h-5 text-muted-foreground hidden sm:block" />
-        </div>
-        {/* 3 cards in a row on all screen sizes */}
-        <div className="grid grid-cols-3 gap-2 sm:gap-3">
-          <div className="p-2 sm:p-3 bg-card dark:bg-card/50 rounded-lg border border-border text-center">
-            <div className="text-[10px] sm:text-xs text-muted-foreground mb-0.5">Est. Refund</div>
-            <div className="text-sm sm:text-xl font-bold text-green-600 dark:text-green-400">
-              ${summary.estimatedRefund.toFixed(0)}
-            </div>
-          </div>
-          <div className="p-2 sm:p-3 bg-card dark:bg-card/50 rounded-lg border border-border text-center">
-            <div className="text-[10px] sm:text-xs text-muted-foreground mb-0.5">YTD Savings</div>
-            <div className="text-sm sm:text-xl font-bold text-primary">
-              ${summary.yearToDateTotal.toFixed(0)}
-            </div>
-          </div>
-          <div className="p-2 sm:p-3 bg-card dark:bg-card/50 rounded-lg border border-border text-center">
-            <div className="text-[10px] sm:text-xs text-muted-foreground mb-0.5">Projected</div>
-            <div className="text-sm sm:text-xl font-bold text-purple-600 dark:text-purple-400">
-              ${projectedAnnual.toFixed(0)}
-            </div>
+          <div className="w-9 h-9 rounded-lg bg-muted/60 flex items-center justify-center shrink-0">
+            <FileText className="w-4 h-4 text-muted-foreground" />
           </div>
         </div>
-        <div className="mt-3 pt-3 border-t border-border">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex-1 min-w-0">
-              <div className="text-xs sm:text-sm font-medium text-card-foreground">Ready to file?</div>
-              <div className="text-[10px] sm:text-xs text-muted-foreground hidden sm:block">Export reports for tax preparation</div>
+        <div className="grid grid-cols-3 gap-3 sm:gap-4 mb-4 pb-4 border-b border-border">
+          <div className="p-3 sm:p-4 bg-muted/30 rounded-xl border border-border text-center transition-colors duration-150 hover:bg-muted/40 focus-within:ring-2 focus-within:ring-ring">
+            <div className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wide mb-1">Est. Refund</div>
+            <div className="text-base sm:text-xl font-bold text-[hsl(var(--success))] tabular-nums">${summary.estimatedRefund.toFixed(0)}</div>
+          </div>
+          <div className="p-3 sm:p-4 bg-muted/30 rounded-xl border border-border text-center transition-colors duration-150 hover:bg-muted/40 focus-within:ring-2 focus-within:ring-ring">
+            <div className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wide mb-1">YTD Savings</div>
+            <div className="text-base sm:text-xl font-bold text-primary tabular-nums">${summary.yearToDateTotal.toFixed(0)}</div>
+          </div>
+          <div className="p-3 sm:p-4 bg-muted/30 rounded-xl border border-border text-center transition-colors duration-150 hover:bg-muted/40 focus-within:ring-2 focus-within:ring-ring">
+            <div className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wide mb-1">Projected</div>
+            <div className="text-base sm:text-xl font-bold text-[hsl(var(--chart-4))] tabular-nums">${projectedAnnual.toFixed(0)}</div>
+          </div>
+        </div>
+        <div className="p-3 rounded-xl bg-muted/20 border border-border">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-foreground">Ready to file?</div>
+              <div className="text-xs text-muted-foreground mt-0.5">Export reports for tax preparation</div>
             </div>
             <Button
               size="sm"
               onClick={() => setShowExportModal(true)}
-              className="bg-primary hover:bg-primary/90 text-primary-foreground min-h-[44px] sm:h-8 px-3 no-tap-highlight focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              className="min-h-[44px] px-4 bg-primary hover:bg-primary-hover text-primary-foreground shrink-0 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 transition-all duration-150"
               disabled={!canExport}
             >
-              <Download className="w-3.5 h-3.5 sm:mr-1.5" />
-              <span className="hidden sm:inline">Export</span>
+              <Download className="w-4 h-4 sm:mr-2" />
+              Export
             </Button>
           </div>
-          <p className="text-xs sm:text-sm text-muted-foreground mt-2">
+          <p className="text-xs text-muted-foreground mt-3 pt-3 border-t border-border/50">
             Ready: {transactionAggregates.readyPct}% categorized
             {transactionAggregates.hasReceiptField && transactionAggregates.totalCount > 0 && (
               <> · Missing receipts: {transactionAggregates.missingReceipts}</>
@@ -1200,3 +1168,4 @@ export default function ReportsPage() {
     </div>
   );
 }
+

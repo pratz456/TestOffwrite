@@ -209,19 +209,101 @@ export function findMissingUserFields(ctx?: UserContext) {
   return REQUIRED_USER_FIELDS.filter((f) => ctx[f] === undefined || ctx[f] === null).map(String);
 }
 
+// ── Known merchant sets for pre-classification heuristics ───────────────
+const KNOWN_BUSINESS_MERCHANTS = new Set([
+  'aws', 'amazon web services', 'google cloud', 'google workspace', 'microsoft azure',
+  'microsoft 365', 'adobe', 'canva', 'figma', 'notion', 'slack', 'zoom',
+  'quickbooks', 'freshbooks', 'gusto', 'stripe', 'square',
+  'mailchimp', 'hubspot', 'squarespace', 'shopify', 'wix',
+  'godaddy', 'namecheap', 'cloudflare', 'vercel', 'netlify', 'heroku',
+  'github', 'gitlab', 'bitbucket', 'atlassian', 'jira',
+  'dropbox business', 'google ads', 'meta ads', 'facebook ads',
+  'linkedin premium', 'semrush', 'ahrefs', 'hootsuite',
+  'staples', 'office depot', 'vistaprint',
+  'usps', 'ups store', 'fedex office',
+]);
+
+const KNOWN_PERSONAL_MERCHANTS = new Set([
+  'netflix', 'hulu', 'disney+', 'disney plus', 'hbo max', 'paramount+',
+  'spotify', 'apple music', 'pandora', 'tidal',
+  'planet fitness', 'la fitness', 'equinox', '24 hour fitness', 'anytime fitness',
+  'whole foods', 'trader joes', 'kroger', 'safeway', 'publix', 'aldi',
+  'walmart', 'target', 'costco', 'sams club',
+  'starbucks', 'dunkin', 'mcdonalds', 'chick-fil-a', 'chipotle',
+  'amazon prime', 'amazon.com',
+]);
+
+// Gig platforms whose negative amounts are 1099 income, not expenses
+const GIG_INCOME_PLATFORMS = new Set([
+  'uber', 'lyft', 'doordash', 'grubhub', 'instacart', 'shipt',
+  'fiverr', 'upwork', 'toptal', 'etsy', 'ebay',
+  'airbnb', 'turo', 'rover', 'taskrabbit', 'thumbtack',
+  'postmates', 'gopuff', 'spark driver', 'amazon flex',
+]);
+
+// Professions where "personal" merchants can be business-deductible
+const PROFESSION_AMBIGUOUS_MERCHANTS: Record<string, Set<string>> = {
+  'content_creator': new Set(['netflix', 'hulu', 'disney+', 'disney plus', 'hbo max', 'paramount+', 'spotify', 'amazon prime', 'amazon.com']),
+  'youtuber': new Set(['netflix', 'hulu', 'disney+', 'disney plus', 'hbo max', 'paramount+', 'spotify', 'amazon.com']),
+  'streamer': new Set(['netflix', 'hulu', 'disney+', 'disney plus', 'hbo max', 'paramount+', 'spotify', 'amazon.com']),
+  'photographer': new Set(['amazon.com', 'target']),
+  'food_blogger': new Set(['starbucks', 'dunkin', 'mcdonalds', 'chick-fil-a', 'chipotle', 'whole foods', 'trader joes']),
+  'personal_trainer': new Set(['planet fitness', 'la fitness', 'equinox', '24 hour fitness', 'anytime fitness']),
+  'fitness_trainer': new Set(['planet fitness', 'la fitness', 'equinox', '24 hour fitness', 'anytime fitness']),
+};
+
 // Profession-aware hint map for better categorization
 const PROFESSION_HINTS: Record<string, string> = {
-  'rideshare': 'vehicle_expense, phone/internet share, tolls/parking, car washes; commuting vs active-gig time',
-  'delivery': 'vehicle_expense, phone/internet share, tolls/parking, car washes; commuting vs active-gig time',
-  'content_creator': 'software_subscriptions, equipment, supplies_small_tools, travel (client shoots, conferences, networking); meals 50%; home_office if applicable',
-  'photographer': 'software_subscriptions, equipment, supplies_small_tools, travel (client shoots, workshops, equipment purchases); meals 50%; home_office if applicable',
+  // ── Gig workers ──
+  'rideshare': 'vehicle_expense (mileage, gas, maintenance, insurance), phone/data plan, car washes, tolls, parking; track active vs deadhead miles; meals on shift 50%',
+  'delivery': 'vehicle_expense (mileage, gas, maintenance), phone/data, insulated bags, parking; active delivery miles only; meals on shift 50%',
+  'uber_driver': 'vehicle_expense (mileage, gas, maintenance, insurance), phone/data plan, car washes, tolls, parking; track active vs deadhead miles; meals on shift 50%',
+  'lyft_driver': 'vehicle_expense (mileage, gas, maintenance, insurance), phone/data, car washes, tolls; passenger miles + repositioning',
+  'doordash_driver': 'vehicle_expense (mileage, gas, maintenance), phone/data, insulated bags/hot bags, parking; active delivery miles only',
+  'instacart_shopper': 'vehicle_expense (mileage, gas), phone/data, insulated bags; shopping time miles count',
+  'taskrabbit': 'tools/equipment, vehicle_expense, phone/data, supplies, insurance; varies by task type',
+
+  // ── Creators ──
+  'content_creator': 'software_subscriptions (editing, analytics), equipment (camera, mic, lighting), supplies_small_tools, travel (client shoots, conferences); meals 50%; home_office (studio)',
+  'youtuber': 'equipment (camera, lighting, audio, PC), software (editing, thumbnail), internet (high-speed upload), home_office (studio), travel (content trips), meals 50%',
+  'streamer': 'equipment (PC, peripherals, camera, capture card), software (streaming tools, overlays), internet (high-speed), home_office, subscriptions (platform tools)',
+  'photographer': 'software_subscriptions (Lightroom, Photoshop), equipment (camera, lenses, lighting), supplies_small_tools, travel (client shoots, workshops); meals 50%; home_office if applicable',
+  'food_blogger': 'meals 50% (recipe testing, restaurant reviews), equipment (camera), software (editing), kitchen supplies, travel (food events)',
+
+  // ── Freelancers ──
+  'freelance_writer': 'software_subscriptions (writing tools, Grammarly, research databases), home_office, education (courses, books), internet, professional memberships',
+  'freelance_developer': 'software_subscriptions (IDE, hosting), cloud hosting (AWS/GCP/Azure), equipment (computer, monitors), home_office, internet, education/certifications',
+  'graphic_designer': 'software (Adobe, Figma, Sketch), equipment (tablet, display, calibrator), fonts/stock images, education, home_office, client travel',
+  'designer': 'software_subscriptions (Adobe, Figma), utilities_phone_internet share, home_office, education_training (skill maintenance), travel (client meetings)',
+  'web_developer': 'software_subscriptions, cloud hosting, domain registrations, equipment (computer), home_office, internet, education/certifications',
+
+  // ── Consultants / professionals ──
+  'consultant': 'travel (client sites, conferences), home_office, software (project mgmt, CRM), professional development, meals (client entertainment) 50%, dues/memberships',
   'business_coach': 'travel (client meetings, conferences, speaking engagements), software_subscriptions, home_office, education_training; meals 50%',
   'software_consultant': 'software_subscriptions, utilities_phone_internet share, home_office, education_training (skill maintenance), travel (client sites)',
-  'designer': 'software_subscriptions, utilities_phone_internet share, home_office, education_training (skill maintenance), travel (client meetings)',
-  'handyman': 'equipment & supplies, local travel mileage, specialized apparel/gear (not everyday clothing)',
-  'fitness_trainer': 'equipment & supplies, local travel mileage, specialized apparel/gear (not everyday clothing), travel (client homes, gyms)',
-  'tutor': 'equipment & supplies, local travel mileage, specialized apparel/gear (not everyday clothing), travel (student homes, libraries)',
-  'musician': 'equipment & supplies, local travel mileage, specialized apparel/gear (not everyday clothing), travel (gigs, rehearsals, lessons)',
+  'real_estate_agent': 'vehicle_expense (showing properties, client drives), advertising (signs, listings), MLS fees, lockboxes, staging supplies, client entertainment 50%, continuing education, phone',
+  'insurance_agent': 'vehicle_expense, phone, advertising, licensing fees, continuing education, client meals 50%, office supplies',
+
+  // ── Small business / trades ──
+  'handyman': 'equipment & supplies (tools, parts), local travel mileage, specialized apparel/gear (not everyday clothing), vehicle_expense',
+  'cleaner': 'supplies (cleaning products, chemicals), equipment (vacuum, mop, steamer), vehicle_expense (travel to clients), insurance, advertising',
+  'personal_trainer': 'equipment (bands, weights), certifications/continuing education, liability insurance, gym membership (if required for work), travel to clients, specialized clothing',
+  'fitness_trainer': 'equipment (bands, weights), certifications/continuing education, liability insurance, gym membership (if required), travel to clients, specialized clothing',
+  'tutor': 'supplies (books, materials), software (video conferencing, whiteboard), home_office, travel (student homes, libraries)',
+  'musician': 'equipment (instruments, cables, accessories), supplies (strings, reeds), local travel mileage, travel (gigs, rehearsals), studio rent, recording costs',
+  'dog_walker': 'vehicle_expense (travel to clients), supplies (leashes, treats, poop bags), insurance, pet first aid certification, phone',
+  'landscaper': 'equipment (mower, trimmer, blower), supplies (fertilizer, seeds), vehicle_expense (truck, trailer), fuel, insurance',
+  'electrician': 'tools/equipment, supplies (wire, fixtures), vehicle_expense, licensing fees, insurance, continuing education',
+  'plumber': 'tools/equipment, supplies (pipe, fittings), vehicle_expense, licensing fees, insurance, continuing education',
+
+  // ── W2 + side income ──
+  'w2_side_hustle': 'ONLY side-business expenses deductible on Schedule C; W2 job commuting/meals NOT deductible; separate business from employment expenses strictly',
+  'side_hustle': 'ONLY side-business expenses deductible on Schedule C; W2 employer-related expenses NOT deductible; keep clear business/personal boundary',
+
+  // ── Etsy / e-commerce ──
+  'etsy_seller': 'supplies (materials, packaging, labels), shipping, equipment (tools, machines, printer), software (shop management), advertising (Etsy ads), home_office',
+  'ebay_seller': 'supplies (packaging, labels), shipping, inventory costs, software (listing tools), advertising, home_office, mileage (sourcing trips)',
+  'shopify_seller': 'software (Shopify plan, apps), advertising (Google/Meta ads), supplies (packaging), shipping, inventory, home_office',
 };
 
 // Helper function to get profession hints
@@ -588,35 +670,117 @@ function getIRSReferences(category: string, merchant: string, mcc?: string): str
   return IRS_PUBLICATIONS.general_business;
 }
 
-function applyMinimalHeuristics(transaction: TransactionInput): OutputType | null {
-  // Refunds (negative amount)
-  if (transaction.amount_usd < 0 || (transaction.amount && transaction.amount < 0)) {
+function applyMinimalHeuristics(transaction: TransactionInput, userContext?: UserContext): OutputType | null {
+  const merchant = (transaction.merchant || transaction.merchant_name || '').toLowerCase().trim();
+  const note = (transaction.note || transaction.notes || transaction.description || '').toLowerCase();
+  const category = transaction.personal_finance_category?.detailed || transaction.category || '';
+  const amount = transaction.amount_usd || transaction.amount || 0;
+  const professions = (userContext as UserContext)?.profession || [];
+  const professionsLower = professions.map(p => p.toLowerCase());
+
+  // Import CATEGORY_MAP for business-refund detection
+  const { CATEGORY_MAP } = require('@/lib/schedule-c/aggregate');
+
+  // ── 1. Refunds / credits (negative amount) ──────────────────────────
+  // Instead of blanket "personal", check if the refund is from a business vendor
+  if (amount < 0) {
+    const isLikelyBusinessRefund =
+      CATEGORY_MAP[category] != null ||
+      KNOWN_BUSINESS_MERCHANTS.has(merchant) ||
+      [...KNOWN_BUSINESS_MERCHANTS].some(bm => merchant.includes(bm));
+
+    if (isLikelyBusinessRefund) {
+      // Let GPT analyze with full context — business refund reduces expenses
+      return null;
+    }
+
+    // Check if this is gig platform income (negative = payout to user)
+    if ([...GIG_INCOME_PLATFORMS].some(gp => merchant.includes(gp))) {
+      return {
+        status: 'ok',
+        is_deductible: false,
+        expense_type: 'personal',
+        category: 'other',
+        key_analysis_factor: 'This is income from a gig platform, not a business expense. Report as 1099 income on your tax return. It does not belong on Schedule C expenses.',
+        customized_reason: `Payment of $${Math.abs(amount).toFixed(2)} from ${transaction.merchant || transaction.merchant_name} is gig platform income (1099-K/1099-NEC). Report as income, not as an expense deduction.`,
+        irs_refs: getIRSReferences('general_business', merchant, transaction.mcc),
+        audit_risk: 'low',
+        audit_risk_rationale: 'Gig platform payouts are well-documented via 1099 forms.',
+        confidence: 0.95,
+        reason_hash: generateReasonHash(transaction),
+      };
+    }
+
+    // Clearly personal refund
     return {
       status: 'ok',
       is_deductible: false,
-      expense_type: 'personal', // Refunds are personal (reduce expenses but not deductible themselves)
+      expense_type: 'personal',
       category: 'other',
-      key_analysis_factor: 'Negative amount indicates a refund or credit transaction. Refunds are not deductible business expenses.',
-      customized_reason: `This is a refund of $${Math.abs(transaction.amount_usd || transaction.amount || 0)} from ${transaction.merchant || transaction.merchant_name}. Refunds reduce your business expenses but are not themselves deductible.`,
-      irs_refs: getIRSReferences('general_business', transaction.merchant || transaction.merchant_name || '', transaction.mcc),
+      key_analysis_factor: 'Negative amount indicates a refund or credit transaction. This refund is from a personal merchant and does not affect business deductions.',
+      customized_reason: `This is a refund of $${Math.abs(amount).toFixed(2)} from ${transaction.merchant || transaction.merchant_name}. It appears to be a personal refund.`,
+      irs_refs: getIRSReferences('general_business', merchant, transaction.mcc),
       audit_risk: 'low',
       audit_risk_rationale: 'Refunds are straightforward and well-documented.',
-      confidence: 0.95,
+      confidence: 0.90,
       reason_hash: generateReasonHash(transaction),
     };
   }
 
-  // Likely internal transfers (merchant ~ transfer/zelle/venmo + no note)
-  const merchant = (transaction.merchant || transaction.merchant_name || '').toLowerCase();
-  const note = (transaction.note || transaction.notes || transaction.description || '').toLowerCase();
-  
-  if ((merchant.includes('transfer') || merchant.includes('zelle') || merchant.includes('venmo')) && !note) {
+  // ── 2. Internal transfers ────────────────────────────────────────────
+  const transferPatterns = ['transfer', 'zelle', 'venmo', 'paypal', 'cash app', 'cashapp'];
+  if (transferPatterns.some(p => merchant.includes(p)) && !note) {
     return {
       status: 'needs_more_info',
       missing_fields: ['transfer_type'],
       questions: [
         'Is this a transfer between your own accounts or a payment to a contractor? If contractor, what service did they provide?'
       ],
+      reason_hash: generateReasonHash(transaction),
+    };
+  }
+
+  // ── 3. Known personal merchants (skip GPT) ───────────────────────────
+  // Check if the merchant is unambiguously personal for this user's professions
+  if (KNOWN_PERSONAL_MERCHANTS.has(merchant) || [...KNOWN_PERSONAL_MERCHANTS].some(pm => merchant.includes(pm))) {
+    // Exception: some professions make "personal" merchants deductible
+    const isAmbiguousForProfession = professionsLower.some(prof => {
+      const ambiguousSet = PROFESSION_AMBIGUOUS_MERCHANTS[prof];
+      return ambiguousSet && ([...ambiguousSet].some(am => merchant.includes(am)));
+    });
+
+    if (isAmbiguousForProfession) {
+      return null; // Let GPT decide — ambiguous for this profession
+    }
+
+    return {
+      status: 'ok',
+      is_deductible: false,
+      expense_type: 'personal',
+      category: 'other',
+      key_analysis_factor: 'This merchant is a known personal/consumer service. Personal subscriptions, groceries, and gym memberships are not deductible business expenses.',
+      customized_reason: `$${amount.toFixed(2)} at ${transaction.merchant || transaction.merchant_name} is a personal expense. Personal entertainment, grocery, and fitness expenses are not deductible on Schedule C.`,
+      irs_refs: ['IRS Pub 535 (Business Expenses)'],
+      audit_risk: 'low',
+      audit_risk_rationale: 'Clear personal expense with no business nexus.',
+      confidence: 0.90,
+      reason_hash: generateReasonHash(transaction),
+    };
+  }
+
+  // ── 4. Known business merchants (skip GPT) ───────────────────────────
+  if (KNOWN_BUSINESS_MERCHANTS.has(merchant) || [...KNOWN_BUSINESS_MERCHANTS].some(bm => merchant.includes(bm))) {
+    return {
+      status: 'ok',
+      is_deductible: true,
+      expense_type: 'business',
+      category: 'software_subscriptions',
+      key_analysis_factor: 'This merchant is a recognized business service provider. Business software, cloud services, and office supplies are ordinary and necessary business expenses.',
+      customized_reason: `$${amount.toFixed(2)} at ${transaction.merchant || transaction.merchant_name} is a business expense. Professional tools and services are deductible under IRS Pub 535.`,
+      irs_refs: ['IRS Pub 535 (Business Expenses)'],
+      audit_risk: 'low',
+      audit_risk_rationale: 'Well-known business vendor with clear business purpose.',
+      confidence: 0.85,
       reason_hash: generateReasonHash(transaction),
     };
   }
@@ -635,19 +799,19 @@ export async function analyzeTransaction(
   transaction: TransactionInput,
   userContext?: UserContext
 ): Promise<{ success: true; result: OutputType } | { success: false; error: string }> {
-  // Apply minimal heuristics first (cheap wins)
-  const heuristicResult = applyMinimalHeuristics(transaction);
+  const ctx = userContext || {};
+
+  // Apply minimal heuristics first (cheap wins — skips GPT for obvious cases)
+  const heuristicResult = applyMinimalHeuristics(transaction, userContext);
   if (heuristicResult) {
     return { success: true, result: heuristicResult };
   }
 
-  const ctx = userContext || {};
-
   // Get learning context from user's correction history
   let learningContext = null;
-  if (ctx.user_id) {
+  if ((ctx as UserContext).user_id) {
     try {
-      learningContext = await aiLearningEngine.getLearningContext(ctx.user_id, transaction);
+      learningContext = await aiLearningEngine.getLearningContext((ctx as UserContext).user_id, transaction);
     } catch (error) {
       console.warn('⚠️ [AI Analysis] Could not get learning context:', error);
     }
@@ -719,7 +883,21 @@ ANALYSIS RULES:
 - If critical info is missing, return status="needs_more_info" with up to 3 short questions.
 - Use clean, user-friendly IRS references (e.g., "IRS Pub 463" not "IRS Publication 535, Section Section 162").`;
 
-  const userPrompt = `TASK: Classify a single transaction for a freelancer/gig/1099 user. 
+  // Build user income type context for the prompt
+  const professionsLower = ((ctx as UserContext).profession || []).map(p => p.toLowerCase());
+  const w2Income = (ctx as UserContext).w2_income || (ctx as UserContext).income_breakdown?.w2_income || 0;
+  const bizIncome = (ctx as UserContext).business_income || (ctx as UserContext).income_breakdown?.business_income || 0;
+  let incomeTypeContext = '';
+  if (w2Income > 0 && bizIncome > 0) {
+    incomeTypeContext = `\nUSER INCOME TYPE: W2 + Side Business. This user has BOTH W2 employment income ($${w2Income.toLocaleString()}) AND business income ($${bizIncome.toLocaleString()}). ONLY classify expenses related to their SIDE BUSINESS as deductible on Schedule C. W2 job-related expenses (commuting to employer, office clothes for W2 job, desk lunch at W2 office) are NOT Schedule C deductible.`;
+  } else if (professionsLower.some(p => GIG_INCOME_PLATFORMS.has(p) || p.includes('driver') || p.includes('delivery'))) {
+    incomeTypeContext = `\nUSER INCOME TYPE: Gig Worker. Focus on vehicle expenses (mileage is primary deduction), phone/data, and platform-specific supplies. Track active work miles vs personal/commuting miles carefully.`;
+  } else {
+    incomeTypeContext = `\nUSER INCOME TYPE: Self-employed / 1099 / Freelancer. All legitimate, ordinary, and necessary business expenses qualify for Schedule C deduction.`;
+  }
+
+  const userPrompt = `TASK: Classify a single transaction for this user based on their income type and profession.${incomeTypeContext}
+
 
 REQUIRED JSON OUTPUT FORMAT:
 {

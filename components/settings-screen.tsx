@@ -765,13 +765,13 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   ];
 
   const businessEntityTypeOptions = [
-    { value: 'Sole Proprietor / Independent Contractor', label: 'Sole Proprietor / Independent Contractor' },
-    { value: 'Single-Member LLC (disregarded entity)', label: 'Single-Member LLC (disregarded entity)' },
-    { value: 'Multi-Member LLC', label: 'Multi-Member LLC' },
-    { value: 'S-Corporation', label: 'S-Corporation' },
-    { value: 'C-Corporation', label: 'C-Corporation' },
+    { value: 'Sole Proprietor / Independent Contractor', label: 'Sole proprietor or freelancer' },
+    { value: 'Single-Member LLC (disregarded entity)', label: 'Single-owner LLC' },
+    { value: 'Multi-Member LLC', label: 'LLC with multiple owners' },
+    { value: 'S-Corporation', label: 'S-Corp' },
+    { value: 'C-Corporation', label: 'C-Corp' },
     { value: 'Partnership', label: 'Partnership' },
-    { value: 'This does not apply to me', label: 'This does not apply to me' }
+    { value: 'This does not apply to me', label: 'Not applicable' }
   ];
 
   const primaryWorkLocationOptions = [
@@ -1145,13 +1145,13 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                         <SimpleSelectWrapper
                           value={profile.businessEntityType}
                           onValueChange={(value) => handleProfileChange({ businessEntityType: value })}
-                          placeholder="Select your business entity type"
+                          placeholder="How is your business set up?"
                           options={businessEntityTypeOptions}
                         />
                         <p className="text-xs text-muted-foreground">Required for tax calculations</p>
                       </>
                     ) : (
-                      renderViewField('Business Entity Type', profile.businessEntityType || '—')
+                      renderViewField('Business Entity Type', businessEntityTypeOptions.find(o => o.value === profile.businessEntityType)?.label ?? profile.businessEntityType ?? '—')
                     )}
                   </div>
                   <div className="space-y-2">

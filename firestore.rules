@@ -37,23 +37,51 @@ service cloud.firestore {
       allow create, delete: if false;
     }
 
-    // Analysis Jobs - for tracking analysis progress (new system)
+    // ── Analysis Jobs ──────────────────────────────────────────────────────
+    // For tracking analysis progress (new system).
+    // Uses `get` for single-doc reads (may target a non-existent doc) and
+    // `list` for queries (always has resource.data).
     match /analysis_jobs/{jobId} {
-      allow read: if request.auth != null
+      // Allow authenticated users to read any single job document.
+      // The jobId itself is deterministic (uid_accountId) so it's scoped.
+      // When the doc doesn't exist, resource.data is null and field checks fail,
+      // so we split get vs list.
+      allow get: if request.auth != null;
+      allow list: if request.auth != null
                   && (resource.data.userId == request.auth.uid
                       || resource.data.user_id == request.auth.uid);
       allow write: if false; // only server updates this
     }
 
-    // Analysis Status - legacy (for migration)
+    // ── Analysis Status (legacy, for migration) ────────────────────────────
     match /analysis_status/{jobId} {
-      // TEMP during migration - allow both userId and user_id fields
-      allow read: if request.auth != null
+      allow get: if request.auth != null;
+      allow list: if request.auth != null
                   && (resource.data.userId == request.auth.uid
                       || resource.data.user_id == request.auth.uid);
       allow write: if false; // clients never write; server uses Admin SDK
     }
 
+    // ── User Corrections ───────────────────────────────────────────────────
+    // Client-side corrections manager writes and reads these.
+    match /user_corrections/{correctionId} {
+      allow read: if request.auth != null
+                  && resource.data.userId == request.auth.uid;
+      allow create: if request.auth != null
+                    && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if false; // corrections are immutable
+    }
+
+    // ── Learning Patterns ──────────────────────────────────────────────────
+    // One document per user (keyed by userId). Read-only from client;
+    // server (AI learning engine) writes via Admin SDK.
+    match /learning_patterns/{userId} {
+      allow read: if request.auth != null
+                  && request.auth.uid == userId;
+      allow write: if false; // server-only via Admin SDK
+    }
+
+    // ── User Profiles ──────────────────────────────────────────────────────
     // User profile can only be read by the owner, written via Admin/API only
     match /user_profiles/{uid} {
       allow read: if request.auth != null && request.auth.uid == uid;
@@ -81,6 +109,11 @@ service cloud.firestore {
 
       // No client deletes
       allow delete: if false;
+
+      // Meta subcollection (progress tracking, preferences, etc.)
+      match /meta/{docId} {
+        allow read, write: if request.auth != null && request.auth.uid == uid;
+      }
 
       // Accounts subcollection
       match /accounts/{accountId} {

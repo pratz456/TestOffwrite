@@ -129,6 +129,42 @@ function normalizeDoc(doc: FirebaseFirestore.QueryDocumentSnapshot): Transaction
  *
  * Returns { data: Transaction[], error }
  */
+export async function getTransactionServer(
+  userId: string,
+  transactionId: string
+): Promise<{ data: Transaction | null; error: any }> {
+  try {
+    // Try collectionGroup query with userId + trans_id
+    const snap = await adminDb
+      .collectionGroup('transactions')
+      .where('userId', '==', userId)
+      .where('trans_id', '==', transactionId)
+      .limit(1)
+      .get();
+
+    if (!snap.empty) {
+      return { data: normalizeDoc(snap.docs[0]), error: null };
+    }
+
+    // Fallback: try with user_id (snake_case) for legacy data
+    const snap2 = await adminDb
+      .collectionGroup('transactions')
+      .where('user_id', '==', userId)
+      .where('trans_id', '==', transactionId)
+      .limit(1)
+      .get();
+
+    if (!snap2.empty) {
+      return { data: normalizeDoc(snap2.docs[0]), error: null };
+    }
+
+    return { data: null, error: null }; // Not found
+  } catch (error) {
+    console.warn('⚠️ [getTransactionServer] Error fetching single transaction:', error);
+    return { data: null, error };
+  }
+}
+
 export async function getTransactionsServer(
   userId: string,
   fields?: string[]

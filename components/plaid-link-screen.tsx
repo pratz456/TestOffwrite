@@ -1179,18 +1179,18 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
   }
 
   return (
-    <div className="min-h-screen bg-muted">
-      <div className="bg-white border-b border-border sticky top-0 z-50 shadow-sm">
+    <div className="min-h-screen bg-background">
+      <div className="bg-card border-b border-border sticky top-0 z-50 shadow-sm">
         <div className="flex items-center justify-between p-4 max-w-4xl mx-auto">
           <button
             onClick={onBack}
-            className="w-10 h-10 bg-white border border-border rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-all duration-200 shadow-sm"
+            className="w-10 h-10 bg-card border border-border rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-all duration-200 shadow-sm"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
           <div className="text-center">
             <div className="h-6 w-20 bg-primary rounded-lg flex items-center justify-center mx-auto mb-1">
-              <span className="text-white font-medium text-xs">WriteOff</span>
+              <span className="text-primary-foreground font-medium text-xs">WriteOff</span>
             </div>
             <h1 className="text-lg font-medium text-foreground">Connect Your <span className="text-primary font-medium">Bank</span></h1>
             <p className="text-xs text-muted-foreground">Securely link your accounts for <span className="font-medium text-primary">expense tracking</span></p>
@@ -1202,9 +1202,9 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
       <div className="p-4 pb-20 max-w-4xl mx-auto">
         <div className="mb-6">
           <div className="flex items-center justify-center gap-2 mb-3">
-            <div className="w-6 h-6 bg-primary rounded-lg flex items-center justify-center text-white font-medium text-xs">✓</div>
+            <div className="w-6 h-6 bg-primary rounded-lg flex items-center justify-center text-primary-foreground font-medium text-xs">✓</div>
             <div className="w-12 h-1 bg-primary rounded-full"></div>
-            <div className="w-6 h-6 bg-primary rounded-lg flex items-center justify-center text-white font-medium text-xs">2</div>
+            <div className="w-6 h-6 bg-primary rounded-lg flex items-center justify-center text-primary-foreground font-medium text-xs">2</div>
             <div className="w-12 h-1 bg-muted rounded-full"></div>
             <div className="w-6 h-6 bg-muted rounded-lg flex items-center justify-center text-muted-foreground font-medium text-xs">3</div>
           </div>
@@ -1214,20 +1214,20 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
         </div>
 
         {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-            <p className="text-red-800 text-sm">{error}</p>
+          <div className="mb-6 p-4 bg-destructive/10 border border-destructive/20 rounded-lg">
+            <p className="text-destructive text-sm">{error}</p>
           </div>
         )}
 
         {/* Notice at Collection */}
-        <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-900">
-          <strong>Notice at Collection:</strong> We collect your bank account and transaction data, employer/workstyle answers, and state to provide tax deduction analysis and generate reports. See our <a href="/privacy" className="underline text-blue-700" target="_blank" rel="noopener noreferrer">Privacy Policy</a> for details.
+        <div className="mb-4 p-4 bg-primary/10 dark:bg-primary/15 border border-primary/20 rounded-lg text-xs text-foreground">
+          <strong>Notice at Collection:</strong> We collect your bank account and transaction data, employer/workstyle answers, and state to provide tax deduction analysis and generate reports. See our <a href="/privacy" className="underline text-primary" target="_blank" rel="noopener noreferrer">Privacy Policy</a> for details.
         </div>
         <div className="space-y-4">
-          <Card className="p-4 bg-white border border-border shadow-sm">
+          <Card className="p-4 sm:p-5 bg-card border border-border shadow-sm rounded-xl">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-                <Building2 className="w-4 h-4 text-white" />
+                <Building2 className="w-4 h-4 text-primary-foreground" />
               </div>
               <div>
                 <h3 className="text-lg font-medium text-foreground">Connect Your <span className="text-primary font-medium">Bank Account</span></h3>
@@ -1264,19 +1264,19 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
             {!fromSettings && (
               <div className="space-y-3">
                 {/* Free Trial Info */}
-                <div className="p-4 bg-primary/5 border border-primary/20 rounded-lg">
+                <div className="p-4 bg-primary/5 dark:bg-primary/10 border border-primary/20 rounded-lg">
                   <div className="flex items-start gap-3">
                     <Sparkles className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-2">
-                        <h3 className="font-semibold text-foreground">1 Month Free Trial</h3>
-                        <Badge variant="default" className="text-xs bg-green-600">Free</Badge>
+                        <h3 className="font-semibold text-foreground">Free trial</h3>
+                        <Badge variant="success" className="text-xs">Free</Badge>
                       </div>
                       <p className="text-sm text-muted-foreground mb-2">
-                        Get started with <strong>1 year of transaction history</strong> - completely free for 30 days. No credit card required.
+                        Get full access to premium features—completely free for 30 days. No credit card required.
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        After your trial ends, you can continue with a paid subscription to keep 1-year access, or use the free tier with 3 months of history.
+                        After your trial, continue with a paid plan to keep premium access, or use the free tier with limited features.
                       </p>
                     </div>
                   </div>
@@ -1295,14 +1295,14 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
                   required
                 />
                 <label htmlFor="bankConsent" className="text-xs text-foreground">
-                  I authorize WriteOff to access and use my account and transaction data via Plaid to analyze potential tax deductions and generate reports, including Schedule C. I understand I can revoke access anytime. (<a href="/privacy" className="underline text-blue-700" target="_blank" rel="noopener noreferrer">Privacy Policy</a> | <a href="https://plaid.com/legal/#end-user-privacy-policy" className="underline text-blue-700" target="_blank" rel="noopener noreferrer">Plaid Privacy Policy</a>)
-                  <span className="text-red-600 ml-0.5">*</span>
+                  I authorize WriteOff to access and use my account and transaction data via Plaid to analyze potential tax deductions and generate reports, including Schedule C. I understand I can revoke access anytime. (<a href="/privacy" className="underline text-primary" target="_blank" rel="noopener noreferrer">Privacy Policy</a> | <a href="https://plaid.com/legal/#end-user-privacy-policy" className="underline text-primary" target="_blank" rel="noopener noreferrer">Plaid Privacy Policy</a>)
+                  <span className="text-destructive ml-0.5">*</span>
                 </label>
               </div>
               <Button
                 onClick={handleConnectBank}
                 disabled={!ready || loading || !bankConsent}
-                className="w-full h-12 bg-gradient-to-r from-blue-400 to-indigo-500 dark:from-blue-500 dark:to-indigo-600 hover:from-blue-500 hover:to-indigo-600 dark:hover:from-blue-400 dark:hover:to-indigo-500 text-white font-medium shadow-md shadow-blue-500/20 dark:shadow-blue-500/30 hover:shadow-lg rounded-lg transition-all duration-200 flex items-center justify-center gap-3 disabled:opacity-50 text-base"
+                className="w-full h-12 bg-primary hover:bg-primary/90 text-primary-foreground font-medium shadow-md rounded-xl transition-all duration-200 flex items-center justify-center gap-3 disabled:opacity-50 text-base"
               >
                 {loading ? (
                   <>
@@ -1320,7 +1320,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
               <Button
                 onClick={handleSkip}
                 variant="outline"
-                className="w-full h-10 border-2 border-gray-300 dark:border-gray-500 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 hover:border-primary/60 dark:hover:border-primary/60 text-gray-700 dark:text-gray-200 rounded-lg transition-all duration-200 text-sm font-medium"
+                className="w-full h-10 border-2 border-border bg-card hover:bg-muted text-foreground rounded-xl transition-all duration-200 text-sm font-medium"
               >
                 Skip for now (connect later)
               </Button>

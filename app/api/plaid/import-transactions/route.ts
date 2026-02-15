@@ -6,6 +6,7 @@ import { plaidClient } from '@/lib/plaid/client';
 import { adminDb } from '@/lib/firebase/admin';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import { fetchAllPlaidTransactions } from '@/lib/plaid/pagination';
+import { logPlaidRequest, debugPlaid } from '@/lib/plaid/debug';
 
 export async function POST(req: Request) {
   try {
@@ -20,7 +21,15 @@ export async function POST(req: Request) {
 
     // Get the specific account info
     const accountsRes = await plaidClient.accountsGet({ access_token });
-    const selectedAccount = accountsRes.data.accounts?.find(acc => acc.account_id === account_id);
+    const allAccounts = accountsRes.data.accounts || [];
+    const selectedAccount = allAccounts.find(acc => acc.account_id === account_id);
+
+    if (allAccounts.length > 1) {
+      debugPlaid('[Import Transactions] Multiple accounts, importing single', {
+        total_accounts: allAccounts.length,
+        selected_account_id: account_id,
+      });
+    }
 
     if (!selectedAccount) {
       return NextResponse.json({ error: 'Selected account not found' }, { status: 404 });
@@ -28,7 +37,7 @@ export async function POST(req: Request) {
 
     console.log(`📊 [Import Transactions] Selected account: ${selectedAccount.name} (${selectedAccount.type}/${selectedAccount.subtype})`);
 
-    // Store account info
+    // Store account info (and later: last import metadata for UX)
     const accountRef = adminDb.doc(`user_profiles/${uid}/accounts/${account_id}`);
     await accountRef.set({
       id: account_id,
@@ -87,17 +96,32 @@ export async function POST(req: Request) {
       console.log(`   📅 Start date: ${startDate.toLocaleDateString()} (${startDateStr})`);
       console.log(`   📅 End date: ${endDate.toLocaleDateString()} (${endDateStr})`);
       console.log(`   ⚠️ NOTE: Plaid may only return transactions available from the bank.`);
-      console.log(`   ⚠️ NOTE: Sandbox environment may have limited test data (typically 30-40 days).`);
+      if (process.env.PLAID_ENV === 'sandbox') {
+        console.log(`   ⚠️ NOTE: Sandbox environment may have limited test data (typically 30-40 days).`);
+      }
 
       // Get all transactions for the specific account with pagination
-      const { transactions: allTransactions, totalPages, totalTransactions, plaidTotalTransactions } = await fetchAllPlaidTransactions(
+      logPlaidRequest('[Import Transactions]', {
+        endpoint: 'transactionsGet',
+        start_date: startDateStr,
+        end_date: endDateStr,
+        options: { account_ids: [account_id], include_personal_finance_category: true, include_logo_and_counterparty_beta: true },
+      });
+      const {
+        transactions: allTransactions,
+        totalPages,
+        totalTransactions,
+        plaidTotalTransactions,
+        earliestTxDate: plaidEarliestTxDate,
+        latestTxDate: plaidLatestTxDate,
+      } = await fetchAllPlaidTransactions(
         plaidClient,
         {
           access_token,
           start_date: startDateStr,
           end_date: endDateStr,
-          account_ids: [account_id], // Only get transactions for this specific account
           options: {
+            account_ids: [account_id], // Filter to this specific account
             include_personal_finance_category: true,
             include_logo_and_counterparty_beta: true,
           },
@@ -108,6 +132,16 @@ export async function POST(req: Request) {
       console.log(`📊 [Import Transactions] Fetched ${totalTransactions} transactions from Plaid for account: ${selectedAccount.name} across ${totalPages} page(s)`);
       if (plaidTotalTransactions !== undefined) {
         console.log(`📊 [Import Transactions] Plaid reported ${plaidTotalTransactions} total transactions available`);
+      }
+      const isPlaidLimitation =
+        plaidTotalTransactions !== undefined &&
+        totalTransactions === plaidTotalTransactions &&
+        plaidEarliestTxDate &&
+        plaidEarliestTxDate > startDateStr;
+      if (isPlaidLimitation) {
+        console.log(
+          `📊 [Import Transactions] Plaid/institution limitation likely: requested from ${startDateStr}, earliest returned ${plaidEarliestTxDate}`
+        );
       }
 
       // Log the date range of fetched transactions for debugging
@@ -124,7 +158,9 @@ export async function POST(req: Request) {
           console.warn(`⚠️ [Import Transactions] Possible reasons:`);
           console.warn(`   - Account was connected on or after ${earliestTx}`);
           console.warn(`   - Bank/Plaid has limited historical data available`);
-          console.warn(`   - Using Plaid Sandbox (typically limited to 30-40 days of test data)`);
+          if (process.env.PLAID_ENV === 'sandbox') {
+            console.warn(`   - Using Plaid Sandbox (typically limited to 30-40 days of test data)`);
+          }
         }
       } else {
         console.warn(`⚠️ [Import Transactions] No transactions found in date range ${startDateStr} to ${endDateStr}`);
@@ -204,9 +240,14 @@ export async function POST(req: Request) {
           updatedAt: Date.now(),
         };
 
+        // Strip undefined values — Firestore rejects them
+        const cleanedData = Object.fromEntries(
+          Object.entries(transactionData).filter(([_, v]) => v !== undefined)
+        );
+
         console.log(`📊 [Import Transactions] Setting transaction ${txId} with analysis_status: 'pending' and analyzed: false`);
 
-        await txRef.set(transactionData);
+        await txRef.set(cleanedData);
 
         if (imported < 3) {
           console.log(`✅ [Import Transactions] Wrote transaction ${txId} to Firebase`);
@@ -253,16 +294,54 @@ export async function POST(req: Request) {
     console.log(`📊 [Import Transactions] Analysis status check: ${pendingCount} pending transactions out of ${verifySnap.size} total`);
     console.log(`📊 [Import Transactions] Sample transactions:`, sampleTxs);
 
+    // Store import metadata on account for UX (bank-provided history from X)
+    const historyLimitedByBank =
+      plaidTotalTransactions !== undefined &&
+      totalTransactions === plaidTotalTransactions &&
+      !!plaidEarliestTxDate &&
+      plaidEarliestTxDate > startDateStr;
+    await accountRef.set(
+      {
+        last_import_at: Date.now(),
+        last_import_requested_start: startDateStr,
+        last_import_earliest_tx: plaidEarliestTxDate ?? null,
+        last_import_latest_tx: plaidLatestTxDate ?? null,
+        last_import_count: totalTransactions,
+      },
+      { merge: true }
+    );
+
+    // Store import metadata in user_profiles for banks page UX
+    try {
+      await adminDb.doc(`user_profiles/${uid}`).set(
+        {
+          plaid_requested_start_date: startDateStr,
+          plaid_earliest_returned_tx_date: plaidEarliestTxDate ?? null,
+          plaid_imported_count: imported,
+        },
+        { merge: true }
+      );
+    } catch (metaErr: any) {
+      console.warn('⚠️ [Import Transactions] Failed to store import metadata:', metaErr?.message);
+    }
+
     return NextResponse.json({
       ok: true,
       accountId: account_id,
       accountName: selectedAccount.name,
       accountType: selectedAccount.type,
       accountSubtype: selectedAccount.subtype,
-      imported: verifySnap.size, // Return actual count
+      imported: verifySnap.size,
       pendingTransactions: pendingCount,
       timeframe: import_timeframe,
-      sampleTransactions: sampleTxs
+      sampleTransactions: sampleTxs,
+      importMeta: {
+        requestedStartDate: startDateStr,
+        requestedEndDate: endDateStr,
+        earliestReturnedTxDate: plaidEarliestTxDate ?? null,
+        latestReturnedTxDate: plaidLatestTxDate ?? null,
+        historyLimitedByBank,
+      },
     });
 
   } catch (err: any) {

@@ -302,22 +302,21 @@ export default function TransactionsPage() {
 
   const getCategoryBadge = (category: string) => {
     const { consolidatedName, displayName } = consolidateCategory(category);
-
+    // Premium fintech: low-opacity bg, solid border, hover glow desktop only
     const categoryColors: { [key: string]: string } = {
-      'FOOD_AND_DRINK': 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-200 border-emerald-300 dark:border-emerald-600',
-      'TRANSPORTATION': 'bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-200 border-blue-300 dark:border-blue-600',
-      'TRAVEL': 'bg-violet-100 dark:bg-violet-900/40 text-violet-800 dark:text-violet-200 border-violet-300 dark:border-violet-600',
-      'ENTERTAINMENT': 'bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200 border-amber-300 dark:border-amber-600',
-      'PROFESSIONAL_SERVICES': 'bg-teal-100 dark:bg-teal-900/40 text-teal-800 dark:text-teal-200 border-teal-300 dark:border-teal-600',
-      'OFFICE_AND_EQUIPMENT': 'bg-sky-100 dark:bg-sky-900/40 text-sky-800 dark:text-sky-200 border-sky-300 dark:border-sky-600',
-      'LOAN_AND_FINANCIAL': 'bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-200 border-red-300 dark:border-red-600',
-      'GENERAL_MERCHANDISE': 'bg-slate-100 dark:bg-slate-700/50 text-slate-800 dark:text-slate-200 border-slate-300 dark:border-slate-600',
-      'INCOME': 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-200 border-green-300 dark:border-green-600'
+      'FOOD_AND_DRINK': 'bg-[hsl(var(--success)/0.12)] text-[hsl(var(--success))] border-[hsl(var(--success)/0.4)] md:hover:shadow-[0_0_0_1px_hsl(var(--success)/0.25)]',
+      'PROFESSIONAL_SERVICES': 'bg-cyan-500/10 text-cyan-400 border-cyan-500/40 md:hover:shadow-[0_0_0_1px_rgba(34,211,238,0.3)]',
+      'LOAN_AND_FINANCIAL': 'bg-[hsl(var(--destructive)/0.12)] text-[hsl(var(--destructive)/0.95)] border-[hsl(var(--destructive)/0.35)] md:hover:shadow-[0_0_0_1px_hsl(var(--destructive)/0.2)]',
+      'GENERAL_MERCHANDISE': 'bg-slate-500/10 text-slate-400 border-slate-500/35 md:hover:shadow-[0_0_0_1px_rgba(100,116,139,0.3)]',
+      'TRANSFER': 'bg-[hsl(var(--chart-4)/0.15)] text-[hsl(var(--chart-4))] border-[hsl(var(--chart-4)/0.4)] md:hover:shadow-[0_0_0_1px_hsl(var(--chart-4)/0.25)]',
+      'TRANSPORTATION': 'bg-primary/10 text-primary border-primary/40 md:hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.25)]',
+      'TRAVEL': 'bg-[hsl(var(--chart-4)/0.12)] text-[hsl(var(--chart-4)/0.95)] border-[hsl(var(--chart-4)/0.35)] md:hover:shadow-[0_0_0_1px_hsl(var(--chart-4)/0.2)]',
+      'ENTERTAINMENT': 'bg-[hsl(var(--warning)/0.12)] text-[hsl(var(--warning)/0.95)] border-[hsl(var(--warning)/0.35)] md:hover:shadow-[0_0_0_1px_hsl(var(--warning)/0.2)]',
+      'OFFICE_AND_EQUIPMENT': 'bg-sky-500/10 text-sky-400 border-sky-500/35 md:hover:shadow-[0_0_0_1px_rgba(14,165,233,0.25)]',
+      'INCOME': 'bg-[hsl(var(--success)/0.12)] text-[hsl(var(--success))] border-[hsl(var(--success)/0.4)] md:hover:shadow-[0_0_0_1px_hsl(var(--success)/0.25)]',
     };
-
-    const colorClass = categoryColors[consolidatedName] || 'bg-muted/50 dark:bg-muted/30 text-foreground border-border';
-
-    return <Badge className={`${colorClass} border`}>{displayName}</Badge>;
+    const colorClass = categoryColors[consolidatedName] || 'bg-muted/50 text-muted-foreground border-border md:hover:shadow-[0_0_0_1px_hsl(var(--border))]';
+    return <Badge className={`${colorClass} border text-[10px] sm:text-xs px-2 py-0.5 transition-shadow duration-150`}>{displayName}</Badge>;
   };
 
 
@@ -332,7 +331,7 @@ export default function TransactionsPage() {
   const filteredTransactions = getFilteredTransactions;
 
   return (
-    <div className="bg-background text-foreground min-h-screen">
+    <div className="bg-background text-foreground min-h-screen overflow-x-hidden">
       {/* Header */}
       <div className="bg-background">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4">
@@ -348,71 +347,61 @@ export default function TransactionsPage() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 space-y-4 sm:space-y-6">
-        {/* Summary Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-6">
+        {/* Summary Cards — semantic accents, premium fintech */}
+        <div className="grid grid-cols-1 min-[480px]:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-5">
           <div
-            className="bg-card rounded-lg p-3 sm:p-4 md:p-6 shadow-sm cursor-pointer hover:shadow-md active:shadow-lg transition-shadow border border-border touch-target"
-            onClick={() => {
-              console.log('Deductible transactions card clicked');
-              setActiveTab('deductible');
-            }}
+            className="bg-card rounded-xl p-4 sm:p-5 border border-border border-l-[3px] border-l-[hsl(var(--success)/0.8)] shadow-[0_0_0_1px_hsl(var(--success)/0.06),0_2px_8px_-2px_hsl(var(--success)/0.12)] cursor-pointer hover:shadow-[0_0_0_1px_hsl(var(--success)/0.1),0_4px_12px_-2px_hsl(var(--success)/0.15)] active:scale-[0.99] transition-all duration-150 min-h-[44px] flex flex-col justify-center"
+            onClick={() => setActiveTab('deductible')}
           >
-            <div className="text-lg sm:text-xl md:text-2xl font-semibold text-foreground">${deductibleTotal.toFixed(2)}</div>
-            <div className="text-xs sm:text-sm text-muted-foreground">{deductibleTransactions.length} deductible</div>
+            <div className="text-xl sm:text-2xl font-semibold text-foreground tabular-nums">${deductibleTotal.toFixed(2)}</div>
+            <div className="text-xs sm:text-sm text-muted-foreground/90 mt-0.5">{deductibleTransactions.length} deductible</div>
           </div>
           <div
-            className="bg-card rounded-lg p-3 sm:p-4 md:p-6 shadow-sm cursor-pointer hover:shadow-md active:shadow-lg transition-shadow border border-border touch-target"
-            onClick={() => {
-              console.log('Pending transactions card clicked');
-              setActiveTab('pending');
-            }}
+            className="bg-card rounded-xl p-4 sm:p-5 border border-border border-l-[3px] border-l-[hsl(var(--warning)/0.75)] shadow-[0_0_0_1px_hsl(var(--warning)/0.06),0_2px_8px_-2px_hsl(var(--warning)/0.1)] cursor-pointer hover:shadow-[0_0_0_1px_hsl(var(--warning)/0.1),0_4px_12px_-2px_hsl(var(--warning)/0.14)] active:scale-[0.99] transition-all duration-150 min-h-[44px] flex flex-col justify-center"
+            onClick={() => setActiveTab('pending')}
           >
-            <div className="text-lg sm:text-xl md:text-2xl font-semibold text-foreground">${pendingTotal.toFixed(2)}</div>
-            <div className="text-xs sm:text-sm text-muted-foreground">{pendingTransactions.length} needs review</div>
+            <div className="text-xl sm:text-2xl font-semibold text-foreground tabular-nums">${pendingTotal.toFixed(2)}</div>
+            <div className="text-xs sm:text-sm text-muted-foreground/90 mt-0.5">{pendingTransactions.length} needs review</div>
           </div>
           <div
-            className="bg-card rounded-lg p-3 sm:p-4 md:p-6 shadow-sm cursor-pointer hover:shadow-md active:shadow-lg transition-shadow border border-border touch-target"
-            onClick={() => {
-              console.log('Potential savings card clicked');
-              // Could navigate to reports page or show savings breakdown
-            }}
+            className="bg-card rounded-xl p-4 sm:p-5 border border-border border-l-[3px] border-l-primary/70 shadow-[0_0_0_1px_hsl(var(--primary)/0.06),0_2px_8px_-2px_hsl(var(--primary)/0.1)] cursor-pointer hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.1),0_4px_12px_-2px_hsl(var(--primary)/0.14)] active:scale-[0.99] transition-all duration-150 min-h-[44px] flex flex-col justify-center"
+            onClick={() => {}}
           >
-            <div className="text-lg sm:text-xl md:text-2xl font-semibold text-foreground">${potentialSavings.toFixed(2)}</div>
-            <div className="text-xs sm:text-sm text-muted-foreground">Potential savings</div>
+            <div className="text-xl sm:text-2xl font-semibold text-foreground tabular-nums">${potentialSavings.toFixed(2)}</div>
+            <div className="text-xs sm:text-sm text-muted-foreground/90 mt-0.5">Potential savings</div>
           </div>
           <div
-            className="bg-card rounded-lg p-3 sm:p-4 md:p-6 shadow-sm cursor-pointer hover:shadow-md active:shadow-lg transition-shadow border border-border touch-target"
-            onClick={() => {
-              console.log('Total transactions card clicked');
-              setActiveTab('all');
-            }}
+            className="bg-card rounded-xl p-4 sm:p-5 border border-border border-l-[3px] border-l-muted-foreground/50 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.08)] cursor-pointer hover:bg-muted/30 hover:shadow-[0_4px_12px_-2px_rgba(0,0,0,0.1)] active:scale-[0.99] transition-all duration-150 min-h-[44px] flex flex-col justify-center"
+            onClick={() => setActiveTab('all')}
           >
-            <div className="text-lg sm:text-xl md:text-2xl font-semibold text-foreground">{transactions.length}</div>
-            <div className="text-xs sm:text-sm text-muted-foreground">Total transactions</div>
+            <div className="text-xl sm:text-2xl font-semibold text-foreground tabular-nums">{transactions.length}</div>
+            <div className="text-xs sm:text-sm text-muted-foreground/90 mt-0.5">Total transactions</div>
           </div>
         </div>
 
-        {/* Search and Filter Bar - All in one line */}
-        <div className="bg-card rounded-lg p-2 sm:p-3 shadow-sm border border-border">
-          <div className="flex items-center gap-2">
-            {/* Search Input - Flexible width */}
-            <div className="flex-1 relative min-w-0">
-              <Search className="absolute left-2.5 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
+        {/* Search and Filter Bar — premium fintech: stack on mobile, pill controls */}
+        <div className="bg-card rounded-xl p-3 sm:p-4 shadow-sm border border-border">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            {/* Search Input — full-width on mobile, soft inner shadow, 44px tap */}
+            <div className="w-full sm:flex-1 relative min-w-0 order-1 sm:order-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4 pointer-events-none" />
               <input
                 type="text"
-                placeholder="Search..."
+                placeholder="Search merchant, category, notes..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-8 pr-2 py-2 text-sm border border-border rounded-lg bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                className="w-full pl-9 pr-3 py-2.5 min-h-[44px] text-sm border border-border rounded-xl bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-primary/30 shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-[inset_0_1px_2px_rgba(0,0,0,0.2)] transition-all duration-150"
               />
             </div>
 
-            {/* Date Range Selector - Compact */}
+            {/* Filters row — horizontally scrollable on mobile, pill-style */}
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 scrollbar-none min-h-[44px] shrink-0 order-2 sm:order-2">
+            {/* Date Range Selector */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="flex items-center gap-1 px-2 sm:px-3 h-9 sm:h-10 shrink-0 no-tap-highlight">
+                <Button variant="outline" size="sm" className="flex items-center gap-1.5 px-3 py-2 min-h-[44px] rounded-xl shrink-0 no-tap-highlight border-border bg-muted/30 hover:bg-muted/60 hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.08)] focus-visible:ring-2 focus-visible:ring-ring transition-all duration-150">
                   <Calendar className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-xs sm:text-sm text-muted-foreground hidden sm:inline">
+                  <span className="text-xs sm:text-sm text-muted-foreground whitespace-nowrap">
                     {dateRange === 'all' ? 'All' :
                       dateRange === 'today' ? 'Today' :
                         dateRange === 'week' ? 'Week' :
@@ -421,7 +410,7 @@ export default function TransactionsPage() {
                               dateRange === 'year' ? 'Year' :
                                 dateRange === 'custom' ? 'Custom' : 'All'}
                   </span>
-                  <ChevronDown className="w-3 h-3" />
+                  <ChevronDown className="w-3 h-3 shrink-0" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
@@ -452,13 +441,13 @@ export default function TransactionsPage() {
               </DropdownMenuContent>
             </DropdownMenu>
 
-            {/* Sort Dropdown - Compact */}
+            {/* Sort Dropdown */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="flex items-center gap-1 px-2 sm:px-3 h-9 sm:h-10 shrink-0 no-tap-highlight">
+                <Button variant="outline" size="sm" className="flex items-center gap-1.5 px-3 py-2 min-h-[44px] rounded-xl shrink-0 no-tap-highlight border-border bg-muted/30 hover:bg-muted/60 hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.08)] focus-visible:ring-2 focus-visible:ring-ring transition-all duration-150">
                   <ArrowUpDown className="w-4 h-4" />
-                  <span className="text-xs sm:text-sm hidden sm:inline">Sort</span>
-                  <ChevronDown className="w-3 h-3" />
+                  <span className="text-xs sm:text-sm whitespace-nowrap">Sort</span>
+                  <ChevronDown className="w-3 h-3 shrink-0" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
@@ -485,18 +474,18 @@ export default function TransactionsPage() {
               </DropdownMenuContent>
             </DropdownMenu>
 
-            {/* Filter Dropdown - Compact */}
+            {/* Filter Dropdown */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="relative flex items-center gap-1 px-2 sm:px-3 h-9 sm:h-10 shrink-0 no-tap-highlight">
+                <Button variant="outline" size="sm" className="relative flex items-center gap-1.5 px-3 py-2 min-h-[44px] rounded-xl shrink-0 no-tap-highlight border-border bg-muted/30 hover:bg-muted/60 hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.08)] focus-visible:ring-2 focus-visible:ring-ring transition-all duration-150">
                   <Filter className="w-4 h-4" />
-                  <span className="text-xs sm:text-sm hidden sm:inline">Filter</span>
+                  <span className="text-xs sm:text-sm whitespace-nowrap">Filter</span>
                   {activeFiltersCount > 0 && (
-                    <Badge className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[10px] px-1.5 py-0.5 min-w-[18px] h-[18px] flex items-center justify-center">
+                    <Badge className="absolute -top-0.5 -right-0.5 bg-primary text-primary-foreground text-[10px] px-1.5 py-0 min-w-[18px] h-[18px] flex items-center justify-center rounded-full">
                       {activeFiltersCount}
                     </Badge>
                   )}
-                  <ChevronDown className="w-3 h-3" />
+                  <ChevronDown className="w-3 h-3 shrink-0" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-64">
@@ -547,6 +536,7 @@ export default function TransactionsPage() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+            </div>
           </div>
 
           {/* Custom Date Range Inputs - Shows below when custom is selected */}
@@ -575,49 +565,54 @@ export default function TransactionsPage() {
             <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border text-xs text-muted-foreground">
               <span>{activeFiltersCount} filter{activeFiltersCount > 1 ? 's' : ''} active</span>
               <button
-                className="text-muted-foreground hover:text-foreground p-1"
+                type="button"
+                className="min-w-[44px] min-h-[44px] flex items-center justify-center text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted/50 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring"
                 onClick={clearAllFilters}
               >
-                <X className="w-3 h-3" />
+                <X className="w-4 h-4" />
               </button>
             </div>
           )}
         </div>
 
-        {/* Status Tabs */}
-        <div className="flex gap-1 mb-6 overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 sm:pb-0">
+        {/* Status Tabs — pill-style segmented, hover glow, 44px tap */}
+        <div className="flex gap-1.5 p-1 rounded-xl bg-muted/40 border border-border/50 w-fit max-w-full overflow-x-auto scrollbar-none mb-6">
           <button
+            type="button"
             onClick={() => setActiveTab('all')}
-            className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors touch-target min-h-[44px] whitespace-nowrap ${activeTab === 'all'
-              ? 'bg-primary text-primary-foreground'
-              : 'bg-card text-muted-foreground hover:bg-muted active:bg-muted/80'
+            className={`px-4 py-2.5 rounded-lg text-xs sm:text-sm font-medium transition-all duration-150 min-h-[44px] whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${activeTab === 'all'
+              ? 'bg-primary text-primary-foreground shadow-[0_0_0_1px_hsl(var(--primary)/0.2)]'
+              : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.06)] active:bg-muted'
               }`}
           >
             All ({transactions.length})
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab('deductible')}
-            className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors touch-target min-h-[44px] whitespace-nowrap ${activeTab === 'deductible'
-              ? 'bg-primary text-primary-foreground'
-              : 'bg-card text-muted-foreground hover:bg-muted active:bg-muted/80'
+            className={`px-4 py-2.5 rounded-lg text-xs sm:text-sm font-medium transition-all duration-150 min-h-[44px] whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${activeTab === 'deductible'
+              ? 'bg-primary text-primary-foreground shadow-[0_0_0_1px_hsl(var(--primary)/0.2)]'
+              : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.06)] active:bg-muted'
               }`}
           >
             Deductible ({deductibleTransactions.length})
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab('personal')}
-            className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors touch-target min-h-[44px] whitespace-nowrap ${activeTab === 'personal'
-              ? 'bg-primary text-primary-foreground'
-              : 'bg-card text-muted-foreground hover:bg-muted active:bg-muted/80'
+            className={`px-4 py-2.5 rounded-lg text-xs sm:text-sm font-medium transition-all duration-150 min-h-[44px] whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${activeTab === 'personal'
+              ? 'bg-primary text-primary-foreground shadow-[0_0_0_1px_hsl(var(--primary)/0.2)]'
+              : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.06)] active:bg-muted'
               }`}
           >
             Personal ({personalTransactions.length})
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab('pending')}
-            className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors touch-target min-h-[44px] whitespace-nowrap ${activeTab === 'pending'
-              ? 'bg-primary text-primary-foreground'
-              : 'bg-card text-muted-foreground hover:bg-muted active:bg-muted/80'
+            className={`px-4 py-2.5 rounded-lg text-xs sm:text-sm font-medium transition-all duration-150 min-h-[44px] whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${activeTab === 'pending'
+              ? 'bg-primary text-primary-foreground shadow-[0_0_0_1px_hsl(var(--primary)/0.2)]'
+              : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.06)] active:bg-muted'
               }`}
           >
             Pending ({pendingTransactions.length})
@@ -629,27 +624,27 @@ export default function TransactionsPage() {
           {/* Desktop Table View */}
           <div className="hidden md:block overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-muted border-b border-border">
+              <thead className="bg-muted/60 border-b border-border">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  <th className="px-5 py-3.5 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider">
                     Merchant
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  <th className="px-5 py-3.5 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider">
                     Date
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  <th className="px-5 py-3.5 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider">
                     Category
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  <th className="px-5 py-3.5 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider">
                     Status
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  <th className="px-5 py-3.5 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider">
                     Direction
                   </th>
-                  <th className="px-6 py-3 text-center text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  <th className="px-5 py-3.5 text-center text-xs font-medium text-muted-foreground/80 uppercase tracking-wider">
                     Receipt
                   </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  <th className="px-5 py-3.5 text-right text-xs font-medium text-muted-foreground/80 uppercase tracking-wider">
                     Amount
                   </th>
                 </tr>
@@ -658,15 +653,14 @@ export default function TransactionsPage() {
                 {filteredTransactions.map((transaction) => (
                   <tr
                     key={transaction.id}
-                    className="hover:bg-muted cursor-pointer transition-colors"
+                    className="hover:bg-[hsl(var(--primary)/0.04)] cursor-pointer transition-all duration-150 md:hover:-translate-y-px"
                     onClick={() => {
-                      // Navigate to transaction detail screen with source page info
                       router.push(`/protected?screen=transaction-detail&transactionId=${transaction.id}&from=transactions`);
                     }}
                   >
-                    <td className="px-6 py-4">
+                    <td className="px-5 py-4">
                       <div>
-                        <div className="text-sm font-medium text-foreground">
+                        <div className="text-sm font-semibold text-foreground">
                           {transaction.merchant_name}
                         </div>
                         {transaction.notes && (
@@ -674,22 +668,22 @@ export default function TransactionsPage() {
                         )}
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-sm text-foreground">
+                    <td className="px-5 py-4 text-sm text-foreground">
                       {new Date(transaction.date).toLocaleDateString('en-US', {
                         month: 'short',
                         day: 'numeric'
                       })}
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-5 py-4">
                       {getCategoryBadge(transaction.category)}
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-5 py-4">
                       {getStatusBadge(transaction)}
                     </td>
-                    <td className="px-6 py-4 text-sm text-foreground">
+                    <td className="px-5 py-4 text-sm text-foreground">
                       {(transaction.type ?? (transaction.amount < 0 ? 'income' : 'expense')) === 'income' ? 'Received' : 'Paid'}
                     </td>
-                    <td className="px-6 py-4 text-center">
+                    <td className="px-5 py-4 text-center">
                       {transaction.receipt_url ? (
                         <div className="flex items-center justify-center">
                           <div className="w-8 h-8 bg-accent/20 rounded-full flex items-center justify-center">
@@ -704,8 +698,10 @@ export default function TransactionsPage() {
                         </div>
                       )}
                     </td>
-                    <td className="px-6 py-4 text-right text-sm font-medium text-foreground font-tabular-nums">
-                      {(transaction.type ?? (transaction.amount < 0 ? 'income' : 'expense')) === 'income' ? '+' : '-'}${Math.abs(transaction.amount).toFixed(2)}
+                    <td className="px-5 py-4 text-right text-sm font-semibold font-tabular-nums transition-colors duration-150">
+                      <span className={(transaction.type ?? (transaction.amount < 0 ? 'income' : 'expense')) === 'income' ? 'text-[hsl(var(--success))]' : 'text-destructive/85'}>
+                        {(transaction.type ?? (transaction.amount < 0 ? 'income' : 'expense')) === 'income' ? '+' : '-'}${Math.abs(transaction.amount).toFixed(2)}
+                      </span>
                     </td>
                   </tr>
                 ))}
@@ -713,59 +709,56 @@ export default function TransactionsPage() {
             </table>
           </div>
 
-          {/* Mobile Card View */}
+          {/* Mobile Card View — card layout, no horizontal scroll, 44px tap */}
           <div className="md:hidden divide-y divide-border">
-            {filteredTransactions.map((transaction) => (
-              <div
-                key={transaction.id}
-                className="p-4 hover:bg-muted cursor-pointer transition-colors touch-target active:bg-muted/80"
-                onClick={() => {
-                  // Navigate to transaction detail screen with source page info
-                  router.push(`/protected?screen=transaction-detail&transactionId=${transaction.id}&from=transactions`);
-                }}
-              >
-                <div className="flex items-start justify-between gap-3 mb-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="text-base font-semibold text-foreground mb-1 truncate">
-                      {transaction.merchant_name}
-                    </div>
-                    {transaction.notes && (
-                      <div className="text-sm text-muted-foreground mb-2 line-clamp-2">
-                        {transaction.notes}
+            {filteredTransactions.map((transaction) => {
+              const direction = (transaction.type ?? (transaction.amount < 0 ? 'income' : 'expense')) === 'income' ? 'Received' : 'Paid';
+              const isReceived = direction === 'Received';
+              return (
+                <div
+                  key={transaction.id}
+                  role="button"
+                  tabIndex={0}
+                  className="min-h-[44px] p-4 hover:bg-muted/50 active:bg-muted cursor-pointer transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+                  onClick={() => router.push(`/protected?screen=transaction-detail&transactionId=${transaction.id}&from=transactions`)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); router.push(`/protected?screen=transaction-detail&transactionId=${transaction.id}&from=transactions`); } }}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-base font-semibold text-foreground truncate">
+                        {transaction.merchant_name}
                       </div>
-                    )}
-                    <div className="text-sm text-muted-foreground">
-                      {new Date(transaction.date).toLocaleDateString('en-US', {
-                        month: 'short',
-                        day: 'numeric',
-                        year: 'numeric'
-                      })}
+                      <div className="text-sm text-muted-foreground mt-0.5">
+                        {new Date(transaction.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        <span className="mx-1.5">•</span>
+                        {consolidateCategory(transaction.category).displayName}
+                      </div>
+                      <div className="flex items-center gap-2 mt-2 flex-wrap">
+                        {getStatusBadge(transaction)}
+                        <span className={`text-xs font-medium ${isReceived ? 'text-[hsl(var(--success)/0.9)]' : 'text-destructive/70'}`}>
+                          {direction}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className={`text-lg font-bold font-tabular-nums transition-colors duration-150 ${isReceived ? 'text-[hsl(var(--success))]' : 'text-destructive/85'}`}>
+                        {isReceived ? '+' : '-'}${Math.abs(transaction.amount).toFixed(2)}
+                      </span>
+                      <span
+                        className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg bg-muted/50 border border-border/50"
+                        aria-hidden
+                      >
+                        {transaction.receipt_url ? (
+                          <FileText className="w-4 h-4 text-primary" />
+                        ) : (
+                          <FileText className="w-4 h-4 text-muted-foreground" />
+                        )}
+                      </span>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <div className="text-lg font-bold text-foreground mb-1 font-tabular-nums">
-                      {(transaction.type ?? (transaction.amount < 0 ? 'income' : 'expense')) === 'income' ? '+' : '-'}${Math.abs(transaction.amount).toFixed(2)}
-                    </div>
-                    <div className={`text-xs font-medium ${(transaction.type ?? (transaction.amount < 0 ? 'income' : 'expense')) === 'income' ? 'text-success' : 'text-muted-foreground'}`}>
-                      {(transaction.type ?? (transaction.amount < 0 ? 'income' : 'expense')) === 'income' ? 'Received' : 'Paid'}
-                    </div>
-                    {transaction.receipt_url ? (
-                      <div className="w-8 h-8 bg-accent/20 rounded-full flex items-center justify-center mx-auto">
-                        <FileText className="w-4 h-4 text-accent" />
-                      </div>
-                    ) : (
-                      <div className="w-8 h-8 bg-muted rounded-full flex items-center justify-center mx-auto">
-                        <FileText className="w-4 h-4 text-muted-foreground" />
-                      </div>
-                    )}
-                  </div>
                 </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  {getCategoryBadge(transaction.category)}
-                  {getStatusBadge(transaction)}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 

@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Building2, CheckCircle, AlertCircle, Plus, Trash2 } from 'lucide-react';
 import { auth } from '@/lib/firebase/client';
@@ -20,6 +19,9 @@ interface BankAccount {
   balance: number;
   isConnected: boolean;
   lastSync: string;
+  last_import_earliest_tx?: string | null;
+  last_import_requested_start?: string | null;
+  last_import_count?: number | null;
 }
 
 export const PlaidScreen: React.FC<PlaidScreenProps> = ({ user, onBack, onConnect }) => {
@@ -76,7 +78,10 @@ export const PlaidScreen: React.FC<PlaidScreenProps> = ({ user, onBack, onConnec
             mask: account.mask || '****',
             balance: account.balance ?? account.available_balance ?? account.current_balance ?? 0,
             isConnected: true,
-            lastSync: account.updated_at ? 'Recently' : 'Never'
+            lastSync: account.updated_at ? 'Recently' : 'Never',
+            last_import_earliest_tx: account.last_import_earliest_tx ?? null,
+            last_import_requested_start: account.last_import_requested_start ?? null,
+            last_import_count: account.last_import_count ?? null,
           }));
           console.log('✅ [Plaid Screen] Processed accounts:', accounts);
           setConnectedAccounts(accounts);
@@ -105,7 +110,10 @@ export const PlaidScreen: React.FC<PlaidScreenProps> = ({ user, onBack, onConnec
                   mask: account.mask || '****',
                   balance: account.balance ?? account.available_balance ?? account.current_balance ?? 0,
                   isConnected: true,
-                  lastSync: account.updated_at ? 'Recently' : 'Never'
+                  lastSync: account.updated_at ? 'Recently' : 'Never',
+                  last_import_earliest_tx: account.last_import_earliest_tx ?? null,
+                  last_import_requested_start: account.last_import_requested_start ?? null,
+                  last_import_count: account.last_import_count ?? null,
                 }));
                 setConnectedAccounts(refreshedAccounts);
               }
@@ -262,209 +270,242 @@ export const PlaidScreen: React.FC<PlaidScreenProps> = ({ user, onBack, onConnec
   };
 
   return (
-    <div className="min-h-screen bg-muted">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="bg-background border-b border-border sticky top-0 z-50 shadow-sm">
-        <div className="flex items-center justify-between p-6">
-          <button
-            onClick={onBack}
-            className="w-12 h-12 bg-background border border-border rounded-lg flex items-center justify-center text-foreground hover:bg-muted transition-all duration-200 shadow-sm"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <div className="text-center">
-            <div className="h-8 w-24 bg-primary rounded-lg flex items-center justify-center mx-auto mb-2">
-              <span className="text-primary-foreground font-medium text-sm">WriteOff</span>
+      <div className="bg-background sticky top-0 z-10 border-b border-border/50 backdrop-blur-sm bg-background/95">
+        <div className="max-w-3xl mx-auto px-4 md:px-6 py-3 sm:py-4">
+          <div className="flex items-center gap-3">
+            <Button onClick={onBack} variant="outline" size="sm" className="h-9 w-9 p-0">
+              <ArrowLeft className="w-4 h-4" />
+            </Button>
+            <div>
+              <h1 className="text-lg sm:text-xl font-semibold text-foreground">Connected Banks</h1>
+              <p className="text-xs text-muted-foreground">Manage your bank connections</p>
             </div>
-            <h1 className="text-xl font-medium text-foreground mb-1">
-              Connected <span className="text-primary font-medium">Banks</span>
-            </h1>
-            <p className="text-muted-foreground">Manage your bank connections</p>
           </div>
-          <div className="w-12"></div>
         </div>
       </div>
 
-      <div className="p-6 pb-32">
+      <div className="max-w-3xl mx-auto px-4 md:px-6 py-4 pb-32">
         {/* Connect New Bank */}
-        <Card className="p-6 bg-accent border-0 shadow-lg mb-6 text-white">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-white bg-opacity-20 rounded-lg flex items-center justify-center">
-                <Plus className="w-6 h-6 text-white" />
+        <div className="rounded-lg border border-border bg-card p-5 mb-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                <Plus className="w-5 h-5 text-primary" />
               </div>
               <div>
-                <h3 className="text-lg font-medium">Add New Bank Account</h3>
-                <p className="text-accent/90 text-sm">Securely connect another bank for expense tracking</p>
+                <h3 className="text-sm font-medium text-foreground">Add New Bank Account</h3>
+                <p className="text-xs text-muted-foreground">Securely connect another bank for expense tracking</p>
               </div>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 w-full sm:w-auto">
               {hasPlaidConnection && (
                 <Button
                   onClick={handleDisconnectPlaid}
                   disabled={disconnectingPlaid}
-                  variant="destructive"
-                  className="bg-red-600 hover:bg-red-700 text-white"
+                  variant="outline"
+                  size="sm"
+                  className="text-xs text-destructive border-destructive/30 hover:bg-destructive/10"
                 >
-                  {disconnectingPlaid ? 'Disconnecting...' : 'Disconnect Plaid'}
+                  {disconnectingPlaid ? 'Disconnecting...' : 'Disconnect'}
                 </Button>
               )}
               <Button
                 onClick={onConnect}
-                variant="secondary"
-                className="bg-white text-accent hover:bg-accent/10"
+                size="sm"
+                className="text-xs flex-1 sm:flex-none"
               >
+                <Plus className="w-3.5 h-3.5 mr-1.5" />
                 Connect Bank
               </Button>
             </div>
           </div>
-        </Card>
+        </div>
 
         {/* Connected Accounts */}
         {loading ? (
-          <div className="mb-8">
-            <div className="text-center py-12">
-              <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-              <p className="text-muted-foreground">Loading accounts...</p>
+          <div className="mb-6">
+            <div className="rounded-lg border border-border bg-card p-8 text-center">
+              <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+              <p className="text-xs text-muted-foreground">Loading accounts...</p>
             </div>
           </div>
         ) : connectedAccounts.length > 0 ? (
-          <div className="mb-8">
-            <h2 className="text-lg font-medium text-foreground mb-4">Connected Accounts</h2>
-            <div className="space-y-4">
+          <div className="mb-6">
+            <h2 className="text-sm font-medium text-foreground mb-3">Connected Accounts</h2>
+            {connectedAccounts.some(
+              (a) =>
+                a.last_import_earliest_tx &&
+                a.last_import_requested_start &&
+                a.last_import_earliest_tx > a.last_import_requested_start
+            ) && (
+              <div className="mb-3 rounded-lg border border-border bg-muted/50 p-3 text-xs text-muted-foreground">
+                <p className="font-medium text-foreground mb-0.5">Transaction history from your bank</p>
+                <p>
+                  For at least one account, the bank provided transactions only from the date shown below. Older
+                  history is not available via this connection. You can try &quot;Sync Now&quot; or reconnect the
+                  bank to refresh.
+                </p>
+                <ul className="mt-1.5 list-disc list-inside space-y-0.5">
+                  {connectedAccounts
+                    .filter(
+                      (a) =>
+                        a.last_import_earliest_tx &&
+                        a.last_import_requested_start &&
+                        a.last_import_earliest_tx > a.last_import_requested_start
+                    )
+                    .map((a) => (
+                      <li key={a.id}>
+                        <span className="font-medium text-foreground">{a.name}</span>: from{' '}
+                        {new Date(a.last_import_earliest_tx!).toLocaleDateString('en-US', {
+                          year: 'numeric',
+                          month: 'short',
+                          day: 'numeric',
+                        })}{' '}
+                        onward
+                        {a.last_import_count != null ? ` (${a.last_import_count} transactions)` : ''}
+                      </li>
+                    ))}
+                </ul>
+              </div>
+            )}
+            <div className="space-y-2">
               {connectedAccounts.map((account) => (
-                <Card key={account.id} className="p-6 bg-card border border-border shadow-lg">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
-                        <Building2 className="w-6 h-6 text-primary" />
+                <div key={account.id} className="rounded-lg border border-border bg-card p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                        <Building2 className="w-4 h-4 text-primary" />
                       </div>
-                      <div>
-                        <h3 className="font-medium text-card-foreground">{account.name}</h3>
-                        <p className="text-muted-foreground text-sm">
+                      <div className="min-w-0">
+                        <h3 className="text-sm font-medium text-foreground truncate">{account.name}</h3>
+                        <p className="text-xs text-muted-foreground">
                           {account.type.charAt(0).toUpperCase() + account.type.slice(1)} •••• {account.mask}
                         </p>
-                        <div className="flex items-center gap-2 mt-1">
-                          <CheckCircle className="w-4 h-4 text-primary" />
-                          <span className="text-xs text-muted-foreground">Last synced {account.lastSync}</span>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <CheckCircle className="w-3 h-3 text-primary shrink-0" />
+                          <span className="text-xs text-muted-foreground">Synced {account.lastSync}</span>
                         </div>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <p className="font-semibold text-card-foreground">
-                        ${Math.abs(account.balance).toLocaleString()}
+                    <div className="text-right shrink-0">
+                      <p className="text-sm font-semibold text-foreground tabular-nums">
+                        ${Math.abs(account.balance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {account.type === 'credit' ? 'Outstanding' : 'Available'}
                       </p>
-                      <div className="flex gap-2 mt-2">
+                      <div className="flex gap-1.5 mt-1.5 justify-end">
                         <Button
                           variant="outline"
                           size="sm"
-                          className="text-primary border-primary/20 hover:bg-primary/10 dark:text-sky-300 dark:border-sky-400 dark:bg-sky-500/10 dark:hover:bg-sky-500/20 dark:hover:border-sky-300 dark:hover:text-sky-200"
+                          className="text-xs h-7 px-2"
                           onClick={(e) => { e.stopPropagation(); handleSyncNow(account.id); }}
                           disabled={syncingAccountId === account.id}
                         >
-                          {syncingAccountId === account.id ? 'Syncing...' : 'Sync Now'}
+                          {syncingAccountId === account.id ? 'Syncing...' : 'Sync'}
                         </Button>
                         <Button
                           variant="outline"
                           size="sm"
                           onClick={(e) => { e.stopPropagation(); handleDeleteAccount(account.id); }}
                           disabled={deletingAccountId === account.id}
-                          className="text-destructive border-destructive/20 hover:bg-destructive/10 hover:text-destructive"
+                          className="text-xs h-7 w-7 p-0 text-destructive border-destructive/20 hover:bg-destructive/10 hover:text-destructive"
                         >
                           {deletingAccountId === account.id ? (
-                            'Deleting...'
+                            <div className="w-3 h-3 border border-destructive border-t-transparent rounded-full animate-spin" />
                           ) : (
-                            <Trash2 className="w-4 h-4" />
+                            <Trash2 className="w-3.5 h-3.5" />
                           )}
                         </Button>
                       </div>
                     </div>
                   </div>
-                </Card>
+                </div>
               ))}
             </div>
           </div>
         ) : (
           <div className="mb-8">
-            <div className="text-center py-12">
-              <Building2 className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-              <p className="text-muted-foreground">No connected accounts</p>
+            <div className="rounded-lg border border-border bg-card p-8 text-center">
+              <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mx-auto mb-3">
+                <Building2 className="w-6 h-6 text-muted-foreground" />
+              </div>
+              <p className="text-sm font-medium text-foreground mb-1">No connected accounts</p>
+              <p className="text-xs text-muted-foreground mb-4">Connect your bank to start tracking expenses automatically</p>
+              <Button onClick={onConnect} size="sm" className="text-xs">
+                <Plus className="w-3.5 h-3.5 mr-1.5" />
+                Connect Your First Bank
+              </Button>
             </div>
           </div>
         )}
 
         {/* Pending/Disconnected Accounts */}
         {pendingAccounts.length > 0 && (
-          <div className="mb-8">
-            <h2 className="text-lg font-medium text-foreground mb-4">Reconnection Required</h2>
-            <div className="space-y-4">
+          <div className="mb-6">
+            <h2 className="text-sm font-medium text-foreground mb-3">Reconnection Required</h2>
+            <div className="space-y-2">
               {pendingAccounts.map((account) => (
-                <Card key={account.id} className="p-6 bg-card border border-orange-500/20 shadow-xl border-l-4 border-l-orange-500">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 bg-orange-500/20 rounded-xl flex items-center justify-center">
-                        <AlertCircle className="w-6 h-6 text-orange-500" />
+                <div key={account.id} className="rounded-lg border border-amber-500/30 bg-card p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-9 h-9 rounded-lg bg-amber-500/10 flex items-center justify-center shrink-0">
+                        <AlertCircle className="w-4 h-4 text-amber-500" />
                       </div>
-                      <div>
-                        <h3 className="font-semibold text-card-foreground">{account.name}</h3>
-                        <p className="text-muted-foreground text-sm">
+                      <div className="min-w-0">
+                        <h3 className="text-sm font-medium text-foreground truncate">{account.name}</h3>
+                        <p className="text-xs text-muted-foreground">
                           {account.type.charAt(0).toUpperCase() + account.type.slice(1)} •••• {account.mask}
                         </p>
-                        <p className="text-orange-500 text-xs mt-1">Connection expired - please reconnect</p>
+                        <p className="text-xs text-amber-500 mt-0.5">Connection expired — please reconnect</p>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <Button
-                        onClick={onConnect}
-                        className="bg-orange-500 hover:bg-orange-600 text-white"
-                      >
-                        Reconnect
-                      </Button>
-                    </div>
+                    <Button onClick={onConnect} size="sm" className="text-xs shrink-0">
+                      Reconnect
+                    </Button>
                   </div>
-                </Card>
+                </div>
               ))}
             </div>
           </div>
         )}
 
         {/* Benefits */}
-        <Card className="p-6 bg-card border border-border shadow-xl">
-          <h3 className="text-lg font-semibold text-card-foreground mb-4">Why Connect Your Bank?</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="flex items-start gap-3">
-              <CheckCircle className="w-5 h-5 text-emerald-500 mt-0.5" />
+        <div className="rounded-lg border border-border bg-card p-5">
+          <h3 className="text-sm font-medium text-foreground mb-3">Why Connect Your Bank?</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="flex items-start gap-2.5">
+              <CheckCircle className="w-4 h-4 text-primary mt-0.5 shrink-0" />
               <div>
-                <p className="font-medium text-card-foreground">Automatic Expense Tracking</p>
-                <p className="text-sm text-muted-foreground">All business transactions imported automatically</p>
+                <p className="text-xs font-medium text-foreground">Automatic Expense Tracking</p>
+                <p className="text-xs text-muted-foreground">All business transactions imported automatically</p>
               </div>
             </div>
-            <div className="flex items-start gap-3">
-              <CheckCircle className="w-5 h-5 text-emerald-500 mt-0.5" />
+            <div className="flex items-start gap-2.5">
+              <CheckCircle className="w-4 h-4 text-primary mt-0.5 shrink-0" />
               <div>
-                <p className="font-medium text-card-foreground">Smart Categorization</p>
-                <p className="text-sm text-muted-foreground">AI-powered expense classification</p>
+                <p className="text-xs font-medium text-foreground">Smart Categorization</p>
+                <p className="text-xs text-muted-foreground">AI-powered expense classification</p>
               </div>
             </div>
-            <div className="flex items-start gap-3">
-              <CheckCircle className="w-5 h-5 text-emerald-500 mt-0.5" />
+            <div className="flex items-start gap-2.5">
+              <CheckCircle className="w-4 h-4 text-primary mt-0.5 shrink-0" />
               <div>
-                <p className="font-medium text-card-foreground">Real-time Deduction Tracking</p>
-                <p className="text-sm text-muted-foreground">See tax savings as they happen</p>
+                <p className="text-xs font-medium text-foreground">Real-time Deduction Tracking</p>
+                <p className="text-xs text-muted-foreground">See tax savings as they happen</p>
               </div>
             </div>
-            <div className="flex items-start gap-3">
-              <CheckCircle className="w-5 h-5 text-emerald-500 mt-0.5" />
+            <div className="flex items-start gap-2.5">
+              <CheckCircle className="w-4 h-4 text-primary mt-0.5 shrink-0" />
               <div>
-                <p className="font-medium text-card-foreground">Bank-level Security</p>
-                <p className="text-sm text-muted-foreground">256-bit encryption, read-only access</p>
+                <p className="text-xs font-medium text-foreground">Bank-level Security</p>
+                <p className="text-xs text-muted-foreground">256-bit encryption, read-only access</p>
               </div>
             </div>
           </div>
-        </Card>
+        </div>
       </div>
     </div>
   );

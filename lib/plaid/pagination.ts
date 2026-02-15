@@ -1,45 +1,58 @@
 import { PlaidApi, TransactionsGetRequest } from 'plaid';
+import { debugPlaid, logPlaidRequest } from './debug';
+
+const DEBUG_PLAID = process.env.DEBUG_PLAID === 'true';
 
 /**
  * Fetches all transactions from Plaid with automatic pagination handling.
- * This function will continue fetching pages until all transactions are retrieved.
- * Uses cursor-based pagination and continues until next_cursor is null/undefined.
+ * Uses OFFSET-based pagination (required by transactionsGet endpoint).
+ * transactionsGet uses options.offset + options.count, NOT cursor-based pagination.
  *
  * @param plaidClient - The Plaid API client instance
- * @param request - The base TransactionsGetRequest (without cursor)
+ * @param request - The base TransactionsGetRequest (without pagination options)
  * @param logPrefix - Optional prefix for log messages (e.g., "[Sync Helper]")
- * @returns Promise with all transactions and metadata
+ * @returns Promise with all transactions and metadata (including earliestTxDate, latestTxDate for diagnostics)
  */
 export async function fetchAllPlaidTransactions(
   plaidClient: PlaidApi,
   request: Omit<TransactionsGetRequest, 'options'> & {
-    options?: Omit<TransactionsGetRequest['options'], 'cursor'>
+    options?: Omit<TransactionsGetRequest['options'], 'offset' | 'count'>
   },
   logPrefix: string = '[Plaid]'
 ): Promise<{
   transactions: any[];
   totalPages: number;
   totalTransactions: number;
-  plaidTotalTransactions?: number; // Total transactions available from Plaid
+  plaidTotalTransactions?: number;
+  earliestTxDate?: string;
+  latestTxDate?: string;
 }> {
   let allTransactions: any[] = [];
-  let nextCursor: string | undefined = undefined;
   let pageCount = 0;
   let plaidTotalTransactions: number | undefined = undefined;
-  const maxPages = 500; // Increased safety limit (Plaid can return many pages for 2 years of data)
+  const PAGE_SIZE = 500; // Max allowed by Plaid transactionsGet
+  const maxPages = 500; // Safety limit
+  let offset = 0;
 
-  console.log(`${logPrefix} 🚀 Starting transaction fetch with pagination...`);
+  if (DEBUG_PLAID) {
+    debugPlaid(`${logPrefix} Starting transaction fetch (transactionsGet)`, {
+      start_date: request.start_date,
+      end_date: request.end_date,
+      options_account_ids: request.options?.account_ids,
+    });
+  }
+  console.log(`${logPrefix} 🚀 Starting transaction fetch with offset-based pagination...`);
   console.log(`${logPrefix} 📅 Date range: ${request.start_date} to ${request.end_date}`);
 
-  // Calculate and log the actual date range for debugging
   const startDate = new Date(request.start_date);
   const endDate = new Date(request.end_date);
   const dateRangeDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
   console.log(`${logPrefix} 📊 Requesting ${dateRangeDays} days of transaction history`);
-  console.log(`${logPrefix} 📅 Start: ${startDate.toLocaleDateString()} (${request.start_date})`);
-  console.log(`${logPrefix} 📅 End: ${endDate.toLocaleDateString()} (${request.end_date})`);
+  if (DEBUG_PLAID) {
+    console.log(`${logPrefix} 📅 Start: ${startDate.toLocaleDateString()} (${request.start_date})`);
+    console.log(`${logPrefix} 📅 End: ${endDate.toLocaleDateString()} (${request.end_date})`);
+  }
 
-  // Log a warning if the date range seems limited
   if (dateRangeDays < 30) {
     console.warn(`${logPrefix} ⚠️ WARNING: Date range is less than 30 days (${dateRangeDays} days). This may limit transaction history.`);
   }
@@ -55,56 +68,78 @@ export async function fetchAllPlaidTransactions(
       break;
     }
 
-    console.log(`${logPrefix} 📄 Fetching transaction page ${pageCount}${nextCursor ? ` (cursor: ${nextCursor.substring(0, 20)}...)` : ' (initial request)'}...`);
+    if (DEBUG_PLAID) {
+      console.log(`${logPrefix} 📄 Fetching transaction page ${pageCount} (offset: ${offset}, count: ${PAGE_SIZE})...`);
+    }
 
-    try {
-      const transactionsResponse = await plaidClient.transactionsGet({
-        ...request,
+    const requestPayload = {
+      ...request,
+      options: {
+        ...request.options,
+        count: PAGE_SIZE,
+        offset: offset,
+      },
+    };
+    if (DEBUG_PLAID) {
+      debugPlaid(`${logPrefix} transactionsGet payload (page ${pageCount})`, {
+        start_date: requestPayload.start_date,
+        end_date: requestPayload.end_date,
         options: {
-          ...request.options,
-          count: 500, // Request up to 500 transactions per page (max allowed by Plaid)
-          cursor: nextCursor, // undefined on first request, then uses the cursor from previous response
+          count: requestPayload.options?.count,
+          offset: requestPayload.options?.offset,
+          account_ids: requestPayload.options?.account_ids,
         },
       });
+    }
+    logPlaidRequest(logPrefix, {
+      endpoint: 'transactionsGet',
+      start_date: request.start_date,
+      end_date: request.end_date,
+      options: {
+        count: requestPayload.options?.count,
+        offset: requestPayload.options?.offset,
+        account_ids: requestPayload.options?.account_ids ?? undefined,
+      },
+    });
+    if (DEBUG_PLAID && !requestPayload.options?.account_ids?.length) {
+      debugPlaid(`${logPrefix} transactionsGet: no account_ids (fetching all accounts for item)`, {});
+    }
+
+    try {
+      const transactionsResponse = await plaidClient.transactionsGet(requestPayload);
 
       const responseData = transactionsResponse.data;
       const transactions = responseData.transactions || [];
 
-      // Capture total_transactions from Plaid if available (first page only typically has this)
-      if (responseData.total_transactions !== undefined && plaidTotalTransactions === undefined) {
+      // Capture total_transactions from Plaid (available on every response)
+      if (responseData.total_transactions !== undefined) {
         plaidTotalTransactions = responseData.total_transactions;
-        console.log(`${logPrefix} 📊 Plaid reports ${plaidTotalTransactions} total transactions available for this date range`);
+        if (pageCount === 1) {
+          console.log(`${logPrefix} 📊 Plaid reports ${plaidTotalTransactions} total transactions available for this date range`);
+        }
       }
 
       allTransactions = allTransactions.concat(transactions);
-      nextCursor = responseData.next_cursor || undefined;
+      offset += transactions.length;
 
-      // Debug logging for cursor issue
-      console.log(`${logPrefix} 🔍 DEBUG: next_cursor value:`, nextCursor === null ? 'null' : nextCursor === undefined ? 'undefined' : `"${nextCursor.substring(0, 50)}..."`);
-      console.log(`${logPrefix} 🔍 DEBUG: responseData keys:`, Object.keys(responseData));
-      
-      // If we have fewer transactions than reported, log full response structure for debugging
-      if (plaidTotalTransactions !== undefined && allTransactions.length < plaidTotalTransactions && !nextCursor) {
-        console.error(`${logPrefix} 🐛 BUG DETECTED: Plaid reported ${plaidTotalTransactions} transactions but only ${allTransactions.length} fetched and next_cursor is ${nextCursor === null ? 'null' : 'undefined'}`);
-        console.error(`${logPrefix} 🐛 Full response structure:`, JSON.stringify({
-          total_transactions: responseData.total_transactions,
-          transactions_count: responseData.transactions?.length,
-          next_cursor: responseData.next_cursor,
-          has_more: responseData.has_more,
-          request_id: responseData.request_id,
-        }, null, 2));
+      if (DEBUG_PLAID) {
+        console.log(
+          `${logPrefix} 📊 Page ${pageCount}: Fetched ${transactions.length} transactions ` +
+          `(cumulative: ${allTransactions.length}${plaidTotalTransactions ? ` / ${plaidTotalTransactions} available` : ''})`
+        );
       }
 
-      console.log(
-        `${logPrefix} 📊 Page ${pageCount}: Fetched ${transactions.length} transactions ` +
-        `(cumulative: ${allTransactions.length}${plaidTotalTransactions ? ` / ${plaidTotalTransactions} available` : ''})`
-      );
+      // Check if we've fetched all transactions
+      const hasMore = plaidTotalTransactions !== undefined
+        ? allTransactions.length < plaidTotalTransactions
+        : transactions.length === PAGE_SIZE; // Fallback: if we got a full page, there might be more
 
-      // Check if there are more transactions to fetch
-      if (nextCursor) {
-        console.log(`${logPrefix} 🔄 More transactions available (has next_cursor), fetching next page...`);
+      if (hasMore && transactions.length > 0) {
+        if (DEBUG_PLAID) {
+          console.log(`${logPrefix} 🔄 More transactions available (${allTransactions.length}/${plaidTotalTransactions}), fetching next page...`);
+        }
       } else {
-        console.log(`${logPrefix} ✅ Pagination complete - no more transactions (next_cursor is null/undefined)`);
+        console.log(`${logPrefix} ✅ Pagination complete - all transactions fetched`);
         console.log(
           `${logPrefix} 📊 FINAL SUMMARY: Fetched ${allTransactions.length} total transactions across ${pageCount} page(s)`
         );
@@ -140,19 +175,22 @@ export async function fetchAllPlaidTransactions(
               console.warn(`${logPrefix} ⚠️ IMPORTANT: Earliest transaction (${earliestTxDate}) is ${daysMissing} days AFTER requested start date (${request.start_date})`);
               console.warn(`${logPrefix} ⚠️ This means Plaid does not have transactions before ${earliestTxDate}`);
               console.warn(`${logPrefix} ⚠️ Possible reasons:`);
-              console.warn(`${logPrefix}   1. Using Plaid Sandbox (typically only has 30-40 days of test data)`);
-              console.warn(`${logPrefix}   2. Account was connected on ${earliestTxDate} (Plaid starts tracking from connection date)`);
-              console.warn(`${logPrefix}   3. Bank only provides recent transaction history through Plaid API`);
-              console.warn(`${logPrefix}   4. Bank has limited historical data available`);
+              const isSandbox = process.env.PLAID_ENV === 'sandbox';
+              if (isSandbox) {
+                console.warn(`${logPrefix}   1. Using Plaid Sandbox (typically only has 30-40 days of test data)`);
+              }
+              console.warn(`${logPrefix}   ${isSandbox ? '2' : '1'}. Account was connected on ${earliestTxDate} (Plaid starts tracking from connection date)`);
+              console.warn(`${logPrefix}   ${isSandbox ? '3' : '2'}. Bank only provides recent transaction history through Plaid API`);
+              console.warn(`${logPrefix}   ${isSandbox ? '4' : '3'}. Bank has limited historical data available`);
             }
 
-            if (fetchedDateRange < 30) {
+            if (fetchedDateRange < 30 && process.env.PLAID_ENV === 'sandbox') {
               console.warn(`${logPrefix} ⚠️ WARNING: Only ${fetchedDateRange} days of transactions available. This is typical for Plaid Sandbox.`);
             }
           }
         }
 
-        break; // Exit loop when no more cursor
+        break; // All transactions fetched
       }
     } catch (error: any) {
       console.error(`${logPrefix} ❌ Error fetching page ${pageCount}:`, error.message);
@@ -169,17 +207,47 @@ export async function fetchAllPlaidTransactions(
 
       throw error; // Re-throw to let caller handle it
     }
-  } while (nextCursor); // Continue while we have a cursor
+  } while (true); // Loop is controlled by break statements above
 
-  // Final summary log
   console.log(
     `${logPrefix} 🎉 Transaction fetch completed: ${allTransactions.length} transactions across ${pageCount} page(s)`
   );
+
+  let earliestTxDate: string | undefined;
+  let latestTxDate: string | undefined;
+  if (allTransactions.length > 0) {
+    const transactionDates = allTransactions
+      .map(tx => tx.date || tx.authorized_date || '')
+      .filter(d => d)
+      .sort();
+    if (transactionDates.length > 0) {
+      earliestTxDate = transactionDates[0];
+      latestTxDate = transactionDates[transactionDates.length - 1];
+      if (DEBUG_PLAID) {
+        const isPlaidLimitation =
+          plaidTotalTransactions !== undefined &&
+          allTransactions.length === plaidTotalTransactions &&
+          earliestTxDate > request.start_date;
+        debugPlaid(`${logPrefix} Fetch summary`, {
+          minTxDate: earliestTxDate,
+          maxTxDate: latestTxDate,
+          fetchedCount: allTransactions.length,
+          plaidTotalTransactions,
+          pageCount,
+          requestedStart: request.start_date,
+          requestedEnd: request.end_date,
+          isPlaidLimitation,
+        });
+      }
+    }
+  }
 
   return {
     transactions: allTransactions,
     totalPages: pageCount,
     totalTransactions: allTransactions.length,
-    plaidTotalTransactions, // Include Plaid's reported total for comparison
+    plaidTotalTransactions,
+    earliestTxDate,
+    latestTxDate,
   };
 }

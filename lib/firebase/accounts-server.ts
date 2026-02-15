@@ -24,6 +24,12 @@ export interface Account {
   balance_last_updated?: string;
   created_at?: any;
   updated_at?: any;
+  // Import metadata (for UX: "Bank provided history from X")
+  last_import_at?: number | null;
+  last_import_requested_start?: string | null;
+  last_import_earliest_tx?: string | null;
+  last_import_latest_tx?: string | null;
+  last_import_count?: number | null;
 }
 
 // Server-side function (for use in API routes)
@@ -54,6 +60,11 @@ export async function getAccountsServer(userId: string): Promise<{ data: Account
         balance_last_updated: data.balance_last_updated || null,
         created_at: data.created_at,
         updated_at: data.updated_at,
+        last_import_at: data.last_import_at ?? null,
+        last_import_requested_start: data.last_import_requested_start ?? null,
+        last_import_earliest_tx: data.last_import_earliest_tx ?? null,
+        last_import_latest_tx: data.last_import_latest_tx ?? null,
+        last_import_count: data.last_import_count ?? null,
       });
     });
 

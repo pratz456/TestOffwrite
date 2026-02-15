@@ -6,8 +6,8 @@ import { useAuth } from '@/lib/firebase/auth-context';
 import { getAuth } from 'firebase/auth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Slider } from '@/ui/slider';
 
 async function startAnalysis(accountId?: string) {
   const auth = getAuth();
@@ -175,117 +175,171 @@ export default function AccountUsagePage() {
   }
 
   return (
-    <div className="mx-auto max-w-lg p-3">
-      <Card className="rounded-lg">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-lg">Classify this bank account</CardTitle>
-          <p className="text-xs text-gray-600 mt-1">
+    <div className="min-h-screen bg-background flex items-start justify-center p-5 sm:p-6 pt-8 pb-12">
+      <Card className="w-full max-w-[28rem] rounded-2xl border-0 shadow-lg bg-card/95 backdrop-blur-sm">
+        <CardHeader className="px-6 sm:px-8 pt-6 sm:pt-8 pb-4 space-y-3">
+          <CardTitle className="text-[22px] sm:text-2xl font-bold tracking-tight text-foreground">
+            Classify this bank account
+          </CardTitle>
+          <p className="text-sm text-muted-foreground/90 max-w-md">
             Choose how this account is primarily used. This helps us provide the most relevant tax deduction analysis.
           </p>
           {importedCount !== null && importedCount > 0 && (
-            <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-md">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                <span className="text-sm font-medium text-green-800">
-                  Successfully imported {importedCount} {importedCount === 1 ? 'transaction' : 'transactions'}
-                </span>
-              </div>
+            <div className="mt-1 inline-flex items-center gap-2 rounded-full px-3 py-1.5 bg-[var(--success-weak)] border-0">
+              <div className="w-1.5 h-1.5 rounded-full bg-success shrink-0" />
+              <span className="text-xs font-medium text-foreground">
+                Successfully imported {importedCount} {importedCount === 1 ? 'transaction' : 'transactions'}
+              </span>
             </div>
           )}
         </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="space-y-2">
-            <div className="flex items-start gap-2 p-2 border border-green-200 bg-green-50 rounded-md">
+        <CardContent className="px-6 sm:px-8 pb-6 sm:pb-8 space-y-6">
+          <div className="space-y-3" role="radiogroup" aria-label="Account type">
+            <label
+              className={`flex items-start gap-4 p-4 rounded-xl cursor-pointer transition-all duration-200 ease-out ${
+                usage === 'business'
+                  ? 'bg-muted/50 dark:bg-muted/40 border border-primary/60 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.03)] dark:shadow-[inset_0_1px_0_0_rgba(0,0,0,0.2)] scale-[1.02] -translate-y-0.5 shadow-md ring-1 ring-primary/20'
+                  : 'bg-muted/20 dark:bg-muted/30 border border-transparent hover:bg-muted/40 hover:shadow-sm hover:scale-[1.01]'
+              }`}
+            >
+              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 border-muted-foreground/40 transition-all duration-200">
+                {usage === 'business' && <span className="h-2.5 w-2.5 rounded-full bg-primary" />}
+              </span>
               <input
                 type="radio"
-                id="business"
                 name="usage"
                 value="business"
                 checked={usage === 'business'}
                 onChange={(e) => setUsage(e.target.value as 'business'|'personal'|'mixed')}
-                className="mt-0.5"
+                className="sr-only"
+                aria-label="Business"
               />
-              <div>
-                <label htmlFor="business" className="text-sm font-medium text-green-800">Business</label>
-                <p className="text-xs text-green-700 mt-0.5">Best for tax deduction analysis. All transactions will be analyzed for business expense potential.</p>
+              <div className="flex-1 min-w-0 space-y-1">
+                <span className="text-sm font-semibold text-foreground">Business</span>
+                <p className="text-xs text-muted-foreground leading-relaxed">Best for tax deduction analysis. All transactions will be analyzed for business expense potential.</p>
               </div>
-            </div>
+            </label>
 
-            <div className="flex items-start gap-2 p-2 border border-orange-200 bg-orange-50 rounded-md">
+            <label
+              className={`flex items-start gap-4 p-4 rounded-xl cursor-pointer transition-all duration-200 ease-out ${
+                usage === 'personal'
+                  ? 'bg-destructive/5 dark:bg-destructive/10 border border-destructive/40 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.03)] scale-[1.02] -translate-y-0.5 shadow-md ring-1 ring-destructive/20'
+                  : 'bg-muted/20 dark:bg-muted/30 border border-transparent hover:bg-muted/40 hover:shadow-sm hover:scale-[1.01]'
+              }`}
+            >
+              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 border-muted-foreground/40 transition-all duration-200">
+                {usage === 'personal' && <span className="h-2.5 w-2.5 rounded-full bg-destructive" />}
+              </span>
               <input
                 type="radio"
-                id="personal"
                 name="usage"
                 value="personal"
                 checked={usage === 'personal'}
                 onChange={(e) => setUsage(e.target.value as 'business'|'personal'|'mixed')}
-                className="mt-0.5"
+                className="sr-only"
+                aria-label="Personal"
               />
-              <div>
-                <label htmlFor="personal" className="text-sm font-medium text-orange-800">Personal</label>
-                <p className="text-xs text-orange-700 mt-0.5">⚠️ Personal accounts are not useful for tax calculations. All transactions will be marked as personal expenses.</p>
+              <div className="flex-1 min-w-0 space-y-1">
+                <span className="text-sm font-semibold text-foreground">Personal</span>
+                <p className="text-xs text-muted-foreground leading-relaxed">Personal accounts are not used for tax calculations. All transactions will be marked as personal expenses.</p>
               </div>
-            </div>
+            </label>
 
-            <div className="flex items-start gap-2 p-2 border border-blue-200 bg-blue-50 rounded-md">
+            <label
+              className={`flex items-start gap-4 p-4 rounded-xl cursor-pointer transition-all duration-200 ease-out ${
+                usage === 'mixed'
+                  ? 'bg-muted/50 dark:bg-muted/40 border border-primary/60 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.03)] dark:shadow-[inset_0_1px_0_0_rgba(0,0,0,0.2)] scale-[1.02] -translate-y-0.5 shadow-md ring-1 ring-primary/20'
+                  : 'bg-muted/20 dark:bg-muted/30 border border-transparent hover:bg-muted/40 hover:shadow-sm hover:scale-[1.01]'
+              }`}
+            >
+              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 border-muted-foreground/40 transition-all duration-200">
+                {usage === 'mixed' && <span className="h-2.5 w-2.5 rounded-full bg-primary" />}
+              </span>
               <input
                 type="radio"
-                id="mixed"
                 name="usage"
                 value="mixed"
                 checked={usage === 'mixed'}
                 onChange={(e) => setUsage(e.target.value as 'business'|'personal'|'mixed')}
-                className="mt-0.5"
+                className="sr-only"
+                aria-label="Both (Mixed use)"
               />
-              <div>
-                <label htmlFor="mixed" className="text-sm font-medium text-blue-800">Both (Mixed use)</label>
-                <p className="text-xs text-blue-700 mt-0.5">Good for accounts used for both business and personal expenses. You can specify the business percentage.</p>
+              <div className="flex-1 min-w-0 space-y-1">
+                <span className="text-sm font-semibold text-foreground">Both (Mixed use)</span>
+                <p className="text-xs text-muted-foreground leading-relaxed">For accounts used for both business and personal. You can set the business percentage below.</p>
               </div>
-            </div>
+            </label>
           </div>
 
           {usage === 'mixed' && (
-            <div className="space-y-1">
-              <Label htmlFor="percent" className="text-sm">Approx. % used for business</Label>
-              <div className="flex items-center gap-2">
-                <input
-                  id="percent"
-                  type="range"
-                  min={0}
-                  max={100}
-                  value={percent}
-                  onChange={(e)=>setPercent(parseInt(e.target.value))}
-                  className="w-full h-6"
-                />
-                <Input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={percent}
-                  onChange={(e)=>setPercent(Math.max(0, Math.min(100, parseInt(e.target.value||'0'))))}
-                  className="w-16 h-6 text-center text-sm"
-                />
-                <span className="text-sm">%</span>
+            <div
+              className="rounded-xl bg-muted/15 dark:bg-muted/25 border-t border-border pt-6 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200"
+              role="group"
+              aria-labelledby="percent-label"
+            >
+              <div className="space-y-3 px-0">
+                <Label id="percent-label" className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  Business Usage
+                </Label>
+                <p className="text-4xl sm:text-5xl font-bold tabular-nums text-foreground tracking-tight" aria-live="polite" aria-atomic="true">
+                  {percent}%
+                </p>
               </div>
+              <div className="w-full px-0.5 py-2 mt-4">
+                <Slider
+                  id="percent"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={[percent]}
+                  onValueChange={(v) => setPercent(v[0] ?? 50)}
+                  aria-label="Business use percentage"
+                  aria-valuetext={`${percent} percent business`}
+                  aria-describedby="percent-description"
+                  className="w-full touch-manipulation min-h-[44px] py-3"
+                  trackClassName="data-[orientation=horizontal]:h-2 bg-muted/80 dark:bg-muted rounded-full"
+                  rangeClassName="data-[orientation=horizontal]:h-2 rounded-full bg-gradient-to-r from-primary to-primary/90"
+                  thumbClassName="size-5 rounded-full bg-background border-2 border-primary shadow-md hover:shadow-lg hover:shadow-primary/20 hover:scale-105 focus-visible:ring-4 focus-visible:ring-primary/30 transition-all duration-150"
+                />
+              </div>
+              <div className="flex justify-between px-0.5 -mt-1 pointer-events-none" aria-hidden="true">
+                {[0, 25, 50, 75, 100].map((tick) => (
+                  <span key={tick} className="w-0.5 h-2 rounded-full bg-muted-foreground/50" />
+                ))}
+              </div>
+              <p className="text-sm text-muted-foreground mt-4 min-h-[2.5rem]" id="percent-description">
+                {percent === 0 && 'Fully Personal Account'}
+                {percent === 100 && 'Fully Business Account'}
+                {percent > 0 && percent < 100 && 'Mixed usage – Expenses will be proportionally allocated.'}
+              </p>
             </div>
           )}
 
-          <div className="flex gap-2 items-center">
-            <Button onClick={save} disabled={saving} className="h-8 px-3 text-sm">
-              {saving ? 'Saving…' : (
-                usage === 'personal' ? 'Mark as Personal & Continue' :
-                usage === 'business' ? 'Save & Start Analysis' :
-                'Save & Start Analysis'
-              )}
+          <div className="flex flex-col gap-4 pt-2">
+            <Button
+              onClick={save}
+              disabled={saving}
+              className="w-full h-12 rounded-xl font-semibold bg-gradient-to-r from-primary to-primary/90 hover:from-primary/95 hover:to-primary/85 shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+            >
+              {saving ? 'Saving…' : usage === 'personal' ? 'Mark as Personal & Continue' : 'Save & Start Analysis'}
             </Button>
-
-            <Button variant="secondary" onClick={() => router.push('/protected/plaid-link')} className="h-8 px-3 text-sm">
-              Connect a different bank
-            </Button>
-
-            <Button variant="ghost" onClick={() => router.push('/protected/plaid')} className="h-8 px-3 text-sm">
-              Skip for now
-            </Button>
+            <div className="flex items-center justify-center gap-3 text-sm">
+              <button
+                type="button"
+                onClick={() => router.push('/protected/plaid-link')}
+                className="text-muted-foreground hover:text-foreground font-medium transition-colors hover:underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 rounded"
+              >
+                Connect a different bank
+              </button>
+              <span className="text-muted-foreground/60" aria-hidden="true">·</span>
+              <button
+                type="button"
+                onClick={() => router.push('/protected/plaid')}
+                className="text-muted-foreground hover:text-foreground transition-colors hover:underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 rounded"
+              >
+                Skip for now
+              </button>
+            </div>
           </div>
         </CardContent>
       </Card>

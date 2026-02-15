@@ -225,10 +225,10 @@ export function SignUpForm({
           </div>
 
           {/* Sign up form */}
-          <div className="bg-card/80 backdrop-blur-xl rounded-xl sm:rounded-2xl shadow-lg shadow-gray-900/5 ring-1 ring-border p-4 sm:p-6">
+          <div className="bg-card/80 backdrop-blur-xl rounded-xl sm:rounded-2xl shadow-lg shadow-black/5 dark:shadow-black/25 ring-1 ring-border p-4 sm:p-6">
             {/* Notice at Collection */}
-            <div className="mb-4 p-3 sm:p-4 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-900">
-              <strong>Notice at Collection:</strong> We collect your name, email, password, and, after signup, your bank transactions, employer/workstyle answers, and state. This information is used to provide tax deduction analysis, generate reports, and personalize your experience. See our <a href="/privacy" className="underline text-blue-700 no-tap-highlight" target="_blank" rel="noopener noreferrer">Privacy Policy</a> for details.
+            <div className="mb-4 p-3 sm:p-4 bg-primary/10 dark:bg-primary/15 border border-primary/20 rounded-lg text-xs text-foreground">
+              <strong>Notice at Collection:</strong> We collect your name, email, password, and, after signup, your bank transactions, employer/workstyle answers, and state. This information is used to provide tax deduction analysis, generate reports, and personalize your experience. See our <a href="/privacy" className="underline text-primary no-tap-highlight" target="_blank" rel="noopener noreferrer">Privacy Policy</a> for details.
             </div>
             <form onSubmit={handleSignUp} className="space-y-4 sm:space-y-5">
               <div className="space-y-4 sm:space-y-3">
@@ -323,8 +323,8 @@ export function SignUpForm({
                     required
                   />
                   <label htmlFor="bankConsent" className="text-xs text-foreground leading-relaxed">
-                    I authorize WriteOff to access and use my account and transaction data via Plaid to analyze potential tax deductions and generate reports. (<a href="/privacy" className="underline text-blue-700 no-tap-highlight" target="_blank" rel="noopener noreferrer">Privacy</a> | <a href="https://plaid.com/legal/#end-user-privacy-policy" className="underline text-blue-700 no-tap-highlight" target="_blank" rel="noopener noreferrer">Plaid</a>)
-                    <span className="text-red-600 ml-0.5">*</span>
+                    I authorize WriteOff to access and use my account and transaction data via Plaid to analyze potential tax deductions and generate reports. (<a href="/privacy" className="underline text-primary no-tap-highlight" target="_blank" rel="noopener noreferrer">Privacy</a> | <a href="https://plaid.com/legal/#end-user-privacy-policy" className="underline text-primary no-tap-highlight" target="_blank" rel="noopener noreferrer">Plaid</a>)
+                    <span className="text-destructive ml-0.5">*</span>
                   </label>
                 </div>
                 <div className="flex items-start gap-3 sm:gap-2">
@@ -338,7 +338,7 @@ export function SignUpForm({
                   />
                   <label htmlFor="aiConsent" className="text-xs text-foreground leading-relaxed">
                     I understand that WriteOff uses automated (AI) analysis to help identify tax deductions.
-                    <span className="text-red-600 ml-0.5">*</span>
+                    <span className="text-destructive ml-0.5">*</span>
                   </label>
                 </div>
                 <div className="flex items-start gap-3 sm:gap-2">
@@ -398,11 +398,11 @@ export function SignUpForm({
               type="button"
               onClick={handleGoogleSignIn}
               disabled={isSubmitting || isGoogleLoading}
-              className="w-full h-12 sm:h-11 bg-white hover:bg-gray-50 active:bg-gray-100 text-gray-700 border border-gray-300 rounded-lg font-medium text-base sm:text-sm transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-3 no-tap-highlight"
+              className="w-full h-12 sm:h-11 bg-card hover:bg-muted active:bg-muted/80 text-foreground border border-border rounded-lg font-medium text-base sm:text-sm transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-3 no-tap-highlight"
             >
               {isGoogleLoading ? (
                 <div className="flex items-center gap-2">
-                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-400 border-t-transparent"></div>
+                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-muted-foreground border-t-transparent"></div>
                   Signing in...
                 </div>
               ) : (

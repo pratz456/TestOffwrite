@@ -448,6 +448,16 @@
 
 html { scroll-behavior: smooth; }
 
+/* Dashboard chart bar: desktop-only hover glow (no heavy animation) */
+@media (min-width: 768px) {
+  .chart-bar-hover .recharts-bar-rectangle {
+    transition: filter 0.18s ease;
+  }
+  .chart-bar-hover .recharts-bar-rectangle:hover {
+    filter: drop-shadow(0 0 10px hsl(var(--primary) / 0.35));
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-on-scroll, .animate-on-scroll.in-view { opacity: 1; transform: none; transition: none; }
   .animate-hero-enter, .animate-hero-enter-delay-1, .animate-hero-enter-delay-2, .animate-hero-enter-delay-3 { animation: none; opacity: 1; }

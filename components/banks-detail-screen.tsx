@@ -43,6 +43,11 @@ export const BanksDetailScreen: React.FC<BanksDetailScreenProps> = ({
   const [deletingAccountId, setDeletingAccountId] = useState<string | null>(null);
   const [disconnectingPlaid, setDisconnectingPlaid] = useState(false);
   const [hasPlaidConnection, setHasPlaidConnection] = useState(false);
+  const [plaidImportMeta, setPlaidImportMeta] = useState<{
+    plaid_requested_start_date?: string | null;
+    plaid_earliest_returned_tx_date?: string | null;
+    plaid_imported_count?: number | null;
+  } | null>(null);
 
   // Fetch accounts and Plaid connection status from API
   useEffect(() => {
@@ -70,6 +75,11 @@ export const BanksDetailScreen: React.FC<BanksDetailScreenProps> = ({
         if (plaidStatusResponse.ok) {
           const plaidStatus = await plaidStatusResponse.json();
           setHasPlaidConnection(plaidStatus.hasConnection || false);
+          setPlaidImportMeta({
+            plaid_requested_start_date: plaidStatus.plaid_requested_start_date ?? null,
+            plaid_earliest_returned_tx_date: plaidStatus.plaid_earliest_returned_tx_date ?? null,
+            plaid_imported_count: plaidStatus.plaid_imported_count ?? null,
+          });
         }
 
         // Fetch accounts with authentication
@@ -492,6 +502,20 @@ export const BanksDetailScreen: React.FC<BanksDetailScreenProps> = ({
       </div>
 
       <div className="max-w-6xl mx-auto p-6">
+        {plaidImportMeta?.plaid_earliest_returned_tx_date &&
+          plaidImportMeta?.plaid_requested_start_date &&
+          plaidImportMeta.plaid_earliest_returned_tx_date > plaidImportMeta.plaid_requested_start_date && (
+          <Card className="mb-6 border-amber-200 bg-amber-50 dark:border-amber-700/50 dark:bg-amber-900/20 p-4">
+            <p className="font-medium text-amber-900 dark:text-amber-100">Limited transaction history</p>
+            <p className="mt-1 text-sm text-amber-800 dark:text-amber-200/90">
+              Bank provided transactions from {plaidImportMeta.plaid_earliest_returned_tx_date} onward.
+              Older history is not available via Plaid for this connection.
+              {plaidImportMeta.plaid_imported_count != null && (
+                <span className="block mt-1">Imported {plaidImportMeta.plaid_imported_count} transactions.</span>
+              )}
+            </p>
+          </Card>
+        )}
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <Card className="p-6 bg-white border-0 shadow-xl">

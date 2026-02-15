@@ -97,8 +97,11 @@ export class AILearningEngine {
         }
       };
 
+      // Strip undefined values — Firestore rejects them
+      const cleanCorrection = JSON.parse(JSON.stringify(correction));
+
       // Store correction in Firestore
-      await this.db.collection('user_corrections').doc(correctionId).set(correction);
+      await this.db.collection('user_corrections').doc(correctionId).set(cleanCorrection);
 
       // Update learning patterns
       await this.updateLearningPatterns(userId, correction);
@@ -309,7 +312,9 @@ export class AILearningEngine {
       }
 
       patterns.lastUpdated = new Date();
-      await patternsRef.set(patterns);
+      // Strip undefined values — Firestore rejects them
+      const cleanPatterns = JSON.parse(JSON.stringify(patterns));
+      await patternsRef.set(cleanPatterns);
     } catch (error) {
       console.error('❌ [AI Learning] Error updating learning patterns:', error);
     }

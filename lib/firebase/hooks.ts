@@ -45,7 +45,8 @@ export function useTransactions(uid: string) {
     setIsLoading(true);
     setError(null);
 
-    // Try the collectionGroup query first
+    // Query with both userId (camelCase) and user_id (snake_case) to cover
+    // all transactions regardless of which field name was used at creation time.
     const transactionsQuery = query(
       collectionGroup(db, 'transactions'),
       or(
@@ -72,7 +73,7 @@ export function useTransactions(uid: string) {
         }
       },
       (err) => {
-        console.error('❌ [useTransactions] CollectionGroup query failed:', err);
+        console.warn('⚠️ [useTransactions] CollectionGroup query issue, falling back to API:', err.code || err.message);
 
         // If collectionGroup fails, fall back to API-based fetching
         if (err.code === 'failed-precondition') {
@@ -235,7 +236,7 @@ export function useTransaction(id: string, uid: string) {
         }
       },
       (err) => {
-        console.error('Error in transaction snapshot:', err);
+        console.warn('⚠️ [useTransaction] Snapshot error:', err.code || err.message);
 
         // Check for specific Firestore index errors
         if (err.code === 'failed-precondition') {
@@ -317,7 +318,7 @@ export function useUserStats(uid: string) {
         }
       },
       (err) => {
-        console.error('Error in stats snapshot:', err);
+        console.warn('⚠️ [useUserStats] Snapshot error:', err.code || err.message);
 
         // Check for specific Firestore index errors
         if (err.code === 'failed-precondition') {

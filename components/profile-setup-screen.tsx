@@ -118,14 +118,15 @@ const filingStatuses = [
   'Single', 'Married Filing Jointly', 'Married Filing Separately', 'Head of Household', 'Qualifying Widower'
 ];
 
-const businessEntityTypes = [
-  'Sole Proprietor / Independent Contractor',
-  'Single-Member LLC (disregarded entity)',
-  'Multi-Member LLC',
-  'S-Corporation',
-  'C-Corporation',
-  'Partnership',
-  'This does not apply to me'
+// Short labels for UX; stored value preserved for API/analytics
+const businessEntityTypeOptions: { value: string; label: string }[] = [
+  { value: 'Sole Proprietor / Independent Contractor', label: 'Sole proprietor or freelancer' },
+  { value: 'Single-Member LLC (disregarded entity)', label: 'Single-owner LLC' },
+  { value: 'Multi-Member LLC', label: 'LLC with multiple owners' },
+  { value: 'S-Corporation', label: 'S-Corp' },
+  { value: 'C-Corporation', label: 'C-Corp' },
+  { value: 'Partnership', label: 'Partnership' },
+  { value: 'This does not apply to me', label: 'Not applicable' }
 ];
 
 const primaryWorkLocations = [
@@ -274,6 +275,16 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                                  formData.businessEntityType && formData.primaryWorkLocation && formData.workRelatedTravelPattern &&
                                  formData.income &&
                                  (!formData.profession.includes('Other') || (formData.profession.includes('Other') && formData.customProfession?.trim()));
+
+  const professionalMissing: string[] = [];
+  if (currentSlide === 'professional') {
+    if (formData.profession.length === 0) professionalMissing.push('at least one profession');
+    if (!formData.businessEntityType) professionalMissing.push('business entity type');
+    if (!formData.primaryWorkLocation) professionalMissing.push('primary work location');
+    if (!formData.workRelatedTravelPattern) professionalMissing.push('work-related travel pattern');
+    if (!formData.income) professionalMissing.push('annual income range');
+    if (formData.profession.includes('Other') && !formData.customProfession?.trim()) professionalMissing.push('your profession (when "Other" is selected)');
+  }
 
   const isBusinessInfoValid = noBusiness || (formData.businessPurpose && formData.businessStartDate && formData.businessSeasonality);
 
@@ -647,14 +658,14 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                   </div>
                 </div>
 
-                <div className="space-y-4">
+                <div className="space-y-6">
                   <div>
                     <label className="block text-sm font-semibold text-foreground mb-2 flex items-center gap-2">
                       <Briefcase className="w-4 h-4 text-emerald-600" />
                       Profession(s) <span className="text-red-500">*</span>
                     </label>
-                    <p className="text-xs text-muted-foreground mb-3">Select all that apply to your work</p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto border-2 border-border rounded-xl p-3 bg-background shadow-sm">
+                    <p className="text-xs text-muted-foreground mb-3">Select all that apply — checkboxes allow multiple choices</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-44 overflow-y-auto border-2 border-border rounded-xl p-3 bg-muted/30 shadow-sm">
                       {professions.map((profession) => (
                         <label key={profession} className="flex items-center space-x-2 cursor-pointer hover:bg-muted p-2 rounded-lg transition-colors">
                           <Checkbox
@@ -690,20 +701,23 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                     )}
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3">Work setup & income</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-semibold text-foreground mb-2 flex items-center gap-2">
                         <Briefcase className="w-4 h-4 text-emerald-600" />
                         Business Entity Type <span className="text-red-500">*</span>
                       </label>
+                      <p className="text-xs text-muted-foreground mb-2">How your business is legally set up (most freelancers choose the first option)</p>
                       <Select value={formData.businessEntityType} onValueChange={(value: string) => setFormData(prev => ({ ...prev, businessEntityType: value }))}>
                         <SelectTrigger className="h-10 text-sm rounded-xl border-2 border-border focus:border-emerald-500 bg-background shadow-sm">
-                          <SelectValue placeholder="Select your business entity type" />
+                          <SelectValue placeholder="How is your business set up?" />
                         </SelectTrigger>
                         <SelectContent>
-                          {businessEntityTypes.map((type) => (
-                            <SelectItem key={type} value={type}>
-                              {type}
+                          {businessEntityTypeOptions.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              {opt.label}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -717,7 +731,7 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                       </label>
                       <Select value={formData.primaryWorkLocation} onValueChange={(value: string) => setFormData(prev => ({ ...prev, primaryWorkLocation: value }))}>
                         <SelectTrigger className="h-10 text-sm rounded-xl border-2 border-border focus:border-emerald-500 bg-background shadow-sm">
-                          <SelectValue placeholder="Select your primary work location" />
+                          <SelectValue placeholder="Where do you usually work?" />
                         </SelectTrigger>
                         <SelectContent>
                           {primaryWorkLocations.map((location) => (
@@ -736,7 +750,7 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                       </label>
                       <Select value={formData.workRelatedTravelPattern} onValueChange={(value: string) => setFormData(prev => ({ ...prev, workRelatedTravelPattern: value }))}>
                         <SelectTrigger className="h-10 text-sm rounded-xl border-2 border-border focus:border-emerald-500 bg-background shadow-sm">
-                          <SelectValue placeholder="Select your travel pattern" />
+                          <SelectValue placeholder="How often do you travel for work?" />
                         </SelectTrigger>
                         <SelectContent>
                           {workRelatedTravelPatterns.map((pattern) => (
@@ -755,7 +769,7 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                       </label>
                       <Select value={formData.income} onValueChange={(value: string) => setFormData(prev => ({ ...prev, income: value }))}>
                         <SelectTrigger className="h-10 text-sm rounded-xl border-2 border-border focus:border-emerald-500 bg-background shadow-sm">
-                          <SelectValue placeholder="Select your income range" />
+                          <SelectValue placeholder="What’s your approximate income range?" />
                         </SelectTrigger>
                         <SelectContent>
                           {incomeRanges.map((range) => (
@@ -765,6 +779,7 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                           ))}
                         </SelectContent>
                       </Select>
+                    </div>
                     </div>
                   </div>
                 </div>
@@ -1146,8 +1161,7 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
         {/* Navigation Buttons */}
         <div className="flex items-center justify-between mt-2">
           <Button
-            onClick={handlePrevSlide}
-            disabled={currentSlide === 'basic'}
+            onClick={handleBackButton}
             variant="outline"
             className="h-10 px-5 rounded-xl border-2 border-border hover:bg-muted bg-background shadow-sm disabled:opacity-50"
           >
@@ -1174,22 +1188,48 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
               )}
             </Button>
           ) : (
-            <Button
-              onClick={handleNextSlide}
-              disabled={
-                (currentSlide === 'basic' && !isBasicInfoValid) ||
-                (currentSlide === 'professional' && !isProfessionalInfoValid) ||
-                (currentSlide === 'business' && !isBusinessInfoValid) ||
-                (currentSlide === 'advanced' && !isAdvancedInfoValid) ||
-                (currentSlide === 'deductions' && !isDeductionsInfoValid)
-              }
-              className="h-10 px-6 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-lg shadow-blue-500/20 disabled:opacity-50"
-            >
-              Next
-              <ArrowRight className="w-4 h-4 ml-2" />
-            </Button>
+            <>
+              <Button
+                onClick={handleNextSlide}
+                disabled={
+                  (currentSlide === 'basic' && !isBasicInfoValid) ||
+                  (currentSlide === 'professional' && !isProfessionalInfoValid) ||
+                  (currentSlide === 'business' && !isBusinessInfoValid) ||
+                  (currentSlide === 'advanced' && !isAdvancedInfoValid) ||
+                  (currentSlide === 'deductions' && !isDeductionsInfoValid)
+                }
+                className="h-10 px-6 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-lg shadow-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed disabled:grayscale"
+                aria-disabled={
+                  (currentSlide === 'basic' && !isBasicInfoValid) ||
+                  (currentSlide === 'professional' && !isProfessionalInfoValid) ||
+                  (currentSlide === 'business' && !isBusinessInfoValid) ||
+                  (currentSlide === 'advanced' && !isAdvancedInfoValid) ||
+                  (currentSlide === 'deductions' && !isDeductionsInfoValid)
+                }
+                title={
+                  currentSlide === 'basic' && !isBasicInfoValid
+                    ? 'Select State of Residence and Filing Status to continue'
+                    : currentSlide === 'professional' && professionalMissing.length > 0
+                      ? `Complete: ${professionalMissing.join(', ')}`
+                      : undefined
+                }
+              >
+                Next
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
+            </>
           )}
         </div>
+        {currentSlide === 'basic' && !isBasicInfoValid && (
+          <p className="text-xs text-muted-foreground mt-2 text-center">
+            Select State of Residence and Filing Status above to enable Next
+          </p>
+        )}
+        {currentSlide === 'professional' && !isProfessionalInfoValid && professionalMissing.length > 0 && (
+          <p className="text-xs text-muted-foreground mt-2 text-center">
+            To continue, complete: {professionalMissing.join(', ')}.
+          </p>
+        )}
 
         {error && (
           <div className="mt-6 p-4 bg-red-500/10 border-2 border-red-500/20 rounded-xl">

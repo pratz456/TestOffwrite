@@ -30,7 +30,7 @@ export function HomeContent() {
           </div>
 
           {/* Main content card */}
-          <div className="bg-card/80 backdrop-blur-xl rounded-xl shadow-lg shadow-gray-900/5 ring-1 ring-border p-5 sm:p-6 space-y-5 max-w-md mx-auto">
+          <div className="bg-card/80 backdrop-blur-xl rounded-xl shadow-lg shadow-black/5 dark:shadow-black/25 ring-1 ring-border p-5 sm:p-6 space-y-5 max-w-md mx-auto">
             <div className="text-center space-y-2">
               <h2 className="text-lg sm:text-xl font-medium text-card-foreground">Get started</h2>
               <p className="text-sm text-muted-foreground">
@@ -40,7 +40,7 @@ export function HomeContent() {
 
             <div className="flex flex-col gap-3 sm:gap-4">
               <Link href="/auth/sign-up">
-                <Button className="w-full h-12 sm:h-11 bg-primary hover:bg-primary-hover text-white rounded-lg font-medium text-base sm:text-sm transition-all duration-200 shadow-sm hover:shadow-md no-tap-highlight">
+                <Button className="w-full h-12 sm:h-11 bg-primary hover:bg-primary-hover text-primary-foreground rounded-lg font-medium text-base sm:text-sm transition-all duration-200 shadow-sm hover:shadow-md no-tap-highlight">
                   Create Account
                 </Button>
               </Link>

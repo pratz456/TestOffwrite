@@ -74,6 +74,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       hasConnection: hasPlaidConnection,
       itemId: userProfileData.plaid_item_id || null,
+      plaid_connected_at: userProfileData.plaid_connected_at ?? null,
+      plaid_requested_start_date: userProfileData.plaid_requested_start_date ?? null,
+      plaid_earliest_returned_tx_date: userProfileData.plaid_earliest_returned_tx_date ?? null,
+      plaid_imported_count: userProfileData.plaid_imported_count ?? null,
     });
   } catch (error) {
     console.error('❌ [Plaid Items API] Unexpected error:', error);

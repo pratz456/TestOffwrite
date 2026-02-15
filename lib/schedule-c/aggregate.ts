@@ -14,40 +14,91 @@
 export type CategoryMapEntry = { line: string; name: string; code: string };
 
 export const CATEGORY_MAP: Record<string, CategoryMapEntry> = {
-  'FOOD_AND_DRINK_COFFEE_SHOP': { line: '24b', name: 'Meals', code: '24b' },
-  'FOOD_AND_DRINK_FAST_FOOD': { line: '24b', name: 'Meals', code: '24b' },
-  'FOOD_AND_DRINK_RESTAURANT': { line: '24b', name: 'Meals', code: '24b' },
-  'FOOD_AND_DRINK_ALCOHOL_AND_BARS': { line: '24b', name: 'Meals', code: '24b' },
+  // ── Line 8: Advertising ──────────────────────────────────────────────
+  'SERVICE_ADVERTISING': { line: '8', name: 'Advertising', code: '8' },
+  'SERVICE_MARKETING': { line: '8', name: 'Advertising', code: '8' },
+  'GENERAL_MERCHANDISE_ONLINE_MARKETPLACES': { line: '8', name: 'Advertising', code: '8' },
 
-  'GENERAL_MERCHANDISE_OFFICE_SUPPLIES': { line: '18', name: 'Office expense', code: '18' },
-  'GENERAL_MERCHANDISE_COMPUTERS_AND_ELECTRONICS': { line: '18', name: 'Office expense', code: '18' },
-  'GENERAL_MERCHANDISE_HOME_IMPROVEMENT': { line: '18', name: 'Office expense', code: '18' },
-  'GENERAL_MERCHANDISE_PHARMACY': { line: '18', name: 'Office expense', code: '18' },
-  'GENERAL_MERCHANDISE_OTHER_GENERAL_MERCHANDISE': { line: '18', name: 'Office expense', code: '18' },
-  'SERVICE_SHIPPING': { line: '18', name: 'Office expense', code: '18' },
-  'SERVICE_UTILITIES': { line: '18', name: 'Office expense', code: '18' },
-  'SERVICE_STORAGE': { line: '18', name: 'Office expense', code: '18' },
-
-  'SERVICE_ACCOUNTING': { line: '17', name: 'Legal and professional services', code: '17' },
-  'SERVICE_CONSULTING': { line: '17', name: 'Legal and professional services', code: '17' },
-  'SERVICE_LEGAL': { line: '17', name: 'Legal and professional services', code: '17' },
-  'SERVICE_MARKETING': { line: '17', name: 'Legal and professional services', code: '17' },
-  'SERVICE_ADVERTISING': { line: '17', name: 'Legal and professional services', code: '17' },
-  'SERVICE_SECURITY': { line: '17', name: 'Legal and professional services', code: '17' },
-  'SERVICE_INSURANCE': { line: '17', name: 'Legal and professional services', code: '17' },
-
+  // ── Line 9: Car and truck expenses ───────────────────────────────────
   'TRANSPORTATION_RIDESHARE': { line: '9', name: 'Car and truck expenses', code: '9' },
   'TRANSPORTATION_AUTO_PARKING': { line: '9', name: 'Car and truck expenses', code: '9' },
   'TRANSPORTATION_AUTO_REPAIR': { line: '9', name: 'Car and truck expenses', code: '9' },
   'TRANSPORTATION_AUTO_SERVICE': { line: '9', name: 'Car and truck expenses', code: '9' },
   'TRANSPORTATION_FUEL': { line: '9', name: 'Car and truck expenses', code: '9' },
   'TRANSPORTATION_TOLLS': { line: '9', name: 'Car and truck expenses', code: '9' },
-  'TRANSPORTATION_AUTO_INSURANCE': { line: '9', name: 'Car and truck expenses', code: '9' },
+  'TRANSPORTATION_PUBLIC_TRANSIT': { line: '9', name: 'Car and truck expenses', code: '9' },
+  'TRANSPORTATION_CAR_WASH': { line: '9', name: 'Car and truck expenses', code: '9' },
 
+  // ── Line 10: Commissions and fees ────────────────────────────────────
+  'BANK_FEES_ATM_FEES': { line: '10', name: 'Commissions and fees', code: '10' },
+  'BANK_FEES_FOREIGN_TRANSACTION': { line: '10', name: 'Commissions and fees', code: '10' },
+  'BANK_FEES_OVERDRAFT': { line: '10', name: 'Commissions and fees', code: '10' },
+  'BANK_FEES_OTHER_BANK_FEES': { line: '10', name: 'Commissions and fees', code: '10' },
+  'SERVICE_FINANCIAL_PLANNING_AND_INVESTMENTS': { line: '10', name: 'Commissions and fees', code: '10' },
+
+  // ── Line 11: Contract labor ──────────────────────────────────────────
+  'SERVICE_FREELANCE_SERVICES': { line: '11', name: 'Contract labor', code: '11' },
+
+  // ── Line 15: Insurance ───────────────────────────────────────────────
+  'SERVICE_INSURANCE': { line: '15', name: 'Insurance', code: '15' },
+  'TRANSPORTATION_AUTO_INSURANCE': { line: '15', name: 'Insurance', code: '15' },
+
+  // ── Line 16a: Interest (mortgage) ────────────────────────────────────
+  'LOAN_INTEREST': { line: '16a', name: 'Interest (mortgage)', code: '16a' },
+  'LOAN_INTEREST_MORTGAGE': { line: '16a', name: 'Interest (mortgage)', code: '16a' },
+
+  // ── Line 17: Legal and professional services ─────────────────────────
+  'SERVICE_ACCOUNTING': { line: '17', name: 'Legal and professional services', code: '17' },
+  'SERVICE_CONSULTING': { line: '17', name: 'Legal and professional services', code: '17' },
+  'SERVICE_LEGAL': { line: '17', name: 'Legal and professional services', code: '17' },
+  'SERVICE_SECURITY': { line: '17', name: 'Legal and professional services', code: '17' },
+  'SERVICE_TAX_PREPARATION': { line: '17', name: 'Legal and professional services', code: '17' },
+
+  // ── Line 18: Office expense ──────────────────────────────────────────
+  'GENERAL_MERCHANDISE_COMPUTERS_AND_ELECTRONICS': { line: '18', name: 'Office expense', code: '18' },
+  'GENERAL_MERCHANDISE_HOME_IMPROVEMENT': { line: '18', name: 'Office expense', code: '18' },
+  'GENERAL_MERCHANDISE_PHARMACY': { line: '18', name: 'Office expense', code: '18' },
+  'GENERAL_MERCHANDISE_OTHER_GENERAL_MERCHANDISE': { line: '18', name: 'Office expense', code: '18' },
+  'SERVICE_STORAGE': { line: '18', name: 'Office expense', code: '18' },
+  'SERVICE_SUBSCRIPTION': { line: '18', name: 'Office expense', code: '18' },
+
+  // ── Line 20a: Rent (vehicles, machinery, equipment) ──────────────────
+  'TRANSPORTATION_RENTAL_CAR': { line: '20a', name: 'Rent (vehicles/equipment)', code: '20a' },
+
+  // ── Line 20b: Rent (other business property) ─────────────────────────
+  'RENT_RENT': { line: '20b', name: 'Rent (other business property)', code: '20b' },
+  'RENT_COWORKING': { line: '20b', name: 'Rent (other business property)', code: '20b' },
+
+  // ── Line 22: Supplies ────────────────────────────────────────────────
+  'GENERAL_MERCHANDISE_OFFICE_SUPPLIES': { line: '22', name: 'Supplies', code: '22' },
+  'SERVICE_SHIPPING': { line: '22', name: 'Supplies', code: '22' },
+  'SERVICE_PRINTING_AND_COPYING': { line: '22', name: 'Supplies', code: '22' },
+  'GENERAL_MERCHANDISE_HARDWARE_STORE': { line: '22', name: 'Supplies', code: '22' },
+  'GENERAL_MERCHANDISE_BOOKSTORES_AND_NEWSSTANDS': { line: '22', name: 'Supplies', code: '22' },
+
+  // ── Line 24a: Travel ─────────────────────────────────────────────────
   'TRAVEL_FLIGHTS': { line: '24a', name: 'Travel', code: '24a' },
   'TRAVEL_LODGING': { line: '24a', name: 'Travel', code: '24a' },
   'TRAVEL_OTHER_TRAVEL': { line: '24a', name: 'Travel', code: '24a' },
+  'TRAVEL_TAXI': { line: '24a', name: 'Travel', code: '24a' },
 
+  // ── Line 24b: Meals (50% deductible) ─────────────────────────────────
+  'FOOD_AND_DRINK_COFFEE_SHOP': { line: '24b', name: 'Meals', code: '24b' },
+  'FOOD_AND_DRINK_FAST_FOOD': { line: '24b', name: 'Meals', code: '24b' },
+  'FOOD_AND_DRINK_RESTAURANT': { line: '24b', name: 'Meals', code: '24b' },
+  'FOOD_AND_DRINK_ALCOHOL_AND_BARS': { line: '24b', name: 'Meals', code: '24b' },
+  'FOOD_AND_DRINK_OTHER_FOOD_AND_DRINK': { line: '24b', name: 'Meals', code: '24b' },
+  'FOOD_AND_DRINK_VENDING_MACHINES': { line: '24b', name: 'Meals', code: '24b' },
+
+  // ── Line 25: Utilities ───────────────────────────────────────────────
+  'SERVICE_UTILITIES': { line: '25', name: 'Utilities', code: '25' },
+  'SERVICE_INTERNET_AND_CABLE': { line: '25', name: 'Utilities', code: '25' },
+  'SERVICE_PHONE': { line: '25', name: 'Utilities', code: '25' },
+  'SERVICE_ELECTRICITY': { line: '25', name: 'Utilities', code: '25' },
+  'SERVICE_GAS': { line: '25', name: 'Utilities', code: '25' },
+  'SERVICE_WATER': { line: '25', name: 'Utilities', code: '25' },
+
+  // ── Line 27a: Other expenses ─────────────────────────────────────────
   'ENTERTAINMENT_SPORTS_AND_OUTDOORS': { line: '27a', name: 'Other expenses', code: '27a' },
   'ENTERTAINMENT_ARTS': { line: '27a', name: 'Other expenses', code: '27a' },
   'ENTERTAINMENT_THEATER': { line: '27a', name: 'Other expenses', code: '27a' },
@@ -58,6 +109,10 @@ export const CATEGORY_MAP: Record<string, CategoryMapEntry> = {
   'COMMUNITY_CHARITY': { line: '27a', name: 'Other expenses', code: '27a' },
   'COMMUNITY_EDUCATION': { line: '27a', name: 'Other expenses', code: '27a' },
   'COMMUNITY_RELIGIOUS': { line: '27a', name: 'Other expenses', code: '27a' },
+  'SERVICE_CLEANING_AND_MAINTENANCE': { line: '27a', name: 'Other expenses', code: '27a' },
+  'SERVICE_PROFESSIONAL_DUES': { line: '27a', name: 'Other expenses', code: '27a' },
+  'SERVICE_MEMBERSHIPS': { line: '27a', name: 'Other expenses', code: '27a' },
+  'SERVICE_EDUCATION': { line: '27a', name: 'Other expenses', code: '27a' },
 };
 
 const BUSINESS_CATEGORY_KEYS = new Set(Object.keys(CATEGORY_MAP));
