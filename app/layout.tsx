@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import { Geist } from "next/font/google";
 import { AuthProvider } from "@/lib/firebase/auth-context";
 import { ReactQueryProvider } from "@/lib/react-query/provider";
@@ -55,6 +56,18 @@ export default function RootLayout({
         className={`${geistSans.className} antialiased bg-background text-foreground min-h-screen`}
         suppressHydrationWarning
       >
+        <Script
+          src="https://www.googletagmanager.com/gtag/js?id=G-1P3GNBHB9J"
+          strategy="afterInteractive"
+        />
+        <Script id="google-analytics" strategy="afterInteractive">
+          {`
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js', new Date());
+            gtag('config', 'G-1P3GNBHB9J');
+          `}
+        </Script>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           <ReactQueryProvider>
             <AuthProvider>
