@@ -383,7 +383,7 @@ export function HistoricalAccessUpgradeCard() {
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <Sparkles className="w-3.5 h-3.5 text-primary shrink-0" />
-          <span>Up to 1 year of transaction history</span>
+          <span>Up to 24 months (depending on your bank)</span>
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <Calendar className="w-3.5 h-3.5 text-primary shrink-0" />

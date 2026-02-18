@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
       country_codes: [CountryCode.Us],
       language: 'en',
       transactions: {
-        days_requested: 365, // Request 365 days (1 year) of transaction history
+        days_requested: 730, // Request 730 days (2 years) of transaction history - Plaid maximum
       },
       webhook: `${process.env.NEXT_PUBLIC_SITE_URL || process.env.VERCEL_URL || 'http://localhost:3000'}/api/plaid/webhook`,
     };
@@ -110,6 +110,7 @@ export async function POST(request: NextRequest) {
     console.log('🔄 [Plaid Link Token] Calling Plaid API...');
     const createTokenResponse = await client.linkTokenCreate(configs);
 
+    console.log('[Plaid Link Token] Plaid ingestion: linkTokenDaysRequested=730');
     console.log('✅ [Plaid Link Token] Link token created successfully');
 
     return NextResponse.json({

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import { adminDb } from '@/lib/firebase/admin';
-import { checkHistoricalAccess, getTransactionDateRange } from '@/lib/subscriptions/historical-access';
+import { checkHistoricalAccess } from '@/lib/subscriptions/historical-access';
 
 export async function GET(req: Request) {
   try {
@@ -11,9 +11,8 @@ export async function GET(req: Request) {
     const userDoc = await adminDb.doc(`user_profiles/${uid}`).get();
     const userData = userDoc.data();
 
-    // Check access status
+    // Check access status (for subscription/paywall; transaction fetch is always 730 days)
     const accessStatus = await checkHistoricalAccess(uid);
-    const dateRange = await getTransactionDateRange(uid);
 
     return NextResponse.json({
       success: true,
@@ -28,7 +27,7 @@ export async function GET(req: Request) {
           subscriptionEnd: userData?.subscriptionEnd,
         },
         accessStatus,
-        dateRange,
+        transactionDaysAvailable: 730,
         debug: {
           now: new Date().toISOString(),
           trialStartDate: userData?.trialStart ? (userData.trialStart.toDate?.() || new Date(userData.trialStart)).toISOString() : null,

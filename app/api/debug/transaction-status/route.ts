@@ -4,7 +4,6 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getUserSubscriptionStatus, userHasHistoricalAccess } from '@/lib/subscriptions/trial-manager';
-import { getTransactionDateRange } from '@/lib/subscriptions/historical-access';
 import { getTransactionsServer } from '@/lib/firebase/transactions-server';
 import { adminDb } from '@/lib/firebase/admin';
 
@@ -23,10 +22,10 @@ export async function GET(request: NextRequest) {
 
     const userId = user.uid;
 
-    // 1. Get subscription status
+    // 1. Get subscription status (transaction fetch is always 730 days)
     const subscriptionStatus = await getUserSubscriptionStatus(userId);
     const hasHistoricalAccess = await userHasHistoricalAccess(userId);
-    const dateRange = await getTransactionDateRange(userId);
+    const TRANSACTION_DAYS = 730;
 
     // 2. Get user profile data
     const userDoc = await adminDb.doc(`user_profiles/${userId}`).get();
@@ -61,10 +60,10 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 5. Calculate expected date range
+    // 5. Calculate expected date range (server always requests 730 days)
     const now = new Date();
     const expectedStartDate = new Date(now);
-    expectedStartDate.setDate(expectedStartDate.getDate() - dateRange);
+    expectedStartDate.setDate(expectedStartDate.getDate() - TRANSACTION_DAYS);
 
     // 6. Get account information
     const accountsSnapshot = await adminDb
@@ -127,12 +126,12 @@ export async function GET(request: NextRequest) {
           },
         },
 
-        // Date Range
+        // Date Range (server always fetches 730 days)
         dateRange: {
-          days: dateRange,
+          days: TRANSACTION_DAYS,
           expectedStartDate: expectedStartDate.toISOString(),
           expectedEndDate: now.toISOString(),
-          isHistoricalAccess: dateRange >= 365,
+          isHistoricalAccess: true,
         },
 
         // Transactions
@@ -166,9 +165,6 @@ export async function GET(request: NextRequest) {
             ? oldestTransaction <= expectedStartDate
             : false,
           recommendations: [
-            ...(dateRange < 365 && !hasHistoricalAccess
-              ? ['User does not have historical access. Start a free trial to get 365 days of access.']
-              : []),
             ...(oldestTransaction && oldestTransaction > expectedStartDate
               ? [`Oldest transaction (${oldestTransaction.toISOString()}) is newer than expected start date (${expectedStartDate.toISOString()}). Consider re-importing transactions.`]
               : []),

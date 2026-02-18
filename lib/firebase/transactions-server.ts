@@ -573,15 +573,38 @@ export async function getPaginatedTransactionsServer(
     search?: string;
     sortBy?: string;
     sortOrder?: 'asc' | 'desc';
+    dateFrom?: string;
+    dateTo?: string;
+    category?: string;
+    amountMin?: number;
+    amountMax?: number;
   }
 ): Promise<{ data: Transaction[]; error: any; pagination: any }> {
   try {
     console.log('🔍 [Firebase Server] Fetching paginated transactions for user:', userId, options);
 
-    const { page, limit, status, search, sortBy = 'updated_at', sortOrder = 'desc' } = options;
+    const {
+      page,
+      limit,
+      status,
+      search,
+      sortBy = 'updated_at',
+      sortOrder = 'desc',
+      dateFrom,
+      dateTo,
+      category,
+      amountMin,
+      amountMax,
+    } = options;
     const offset = (page - 1) * limit;
 
     let query: any = adminDb.collectionGroup('transactions').where('userId', '==', userId);
+
+    // Date range filter (use date orderBy when filtering by date for index compatibility)
+    const useDateRange = dateFrom && dateTo;
+    if (useDateRange) {
+      query = query.where('date', '>=', dateFrom).where('date', '<=', dateTo);
+    }
 
     // Apply status filter if specified
     if (status && status !== 'all') {
@@ -594,14 +617,15 @@ export async function getPaginatedTransactionsServer(
       }
     }
 
-    // Apply sorting
-    if (sortBy === 'updated_at') {
+    // Apply sorting (when using date range, orderBy must be date)
+    const effectiveSortBy = useDateRange ? 'date' : sortBy;
+    if (effectiveSortBy === 'updated_at') {
       query = query.orderBy('updated_at', sortOrder);
-    } else if (sortBy === 'date') {
+    } else if (effectiveSortBy === 'date') {
       query = query.orderBy('date', sortOrder);
-    } else if (sortBy === 'amount') {
+    } else if (effectiveSortBy === 'amount') {
       query = query.orderBy('amount', sortOrder);
-    } else if (sortBy === 'merchant_name') {
+    } else if (effectiveSortBy === 'merchant_name') {
       query = query.orderBy('merchant_name', sortOrder);
     }
 
@@ -662,15 +686,18 @@ export async function getPaginatedTransactionsServer(
       if (search) {
         const searchLower = search.toLowerCase();
         if (
-          transaction.merchant_name.toLowerCase().includes(searchLower) ||
-          transaction.category.toLowerCase().includes(searchLower) ||
-          (transaction.notes && transaction.notes.toLowerCase().includes(searchLower))
+          !transaction.merchant_name.toLowerCase().includes(searchLower) &&
+          !transaction.category.toLowerCase().includes(searchLower) &&
+          !(transaction.notes && transaction.notes.toLowerCase().includes(searchLower))
         ) {
-          transactions.push(transaction);
+          return;
         }
-      } else {
-        transactions.push(transaction);
       }
+      // In-memory filters for category and amount (date range already in query)
+      if (category && category !== 'all' && transaction.category !== category) return;
+      if (amountMin != null && transaction.amount < amountMin) return;
+      if (amountMax != null && transaction.amount > amountMax) return;
+      transactions.push(transaction);
     });
 
     const totalPages = Math.ceil(totalCount / limit);

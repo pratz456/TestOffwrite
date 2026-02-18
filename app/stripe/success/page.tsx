@@ -31,7 +31,7 @@ function StripeSuccessContent() {
           </div>
           <CardTitle className="text-2xl">Subscription Activated!</CardTitle>
           <CardDescription className="mt-2">
-            Your subscription is now active! You have immediate access to up to 1 year of transaction history.
+            Your subscription is now active! You have immediate access to up to 24 months (depending on your bank).
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -40,7 +40,7 @@ function StripeSuccessContent() {
               <strong className="text-foreground">What you get:</strong>
             </p>
             <ul className="text-sm text-muted-foreground space-y-1 list-disc list-inside">
-              <li>Access to up to 1 year of historical transactions</li>
+              <li>Access to up to 24 months (depending on your bank)</li>
               <li>Subscription is active immediately</li>
               <li>Automatic renewal - cancel anytime</li>
             </ul>

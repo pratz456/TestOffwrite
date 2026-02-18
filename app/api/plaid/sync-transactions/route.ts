@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { syncUserTransactions, syncUserTransactionsIncremental } from '../../../../lib/plaid/sync-helper';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
-
+import { adminDb } from '@/lib/firebase/admin';
 
 export async function POST(req: Request) {
   try {
@@ -12,6 +12,7 @@ export async function POST(req: Request) {
     console.log('✅ [Plaid Sync] User authenticated:', uid);
 
     const body = await req.json().catch(() => ({}));
+    // import_timeframe is display/filter only; fetch length is always 730 days.
     const { userId = uid, import_timeframe = '2years', incremental = false } = body;
 
     if (!userId) {
@@ -24,9 +25,49 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Unauthorized access to user data' }, { status: 403 });
     }
 
-    const syncResult = incremental
-      ? await syncUserTransactionsIncremental(uid)
-      : await syncUserTransactions(uid, import_timeframe);
+    // Full sync: check/set import lock; incremental does not set lock
+    if (!incremental) {
+      const profileDoc = await adminDb.doc(`user_profiles/${uid}`).get();
+      const profileData = profileDoc.data();
+      const inProgress = profileData?.plaid_import_in_progress === true;
+      const startedAt = profileData?.plaid_import_started_at;
+      const startedAtMs = startedAt?.toMillis?.() ?? startedAt?.toDate?.()?.getTime?.() ?? (typeof startedAt === 'number' ? startedAt : 0);
+      const nowMs = Date.now();
+      const LOCK_WINDOW_MS = 15 * 60 * 1000;
+      const STUCK_MS = 20 * 60 * 1000;
+      if (inProgress && startedAtMs) {
+        if (nowMs - startedAtMs < LOCK_WINDOW_MS) {
+          console.log('[Plaid Sync] Import already in progress, returning already_running');
+          return NextResponse.json({ status: 'already_running' }, { status: 200 });
+        }
+        if (nowMs - startedAtMs > STUCK_MS) {
+          await adminDb.doc(`user_profiles/${uid}`).update({ plaid_import_in_progress: false, plaid_import_started_at: null });
+          console.log('[Plaid Sync] Cleared stuck import lock');
+        }
+      }
+      await adminDb.doc(`user_profiles/${uid}`).set(
+        { plaid_import_in_progress: true, plaid_import_started_at: new Date() },
+        { merge: true }
+      );
+      console.log('[Plaid Sync] Full sync import started');
+    }
+
+    let syncResult;
+    try {
+      syncResult = incremental
+        ? await syncUserTransactionsIncremental(uid)
+        : await syncUserTransactions(uid, import_timeframe);
+    } finally {
+      if (!incremental) {
+        try {
+          await adminDb.doc(`user_profiles/${uid}`).set(
+            { plaid_import_in_progress: false, plaid_import_started_at: null },
+            { merge: true }
+          );
+          console.log('[Plaid Sync] Full sync import completed');
+        } catch (_) {}
+      }
+    }
 
     if (incremental) {
       console.log(`🔄 [Plaid Sync] Incremental sync for user ${uid}`);

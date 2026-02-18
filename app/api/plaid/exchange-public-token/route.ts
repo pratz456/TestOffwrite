@@ -7,45 +7,12 @@ import { adminDb } from '@/lib/firebase/admin';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import { fetchAllPlaidTransactions } from '@/lib/plaid/pagination';
 import { logPlaidRequest, debugPlaid } from '@/lib/plaid/debug';
-import { getTransactionDateRange } from '@/lib/subscriptions/historical-access';
-import { startFreeTrial } from '@/lib/subscriptions/trial-manager';
 
 export async function POST(req: Request) {
   try {
     const { uid } = await getUserFromReqOrThrow(req);
 
-    // Get user's historical access to determine default timeframe
-    // This will auto-start a free trial if the user doesn't have one
-    let userHistoricalAccessDays = await getTransactionDateRange(uid);
-
-    // Ensure free trial is started (in case it wasn't started during getTransactionDateRange)
-    // This is a safety check - getTransactionDateRange should have already started it
-    try {
-      const trialResult = await startFreeTrial(uid);
-      if (trialResult.success) {
-        console.log(`✅ [Exchange Token] Free trial started/verified for user ${uid}`);
-        // Refresh date range after starting trial to ensure we use maximum range
-        userHistoricalAccessDays = await getTransactionDateRange(uid);
-        console.log(`✅ [Exchange Token] Refreshed date range: ${userHistoricalAccessDays} days`);
-      }
-    } catch (trialError) {
-      console.error('⚠️ [Exchange Token] Error starting trial (non-fatal):', trialError);
-      // Continue even if trial start fails
-    }
-
-    // Convert days to timeframe string for backward compatibility
-    let defaultTimeframe = '3months'; // Default to 3 months for standard users
-    if (userHistoricalAccessDays >= 365) {
-      defaultTimeframe = '1year'; // Historical access users get 1 year
-    } else if (userHistoricalAccessDays >= 180) {
-      defaultTimeframe = '6months';
-    } else if (userHistoricalAccessDays >= 30) {
-      defaultTimeframe = '3months';
-    } else {
-      defaultTimeframe = '1month';
-    }
-
-    const { public_token, import_timeframe = defaultTimeframe } = await req.json();
+    const { public_token, import_timeframe = '2years' } = await req.json();
 
     if (!public_token) {
       return NextResponse.json({ error: 'Missing public_token' }, { status: 400 });
@@ -204,6 +171,33 @@ export async function POST(req: Request) {
     }
     console.log(`✅ [Plaid] No duplicate account IDs found - all ${allAccounts.length} accounts are new`);
 
+    // Re-import lock: avoid concurrent full imports
+    const profileDoc = await adminDb.doc(`user_profiles/${uid}`).get();
+    const profileData = profileDoc.data();
+    const inProgress = profileData?.plaid_import_in_progress === true;
+    const startedAt = profileData?.plaid_import_started_at;
+    const startedAtMs = startedAt?.toMillis?.() ?? startedAt?.toDate?.()?.getTime?.() ?? (typeof startedAt === 'number' ? startedAt : 0);
+    const nowMs = Date.now();
+    const LOCK_WINDOW_MS = 15 * 60 * 1000;
+    const STUCK_MS = 20 * 60 * 1000;
+    if (inProgress && startedAtMs) {
+      if (nowMs - startedAtMs < LOCK_WINDOW_MS) {
+        console.log('[Exchange] Import already in progress, returning already_running');
+        return NextResponse.json({ status: 'already_running' }, { status: 200 });
+      }
+      if (nowMs - startedAtMs > STUCK_MS) {
+        await adminDb.doc(`user_profiles/${uid}`).update({ plaid_import_in_progress: false, plaid_import_started_at: null });
+        console.log('[Exchange] Cleared stuck import lock');
+      }
+    }
+
+    // Set import lock before starting transaction fetch
+    await adminDb.doc(`user_profiles/${uid}`).set(
+      { plaid_import_in_progress: true, plaid_import_started_at: new Date() },
+      { merge: true }
+    );
+    console.log('[Exchange] Import started');
+
     // Store ALL accounts in the database, not just one
     // BUT: Double-check each account doesn't exist before storing
     const storedAccounts = [];
@@ -302,31 +296,9 @@ export async function POST(req: Request) {
     endDate.setHours(23, 59, 59, 999); // End of today
     const startDate = new Date();
 
-    // Calculate days to go back based on timeframe
-    // Note: Plaid's maximum is 730 days (2 years) for transactions/get endpoint
-    const MAX_PLAID_DAYS = 730; // Maximum days Plaid supports
-
-    // Free trial is app-managed, so we always use the user's access level
-    // No need to check import_timeframe - backend determines based on subscription status
-    // Trial users get 1 year (365 days), expired trial/no subscription get 3 months (90 days)
-    console.log(`[Exchange Token] User ${uid} historical access days: ${userHistoricalAccessDays}`);
-
-    // Calculate days to fetch based on user's access level
-    // If user has historical access (365 days), use maximum Plaid allows (730 days)
-    // Otherwise, use the user's access level (90 days for standard users)
-    let daysToFetch: number;
-    if (userHistoricalAccessDays >= 365) {
-      // User has historical access - use maximum available from Plaid (730 days)
-      daysToFetch = MAX_PLAID_DAYS;
-      console.log(`✅ [Exchange Token] User has historical access (${userHistoricalAccessDays} days), using maximum Plaid range: ${MAX_PLAID_DAYS} days`);
-    } else {
-      // Standard user - use their access level (typically 90 days)
-      daysToFetch = userHistoricalAccessDays;
-      console.log(`ℹ️ [Exchange Token] User has standard access (${userHistoricalAccessDays} days)`);
-    }
-
-    // Ensure we don't exceed Plaid's maximum (safety check)
-    const actualDays = Math.min(daysToFetch, MAX_PLAID_DAYS);
+    // Always use 730 days (2 years) - Plaid maximum
+    const daysToFetch = 730;
+    const actualDays = 730;
 
     // Calculate start date more reliably using milliseconds
     // This avoids issues with month boundaries and leap years
@@ -344,7 +316,7 @@ export async function POST(req: Request) {
     console.log(`📅 [Plaid] Transaction import configuration:`);
     console.log(`   📆 Date range: ${startDateStr} to ${endDateStr}`);
     console.log(`   📊 Requested timeframe: ${import_timeframe} (${daysToFetch} days)`);
-    console.log(`   ✅ Calculated: ${actualDays} days (${actualDays === MAX_PLAID_DAYS ? 'MAXIMUM AVAILABLE' : 'within limit'})`);
+    console.log(`   ✅ Calculated: ${actualDays} days (MAXIMUM AVAILABLE)`);
     console.log(`   🔍 Actual date range: ${actualDateRange} days (${startDateStr} to ${endDateStr})`);
     console.log(`   📅 Start date: ${startDate.toLocaleDateString()} (${startDateStr})`);
     console.log(`   📅 End date: ${endDate.toLocaleDateString()} (${endDateStr})`);
@@ -364,6 +336,7 @@ export async function POST(req: Request) {
     const accountImportResults: any[] = [];
     let primaryAccountId = allAccounts[0]?.account_id || '';
     let plaidEarliestReturnedTxDate: string | undefined;
+    let plaidLatestReturnedTxDate: string | undefined;
 
     // Iterate through each account and import its transactions
     for (const plaidAccount of allAccounts) {
@@ -393,6 +366,7 @@ export async function POST(req: Request) {
           totalTransactions,
           plaidTotalTransactions,
           earliestTxDate: accountEarliestTxDate,
+          latestTxDate: accountLatestTxDate,
         } = await fetchAllPlaidTransactions(
           plaidClient,
           {
@@ -420,12 +394,18 @@ export async function POST(req: Request) {
           }
         }
 
-        // Track earliest tx date across accounts for metadata
+        // Track earliest and latest tx dates across accounts for metadata
         if (accountEarliestTxDate) {
           plaidEarliestReturnedTxDate =
             !plaidEarliestReturnedTxDate || accountEarliestTxDate < plaidEarliestReturnedTxDate
               ? accountEarliestTxDate
               : plaidEarliestReturnedTxDate;
+        }
+        if (accountLatestTxDate) {
+          plaidLatestReturnedTxDate =
+            !plaidLatestReturnedTxDate || accountLatestTxDate > plaidLatestReturnedTxDate
+              ? accountLatestTxDate
+              : plaidLatestReturnedTxDate;
         }
 
         // Log the date range of fetched transactions for debugging
@@ -586,7 +566,9 @@ export async function POST(req: Request) {
       }
     }
 
-    // Store import metadata in user_profiles for UX and diagnostics
+    console.log(`[Exchange Token] Plaid ingestion: linkTokenDaysRequested=N/A, daysToFetch=${daysToFetch}, start_date=${startDateStr}, end_date=${endDateStr}, earliestReturned=${plaidEarliestReturnedTxDate ?? 'N/A'}, latestReturned=${plaidLatestReturnedTxDate ?? 'N/A'}`);
+
+    // Store import metadata in user_profiles and clear import lock
     try {
       await adminDb.doc(`user_profiles/${uid}`).set(
         {
@@ -594,9 +576,12 @@ export async function POST(req: Request) {
           plaid_requested_start_date: startDateStr,
           plaid_earliest_returned_tx_date: plaidEarliestReturnedTxDate || null,
           plaid_imported_count: totalImported,
+          plaid_import_in_progress: false,
+          plaid_import_started_at: null,
         },
         { merge: true }
       );
+      console.log('[Exchange] Import completed');
     } catch (metaErr: any) {
       console.warn('⚠️ [Plaid] Failed to store import metadata:', metaErr?.message);
     }
@@ -647,6 +632,13 @@ export async function POST(req: Request) {
     });
   } catch (err: any) {
     console.error('exchange-public-token failed:', err);
+    try {
+      await adminDb.doc(`user_profiles/${uid}`).set(
+        { plaid_import_in_progress: false, plaid_import_started_at: null },
+        { merge: true }
+      );
+      console.log('[Exchange] Import lock cleared after error');
+    } catch (_) {}
     const message = err?.message || 'Internal server error';
     return NextResponse.json({ error: message }, { status: 500 });
   }

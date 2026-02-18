@@ -2,16 +2,32 @@
 
 import React from 'react';
 import { Button } from '@/components/ui/button';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, Loader2 } from 'lucide-react';
 import { HistoricalAccessNotification } from '@/components/historical-access-notification';
 
 interface DashboardHeaderProps {
   userName: string;
   isRefreshing: boolean;
   onRefresh: () => void;
+  lastSync?: number | null;
+  analysisInProgress?: boolean;
 }
 
-export function DashboardHeader({ userName, isRefreshing, onRefresh }: DashboardHeaderProps) {
+function formatLastSync(ms: number): string {
+  const date = new Date(ms);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return date.toLocaleDateString();
+}
+
+export function DashboardHeader({ userName, isRefreshing, onRefresh, lastSync, analysisInProgress }: DashboardHeaderProps) {
   const year = new Date().getFullYear();
 
   return (
@@ -23,6 +39,15 @@ export function DashboardHeader({ userName, isRefreshing, onRefresh }: Dashboard
             <h1 className="text-xl sm:text-2xl font-semibold text-foreground">Dashboard</h1>
             <p className="text-sm text-muted-foreground">
               Financial overview &mdash; {year}
+              {lastSync != null && (
+                <span className="ml-2">· Data last refreshed {formatLastSync(lastSync)}</span>
+              )}
+              {analysisInProgress && (
+                <span className="ml-2 inline-flex items-center gap-1 text-primary">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Analysis in progress
+                </span>
+              )}
             </p>
           </div>
           <Button

@@ -19,6 +19,9 @@ export interface UserProfile {
   plaid_requested_start_date?: string;
   plaid_earliest_returned_tx_date?: string;
   plaid_imported_count?: number;
+  plaid_import_in_progress?: boolean;
+  plaid_import_started_at?: any;
+  last_sync?: any;
   created_at?: any;
   updated_at?: any;
 
@@ -117,6 +120,9 @@ export async function getUserProfileServer(userId: string): Promise<{ data: User
           plaid_requested_start_date: data.plaid_requested_start_date,
           plaid_earliest_returned_tx_date: data.plaid_earliest_returned_tx_date,
           plaid_imported_count: data.plaid_imported_count,
+          plaid_import_in_progress: data.plaid_import_in_progress,
+          plaid_import_started_at: data.plaid_import_started_at,
+          last_sync: data.last_sync,
           created_at: data.created_at,
           updated_at: data.updated_at,
         },

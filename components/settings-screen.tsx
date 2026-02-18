@@ -58,7 +58,7 @@ const PaymentSettingsTab: React.FC<{ user: any }> = ({ user }) => {
   };
 
   const handleCancelSubscription = async () => {
-    if (!window.confirm('Are you sure you want to cancel your subscription? You will lose access to 1-year historical transactions after the current period ends.')) {
+    if (!window.confirm('Are you sure you want to cancel your subscription? You will lose access to up to 24 months of historical transactions (depending on your bank) after the current period ends.')) {
       return;
     }
 
@@ -240,7 +240,7 @@ const PaymentSettingsTab: React.FC<{ user: any }> = ({ user }) => {
           ) : (
             <div className="p-6 bg-muted/30 border border-border rounded-lg space-y-4">
               <p className="text-muted-foreground mb-4">
-                You don't have an active subscription. Upgrade to access up to 1 year of historical transactions.
+                You don't have an active subscription. Upgrade to access up to 24 months (depending on your bank).
               </p>
               <div className="flex gap-3">
                 <Button

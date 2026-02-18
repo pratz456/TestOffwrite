@@ -25,8 +25,7 @@ export default function StripeCancelPage() {
         <CardContent className="space-y-4">
           <div className="bg-muted rounded-lg p-4">
             <p className="text-sm text-muted-foreground">
-              You still have access to <strong className="text-foreground">3 months</strong> of transaction history.
-              You can upgrade anytime to access up to 1 year of historical data.
+              You can upgrade anytime to access up to 24 months (depending on your bank).
             </p>
           </div>
 
@@ -35,7 +34,7 @@ export default function StripeCancelPage() {
               onClick={() => router.push('/protected?screen=transactions')}
               className="w-full"
             >
-              Continue with 3 Months
+              Continue to Dashboard
             </Button>
             <Button
               variant="outline"

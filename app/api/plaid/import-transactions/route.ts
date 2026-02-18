@@ -19,6 +19,31 @@ export async function POST(req: Request) {
 
     console.log(`🚀 [Import Transactions] Starting import for account: ${account_id}`);
 
+    // Re-import lock
+    const profileDoc = await adminDb.doc(`user_profiles/${uid}`).get();
+    const profileData = profileDoc.data();
+    const inProgress = profileData?.plaid_import_in_progress === true;
+    const startedAt = profileData?.plaid_import_started_at;
+    const startedAtMs = startedAt?.toMillis?.() ?? startedAt?.toDate?.()?.getTime?.() ?? (typeof startedAt === 'number' ? startedAt : 0);
+    const nowMs = Date.now();
+    const LOCK_WINDOW_MS = 15 * 60 * 1000;
+    const STUCK_MS = 20 * 60 * 1000;
+    if (inProgress && startedAtMs) {
+      if (nowMs - startedAtMs < LOCK_WINDOW_MS) {
+        console.log('[Import Transactions] Import already in progress, returning already_running');
+        return NextResponse.json({ status: 'already_running' }, { status: 200 });
+      }
+      if (nowMs - startedAtMs > STUCK_MS) {
+        await adminDb.doc(`user_profiles/${uid}`).update({ plaid_import_in_progress: false, plaid_import_started_at: null });
+        console.log('[Import Transactions] Cleared stuck import lock');
+      }
+    }
+    await adminDb.doc(`user_profiles/${uid}`).set(
+      { plaid_import_in_progress: true, plaid_import_started_at: new Date() },
+      { merge: true }
+    );
+    console.log('[Import Transactions] Import started');
+
     // Get the specific account info
     const accountsRes = await plaidClient.accountsGet({ access_token });
     const allAccounts = accountsRes.data.accounts || [];
@@ -57,27 +82,9 @@ export async function POST(req: Request) {
       endDate.setHours(23, 59, 59, 999); // End of today
       const startDate = new Date();
 
-      const MAX_PLAID_DAYS = 730; // Maximum days Plaid supports (2 years)
-      let daysToFetch = 365; // Default to 1 year
-
-      switch (import_timeframe) {
-        case '1month':
-          daysToFetch = 30;
-          break;
-        case '6months':
-          daysToFetch = 180;
-          break;
-        case '1year':
-          daysToFetch = 365;
-          break;
-        case '2years':
-          daysToFetch = 730; // Maximum available from Plaid
-          break;
-        default:
-          daysToFetch = 730; // Default to maximum (2 years / 730 days)
-      }
-
-      const actualDays = Math.min(daysToFetch, MAX_PLAID_DAYS);
+      // Always use 730 days (2 years) - Plaid maximum
+      const daysToFetch = 730;
+      const actualDays = 730;
 
       // Calculate start date more reliably using milliseconds
       const startDateMs = endDate.getTime() - (actualDays * 24 * 60 * 60 * 1000);
@@ -91,7 +98,7 @@ export async function POST(req: Request) {
       console.log(`📅 [Import Transactions] Transaction import configuration:`);
       console.log(`   📆 Date range: ${startDateStr} to ${endDateStr}`);
       console.log(`   📊 Requested timeframe: ${import_timeframe} (${daysToFetch} days)`);
-      console.log(`   ✅ Calculated: ${actualDays} days (${actualDays === MAX_PLAID_DAYS ? 'MAXIMUM AVAILABLE' : 'within limit'})`);
+      console.log(`   ✅ Calculated: ${actualDays} days (MAXIMUM AVAILABLE)`);
       console.log(`   🔍 Actual date range: ${actualDateRange} days`);
       console.log(`   📅 Start date: ${startDate.toLocaleDateString()} (${startDateStr})`);
       console.log(`   📅 End date: ${endDate.toLocaleDateString()} (${endDateStr})`);
@@ -143,6 +150,8 @@ export async function POST(req: Request) {
           `📊 [Import Transactions] Plaid/institution limitation likely: requested from ${startDateStr}, earliest returned ${plaidEarliestTxDate}`
         );
       }
+
+      console.log(`[Import Transactions] Plaid ingestion: linkTokenDaysRequested=N/A, daysToFetch=${daysToFetch}, start_date=${startDateStr}, end_date=${endDateStr}, earliestReturned=${plaidEarliestTxDate ?? 'N/A'}, latestReturned=${plaidLatestTxDate ?? 'N/A'}`);
 
       // Log the date range of fetched transactions for debugging
       if (allTransactions.length > 0) {
@@ -311,16 +320,19 @@ export async function POST(req: Request) {
       { merge: true }
     );
 
-    // Store import metadata in user_profiles for banks page UX
+    // Store import metadata in user_profiles and clear import lock
     try {
       await adminDb.doc(`user_profiles/${uid}`).set(
         {
           plaid_requested_start_date: startDateStr,
           plaid_earliest_returned_tx_date: plaidEarliestTxDate ?? null,
           plaid_imported_count: imported,
+          plaid_import_in_progress: false,
+          plaid_import_started_at: null,
         },
         { merge: true }
       );
+      console.log('[Import Transactions] Import completed');
     } catch (metaErr: any) {
       console.warn('⚠️ [Import Transactions] Failed to store import metadata:', metaErr?.message);
     }
@@ -346,6 +358,13 @@ export async function POST(req: Request) {
 
   } catch (err: any) {
     console.error('❌ [Import Transactions] Import failed:', err);
+    try {
+      await adminDb.doc(`user_profiles/${uid}`).set(
+        { plaid_import_in_progress: false, plaid_import_started_at: null },
+        { merge: true }
+      );
+      console.log('[Import Transactions] Import lock cleared after error');
+    } catch (_) {}
     const message = err?.message || 'Internal server error';
     return NextResponse.json({ error: message }, { status: 500 });
   }

@@ -44,6 +44,20 @@ interface TransactionDetail {
 
 const TAX_RATE = 0.3;
 
+function formatLastSyncReport(ms: number): string {
+  const date = new Date(ms);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffMins < 1) return 'just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return date.toLocaleDateString();
+}
+
 /** Transaction from API may have type, receipt_url (if API includes it) */
 interface ReportTransaction {
   date: string;
@@ -75,6 +89,34 @@ export default function ReportsPage() {
   const currentYear = new Date().getFullYear();
   const [chartYear, setChartYear] = useState(currentYear);
   const { toasts, removeToast } = useToasts();
+  const [lastSync, setLastSync] = useState<number | null>(null);
+  const [analysisInProgress, setAnalysisInProgress] = useState(false);
+
+  // Data last refreshed & analysis status
+  useEffect(() => {
+    const fetchMeta = async () => {
+      if (!user?.id) return;
+      try {
+        const token = await (await import('@/lib/firebase/client')).auth.currentUser?.getIdToken();
+        if (!token) return;
+        const [itemsRes, analysisRes] = await Promise.all([
+          fetch('/api/plaid/items', { headers: { Authorization: `Bearer ${token}` } }),
+          fetch('/api/transactions/analysis-status', { headers: { Authorization: `Bearer ${token}` } }),
+        ]);
+        if (itemsRes.ok) {
+          const items = await itemsRes.json();
+          const ls = items.last_sync;
+          if (typeof ls === 'number') setLastSync(ls);
+          else if (ls?.seconds) setLastSync(ls.seconds * 1000);
+        }
+        if (analysisRes.ok) {
+          const analysis = await analysisRes.json();
+          setAnalysisInProgress(analysis?.data?.overallStatus === 'analyzing');
+        }
+      } catch (_) {}
+    };
+    fetchMeta();
+  }, [user?.id]);
 
   // Check subscription status for feature gating
   const { hasAccess, isLoading: subscriptionLoading } = useSubscription();
@@ -447,6 +489,19 @@ export default function ReportsPage() {
       <div className="mb-5 sm:mb-6">
         <div className="mb-4">
           <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-foreground mb-0.5">Tax Reports & Analytics</h1>
+          {(lastSync != null || analysisInProgress) && (
+            <p className="text-sm text-muted-foreground mt-1">
+              {lastSync != null && (
+                <span>Data last refreshed {formatLastSyncReport(lastSync)}</span>
+              )}
+              {analysisInProgress && (
+                <span className={lastSync != null ? 'ml-2 inline-flex items-center gap-1 text-primary' : 'inline-flex items-center gap-1 text-primary'}>
+                  <Sparkles className="h-3 w-3 animate-pulse" />
+                  Analysis in progress
+                </span>
+              )}
+            </p>
+          )}
           <p className="text-xs sm:text-sm text-muted-foreground">Comprehensive tax deduction analysis and savings insights</p>
         </div>
         {/* Action Bar — Refresh (outline) + Schedule C (emerald accent) */}

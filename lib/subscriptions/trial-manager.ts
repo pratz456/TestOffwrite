@@ -7,7 +7,7 @@ import type { UserProfile } from '../firebase/profiles-server';
 export type SubscriptionStatus = 'trial' | 'active' | 'expired' | 'none';
 
 /**
- * Checks if a user has historical access (1 year of transactions)
+ * Checks if a user has historical access (up to 24 months depending on bank).
  * Returns true if:
  * - User is in active app-managed trial (subscriptionStatus === 'trial' AND now <= trialEnd)
  * - User has active paid subscription (subscriptionStatus === 'active')

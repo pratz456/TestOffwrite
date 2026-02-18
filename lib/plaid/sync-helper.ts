@@ -7,7 +7,6 @@ import {
 } from '../firebase/transactions-server';
 import { adminDb } from '../firebase/admin';
 import { fetchAllPlaidTransactions } from './pagination';
-import { getTransactionDateRange } from '../subscriptions/historical-access';
 import { debugPlaid } from './debug';
 import { aiLearningEngine } from '../ai/learning-engine';
 
@@ -298,9 +297,10 @@ export async function syncUserTransactionsIncremental(userId: string): Promise<S
 }
 
 /**
- * Syncs transactions for a user from Plaid to Firebase
+ * Syncs transactions for a user from Plaid to Firebase.
+ * importTimeframe is display/filter only; fetch length is always 730 days.
  * @param userId - The user's Firebase UID
- * @param importTimeframe - How far back to sync transactions ('1month', '6months', '1year')
+ * @param importTimeframe - Logged/stored for display only ('1month', '6months', '2years', etc.)
  * @returns Promise<SyncResult>
  */
 export async function syncUserTransactions(
@@ -322,45 +322,13 @@ export async function syncUserTransactions(
       };
     }
 
-    // Calculate date range based on timeframe
-    // Use the same robust date calculation as exchange-public-token
+    // Always use 730 days (2 years) - Plaid maximum
+    const daysToFetch = 730;
+    const actualDays = 730;
+
     const endDate = new Date();
     endDate.setHours(23, 59, 59, 999); // End of today
     const startDate = new Date();
-
-    // Get user's historical access to determine max allowed days
-    const userHistoricalAccessDays = await getTransactionDateRange(userId);
-
-    const MAX_PLAID_DAYS = 730; // Maximum days Plaid supports (2 years)
-    let daysToFetch = userHistoricalAccessDays; // Default based on user's access level
-
-    switch (importTimeframe) {
-      case '1month':
-        daysToFetch = 30;
-        break;
-      case '3months':
-        daysToFetch = 90;
-        break;
-      case '6months':
-        daysToFetch = 180;
-        break;
-      case '1year':
-        // Only allow 1 year if user has historical access
-        daysToFetch = userHistoricalAccessDays >= 365 ? 365 : 90;
-        break;
-      case '2years':
-        // Only allow 2 years if user has historical access
-        daysToFetch = userHistoricalAccessDays >= 365 ? 730 : 90;
-        break;
-      default:
-        // Use user's access level as default
-        daysToFetch = userHistoricalAccessDays;
-    }
-
-    // Ensure we don't exceed user's access level
-    daysToFetch = Math.min(daysToFetch, userHistoricalAccessDays >= 365 ? MAX_PLAID_DAYS : 90);
-
-    const actualDays = Math.min(daysToFetch, MAX_PLAID_DAYS);
 
     // Calculate start date more reliably using milliseconds
     const startDateMs = endDate.getTime() - (actualDays * 24 * 60 * 60 * 1000);
@@ -373,8 +341,8 @@ export async function syncUserTransactions(
 
     console.log(`📅 [Sync Helper] Transaction sync configuration:`);
     console.log(`   📆 Date range: ${startDateStr} to ${endDateStr}`);
-    console.log(`   📊 Requested timeframe: ${importTimeframe} (${daysToFetch} days)`);
-    console.log(`   ✅ Calculated: ${actualDays} days (${actualDays === MAX_PLAID_DAYS ? 'MAXIMUM AVAILABLE' : 'within limit'})`);
+    console.log(`   📊 Timeframe: 730 days (fixed Plaid maximum)`);
+    console.log(`   ✅ Calculated: ${actualDays} days (MAXIMUM AVAILABLE)`);
     console.log(`   🔍 Actual date range: ${actualDateRange} days`);
     console.log(`   📅 Start date: ${startDate.toLocaleDateString()} (${startDateStr})`);
     console.log(`   📅 End date: ${endDate.toLocaleDateString()} (${endDateStr})`);
@@ -384,7 +352,7 @@ export async function syncUserTransactions(
     }
 
     // Fetch all transactions from Plaid with pagination
-    const { transactions, totalPages, totalTransactions, plaidTotalTransactions } = await fetchAllPlaidTransactions(
+    const { transactions, totalPages, totalTransactions, plaidTotalTransactions, earliestTxDate, latestTxDate } = await fetchAllPlaidTransactions(
       client,
       {
         access_token: userProfile.plaid_token,
@@ -398,6 +366,7 @@ export async function syncUserTransactions(
       '[Sync Helper]'
     );
 
+    console.log(`[Sync Helper] Plaid ingestion: linkTokenDaysRequested=N/A, daysToFetch=${daysToFetch}, start_date=${startDateStr}, end_date=${endDateStr}, earliestReturned=${earliestTxDate ?? 'N/A'}, latestReturned=${latestTxDate ?? 'N/A'}`);
     console.log(`📊 [Sync Helper] Fetched ${totalTransactions} transactions from Plaid`);
     if (plaidTotalTransactions !== undefined) {
       console.log(`📊 [Sync Helper] Plaid reported ${plaidTotalTransactions} total transactions available`);

@@ -24,24 +24,34 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get('search') || '';
     const sortBy = searchParams.get('sortBy') || 'updated_at';
     const sortOrder = searchParams.get('sortOrder') || 'desc';
-    
+    const dateFrom = searchParams.get('dateFrom') || undefined;
+    const dateTo = searchParams.get('dateTo') || undefined;
+    const category = searchParams.get('category') || undefined;
+    const amountMin = searchParams.get('amountMin') ? parseFloat(searchParams.get('amountMin')!) : undefined;
+    const amountMax = searchParams.get('amountMax') ? parseFloat(searchParams.get('amountMax')!) : undefined;
+
     console.log('📋 [Paginated Transactions API] Query params:', {
       page,
       limit,
       status,
       search,
       sortBy,
-      sortOrder
+      sortOrder,
+      dateFrom,
+      dateTo,
+      category,
+      amountMin,
+      amountMax,
     });
 
     // Validate parameters
     if (page < 1 || limit < 1 || limit > 100) {
-      return NextResponse.json({ 
-        error: 'Invalid pagination parameters' 
+      return NextResponse.json({
+        error: 'Invalid pagination parameters',
       }, { status: 400 });
     }
 
-    // Get paginated transactions
+    // Get paginated transactions (date range and filters are display-only; fetch length is always 730 on import)
     const { data, error, pagination } = await getPaginatedTransactionsServer(
       user.uid,
       {
@@ -50,7 +60,12 @@ export async function GET(request: NextRequest) {
         status: status || undefined,
         search,
         sortBy,
-        sortOrder: sortOrder as "desc" | "asc" | undefined
+        sortOrder: sortOrder as 'desc' | 'asc' | undefined,
+        dateFrom,
+        dateTo,
+        category,
+        amountMin,
+        amountMax,
       }
     );
 
@@ -75,8 +90,13 @@ export async function GET(request: NextRequest) {
         status,
         search,
         sortBy,
-        sortOrder
-      }
+        sortOrder,
+        dateFrom,
+        dateTo,
+        category,
+        amountMin,
+        amountMax,
+      },
     });
 
     // Add cache headers for better performance

@@ -30,8 +30,8 @@ export default function SubscriptionsPage() {
     },
     {
       icon: Clock,
-      title: '1 Year History',
-      description: 'Access up to 12 months of transactions',
+      title: '24 Months History',
+      description: 'Up to 24 months (depending on your bank)',
     },
     {
       icon: Shield,
@@ -107,7 +107,7 @@ export default function SubscriptionsPage() {
             {[
               'Export Schedule C reports as PDF',
               'Export transaction data as CSV',
-              'Access up to 1 year of transactions',
+              'Access up to 24 months (depending on your bank)',
               'Automatic transaction syncing',
               'Priority support',
               'Cancel anytime, no questions asked',

@@ -841,8 +841,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
         },
         body: JSON.stringify({
           public_token,
-          // Free trial is app-managed, backend will automatically use 1 year if trial is active, 3 months otherwise
-          // No need to pass import_timeframe - backend determines based on subscription status
+          // Backend always requests 24 months (730 days); import_timeframe is display/filter only.
         }),
       });
 

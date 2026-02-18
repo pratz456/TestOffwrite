@@ -71,13 +71,26 @@ export async function GET(request: NextRequest) {
     const userProfileData = userProfile as any;
     const hasPlaidConnection = !!(userProfileData.plaid_token || userProfileData.plaid_item_id);
 
+    // Infer if Item was created with < 730 days_requested (Plaid requires new Item to increase)
+    let needsReconnectForFullHistory = false;
+    const plaidRequestedStart = userProfileData.plaid_requested_start_date ?? null;
+    const plaidConnectedAt = userProfileData.plaid_connected_at ?? null;
+    if (plaidRequestedStart && plaidConnectedAt) {
+      const connectedDate = typeof plaidConnectedAt?.toDate === 'function' ? plaidConnectedAt.toDate() : new Date(plaidConnectedAt);
+      const startDate = new Date(plaidRequestedStart + 'T12:00:00');
+      const requestedDaysAtConnect = Math.ceil((connectedDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+      needsReconnectForFullHistory = requestedDaysAtConnect < 730;
+    }
+
     return NextResponse.json({
       hasConnection: hasPlaidConnection,
       itemId: userProfileData.plaid_item_id || null,
       plaid_connected_at: userProfileData.plaid_connected_at ?? null,
-      plaid_requested_start_date: userProfileData.plaid_requested_start_date ?? null,
+      plaid_requested_start_date: plaidRequestedStart,
       plaid_earliest_returned_tx_date: userProfileData.plaid_earliest_returned_tx_date ?? null,
       plaid_imported_count: userProfileData.plaid_imported_count ?? null,
+      needsReconnectForFullHistory,
+      last_sync: userProfileData.last_sync ?? null,
     });
   } catch (error) {
     console.error('❌ [Plaid Items API] Unexpected error:', error);

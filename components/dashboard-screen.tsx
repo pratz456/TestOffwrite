@@ -59,6 +59,33 @@ export default function DashboardScreen({
   const [taxSavingsData, setTaxSavingsData] = useState<any>(null);
   const [isLoadingTaxSavings, setIsLoadingTaxSavings] = useState(false);
   const [isRefreshingBalances, setIsRefreshingBalances] = useState(false);
+  const [lastSync, setLastSync] = useState<number | null>(null);
+  const [analysisInProgress, setAnalysisInProgress] = useState(false);
+
+  useEffect(() => {
+    const fetchSyncAndAnalysis = async () => {
+      if (!userId) return;
+      try {
+        const token = await auth.currentUser?.getIdToken();
+        if (!token) return;
+        const [itemsRes, analysisRes] = await Promise.all([
+          fetch('/api/plaid/items', { headers: { Authorization: `Bearer ${token}` } }),
+          fetch('/api/transactions/analysis-status', { headers: { Authorization: `Bearer ${token}` } }),
+        ]);
+        if (itemsRes.ok) {
+          const items = await itemsRes.json();
+          const ls = items.last_sync;
+          if (typeof ls === 'number') setLastSync(ls);
+          else if (ls?.seconds) setLastSync(ls.seconds * 1000);
+        }
+        if (analysisRes.ok) {
+          const analysis = await analysisRes.json();
+          setAnalysisInProgress(analysis?.data?.overallStatus === 'analyzing');
+        }
+      } catch (_) {}
+    };
+    fetchSyncAndAnalysis();
+  }, [userId]);
 
   useEffect(() => {
     const fetchTaxSavings = async () => {
@@ -152,6 +179,8 @@ export default function DashboardScreen({
           userName={profile?.name?.split(' ')[0] || 'there'}
           isRefreshing={isRefreshingBalances}
           onRefresh={handleRefresh}
+          lastSync={lastSync}
+          analysisInProgress={analysisInProgress}
         />
 
         <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 space-y-4">

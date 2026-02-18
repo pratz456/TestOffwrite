@@ -47,7 +47,11 @@ export const BanksDetailScreen: React.FC<BanksDetailScreenProps> = ({
     plaid_requested_start_date?: string | null;
     plaid_earliest_returned_tx_date?: string | null;
     plaid_imported_count?: number | null;
+    needsReconnectForFullHistory?: boolean;
+    last_sync?: number | string | null;
   } | null>(null);
+  const [importStatus, setImportStatus] = useState<'idle' | 'running'>('idle');
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
   // Fetch accounts and Plaid connection status from API
   useEffect(() => {
@@ -79,8 +83,21 @@ export const BanksDetailScreen: React.FC<BanksDetailScreenProps> = ({
             plaid_requested_start_date: plaidStatus.plaid_requested_start_date ?? null,
             plaid_earliest_returned_tx_date: plaidStatus.plaid_earliest_returned_tx_date ?? null,
             plaid_imported_count: plaidStatus.plaid_imported_count ?? null,
+            needsReconnectForFullHistory: plaidStatus.needsReconnectForFullHistory ?? false,
+            last_sync: plaidStatus.last_sync ?? null,
           });
         }
+
+        // Import status (for disabling Re-sync when import is running)
+        try {
+          const importStatusRes = await fetch('/api/plaid/import-status', {
+            headers: { 'Authorization': `Bearer ${token}` },
+          });
+          if (importStatusRes.ok) {
+            const statusData = await importStatusRes.json();
+            setImportStatus(statusData.status === 'running' ? 'running' : 'idle');
+          }
+        } catch (_) {}
 
         // Fetch accounts with authentication
         const accountsResponse = await fetch('/api/database/accounts', {
@@ -274,6 +291,7 @@ export const BanksDetailScreen: React.FC<BanksDetailScreenProps> = ({
         // Clear all accounts
         setBankConnections([]);
         setHasPlaidConnection(false);
+        setPlaidImportMeta(prev => prev ? { ...prev, needsReconnectForFullHistory: false } : null);
         alert(`Bank connection disconnected successfully. ${result.deletedCounts?.accounts || 0} accounts and ${result.deletedCounts?.transactions || 0} transactions deleted.`);
       } else {
         const errorMsg = result.details || result.error || 'Unknown error';
@@ -282,6 +300,44 @@ export const BanksDetailScreen: React.FC<BanksDetailScreenProps> = ({
     } catch (error) {
       console.error('Error disconnecting Plaid:', error);
       alert('Failed to disconnect bank. Please try again.');
+    } finally {
+      setDisconnectingPlaid(false);
+    }
+  };
+
+  const handleDisconnectAndReconnect = async () => {
+    if (!confirm('To get the full 2 years of transaction history, you need to disconnect and reconnect your bank. Your accounts will be removed, then you can reconnect to import 730 days of history. Continue?')) {
+      return;
+    }
+
+    try {
+      setDisconnectingPlaid(true);
+
+      const currentUser = auth.currentUser;
+      if (!currentUser) return;
+
+      const token = await currentUser.getIdToken();
+      const response = await fetch('/api/plaid/items', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.success) {
+        setBankConnections([]);
+        setHasPlaidConnection(false);
+        setPlaidImportMeta(prev => prev ? { ...prev, needsReconnectForFullHistory: false } : null);
+        onConnectBank();
+      } else {
+        alert(`Failed to disconnect: ${result.details || result.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Error disconnecting:', error);
+      alert('Failed to disconnect. Please try again.');
     } finally {
       setDisconnectingPlaid(false);
     }
@@ -439,7 +495,7 @@ export const BanksDetailScreen: React.FC<BanksDetailScreenProps> = ({
                   e.preventDefault();
                   e.stopPropagation();
 
-                  if (!confirm('This will re-sync all transactions with maximum date range (2 years). This may take a few minutes. Continue?')) {
+                  if (!confirm('This will re-fetch up to 24 months of transactions. This may take a few minutes. Continue?')) {
                     return;
                   }
 
@@ -450,6 +506,7 @@ export const BanksDetailScreen: React.FC<BanksDetailScreenProps> = ({
                   }
 
                   try {
+                    setSyncMessage(null);
                     setLoading(true);
                     console.log('🔄 [Banks Detail] Starting transaction sync...');
 
@@ -472,6 +529,11 @@ export const BanksDetailScreen: React.FC<BanksDetailScreenProps> = ({
 
                     if (syncResponse.ok) {
                       const syncData = await syncResponse.json();
+                      if (syncData.status === 'already_running') {
+                        setSyncMessage('Import already in progress.');
+                        setImportStatus('running');
+                        return;
+                      }
                       console.log('✅ [Banks Detail] Transaction sync completed:', syncData);
                       alert(`✅ Successfully synced ${syncData.transactions_saved || 0} transactions!\n\nThe page will reload to show updated data.`);
                       setTimeout(() => {
@@ -490,26 +552,56 @@ export const BanksDetailScreen: React.FC<BanksDetailScreenProps> = ({
                     setLoading(false);
                   }
                 }}
-                disabled={loading}
+                disabled={loading || importStatus === 'running'}
                 className="gap-2"
               >
                 <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-                {loading ? 'Syncing...' : 'Re-sync Transactions'}
+                {loading ? 'Syncing...' : importStatus === 'running' ? 'Import in progress...' : 'Re-sync Transactions'}
               </Button>
             </div>
           </div>
+          {hasPlaidConnection && (
+            <div className="flex items-center gap-4 mt-2 text-xs text-slate-500">
+              {plaidImportMeta?.last_sync != null && (
+                <span>
+                  Last sync: {formatLastSync(
+                    typeof plaidImportMeta.last_sync === 'number'
+                      ? new Date(plaidImportMeta.last_sync).toISOString()
+                      : (plaidImportMeta.last_sync as any)?.seconds
+                        ? new Date((plaidImportMeta.last_sync as any).seconds * 1000).toISOString()
+                        : String(plaidImportMeta.last_sync)
+                  )}
+                </span>
+              )}
+              {syncMessage && <span className="text-amber-600 dark:text-amber-400">{syncMessage}</span>}
+            </div>
+          )}
         </div>
       </div>
 
       <div className="max-w-6xl mx-auto p-6">
+        {hasPlaidConnection && plaidImportMeta?.needsReconnectForFullHistory && (
+          <Card className="mb-6 border-blue-200 bg-blue-50 dark:border-blue-700/50 dark:bg-blue-900/20 p-4">
+            <p className="font-medium text-blue-900 dark:text-blue-100">Get full 2-year transaction history</p>
+            <p className="mt-1 text-sm text-blue-800 dark:text-blue-200/90">
+              To get the full 2 years of transaction history, Plaid requires a fresh connection. Disconnect your bank and reconnect to import 730 days of history.
+            </p>
+            <Button
+              onClick={handleDisconnectAndReconnect}
+              disabled={disconnectingPlaid}
+              className="mt-3 gap-2"
+            >
+              {disconnectingPlaid ? 'Disconnecting...' : 'Disconnect & Reconnect'}
+            </Button>
+          </Card>
+        )}
         {plaidImportMeta?.plaid_earliest_returned_tx_date &&
           plaidImportMeta?.plaid_requested_start_date &&
           plaidImportMeta.plaid_earliest_returned_tx_date > plaidImportMeta.plaid_requested_start_date && (
           <Card className="mb-6 border-amber-200 bg-amber-50 dark:border-amber-700/50 dark:bg-amber-900/20 p-4">
             <p className="font-medium text-amber-900 dark:text-amber-100">Limited transaction history</p>
             <p className="mt-1 text-sm text-amber-800 dark:text-amber-200/90">
-              Bank provided transactions from {plaidImportMeta.plaid_earliest_returned_tx_date} onward.
-              Older history is not available via Plaid for this connection.
+              Your bank provided transactions back to {plaidImportMeta.plaid_earliest_returned_tx_date}. Some banks limit how far back history is available.
               {plaidImportMeta.plaid_imported_count != null && (
                 <span className="block mt-1">Imported {plaidImportMeta.plaid_imported_count} transactions.</span>
               )}
