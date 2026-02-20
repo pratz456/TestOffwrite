@@ -1,13 +1,20 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import Script from "next/script";
 import { Geist } from "next/font/google";
 import { AuthProvider } from "@/lib/firebase/auth-context";
 import { ReactQueryProvider } from "@/lib/react-query/provider";
 import { ThemeProvider } from "@/components/theme-provider-wrapper";
+import { PwaInstallPrompt } from "@/components/pwa-install-prompt";
+import { PwaRegisterSw } from "@/components/pwa-register-sw";
 import "./globals.css";
 
 const defaultUrl = process.env.NEXT_PUBLIC_SITE_URL
   || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+
+// Use static OG image so link preview works even when the dynamic route fails in production (e.g. serverless).
+// Add public/og-image.png (e.g. save from http://localhost:3000/opengraph-image when running locally).
+const ogImageUrl = `${defaultUrl.replace(/\/$/, "")}/og-image.png`;
+const twitterImageUrl = `${defaultUrl.replace(/\/$/, "")}/og-image.png`;
 
 export const metadata: Metadata = {
   metadataBase: new URL(defaultUrl),
@@ -16,7 +23,7 @@ export const metadata: Metadata = {
     template: "%s | WriteOff",
   },
   description:
-    "The first AI-powered tax autopilot that finds, categorizes, and tracks every business expense in real-time. Stop overpaying taxes.",
+    "AI powered tax autopilot that finds, categorizes, and tracks every business expense in real-time. Stop overpaying taxes.",
   icons: {
     icon: [{ url: "/writeofflogo.png", type: "image/png" }],
     shortcut: "/writeofflogo.png",
@@ -27,16 +34,21 @@ export const metadata: Metadata = {
     siteName: "WriteOff",
     title: "WriteOff - AI Tax Deduction Tracker for Freelancers",
     description:
-      "The first AI-powered tax autopilot that finds, categorizes, and tracks every business expense in real-time.",
-    images: [{ url: "/writeofflogo.png", width: 512, height: 512, alt: "WriteOff Logo" }],
+      "AI powered tax autopilot that finds, categorizes, and tracks every business expense in real-time. Stop overpaying taxes.",
+    images: [{ url: ogImageUrl, width: 1200, height: 630, alt: "WriteOff - AI Tax Deduction Tracker for Freelancers" }],
   },
   twitter: {
     card: "summary_large_image",
     title: "WriteOff - AI Tax Deduction Tracker",
     description: "Stop overpaying taxes. WriteOff finds every deduction automatically.",
-    images: ["/writeofflogo.png"],
+    images: [twitterImageUrl],
   },
   alternates: { canonical: "/" },
+  manifest: "/manifest.json",
+};
+
+export const viewport: Viewport = {
+  themeColor: "#00C2A8",
 };
 
 const geistSans = Geist({
@@ -72,6 +84,8 @@ export default function RootLayout({
           <ReactQueryProvider>
             <AuthProvider>
               {children}
+              <PwaRegisterSw />
+              <PwaInstallPrompt />
             </AuthProvider>
           </ReactQueryProvider>
         </ThemeProvider>

@@ -27,6 +27,7 @@
     "list:users": "node scripts/list-users.js"
   },
   "dependencies": {
+    "@ducanh2912/next-pwa": "^10.2.9",
     "@radix-ui/react-accordion": "^1.2.12",
     "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-aspect-ratio": "^1.1.7",
@@ -65,7 +66,7 @@
     "firebase": "^12.2.1",
     "firebase-admin": "^13.5.0",
     "firebase-frameworks": "^0.11.8",
-    "firebase-functions": "^7.0.3",
+    "firebase-functions": "^7.0.5",
     "idb": "^8.0.3",
     "input-otp": "^1.4.2",
     "lucide-react": "^0.511.0",

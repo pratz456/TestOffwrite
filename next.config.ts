@@ -1,5 +1,8 @@
 import type { NextConfig } from "next";
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const withPWA = require("@ducanh2912/next-pwa").default;
+
 const nextConfig: NextConfig = {
   // Exclude api-backup directory from build
   pageExtensions: ["ts", "tsx", "js", "jsx"],
@@ -83,4 +86,10 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default withPWA({
+  dest: "public",
+  disable: process.env.NODE_ENV === "development",
+  fallbacks: {
+    document: "/~offline",
+  },
+})(nextConfig);

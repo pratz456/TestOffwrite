@@ -4,7 +4,7 @@ import { LandingPage } from "@/components/landing/landing-page";
 export const metadata: Metadata = {
   title: "WriteOff - AI Tax Deduction Tracker for Freelancers",
   description:
-    "The first AI-powered tax autopilot that finds, categorizes, and tracks every business expense in real-time. Stop overpaying taxes.",
+    "AI powered tax autopilot that finds, categorizes, and tracks every business expense in real-time. Stop overpaying taxes.",
 };
 
 export default function Home() {
