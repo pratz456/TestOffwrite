@@ -4,7 +4,7 @@ import React from 'react';
 import { LogoutButton } from './logout-button';
 import Link from 'next/link';
 import { usePathname, useSearchParams, useRouter } from 'next/navigation';
-import { Home, CreditCard, BarChart3, Settings, FolderOpen, HelpCircle, Shield, Info } from 'lucide-react';
+import { Home, CreditCard, BarChart3, Settings, FolderOpen, HelpCircle, Shield, Info, FileText } from 'lucide-react';
 interface SidebarNavProps {
   user: { id: string; email?: string; user_metadata?: { name?: string } };
   userProfile?: { name?: string; email?: string };
@@ -42,6 +42,12 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ user, userProfile }) => 
       href: '/protected/reports',
       icon: BarChart3,
       description: 'Tax reports and analytics'
+    },
+    {
+      name: 'File Taxes',
+      href: '/protected/file-taxes',
+      icon: FileText,
+      description: 'File your tax return'
     },
     {
       name: 'Settings',

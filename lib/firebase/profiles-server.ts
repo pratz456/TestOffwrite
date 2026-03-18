@@ -88,6 +88,12 @@ export interface UserProfile {
   stripeCustomerId?: string;
   stripeSubscriptionId?: string;
   stripeSubscriptionStatus?: string; // Stripe's subscription status (only set when paid)
+
+  // Column Tax Integration
+  columnTaxTaxpayerId?: string;
+  columnTaxFilingStatus?: 'draft' | 'submitted' | 'accepted' | 'rejected';
+  columnTaxFilingYear?: number;
+  columnTaxLastSyncedAt?: Date | any;
 }
 
 // Server-side function (for use in API routes)

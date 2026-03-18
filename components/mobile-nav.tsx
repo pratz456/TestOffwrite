@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { usePathname, useSearchParams, useRouter } from 'next/navigation';
-import { Menu, X, Home, CreditCard, BarChart3, Settings, FolderOpen, HelpCircle, Shield, Info } from 'lucide-react';
+import { Menu, X, Home, CreditCard, BarChart3, Settings, FolderOpen, HelpCircle, Shield, Info, FileText } from 'lucide-react';
 import { LogoutButton } from './logout-button';
 
 interface MobileNavProps {
@@ -44,6 +44,12 @@ export const MobileNav: React.FC<MobileNavProps> = ({ user, userProfile }) => {
       href: '/protected/reports',
       icon: BarChart3,
       description: 'Tax reports and analytics'
+    },
+    {
+      name: 'File Taxes',
+      href: '/protected/file-taxes',
+      icon: FileText,
+      description: 'File your tax return'
     },
     {
       name: 'Settings',
