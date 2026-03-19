@@ -140,7 +140,7 @@ export async function analyzeTransaction(tx: any, userContext?: any): Promise<AI
       specific_rules: Array.isArray(parsed.key_analysis_factors.specific_rules) ? parsed.key_analysis_factors.specific_rules.filter((s: any) => typeof s === 'string') : [],
       limitations: Array.isArray(parsed.key_analysis_factors.limitations) ? parsed.key_analysis_factors.limitations.filter((s: any) => typeof s === 'string') : [],
       deduction_status: ['Likely Deductible', 'Possibly Deductible', 'Unlikely Deductible', 'Income'].includes(parsed.key_analysis_factors.deduction_status) ? parsed.key_analysis_factors.deduction_status : 'Unknown',
-      deduction_percentage: typeof parsed.key_analysis_factors.deduction_percentage === 'number' ? Math.max(0, Math.min(100, parsed.key_analysis_factors.deduction_percentage)) : (typeof out.deduction_score === 'number' ? Math.round(out.deduction_score * 100) : 0),
+      deduction_percentage: typeof parsed.key_analysis_factors.deduction_percentage === 'number' ? Math.max(0, Math.min(100, parsed.key_analysis_factors.deduction_percentage)) : (typeof score === 'number' ? Math.round(score * 100) : 0),
       reasoning_summary: typeof parsed.key_analysis_factors.reasoning_summary === 'string' ? parsed.key_analysis_factors.reasoning_summary : '',
       irs_reference: typeof parsed.key_analysis_factors.irs_reference === 'string' ? parsed.key_analysis_factors.irs_reference : '',
     } : undefined,
@@ -182,7 +182,7 @@ export async function analyzeAllTransactions(userId: string) {
       if (analysis.success) {
         await updateTransactionServerWithUserId(userId, transaction.trans_id, {
           is_deductible: null, // Always set to null to require user review
-          deductible_reason: analysis.deduction_reason,
+          deductible_reason: analysis.deduction_reason ?? undefined,
           deduction_score: analysis.deduction_score || undefined,
         })
       }

@@ -1,10 +1,11 @@
+/// <reference lib="webworker" />
 import { precacheAndRoute, cleanupOutdatedCaches } from 'workbox-precaching';
 import { registerRoute } from 'workbox-routing';
 import { StaleWhileRevalidate, CacheFirst, NetworkFirst } from 'workbox-strategies';
 import { ExpirationPlugin } from 'workbox-expiration';
 import { CacheableResponsePlugin } from 'workbox-cacheable-response';
 
-declare const self: ServiceWorkerGlobalScope;
+declare const self: ServiceWorkerGlobalScope & typeof globalThis;
 
 // Precache all static assets
 precacheAndRoute(self.__WB_MANIFEST);
@@ -118,7 +119,7 @@ registerRoute(
 );
 
 // Background sync for offline transactions
-self.addEventListener('sync', (event) => {
+self.addEventListener('sync' as any, (event: ExtendableEvent & { tag?: string }) => {
   if (event.tag === 'background-sync-transactions') {
     event.waitUntil(syncOfflineTransactions());
   }
@@ -164,7 +165,7 @@ self.addEventListener('notificationclick', (event) => {
 
   if (event.action === 'explore') {
     event.waitUntil(
-      clients.openWindow(event.notification.data.url)
+      self.clients.openWindow(event.notification.data.url)
     );
   } else if (event.action === 'close') {
     // Just close the notification
@@ -172,7 +173,7 @@ self.addEventListener('notificationclick', (event) => {
   } else {
     // Default action - open the app
     event.waitUntil(
-      clients.openWindow('/')
+      self.clients.openWindow('/')
     );
   }
 });
@@ -206,7 +207,7 @@ async function syncOfflineTransactions() {
 }
 
 // Helper functions for offline storage
-async function getOfflineTransactions() {
+async function getOfflineTransactions(): Promise<Array<{ id: string; [key: string]: unknown }>> {
   // Implementation would use IndexedDB
   return [];
 }

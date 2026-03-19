@@ -4,13 +4,19 @@ import Stripe from 'stripe';
 import { adminDb } from '@/lib/firebase/admin';
 import { checkHistoricalAccess } from '@/lib/subscriptions/historical-access';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2024-12-18.acacia',
-});
+function getStripeOrNull() {
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) return null;
+  return new Stripe(key, { apiVersion: '2025-10-29.clover' });
+}
 
 export async function POST(req: Request) {
   try {
     const { uid } = await getUserFromReqOrThrow(req);
+    const stripe = getStripeOrNull();
+    if (!stripe) {
+      return NextResponse.json({ error: 'Stripe not configured' }, { status: 500 });
+    }
     const { interval = 'monthly' } = await req.json(); // 'monthly' or 'yearly'
 
     // Check if user already has an active paid subscription

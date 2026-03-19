@@ -2,8 +2,10 @@
 
 import React, { useState } from 'react';
 import { formatCategory } from '@/lib/utils';
+import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
 import writeOffLogo from '@/public/writeofflogo.png';
 import Image from 'next/image';
+import { toast } from 'sonner';
 
 // Icon components
 const ArrowLeftIcon = () => (
@@ -148,11 +150,11 @@ export const AddExpenseScreen: React.FC<EditExpenseScreenProps> = ({
         onSave(updatedExpense);
       } else {
         console.error('❌ Failed to run AI analysis:', result.error);
-        alert('Failed to run AI analysis. Please try again.');
+        toast.error('Failed to run AI analysis. Please try again.');
       }
     } catch (error) {
       console.error('❌ Error running AI analysis:', error);
-      alert('Error running AI analysis. Please try again.');
+      toast.error('Error running AI analysis. Please try again.');
     } finally {
       setIsAnalyzing(false);
     }
@@ -202,7 +204,7 @@ export const AddExpenseScreen: React.FC<EditExpenseScreenProps> = ({
                   <div className="text-right">
                     <div className="text-2xl font-bold text-gray-900">${Math.abs(editingExpense.amount).toFixed(2)}</div>
                     {editingExpense.is_deductible === true && (
-                      <div className="text-sm text-green-600 font-medium">+${((Math.abs(editingExpense.amount) * 0.3).toFixed(2))} saved</div>
+                      <div className="text-sm text-green-600 font-medium">+${((Math.abs(editingExpense.amount) * getUserTaxRate()).toFixed(2))} saved</div>
                     )}
                   </div>
                 </div>
@@ -322,7 +324,7 @@ export const AddExpenseScreen: React.FC<EditExpenseScreenProps> = ({
                   <span className="text-sm text-gray-600">Tax Savings</span>
                   <span className="font-semibold text-green-600">
                     {editingExpense.is_deductible === true
-                      ? '$' + ((Math.abs(editingExpense.amount) * 0.3).toFixed(2))
+                      ? '$' + ((Math.abs(editingExpense.amount) * getUserTaxRate()).toFixed(2))
                       : '$0.00'
                     }
                   </span>

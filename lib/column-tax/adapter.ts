@@ -56,6 +56,12 @@ export interface AdapterInput {
   lastName?: string;
   occupation?: string;
   state?: string;
+  mailingAddress?: {
+    street?: string;
+    city?: string;
+    state?: string;
+    zip?: string;
+  };
   transactions: ScheduleCTransactionLike[];
   taxYear: string;
   businessDescription: string;
@@ -147,7 +153,14 @@ export function buildColumnTaxPayload(input: AdapterInput): AdapterOutput {
       last_name: lastName || undefined,
       occupation: occupation || undefined,
     },
-    address: state ? { state } : undefined,
+    address: input.mailingAddress?.street
+      ? {
+          address: input.mailingAddress.street,
+          city: input.mailingAddress.city,
+          state: input.mailingAddress.state || state,
+          zip_code: input.mailingAddress.zip,
+        }
+      : state ? { state } : undefined,
     schedule_c_businesses: [business],
   };
 

@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { getUserProfile } from '@/lib/firebase/profiles';
+import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
 import { 
   CreditCard, 
   Building2, 
@@ -20,18 +21,89 @@ import {
 
 interface DashboardProps {
   user: any;
+  onNavigate?: (screen: string) => void;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
+const DashboardSkeleton = () => (
+  <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+    <div className="bg-white border-b border-blue-100 sticky top-0 z-50 shadow-sm">
+      <div className="max-w-7xl mx-auto px-6 py-4">
+        <div className="flex items-center gap-4">
+          <div className="h-10 w-32 bg-muted rounded-lg animate-pulse" />
+          <div className="space-y-2">
+            <div className="h-5 w-48 bg-muted rounded animate-pulse" />
+            <div className="h-3 w-64 bg-muted rounded animate-pulse" />
+          </div>
+        </div>
+      </div>
+    </div>
+    <div className="max-w-7xl mx-auto p-6 space-y-8">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        {[...Array(4)].map((_, i) => (
+          <div key={i} className="rounded-xl bg-white shadow-lg p-6 space-y-3">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-muted rounded-xl animate-pulse" />
+              <div className="space-y-2 flex-1">
+                <div className="h-3 w-20 bg-muted rounded animate-pulse" />
+                <div className="h-6 w-24 bg-muted rounded animate-pulse" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-2 space-y-6">
+          <div className="rounded-xl bg-white shadow-xl p-8 space-y-4">
+            <div className="h-5 w-32 bg-muted rounded animate-pulse" />
+            <div className="h-3 w-56 bg-muted rounded animate-pulse" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="h-16 bg-muted rounded-xl animate-pulse" />
+              ))}
+            </div>
+          </div>
+          <div className="rounded-xl bg-white shadow-xl p-8 space-y-3">
+            <div className="h-5 w-36 bg-muted rounded animate-pulse" />
+            <div className="h-3 w-48 bg-muted rounded animate-pulse" />
+            <div className="space-y-3 mt-4">
+              {[...Array(5)].map((_, i) => (
+                <div key={i} className="h-14 bg-muted rounded-lg animate-pulse" />
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="space-y-6">
+          <div className="rounded-xl bg-white shadow-xl p-6 space-y-4">
+            <div className="w-16 h-16 bg-muted rounded-full mx-auto animate-pulse" />
+            <div className="h-4 w-24 bg-muted rounded mx-auto animate-pulse" />
+            <div className="h-3 w-16 bg-muted rounded mx-auto animate-pulse" />
+            <div className="space-y-3 mt-4">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="flex justify-between">
+                  <div className="h-3 w-20 bg-muted rounded animate-pulse" />
+                  <div className="h-3 w-16 bg-muted rounded animate-pulse" />
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="h-40 bg-muted rounded-xl animate-pulse" />
+        </div>
+      </div>
+    </div>
+  </div>
+);
+
+export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate = () => {} }) => {
   const [profile, setProfile] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [taxSavings, setTaxSavings] = useState(0);
   const [newDeductions, setNewDeductions] = useState(0);
   const [needsReview, setNeedsReview] = useState(0);
   const [totalExpenses, setTotalExpenses] = useState(0);
   const [showRevenue, setShowRevenue] = useState(false);
   const [transactions, setTransactions] = useState<any[]>([]);
-  const userTaxRate = 0.3; // Example tax rate, replace with actual value
+  const userTaxRate = getUserTaxRate(profile);
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -44,11 +116,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
             code: error.code,
             details: error.details
           });
+          setError('Unable to load your profile. Please try refreshing the page.');
         } else {
           setProfile(data);
         }
       } catch (error) {
         console.error('Error fetching profile:', error);
+        setError('Unable to load your profile. Please try refreshing the page.');
       } finally {
         setIsLoading(false);
       }
@@ -62,6 +136,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
         
         if (!currentUser) {
           console.error('No authenticated user found');
+          setError('Authentication session expired. Please sign in again.');
           return;
         }
         
@@ -76,6 +151,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
 
         if (!response.ok) {
           console.error('Error fetching transactions:', response.statusText);
+          setError('Failed to load transactions. Please try again later.');
           return;
         }
 
@@ -105,12 +181,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
         setTotalExpenses(totalExpensesValue);
       } catch (error) {
         console.error('Error processing dashboard data:', error);
+        setError('Something went wrong loading your dashboard data. Please try refreshing.');
       }
     };
 
     fetchProfile();
     fetchDashboardData();
-  }, [user.id]);
+  }, [user.id, profile]);
 
   const handleSignOut = async () => {
     const { auth } = await import('@/lib/firebase/client');
@@ -123,14 +200,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
   // const filteredTransactions = [];
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <div className="animate-spin rounded-full h-8 w-8 border-2 border-blue-600 border-t-transparent mx-auto"></div>
-          <p className="text-slate-600">Loading your dashboard...</p>
-        </div>
-      </div>
-    );
+    return <DashboardSkeleton />;
   }
 
   return (
@@ -174,6 +244,21 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
         </div>
       </div>
 
+      {error && (
+        <div className="max-w-7xl mx-auto px-6 mt-4">
+          <div className="p-4 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm flex items-center justify-between">
+            <span>{error}</span>
+            <button
+              onClick={() => setError(null)}
+              className="ml-4 text-destructive/70 hover:text-destructive font-medium shrink-0"
+              aria-label="Dismiss error"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="max-w-7xl mx-auto p-6">
         {/* Quick Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
@@ -208,7 +293,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
               </div>
               <div>
                 <p className="text-sm text-slate-600">Connected Banks</p>
-                <p className="text-2xl font-bold text-slate-900">{profile?.plaid_token ? '1' : '0'}</p>
+                <p className="text-2xl font-bold text-slate-900">{profile?.plaid_token ? '1+' : '0'}</p>
               </div>
             </div>
           </Card>
@@ -240,6 +325,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Button 
+                  aria-label="Add expense manually"
                   className="h-16 bg-gradient-to-r from-emerald-400 to-green-500 dark:from-emerald-500 dark:to-green-600 hover:from-emerald-500 hover:to-green-600 dark:hover:from-emerald-400 dark:hover:to-green-500 text-white font-medium shadow-md shadow-green-500/20 dark:shadow-green-500/30 hover:shadow-lg rounded-xl justify-start gap-4 px-6 transition-all duration-200"
                 >
                   <PlusCircle className="w-6 h-6" />
@@ -251,6 +337,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
 
                 <Button 
                   variant="outline"
+                  aria-label="Connect bank for auto tracking"
                   className="h-16 border-2 border-blue-200 hover:border-blue-300 hover:bg-blue-50 rounded-xl justify-start gap-4 px-6"
                 >
                   <Building2 className="w-6 h-6 text-blue-600" />
@@ -262,6 +349,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
 
                 <Button 
                   variant="outline"
+                  aria-label="Upload receipt to scan and categorize"
                   className="h-16 border-2 border-purple-200 hover:border-purple-300 hover:bg-purple-50 rounded-xl justify-start gap-4 px-6"
                 >
                   <FileText className="w-6 h-6 text-purple-600" />
@@ -273,6 +361,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
 
                 <Button 
                   variant="outline"
+                  aria-label="View tax calendar with important dates"
                   className="h-16 border-2 border-orange-200 hover:border-orange-300 hover:bg-orange-50 rounded-xl justify-start gap-4 px-6"
                 >
                   <Calendar className="w-6 h-6 text-orange-600" />
@@ -285,6 +374,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
                 <Button 
                   onClick={() => onNavigate('ai-insights')}
                   variant="outline"
+                  aria-label="View AI tax insights and personalized advice"
                   className="h-16 border-2 border-teal-200 hover:border-teal-300 hover:bg-teal-50 rounded-xl justify-start gap-4 px-6"
                 >
                   <Lightbulb className="w-6 h-6 text-teal-600" />
@@ -380,16 +470,26 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
 
         {/* Filtered Transactions */}
         <div className="space-y-4">
-          {transactions.map((transaction) => (
-            <Card key={transaction.id} className="p-4">
-              <div className="flex justify-between">
-                <span>{transaction.merchant_name || 'Unknown Merchant'}</span>
-                <span className={transaction.amount > 0 ? 'text-green-600' : 'text-red-600'}>
-                  ${Math.abs(transaction.amount).toFixed(2)}
-                </span>
+          {transactions.length === 0 ? (
+            <div className="text-center py-12">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-muted flex items-center justify-center">
+                <CreditCard className="w-8 h-8 text-muted-foreground" />
               </div>
-            </Card>
-          ))}
+              <h3 className="text-lg font-medium text-foreground mb-2">No transactions yet</h3>
+              <p className="text-sm text-muted-foreground">Connect your bank account to start tracking expenses and finding deductions.</p>
+            </div>
+          ) : (
+            transactions.map((transaction) => (
+              <Card key={transaction.id} className="p-4">
+                <div className="flex justify-between">
+                  <span>{transaction.merchant_name || 'Unknown Merchant'}</span>
+                  <span className={transaction.amount > 0 ? 'text-green-600' : 'text-red-600'}>
+                    ${Math.abs(transaction.amount).toFixed(2)}
+                  </span>
+                </div>
+              </Card>
+            ))
+          )}
         </div>
       </div>
     </div>

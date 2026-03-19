@@ -46,7 +46,7 @@ export default function AIAnalysisCard({ ai, transaction, userProfile }: AIAnaly
     <div className="rounded-2xl border bg-white p-4 md:p-6">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold">AI Analysis</h3>
-        <span className="text-sm text-muted-foreground">{ai.status_label ?? '—'}</span>
+        <span className="text-sm text-muted-foreground">{ai.status_label ?? '-'}</span>
       </div>
 
       {/* Progress */}

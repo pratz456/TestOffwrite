@@ -3,13 +3,19 @@ import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import Stripe from 'stripe';
 import { adminDb } from '@/lib/firebase/admin';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2024-12-18.acacia',
-});
+function getStripeOrNull() {
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) return null;
+  return new Stripe(key, { apiVersion: '2025-10-29.clover' });
+}
 
 export async function POST(req: Request) {
   try {
     const { uid } = await getUserFromReqOrThrow(req);
+    const stripe = getStripeOrNull();
+    if (!stripe) {
+      return NextResponse.json({ error: 'Stripe not configured' }, { status: 500 });
+    }
 
     // Get user profile
     const userDoc = await adminDb.doc(`user_profiles/${uid}`).get();
@@ -112,7 +118,8 @@ export async function POST(req: Request) {
     const isActive = subscription.status === 'active';
     const trialEnd = subscription.trial_end ? new Date(subscription.trial_end * 1000) : null;
     const trialStart = subscription.trial_start ? new Date(subscription.trial_start * 1000) : null;
-    const currentPeriodEnd = subscription.current_period_end ? new Date(subscription.current_period_end * 1000) : null;
+    const fixFirstItem = subscription.items?.data?.[0];
+    const currentPeriodEnd = fixFirstItem?.current_period_end ? new Date(fixFirstItem.current_period_end * 1000) : null;
 
     const updateData: any = {
       stripeSubscriptionId: subscription.id,

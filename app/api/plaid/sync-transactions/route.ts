@@ -38,7 +38,7 @@ export async function POST(req: Request) {
       if (inProgress && startedAtMs) {
         if (nowMs - startedAtMs < LOCK_WINDOW_MS) {
           console.log('[Plaid Sync] Import already in progress, returning already_running');
-          return NextResponse.json({ status: 'already_running' }, { status: 200 });
+          return NextResponse.json({ success: true, status: 'already_running' }, { status: 200 });
         }
         if (nowMs - startedAtMs > STUCK_MS) {
           await adminDb.doc(`user_profiles/${uid}`).update({ plaid_import_in_progress: false, plaid_import_started_at: null });

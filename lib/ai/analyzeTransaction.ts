@@ -2,7 +2,13 @@ import OpenAI from 'openai';
 import { z } from 'zod';
 import { aiLearningEngine } from './learning-engine';
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+function getOpenAIOrThrow() {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error('OpenAI is not configured (missing OPENAI_API_KEY)');
+  }
+  return new OpenAI({ apiKey });
+}
 
 const OutputSchema = z.object({
   status: z.enum(['ok', 'needs_more_info', 'blocked']),
@@ -99,6 +105,11 @@ export interface TransactionInput {
   transaction_code?: string;
   merchant_category_code?: string;
   
+  account_usage_type?: 'business' | 'personal' | 'mixed' | 'unknown';
+  counterparties?: any[];
+  merchant_entity_id?: string;
+  is_recurring?: boolean;
+
   // Legacy fields for backward compatibility
   merchant_name?: string;
   amount?: number;
@@ -534,6 +545,22 @@ const IRS_PUBLICATIONS = {
   'retirement_plans': ['IRS Pub 560 (Retirement Plans for Small Business)', 'IRS Pub 535 (Business Expenses)', 'IRS Pub 17 (Your Federal Income Tax)'],
   'fringe_benefits': ['IRS Pub 15-B (Employer\'s Tax Guide to Fringe Benefits)', 'IRS Pub 535 (Business Expenses)', 'IRS Pub 17 (Your Federal Income Tax)'],
   
+  // Schedule C / 1099 / Self-Employment Essentials
+  'estimated_taxes': ['IRS Pub 505 (Tax Withholding and Estimated Tax)', 'IRS Pub 535 (Business Expenses)'],
+  'self_employment_tax': ['IRS Pub 334 (Tax Guide for Small Business)', 'IRS Pub 535 (Business Expenses)'],
+  'recordkeeping': ['IRS Pub 583 (Starting a Business and Keeping Records)', 'IRS Pub 535 (Business Expenses)'],
+  'worker_classification': ['IRS Pub 1779 (Independent Contractor or Employee?)', 'IRS Pub 15-A (Employer\'s Supplemental Tax Guide)'],
+  'accounting_methods': ['IRS Pub 538 (Accounting Periods and Methods)', 'IRS Pub 535 (Business Expenses)'],
+  'asset_basis': ['IRS Pub 551 (Basis of Assets)', 'IRS Pub 946 (How to Depreciate Property)'],
+  'asset_sales': ['IRS Pub 544 (Sales and Other Dispositions of Assets)', 'IRS Pub 551 (Basis of Assets)'],
+  'canceled_debt': ['IRS Pub 4681 (Canceled Debts, Foreclosures, Repossessions, and Abandonments)', 'IRS Pub 17 (Your Federal Income Tax)'],
+  'partnerships': ['IRS Pub 541 (Partnerships)', 'IRS Pub 535 (Business Expenses)'],
+  'corporations': ['IRS Pub 542 (Corporations)', 'IRS Pub 535 (Business Expenses)'],
+  'cryptocurrency': ['IRS Pub 544 (Sales and Other Dispositions of Assets)', 'IRS Notice 2014-21 (Virtual Currency Guidance)'],
+  'contract_labor': ['IRS Pub 1779 (Independent Contractor or Employee?)', 'IRS Pub 535 (Business Expenses)'],
+  'cost_of_goods_sold': ['IRS Pub 334 (Tax Guide for Small Business)', 'IRS Pub 535 (Business Expenses)'],
+  'net_operating_loss': ['IRS Pub 536 (Net Operating Losses)', 'IRS Pub 535 (Business Expenses)'],
+
   // State-Specific (Major States)
   'california': ['IRS Pub 535 (Business Expenses)', 'California FTB Pub 1001 (Supplemental Guidelines to California Adjustments)', 'IRS Pub 17 (Your Federal Income Tax)'],
   'new_york': ['IRS Pub 535 (Business Expenses)', 'New York State Tax Guide for Small Business', 'IRS Pub 17 (Your Federal Income Tax)'],
@@ -670,6 +697,42 @@ function getIRSReferences(category: string, merchant: string, mcc?: string): str
   return IRS_PUBLICATIONS.general_business;
 }
 
+function formatDisplayName(transaction: TransactionInput): string {
+  return transaction.merchant || transaction.merchant_name || 'this merchant';
+}
+
+function formatAmount(amount: number): string {
+  return `$${Math.abs(amount).toFixed(2)}`;
+}
+
+function professionLabel(professions: string[]): string {
+  if (!professions.length) return 'your business';
+  return professions
+    .map(p => p.replace(/_/g, ' '))
+    .join(' / ');
+}
+
+function businessMerchantCategory(merchant: string): { category: OutputType['category']; schedCLine: string; label: string } {
+  const m = merchant.toLowerCase();
+  if (['aws', 'amazon web services', 'google cloud', 'microsoft azure', 'heroku', 'vercel', 'netlify', 'cloudflare'].some(k => m.includes(k)))
+    return { category: 'software_subscriptions', schedCLine: '18', label: 'cloud/hosting service' };
+  if (['adobe', 'canva', 'figma', 'notion', 'slack', 'zoom', 'microsoft 365', 'google workspace', 'github', 'gitlab', 'bitbucket', 'atlassian', 'jira', 'dropbox business'].some(k => m.includes(k)))
+    return { category: 'software_subscriptions', schedCLine: '18', label: 'software subscription' };
+  if (['quickbooks', 'freshbooks', 'gusto'].some(k => m.includes(k)))
+    return { category: 'software_subscriptions', schedCLine: '17', label: 'accounting/payroll service' };
+  if (['stripe', 'square'].some(k => m.includes(k)))
+    return { category: 'bank_and_payment_fees', schedCLine: '10', label: 'payment processing' };
+  if (['google ads', 'meta ads', 'facebook ads', 'linkedin premium', 'semrush', 'ahrefs', 'hootsuite', 'mailchimp', 'hubspot'].some(k => m.includes(k)))
+    return { category: 'advertising_marketing', schedCLine: '8', label: 'marketing/advertising tool' };
+  if (['squarespace', 'shopify', 'wix', 'godaddy', 'namecheap'].some(k => m.includes(k)))
+    return { category: 'software_subscriptions', schedCLine: '18', label: 'website/e-commerce platform' };
+  if (['staples', 'office depot', 'vistaprint'].some(k => m.includes(k)))
+    return { category: 'supplies_small_tools', schedCLine: '22', label: 'office supplies' };
+  if (['usps', 'ups store', 'fedex office'].some(k => m.includes(k)))
+    return { category: 'supplies_small_tools', schedCLine: '22', label: 'shipping/postage' };
+  return { category: 'software_subscriptions', schedCLine: '18', label: 'business service' };
+}
+
 function applyMinimalHeuristics(transaction: TransactionInput, userContext?: UserContext): OutputType | null {
   const merchant = (transaction.merchant || transaction.merchant_name || '').toLowerCase().trim();
   const note = (transaction.note || transaction.notes || transaction.description || '').toLowerCase();
@@ -677,12 +740,12 @@ function applyMinimalHeuristics(transaction: TransactionInput, userContext?: Use
   const amount = transaction.amount_usd || transaction.amount || 0;
   const professions = (userContext as UserContext)?.profession || [];
   const professionsLower = professions.map(p => p.toLowerCase());
+  const displayName = formatDisplayName(transaction);
+  const profLabel = professionLabel(professions);
 
-  // Import CATEGORY_MAP for business-refund detection
   const { CATEGORY_MAP } = require('@/lib/schedule-c/aggregate');
 
   // ── 1. Refunds / credits (negative amount) ──────────────────────────
-  // Instead of blanket "personal", check if the refund is from a business vendor
   if (amount < 0) {
     const isLikelyBusinessRefund =
       CATEGORY_MAP[category] != null ||
@@ -690,38 +753,33 @@ function applyMinimalHeuristics(transaction: TransactionInput, userContext?: Use
       [...KNOWN_BUSINESS_MERCHANTS].some(bm => merchant.includes(bm));
 
     if (isLikelyBusinessRefund) {
-      // Let GPT analyze with full context — business refund reduces expenses
-      return null;
+      return null; // Let GPT analyze — business refund reduces expenses
     }
 
-    // Check if this is gig platform income (negative = payout to user)
     if ([...GIG_INCOME_PLATFORMS].some(gp => merchant.includes(gp))) {
       return {
         status: 'ok',
         is_deductible: false,
         expense_type: 'personal',
         category: 'other',
-        key_analysis_factor: 'This is income from a gig platform, not a business expense. Report as 1099 income on your tax return. It does not belong on Schedule C expenses.',
-        customized_reason: `Payment of $${Math.abs(amount).toFixed(2)} from ${transaction.merchant || transaction.merchant_name} is gig platform income (1099-K/1099-NEC). Report as income, not as an expense deduction.`,
+        key_analysis_factor: `This ${formatAmount(amount)} deposit from ${displayName} is gig platform income, not an expense. It should be reported as income (1099-K or 1099-NEC) on your return, not claimed as a deduction.`,
+        customized_reason: `${formatAmount(amount)} from ${displayName} is a gig platform payout - this is taxable income, not a business expense. Report it on Schedule C as gross receipts (Line 1). You should receive a 1099-K or 1099-NEC for this.`,
         irs_refs: getIRSReferences('general_business', merchant, transaction.mcc),
         audit_risk: 'low',
-        audit_risk_rationale: 'Gig platform payouts are well-documented via 1099 forms.',
         confidence: 0.95,
         reason_hash: generateReasonHash(transaction),
       };
     }
 
-    // Clearly personal refund
     return {
       status: 'ok',
       is_deductible: false,
       expense_type: 'personal',
       category: 'other',
-      key_analysis_factor: 'Negative amount indicates a refund or credit transaction. This refund is from a personal merchant and does not affect business deductions.',
-      customized_reason: `This is a refund of $${Math.abs(amount).toFixed(2)} from ${transaction.merchant || transaction.merchant_name}. It appears to be a personal refund.`,
+      key_analysis_factor: `This ${formatAmount(amount)} refund from ${displayName} is a personal credit. It does not affect your business deductions.`,
+      customized_reason: `${formatAmount(amount)} refund from ${displayName} - this is a personal refund and not a business deduction. No action needed on your taxes.`,
       irs_refs: getIRSReferences('general_business', merchant, transaction.mcc),
       audit_risk: 'low',
-      audit_risk_rationale: 'Refunds are straightforward and well-documented.',
       confidence: 0.90,
       reason_hash: generateReasonHash(transaction),
     };
@@ -734,16 +792,14 @@ function applyMinimalHeuristics(transaction: TransactionInput, userContext?: Use
       status: 'needs_more_info',
       missing_fields: ['transfer_type'],
       questions: [
-        'Is this a transfer between your own accounts or a payment to a contractor? If contractor, what service did they provide?'
+        `Was this ${formatAmount(amount)} ${displayName} payment to a contractor or freelancer for ${profLabel} work? If so, add a note with their name and the service provided.`
       ],
       reason_hash: generateReasonHash(transaction),
     };
   }
 
   // ── 3. Known personal merchants (skip GPT) ───────────────────────────
-  // Check if the merchant is unambiguously personal for this user's professions
   if (KNOWN_PERSONAL_MERCHANTS.has(merchant) || [...KNOWN_PERSONAL_MERCHANTS].some(pm => merchant.includes(pm))) {
-    // Exception: some professions make "personal" merchants deductible
     const isAmbiguousForProfession = professionsLower.some(prof => {
       const ambiguousSet = PROFESSION_AMBIGUOUS_MERCHANTS[prof];
       return ambiguousSet && ([...ambiguousSet].some(am => merchant.includes(am)));
@@ -753,16 +809,34 @@ function applyMinimalHeuristics(transaction: TransactionInput, userContext?: Use
       return null; // Let GPT decide — ambiguous for this profession
     }
 
+    const matchedMerchant = [...KNOWN_PERSONAL_MERCHANTS].find(pm => merchant.includes(pm)) || merchant;
+    const isStreaming = ['netflix', 'hulu', 'disney', 'hbo', 'paramount', 'spotify', 'apple music', 'pandora', 'tidal'].some(s => merchant.includes(s));
+    const isGym = ['fitness', 'equinox', 'gym'].some(s => merchant.includes(s));
+    const isGrocery = ['whole foods', 'trader joes', 'kroger', 'safeway', 'publix', 'aldi', 'walmart', 'target', 'costco', 'sams club'].some(s => merchant.includes(s));
+    const isFastFood = ['starbucks', 'dunkin', 'mcdonalds', 'chick-fil-a', 'chipotle'].some(s => merchant.includes(s));
+
+    let reason: string;
+    if (isStreaming) {
+      reason = `${formatAmount(amount)} at ${displayName} is a personal entertainment subscription - not deductible for ${profLabel}. If you use this specifically for business research or content creation, mark it as business and note the business purpose.`;
+    } else if (isGym) {
+      reason = `${formatAmount(amount)} at ${displayName} is a personal fitness expense. Gym memberships are generally not deductible unless required by your employer or directly tied to your business (e.g., personal training certification).`;
+    } else if (isGrocery) {
+      reason = `${formatAmount(amount)} at ${displayName} is a personal grocery/retail purchase. Groceries are not business-deductible. If this was supplies for ${profLabel}, mark it as business and note what you purchased.`;
+    } else if (isFastFood) {
+      reason = `${formatAmount(amount)} at ${displayName} looks like a personal meal. To deduct meals, you need a business purpose - like meeting a client or traveling for work. If this was a business meal, mark it as business, note who you met with, and save the receipt.`;
+    } else {
+      reason = `${formatAmount(amount)} at ${displayName} is a personal expense and not deductible on Schedule C. If you believe this is business-related for ${profLabel}, mark it as business and add a note explaining the connection.`;
+    }
+
     return {
       status: 'ok',
       is_deductible: false,
       expense_type: 'personal',
       category: 'other',
-      key_analysis_factor: 'This merchant is a known personal/consumer service. Personal subscriptions, groceries, and gym memberships are not deductible business expenses.',
-      customized_reason: `$${amount.toFixed(2)} at ${transaction.merchant || transaction.merchant_name} is a personal expense. Personal entertainment, grocery, and fitness expenses are not deductible on Schedule C.`,
+      key_analysis_factor: reason,
+      customized_reason: reason,
       irs_refs: ['IRS Pub 535 (Business Expenses)'],
       audit_risk: 'low',
-      audit_risk_rationale: 'Clear personal expense with no business nexus.',
       confidence: 0.90,
       reason_hash: generateReasonHash(transaction),
     };
@@ -770,16 +844,19 @@ function applyMinimalHeuristics(transaction: TransactionInput, userContext?: Use
 
   // ── 4. Known business merchants (skip GPT) ───────────────────────────
   if (KNOWN_BUSINESS_MERCHANTS.has(merchant) || [...KNOWN_BUSINESS_MERCHANTS].some(bm => merchant.includes(bm))) {
+    const { category: bizCategory, schedCLine, label } = businessMerchantCategory(merchant);
+
+    const reason = `${formatAmount(amount)} at ${displayName} - this is a ${label} commonly used by ${profLabel}. Deductible on Schedule C Line ${schedCLine}. Save your receipt or invoice.`;
+
     return {
       status: 'ok',
       is_deductible: true,
       expense_type: 'business',
-      category: 'software_subscriptions',
-      key_analysis_factor: 'This merchant is a recognized business service provider. Business software, cloud services, and office supplies are ordinary and necessary business expenses.',
-      customized_reason: `$${amount.toFixed(2)} at ${transaction.merchant || transaction.merchant_name} is a business expense. Professional tools and services are deductible under IRS Pub 535.`,
+      category: bizCategory,
+      key_analysis_factor: reason,
+      customized_reason: reason,
       irs_refs: ['IRS Pub 535 (Business Expenses)'],
       audit_risk: 'low',
-      audit_risk_rationale: 'Well-known business vendor with clear business purpose.',
       confidence: 0.85,
       reason_hash: generateReasonHash(transaction),
     };
@@ -824,64 +901,34 @@ export async function analyzeTransaction(
   // Build enhanced prompt with profession hints
   const professionHints = getProfessionHints((ctx as UserContext).profession || []);
   
-  const systemPrompt = `You are a meticulous U.S. small-business tax analyst. Your job is to classify a single bank/credit transaction for deductibility and produce a SPECIFIC, PROFILE-AWARE explanation tied to the user's profession, entity type, travel pattern, and state.
+  const systemPrompt = `You are a U.S. small-business tax analyst. The user is self-employed. Your output is shown directly to them - write in plain, specific English and always tell them what to do next.
 
-CRITICAL CLASSIFICATION REQUIREMENT:
-- You MUST explicitly classify each transaction as either "business" or "personal" in the expense_type field
-- "business" = expense is related to the user's business/profession and may be tax-deductible
-- "personal" = expense is for personal use and is NOT tax-deductible
-- Use ALL available context (merchant, location, time, user profile, transaction details) to make this determination
-- If uncertain, err on the side of "personal" to be conservative
-- The expense_type field should align with is_deductible (business = true, personal = false)
+OUTPUT: Return ONLY valid JSON (no markdown, no text outside the JSON). Required fields:
+- status: "ok" or "needs_more_info"
+- is_deductible: boolean
+- expense_type: "business" or "personal" (must align with is_deductible; default to "personal" if uncertain)
+- category: one of: advertising_marketing, supplies_small_tools, software_subscriptions, contract_labor, equipment, vehicle_expense, travel, meals_50, home_office, utilities_phone_internet, education_training, dues_and_memberships, bank_and_payment_fees, rent, other
+- customized_reason: 2-3 plain-English sentences the user will read. Sentence 1: whether this is deductible and why, specific to their profession. Sentence 2: what they should do (save receipt, note attendees, track mileage, etc.). Never use filler like "commonly deductible for businesses."
+- key_analysis_factor: one-sentence summary for the UI card (<=400 chars)
+- reasoning_summary: brief note mentioning their profession and relevant context. No rigid formula - write naturally.
+- confidence: 0-1
+- audit_risk: "low", "medium", or "high"
+- irs_refs: array of up to 3 IRS publications (e.g. "IRS Pub 535", "IRS Pub 463")
 
-Strict rules:
-- Be precise and user-specific. Always mention the user's profession and relevant profile attributes inside the reasoning_summary.
-- Cite only IRS primary sources by publication name/number (e.g., IRS Pub 535, IRS Pub 463). Do not invent sections. If a section is unknown, set section=null.
-- Refunds/credits are NOT deductible; they reduce prior expenses. Adjust guidance accordingly.
-- If facts are insufficient, choose the safest determination and list exactly which docs would resolve uncertainty in documentation_required.
-- Keep "audit_risk" as "low" | "medium" | "high" based on ambiguity and typical IRS scrutiny.
-- DO NOT output chain-of-thought. Output only the final JSON fields described in the schema.
-- No two transactions in the same batch should reuse an identical reasoning_summary. Vary phrasing while keeping facts constant.
-- Never claim legal/tax advice; present as guidance based on IRS rules.
+Optional fields: deductible_percent (for mixed-use or meals), documentation_required (array), questions (if needs_more_info).
 
-CRITICAL JSON FORMAT REQUIREMENTS:
-- You MUST return ONLY valid JSON that matches the exact schema provided
-- ALWAYS include the "status" field with value "ok" or "needs_more_info"
-- Use EXACT category enum values (e.g., "meals_50" not "Meals and Entertainment")
-- Do not include any text before or after the JSON
-- Do not include markdown formatting or code blocks
-
-ANALYSIS RULES:
-- "No two reasons alike": write a customized_reason that is unique for this specific user and transaction.
-- Key Analysis Factor (KAF) must be EXACTLY THREE DISTINCT sentences, ≤ 400 characters total, tailored to the user's profession(s).
-- NEVER use generic reasoning like "Travel expenses for business purposes are generally deductible."
-- ALWAYS explain WHY the expense is necessary for the user's specific profession(s).
-- Use ALL available transaction context: time_24h, city/state, location (address, lat/lon), payment_channel, authorized_date, work_related_travel pattern, office_location, business_purpose, attendees, travel_destination, equipment_details, client_project, documentation_status, meeting_notes, mileage_details, personal_finance_category, pending status, currency codes, etc.
-- Use ALL available user context: age, income, business_entity, work_related_travel frequency, documentation_habits, business_purpose, home_office_sqft, vehicle_business_use_percentage, audit_history, tax_professional, business_seasonality, multiple_locations, international_business, professional_licenses, prior_year_deductions, etc.
-- Consider age and income for expense reasonableness (e.g., $50 meal for $30k income vs $100k income).
-- Use business_entity to determine deduction rules (LLC vs Corporation vs Sole Proprietor).
-- Use office_location to distinguish home office travel (deductible) vs regular office commuting (not deductible).
-- LEARNING CONTEXT: If learning_context is provided, use it to inform your analysis:
-  - If merchantPreference exists, consider the user's historical preference for this merchant
-  - If categoryPreference exists, consider the user's historical preference for this category
-  - If mccPreference exists, consider the user's historical preference for this MCC
-  - If amountPreference exists, consider the user's historical preference for this amount range
-  - Adjust confidence based on overallConfidence from learning context
-  - Mention in reasoning if you're using learned preferences: "Based on your previous corrections for similar transactions..."
-- Use work_related_travel frequency to assess if travel expense is consistent with user's pattern.
-- Use documentation_habits to suggest appropriate documentation requirements.
-- Use business_purpose and naics_code to understand the nature of the business for better categorization.
-- Use home_office_sqft and vehicle_business_use_percentage for mixed-use calculations.
-- Use audit_history and tax_professional to adjust risk tolerance and recommendation confidence.
-- Use business_seasonality to understand if expenses align with business patterns.
-- Use multiple_locations and international_business to consider travel and location-based deductions.
-- Use professional_licenses to understand industry-specific deduction opportunities.
-- Use prior_year_deductions to avoid recommending duplicate or conflicting deductions.
-- Respect the 50% meals limitation.
-- Distinguish commuting (non‑deductible) from business travel (deductible under rules).
-- For mixed‑use items (phone/internet/vehicle/software), recommend a deductible_percent with a brief rationale.
-- If critical info is missing, return status="needs_more_info" with up to 3 short questions.
-- Use clean, user-friendly IRS references (e.g., "IRS Pub 463" not "IRS Publication 535, Section Section 162").`;
+KEY RULES:
+- Meals: 50% deductible. Set deductible_percent: 50 and category: "meals_50". Must have a business purpose (client meeting, work travel). Tell user to note who they met with.
+- Commuting to a regular workplace: NOT deductible. Travel from home office to client: deductible.
+- Mixed-use (phone, internet, vehicle): suggest a deductible_percent and explain the split.
+- If learning_context has merchantPreference, factor it in: "Based on your previous corrections..."
+- Use exact date from date_iso. Reference time_24h if available (timing distinguishes business vs personal meals).
+- Cite IRS pubs by name only (e.g. "IRS Pub 463"). Do not invent section numbers.
+- Refunds/credits (negative amounts): not deductible; they reduce prior expenses.
+- If info is insufficient: status="needs_more_info" with up to 3 specific questions.
+- account_usage_type: if "personal", this account is personal-only - expenses are likely personal unless user overrides. If "business", assume business-related. If "mixed", evaluate each tx individually. If "unknown", no signal.
+- is_recurring: if true, this is a recurring subscription/payment detected by Plaid. Recurring business subscriptions (software, SaaS, professional memberships) are typically fully deductible. Recurring personal subscriptions (streaming, gym) are not.
+- NEVER use generic phrases like "Travel expenses are generally deductible" or "commonly deductible for freelancer businesses". Be specific to this person and this transaction.`;
 
   // Build user income type context for the prompt
   const professionsLower = ((ctx as UserContext).profession || []).map(p => p.toLowerCase());
@@ -896,276 +943,60 @@ ANALYSIS RULES:
     incomeTypeContext = `\nUSER INCOME TYPE: Self-employed / 1099 / Freelancer. All legitimate, ordinary, and necessary business expenses qualify for Schedule C deduction.`;
   }
 
-  const userPrompt = `TASK: Classify a single transaction for this user based on their income type and profession.${incomeTypeContext}
+  const userPrompt = `Classify this transaction for the user described below.${incomeTypeContext}
 
-
-REQUIRED JSON OUTPUT FORMAT:
-{
-  "status": "ok",
-  "is_deductible": true,
-  "expense_type": "business",
-  "category": "meals_50",
-  "deductible_percent": 50,
-  "key_analysis_factor": "First sentence explains profession-specific need. Second sentence considers timing context. Third sentence provides tax rule context.",
-  "customized_reason": "Unique explanation for this specific user and transaction.",
-  "reasoning_summary": "As a 28-year-old Virtual Assistant earning $45k annually in California, operating as an LLC with a home office and occasional work-related travel, this $12 Uber expense for client meetings is reasonable (0.03% of annual income) and deductible under IRS Pub 463 (Travel, Entertainment, Gift, and Car Expenses) for business travel from your home office, consistent with your occasional travel pattern",
-  "audit_risk": "low",
-  "audit_risk_rationale": "Brief explanation of audit risk level based on ambiguity and typical IRS scrutiny.",
-  "confidence": 0.85,
-  "irs_refs": ["IRS Pub 463 (Travel, Entertainment, Gift, and Car Expenses)", "IRS Pub 535 (Business Expenses)"],
-  "documentation_required": ["Receipt showing business purpose", "Client meeting documentation"]
-}
-
-VALID CATEGORIES (use EXACTLY these values):
-- advertising_marketing
-- supplies_small_tools  
-- software_subscriptions
-- contract_labor
-- equipment
-- vehicle_expense
-- travel
-- meals_50 (for all meal/restaurant expenses)
-- home_office
-- utilities_phone_internet
-- education_training
-- dues_and_memberships
-- bank_and_payment_fees
-- rent
-- other
-
-CONTEXT (JSON):
+CONTEXT:
 {
   "profile": {
-    "user_id": "${(ctx as UserContext).user_id || ''}",
-    "age": ${(ctx as UserContext).age || 30},
     "profession": ${JSON.stringify((ctx as UserContext).profession || [])},
-    "annual_gross_income_usd": ${(ctx as UserContext).annual_gross_income_usd || 50000},
-    "filing_state": "${(ctx as UserContext).filing_state || (ctx as UserContext).state || ''}",
-    "business_entity": "${(ctx as UserContext).business_entity || 'sole_proprietor'}",
+    "age": ${(ctx as UserContext).age || 30},
+    "annual_income": ${(ctx as UserContext).annual_gross_income_usd || 50000},
+    "state": "${(ctx as UserContext).filing_state || (ctx as UserContext).state || ''}",
+    "entity_type": "${(ctx as UserContext).business_entity || 'sole_proprietor'}",
     "office_location": "${(ctx as UserContext).office_location || 'Not specified'}",
-    "work_related_travel": "${(ctx as UserContext).work_related_travel || 'none'}",
-    
-    "itemization_status": "${(ctx as UserContext).itemization_status || 'Not specified'}",
-    "business_start_date": "${(ctx as UserContext).business_start_date || 'Not specified'}",
-    "years_in_business": ${(ctx as UserContext).years_in_business !== undefined ? (ctx as UserContext).years_in_business : 'null'},
-    "home_office_sqft": ${(ctx as UserContext).home_office_sqft || 0},
-    "total_home_sqft": ${(ctx as UserContext).total_home_sqft || 0},
-    "home_office_method": "${(ctx as UserContext).home_office_method || 'Not specified'}",
-    "vehicle_business_use_percentage": ${(ctx as UserContext).vehicle_business_use_percentage || 0},
-    "vehicle_deduction_method": "${(ctx as UserContext).vehicle_deduction_method || 'Not specified'}",
-    
-    "naics_code": "${(ctx as UserContext).naics_code || 'Not specified'}",
+    "work_travel": "${(ctx as UserContext).work_related_travel || 'none'}",
     "business_purpose": "${(ctx as UserContext).business_purpose || 'Not specified'}",
-    "ein": "${(ctx as UserContext).ein || 'Not specified'}",
+    "home_office_sqft": ${(ctx as UserContext).home_office_sqft || 0},
+    "vehicle_business_use_pct": ${(ctx as UserContext).vehicle_business_use_percentage || 0},
     "w2_income": ${(ctx as UserContext).w2_income || 0},
-    "business_income": ${(ctx as UserContext).business_income || 0},
-    "other_income": ${(ctx as UserContext).other_income || 0},
-    "tax_bracket": ${(ctx as UserContext).tax_bracket || 0},
-    "professional_licenses": ${JSON.stringify((ctx as UserContext).professional_licenses || [])},
-    
-    "prior_year_deductions": ${JSON.stringify((ctx as UserContext).prior_year_deductions || [])},
-    "audit_history": "${(ctx as UserContext).audit_history || 'none'}",
-    "tax_professional": ${(ctx as UserContext).tax_professional || false},
-    "documentation_habits": "${(ctx as UserContext).documentation_habits || 'moderate'}",
-    "business_seasonality": "${(ctx as UserContext).business_seasonality || 'year_round'}",
-    "multiple_locations": ${(ctx as UserContext).multiple_locations || false},
-    "international_business": ${(ctx as UserContext).international_business || false}
+    "business_income": ${(ctx as UserContext).business_income || 0}
   },
   "learning_context": ${JSON.stringify(learningContext || {})},
   "tx": {
-    "tx_id": "${transaction.tx_id || ''}",
     "merchant": "${transaction.merchant || transaction.merchant_name || ''}",
-    "mcc": "${transaction.mcc || transaction.merchant_category_code || ''}",
     "amount_usd": ${transaction.amount_usd || transaction.amount || 0},
     "date_iso": "${transaction.date_iso || transaction.date || ''}",
+    "authorized_date": "${transaction.authorized_date || ''}",
     "time_24h": "${timeToUse || ''}",
     "city": "${transaction.location?.city || transaction.city || ''}",
     "state": "${transaction.location?.state || transaction.state || ''}",
-    "channel": "${transaction.channel || ''}",
-    "note": "${transaction.note || transaction.notes || transaction.description || ''}",
-    "location": ${JSON.stringify(transaction.location || {})},
+    "address": "${transaction.location?.address || ''}",
+    "mcc": "${transaction.mcc || transaction.merchant_category_code || ''}",
+    "category": ${JSON.stringify(transaction.personal_finance_category || {})},
     "payment_channel": "${transaction.payment_channel || ''}",
-    "authorized_date": "${transaction.authorized_date || ''}",
-    "iso_currency_code": "${transaction.iso_currency_code || 'USD'}",
-    "unofficial_currency_code": "${transaction.unofficial_currency_code || ''}",
-    "personal_finance_category": ${JSON.stringify(transaction.personal_finance_category || {})},
-    "pending": ${transaction.pending || false},
-    "pending_transaction_id": "${transaction.pending_transaction_id || ''}",
-    "account_owner": "${transaction.account_owner || ''}",
-    "transaction_code": "${transaction.transaction_code || ''}",
+    "account_usage_type": "${transaction.account_usage_type || 'unknown'}",
+    "counterparties": ${JSON.stringify(transaction.counterparties || [])},
+    "merchant_entity_id": "${transaction.merchant_entity_id || ''}",
+    "is_recurring": ${transaction.is_recurring ? 'true' : 'false'},
+    "note": "${transaction.note || transaction.notes || transaction.description || ''}",
     "business_purpose": "${transaction.business_purpose || ''}",
-    "attendees": ${JSON.stringify(transaction.attendees || [])},
-    "travel_destination": "${transaction.travel_destination || ''}",
-    "equipment_details": ${JSON.stringify(transaction.equipment_details || {})},
-    "client_project": "${transaction.client_project || ''}",
-    "documentation_status": "${transaction.documentation_status || 'missing'}",
-    "meeting_notes": "${transaction.meeting_notes || ''}",
-    "mileage_details": ${JSON.stringify(transaction.mileage_details || {})}
+    "attendees": ${JSON.stringify(transaction.attendees || [])}
   }
 }
 
 ${professionHints}
 
-CRITICAL RULES:
-1. ALWAYS include "status": "ok" in your response
-2. ALWAYS include "expense_type": "business" or "expense_type": "personal" to explicitly classify the transaction
-   - "business" = expense is related to the user's business/profession (may be tax-deductible)
-   - "personal" = expense is for personal use (NOT tax-deductible)
-   - Use ALL available context (merchant, location, time, user profile, transaction details, personal_finance_category) to determine this
-   - Consider merchant name, MCC code, location, time of day, user's profession, and transaction context
-   - If uncertain, err on the side of "personal" to be conservative
-   - expense_type should align with is_deductible (business = true, personal = false)
-   - The expense_type field is REQUIRED and must be explicitly set for every transaction
-3. Use EXACT category values from the list above (e.g., "meals_50" not "Meals and Entertainment")
-4. For travel expenses: Explain WHY travel is necessary for the user's specific profession(s)
-4. Use ALL transaction context: Consider time_24h, city/state, location (address, lat/lon), payment_channel, authorized_date, work_related_travel pattern, office_location
-5. Distinguish commuting vs business travel: Commuting to regular workplace is NOT deductible
-6. KAF must be THREE distinct sentences: (1) profession-specific need, (2) timing context, (3) tax rule context
-7. ALWAYS mention the time_24h in your analysis if available - timing matters for tax deductions
-8. For meals: Consider if it's during business hours, client meetings, or work-related travel
-   - Example: "Purchased at 2:30 PM during business hours for client meeting"
-   - Example: "Late night meal at 11:45 PM may indicate personal use"
-   - Example: "Breakfast at 8:00 AM before client presentation is business-related"
-9. CRITICAL: Use the EXACT date from date_iso field - do NOT change or interpret the date
-   - If date_iso is "2025-09-12", use "September 12" not "September 13"
-   - If date_iso is "2025-09-13", use "September 13" not "September 12"
-   - Always match the exact date provided by Plaid
-10. Use location data (address, lat/lon) for travel deduction analysis:
-    - Location coordinates help verify business travel distance and purpose
-    - Address helps identify if transaction is at business location vs personal location
-    - Use location.city and location.state if available, otherwise fall back to city/state fields
-11. Use payment_channel to understand transaction context:
-    - "in_store" may indicate physical business purchases
-    - "online" may indicate software subscriptions or remote services
-    - Consider payment method when determining business purpose
-12. Use authorized_date vs date_iso for timing analysis:
-    - authorized_date is when transaction was authorized (may differ from posted date)
-    - Use date_iso for tax year determination
-    - Consider timing differences for expense timing rules
-13. Use personal_finance_category for better categorization:
-    - primary: High-level category (e.g., "GENERAL_MERCHANDISE")
-    - detailed: Specific category (e.g., "GENERAL_MERCHANDISE_OFFICE_SUPPLIES")
-    - confidence: How confident Plaid is in the categorization
-14. Use pending status for transaction timing:
-    - Pending transactions may not be finalized
-    - Consider pending status when determining tax year
-15. Use currency codes for international transactions:
-    - iso_currency_code: Standard currency (e.g., "USD", "EUR")
-    - unofficial_currency_code: Non-standard currency if applicable
-    - International transactions may have different deduction rules
-16. Consider user's age and income level for reasonableness of expenses
-17. Use business_entity type to determine appropriate deduction rules (e.g., LLC vs Corporation)
-18. Consider office_location for travel deductions (home office vs external office)
-19. Use work_related_travel frequency to assess travel expense reasonableness
-20. Customized_reason should be unique to this user's profession and transaction context
-21. Use comprehensive IRS references based on expense type:
-    - Travel/Transportation: "IRS Pub 463 (Travel, Entertainment, Gift, and Car Expenses)"
-    - Meals/Entertainment: "IRS Pub 463 (Travel, Entertainment, Gift, and Car Expenses)"
-    - Home Office: "IRS Pub 587 (Business Use of Your Home)"
-    - Equipment/Depreciation: "IRS Pub 946 (How to Depreciate Property)"
-    - Education/Training: "IRS Pub 970 (Tax Benefits for Education)"
-    - Health Insurance: "IRS Pub 974 (Premium Tax Credit)"
-    - Employee Benefits: "IRS Pub 15-B (Employer's Tax Guide to Fringe Benefits)"
-    - Retirement Plans: "IRS Pub 560 (Retirement Plans for Small Business)"
-    - Medical Expenses: "IRS Pub 502 (Medical and Dental Expenses)"
-    - Casualty Losses: "IRS Pub 547 (Casualties, Disasters, and Thefts)"
-    - General Business: "IRS Pub 535 (Business Expenses)", "IRS Pub 334 (Tax Guide for Small Business)"
-    - NEVER use "Publication IRS Pub" or "Section Section" - these are typos
-    - Always include the full publication name in parentheses
-16. NEW REQUIREMENT: reasoning_summary must be SPECIFIC and PROFILE-AWARE
-    - ALWAYS mention the user's profession in the reasoning_summary
-    - ALWAYS mention relevant profile attributes (entity type, travel pattern, state)
-    - ALWAYS consider income level for expense reasonableness
-    - ALWAYS consider age for business context
-    - ALWAYS consider state for tax implications
-    - Be precise and user-specific, not generic
-    - Example: "As a 28-year-old Virtual Assistant earning $45k annually in California, this $12 Uber expense for client meetings is reasonable and deductible under IRS Pub 463 (Travel, Entertainment, Gift, and Car Expenses) for business travel from your home office"
-17. NEW REQUIREMENT: Cite only IRS primary sources by publication name/number
-    - Use format: "IRS Pub 535", "IRS Pub 463", "IRS Pub 529"
-    - Do not invent sections - if unknown, set section=null
-    - Do not use "IRS Publication 535, Section 162" format
-18. NEW REQUIREMENT: Refunds/credits are NOT deductible
-    - They reduce prior expenses but are not themselves deductible
-    - Adjust guidance accordingly for negative amounts
-19. NEW REQUIREMENT: If facts are insufficient, choose safest determination
-    - List exactly which docs would resolve uncertainty in documentation_required
-    - Be conservative in your assessment
-20. NEW REQUIREMENT: No two transactions should reuse identical reasoning_summary
-    - Vary phrasing while keeping facts constant
-    - Make each analysis unique to the specific transaction
+Good example of customized_reason for a meal:
+"This dinner at Semolina Kitchen could be deductible as a business meal (50%) if you were meeting a client or discussing work. Note who you dined with and the business topic - without that, the IRS would consider this personal."
 
-EXAMPLES OF USING CONTEXT FOR REASONING_SUMMARY:
+Good example for a software subscription:
+"Figma is a design tool directly used in your freelance graphic design work. Fully deductible on Schedule C Line 18. Keep the invoice or billing confirmation."
 
-INCOME-BASED REASONING:
-- Age 25, income $30k: "As a 25-year-old Virtual Assistant earning $30k annually, this $15 meal expense represents 0.05% of your annual income, which is reasonable for client meetings in your early career stage"
-- Age 45, income $100k: "As an established 45-year-old Virtual Assistant earning $100k annually, this $25 meal expense is well within reasonable business expense limits for client relationship building"
-
-ENTITY-BASED REASONING:
-- LLC entity: "As a Virtual Assistant operating as an LLC in California, this business expense is deductible under IRS Pub 535 for business entities"
-- Sole proprietor: "As a sole proprietor Virtual Assistant, this expense qualifies as a Schedule C business deduction under IRS Pub 535"
-- Corporation: "As a Virtual Assistant operating as a corporation, this expense may require corporate expense policy compliance and proper documentation"
-
-LOCATION-BASED REASONING:
-- Home office: "As a Virtual Assistant with a home office in California, this Uber expense from your home to client location is deductible business travel under IRS Pub 463"
-- External office: "As a Virtual Assistant with an external office in California, this Uber expense appears to be commuting to your regular workplace, which is NOT deductible under IRS Pub 463"
-- No office specified: "As a Virtual Assistant in California, verify this Uber expense is for business travel rather than personal commuting"
-
-TRAVEL PATTERN REASONING:
-- Frequent travel: "As a Virtual Assistant with frequent work-related travel, this expense is consistent with your established travel pattern and deductible under IRS Pub 463"
-- Occasional travel: "As a Virtual Assistant with occasional work-related travel, verify the business purpose of this expense as it's outside your typical travel pattern"
-- No travel: "As a Virtual Assistant with no work-related travel pattern, this travel expense requires clear business purpose documentation"
-
-STATE-SPECIFIC REASONING:
-- California: "In California, this business expense is deductible under federal tax law and may also qualify for state business deductions"
-- Texas: "In Texas, this business expense is deductible under federal tax law with no state income tax implications"
-- New York: "In New York, this business expense is deductible under federal tax law and may qualify for state business deductions"
-
-COMPREHENSIVE EXAMPLE:
-"As a 32-year-old Virtual Assistant earning $65k annually in California, operating as an LLC with a home office and occasional work-related travel, this $18 Uber expense for client meetings is reasonable (0.03% of annual income) and deductible under IRS Pub 463 for business travel from your home office, consistent with your occasional travel pattern"
-
-MANDATORY PROFILE DATA USAGE:
-Your reasoning_summary MUST include:
-1. PROFESSION: Always mention the user's specific profession(s)
-2. AGE: Reference the user's age for business context and career stage
-3. INCOME: Calculate expense as percentage of annual income for reasonableness
-4. STATE: Mention the state for tax law context
-5. ENTITY TYPE: Reference business entity (sole proprietor, LLC, corporation, etc.)
-6. OFFICE LOCATION: Use office location to determine travel deductibility
-7. TRAVEL PATTERN: Reference work-related travel frequency for consistency
-8. TRANSACTION CONTEXT: Include transaction amount, date, time, and location
-
-FORMULA FOR REASONING_SUMMARY:
-"As a [AGE]-year-old [PROFESSION] earning $[INCOME]k annually in [STATE], operating as [ENTITY_TYPE] with [OFFICE_LOCATION] and [TRAVEL_PATTERN] work-related travel, this $[AMOUNT] [TRANSACTION_TYPE] is [REASONABLENESS_ASSESSMENT] and [DEDUCTIBILITY_STATUS] under [IRS_REFERENCE] for [SPECIFIC_BUSINESS_PURPOSE], [CONSISTENCY_WITH_PATTERN]"
-
-EXPENSE_TYPE CLASSIFICATION GUIDELINES:
-- Classify as "business" if:
-  * Expense is necessary for the user's profession/business operations
-  * Expense is ordinary and necessary for the business
-  * Expense is directly related to generating business income
-  * Examples: software subscriptions for work, travel to client meetings, business meals, office supplies, professional services
-- Classify as "personal" if:
-  * Expense is for personal use or enjoyment
-  * Expense is not related to business operations
-  * Expense is a personal lifestyle choice
-  * Examples: personal groceries, personal entertainment, personal clothing, personal travel for vacation
-- When uncertain, consider:
-  * User's profession and typical business needs
-  * Transaction context (time, location, merchant type)
-  * User's business entity and work patterns
-  * If still uncertain, err on the side of "personal" to be conservative
-
-DATE USAGE EXAMPLES:
-- If date_iso is "2025-09-12": "The transaction at Starbucks on September 12 indicates..."
-- If date_iso is "2025-09-13": "The transaction at Starbucks on September 13 indicates..."
-- NEVER change the date - use exactly what Plaid provides
-
-If information is insufficient, return:
-{
-  "status": "needs_more_info",
-  "questions": ["Question 1", "Question 2", "Question 3"]
-}`;
+Bad example (never write this):
+"Restaurant expenses are commonly deductible for freelancer/creator businesses. Keep detailed records."`;
 
   try {
+    const openai = getOpenAIOrThrow();
     const completion = await openai.chat.completions.create({
       model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
       messages: [

@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ArrowLeft, Building2, CheckCircle, AlertCircle, CreditCard, Smartphone, DollarSign, Calendar, Plus, Trash2, RefreshCw } from 'lucide-react';
 import { auth } from '@/lib/firebase/client';
+import { toast } from 'sonner';
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 
 interface BankConnection {
   id: string;
@@ -43,6 +45,7 @@ export const BanksDetailScreen: React.FC<BanksDetailScreenProps> = ({
   const [deletingAccountId, setDeletingAccountId] = useState<string | null>(null);
   const [disconnectingPlaid, setDisconnectingPlaid] = useState(false);
   const [hasPlaidConnection, setHasPlaidConnection] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState<{open:boolean;title:string;description:string;confirmLabel:string;variant:'default'|'destructive';onConfirm:()=>void}>({open:false,title:'',description:'',confirmLabel:'Confirm',variant:'default',onConfirm:()=>{}});
   const [plaidImportMeta, setPlaidImportMeta] = useState<{
     plaid_requested_start_date?: string | null;
     plaid_earliest_returned_tx_date?: string | null;
@@ -217,130 +220,141 @@ export const BanksDetailScreen: React.FC<BanksDetailScreenProps> = ({
     fetchData();
   }, []);
 
-  const handleDeleteAccount = async (accountId: string) => {
-    if (!window.confirm('Are you sure you want to delete this bank account? This will also delete all associated transactions. This action cannot be undone.')) {
-      return;
-    }
+  const handleDeleteAccount = (accountId: string) => {
+    setConfirmDialog({
+      open: true,
+      title: 'Delete Bank Account',
+      description: 'Are you sure you want to delete this bank account? This will also delete all associated transactions. This action cannot be undone.',
+      confirmLabel: 'Delete',
+      variant: 'destructive',
+      onConfirm: async () => {
+        try {
+          setDeletingAccountId(accountId);
 
-    try {
-      setDeletingAccountId(accountId);
+          const currentUser = auth.currentUser;
+          if (!currentUser) {
+            console.error('No authenticated user found');
+            return;
+          }
 
-      // Get Firebase auth token
-      const currentUser = auth.currentUser;
-      if (!currentUser) {
-        console.error('No authenticated user found');
-        return;
-      }
+          const token = await currentUser.getIdToken();
 
-      const token = await currentUser.getIdToken();
+          const response = await fetch('/api/database/accounts', {
+            method: 'DELETE',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({ accountId }),
+          });
 
-      const response = await fetch('/api/database/accounts', {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({ accountId }),
-      });
+          const result = await response.json();
 
-      const result = await response.json();
-
-      if (response.ok && result.success) {
-        // Remove the account from the list
-        setBankConnections(prev => prev.filter(acc => acc.id !== accountId));
-        alert('Bank account deleted successfully.');
-      } else {
-        alert(`Failed to delete account: ${result.error || result.details || 'Unknown error'}`);
-      }
-    } catch (error) {
-      console.error('Error deleting account:', error);
-      alert('Failed to delete account. Please try again.');
-    } finally {
-      setDeletingAccountId(null);
-    }
+          if (response.ok && result.success) {
+            setBankConnections(prev => prev.filter(acc => acc.id !== accountId));
+            toast.success('Bank account deleted successfully.');
+          } else {
+            toast.error(`Failed to delete account: ${result.error || result.details || 'Unknown error'}`);
+          }
+        } catch (error) {
+          console.error('Error deleting account:', error);
+          toast.error('Failed to delete account. Please try again.');
+        } finally {
+          setDeletingAccountId(null);
+        }
+      },
+    });
   };
 
-  const handleDisconnectPlaid = async () => {
-    if (!confirm('Are you sure you want to disconnect all Plaid connections? This will remove all connected bank accounts.')) {
-      return;
-    }
+  const handleDisconnectPlaid = () => {
+    setConfirmDialog({
+      open: true,
+      title: 'Disconnect Plaid',
+      description: 'Are you sure you want to disconnect all Plaid connections? This will remove all connected bank accounts.',
+      confirmLabel: 'Disconnect',
+      variant: 'destructive',
+      onConfirm: async () => {
+        try {
+          setDisconnectingPlaid(true);
 
-    try {
-      setDisconnectingPlaid(true);
+          const currentUser = auth.currentUser;
+          if (!currentUser) {
+            console.error('No authenticated user found');
+            return;
+          }
 
-      // Get Firebase auth token
-      const currentUser = auth.currentUser;
-      if (!currentUser) {
-        console.error('No authenticated user found');
-        return;
-      }
+          const token = await currentUser.getIdToken();
 
-      const token = await currentUser.getIdToken();
+          const response = await fetch('/api/plaid/items', {
+            method: 'DELETE',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+          });
 
-      const response = await fetch('/api/plaid/items', {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-      });
+          const result = await response.json();
 
-      const result = await response.json();
-
-      if (response.ok && result.success) {
-        // Clear all accounts
-        setBankConnections([]);
-        setHasPlaidConnection(false);
-        setPlaidImportMeta(prev => prev ? { ...prev, needsReconnectForFullHistory: false } : null);
-        alert(`Bank connection disconnected successfully. ${result.deletedCounts?.accounts || 0} accounts and ${result.deletedCounts?.transactions || 0} transactions deleted.`);
-      } else {
-        const errorMsg = result.details || result.error || 'Unknown error';
-        alert(`Failed to disconnect bank: ${errorMsg}`);
-      }
-    } catch (error) {
-      console.error('Error disconnecting Plaid:', error);
-      alert('Failed to disconnect bank. Please try again.');
-    } finally {
-      setDisconnectingPlaid(false);
-    }
+          if (response.ok && result.success) {
+            setBankConnections([]);
+            setHasPlaidConnection(false);
+            setPlaidImportMeta(prev => prev ? { ...prev, needsReconnectForFullHistory: false } : null);
+            toast.success(`Bank connection disconnected successfully. ${result.deletedCounts?.accounts || 0} accounts and ${result.deletedCounts?.transactions || 0} transactions deleted.`);
+          } else {
+            const errorMsg = result.details || result.error || 'Unknown error';
+            toast.error(`Failed to disconnect bank: ${errorMsg}`);
+          }
+        } catch (error) {
+          console.error('Error disconnecting Plaid:', error);
+          toast.error('Failed to disconnect bank. Please try again.');
+        } finally {
+          setDisconnectingPlaid(false);
+        }
+      },
+    });
   };
 
-  const handleDisconnectAndReconnect = async () => {
-    if (!confirm('To get the full 2 years of transaction history, you need to disconnect and reconnect your bank. Your accounts will be removed, then you can reconnect to import 730 days of history. Continue?')) {
-      return;
-    }
+  const handleDisconnectAndReconnect = () => {
+    setConfirmDialog({
+      open: true,
+      title: 'Disconnect & Reconnect',
+      description: 'To get the full 2 years of transaction history, you need to disconnect and reconnect your bank. Your accounts will be removed, then you can reconnect to import 730 days of history. Continue?',
+      confirmLabel: 'Disconnect & Reconnect',
+      variant: 'destructive',
+      onConfirm: async () => {
+        try {
+          setDisconnectingPlaid(true);
 
-    try {
-      setDisconnectingPlaid(true);
+          const currentUser = auth.currentUser;
+          if (!currentUser) return;
 
-      const currentUser = auth.currentUser;
-      if (!currentUser) return;
+          const token = await currentUser.getIdToken();
+          const response = await fetch('/api/plaid/items', {
+            method: 'DELETE',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+          });
 
-      const token = await currentUser.getIdToken();
-      const response = await fetch('/api/plaid/items', {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-      });
+          const result = await response.json();
 
-      const result = await response.json();
-
-      if (response.ok && result.success) {
-        setBankConnections([]);
-        setHasPlaidConnection(false);
-        setPlaidImportMeta(prev => prev ? { ...prev, needsReconnectForFullHistory: false } : null);
-        onConnectBank();
-      } else {
-        alert(`Failed to disconnect: ${result.details || result.error || 'Unknown error'}`);
-      }
-    } catch (error) {
-      console.error('Error disconnecting:', error);
-      alert('Failed to disconnect. Please try again.');
-    } finally {
-      setDisconnectingPlaid(false);
-    }
+          if (response.ok && result.success) {
+            setBankConnections([]);
+            setHasPlaidConnection(false);
+            setPlaidImportMeta(prev => prev ? { ...prev, needsReconnectForFullHistory: false } : null);
+            onConnectBank();
+          } else {
+            toast.error(`Failed to disconnect: ${result.details || result.error || 'Unknown error'}`);
+          }
+        } catch (error) {
+          console.error('Error disconnecting:', error);
+          toast.error('Failed to disconnect. Please try again.');
+        } finally {
+          setDisconnectingPlaid(false);
+        }
+      },
+    });
   };
 
   const filteredConnections = bankConnections.filter(connection => {
@@ -468,16 +482,16 @@ export const BanksDetailScreen: React.FC<BanksDetailScreenProps> = ({
                           };
                         });
                         setBankConnections(accounts);
-                        alert(`Successfully refreshed balances for ${refreshData.updated || 0} account(s)`);
+                        toast.success(`Successfully refreshed balances for ${refreshData.updated || 0} account(s)`);
                       }
                     } else {
                       const errorData = await refreshResponse.json().catch(() => ({}));
                       console.error('❌ [Banks Detail] Failed to refresh balances:', errorData);
-                      alert('Failed to refresh balances. Please try again.');
+                      toast.error('Failed to refresh balances. Please try again.');
                     }
                   } catch (error: any) {
                     console.error('❌ [Banks Detail] Error refreshing balances:', error);
-                    alert('Error refreshing balances. Please try again.');
+                    toast.error('Error refreshing balances. Please try again.');
                   } finally {
                     setLoading(false);
                   }
@@ -491,66 +505,71 @@ export const BanksDetailScreen: React.FC<BanksDetailScreenProps> = ({
               <Button
                 variant="outline"
                 size="sm"
-                onClick={async (e) => {
+                onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
 
-                  if (!confirm('This will re-fetch up to 24 months of transactions. This may take a few minutes. Continue?')) {
-                    return;
-                  }
-
-                  const currentUser = auth.currentUser;
-                  if (!currentUser) {
-                    alert('Please log in to sync transactions');
-                    return;
-                  }
-
-                  try {
-                    setSyncMessage(null);
-                    setLoading(true);
-                    console.log('🔄 [Banks Detail] Starting transaction sync...');
-
-                    const token = await currentUser.getIdToken(true); // Force refresh token
-                    console.log('🔄 [Banks Detail] Got auth token, calling sync API...');
-
-                    const syncResponse = await fetch('/api/plaid/sync-transactions', {
-                      method: 'POST',
-                      headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json',
-                      },
-                      body: JSON.stringify({
-                        userId: currentUser.uid,
-                        import_timeframe: '2years'
-                      }),
-                    });
-
-                    console.log('📡 [Banks Detail] Sync response status:', syncResponse.status);
-
-                    if (syncResponse.ok) {
-                      const syncData = await syncResponse.json();
-                      if (syncData.status === 'already_running') {
-                        setSyncMessage('Import already in progress.');
-                        setImportStatus('running');
+                  setConfirmDialog({
+                    open: true,
+                    title: 'Re-sync Transactions',
+                    description: 'This will re-fetch up to 24 months of transactions. This may take a few minutes. Continue?',
+                    confirmLabel: 'Re-sync',
+                    variant: 'default',
+                    onConfirm: async () => {
+                      const currentUser = auth.currentUser;
+                      if (!currentUser) {
+                        toast.error('Please log in to sync transactions.');
                         return;
                       }
-                      console.log('✅ [Banks Detail] Transaction sync completed:', syncData);
-                      alert(`✅ Successfully synced ${syncData.transactions_saved || 0} transactions!\n\nThe page will reload to show updated data.`);
-                      setTimeout(() => {
-                        window.location.reload();
-                      }, 1500);
-                    } else {
-                      const errorData = await syncResponse.json().catch(() => ({}));
-                      console.error('❌ [Banks Detail] Failed to sync transactions:', errorData);
-                      const errorMessage = errorData.error || errorData.details || `HTTP ${syncResponse.status}: ${syncResponse.statusText}`;
-                      alert(`❌ Failed to sync transactions:\n\n${errorMessage}\n\nPlease check the console for more details.`);
-                    }
-                  } catch (error: any) {
-                    console.error('❌ [Banks Detail] Error syncing transactions:', error);
-                    alert(`❌ Error syncing transactions:\n\n${error.message || 'Unknown error'}\n\nPlease check the console for more details.`);
-                  } finally {
-                    setLoading(false);
-                  }
+
+                      try {
+                        setSyncMessage(null);
+                        setLoading(true);
+                        console.log('🔄 [Banks Detail] Starting transaction sync...');
+
+                        const token = await currentUser.getIdToken(true);
+                        console.log('🔄 [Banks Detail] Got auth token, calling sync API...');
+
+                        const syncResponse = await fetch('/api/plaid/sync-transactions', {
+                          method: 'POST',
+                          headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json',
+                          },
+                          body: JSON.stringify({
+                            userId: currentUser.uid,
+                            import_timeframe: '2years'
+                          }),
+                        });
+
+                        console.log('📡 [Banks Detail] Sync response status:', syncResponse.status);
+
+                        if (syncResponse.ok) {
+                          const syncData = await syncResponse.json();
+                          if (syncData.status === 'already_running') {
+                            setSyncMessage('Import already in progress.');
+                            setImportStatus('running');
+                            return;
+                          }
+                          console.log('✅ [Banks Detail] Transaction sync completed:', syncData);
+                          toast.success(`Successfully synced ${syncData.transactions_saved || 0} transactions! The page will reload.`);
+                          setTimeout(() => {
+                            window.location.reload();
+                          }, 1500);
+                        } else {
+                          const errorData = await syncResponse.json().catch(() => ({}));
+                          console.error('❌ [Banks Detail] Failed to sync transactions:', errorData);
+                          const errorMessage = errorData.error || errorData.details || `HTTP ${syncResponse.status}: ${syncResponse.statusText}`;
+                          toast.error(`Failed to sync transactions: ${errorMessage}`);
+                        }
+                      } catch (error: any) {
+                        console.error('❌ [Banks Detail] Error syncing transactions:', error);
+                        toast.error(`Error syncing transactions: ${error.message || 'Unknown error'}`);
+                      } finally {
+                        setLoading(false);
+                      }
+                    },
+                  });
                 }}
                 disabled={loading || importStatus === 'running'}
                 className="gap-2"
@@ -918,6 +937,15 @@ export const BanksDetailScreen: React.FC<BanksDetailScreenProps> = ({
           </div>
         </div>
       </div>
+      <ConfirmationDialog
+        open={confirmDialog.open}
+        onOpenChange={(open) => setConfirmDialog(prev => ({ ...prev, open }))}
+        title={confirmDialog.title}
+        description={confirmDialog.description}
+        confirmLabel={confirmDialog.confirmLabel}
+        variant={confirmDialog.variant}
+        onConfirm={confirmDialog.onConfirm}
+      />
     </div>
   );
 };

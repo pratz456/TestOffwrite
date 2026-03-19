@@ -48,7 +48,7 @@ export function JobProgress({ accountId, onComplete }: JobProgressProps) {
 
   // ETA calculation: only show if we have at least a few processed items & a nonzero avg
   const remaining = Math.max(job.total - job.processed, 0);
-  const etaSec = (job.processed >= 3 && job.avgMs > 0) ? Math.ceil((remaining * job.avgMs) / 1000) : null;
+  const etaSec = (job.processed >= 3 && (job.avgMs ?? 0) > 0) ? Math.ceil((remaining * (job.avgMs ?? 0)) / 1000) : null;
 
   const getStatusMessage = () => {
     switch (status) {

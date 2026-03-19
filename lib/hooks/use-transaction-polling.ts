@@ -20,6 +20,8 @@ interface UseTransactionPollingResult {
   isSyncing: boolean;
   /** Error message if the last sync failed */
   error: string | null;
+  /** Informational message (non-error) about sync state */
+  info: string | null;
   /** Number of transactions synced in the last sync */
   lastSyncCount: number | null;
   /** Manually trigger a sync */
@@ -51,6 +53,7 @@ export function useTransactionPolling(
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   const [lastSyncCount, setLastSyncCount] = useState<number | null>(null);
   const [timeUntilNextSync, setTimeUntilNextSync] = useState<number | null>(null);
   const [isTabVisible, setIsTabVisible] = useState(true);
@@ -58,6 +61,7 @@ export function useTransactionPolling(
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
   const syncInProgressRef = useRef(false);
+  const infoTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Load last sync time from localStorage on mount
   useEffect(() => {
@@ -99,6 +103,11 @@ export function useTransactionPolling(
     syncInProgressRef.current = true;
     setIsSyncing(true);
     setError(null);
+    setInfo(null);
+    if (infoTimeoutRef.current) {
+      clearTimeout(infoTimeoutRef.current);
+      infoTimeoutRef.current = null;
+    }
 
     try {
       console.log('🔄 [Transaction Polling] Starting sync...');
@@ -111,9 +120,28 @@ export function useTransactionPolling(
         }),
       });
 
-      const data = await response.json();
+      let data: any = null;
+      let rawText: string | null = null;
+      try {
+        data = await response.json();
+      } catch {
+        try {
+          rawText = await response.text();
+        } catch {
+          rawText = null;
+        }
+      }
 
-      if (response.ok && data.success) {
+      // Lock case: API returns 200 with { status: "already_running" }
+      if (response.ok && data && typeof data === 'object' && data.status === 'already_running') {
+        const message = 'Sync already in progress';
+        setInfo(message);
+        infoTimeoutRef.current = setTimeout(() => setInfo(null), 5000);
+        console.log('ℹ️ [Transaction Polling] Sync already running');
+        return;
+      }
+
+      if (response.ok && data && typeof data === 'object' && data.success === true) {
         const now = new Date();
         setLastSyncTime(now);
         setLastSyncCount(data.transactions_saved || 0);
@@ -125,7 +153,11 @@ export function useTransactionPolling(
         
         console.log(`✅ [Transaction Polling] Synced ${data.transactions_saved} transactions`);
       } else {
-        const errorMessage = data.error || 'Failed to sync transactions';
+        const fallback =
+          (data && typeof data === 'object' && (data.details || data.error)) ||
+          rawText ||
+          (response.ok ? 'Failed to sync transactions' : `Failed to sync transactions (${response.status})`);
+        const errorMessage = typeof fallback === 'string' ? fallback : 'Failed to sync transactions';
         setError(errorMessage);
         console.error('❌ [Transaction Polling] Sync failed:', errorMessage);
       }
@@ -203,6 +235,7 @@ export function useTransactionPolling(
     lastSyncTime,
     isSyncing,
     error,
+    info,
     lastSyncCount,
     syncNow,
     timeUntilNextSync,

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import { useRouter, useParams } from 'next/navigation';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { getAuth } from 'firebase/auth';
@@ -109,7 +110,7 @@ export default function AccountUsagePage() {
         }).catch(()=>{});
 
         // Show personal account message and redirect to dashboard
-        alert('Personal accounts are not useful for tax calculations. All transactions have been marked as personal expenses. Consider connecting a business account for tax deduction analysis.');
+        toast.info('Personal accounts are not useful for tax calculations. All transactions have been marked as personal expenses. Consider connecting a business account for tax deduction analysis.', { duration: 6000 });
         router.push('/protected');
         return;
       }
@@ -133,7 +134,7 @@ export default function AccountUsagePage() {
         if (r2.status === 400 && (errorData.error?.includes('No transactions') || errorData.details?.includes('no transactions'))) {
           // Show user-friendly message and suggest syncing transactions
           const message = errorData.suggestion || errorData.details || 'No transactions found. Please sync transactions first.';
-          alert(`⚠️ ${message}\n\nYou can sync transactions from the Banks settings page.`);
+          toast.warning(`${message} You can sync transactions from the Banks settings page.`, { duration: 6000 });
           // Redirect to banks settings or transactions page
           router.push('/protected?screen=settings');
           return;
@@ -152,11 +153,11 @@ export default function AccountUsagePage() {
 
           // Show success message
           if (responseData.pendingTransactions > 0) {
-            alert(`✅ ${message}\n\nRedirecting to view analysis progress...`);
+            toast.success(`${message} Redirecting to view analysis progress...`);
             // Redirect to transactions page to see analysis progress
             router.push(`/protected?screen=review-transactions&accountId=${accountId}`);
           } else {
-            alert(`✅ ${message}`);
+            toast.success(message);
             // If all transactions are already analyzed, just go to transactions page
             router.push(`/protected?screen=review-transactions&accountId=${accountId}`);
           }
@@ -310,7 +311,7 @@ export default function AccountUsagePage() {
               <p className="text-sm text-muted-foreground mt-4 min-h-[2.5rem]" id="percent-description">
                 {percent === 0 && 'Fully Personal Account'}
                 {percent === 100 && 'Fully Business Account'}
-                {percent > 0 && percent < 100 && 'Mixed usage – Expenses will be proportionally allocated.'}
+                {percent > 0 && percent < 100 && 'Mixed usage - Expenses will be proportionally allocated.'}
               </p>
             </div>
           )}

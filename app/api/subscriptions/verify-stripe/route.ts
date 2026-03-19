@@ -3,13 +3,19 @@ import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import Stripe from 'stripe';
 import { adminDb } from '@/lib/firebase/admin';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2024-12-18.acacia',
-});
+function getStripeOrNull() {
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) return null;
+  return new Stripe(key, { apiVersion: '2025-10-29.clover' });
+}
 
 export async function POST(req: Request) {
   try {
     const { uid } = await getUserFromReqOrThrow(req);
+    const stripe = getStripeOrNull();
+    if (!stripe) {
+      return NextResponse.json({ error: 'Stripe not configured' }, { status: 500 });
+    }
 
     // Get user profile
     const userDoc = await adminDb.doc(`user_profiles/${uid}`).get();
@@ -40,20 +46,23 @@ export async function POST(req: Request) {
             limit: 10,
           });
 
-          stripeData.subscriptions = subscriptions.data.map((sub) => ({
-            id: sub.id,
-            status: sub.status,
-            currentPeriodStart: sub.current_period_start ? new Date(sub.current_period_start * 1000).toISOString() : null,
-            currentPeriodEnd: sub.current_period_end ? new Date(sub.current_period_end * 1000).toISOString() : null,
-            trialStart: sub.trial_start ? new Date(sub.trial_start * 1000).toISOString() : null,
-            trialEnd: sub.trial_end ? new Date(sub.trial_end * 1000).toISOString() : null,
-            cancelAtPeriodEnd: sub.cancel_at_period_end,
-            items: sub.items.data.map((item) => ({
-              priceId: item.price.id,
-              interval: item.price.recurring?.interval,
-              amount: item.price.unit_amount ? item.price.unit_amount / 100 : null,
-            })),
-          }));
+          stripeData.subscriptions = subscriptions.data.map((sub) => {
+            const subFirstItem = sub.items?.data?.[0];
+            return {
+              id: sub.id,
+              status: sub.status,
+              currentPeriodStart: subFirstItem?.current_period_start ? new Date(subFirstItem.current_period_start * 1000).toISOString() : null,
+              currentPeriodEnd: subFirstItem?.current_period_end ? new Date(subFirstItem.current_period_end * 1000).toISOString() : null,
+              trialStart: sub.trial_start ? new Date(sub.trial_start * 1000).toISOString() : null,
+              trialEnd: sub.trial_end ? new Date(sub.trial_end * 1000).toISOString() : null,
+              cancelAtPeriodEnd: sub.cancel_at_period_end,
+              items: sub.items.data.map((item) => ({
+                priceId: item.price.id,
+                interval: item.price.recurring?.interval,
+                amount: item.price.unit_amount ? item.price.unit_amount / 100 : null,
+              })),
+            };
+          });
         }
       } catch (error: any) {
         stripeData.customerError = error.message;
@@ -64,11 +73,12 @@ export async function POST(req: Request) {
     if (subscriptionId) {
       try {
         const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+        const detailFirstItem = subscription.items?.data?.[0];
         stripeData.subscriptionDetails = {
           id: subscription.id,
           status: subscription.status,
-          currentPeriodStart: subscription.current_period_start ? new Date(subscription.current_period_start * 1000).toISOString() : null,
-          currentPeriodEnd: subscription.current_period_end ? new Date(subscription.current_period_end * 1000).toISOString() : null,
+          currentPeriodStart: detailFirstItem?.current_period_start ? new Date(detailFirstItem.current_period_start * 1000).toISOString() : null,
+          currentPeriodEnd: detailFirstItem?.current_period_end ? new Date(detailFirstItem.current_period_end * 1000).toISOString() : null,
           trialStart: subscription.trial_start ? new Date(subscription.trial_start * 1000).toISOString() : null,
           trialEnd: subscription.trial_end ? new Date(subscription.trial_end * 1000).toISOString() : null,
           cancelAtPeriodEnd: subscription.cancel_at_period_end,

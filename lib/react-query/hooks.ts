@@ -1,5 +1,95 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { auth } from '@/lib/firebase/client';
+import { getTransactions as getTransactionsClient } from '@/lib/firebase/transactions';
+import { getUserProfile } from '@/lib/firebase/profiles';
+import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
+
+type MonthlyData = {
+  month: number;
+  monthName: string;
+  total: number;
+  count: number;
+};
+
+async function computeMonthlyDeductionsClient(userId: string, year?: number) {
+  const targetYear = year ?? new Date().getFullYear();
+
+  const [{ data: profile }, { data: txs, error: txErr }] = await Promise.all([
+    getUserProfile(userId),
+    getTransactionsClient(userId),
+  ]);
+
+  if (txErr) {
+    throw new Error(txErr?.message || 'Failed to fetch transactions');
+  }
+
+  const allTransactions = Array.isArray(txs) ? txs : [];
+  const availableYears =
+    allTransactions.length > 0
+      ? [...new Set(allTransactions.map((t) => new Date(t.date).getFullYear()))]
+          .filter((y) => Number.isFinite(y) && y >= 2000 && y <= new Date().getFullYear())
+          .sort((a, b) => b - a)
+      : [new Date().getFullYear()];
+
+  const taxRate = getUserTaxRate(profile ?? undefined);
+
+  const monthlyData: MonthlyData[] = Array.from({ length: 12 }, (_, i) => ({
+    month: i,
+    monthName: new Date(targetYear, i, 1).toLocaleDateString('en-US', { month: 'short' }),
+    total: 0,
+    count: 0,
+  }));
+
+  const start = new Date(targetYear, 0, 1).getTime();
+  const end = new Date(targetYear, 11, 31, 23, 59, 59).getTime();
+
+  for (const t of allTransactions) {
+    const amount = Number((t as any).amount) || 0;
+    if (!(amount > 0)) continue; // expenses only
+    const dt = new Date((t as any).date).getTime();
+    if (!Number.isFinite(dt) || dt < start || dt > end) continue;
+
+    const month = new Date(dt).getMonth();
+    const isDeductible = (t as any).is_deductible === true;
+    const taxSavings = isDeductible ? amount * taxRate : 0;
+    monthlyData[month].total += taxSavings;
+    if (taxSavings > 0) monthlyData[month].count += 1;
+  }
+
+  const now = new Date();
+  const isCurrentYear = targetYear === now.getFullYear();
+  const currentMonthIdx = isCurrentYear ? now.getMonth() : 11;
+  const currentMonthTotal = monthlyData[currentMonthIdx]?.total ?? 0;
+  const lastMonthTotal = currentMonthIdx > 0 ? monthlyData[currentMonthIdx - 1]?.total ?? 0 : 0;
+  const monthOverMonthChange =
+    lastMonthTotal > 0 ? ((currentMonthTotal - lastMonthTotal) / lastMonthTotal) * 100 : 0;
+
+  const monthsWithData = monthlyData
+    .slice(0, currentMonthIdx + 1)
+    .filter((m) => m.total > 0);
+  const avgMonthly =
+    monthsWithData.length > 0
+      ? monthsWithData.reduce((sum, m) => sum + m.total, 0) / monthsWithData.length
+      : 0;
+
+  const yearToDateTotal = monthlyData.reduce((sum, m) => sum + m.total, 0);
+
+  return {
+    success: true,
+    data: {
+      monthlyData,
+      summary: {
+        currentMonthTotal,
+        monthOverMonthChange,
+        avgMonthly,
+        monthsWithData: monthsWithData.length,
+        yearToDateTotal,
+        estimatedRefund: yearToDateTotal,
+      },
+      availableYears,
+    },
+  };
+}
 
 // API functions for React Query
 const api = {
@@ -19,8 +109,17 @@ const api = {
     });
     
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to fetch transactions');
+      const error = await response.json().catch(() => ({} as any));
+      const msg: string = error?.error || 'Failed to fetch transactions';
+
+      // Local dev fallback: if server-side Firebase Admin/Firestore isn't configured,
+      // fall back to client Firestore (scoped by security rules).
+      try {
+        const { data: txs, error: txErr } = await getTransactionsClient(userId);
+        if (!txErr) return { success: true, transactions: txs, data: txs, count: txs.length };
+      } catch (_) {}
+
+      throw new Error(msg);
     }
     
     return response.json();
@@ -89,8 +188,15 @@ const api = {
     });
     
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to fetch monthly deductions');
+      const error = await response.json().catch(() => ({} as any));
+      const msg: string = error?.error || 'Failed to fetch monthly deductions';
+
+      // Local dev fallback: compute from client-side Firestore transactions.
+      try {
+        return await computeMonthlyDeductionsClient(userId, year);
+      } catch (_) {}
+
+      throw new Error(msg);
     }
     
     return response.json();

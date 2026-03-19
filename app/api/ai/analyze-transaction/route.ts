@@ -46,7 +46,8 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    const { transactionId, transaction } = validationResult.data;
+    const { transactionId, transaction: validatedTransaction } = validationResult.data;
+    const transaction = validatedTransaction as Record<string, any>;
 
     console.log(`🔍 [AI Analysis API] Received transaction ID: "${transactionId}" (type: ${typeof transactionId})`);
     console.log(`🔍 [AI Analysis API] Transaction data:`, {

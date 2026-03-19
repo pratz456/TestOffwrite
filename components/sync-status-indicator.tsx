@@ -33,6 +33,7 @@ export function SyncStatusIndicator({
     lastSyncTime,
     isSyncing,
     error,
+    info,
     lastSyncCount,
     syncNow,
     timeUntilNextSync,
@@ -51,11 +52,14 @@ export function SyncStatusIndicator({
         variant="outline"
         size="sm"
         className={`relative h-10 px-3 border-2 border-gray-300 dark:border-gray-500 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 hover:border-primary/60 dark:hover:border-primary/60 text-gray-700 dark:text-gray-200 transition-all duration-200 ${className}`}
-        title={`Last synced: ${formatLastSyncTime(lastSyncTime)}${error ? ` (Error: ${error})` : ''}`}
+        title={`${info ? `${info} • ` : ''}Last synced: ${formatLastSyncTime(lastSyncTime)}${error ? ` (Error: ${error})` : ''}`}
       >
         <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
         {error && (
           <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 dark:bg-red-400 rounded-full" />
+        )}
+        {!error && info && (
+          <span className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 dark:bg-blue-400 rounded-full" />
         )}
       </Button>
     );
@@ -84,6 +88,13 @@ export function SyncStatusIndicator({
           <>
             <AlertCircle className="w-4 h-4 text-red-500 dark:text-red-400" />
             <span className="text-red-500 dark:text-red-400 hidden sm:inline">Sync failed</span>
+          </>
+        ) : info ? (
+          <>
+            <Clock className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+            <span className="hidden sm:inline text-blue-700 dark:text-blue-300">
+              {info}
+            </span>
           </>
         ) : lastSyncTime ? (
           <>
@@ -126,7 +137,7 @@ export function SyncButton({
   className?: string;
   showLabel?: boolean;
 }) {
-  const { isSyncing, syncNow, error } = useTransactionPolling();
+  const { isSyncing, syncNow, error, info } = useTransactionPolling();
 
   return (
     <Button
@@ -135,7 +146,7 @@ export function SyncButton({
       variant="outline"
       size="sm"
       className={`h-10 px-3 sm:px-4 flex items-center gap-2 border-2 border-gray-300 dark:border-gray-500 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 hover:border-primary/60 dark:hover:border-primary/60 text-gray-700 dark:text-gray-200 transition-all duration-200 ${className}`}
-      title={error ? `Error: ${error}` : 'Sync transactions'}
+      title={error ? `Error: ${error}` : info ? info : 'Sync transactions'}
     >
       <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
       {showLabel && (
@@ -153,6 +164,7 @@ export function SyncStatusBanner({ className = '' }: { className?: string }) {
     lastSyncTime,
     isSyncing,
     error,
+    info,
     lastSyncCount,
     syncNow,
   } = useTransactionPolling();
@@ -213,6 +225,18 @@ export function SyncStatusBanner({ className = '' }: { className?: string }) {
         <RefreshCw className="w-4 h-4 text-blue-600 dark:text-blue-400 animate-spin" />
         <span className="text-sm text-blue-700 dark:text-blue-300">
           Syncing transactions...
+        </span>
+      </div>
+    );
+  }
+
+  // Show info state (non-error), e.g. already running
+  if (info) {
+    return (
+      <div className={`bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 flex items-center gap-2 ${className}`}>
+        <Clock className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+        <span className="text-sm text-blue-700 dark:text-blue-300">
+          {info}
         </span>
       </div>
     );

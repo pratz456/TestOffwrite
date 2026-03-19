@@ -12,6 +12,7 @@ import {
 import { getAuth } from 'firebase/auth';
 import { db } from './client';
 import { Transaction, hydrateTransactionRecord } from './transactions';
+import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
 
 // Query keys for consistent caching
 export const queryKeys = {
@@ -73,118 +74,34 @@ export function useTransactions(uid: string) {
         }
       },
       (err) => {
-        console.warn('⚠️ [useTransactions] CollectionGroup query issue, falling back to API:', err.code || err.message);
+        console.warn('⚠️ [useTransactions] Firestore error, falling back to API:', err.code || err.message);
 
-        // If collectionGroup fails, fall back to API-based fetching
-        if (err.code === 'failed-precondition') {
-          console.log('🔄 [useTransactions] Falling back to API-based fetching...');
-
-          // Fetch transactions via API as fallback
-          const fetchTransactionsViaAPI = async () => {
-            try {
-              const { makeAuthenticatedRequest } = await import('./api-client');
-              const response = await makeAuthenticatedRequest('/api/transactions');
-
-              if (response.ok) {
-                const result = await response.json();
-                const apiTransactions = result.transactions || result.data || [];
-                console.log('✅ [useTransactions] Fetched transactions via API:', apiTransactions.length);
-                setTransactions(apiTransactions);
-                setError(null);
-              } else {
-                throw new Error('API request failed');
-              }
-            } catch (apiError) {
-              console.error('❌ [useTransactions] API fallback also failed:', apiError);
-              setError(new Error('Failed to fetch transactions from both Firestore and API'));
-            } finally {
-              setIsLoading(false);
+        const fallbackFetch = async () => {
+          try {
+            const { makeAuthenticatedRequest } = await import('./api-client');
+            const response = await makeAuthenticatedRequest('/api/transactions');
+            if (response.ok) {
+              const result = await response.json();
+              const apiTransactions = result.transactions || result.data || [];
+              setTransactions(apiTransactions);
+              setError(null);
+            } else {
+              throw new Error('API request failed');
             }
-          };
+          } catch (apiError) {
+            console.error('❌ [useTransactions] API fallback also failed:', apiError);
+            const message = err.code === 'permission-denied'
+              ? 'Permission denied. Please check your authentication.'
+              : err.code === 'unavailable'
+                ? 'Service temporarily unavailable. Please try again.'
+                : 'Failed to fetch transactions';
+            setError(new Error(message));
+          } finally {
+            setIsLoading(false);
+          }
+        };
 
-          fetchTransactionsViaAPI();
-        } else if (err.code === 'permission-denied') {
-          console.log('🔄 [useTransactions] Permission denied, falling back to API-based fetching...');
-
-          // Fall back to API for permission-denied errors too
-          const fetchTransactionsViaAPI = async () => {
-            try {
-              const { makeAuthenticatedRequest } = await import('./api-client');
-              const response = await makeAuthenticatedRequest('/api/transactions');
-
-              if (response.ok) {
-                const result = await response.json();
-                const apiTransactions = result.transactions || result.data || [];
-                console.log('✅ [useTransactions] Fetched transactions via API (permission fallback):', apiTransactions.length);
-                setTransactions(apiTransactions);
-                setError(null);
-              } else {
-                throw new Error('API request failed');
-              }
-            } catch (apiError) {
-              console.error('❌ [useTransactions] API fallback also failed:', apiError);
-              setError(new Error('Permission denied. Please check your authentication.'));
-            } finally {
-              setIsLoading(false);
-            }
-          };
-
-          fetchTransactionsViaAPI();
-        } else if (err.code === 'unavailable') {
-          console.log('🔄 [useTransactions] Service unavailable, falling back to API-based fetching...');
-
-          // Fall back to API for unavailable errors too
-          const fetchTransactionsViaAPI = async () => {
-            try {
-              const { makeAuthenticatedRequest } = await import('./api-client');
-              const response = await makeAuthenticatedRequest('/api/transactions');
-
-              if (response.ok) {
-                const result = await response.json();
-                const apiTransactions = result.transactions || result.data || [];
-                console.log('✅ [useTransactions] Fetched transactions via API (unavailable fallback):', apiTransactions.length);
-                setTransactions(apiTransactions);
-                setError(null);
-              } else {
-                throw new Error('API request failed');
-              }
-            } catch (apiError) {
-              console.error('❌ [useTransactions] API fallback also failed:', apiError);
-              setError(new Error('Database service temporarily unavailable. Please try again.'));
-            } finally {
-              setIsLoading(false);
-            }
-          };
-
-          fetchTransactionsViaAPI();
-        } else {
-          console.log('🔄 [useTransactions] Unknown error, falling back to API-based fetching...');
-
-          // Fall back to API for any other errors
-          const fetchTransactionsViaAPI = async () => {
-            try {
-              const { makeAuthenticatedRequest } = await import('./api-client');
-              const response = await makeAuthenticatedRequest('/api/transactions');
-
-              if (response.ok) {
-                const result = await response.json();
-                const apiTransactions = result.transactions || result.data || [];
-                console.log('✅ [useTransactions] Fetched transactions via API (unknown error fallback):', apiTransactions.length);
-                setTransactions(apiTransactions);
-                setError(null);
-              } else {
-                throw new Error('API request failed');
-              }
-            } catch (apiError) {
-              console.error('❌ [useTransactions] API fallback also failed:', apiError);
-              setError(err instanceof Error ? err : new Error('Failed to fetch transactions'));
-            } finally {
-              setIsLoading(false);
-            }
-          };
-
-          fetchTransactionsViaAPI();
-        }
+        fallbackFetch();
       }
     );
 
@@ -225,7 +142,7 @@ export function useTransaction(id: string, uid: string) {
             setError(new Error('Transaction not found'));
           } else {
             const doc = querySnapshot.docs[0];
-            const processedTransaction = processTransactionData(doc);
+            const processedTransaction = hydrateTransactionRecord(doc.data(), doc.id);
             setTransaction(processedTransaction);
             setError(null);
           }
@@ -291,17 +208,16 @@ export function useUserStats(uid: string) {
       transactionsQuery,
       (querySnapshot: QuerySnapshot) => {
         try {
-          const transactions = querySnapshot.docs.map(processTransactionData);
+          const transactions = querySnapshot.docs.map((d: any) => hydrateTransactionRecord(d.data(), d.id));
 
           const totalTransactions = transactions.length;
-          const deductibleTransactions = transactions.filter(t => t.is_deductible === true).length;
-          const needsReviewTransactions = transactions.filter(t => t.is_deductible === null).length;
-          const totalDeductibleAmount = transactions
-            .filter(t => t.is_deductible === true)
-            .reduce((sum, t) => sum + Math.abs(t.amount || 0), 0);
+          const deductibleTransactions = transactions.filter((t: Transaction) => t.is_deductible === true).length;
+          const needsReviewTransactions = transactions.filter((t: Transaction) => t.is_deductible === null).length;
+          const totalDeductibleAmount: number = transactions
+            .filter((t: Transaction) => t.is_deductible === true)
+            .reduce((sum: number, t: Transaction) => sum + Math.abs(t.amount || 0), 0);
 
-          // Estimate potential savings (assuming 30% tax rate)
-          const potentialSavings = totalDeductibleAmount * 0.3;
+          const potentialSavings = totalDeductibleAmount * getUserTaxRate();
 
           setStats({
             totalTransactions,

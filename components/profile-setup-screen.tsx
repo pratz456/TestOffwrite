@@ -1,17 +1,18 @@
 import React, { useState } from 'react';
+import { useBeforeUnload } from '@/lib/hooks/use-before-unload';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
-import { YearInput } from '@/components/ui/year-input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/simple-select';
-import { User, Briefcase, MapPin, FileText, Mail, ArrowRight, ArrowLeft } from '@/lib/icons';
+import { User, Briefcase, MapPin, FileText, Mail, ArrowRight, ArrowLeft, ChevronDown, ChevronUp } from '@/lib/icons';
 import { upsertUserProfile } from '@/lib/firebase/profiles';
 import { PlaidLinkScreen } from './plaid-link-screen';
 
 interface UserProfile {
   email: string;
   name: string;
+  yearOfBirth?: string;
   profession: string[];
   customProfession?: string;
   businessEntityType: string;
@@ -21,70 +22,14 @@ interface UserProfile {
   state: string;
   filingStatus: string;
   plaidToken?: string;
-
-  // Phase 1: High Impact Fields
-  itemizationStatus?: 'itemize' | 'standard';
   businessStartDate?: string;
   homeOfficeSqft?: number;
   totalHomeSqft?: number;
-  homeOfficeMethod?: 'simplified' | 'actual';
   vehicleBusinessUsePercentage?: number;
-  vehicleDeductionMethod?: 'standard_mileage' | 'actual_expense';
-
-  // Phase 2: Medium Impact Fields
-  naicsCode?: string;
   businessPurpose?: string;
   ein?: string;
   w2Income?: number;
   businessIncome?: number;
-  otherIncome?: number;
-  taxBracket?: number;
-  professionalLicenses?: string[];
-
-  // Phase 3: Advanced Fields
-  priorYearDeductions?: string[];
-  auditHistory?: 'none' | 'minor' | 'major';
-  taxProfessional?: boolean;
-  documentationHabits?: 'minimal' | 'moderate' | 'detailed';
-  businessSeasonality?: 'year_round' | 'seasonal' | 'project_based';
-  multipleLocations?: boolean;
-  internationalBusiness?: boolean;
-
-  // Vehicle Details
-  businessVehicle?: {
-    make?: string;
-    model?: string;
-    year?: number;
-    businessUsePercentage?: number;
-    deductionMethod?: 'standard_mileage' | 'actual_expense';
-  };
-
-  // Home Office Details
-  homeOfficeDetails?: {
-    sqft?: number;
-    totalHomeSqft?: number;
-    method?: 'simplified' | 'actual';
-    exclusiveUse?: boolean;
-    startDate?: string;
-  };
-
-  // Income Breakdown
-  incomeBreakdown?: {
-    w2_income?: number;
-    business_income?: number;
-    other_income?: number;
-    quarterly_estimates?: number[];
-  };
-
-  // Deductions & Credits
-  numberOfDependents?: number;
-  homeownershipStatus?: 'own_mortgage' | 'own_outright' | 'rent' | 'other';
-  mortgageInterestPaid?: number;
-  retirementContributions?: number;
-  studentLoanInterestPaid?: number;
-  charitableDonations?: number;
-  childcareExpenses?: number;
-  selfEmployedHealthInsurance?: number;
 }
 
 interface ProfileSetupScreenProps {
@@ -118,7 +63,6 @@ const filingStatuses = [
   'Single', 'Married Filing Jointly', 'Married Filing Separately', 'Head of Household', 'Qualifying Widower'
 ];
 
-// Short labels for UX; stored value preserved for API/analytics
 const businessEntityTypeOptions: { value: string; label: string }[] = [
   { value: 'Sole Proprietor / Independent Contractor', label: 'Sole proprietor or freelancer' },
   { value: 'Single-Member LLC (disregarded entity)', label: 'Single-owner LLC' },
@@ -146,48 +90,16 @@ const workRelatedTravelPatterns = [
   'This does not apply to me'
 ];
 
-// New options for enhanced profile
-
-const itemizationStatuses = [
-  'I itemize deductions',
-  'I take the standard deduction'
-];
-
-const homeOfficeMethods = [
-  'Simplified Method ($5/sq ft)',
-  'Actual Expense Method'
-];
-
-const vehicleDeductionMethods = [
-  'Standard Mileage Rate',
-  'Actual Expense Method'
-];
-
-
-const documentationHabits = [
-  'Minimal (basic receipts)',
-  'Moderate (organized records)',
-  'Detailed (comprehensive documentation)'
-];
-
-const businessSeasonalities = [
-  'Year-round business',
-  'Seasonal business',
-  'Project-based work'
-];
-
-const auditHistories = [
-  'No audit history',
-  'Minor audit (simple questions)',
-  'Major audit (detailed examination)'
-];
-
 export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, onBack, onComplete }) => {
+  useBeforeUnload(true);
   const [currentStep, setCurrentStep] = useState<'profile' | 'plaid'>('profile');
-  const [currentSlide, setCurrentSlide] = useState<'basic' | 'professional' | 'business' | 'advanced' | 'deductions'>('basic');
+  const [currentSlide, setCurrentSlide] = useState<'about' | 'business'>('about');
+  const [showMoreDetails, setShowMoreDetails] = useState(false);
+  const [skipBusiness, setSkipBusiness] = useState(false);
   const [formData, setFormData] = useState<UserProfile>({
     email: user?.email || '',
     name: user?.user_metadata?.name || '',
+    yearOfBirth: '',
     profession: [],
     customProfession: '',
     businessEntityType: '',
@@ -197,246 +109,89 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
     state: '',
     filingStatus: '',
     plaidToken: '',
-
-    // Phase 1: High Impact Fields
-    itemizationStatus: undefined,
     businessStartDate: '',
-    homeOfficeSqft: undefined,
-    totalHomeSqft: undefined,
-    homeOfficeMethod: undefined,
-    vehicleBusinessUsePercentage: undefined,
-    vehicleDeductionMethod: undefined,
-
-    // Phase 2: Medium Impact Fields
-    naicsCode: '',
     businessPurpose: '',
     ein: '',
+    homeOfficeSqft: undefined,
+    totalHomeSqft: undefined,
+    vehicleBusinessUsePercentage: undefined,
     w2Income: undefined,
     businessIncome: undefined,
-    otherIncome: undefined,
-    taxBracket: undefined,
-    professionalLicenses: [],
-
-    // Phase 3: Advanced Fields
-    priorYearDeductions: [],
-    auditHistory: 'none',
-    taxProfessional: false,
-    documentationHabits: 'moderate',
-    businessSeasonality: 'year_round',
-    multipleLocations: false,
-    internationalBusiness: false,
-
-    // Vehicle Details
-    businessVehicle: {
-      make: '',
-      model: '',
-      year: undefined,
-      businessUsePercentage: undefined,
-      deductionMethod: undefined
-    },
-
-    // Home Office Details
-    homeOfficeDetails: {
-      sqft: undefined,
-      totalHomeSqft: undefined,
-      method: undefined,
-      exclusiveUse: false,
-      startDate: ''
-    },
-
-    // Income Breakdown
-    incomeBreakdown: {
-      w2_income: undefined,
-      business_income: undefined,
-      other_income: undefined,
-      quarterly_estimates: []
-    },
-
-    // Deductions & Credits
-    numberOfDependents: undefined,
-    homeownershipStatus: undefined,
-    mortgageInterestPaid: undefined,
-    retirementContributions: undefined,
-    studentLoanInterestPaid: undefined,
-    charitableDonations: undefined,
-    childcareExpenses: undefined,
-    selfEmployedHealthInsurance: undefined
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isCreatingTable, setIsCreatingTable] = useState(false);
-  const [noBusiness, setNoBusiness] = useState(false);
-  const [fillDeductionsLater, setFillDeductionsLater] = useState(false);
 
-  // Validation for each slide
-  const isBasicInfoValid = formData.email && formData.name && formData.state && formData.filingStatus;
+  // Step 1 validation: core fields that power AI analysis + tax filing
+  const isAboutYouValid = formData.email && formData.name && formData.state && formData.filingStatus &&
+    formData.profession.length > 0 && formData.businessEntityType && formData.primaryWorkLocation && formData.income &&
+    (!formData.profession.includes('Other') || (formData.profession.includes('Other') && formData.customProfession?.trim()));
 
-  const isProfessionalInfoValid = formData.profession.length > 0 &&
-                                 formData.businessEntityType && formData.primaryWorkLocation && formData.workRelatedTravelPattern &&
-                                 formData.income &&
-                                 (!formData.profession.includes('Other') || (formData.profession.includes('Other') && formData.customProfession?.trim()));
-
-  const professionalMissing: string[] = [];
-  if (currentSlide === 'professional') {
-    if (formData.profession.length === 0) professionalMissing.push('at least one profession');
-    if (!formData.businessEntityType) professionalMissing.push('business entity type');
-    if (!formData.primaryWorkLocation) professionalMissing.push('primary work location');
-    if (!formData.workRelatedTravelPattern) professionalMissing.push('work-related travel pattern');
-    if (!formData.income) professionalMissing.push('annual income range');
-    if (formData.profession.includes('Other') && !formData.customProfession?.trim()) professionalMissing.push('your profession (when "Other" is selected)');
+  const aboutYouMissing: string[] = [];
+  if (currentSlide === 'about') {
+    if (!formData.name) aboutYouMissing.push('full name');
+    if (!formData.state) aboutYouMissing.push('state');
+    if (!formData.filingStatus) aboutYouMissing.push('filing status');
+    if (formData.profession.length === 0) aboutYouMissing.push('at least one profession');
+    if (!formData.businessEntityType) aboutYouMissing.push('business entity type');
+    if (!formData.primaryWorkLocation) aboutYouMissing.push('work location');
+    if (!formData.income) aboutYouMissing.push('income range');
+    if (formData.profession.includes('Other') && !formData.customProfession?.trim()) aboutYouMissing.push('your profession');
   }
 
-  const isBusinessInfoValid = noBusiness || (formData.businessPurpose && formData.businessStartDate && formData.businessSeasonality);
+  // Step 2 is always valid (all fields optional, or skipped entirely)
+  const isBusinessValid = true;
 
-  const isAdvancedInfoValid = formData.auditHistory &&
-                              formData.homeOfficeSqft !== undefined &&
-                              formData.homeOfficeSqft > 0 &&
-                              formData.vehicleBusinessUsePercentage !== undefined &&
-                              formData.vehicleBusinessUsePercentage >= 0 &&
-                              formData.vehicleBusinessUsePercentage <= 100;
+  const isFormValid = isAboutYouValid && isBusinessValid;
 
-  const isDeductionsInfoValid = fillDeductionsLater || (
-    formData.numberOfDependents !== undefined &&
-    formData.homeownershipStatus &&
-    formData.retirementContributions !== undefined &&
-    formData.studentLoanInterestPaid !== undefined &&
-    formData.charitableDonations !== undefined &&
-    formData.childcareExpenses !== undefined &&
-    formData.selfEmployedHealthInsurance !== undefined
-  );
-
-  const isFormValid = isBasicInfoValid && isProfessionalInfoValid && isBusinessInfoValid && isAdvancedInfoValid && isDeductionsInfoValid;
-
-  // Navigation functions
-  const handleNextSlide = () => {
-    if (currentSlide === 'basic' && isBasicInfoValid) {
-      setCurrentSlide('professional');
-    } else if (currentSlide === 'professional' && isProfessionalInfoValid) {
-      setCurrentSlide('business');
-    } else if (currentSlide === 'business' && isBusinessInfoValid) {
-      setCurrentSlide('advanced');
-    } else if (currentSlide === 'advanced' && isAdvancedInfoValid) {
-      setCurrentSlide('deductions');
-    }
-  };
-
-  const handlePrevSlide = () => {
-    if (currentSlide === 'professional') {
-      setCurrentSlide('basic');
-    } else if (currentSlide === 'business') {
-      setCurrentSlide('professional');
-    } else if (currentSlide === 'advanced') {
-      setCurrentSlide('business');
-    } else if (currentSlide === 'deductions') {
-      setCurrentSlide('advanced');
-    }
-  };
-
-  const handleBackButton = () => {
-    if (currentSlide === 'professional') {
-      // Go back to basic information slide
-      setCurrentSlide('basic');
-    } else {
-      // On basic slide, use external back handler
-      onBack();
-    }
-  };
-
-  // Handle profession selection (multiple selection)
   const handleProfessionChange = (profession: string, checked: boolean) => {
     setFormData(prev => ({
       ...prev,
       profession: checked
         ? [...prev.profession, profession]
         : prev.profession.filter(p => p !== profession),
-      // Clear custom profession if "Other" is deselected
       customProfession: profession === 'Other' && !checked ? '' : prev.customProfession
     }));
   };
 
   const handleSubmit = async () => {
-    if (!isFormValid) {
-      return;
-    }
+    if (!isFormValid) return;
     setIsSubmitting(true);
     setError(null);
 
     try {
-      // Prepare profession string - include custom profession if "Other" is selected
       let professionString = formData.profession.join(', ');
       if (formData.profession.includes('Other') && formData.customProfession?.trim()) {
-        // Replace "Other" with the custom profession
         professionString = formData.profession
           .filter(p => p !== 'Other')
           .concat(formData.customProfession.trim())
           .join(', ');
       }
 
-      // Save profile to Firebase using the database service
       const { data, error: profileError } = await upsertUserProfile(user.id, {
         email: formData.email,
         name: formData.name,
-        profession: professionString, // Use processed profession string
+        year_of_birth: formData.yearOfBirth || undefined,
+        profession: professionString,
         business_entity_type: formData.businessEntityType,
         primary_work_location: formData.primaryWorkLocation,
-        work_related_travel_pattern: formData.workRelatedTravelPattern,
+        work_related_travel_pattern: formData.workRelatedTravelPattern || undefined,
         income: formData.income,
         state: formData.state,
         filing_status: formData.filingStatus,
         plaid_token: formData.plaidToken,
-
-        // Phase 1: High Impact Fields
-        itemization_status: formData.itemizationStatus,
-        business_start_date: formData.businessStartDate,
+        business_start_date: formData.businessStartDate || undefined,
         home_office_sqft: formData.homeOfficeSqft,
         total_home_sqft: formData.totalHomeSqft,
-        home_office_method: formData.homeOfficeMethod,
         vehicle_business_use_percentage: formData.vehicleBusinessUsePercentage,
-        vehicle_deduction_method: formData.vehicleDeductionMethod,
-
-        // Phase 2: Medium Impact Fields
-        naics_code: formData.naicsCode,
-        business_purpose: formData.businessPurpose,
-        ein: formData.ein,
+        business_purpose: formData.businessPurpose || undefined,
+        ein: formData.ein || undefined,
         w2_income: formData.w2Income,
         business_income: formData.businessIncome,
-        other_income: formData.otherIncome,
-        tax_bracket: formData.taxBracket,
-        professional_licenses: formData.professionalLicenses,
-
-        // Phase 3: Advanced Fields
-        prior_year_deductions: formData.priorYearDeductions,
-        audit_history: formData.auditHistory,
-        tax_professional: formData.taxProfessional,
-        documentation_habits: formData.documentationHabits,
-        business_seasonality: formData.businessSeasonality,
-        multiple_locations: formData.multipleLocations,
-        international_business: formData.internationalBusiness,
-
-        // Vehicle Details
-        business_vehicle: formData.businessVehicle,
-
-        // Home Office Details
-        home_office_details: formData.homeOfficeDetails,
-
-        // Income Breakdown
-        income_breakdown: formData.incomeBreakdown,
-
-        // Deductions & Credits
-        number_of_dependents: formData.numberOfDependents,
-        homeownership_status: formData.homeownershipStatus,
-        mortgage_interest_paid: formData.mortgageInterestPaid,
-        retirement_contributions: formData.retirementContributions,
-        student_loan_interest_paid: formData.studentLoanInterestPaid,
-        charitable_donations: formData.charitableDonations,
-        childcare_expenses: formData.childcareExpenses,
-        self_employed_health_insurance: formData.selfEmployedHealthInsurance
       });
 
       if (profileError) {
         console.error('Profile save error details:', profileError);
         let errorMessage = 'Failed to save profile';
-
         if (typeof profileError === 'string') {
           errorMessage = profileError;
         } else if (profileError?.message) {
@@ -444,15 +199,11 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
         } else if (profileError?.code) {
           errorMessage = `Error: ${profileError.code}`;
         }
-
         throw new Error(errorMessage);
       }
 
       console.log('Profile saved successfully:', data);
-
-      // Move to Plaid connection step
       setCurrentStep('plaid');
-
     } catch (error) {
       console.error('Error saving profile:', error);
       setError(error instanceof Error ? error.message : 'Failed to save profile');
@@ -461,8 +212,7 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
     }
   };
 
-  const handlePlaidSuccess = (linkToken: string) => {
-    setFormData(prev => ({ ...prev, plaidToken: linkToken }));
+  const handlePlaidSuccess = () => {
     onComplete(formData, '/protected?screen=dashboard');
   };
 
@@ -480,115 +230,101 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
     );
   }
 
+  const slides = ['about', 'business'] as const;
+  const slideLabels = { about: 'About You', business: 'Your Business' };
+  const slideIndex = slides.indexOf(currentSlide);
+
   return (
-    <div className="min-h-screen bg-background">
+    <div className="h-screen flex flex-col bg-background overflow-hidden">
       {/* Header */}
-      <div className="bg-background/80 backdrop-blur-sm border-b border-border sticky top-0 z-50 shadow-sm">
-        <div className="flex items-center justify-between p-4 max-w-4xl mx-auto">
+      <div className="bg-background/80 backdrop-blur-sm border-b border-border z-50 shadow-sm flex-shrink-0">
+        <div className="flex items-center justify-between px-4 py-3 max-w-3xl mx-auto">
           <button
-            onClick={handleBackButton}
-            className="w-10 h-10 bg-card border border-border rounded-xl flex items-center justify-center text-foreground hover:bg-muted transition-all duration-200 shadow-sm"
+            onClick={currentSlide === 'about' ? onBack : () => setCurrentSlide('about')}
+            className="w-9 h-9 bg-card border border-border rounded-xl flex items-center justify-center text-foreground hover:bg-muted transition-all duration-200 shadow-sm"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
-
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-blue-700 rounded-xl flex items-center justify-center shadow-sm">
-              <span className="text-white font-bold text-lg">W</span>
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-blue-700 rounded-lg flex items-center justify-center shadow-sm">
+              <span className="text-white font-bold text-sm">W</span>
             </div>
-            <span className="font-bold text-foreground text-lg">WriteOff</span>
+            <span className="font-bold text-foreground">WriteOff</span>
           </div>
-
-          <div className="w-10 h-10"></div>
+          <div className="w-9 h-9"></div>
         </div>
       </div>
 
-      <div className="max-w-3xl mx-auto p-4 pb-4">
-        {/* Title Section */}
-        <div className="text-center mb-6">
-          <h1 className="text-2xl font-bold text-foreground mb-2">Complete Your Profile</h1>
-          <p className="text-muted-foreground text-base">Help us personalize your tax experience</p>
-        </div>
+      {/* Title + Progress */}
+      <div className="flex-shrink-0 pt-3 pb-2 px-4 max-w-3xl mx-auto w-full">
+        <h1 className="text-xl font-bold text-foreground text-center mb-1">Complete Your Profile</h1>
+        <p className="text-muted-foreground text-sm text-center mb-3">Helps us personalize your deduction analysis</p>
 
-        {/* Progress Indicator */}
-        <div className="flex items-center justify-center mb-6">
-          <div className="flex items-center gap-2">
-            {['basic', 'professional', 'business', 'advanced', 'deductions'].map((slide, index) => (
-              <React.Fragment key={slide}>
-                <div className="flex items-center gap-2">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-all duration-300 ${
-                    currentSlide === slide ? 'bg-primary shadow-lg shadow-primary/20' : 'bg-muted'
-                  }`}>
-                    <span className={`font-semibold text-xs ${
-                      currentSlide === slide ? 'text-primary-foreground' : 'text-muted-foreground'
-                    }`}>{index + 1}</span>
-                  </div>
-                  <span className={`text-xs font-medium transition-colors duration-300 ${
-                    currentSlide === slide ? 'text-foreground' : 'text-muted-foreground'
-                  }`}>
-                    {slide === 'basic' ? 'Basic' :
-                     slide === 'professional' ? 'Professional' :
-                     slide === 'business' ? 'Business' :
-                     slide === 'advanced' ? 'Advanced' : 'Deductions'}
-                  </span>
+        <div className="flex items-center justify-center gap-3">
+          {slides.map((slide, index) => (
+            <React.Fragment key={slide}>
+              <div className="flex items-center gap-1.5">
+                <div className={`w-7 h-7 rounded-full flex items-center justify-center transition-all duration-300 ${
+                  slideIndex >= index ? 'bg-primary shadow-md shadow-primary/20' : 'bg-muted'
+                }`}>
+                  <span className={`font-semibold text-xs ${
+                    slideIndex >= index ? 'text-primary-foreground' : 'text-muted-foreground'
+                  }`}>{index + 1}</span>
                 </div>
-                {index < 4 && <div className="w-6 h-0.5 bg-muted"></div>}
-              </React.Fragment>
-            ))}
-          </div>
+                <span className={`text-xs font-medium transition-colors duration-300 ${
+                  currentSlide === slide ? 'text-foreground' : 'text-muted-foreground'
+                }`}>{slideLabels[slide]}</span>
+              </div>
+              {index < slides.length - 1 && <div className="w-8 h-0.5 bg-muted"></div>}
+            </React.Fragment>
+          ))}
         </div>
+      </div>
 
-        {/* Slide Container */}
-        <div className="relative overflow-hidden">
-          <div className={`flex transition-transform duration-500 ease-in-out ${
-            currentSlide === 'basic' ? 'translate-x-0' :
-            currentSlide === 'professional' ? '-translate-x-full' :
-            currentSlide === 'business' ? '-translate-x-[200%]' :
-            currentSlide === 'advanced' ? '-translate-x-[300%]' :
-            '-translate-x-[400%]'
-          }`}>
+      {/* Scrollable card area */}
+      <div className="flex-1 overflow-y-auto px-4 pb-2">
+        <div className="max-w-3xl mx-auto">
+          <div className="relative overflow-hidden">
+            <div className={`flex transition-transform duration-500 ease-in-out ${
+              currentSlide === 'about' ? 'translate-x-0' : '-translate-x-full'
+            }`}>
 
-            {/* Basic Information Slide */}
-            <div className="w-full flex-shrink-0">
-              <Card className="p-6 bg-card/70 backdrop-blur-sm border border-border shadow-xl">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg">
-                    <User className="w-5 h-5 text-white" />
-                  </div>
-                  <div>
-                    <h2 className="text-xl font-bold text-card-foreground">Basic Information</h2>
-                    <p className="text-sm text-muted-foreground">Your personal details and tax information</p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-4">
+              {/* ===== STEP 1: About You ===== */}
+              <div className="w-full flex-shrink-0">
+                <Card className="p-4 bg-card/70 backdrop-blur-sm border border-border shadow-xl">
+                  <div className="flex items-center gap-2.5 mb-4">
+                    <div className="w-9 h-9 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg">
+                      <User className="w-4 h-4 text-white" />
+                    </div>
                     <div>
-                      <label className="block text-sm font-semibold text-foreground mb-2 flex items-center gap-2">
-                        <Mail className="w-4 h-4 text-blue-600" />
-                        Email Address <span className="text-red-500">*</span>
+                      <h2 className="text-lg font-bold text-card-foreground">About You</h2>
+                      <p className="text-xs text-muted-foreground">Personal details, profession & income</p>
+                    </div>
+                  </div>
+
+                  {/* Row 1: Email + Name */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-foreground mb-1">
+                        Email <span className="text-red-500">*</span>
                       </label>
                       <div className="relative">
                         <Input
                           type="email"
                           value={formData.email}
                           onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
-                          placeholder="Enter your email"
-                          className="h-10 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background pr-12 shadow-sm"
+                          className="h-9 text-sm rounded-xl border-2 border-border bg-background pr-10 shadow-sm"
                           disabled
                         />
-                        <div className="absolute right-4 top-1/2 transform -translate-y-1/2">
-                          <div className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center">
-                            <span className="text-white text-xs font-bold">✓</span>
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                          <div className="w-5 h-5 bg-green-500 rounded-full flex items-center justify-center">
+                            <span className="text-white text-[10px] font-bold">✓</span>
                           </div>
                         </div>
                       </div>
-                      <p className="text-xs text-green-600 mt-2 font-medium">✓ Verified email address</p>
                     </div>
-
                     <div>
-                      <label className="block text-sm font-semibold text-foreground mb-2 flex items-center gap-2">
-                        <User className="w-4 h-4 text-blue-600" />
+                      <label className="block text-xs font-semibold text-foreground mb-1">
                         Full Name <span className="text-red-500">*</span>
                       </label>
                       <Input
@@ -596,644 +332,366 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                         value={formData.name}
                         onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
                         placeholder="Enter your full name"
-                        className="h-10 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm"
+                        className="h-9 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm"
                       />
                     </div>
-
                   </div>
 
-                  <div className="space-y-4">
+                  {/* Row 2: State + Filing Status */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
                     <div>
-                      <label className="block text-sm font-semibold text-foreground mb-2 flex items-center gap-2">
-                        <MapPin className="w-4 h-4 text-blue-600" />
-                        State of Residence <span className="text-red-500">*</span>
+                      <label className="block text-xs font-semibold text-foreground mb-1">
+                        State <span className="text-red-500">*</span>
                       </label>
                       <Select value={formData.state} onValueChange={(value: string) => setFormData(prev => ({ ...prev, state: value }))}>
-                        <SelectTrigger className="h-10 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm">
-                          <SelectValue placeholder="Select your state" />
+                        <SelectTrigger className="h-9 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm">
+                          <SelectValue placeholder="Select state" />
                         </SelectTrigger>
                         <SelectContent>
                           {usStates.map((state) => (
-                            <SelectItem key={state} value={state}>
-                              {state}
-                            </SelectItem>
+                            <SelectItem key={state} value={state}>{state}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     </div>
-
                     <div>
-                      <label className="block text-sm font-semibold text-foreground mb-2 flex items-center gap-2">
-                        <FileText className="w-4 h-4 text-blue-600" />
+                      <label className="block text-xs font-semibold text-foreground mb-1">
                         Filing Status <span className="text-red-500">*</span>
                       </label>
                       <Select value={formData.filingStatus} onValueChange={(value: string) => setFormData(prev => ({ ...prev, filingStatus: value }))}>
-                        <SelectTrigger className="h-10 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm">
-                          <SelectValue placeholder="Select your filing status" />
+                        <SelectTrigger className="h-9 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm">
+                          <SelectValue placeholder="Select filing status" />
                         </SelectTrigger>
                         <SelectContent>
                           {filingStatuses.map((status) => (
-                            <SelectItem key={status} value={status}>
-                              {status}
-                            </SelectItem>
+                            <SelectItem key={status} value={status}>{status}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     </div>
                   </div>
-                </div>
-              </Card>
-            </div>
 
-            {/* Professional Details Slide */}
-            <div className="w-full flex-shrink-0">
-              <Card className="p-6 bg-card/70 backdrop-blur-sm border border-border shadow-xl">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-xl flex items-center justify-center shadow-lg">
-                    <Briefcase className="w-5 h-5 text-white" />
-                  </div>
-                  <div>
-                    <h2 className="text-xl font-bold text-card-foreground">Professional Details</h2>
-                    <p className="text-sm text-muted-foreground">Your work and business information</p>
-                  </div>
-                </div>
-
-                <div className="space-y-6">
-                  <div>
-                    <label className="block text-sm font-semibold text-foreground mb-2 flex items-center gap-2">
-                      <Briefcase className="w-4 h-4 text-emerald-600" />
+                  {/* Professions */}
+                  <div className="mb-3">
+                    <label className="block text-xs font-semibold text-foreground mb-1">
                       Profession(s) <span className="text-red-500">*</span>
+                      <span className="font-normal text-muted-foreground ml-1">select all that apply</span>
                     </label>
-                    <p className="text-xs text-muted-foreground mb-3">Select all that apply — checkboxes allow multiple choices</p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-44 overflow-y-auto border-2 border-border rounded-xl p-3 bg-muted/30 shadow-sm">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-1 max-h-32 overflow-y-auto border-2 border-border rounded-xl p-2 bg-muted/30 shadow-sm">
                       {professions.map((profession) => (
-                        <label key={profession} className="flex items-center space-x-2 cursor-pointer hover:bg-muted p-2 rounded-lg transition-colors">
+                        <label key={profession} className="flex items-center space-x-1.5 cursor-pointer hover:bg-muted px-2 py-1.5 rounded-lg transition-colors">
                           <Checkbox
                             checked={formData.profession.includes(profession)}
                             onCheckedChange={(checked) => handleProfessionChange(profession, checked as boolean)}
-                            className="text-emerald-600"
+                            className="text-blue-600"
                           />
-                          <span className="text-sm text-foreground font-medium">{profession}</span>
+                          <span className="text-xs text-foreground">{profession}</span>
                         </label>
                       ))}
                     </div>
                     {formData.profession.length > 0 && (
-                      <div className="mt-3 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
-                        <p className="text-sm text-emerald-600 font-medium">Selected: {formData.profession.join(', ')}</p>
-                      </div>
+                      <p className="text-xs text-blue-600 font-medium mt-1">Selected: {formData.profession.join(', ')}</p>
                     )}
-
-                    {/* Custom profession input */}
                     {formData.profession.includes('Other') && (
-                      <div className="mt-4">
-                        <label className="block text-sm font-semibold text-foreground mb-2">
-                          Please specify your profession <span className="text-red-500">*</span>
-                        </label>
-                        <Input
-                          type="text"
-                          value={formData.customProfession || ''}
-                          onChange={(e) => setFormData(prev => ({ ...prev, customProfession: e.target.value }))}
-                          placeholder="Enter your profession"
-                          className="h-12 text-sm rounded-xl border-2 border-border focus:border-emerald-500 bg-background shadow-sm"
-                        />
-                        <p className="text-xs text-muted-foreground mt-2">This will replace "Other" in your profession list</p>
-                      </div>
+                      <Input
+                        type="text"
+                        value={formData.customProfession || ''}
+                        onChange={(e) => setFormData(prev => ({ ...prev, customProfession: e.target.value }))}
+                        placeholder="Enter your profession"
+                        className="h-9 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm mt-2"
+                      />
                     )}
                   </div>
 
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3">Work setup & income</p>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Row 3: Entity + Work Location + Income */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
                     <div>
-                      <label className="block text-sm font-semibold text-foreground mb-2 flex items-center gap-2">
-                        <Briefcase className="w-4 h-4 text-emerald-600" />
-                        Business Entity Type <span className="text-red-500">*</span>
+                      <label className="block text-xs font-semibold text-foreground mb-1">
+                        Business Entity <span className="text-red-500">*</span>
                       </label>
-                      <p className="text-xs text-muted-foreground mb-2">How your business is legally set up (most freelancers choose the first option)</p>
                       <Select value={formData.businessEntityType} onValueChange={(value: string) => setFormData(prev => ({ ...prev, businessEntityType: value }))}>
-                        <SelectTrigger className="h-10 text-sm rounded-xl border-2 border-border focus:border-emerald-500 bg-background shadow-sm">
-                          <SelectValue placeholder="How is your business set up?" />
+                        <SelectTrigger className="h-9 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm">
+                          <SelectValue placeholder="Select type" />
                         </SelectTrigger>
                         <SelectContent>
                           {businessEntityTypeOptions.map((opt) => (
-                            <SelectItem key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </SelectItem>
+                            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     </div>
-
                     <div>
-                      <label className="block text-sm font-semibold text-foreground mb-2 flex items-center gap-2">
-                        <MapPin className="w-4 h-4 text-emerald-600" />
-                        Primary Work Location <span className="text-red-500">*</span>
+                      <label className="block text-xs font-semibold text-foreground mb-1">
+                        Work Location <span className="text-red-500">*</span>
                       </label>
                       <Select value={formData.primaryWorkLocation} onValueChange={(value: string) => setFormData(prev => ({ ...prev, primaryWorkLocation: value }))}>
-                        <SelectTrigger className="h-10 text-sm rounded-xl border-2 border-border focus:border-emerald-500 bg-background shadow-sm">
-                          <SelectValue placeholder="Where do you usually work?" />
+                        <SelectTrigger className="h-9 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm">
+                          <SelectValue placeholder="Where you work" />
                         </SelectTrigger>
                         <SelectContent>
                           {primaryWorkLocations.map((location) => (
-                            <SelectItem key={location} value={location}>
-                              {location}
-                            </SelectItem>
+                            <SelectItem key={location} value={location}>{location}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     </div>
-
                     <div>
-                      <label className="block text-sm font-semibold text-foreground mb-2 flex items-center gap-2">
-                        <Briefcase className="w-4 h-4 text-emerald-600" />
-                        Work-Related Travel Pattern <span className="text-red-500">*</span>
-                      </label>
-                      <Select value={formData.workRelatedTravelPattern} onValueChange={(value: string) => setFormData(prev => ({ ...prev, workRelatedTravelPattern: value }))}>
-                        <SelectTrigger className="h-10 text-sm rounded-xl border-2 border-border focus:border-emerald-500 bg-background shadow-sm">
-                          <SelectValue placeholder="How often do you travel for work?" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {workRelatedTravelPatterns.map((pattern) => (
-                            <SelectItem key={pattern} value={pattern}>
-                              {pattern}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-semibold text-foreground mb-2 flex items-center gap-2">
-                        <FileText className="w-4 h-4 text-emerald-600" />
-                        Annual Income Range <span className="text-red-500">*</span>
+                      <label className="block text-xs font-semibold text-foreground mb-1">
+                        Income Range <span className="text-red-500">*</span>
                       </label>
                       <Select value={formData.income} onValueChange={(value: string) => setFormData(prev => ({ ...prev, income: value }))}>
-                        <SelectTrigger className="h-10 text-sm rounded-xl border-2 border-border focus:border-emerald-500 bg-background shadow-sm">
-                          <SelectValue placeholder="What’s your approximate income range?" />
+                        <SelectTrigger className="h-9 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm">
+                          <SelectValue placeholder="Annual income" />
                         </SelectTrigger>
                         <SelectContent>
                           {incomeRanges.map((range) => (
-                            <SelectItem key={range} value={range}>
-                              {range}
-                            </SelectItem>
+                            <SelectItem key={range} value={range}>{range}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     </div>
+                  </div>
+
+                  {/* Expandable: More Details */}
+                  <button
+                    type="button"
+                    onClick={() => setShowMoreDetails(!showMoreDetails)}
+                    className="flex items-center gap-1.5 text-xs font-medium text-blue-600 hover:text-blue-700 transition-colors mb-2"
+                  >
+                    {showMoreDetails ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                    {showMoreDetails ? 'Hide' : 'Add more details'} (optional)
+                  </button>
+
+                  {showMoreDetails && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t border-border">
+                      <div>
+                        <label className="block text-xs font-semibold text-foreground mb-1">Year of Birth</label>
+                        <Input
+                          type="number"
+                          min="1920"
+                          max={new Date().getFullYear() - 16}
+                          value={formData.yearOfBirth || ''}
+                          onChange={(e) => setFormData(prev => ({ ...prev, yearOfBirth: e.target.value }))}
+                          placeholder="e.g., 1990"
+                          className="h-9 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm"
+                        />
+                        <p className="text-[10px] text-muted-foreground mt-0.5">Age-specific tax advice (retirement limits, etc.)</p>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-foreground mb-1">Travel Pattern</label>
+                        <Select value={formData.workRelatedTravelPattern} onValueChange={(value: string) => setFormData(prev => ({ ...prev, workRelatedTravelPattern: value }))}>
+                          <SelectTrigger className="h-9 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm">
+                            <SelectValue placeholder="Work travel frequency" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {workRelatedTravelPatterns.map((pattern) => (
+                              <SelectItem key={pattern} value={pattern}>{pattern}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-foreground mb-1">W-2 / Salary Income</label>
+                        <Input
+                          type="number"
+                          min="0"
+                          value={formData.w2Income || ''}
+                          onChange={(e) => setFormData(prev => ({ ...prev, w2Income: parseInt(e.target.value) || undefined }))}
+                          placeholder="e.g., 65000"
+                          className="h-9 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm"
+                        />
+                        <p className="text-[10px] text-muted-foreground mt-0.5">From traditional employment, if any</p>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-foreground mb-1">Self-Employment Income</label>
+                        <Input
+                          type="number"
+                          min="0"
+                          value={formData.businessIncome || ''}
+                          onChange={(e) => setFormData(prev => ({ ...prev, businessIncome: parseInt(e.target.value) || undefined }))}
+                          placeholder="e.g., 40000"
+                          className="h-9 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm"
+                        />
+                        <p className="text-[10px] text-muted-foreground mt-0.5">Freelance, 1099, or business revenue</p>
+                      </div>
+                    </div>
+                  )}
+                </Card>
+              </div>
+
+              {/* ===== STEP 2: Your Business ===== */}
+              <div className="w-full flex-shrink-0">
+                <Card className="p-4 bg-card/70 backdrop-blur-sm border border-border shadow-xl mx-1">
+                  <div className="flex items-center gap-2.5 mb-4">
+                    <div className="w-9 h-9 bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl flex items-center justify-center shadow-lg">
+                      <Briefcase className="w-4 h-4 text-white" />
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-bold text-card-foreground">Your Business</h2>
+                      <p className="text-xs text-muted-foreground">Business details & deduction info</p>
                     </div>
                   </div>
-                </div>
-              </Card>
-            </div>
 
-
-            {/* Business Details Slide */}
-            <div className="w-full flex-shrink-0">
-              <Card className="p-6 bg-card/70 backdrop-blur-sm border border-border shadow-xl mx-2">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="w-10 h-10 bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl flex items-center justify-center shadow-lg">
-                    <Briefcase className="w-5 h-5 text-white" />
-                  </div>
-                  <div>
-                    <h2 className="text-xl font-bold text-card-foreground">Business Details</h2>
-                    <p className="text-sm text-muted-foreground">Your business structure and operations</p>
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  {/* No Business Checkbox */}
-                  <div className="flex items-center space-x-2 mb-4">
+                  {/* Skip option */}
+                  <div className="flex items-center space-x-2 mb-4 p-2.5 bg-blue-500/10 border border-blue-500/20 rounded-lg">
                     <input
                       type="checkbox"
-                      id="noBusiness"
-                      checked={noBusiness}
-                      onChange={(e) => setNoBusiness(e.target.checked)}
-                      className="w-4 h-4 text-orange-600 border-border rounded focus:ring-orange-500"
+                      id="skipBusiness"
+                      checked={skipBusiness}
+                      onChange={(e) => setSkipBusiness(e.target.checked)}
+                      className="w-4 h-4 text-blue-600 border-border rounded focus:ring-blue-500"
                     />
-                    <label htmlFor="noBusiness" className="text-sm font-medium text-foreground">
-                      I don't have a business
+                    <label htmlFor="skipBusiness" className="text-xs font-medium text-blue-600">
+                      Skip -- I'll fill this in later (you can update anytime in Settings)
                     </label>
                   </div>
 
-                  {!noBusiness && (
-                    <>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {!skipBusiness && (
+                    <div className="space-y-3">
+                      {/* Business Purpose + Start Date */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div>
-                          <label className="block text-sm font-semibold text-foreground mb-2">
-                            Business Purpose <span className="text-red-500">*</span>
-                          </label>
+                          <label className="block text-xs font-semibold text-foreground mb-1">Business Purpose</label>
                           <Input
                             type="text"
                             value={formData.businessPurpose || ''}
                             onChange={(e) => setFormData(prev => ({ ...prev, businessPurpose: e.target.value }))}
-                            placeholder="Describe your business"
-                            className="h-10 text-sm rounded-xl border-2 border-border focus:border-orange-500 bg-background shadow-sm"
+                            placeholder="e.g., Freelance web design"
+                            className="h-9 text-sm rounded-xl border-2 border-border focus:border-orange-500 bg-background shadow-sm"
                           />
                         </div>
-
                         <div>
-                          <label className="block text-sm font-semibold text-foreground mb-2">
-                            Business Start Date <span className="text-red-500">*</span>
-                          </label>
+                          <label className="block text-xs font-semibold text-foreground mb-1">Business Start Date</label>
                           <Input
                             type="date"
                             value={formData.businessStartDate || ''}
                             onChange={(e) => setFormData(prev => ({ ...prev, businessStartDate: e.target.value }))}
-                            className="h-10 text-sm rounded-xl border-2 border-border focus:border-orange-500 bg-background shadow-sm"
+                            className="h-9 text-sm rounded-xl border-2 border-border focus:border-orange-500 bg-background shadow-sm"
                           />
                         </div>
                       </div>
-                    </>
-                  )}
 
-                  {!noBusiness && (
-                    <>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* EIN */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div>
-                          <label className="block text-sm font-semibold text-foreground mb-2">
-                            EIN (Optional)
-                          </label>
+                          <label className="block text-xs font-semibold text-foreground mb-1">EIN (optional)</label>
                           <Input
                             type="text"
                             value={formData.ein || ''}
                             onChange={(e) => setFormData(prev => ({ ...prev, ein: e.target.value }))}
                             placeholder="XX-XXXXXXX"
-                            className="h-10 text-sm rounded-xl border-2 border-border focus:border-orange-500 bg-background shadow-sm"
+                            className="h-9 text-sm rounded-xl border-2 border-border focus:border-orange-500 bg-background shadow-sm"
                           />
-                        </div>
-
-                        <div>
-                          <label className="block text-sm font-semibold text-foreground mb-2">
-                            Business Seasonality <span className="text-red-500">*</span>
-                          </label>
-                          <Select
-                            value={formData.businessSeasonality || 'year_round'}
-                            onValueChange={(value) => setFormData(prev => ({ ...prev, businessSeasonality: value as 'year_round' | 'seasonal' | 'project_based' }))}
-                          >
-                            <SelectTrigger className="h-10 text-sm rounded-xl border-2 border-border focus:border-orange-500 bg-background shadow-sm">
-                              <SelectValue placeholder="Select business pattern" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {businessSeasonalities.map((seasonality) => (
-                                <SelectItem key={seasonality} value={seasonality.toLowerCase().replace(' ', '_').replace('-', '_')}>
-                                  {seasonality}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="flex items-center space-x-4">
-                          <div className="flex items-center space-x-2">
-                            <input
-                              type="checkbox"
-                              id="multipleLocations"
-                              checked={formData.multipleLocations || false}
-                              onChange={(e) => setFormData(prev => ({ ...prev, multipleLocations: e.target.checked }))}
-                              className="w-4 h-4 text-orange-600 border-border rounded focus:ring-orange-500"
+                      {/* Home Office */}
+                      <div className="pt-2 border-t border-border">
+                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Home Office</p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-semibold text-foreground mb-1">Office Sq Ft</label>
+                            <Input
+                              type="number"
+                              value={formData.homeOfficeSqft || ''}
+                              onChange={(e) => setFormData(prev => ({ ...prev, homeOfficeSqft: parseInt(e.target.value) || undefined }))}
+                              placeholder="e.g., 150"
+                              className="h-9 text-sm rounded-xl border-2 border-border focus:border-orange-500 bg-background shadow-sm"
                             />
-                            <label htmlFor="multipleLocations" className="text-sm font-medium text-foreground">
-                              Multiple business locations
-                            </label>
+                            <p className="text-[10px] text-muted-foreground mt-0.5">Dedicated workspace only</p>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-foreground mb-1">Total Home Sq Ft</label>
+                            <Input
+                              type="number"
+                              value={formData.totalHomeSqft || ''}
+                              onChange={(e) => setFormData(prev => ({ ...prev, totalHomeSqft: parseInt(e.target.value) || undefined }))}
+                              placeholder="e.g., 1200"
+                              className="h-9 text-sm rounded-xl border-2 border-border focus:border-orange-500 bg-background shadow-sm"
+                            />
+                            <p className="text-[10px] text-muted-foreground mt-0.5">Calculates deduction %</p>
                           </div>
                         </div>
                       </div>
-                    </>
-                  )}
-                </div>
-              </Card>
-            </div>
 
-            {/* Advanced Settings Slide */}
-            <div className="w-full flex-shrink-0">
-              <Card className="p-6 bg-card/70 backdrop-blur-sm border border-border shadow-xl mx-2">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg">
-                    <FileText className="w-5 h-5 text-white" />
-                  </div>
-                  <div>
-                    <h2 className="text-xl font-bold text-card-foreground">Advanced Settings</h2>
-                    <p className="text-sm text-muted-foreground">Required tax preferences</p>
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-semibold text-foreground mb-2">
-                        Audit History <span className="text-red-500">*</span>
-                      </label>
-                      <Select
-                        value={formData.auditHistory || 'none'}
-                        onValueChange={(value) => setFormData(prev => ({ ...prev, auditHistory: value as 'none' | 'minor' | 'major' }))}
-                      >
-                        <SelectTrigger className="h-10 text-sm rounded-xl border-2 border-border focus:border-indigo-500 bg-background shadow-sm">
-                          <SelectValue placeholder="Select audit history" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {auditHistories.map((history) => (
-                            <SelectItem key={history} value={history.toLowerCase().replace(' ', '_').replace('(', '').replace(')', '').replace(' ', '_')}>
-                              {history}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="flex items-center space-x-4">
-                      <div className="flex items-center space-x-2">
-                        <input
-                          type="checkbox"
-                          id="taxProfessional"
-                          checked={formData.taxProfessional || false}
-                          onChange={(e) => setFormData(prev => ({ ...prev, taxProfessional: e.target.checked }))}
-                          className="w-4 h-4 text-indigo-600 border-border rounded focus:ring-indigo-500"
-                        />
-                        <label htmlFor="taxProfessional" className="text-sm font-medium text-foreground">
-                          I use a tax professional
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-semibold text-foreground mb-2">
-                        Home Office Square Footage <span className="text-red-500">*</span>
-                      </label>
-                      <Input
-                        type="number"
-                        value={formData.homeOfficeSqft || ''}
-                        onChange={(e) => setFormData(prev => ({ ...prev, homeOfficeSqft: parseInt(e.target.value) || undefined }))}
-                        placeholder="e.g., 150"
-                        className="h-10 text-sm rounded-xl border-2 border-border focus:border-indigo-500 bg-background shadow-sm"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-semibold text-foreground mb-2">
-                        Vehicle Business Use % <span className="text-red-500">*</span>
-                      </label>
-                      <Input
-                        type="number"
-                        min="0"
-                        max="100"
-                        value={formData.vehicleBusinessUsePercentage || ''}
-                        onChange={(e) => setFormData(prev => ({ ...prev, vehicleBusinessUsePercentage: parseInt(e.target.value) || undefined }))}
-                        placeholder="e.g., 75"
-                        className="h-10 text-sm rounded-xl border-2 border-border focus:border-indigo-500 bg-background shadow-sm"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </Card>
-            </div>
-
-            {/* Deductions & Credits Slide */}
-            <div className="w-full flex-shrink-0">
-              <Card className="p-6 bg-card/70 backdrop-blur-sm border border-border shadow-xl mx-2">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-green-600 rounded-xl flex items-center justify-center shadow-lg">
-                    <FileText className="w-5 h-5 text-white" />
-                  </div>
-                  <div>
-                    <h2 className="text-xl font-bold text-card-foreground">Deductions & Credits</h2>
-                    <p className="text-sm text-muted-foreground">Maximize your tax savings</p>
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  {/* Fill Out Later Checkbox */}
-                  <div className="flex items-center space-x-2 mb-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
-                    <input
-                      type="checkbox"
-                      id="fillDeductionsLater"
-                      checked={fillDeductionsLater}
-                      onChange={(e) => setFillDeductionsLater(e.target.checked)}
-                      className="w-4 h-4 text-green-600 border-border rounded focus:ring-green-500"
-                    />
-                    <label htmlFor="fillDeductionsLater" className="text-sm font-medium text-blue-600">
-                      I'll fill out deductions and credits later
-                    </label>
-                  </div>
-
-                  {!fillDeductionsLater && (
-                    <>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-semibold text-foreground mb-2">
-                            Number of Dependents <span className="text-red-500">*</span>
-                          </label>
-                          <Input
-                            type="number"
-                            min="0"
-                            value={formData.numberOfDependents || ''}
-                            onChange={(e) => setFormData(prev => ({ ...prev, numberOfDependents: parseInt(e.target.value) || undefined }))}
-                            placeholder="0"
-                            className="h-10 text-sm rounded-xl border-2 border-border focus:border-green-500 bg-background shadow-sm"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-sm font-semibold text-foreground mb-2">
-                            Homeownership Status <span className="text-red-500">*</span>
-                          </label>
-                          <Select
-                            value={formData.homeownershipStatus}
-                            onValueChange={(value) => setFormData(prev => ({ ...prev, homeownershipStatus: value as any }))}
-                          >
-                            <SelectTrigger className="h-10 text-sm rounded-xl border-2 border-border focus:border-green-500 bg-background shadow-sm">
-                              <SelectValue placeholder="Select status" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="own_mortgage">Own with mortgage</SelectItem>
-                              <SelectItem value="own_outright">Own outright</SelectItem>
-                              <SelectItem value="rent">Rent</SelectItem>
-                              <SelectItem value="other">Other</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-
-                      {formData.homeownershipStatus === 'own_mortgage' && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Vehicle */}
+                      <div className="pt-2 border-t border-border">
+                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Vehicle</p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                           <div>
-                            <label className="block text-sm font-semibold text-foreground mb-2">
-                              Annual Mortgage Interest Paid
-                            </label>
+                            <label className="block text-xs font-semibold text-foreground mb-1">Business Use %</label>
                             <Input
                               type="number"
                               min="0"
-                              value={formData.mortgageInterestPaid || ''}
-                              onChange={(e) => setFormData(prev => ({ ...prev, mortgageInterestPaid: parseInt(e.target.value) || undefined }))}
-                              placeholder="$0"
-                              className="h-10 text-sm rounded-xl border-2 border-border focus:border-green-500 bg-background shadow-sm"
+                              max="100"
+                              value={formData.vehicleBusinessUsePercentage || ''}
+                              onChange={(e) => setFormData(prev => ({ ...prev, vehicleBusinessUsePercentage: parseInt(e.target.value) || undefined }))}
+                              placeholder="e.g., 75"
+                              className="h-9 text-sm rounded-xl border-2 border-border focus:border-orange-500 bg-background shadow-sm"
                             />
                           </div>
                         </div>
-                      )}
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-semibold text-foreground mb-2">
-                            Retirement Contributions (IRA/401k) <span className="text-red-500">*</span>
-                          </label>
-                          <Input
-                            type="number"
-                            min="0"
-                            value={formData.retirementContributions || ''}
-                            onChange={(e) => setFormData(prev => ({ ...prev, retirementContributions: parseInt(e.target.value) || undefined }))}
-                            placeholder="$0"
-                            className="h-10 text-sm rounded-xl border-2 border-border focus:border-green-500 bg-background shadow-sm"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-sm font-semibold text-foreground mb-2">
-                            Student Loan Interest Paid <span className="text-red-500">*</span>
-                          </label>
-                          <Input
-                            type="number"
-                            min="0"
-                            value={formData.studentLoanInterestPaid || ''}
-                            onChange={(e) => setFormData(prev => ({ ...prev, studentLoanInterestPaid: parseInt(e.target.value) || undefined }))}
-                            placeholder="$0"
-                            className="h-10 text-sm rounded-xl border-2 border-border focus:border-green-500 bg-background shadow-sm"
-                          />
-                        </div>
                       </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-semibold text-foreground mb-2">
-                            Annual Charitable Donations <span className="text-red-500">*</span>
-                          </label>
-                          <Input
-                            type="number"
-                            min="0"
-                            value={formData.charitableDonations || ''}
-                            onChange={(e) => setFormData(prev => ({ ...prev, charitableDonations: parseInt(e.target.value) || undefined }))}
-                            placeholder="$0"
-                            className="h-10 text-sm rounded-xl border-2 border-border focus:border-green-500 bg-background shadow-sm"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-sm font-semibold text-foreground mb-2">
-                            Annual Childcare Expenses <span className="text-red-500">*</span>
-                          </label>
-                          <Input
-                            type="number"
-                            min="0"
-                            value={formData.childcareExpenses || ''}
-                            onChange={(e) => setFormData(prev => ({ ...prev, childcareExpenses: parseInt(e.target.value) || undefined }))}
-                            placeholder="$0"
-                            className="h-10 text-sm rounded-xl border-2 border-border focus:border-green-500 bg-background shadow-sm"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-semibold text-foreground mb-2">
-                            Self-Employed Health Insurance <span className="text-red-500">*</span>
-                          </label>
-                          <Input
-                            type="number"
-                            min="0"
-                            value={formData.selfEmployedHealthInsurance || ''}
-                            onChange={(e) => setFormData(prev => ({ ...prev, selfEmployedHealthInsurance: parseInt(e.target.value) || undefined }))}
-                            placeholder="$0"
-                            className="h-10 text-sm rounded-xl border-2 border-border focus:border-green-500 bg-background shadow-sm"
-                          />
-                        </div>
-                      </div>
-                    </>
+                    </div>
                   )}
-                </div>
-              </Card>
+                </Card>
+              </div>
+
             </div>
           </div>
         </div>
+      </div>
 
-        {/* Navigation Buttons */}
-        <div className="flex items-center justify-between mt-2">
+      {/* Sticky bottom nav bar */}
+      <div className="flex-shrink-0 border-t border-border bg-background/90 backdrop-blur-sm px-4 py-3">
+        <div className="max-w-3xl mx-auto flex items-center justify-between">
           <Button
-            onClick={handleBackButton}
+            onClick={currentSlide === 'about' ? onBack : () => setCurrentSlide('about')}
             variant="outline"
-            className="h-10 px-5 rounded-xl border-2 border-border hover:bg-muted bg-background shadow-sm disabled:opacity-50"
+            className="h-9 px-4 rounded-xl border-2 border-border hover:bg-muted bg-background shadow-sm"
           >
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Previous
+            <ArrowLeft className="w-4 h-4 mr-1.5" />
+            {currentSlide === 'about' ? 'Back' : 'Previous'}
           </Button>
 
-          {currentSlide === 'deductions' ? (
+          {aboutYouMissing.length > 0 && currentSlide === 'about' && (
+            <p className="text-[10px] text-muted-foreground max-w-[200px] text-center hidden md:block">
+              Complete: {aboutYouMissing.slice(0, 3).join(', ')}{aboutYouMissing.length > 3 ? '...' : ''}
+            </p>
+          )}
+
+          {currentSlide === 'about' ? (
+            <Button
+              onClick={() => setCurrentSlide('business')}
+              disabled={!isAboutYouValid}
+              className="h-9 px-5 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-lg shadow-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Next
+              <ArrowRight className="w-4 h-4 ml-1.5" />
+            </Button>
+          ) : (
             <Button
               onClick={handleSubmit}
               disabled={!isFormValid || isSubmitting}
-              className="h-10 px-6 rounded-xl bg-gradient-to-r from-emerald-400 to-green-500 dark:from-emerald-500 dark:to-green-600 hover:from-emerald-500 hover:to-green-600 dark:hover:from-emerald-400 dark:hover:to-green-500 text-white font-medium shadow-md shadow-green-500/20 dark:shadow-green-500/30 disabled:opacity-50 transition-all duration-200"
+              className="h-9 px-5 rounded-xl bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white font-medium shadow-md shadow-green-500/20 disabled:opacity-50 transition-all duration-200"
             >
               {isSubmitting ? (
                 <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                  Creating Profile...
+                  <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin mr-1.5"></div>
+                  Saving...
                 </>
               ) : (
                 <>
-                  Continue to Bank Connection
-                  <ArrowRight className="w-4 h-4 ml-2" />
+                  Connect Bank
+                  <ArrowRight className="w-4 h-4 ml-1.5" />
                 </>
               )}
             </Button>
-          ) : (
-            <>
-              <Button
-                onClick={handleNextSlide}
-                disabled={
-                  (currentSlide === 'basic' && !isBasicInfoValid) ||
-                  (currentSlide === 'professional' && !isProfessionalInfoValid) ||
-                  (currentSlide === 'business' && !isBusinessInfoValid) ||
-                  (currentSlide === 'advanced' && !isAdvancedInfoValid) ||
-                  (currentSlide === 'deductions' && !isDeductionsInfoValid)
-                }
-                className="h-10 px-6 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-lg shadow-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed disabled:grayscale"
-                aria-disabled={
-                  (currentSlide === 'basic' && !isBasicInfoValid) ||
-                  (currentSlide === 'professional' && !isProfessionalInfoValid) ||
-                  (currentSlide === 'business' && !isBusinessInfoValid) ||
-                  (currentSlide === 'advanced' && !isAdvancedInfoValid) ||
-                  (currentSlide === 'deductions' && !isDeductionsInfoValid)
-                }
-                title={
-                  currentSlide === 'basic' && !isBasicInfoValid
-                    ? 'Select State of Residence and Filing Status to continue'
-                    : currentSlide === 'professional' && professionalMissing.length > 0
-                      ? `Complete: ${professionalMissing.join(', ')}`
-                      : undefined
-                }
-              >
-                Next
-                <ArrowRight className="w-4 h-4 ml-2" />
-              </Button>
-            </>
           )}
         </div>
-        {currentSlide === 'basic' && !isBasicInfoValid && (
-          <p className="text-xs text-muted-foreground mt-2 text-center">
-            Select State of Residence and Filing Status above to enable Next
-          </p>
-        )}
-        {currentSlide === 'professional' && !isProfessionalInfoValid && professionalMissing.length > 0 && (
-          <p className="text-xs text-muted-foreground mt-2 text-center">
-            To continue, complete: {professionalMissing.join(', ')}.
-          </p>
-        )}
-
         {error && (
-          <div className="mt-6 p-4 bg-red-500/10 border-2 border-red-500/20 rounded-xl">
-            <p className="text-red-600 text-sm font-medium">{error}</p>
+          <div className="max-w-3xl mx-auto mt-2 p-2 bg-red-500/10 border border-red-500/20 rounded-lg">
+            <p className="text-red-600 text-xs font-medium">{error}</p>
           </div>
         )}
       </div>

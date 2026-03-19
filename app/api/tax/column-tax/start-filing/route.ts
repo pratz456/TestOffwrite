@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
       lastName,
       occupation: profile.profession || undefined,
       state: profile.state || undefined,
-      transactions: transactions || [],
+      transactions: (transactions || []) as any[],
       taxYear: String(year),
       businessDescription: profile.business_purpose || profile.profession || 'Self-employed',
       businessName: profile.profession || undefined,

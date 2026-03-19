@@ -1,6 +1,4 @@
 import { adminDb } from '@/lib/firebase/admin';
-import { collection, doc, getDoc, setDoc, query, where, getDocs, orderBy, limit } from 'firebase-admin/firestore';
-
 export interface UserCorrection {
   id: string;
   userId: string;
@@ -167,7 +165,7 @@ export class AILearningEngine {
 
     if (prefs.length === 0) return null;
     if (prefs.length === 1) {
-      return prefs[0].confidence >= 0.7 ? prefs[0] : null;
+      return prefs[0].confidence >= 0.7 ? { suggestedIsDeductible: prefs[0].isDeductible, confidence: prefs[0].confidence } : null;
     }
     const [a, b] = prefs;
     if (a.isDeductible === b.isDeductible) {
@@ -175,7 +173,7 @@ export class AILearningEngine {
       return confidence >= 0.7 ? { suggestedIsDeductible: a.isDeductible, confidence } : null;
     }
     const higher = a.confidence >= b.confidence ? a : b;
-    return higher.confidence >= 0.7 ? higher : null;
+    return higher.confidence >= 0.7 ? { suggestedIsDeductible: higher.isDeductible, confidence: higher.confidence } : null;
   }
 
   /**

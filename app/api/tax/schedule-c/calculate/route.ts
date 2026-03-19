@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Filter transactions for current year
-    const currentYearTransactions = transactions.filter(transaction => {
+    const currentYearTransactions = transactions.filter((transaction: any) => {
       const transactionDate = new Date(transaction.date);
       return transactionDate.getFullYear() === currentYear;
     });
@@ -84,7 +84,7 @@ export async function GET(request: NextRequest) {
     };
 
     // Process each transaction
-    currentYearTransactions.forEach(transaction => {
+    currentYearTransactions.forEach((transaction: any) => {
       const amount = Math.abs(transaction.amount); // Use absolute value
       
       if (transaction.category === 'income' || transaction.category === 'revenue') {

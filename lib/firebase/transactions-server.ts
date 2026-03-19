@@ -45,7 +45,9 @@ export interface Transaction {
   transaction_code?: string;
 
   account_id?: string;
+  accountId?: string;
   user_id?: string;
+  userId?: string;
   analyzed?: boolean;
   analysis_status?: 'pending' | 'running' | 'completed' | 'failed';
   analysisStatus?: 'pending' | 'running' | 'completed' | 'failed';
@@ -55,6 +57,11 @@ export interface Transaction {
   created_at?: any;
   updated_at?: any;
   ai?: any | null;
+  _source?: string;
+  ocr_data?: any;
+  counterparties?: any[];
+  logo_url?: string;
+  merchant_entity_id?: string;
 }
 
 /** Helper: convert possible Firestore timestamp or string to ISO date string (safe) */
@@ -195,8 +202,7 @@ export async function getTransactionsServer(
       const topSnap = await adminDb.collection('transactions').where('userId', '==', userId).get();
       console.log('📂 [getTransactionsServer] top-level "transactions" (userId) size:', topSnap.size);
       if (!topSnap.empty) addDocs(topSnap);
-    } catch (e) {
-      // Only log if it's not a FAILED_PRECONDITION (index building)
+    } catch (e: any) {
       if (e?.code !== 9 && e?.code !== 'FAILED_PRECONDITION') {
         console.warn('[getTransactionsServer] top-level (userId) query failed:', e?.message ?? e);
       }
@@ -207,8 +213,7 @@ export async function getTransactionsServer(
       const cg1 = await adminDb.collectionGroup('transactions').where('userId', '==', userId).get();
       console.log('🔎 [getTransactionsServer] collectionGroup(userId) size:', cg1.size);
       if (!cg1.empty) addDocs(cg1);
-    } catch (e) {
-      // Only log if it's not a FAILED_PRECONDITION (index building)
+    } catch (e: any) {
       if (e?.code !== 9 && e?.code !== 'FAILED_PRECONDITION') {
         console.warn('[getTransactionsServer] collectionGroup(userId) query failed:', e?.message ?? e);
       }
@@ -219,8 +224,7 @@ export async function getTransactionsServer(
       const topSnap2 = await adminDb.collection('transactions').where('user_id', '==', userId).get();
       console.log('📂 [getTransactionsServer] top-level "transactions" (user_id) size:', topSnap2.size);
       if (!topSnap2.empty) addDocs(topSnap2);
-    } catch (e) {
-      // Only log if it's not a FAILED_PRECONDITION (index building)
+    } catch (e: any) {
       if (e?.code !== 9 && e?.code !== 'FAILED_PRECONDITION') {
         console.warn('[getTransactionsServer] top-level (user_id) query failed:', e?.message ?? e);
       }
@@ -231,8 +235,7 @@ export async function getTransactionsServer(
       const cg2 = await adminDb.collectionGroup('transactions').where('user_id', '==', userId).get();
       console.log('🔎 [getTransactionsServer] collectionGroup(user_id) size:', cg2.size);
       if (!cg2.empty) addDocs(cg2);
-    } catch (e) {
-      // Only log if it's not a FAILED_PRECONDITION (index building)
+    } catch (e: any) {
       if (e?.code !== 9 && e?.code !== 'FAILED_PRECONDITION') {
         console.warn('[getTransactionsServer] collectionGroup(user_id) query failed:', e?.message ?? e);
       }
@@ -267,7 +270,7 @@ export async function getTransactionsServer(
             .get();
           console.log(`[getTransactionsServer] account ${accountDoc.id} transactions:`, txSnap.size);
           if (!txSnap.empty) addDocs(txSnap);
-        } catch (e) {
+        } catch (e: any) {
           console.warn(`[getTransactionsServer] failed to get transactions for account ${accountDoc.id}:`, e?.message ?? e);
         }
       }
@@ -650,7 +653,7 @@ export async function getPaginatedTransactionsServer(
     console.log(`📊 [Firebase Server] Found ${querySnapshot.size} transactions for page ${page}`);
 
     const transactions: Transaction[] = [];
-    querySnapshot.forEach((doc) => {
+    querySnapshot.forEach((doc: any) => {
       const data = doc.data();
       const transaction: Transaction = {
         id: data.trans_id || doc.id,

@@ -45,8 +45,7 @@ export function getAuthErrorMessage(errorCode: string): string {
     'auth/invalid-user-token': 'Your session has expired. Please sign in again.',
     'auth/user-token-expired': 'Your session has expired. Please sign in again.',
     
-    // Rate limiting
-    'auth/too-many-requests': 'Too many requests. Please try again later.',
+    // Rate limiting (duplicate key removed, kept original above)
     'auth/quota-exceeded': 'Service quota exceeded. Please try again later.',
     
     // Default fallback

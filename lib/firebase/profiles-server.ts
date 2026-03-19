@@ -22,6 +22,7 @@ export interface UserProfile {
   plaid_import_in_progress?: boolean;
   plaid_import_started_at?: any;
   last_sync?: any;
+  year_of_birth?: string;
   created_at?: any;
   updated_at?: any;
 
@@ -43,6 +44,14 @@ export interface UserProfile {
   other_income?: number;
   tax_bracket?: number;
   professional_licenses?: string[];
+
+  prior_year_tax?: number;
+  mailing_address?: {
+    street?: string;
+    city?: string;
+    state?: string;
+    zip?: string;
+  };
 
   // Phase 3: Advanced Fields
   prior_year_deductions?: string[];

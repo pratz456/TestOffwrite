@@ -25,8 +25,8 @@ type JobDoc = {
 // Atomic progress update with exponential moving average
 async function updateProgress(jobRef: any, ok: boolean, ms: number) {
   await adminDb.runTransaction(async (tx) => {
-    const snap = await tx.get(jobRef);
-    const data = snap.data()!;
+    const snap = await tx.get(jobRef) as any;
+    const data = snap.data();
     const processed = (data.processed ?? 0) + 1;
     const succeeded = (data.succeeded ?? 0) + (ok ? 1 : 0);
     const failed = (data.failed ?? 0) + (ok ? 0 : 1);
@@ -389,8 +389,8 @@ async function getPendingTransactions(userId: string, accountId: string) {
         .get();
 
       pendingTransactions = snap4.docs
-        .map(doc => ({ id: doc.id, ...doc.data() }))
-        .filter(tx => {
+        .map(doc => ({ id: doc.id, ...doc.data() } as any))
+        .filter((tx: any) => {
           const analysisStatus = tx.analysis_status || tx.analysisStatus;
           const analyzed = tx.analyzed;
           return analysisStatus === 'pending' || analyzed === false;

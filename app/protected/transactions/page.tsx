@@ -46,6 +46,7 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { formatCategory, consolidateCategory } from '@/lib/utils';
+import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
 
 interface Transaction {
   id: string;
@@ -143,7 +144,7 @@ export default function TransactionsPage() {
 
   const deductibleTotal = deductibleTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
   const pendingTotal = pendingTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
-  const potentialSavings = deductibleTotal * 0.3; // 30% tax rate
+  const potentialSavings = deductibleTotal * getUserTaxRate();
 
   // Get unique consolidated categories for filter dropdown
   const uniqueCategories = useMemo(() => {

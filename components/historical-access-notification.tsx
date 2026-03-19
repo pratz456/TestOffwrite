@@ -15,6 +15,7 @@ interface HistoricalAccessStatus {
   trialStart?: Date;
   trialEnd?: Date;
   subscriptionEnd?: Date;
+  subscriptionStatus?: string;
   daysRemaining?: number;
 }
 

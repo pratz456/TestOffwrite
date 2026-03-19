@@ -65,6 +65,8 @@ export async function getAccountsServer(userId: string): Promise<{ data: Account
         last_import_earliest_tx: data.last_import_earliest_tx ?? null,
         last_import_latest_tx: data.last_import_latest_tx ?? null,
         last_import_count: data.last_import_count ?? null,
+        usageType: data.usageType || undefined,
+        businessUsePercent: data.businessUsePercent ?? null,
       });
     });
 

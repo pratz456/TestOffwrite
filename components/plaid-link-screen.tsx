@@ -158,9 +158,33 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
         });
 
         if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          console.error('❌ Failed to create link token:', errorData);
-          throw new Error(errorData.error || 'Failed to create link token');
+          const contentType = response.headers.get('content-type') || '';
+          let errorBodyText = '';
+          let errorData: any = null;
+          try {
+            errorBodyText = await response.text(); // read once
+            try {
+              errorData = JSON.parse(errorBodyText);
+            } catch {
+              errorData = null;
+            }
+          } catch {
+            // ignore
+          }
+
+          console.error('❌ Failed to create link token:', {
+            status: response.status,
+            contentType,
+            errorData,
+            errorBodyText: errorData ? undefined : errorBodyText,
+          });
+
+          const message =
+            errorData?.error ||
+            errorData?.message ||
+            (typeof errorBodyText === 'string' && errorBodyText.trim() ? errorBodyText : null) ||
+            'Failed to create link token';
+          throw new Error(message);
         }
 
         const data = await response.json();
@@ -1272,7 +1296,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
                         <Badge variant="success" className="text-xs">Free</Badge>
                       </div>
                       <p className="text-sm text-muted-foreground mb-2">
-                        Get full access to premium features—completely free for 30 days. No credit card required.
+                        Get full access to premium features - completely free for 30 days. No credit card required.
                       </p>
                       <p className="text-xs text-muted-foreground">
                         After your trial, continue with a paid plan to keep premium access, or use the free tier with limited features.

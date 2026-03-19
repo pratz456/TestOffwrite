@@ -4,6 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Building2, CheckCircle, AlertCircle, Plus, Trash2 } from 'lucide-react';
 import { auth } from '@/lib/firebase/client';
+import { toast } from 'sonner';
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 
 interface PlaidScreenProps {
   user: any;
@@ -32,6 +34,7 @@ export const PlaidScreen: React.FC<PlaidScreenProps> = ({ user, onBack, onConnec
   const [syncingAccountId, setSyncingAccountId] = useState<string | null>(null);
   const [disconnectingPlaid, setDisconnectingPlaid] = useState(false);
   const [hasPlaidConnection, setHasPlaidConnection] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState<{open:boolean;title:string;description:string;confirmLabel:string;variant:'default'|'destructive';onConfirm:()=>void}>({open:false,title:'',description:'',confirmLabel:'Confirm',variant:'default',onConfirm:()=>{}});
 
   // Fetch accounts and Plaid connection status from API
   useEffect(() => {
@@ -135,86 +138,93 @@ export const PlaidScreen: React.FC<PlaidScreenProps> = ({ user, onBack, onConnec
     fetchData();
   }, []);
 
-  const handleDeleteAccount = async (accountId: string) => {
-    if (!window.confirm('Are you sure you want to delete this bank account? This will also delete all associated transactions. This action cannot be undone.')) {
-      return;
-    }
+  const handleDeleteAccount = (accountId: string) => {
+    setConfirmDialog({
+      open: true,
+      title: 'Delete Bank Account',
+      description: 'Are you sure you want to delete this bank account? This will also delete all associated transactions. This action cannot be undone.',
+      confirmLabel: 'Delete',
+      variant: 'destructive',
+      onConfirm: async () => {
+        const currentUser = auth.currentUser;
+        if (!currentUser) {
+          toast.error('Please sign in to delete an account.');
+          return;
+        }
 
-    const currentUser = auth.currentUser;
-    if (!currentUser) {
-      alert('Please sign in to delete an account.');
-      return;
-    }
+        try {
+          setDeletingAccountId(accountId);
+          const token = await currentUser.getIdToken();
+          const response = await fetch('/api/database/accounts', {
+            method: 'DELETE',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ accountId }),
+          });
 
-    try {
-      setDeletingAccountId(accountId);
-      const token = await currentUser.getIdToken();
-      const response = await fetch('/api/database/accounts', {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ accountId }),
-      });
+          const result = await response.json();
 
-      const result = await response.json();
-
-      if (response.ok && result.success) {
-        // Remove the account from the list
-        setConnectedAccounts(prev => prev.filter(acc => acc.id !== accountId));
-        alert('Bank account deleted successfully.');
-      } else {
-        alert(`Failed to delete account: ${result.error || result.details || 'Unknown error'}`);
-      }
-    } catch (error) {
-      console.error('Error deleting account:', error);
-      alert('Failed to delete account. Please try again.');
-    } finally {
-      setDeletingAccountId(null);
-    }
+          if (response.ok && result.success) {
+            setConnectedAccounts(prev => prev.filter(acc => acc.id !== accountId));
+            toast.success('Bank account deleted successfully.');
+          } else {
+            toast.error(`Failed to delete account: ${result.error || result.details || 'Unknown error'}`);
+          }
+        } catch (error) {
+          console.error('Error deleting account:', error);
+          toast.error('Failed to delete account. Please try again.');
+        } finally {
+          setDeletingAccountId(null);
+        }
+      },
+    });
   };
 
-  const handleDisconnectPlaid = async () => {
-    const confirmMessage = 'This will revoke access in Plaid and delete all imported data (accounts, transactions, receipts) for this bank connection. Continue?';
-    if (!window.confirm(confirmMessage)) {
-      return;
-    }
+  const handleDisconnectPlaid = () => {
+    setConfirmDialog({
+      open: true,
+      title: 'Disconnect Bank',
+      description: 'This will revoke access in Plaid and delete all imported data (accounts, transactions, receipts) for this bank connection. Continue?',
+      confirmLabel: 'Disconnect',
+      variant: 'destructive',
+      onConfirm: async () => {
+        const currentUser = auth.currentUser;
+        if (!currentUser) {
+          toast.error('Please sign in to disconnect.');
+          return;
+        }
 
-    const currentUser = auth.currentUser;
-    if (!currentUser) {
-      alert('Please sign in to disconnect.');
-      return;
-    }
+        try {
+          setDisconnectingPlaid(true);
+          const token = await currentUser.getIdToken();
+          const response = await fetch('/api/plaid/items', {
+            method: 'DELETE',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+          });
 
-    try {
-      setDisconnectingPlaid(true);
-      const token = await currentUser.getIdToken();
-      const response = await fetch('/api/plaid/items', {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
+          const result = await response.json();
 
-      const result = await response.json();
-
-      if (response.ok && result.success) {
-        // Clear all accounts
-        setConnectedAccounts([]);
-        setHasPlaidConnection(false);
-        alert(`Bank connection disconnected successfully. ${result.deletedCounts?.accounts || 0} accounts and ${result.deletedCounts?.transactions || 0} transactions deleted.`);
-      } else {
-        const errorMsg = result.details || result.error || 'Unknown error';
-        alert(`Failed to disconnect bank: ${errorMsg}`);
-      }
-    } catch (error) {
-      console.error('Error disconnecting Plaid:', error);
-      alert('Failed to disconnect bank. Please try again.');
-    } finally {
-      setDisconnectingPlaid(false);
-    }
+          if (response.ok && result.success) {
+            setConnectedAccounts([]);
+            setHasPlaidConnection(false);
+            toast.success(`Bank connection disconnected successfully. ${result.deletedCounts?.accounts || 0} accounts and ${result.deletedCounts?.transactions || 0} transactions deleted.`);
+          } else {
+            const errorMsg = result.details || result.error || 'Unknown error';
+            toast.error(`Failed to disconnect bank: ${errorMsg}`);
+          }
+        } catch (error) {
+          console.error('Error disconnecting Plaid:', error);
+          toast.error('Failed to disconnect bank. Please try again.');
+        } finally {
+          setDisconnectingPlaid(false);
+        }
+      },
+    });
   };
 
   const handleSyncNow = async (accountId: string) => {
@@ -263,7 +273,7 @@ export const PlaidScreen: React.FC<PlaidScreenProps> = ({ user, onBack, onConnec
       }
     } catch (err) {
       console.warn('[Plaid Screen] Sync failed:', err);
-      alert('Sync failed. Please try again.');
+      toast.error('Sync failed. Please try again.');
     } finally {
       setSyncingAccountId(null);
     }
@@ -459,7 +469,7 @@ export const PlaidScreen: React.FC<PlaidScreenProps> = ({ user, onBack, onConnec
                         <p className="text-xs text-muted-foreground">
                           {account.type.charAt(0).toUpperCase() + account.type.slice(1)} •••• {account.mask}
                         </p>
-                        <p className="text-xs text-amber-500 mt-0.5">Connection expired — please reconnect</p>
+                        <p className="text-xs text-amber-500 mt-0.5">Connection expired - please reconnect</p>
                       </div>
                     </div>
                     <Button onClick={onConnect} size="sm" className="text-xs shrink-0">
@@ -507,6 +517,15 @@ export const PlaidScreen: React.FC<PlaidScreenProps> = ({ user, onBack, onConnec
           </div>
         </div>
       </div>
+      <ConfirmationDialog
+        open={confirmDialog.open}
+        onOpenChange={(open) => setConfirmDialog(prev => ({ ...prev, open }))}
+        title={confirmDialog.title}
+        description={confirmDialog.description}
+        confirmLabel={confirmDialog.confirmLabel}
+        variant={confirmDialog.variant}
+        onConfirm={confirmDialog.onConfirm}
+      />
     </div>
   );
 };

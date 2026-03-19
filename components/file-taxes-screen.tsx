@@ -42,7 +42,12 @@ export function FileTaxesScreen() {
   const {
     hasAccess,
     isLoading: subscriptionLoading,
+    error: subscriptionError,
   } = useSubscription();
+
+  // If the subscription check itself failed (e.g. server error), don't
+  // block the user — the start-filing API route enforces gating server-side.
+  const effectiveAccess = hasAccess || !!subscriptionError;
 
   const { data: response, isLoading: txLoading } = useTransactions(
     user?.id || '',
@@ -237,7 +242,7 @@ export function FileTaxesScreen() {
         )}
 
         {/* Subscription Gate */}
-        {!subscriptionLoading && !hasAccess && (
+        {!subscriptionLoading && !effectiveAccess && (
           <Card className="p-6 bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/30 dark:to-blue-900/30 border border-purple-200 dark:border-purple-700 shadow-sm">
             <div className="flex items-start gap-4">
               <div className="p-3 bg-purple-100 dark:bg-purple-800/50 rounded-xl">
@@ -266,7 +271,7 @@ export function FileTaxesScreen() {
         )}
 
         {/* ── Step: Review ─────────────────────────────────────────── */}
-        {step === 'review' && hasAccess && (
+        {step === 'review' && effectiveAccess && (
           <>
             {/* Year Selector */}
             <Card className="p-4 sm:p-6 bg-card border border-border shadow-sm">
@@ -506,7 +511,7 @@ export function FileTaxesScreen() {
               </h3>
               <p className="text-muted-foreground max-w-md mx-auto">
                 Your Schedule C data has been sent to Column Tax. The filing
-                module should have opened — review your pre-filled return and
+                module should have opened - review your pre-filled return and
                 follow the steps to submit.
               </p>
               <div className="flex flex-wrap justify-center gap-3 pt-2">
@@ -613,7 +618,7 @@ export function FileTaxesScreen() {
         )}
 
         {/* Column Tax branding footer */}
-        {hasAccess && (
+        {effectiveAccess && (
           <div className="text-center py-4">
             <p className="text-xs text-muted-foreground">
               Tax filing is powered by Column Tax. Column Tax provides an

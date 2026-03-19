@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getTransactionsServer } from '@/lib/firebase/transactions-server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
+import { getUserProfileServer } from '@/lib/firebase/profiles-server';
+import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
 
 export async function GET(request: NextRequest) {
   try {
@@ -10,6 +12,9 @@ export async function GET(request: NextRequest) {
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    const { data: userProfile } = await getUserProfileServer(user.uid);
+    const taxRate = getUserTaxRate(userProfile ?? undefined);
 
     // Get current date info
     const now = new Date();
@@ -68,8 +73,7 @@ export async function GET(request: NextRequest) {
       return sum + Math.abs(t.amount);
     }, 0);
     
-    // Tax savings calculation (assuming 30% tax rate)
-    const taxRate = 0.30;
+    // Tax savings calculation (user-specific tax rate)
     const yearToDateTaxSavings = yearToDateTotal * taxRate;
     const currentMonthTaxSavings = currentMonthTotal * taxRate;
     

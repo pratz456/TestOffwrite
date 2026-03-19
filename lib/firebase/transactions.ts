@@ -118,7 +118,12 @@ export interface Transaction {
   analysisUpdatedAt?: string; // When the analysis was last updated
 
   account_id?: string;
+  accountId?: string;
   user_id?: string;
+  userId?: string;
+  analysis_status?: 'pending' | 'running' | 'completed' | 'failed';
+  _source?: string;
+  ocr_data?: any;
   created_at?: any;
   updated_at?: any;
 }

@@ -19,17 +19,17 @@ type FormType = 'form8829' | 'form4562' | 'scheduleSE';
 
 const formConfig = {
   form8829: {
-    label: 'Form 8829 – Home Office Expenses',
+    label: 'Form 8829 - Home Office Expenses',
     icon: Home,
     description: 'Calculate home office deductions'
   },
   form4562: {
-    label: 'Form 4562 – Depreciation & Amortization',
+    label: 'Form 4562 - Depreciation & Amortization',
     icon: Calculator,
     description: 'Track asset depreciation and amortization'
   },
   scheduleSE: {
-    label: 'Schedule SE – Self-Employment Tax',
+    label: 'Schedule SE - Self-Employment Tax',
     icon: User,
     description: 'Calculate self-employment tax obligations'
   }

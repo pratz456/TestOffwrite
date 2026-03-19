@@ -17,18 +17,30 @@ import {
   Loader2,
   CheckCircle,
   AlertCircle,
-  Shield
+  Shield,
+  MapPin
 } from '@/lib/icons';
 import { getUserProfile, upsertUserProfile, UserProfile } from '@/lib/firebase/profiles';
+import { useBeforeUnload } from '@/lib/hooks/use-before-unload';
 import { CreditCard, Calendar, Sparkles, ExternalLink, XCircle, AlertTriangle } from 'lucide-react';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import { TrialCountdown } from '@/components/trial-countdown';
+import { toast } from 'sonner';
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 
 // Payment Settings Tab Component
 const PaymentSettingsTab: React.FC<{ user: any }> = ({ user }) => {
   const [loading, setLoading] = useState(true);
   const [cancelLoading, setCancelLoading] = useState(false);
   const [accessStatus, setAccessStatus] = useState<any>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean;
+    title: string;
+    description: string;
+    confirmLabel: string;
+    variant: 'default' | 'destructive';
+    onConfirm: () => void;
+  }>({ open: false, title: '', description: '', confirmLabel: 'Confirm', variant: 'default', onConfirm: () => {} });
 
   useEffect(() => {
     const fetchAccessStatus = async () => {
@@ -57,11 +69,7 @@ const PaymentSettingsTab: React.FC<{ user: any }> = ({ user }) => {
     window.location.href = '/protected/subscriptions';
   };
 
-  const handleCancelSubscription = async () => {
-    if (!window.confirm('Are you sure you want to cancel your subscription? You will lose access to up to 24 months of historical transactions (depending on your bank) after the current period ends.')) {
-      return;
-    }
-
+  const doCancelSubscription = async () => {
     setCancelLoading(true);
     try {
       const response = await makeAuthenticatedRequest('/api/stripe/cancel-subscription', {
@@ -70,8 +78,7 @@ const PaymentSettingsTab: React.FC<{ user: any }> = ({ user }) => {
 
       if (response.ok) {
         const data = await response.json();
-        alert('Subscription cancelled successfully. Your access will continue until the end of the current billing period.');
-        // Refresh access status
+        toast.success('Subscription cancelled. Access continues until end of billing period.');
         const statusResponse = await makeAuthenticatedRequest('/api/subscriptions/check-access');
         if (statusResponse.ok) {
           const statusData = await statusResponse.json();
@@ -79,14 +86,25 @@ const PaymentSettingsTab: React.FC<{ user: any }> = ({ user }) => {
         }
       } else {
         const errorData = await response.json().catch(() => ({}));
-        alert(errorData.error || 'Failed to cancel subscription. Please try again.');
+        toast.error(errorData.error || 'Failed to cancel subscription.');
       }
     } catch (error) {
       console.error('Error cancelling subscription:', error);
-      alert('Failed to cancel subscription. Please try again.');
+      toast.error('Failed to cancel subscription.');
     } finally {
       setCancelLoading(false);
     }
+  };
+
+  const handleCancelSubscription = () => {
+    setConfirmDialog({
+      open: true,
+      title: 'Cancel Subscription',
+      description: 'Are you sure you want to cancel your subscription? You will lose access to up to 24 months of historical transactions (depending on your bank) after the current period ends.',
+      confirmLabel: 'Cancel Subscription',
+      variant: 'destructive',
+      onConfirm: doCancelSubscription,
+    });
   };
 
   if (loading) {
@@ -252,29 +270,35 @@ const PaymentSettingsTab: React.FC<{ user: any }> = ({ user }) => {
                   <ExternalLink className="ml-2 w-4 h-4" />
                 </Button>
                 <Button
-                  onClick={async () => {
-                    if (!window.confirm('This will check Stripe for your subscription and sync it to your account. Continue?')) {
-                      return;
-                    }
-                    setLoading(true);
-                    try {
-                      const response = await makeAuthenticatedRequest('/api/subscriptions/fix-access', {
-                        method: 'POST',
-                      });
-                      if (response.ok) {
-                        const data = await response.json();
-                        alert('✅ Subscription synced successfully! Refreshing...');
-                        window.location.reload();
-                      } else {
-                        const errorData = await response.json().catch(() => ({}));
-                        alert(errorData.error || 'No subscription found in Stripe. Please subscribe first.');
-                      }
-                    } catch (error) {
-                      console.error('Error fixing access:', error);
-                      alert('Failed to sync subscription. Please try again.');
-                    } finally {
-                      setLoading(false);
-                    }
+                  onClick={() => {
+                    setConfirmDialog({
+                      open: true,
+                      title: 'Sync Subscription',
+                      description: 'This will check Stripe for your subscription and sync it to your account. Continue?',
+                      confirmLabel: 'Sync',
+                      variant: 'default',
+                      onConfirm: async () => {
+                        setLoading(true);
+                        try {
+                          const response = await makeAuthenticatedRequest('/api/subscriptions/fix-access', {
+                            method: 'POST',
+                          });
+                          if (response.ok) {
+                            const data = await response.json();
+                            toast.success('Subscription synced successfully!');
+                            window.location.reload();
+                          } else {
+                            const errorData = await response.json().catch(() => ({}));
+                            toast.error(errorData.error || 'No subscription found in Stripe.');
+                          }
+                        } catch (error) {
+                          console.error('Error fixing access:', error);
+                          toast.error('Failed to sync subscription.');
+                        } finally {
+                          setLoading(false);
+                        }
+                      },
+                    });
                   }}
                   disabled={loading}
                   variant="secondary"
@@ -337,6 +361,18 @@ const PaymentSettingsTab: React.FC<{ user: any }> = ({ user }) => {
           </div>
         </section>
       </div>
+      <ConfirmationDialog
+        open={confirmDialog.open}
+        onOpenChange={(open) => setConfirmDialog(prev => ({ ...prev, open }))}
+        title={confirmDialog.title}
+        description={confirmDialog.description}
+        confirmLabel={confirmDialog.confirmLabel}
+        variant={confirmDialog.variant}
+        onConfirm={() => {
+          setConfirmDialog(prev => ({ ...prev, open: false }));
+          confirmDialog.onConfirm();
+        }}
+      />
     </Card>
   );
 };
@@ -395,6 +431,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     state: '',
     filing_status: '',
     income: '',
+    mailing_address: { street: '', city: '', state: '', zip: '' },
 
     // Business Details Tab
     business_purpose: '',
@@ -420,6 +457,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     multiple_locations: false,
     international_business: false,
     tax_bracket: undefined as number | undefined,
+    prior_year_tax: undefined as number | undefined,
     professional_licenses: [] as string[],
     prior_year_deductions: [] as string[]
   });
@@ -429,6 +467,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState('');
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean;
+    title: string;
+    description: string;
+    confirmLabel: string;
+    variant: 'default' | 'destructive';
+    onConfirm: () => void;
+  }>({ open: false, title: '', description: '', confirmLabel: 'Confirm', variant: 'default', onConfirm: () => {} });
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [originalProfile, setOriginalProfile] = useState<any>(null);
   const [editState, setEditState] = useState<Record<SettingsTab, boolean>>({
@@ -438,6 +484,26 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     advancedSettings: false,
     payment: false,
   });
+
+  useBeforeUnload(hasUnsavedChanges);
+
+  const handleTabSwitch = (tab: SettingsTab) => {
+    if (hasUnsavedChanges) {
+      setConfirmDialog({
+        open: true,
+        title: 'Unsaved changes',
+        description: 'You have unsaved changes. Switching tabs will discard them.',
+        confirmLabel: 'Discard changes',
+        variant: 'destructive',
+        onConfirm: () => {
+          cancelEditing(activeTab);
+          setActiveTab(tab);
+        },
+      });
+      return;
+    }
+    setActiveTab(tab);
+  };
 
   const isEditingCurrentTab = editState[activeTab];
 
@@ -514,6 +580,12 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             state: existingProfile.state || '',
             filing_status: existingProfile.filing_status || '',
             income: existingProfile.income || '',
+            mailing_address: {
+              street: existingProfile.mailing_address?.street || '',
+              city: existingProfile.mailing_address?.city || '',
+              state: existingProfile.mailing_address?.state || '',
+              zip: existingProfile.mailing_address?.zip || '',
+            },
 
             // Business Details Tab - Map all business fields
             business_purpose: existingProfile.business_purpose || '',
@@ -539,6 +611,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             multiple_locations: existingProfile.multiple_locations || false,
             international_business: existingProfile.international_business || false,
             tax_bracket: existingProfile.tax_bracket,
+            prior_year_tax: existingProfile.prior_year_tax,
             professional_licenses: existingProfile.professional_licenses || [],
             prior_year_deductions: existingProfile.prior_year_deductions || []
           };
@@ -612,6 +685,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         state: profile.state,
         filing_status: profile.filing_status,
         income: profile.income,
+        mailing_address: profile.mailing_address,
 
         // Business Details
         business_purpose: profile.business_purpose,
@@ -637,13 +711,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         multiple_locations: profile.multiple_locations,
         international_business: profile.international_business,
         tax_bracket: profile.tax_bracket,
+        prior_year_tax: profile.prior_year_tax,
         professional_licenses: profile.professional_licenses,
         prior_year_deductions: profile.prior_year_deductions
       };
 
       console.log('Profile data to save:', profileData);
 
-      const { data, error } = await upsertUserProfile(user.id, profileData);
+      const { data, error } = await upsertUserProfile(user.id, profileData as any);
 
       if (error) {
         console.error('Error saving profile:', error);
@@ -804,19 +879,19 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   }, [profile.profession, profile.customProfession]);
 
   const formatCurrency = (value?: number) => {
-    if (value === undefined || value === null || Number.isNaN(value)) return '—';
+    if (value === undefined || value === null || Number.isNaN(value)) return '-';
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(value);
   };
 
   const formatDate = (value?: string) => {
-    if (!value) return '—';
+    if (!value) return '-';
     const parsed = new Date(value);
     if (Number.isNaN(parsed.getTime())) return value;
     return parsed.toLocaleDateString();
   };
 
   const renderViewField = (label: string, value: React.ReactNode) => {
-    const content = value !== undefined && value !== null && value !== '' ? value : '—';
+    const content = value !== undefined && value !== null && value !== '' ? value : '-';
     return (
       <div className="space-y-1 rounded-lg border border-border bg-muted/40 px-4 py-3">
         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
@@ -891,7 +966,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           {/* Mobile: Grid layout */}
           <div className="grid grid-cols-3 gap-1 sm:hidden bg-card/80 rounded-lg p-1 border border-border">
             <button
-              onClick={() => setActiveTab('profile')}
+              onClick={() => handleTabSwitch('profile')}
               className={`px-2 py-2 rounded-md text-xs font-medium transition-colors flex flex-col items-center gap-1 no-tap-highlight ${activeTab === 'profile'
                 ? 'bg-primary/10 text-primary shadow-sm'
                 : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
@@ -901,7 +976,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               <span>Profile</span>
             </button>
             <button
-              onClick={() => setActiveTab('businessDetails')}
+              onClick={() => handleTabSwitch('businessDetails')}
               className={`px-2 py-2 rounded-md text-xs font-medium transition-colors flex flex-col items-center gap-1 no-tap-highlight ${activeTab === 'businessDetails'
                 ? 'bg-primary/10 text-primary shadow-sm'
                 : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
@@ -911,7 +986,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               <span>Business</span>
             </button>
             <button
-              onClick={() => setActiveTab('taxSettings')}
+              onClick={() => handleTabSwitch('taxSettings')}
               className={`px-2 py-2 rounded-md text-xs font-medium transition-colors flex flex-col items-center gap-1 no-tap-highlight ${activeTab === 'taxSettings'
                 ? 'bg-primary/10 text-primary shadow-sm'
                 : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
@@ -924,7 +999,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           {/* Mobile: Second row with 2 tabs */}
           <div className="grid grid-cols-2 gap-1 sm:hidden bg-card/80 rounded-lg p-1 border border-border mt-1">
             <button
-              onClick={() => setActiveTab('payment')}
+              onClick={() => handleTabSwitch('payment')}
               className={`px-2 py-2 rounded-md text-xs font-medium transition-colors flex flex-col items-center gap-1 no-tap-highlight ${activeTab === 'payment'
                 ? 'bg-primary/10 text-primary shadow-sm'
                 : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
@@ -934,7 +1009,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               <span>Payment</span>
             </button>
             <button
-              onClick={() => setActiveTab('advancedSettings')}
+              onClick={() => handleTabSwitch('advancedSettings')}
               className={`px-2 py-2 rounded-md text-xs font-medium transition-colors flex flex-col items-center gap-1 no-tap-highlight ${activeTab === 'advancedSettings'
                 ? 'bg-primary/10 text-primary shadow-sm'
                 : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
@@ -948,7 +1023,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           {/* Desktop: Horizontal tabs */}
           <div className="hidden sm:flex space-x-1 bg-card/80 rounded-lg p-1 w-fit overflow-x-auto border border-border">
             <button
-              onClick={() => setActiveTab('profile')}
+              onClick={() => handleTabSwitch('profile')}
               className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'profile'
                 ? 'bg-green-900/70 text-green-300 shadow-sm'
                 : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
@@ -958,7 +1033,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               Profile
             </button>
             <button
-              onClick={() => setActiveTab('businessDetails')}
+              onClick={() => handleTabSwitch('businessDetails')}
               className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'businessDetails'
                 ? 'bg-green-900/70 text-green-300 shadow-sm'
                 : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
@@ -968,7 +1043,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               Business Details
             </button>
             <button
-              onClick={() => setActiveTab('taxSettings')}
+              onClick={() => handleTabSwitch('taxSettings')}
               className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'taxSettings'
                 ? 'bg-green-900/70 text-green-300 shadow-sm'
                 : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
@@ -978,7 +1053,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               Tax Settings
             </button>
             <button
-              onClick={() => setActiveTab('payment')}
+              onClick={() => handleTabSwitch('payment')}
               className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'payment'
                 ? 'bg-green-900/70 text-green-300 shadow-sm'
                 : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
@@ -988,7 +1063,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               Payment
             </button>
             <button
-              onClick={() => setActiveTab('advancedSettings')}
+              onClick={() => handleTabSwitch('advancedSettings')}
               className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'advancedSettings'
                 ? 'bg-green-900/70 text-green-300 shadow-sm'
                 : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
@@ -1049,7 +1124,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                         <p className="text-xs text-muted-foreground">Required for AI analysis</p>
                       </>
                     ) : (
-                      renderViewField('Full Name', profile.name || '—')
+                      renderViewField('Full Name', profile.name || '-')
                     )}
                   </div>
                   <div className="space-y-2">
@@ -1069,7 +1144,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                         <p className="text-xs text-muted-foreground">Required for account management</p>
                       </>
                     ) : (
-                      renderViewField('Email Address', profile.email || '—')
+                      renderViewField('Email Address', profile.email || '-')
                     )}
                   </div>
                 </div>
@@ -1129,7 +1204,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                           ))}
                         </div>
                       ) : (
-                        '—'
+                        '-'
                       )
                     )
                   )}
@@ -1151,7 +1226,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                         <p className="text-xs text-muted-foreground">Required for tax calculations</p>
                       </>
                     ) : (
-                      renderViewField('Business Entity Type', businessEntityTypeOptions.find(o => o.value === profile.businessEntityType)?.label ?? profile.businessEntityType ?? '—')
+                      renderViewField('Business Entity Type', businessEntityTypeOptions.find(o => o.value === profile.businessEntityType)?.label ?? profile.businessEntityType ?? '-')
                     )}
                   </div>
                   <div className="space-y-2">
@@ -1169,7 +1244,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                         <p className="text-xs text-muted-foreground">Required for state tax calculations</p>
                       </>
                     ) : (
-                      renderViewField('State', profile.state || '—')
+                      renderViewField('State', profile.state || '-')
                     )}
                   </div>
                   <div className="space-y-2">
@@ -1187,7 +1262,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                         <p className="text-xs text-muted-foreground">Required for tax calculations</p>
                       </>
                     ) : (
-                      renderViewField('Filing Status', profile.filing_status || '—')
+                      renderViewField('Filing Status', profile.filing_status || '-')
                     )}
                   </div>
                   <div className="space-y-2">
@@ -1205,8 +1280,82 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                         <p className="text-xs text-muted-foreground">Required for AI analysis</p>
                       </>
                     ) : (
-                      renderViewField('Annual Income', profile.income || '—')
+                      renderViewField('Annual Income', profile.income || '-')
                     )}
+                  </div>
+                </div>
+              </section>
+
+              <section className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <MapPin className="w-5 h-5 text-green-500" />
+                  <h3 className="text-lg font-semibold text-foreground">Mailing Address</h3>
+                </div>
+                <p className="text-xs text-muted-foreground">Used for 1040-ES vouchers and Column Tax filing. Not required for AI analysis.</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2 md:col-span-2">
+                    {editState.profile ? (
+                      <>
+                        <Label className="text-sm font-medium text-foreground">Street Address</Label>
+                        <Input
+                          value={profile.mailing_address?.street || ''}
+                          onChange={(e) => handleProfileChange({ mailing_address: { ...profile.mailing_address, street: e.target.value } })}
+                          placeholder="123 Main St, Apt 4B"
+                          className="h-12 rounded-lg border-border bg-background"
+                        />
+                      </>
+                    ) : (
+                      renderViewField('Street Address', profile.mailing_address?.street || '-')
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    {editState.profile ? (
+                      <>
+                        <Label className="text-sm font-medium text-foreground">City</Label>
+                        <Input
+                          value={profile.mailing_address?.city || ''}
+                          onChange={(e) => handleProfileChange({ mailing_address: { ...profile.mailing_address, city: e.target.value } })}
+                          placeholder="San Francisco"
+                          className="h-12 rounded-lg border-border bg-background"
+                        />
+                      </>
+                    ) : (
+                      renderViewField('City', profile.mailing_address?.city || '-')
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      {editState.profile ? (
+                        <>
+                          <Label className="text-sm font-medium text-foreground">State</Label>
+                          <Input
+                            value={profile.mailing_address?.state || ''}
+                            onChange={(e) => handleProfileChange({ mailing_address: { ...profile.mailing_address, state: e.target.value } })}
+                            placeholder="CA"
+                            maxLength={2}
+                            className="h-12 rounded-lg border-border bg-background"
+                          />
+                        </>
+                      ) : (
+                        renderViewField('State', profile.mailing_address?.state || '-')
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      {editState.profile ? (
+                        <>
+                          <Label className="text-sm font-medium text-foreground">ZIP Code</Label>
+                          <Input
+                            value={profile.mailing_address?.zip || ''}
+                            onChange={(e) => handleProfileChange({ mailing_address: { ...profile.mailing_address, zip: e.target.value } })}
+                            placeholder="94102"
+                            maxLength={10}
+                            className="h-12 rounded-lg border-border bg-background"
+                          />
+                        </>
+                      ) : (
+                        renderViewField('ZIP Code', profile.mailing_address?.zip || '-')
+                      )}
+                    </div>
                   </div>
                 </div>
               </section>
@@ -1304,7 +1453,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                         <p className="text-xs text-muted-foreground">Required if you have a home office</p>
                       </>
                     ) : (
-                      renderViewField('Home Office Square Footage', profile.home_office_sqft ?? '—')
+                      renderViewField('Home Office Square Footage', profile.home_office_sqft ?? '-')
                     )}
                   </div>
                   <div className="space-y-2">
@@ -1324,7 +1473,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                         <p className="text-xs text-muted-foreground">Required for home office calculation</p>
                       </>
                     ) : (
-                      renderViewField('Total Home Square Footage', profile.total_home_sqft ?? '—')
+                      renderViewField('Total Home Square Footage', profile.total_home_sqft ?? '-')
                     )}
                   </div>
                   <div className="space-y-2">
@@ -1351,7 +1500,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                           ? profile.home_office_method === 'simplified'
                             ? 'Simplified Method'
                             : 'Actual Expenses'
-                          : '—'
+                          : '-'
                       )
                     )}
                   </div>
@@ -1389,7 +1538,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                         'Vehicle Business Use %',
                         profile.vehicle_business_use_percentage !== undefined && profile.vehicle_business_use_percentage !== null
                           ? `${profile.vehicle_business_use_percentage}%`
-                          : '—'
+                          : '-'
                       )
                     )}
                   </div>
@@ -1417,7 +1566,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                           ? profile.vehicle_deduction_method === 'standard_mileage'
                             ? 'Standard Mileage Rate'
                             : 'Actual Expenses'
-                          : '—'
+                          : '-'
                       )
                     )}
                   </div>
@@ -1457,7 +1606,32 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                             : profile.itemization_status === 'standard'
                               ? 'I take standard deduction'
                               : 'I\'m not sure'
-                          : '—'
+                          : '-'
+                      )
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    {editState.taxSettings ? (
+                      <>
+                        <Label className="text-sm font-medium text-foreground">
+                          Prior Year Total Tax
+                        </Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          value={profile.prior_year_tax ?? ''}
+                          onChange={(e) => handleProfileChange({ prior_year_tax: e.target.value ? parseFloat(e.target.value) : undefined })}
+                          placeholder="e.g., 8500"
+                          className="h-12 rounded-lg border-border bg-background"
+                        />
+                        <p className="text-xs text-muted-foreground">From your prior year return (line 24 of Form 1040). Used for quarterly estimate safe harbor.</p>
+                      </>
+                    ) : (
+                      renderViewField(
+                        'Prior Year Total Tax',
+                        profile.prior_year_tax != null
+                          ? `$${profile.prior_year_tax.toLocaleString()}`
+                          : '-'
                       )
                     )}
                   </div>
@@ -1548,7 +1722,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                         <p className="text-xs text-muted-foreground">Helps AI understand your business context</p>
                       </>
                     ) : (
-                      renderViewField('Business Purpose', profile.business_purpose || '—')
+                      renderViewField('Business Purpose', profile.business_purpose || '-')
                     )}
                   </div>
                   <div className="space-y-2">
@@ -1581,7 +1755,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                         <p className="text-xs text-muted-foreground">Employer Identification Number</p>
                       </>
                     ) : (
-                      renderViewField('EIN', profile.ein || '—')
+                      renderViewField('EIN', profile.ein || '-')
                     )}
                   </div>
                   <div className="space-y-2">
@@ -1598,7 +1772,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                         <p className="text-xs text-muted-foreground">North American Industry Classification System</p>
                       </>
                     ) : (
-                      renderViewField('NAICS Code', profile.naics_code || '—')
+                      renderViewField('NAICS Code', profile.naics_code || '-')
                     )}
                   </div>
                 </div>
@@ -1769,7 +1943,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                         'Tax Bracket',
                         profile.tax_bracket !== undefined && profile.tax_bracket !== null
                           ? `${profile.tax_bracket}%`
-                          : '—'
+                          : '-'
                       )
                     )}
                   </div>
@@ -1975,7 +2149,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                         const statusData = await statusRes.json();
 
                         if (!statusData.canExport) {
-                          alert(`You can only export your data once per hour. Please wait ${statusData.timeRemaining} minutes.`);
+                          toast.warning(`Export limit reached. Please wait ${statusData.timeRemaining} minutes.`);
                           return;
                         }
 
@@ -2027,14 +2201,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                           readmeLink.remove();
                           window.URL.revokeObjectURL(readmeUrl);
 
-                          alert(`Export completed! Downloaded ${exportData.summary.transactions} transactions, ${exportData.summary.accounts} accounts, and ${exportData.summary.receipts} receipts.`);
+                          toast.success(`Exported ${exportData.summary.transactions} transactions, ${exportData.summary.accounts} accounts, and ${exportData.summary.receipts} receipts.`);
                         } else {
                           const errorData = await res.json();
-                          alert(`Failed to export data: ${errorData.message || 'Unknown error'}`);
+                          toast.error(errorData.message || 'Failed to export data.');
                         }
                       } catch (err) {
                         console.error('Export error:', err);
-                        alert('Failed to export data. Please try again.');
+                        toast.error('Failed to export data.');
                       }
                     }}
                     variant="outline"
@@ -2057,24 +2231,30 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   </Button>
                 </div>
                 <Button
-                  onClick={async () => {
-                    if (window.confirm('Are you sure you want to delete your account and all associated data? This includes all Plaid connections, accounts, transactions, and receipts. This action cannot be undone.')) {
-                      try {
-                        const res = await fetch('/api/user/delete', { method: 'DELETE' });
-                        const result = await res.json();
-                        if (result.success) {
-                          alert('Your account and all data have been deleted. You will be logged out.');
-                          // Sign out and redirect to home
-                          window.location.href = '/';
-                        } else {
-                          const errorMsg = result.details || result.error || 'Unknown error';
-                          alert(`Failed to delete account: ${errorMsg}`);
+                  onClick={() => {
+                    setConfirmDialog({
+                      open: true,
+                      title: 'Delete Account',
+                      description: 'Are you sure you want to delete your account and all associated data? This includes all Plaid connections, accounts, transactions, and receipts. This action cannot be undone.',
+                      confirmLabel: 'Delete Account',
+                      variant: 'destructive',
+                      onConfirm: async () => {
+                        try {
+                          const res = await fetch('/api/user/delete', { method: 'DELETE' });
+                          const result = await res.json();
+                          if (result.success) {
+                            toast.success('Account deleted. You will be logged out.');
+                            window.location.href = '/';
+                          } else {
+                            const errorMsg = result.details || result.error || 'Unknown error';
+                            toast.error(errorMsg || 'Failed to delete account.');
+                          }
+                        } catch (err) {
+                          console.error('Error deleting account:', err);
+                          toast.error('Failed to delete account.');
                         }
-                      } catch (err) {
-                        console.error('Error deleting account:', err);
-                        alert('Failed to delete account. Please try again.');
-                      }
-                    }
+                      },
+                    });
                   }}
                   variant="destructive"
                   size="sm"
@@ -2118,6 +2298,18 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
       </div>
     </div>
+    <ConfirmationDialog
+      open={confirmDialog.open}
+      onOpenChange={(open) => setConfirmDialog(prev => ({ ...prev, open }))}
+      title={confirmDialog.title}
+      description={confirmDialog.description}
+      confirmLabel={confirmDialog.confirmLabel}
+      variant={confirmDialog.variant}
+      onConfirm={() => {
+        setConfirmDialog(prev => ({ ...prev, open: false }));
+        confirmDialog.onConfirm();
+      }}
+    />
   </div>
   );
 };

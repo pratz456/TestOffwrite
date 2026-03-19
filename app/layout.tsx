@@ -6,6 +6,7 @@ import { ReactQueryProvider } from "@/lib/react-query/provider";
 import { ThemeProvider } from "@/components/theme-provider-wrapper";
 import { PwaInstallPrompt } from "@/components/pwa-install-prompt";
 import { PwaRegisterSw } from "@/components/pwa-register-sw";
+import { Toaster } from "@/ui/sonner";
 import "./globals.css";
 
 const defaultUrl = process.env.NEXT_PUBLIC_SITE_URL
@@ -84,6 +85,7 @@ export default function RootLayout({
           <ReactQueryProvider>
             <AuthProvider>
               {children}
+              <Toaster richColors position="top-right" />
               <PwaRegisterSw />
               <PwaInstallPrompt />
             </AuthProvider>

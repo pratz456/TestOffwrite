@@ -48,7 +48,7 @@ export class ReceiptProcessor {
     }
   }
 
-  async processReceipt(imageFile: File): Promise<OCRResult> {
+  async processReceipt(imageFile: File | Buffer): Promise<OCRResult> {
     const startTime = Date.now();
     
     try {
@@ -58,8 +58,17 @@ export class ReceiptProcessor {
         throw new Error('OCR worker not initialized');
       }
 
+      // Convert File/Blob to Buffer for Node.js Tesseract worker compatibility
+      let imageInput: Buffer;
+      if (Buffer.isBuffer(imageFile)) {
+        imageInput = imageFile;
+      } else {
+        const arrayBuffer = await imageFile.arrayBuffer();
+        imageInput = Buffer.from(arrayBuffer);
+      }
+
       // Perform OCR
-      const { data: { text, confidence } } = await this.worker.recognize(imageFile);
+      const { data: { text, confidence } } = await this.worker.recognize(imageInput);
       
       // Parse the extracted text
       const receiptData = this.parseReceiptText(text);
@@ -69,8 +78,12 @@ export class ReceiptProcessor {
       return {
         success: true,
         data: {
-          ...receiptData,
-          confidence: confidence / 100, // Convert to 0-1 scale
+          merchant: receiptData.merchant || 'Unknown Merchant',
+          amount: receiptData.amount || 0,
+          date: receiptData.date || new Date().toISOString().split('T')[0],
+          category: receiptData.category,
+          items: receiptData.items,
+          confidence: confidence / 100,
           rawText: text
         },
         processingTime
@@ -85,7 +98,7 @@ export class ReceiptProcessor {
     }
   }
 
-  async processReceiptBatch(imageFiles: File[]): Promise<OCRResult[]> {
+  async processReceiptBatch(imageFiles: (File | Buffer)[]): Promise<OCRResult[]> {
     const results: OCRResult[] = [];
     
     for (const file of imageFiles) {

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -390,7 +391,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
       }
     } catch (error) {
       console.error('Export error:', error);
-      alert('Failed to export data. Please try again.');
+      toast.error('Failed to export data. Please try again.');
     } finally {
       setIsExporting(false);
     }
@@ -460,7 +461,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
         if (contentType && contentType.includes('application/json')) {
           const errorData = await response.json();
           if (errorData.requiresSubscription) {
-            alert('An active subscription is required to export Schedule C reports. Please subscribe to access this feature.');
+            toast.warning('An active subscription is required to export Schedule C reports. Please subscribe to access this feature.');
             router.push('/protected/subscriptions');
             return;
           }
@@ -484,7 +485,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
 
     } catch (error) {
       console.error('PDF generation error:', error);
-      alert('Failed to generate PDF. Please try again.');
+      toast.error('Failed to generate PDF. Please try again.');
     }
   };
 
