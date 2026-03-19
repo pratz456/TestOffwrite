@@ -33,7 +33,7 @@ const accentIconWrap: Record<KpiAccent, string> = {
 export function KpiCard({ title, value, subtitle, delta, icon, loading, accent }: KpiCardProps) {
   if (loading) {
     return (
-      <div className="rounded-lg border border-border bg-card p-4 sm:p-5">
+      <div className="rounded-lg border border-border bg-card p-4 sm:p-5 min-h-[88px]">
         <Skeleton className="h-3.5 w-24 mb-3" />
         <Skeleton className="h-8 w-32 mb-2" />
         <Skeleton className="h-3 w-20" />
@@ -46,7 +46,7 @@ export function KpiCard({ title, value, subtitle, delta, icon, loading, accent }
 
   return (
     <div
-      className={`rounded-lg border border-border bg-card p-4 sm:p-5 transition-colors duration-150 min-h-[88px] sm:min-h-0
+      className={`rounded-lg border border-border bg-card p-4 sm:p-5 transition-colors duration-150 min-h-[88px]
         ${accent ? `border-l-4 ${borderClass}` : ''}`}
     >
       <div className="flex items-start justify-between gap-3">

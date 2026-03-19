@@ -10,6 +10,17 @@ export interface ReceiptData {
   items?: ReceiptItem[];
 }
 
+export interface ReceiptMatchCandidate {
+  trans_id: string;
+  merchant_name: string;
+  amount: number;
+  category?: string;
+  date: string;
+  confidence: number; // 0..1
+  hasReceipt: boolean;
+  matchReasons: string[];
+}
+
 export interface ReceiptItem {
   description: string;
   amount: number;
@@ -249,21 +260,155 @@ export class ReceiptProcessor {
     return items;
   }
 
-  async matchToExistingTransaction(receiptData: ReceiptData, transactions: any[]): Promise<any | null> {
-    // Look for transactions that match the receipt data
-    const matches = transactions.filter(tx => {
-      const amountMatch = Math.abs(tx.amount - receiptData.amount) < 0.01;
-      const merchantMatch = tx.merchant_name?.toLowerCase().includes(receiptData.merchant.toLowerCase()) ||
-                           receiptData.merchant.toLowerCase().includes(tx.merchant_name?.toLowerCase() || '');
-      const dateMatch = tx.date === receiptData.date;
-      
-      return amountMatch && (merchantMatch || dateMatch);
-    });
-    
-    // Return the best match (prefer merchant match over date match)
-    return matches.find(match => 
-      match.merchant_name?.toLowerCase().includes(receiptData.merchant.toLowerCase())
-    ) || matches[0] || null;
+  /**
+   * Finds the best transaction matches for a scanned receipt.
+   * Matching is intentionally sign-agnostic (we compare absolute amounts),
+   * because expenses may be stored as positive and income/refunds as negative.
+   */
+  async findMatchingTransactions(
+    receiptData: ReceiptData,
+    transactions: any[],
+    limit = 5
+  ): Promise<ReceiptMatchCandidate[]> {
+    const receiptDateIso = this.normalizeDateToISO(receiptData.date);
+    const receiptMerchantNorm = this.normalizeMerchant(receiptData.merchant);
+    const receiptAmountAbs = Math.abs(Number(receiptData.amount || 0));
+
+    const candidates: ReceiptMatchCandidate[] = [];
+
+    for (const tx of transactions) {
+      const txTransId = String(tx.trans_id ?? tx.id ?? '');
+      if (!txTransId) continue;
+
+      const txMerchantName = String(tx.merchant_name ?? '');
+      const txMerchantNorm = this.normalizeMerchant(txMerchantName);
+      if (!txMerchantNorm) continue;
+
+      const txDateIso = this.normalizeDateToISO(tx.date);
+      const txAmountAbs = Math.abs(Number(tx.amount || 0));
+
+      const amountDiff = Math.abs(txAmountAbs - receiptAmountAbs);
+      const amountTol = receiptAmountAbs >= 100 ? 2 : receiptAmountAbs >= 10 ? 1 : 0.25;
+
+      const amountScore = amountDiff <= amountTol
+        ? 1
+        : Math.max(0, 1 - amountDiff / (amountTol * 3));
+
+      const merchantScore = this.scoreMerchants(receiptMerchantNorm, txMerchantNorm);
+
+      const dateScore = txDateIso && receiptDateIso && txDateIso === receiptDateIso ? 1 : 0;
+
+      // If category is available, use it as a soft boost only.
+      const categoryScore = this.scoreStringsOptional(receiptData.category, tx.category);
+
+      // Base weights: amount dominates, then merchant, then date.
+      const confidence = this.clamp01(0.45 * amountScore + 0.35 * merchantScore + 0.20 * dateScore) +
+        0.05 * categoryScore;
+
+      if (confidence < 0.35) continue;
+
+      const matchReasons: string[] = [];
+      if (amountScore >= 0.9) matchReasons.push('amount');
+      if (merchantScore >= 0.8) matchReasons.push('merchant');
+      if (dateScore >= 0.9) matchReasons.push('date');
+      if (categoryScore >= 0.9) matchReasons.push('category');
+
+      candidates.push({
+        trans_id: txTransId,
+        merchant_name: txMerchantName,
+        amount: Number(tx.amount || 0),
+        category: tx.category,
+        date: tx.date,
+        confidence: this.clamp01(confidence),
+        hasReceipt: Boolean(tx.receipt_url || tx.receipt_filename),
+        matchReasons,
+      });
+    }
+
+    candidates.sort((a, b) => b.confidence - a.confidence);
+    return candidates.slice(0, Math.max(1, limit));
+  }
+
+  /**
+   * Simple OCR heuristic: detect whether the receipt looks like a refund/credit.
+   * Returns 'income' because credits/refunds are stored as negative amounts in this app.
+   */
+  inferReceiptDirectionFromText(rawText: string): { direction: 'expense' | 'income' | 'unknown'; confidence: number } {
+    const text = (rawText || '').toLowerCase();
+
+    const refundKeywords = ['refund', 'credited', 'credit', 'returned', 'return', 'money back', 'amount credited'];
+    const depositKeywords = ['deposit', 'payout', 'payment received', 'received payment', 'earned', 'interest'];
+
+    if (refundKeywords.some((k) => text.includes(k))) {
+      return { direction: 'income', confidence: 0.85 };
+    }
+
+    if (depositKeywords.some((k) => text.includes(k))) {
+      return { direction: 'income', confidence: 0.65 };
+    }
+
+    // Most receipts we scan are expense receipts (default).
+    return { direction: 'expense', confidence: 0.55 };
+  }
+
+  private normalizeDateToISO(dateLike: any): string | null {
+    try {
+      if (!dateLike) return null;
+      if (typeof dateLike === 'string') {
+        const d = new Date(dateLike);
+        if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
+        // If it's already YYYY-MM-DD-ish, just grab the prefix.
+        if (/^\d{4}-\d{2}-\d{2}/.test(dateLike)) return dateLike.slice(0, 10);
+        return null;
+      }
+      if (dateLike instanceof Date) return dateLike.toISOString().split('T')[0];
+      if (typeof dateLike === 'number') return new Date(dateLike).toISOString().split('T')[0];
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  private normalizeMerchant(merchant: string): string {
+    return String(merchant || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  private scoreStringsOptional(a?: string, b?: string): number {
+    const aNorm = this.normalizeMerchant(a || '');
+    const bNorm = this.normalizeMerchant(b || '');
+    if (!aNorm || !bNorm) return 0.3;
+
+    if (aNorm === bNorm) return 1;
+    if (aNorm.includes(bNorm) || bNorm.includes(aNorm)) return 0.7;
+    return 0.3;
+  }
+
+  private scoreMerchants(receiptMerchantNorm: string, txMerchantNorm: string): number {
+    if (!receiptMerchantNorm || !txMerchantNorm) return 0;
+
+    // Direct substring match is a strong signal.
+    if (txMerchantNorm.includes(receiptMerchantNorm) || receiptMerchantNorm.includes(txMerchantNorm)) {
+      return 1;
+    }
+
+    const receiptTokens = receiptMerchantNorm.split(' ').filter((t) => t.length >= 3);
+    const txTokens = txMerchantNorm.split(' ').filter((t) => t.length >= 3);
+    if (!receiptTokens.length || !txTokens.length) return 0;
+
+    const receiptSet = new Set(receiptTokens);
+    const overlap = [...receiptSet].filter((t) => txTokens.includes(t)).length;
+    const jaccard = overlap / Math.max(receiptTokens.length, txTokens.length);
+
+    return this.clamp01(jaccard);
+  }
+
+  private clamp01(n: number): number {
+    if (!Number.isFinite(n)) return 0;
+    return Math.max(0, Math.min(1, n));
   }
 
   async terminate(): Promise<void> {

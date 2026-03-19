@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ChevronRight, FileText } from 'lucide-react';
 import { consolidateCategory } from '@/lib/utils';
+import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 
 interface RecentActivityCardProps {
   transactions: any[];
@@ -14,7 +15,7 @@ interface RecentActivityCardProps {
 }
 
 export function RecentActivityCard({ transactions, onTransactionClick, onViewAll }: RecentActivityCardProps) {
-  const recent = transactions.slice(0, 8);
+  const recent = transactions.slice(0, 5);
 
   return (
     <Card className="h-full">
@@ -32,17 +33,18 @@ export function RecentActivityCard({ transactions, onTransactionClick, onViewAll
           </Button>
         </div>
       </CardHeader>
-      <CardContent className="px-3 sm:px-5 pb-5">
+      <CardContent className="px-3 sm:px-5 pb-4">
         {recent.length > 0 ? (
           <div className="space-y-0.5">
             {recent.map((tx) => {
               const isIncome = tx.amount < 0;
               const amount = Math.abs(tx.amount);
-              const tagLabel = tx.is_deductible === true ? 'Ded.' : tx.is_deductible === null ? 'Pending' : 'Personal';
-              const tagVariant = tx.is_deductible === true ? 'default' : tx.is_deductible === null ? 'outline' : 'secondary';
+              const needsReview = transactionNeedsTaxReview(tx);
+              const tagLabel = needsReview ? 'Pending' : tx.is_deductible === true ? 'Ded.' : 'Personal';
+              const tagVariant = needsReview ? 'outline' : tx.is_deductible === true ? 'default' : 'secondary';
               const tagClass = tx.is_deductible === true
                 ? 'text-[10px] px-1.5 py-0 ml-0.5 bg-primary/15 text-primary border border-primary/25'
-                : tx.is_deductible === null
+                : needsReview
                   ? 'text-[10px] px-1.5 py-0 ml-0.5'
                   : 'text-[10px] px-1.5 py-0 ml-0.5 bg-muted text-muted-foreground';
               return (
@@ -50,14 +52,14 @@ export function RecentActivityCard({ transactions, onTransactionClick, onViewAll
                   key={tx.id}
                   role="button"
                   tabIndex={0}
-                  className="flex items-center justify-between min-h-[44px] py-2.5 px-2 sm:py-2 sm:px-2 hover:bg-muted rounded-lg cursor-pointer group transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  className="flex items-center justify-between min-h-[44px] py-2 px-2 sm:py-2 sm:px-2 hover:bg-muted rounded-lg cursor-pointer group transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                   onClick={() => onTransactionClick({ ...tx, _source: 'dashboard' })}
                   onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onTransactionClick({ ...tx, _source: 'dashboard' }); } }}
                 >
                   <div className="flex items-center gap-2.5 flex-1 min-w-0">
                     <div className={`w-2 h-2 rounded-full shrink-0 ${
                       tx.is_deductible === true ? 'bg-success' :
-                      tx.is_deductible === null ? 'bg-warning' :
+                      needsReview ? 'bg-warning' :
                       'bg-muted-foreground/40'
                     }`} />
                     <div className="min-w-0 flex-1">

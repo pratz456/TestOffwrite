@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ArrowLeft, Upload, FileText, Camera, CheckCircle, AlertCircle } from 'lucide-react';
 import { auth } from '@/lib/firebase/client';
+import type { ReceiptMatchCandidate } from '@/lib/ocr/receipt-processor';
 
 interface ReceiptUploadScreenProps {
   user: {
@@ -25,16 +26,34 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
 }) => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
-  const [uploadComplete, setUploadComplete] = useState(false);
-  const [extractedData, setExtractedData] = useState<any>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [extractedData, setExtractedData] = useState<null | {
+    merchant: string;
+    amount: number; // positive only (sign decided at commit time)
+    date: string;
+    category: string;
+    confidence: number;
+    items: any[];
+    matchCandidates: ReceiptMatchCandidate[];
+    suggestedReceiptType: 'expense' | 'income';
+    suggestedReceiptConfidence: number;
+  }>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const AUTO_ATTACH_CONFIDENCE_THRESHOLD = 0.8;
+
+  const [receiptType, setReceiptType] = useState<'expense' | 'income'>('expense');
+  const [attachmentChoice, setAttachmentChoice] = useState<'attach' | 'create'>('create');
+  const [selectedCandidateTransId, setSelectedCandidateTransId] = useState<string | null>(null);
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       setSelectedFile(file);
-      setUploadComplete(false);
       setExtractedData(null);
+      setReceiptType('expense');
+      setAttachmentChoice('create');
+      setSelectedCandidateTransId(null);
     }
   };
 
@@ -43,8 +62,10 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
     const file = event.dataTransfer.files[0];
     if (file && file.type.startsWith('image/')) {
       setSelectedFile(file);
-      setUploadComplete(false);
       setExtractedData(null);
+      setReceiptType('expense');
+      setAttachmentChoice('create');
+      setSelectedCandidateTransId(null);
     }
   };
 
@@ -69,6 +90,7 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
 
       const formData = new FormData();
       formData.append('file', selectedFile);
+      formData.append('mode', 'ocr');
 
       const response = await fetch('/api/receipts/process', {
         method: 'POST',
@@ -83,17 +105,29 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
 
       const result = await response.json();
       const ocr = result.ocrResult || {};
+      const matchCandidates = (result.matchCandidates || []) as ReceiptMatchCandidate[];
+      const suggestedReceiptType = (result.suggestedReceiptType || 'expense') as 'expense' | 'income';
+      const suggestedReceiptConfidence = Number(result.suggestedReceiptConfidence ?? 0.5);
+
+      const topCandidate = matchCandidates[0] || null;
+      const shouldAttach =
+        Boolean(topCandidate) && topCandidate.confidence >= AUTO_ATTACH_CONFIDENCE_THRESHOLD;
+
+      setReceiptType(suggestedReceiptType);
+      setAttachmentChoice(shouldAttach ? 'attach' : 'create');
+      setSelectedCandidateTransId(shouldAttach && topCandidate ? topCandidate.trans_id : null);
 
       setExtractedData({
         merchant: ocr.merchant || 'Unknown Merchant',
-        amount: ocr.amount || 0,
+        amount: Number(ocr.amount || 0),
         date: ocr.date || new Date().toISOString().split('T')[0],
         category: ocr.category || 'other',
-        confidence: ocr.confidence || 0,
-        items: ocr.items || result.transaction?.ocr_data?.items || [],
-        transactionId: result.transaction?.trans_id,
+        confidence: Number(ocr.confidence || 0),
+        items: ocr.items || [],
+        matchCandidates,
+        suggestedReceiptType,
+        suggestedReceiptConfidence
       });
-      setUploadComplete(true);
     } catch (err) {
       console.error('Error processing receipt:', err);
       setError(err instanceof Error ? err.message : 'Failed to process receipt. Please try again.');
@@ -102,26 +136,56 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
     }
   };
 
-  const handleConfirmData = () => {
-    if (extractedData) {
-      const expense = {
-        id: Date.now().toString(),
-        description: `${extractedData.merchant} - Receipt Upload`,
-        amount: extractedData.amount,
-        category: extractedData.category,
-        date: extractedData.date,
-        type: 'expense' as const,
-        isDeductible: true,
-        userId: user.id,
-        receipt: {
-          fileName: selectedFile?.name,
-          extractedData: extractedData
-        },
-        createdAt: new Date().toISOString()
+  const handleConfirmData = async () => {
+    if (!selectedFile || !extractedData) return;
+    setIsSaving(true);
+    setError(null);
+
+    try {
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        throw new Error('Please sign in to save receipts');
+      }
+
+      const idToken = await currentUser.getIdToken();
+
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      formData.append('mode', 'commit');
+      formData.append('receiptType', receiptType);
+
+      if (attachmentChoice === 'attach' && selectedCandidateTransId) {
+        formData.append('attachTransactionId', selectedCandidateTransId);
+      }
+
+      const response = await fetch('/api/receipts/process', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${idToken}` },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errBody = await response.json().catch(() => ({}));
+        throw new Error(errBody.error || 'Failed to save receipt');
+      }
+
+      const result = await response.json();
+      const savedTx = result.transaction;
+      // createTransactionServer may not echo receipt fields in its immediate return.
+      // Ensure the parent UI gets them right away.
+      const merged = {
+        ...savedTx,
+        receipt_url: savedTx?.receipt_url ?? result.receiptUrl,
+        receipt_filename: savedTx?.receipt_filename ?? selectedFile.name
       };
-      
-      onUploadComplete(expense);
+
+      onUploadComplete(merged);
       onBack();
+    } catch (err) {
+      console.error('Error saving receipt:', err);
+      setError(err instanceof Error ? err.message : 'Failed to save receipt. Please try again.');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -224,7 +288,9 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
                     onClick={() => {
                       setSelectedFile(null);
                       setExtractedData(null);
-                      setUploadComplete(false);
+                      setReceiptType('expense');
+                      setAttachmentChoice('create');
+                      setSelectedCandidateTransId(null);
                     }}
                     variant="outline"
                   >
@@ -280,6 +346,69 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
                     <p className="text-slate-900 font-medium">{extractedData.category}</p>
                   </div>
 
+                  <div className="space-y-3 pt-4 border-t border-slate-100">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-medium text-slate-700">Receipt type</div>
+                        <div className="text-xs text-slate-500">Used only when creating a new transaction.</div>
+                      </div>
+                      <select
+                        value={receiptType}
+                        onChange={(e) => setReceiptType(e.target.value as 'expense' | 'income')}
+                        className="h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white"
+                      >
+                        <option value="expense">Expense</option>
+                        <option value="income">Income</option>
+                      </select>
+                    </div>
+
+                    {extractedData.matchCandidates.length > 0 ? (
+                      <div className="space-y-2">
+                        <div className="text-sm font-medium text-slate-700">Save receipt to</div>
+                        <div className="text-xs text-slate-500">If attached, we only update the receipt photo (no amount/category changes).</div>
+
+                        <div className="flex gap-3 items-center">
+                          <select
+                            value={attachmentChoice}
+                            onChange={(e) => {
+                              const next = e.target.value as 'attach' | 'create';
+                              setAttachmentChoice(next);
+                              if (next === 'attach') {
+                                const fallback = extractedData.matchCandidates[0]?.trans_id ?? null;
+                                setSelectedCandidateTransId(selectedCandidateTransId || fallback);
+                              }
+                            }}
+                            className="h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white"
+                          >
+                            <option value="attach">Existing transaction</option>
+                            <option value="create">New transaction</option>
+                          </select>
+
+                          {attachmentChoice === 'attach' && (
+                            <select
+                              value={selectedCandidateTransId || ''}
+                              onChange={(e) => setSelectedCandidateTransId(e.target.value)}
+                              className="flex-1 h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white"
+                            >
+                              {extractedData.matchCandidates.slice(0, 3).map((c) => (
+                                <option key={c.trans_id} value={c.trans_id}>
+                                  {c.hasReceipt ? 'Has receipt • ' : ''}
+                                  {c.merchant_name} • ${Math.abs(c.amount).toFixed(2)} •{' '}
+                                  {new Date(c.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} •{' '}
+                                  {Math.round(c.confidence * 100)}%
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-sm text-slate-600">
+                        No strong matches found, we will create a new transaction.
+                      </div>
+                    )}
+                  </div>
+
                   <div>
                     <label className="text-sm font-medium text-slate-700 mb-2 block">Items <span className="text-red-600 ml-0.5">*</span></label>
                     <div className="space-y-2">
@@ -296,10 +425,11 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
                 <div className="flex gap-3 pt-4 border-t border-gray-200">
                   <Button 
                     onClick={handleConfirmData}
+                    disabled={isSaving}
                     className="flex-1 gap-2 bg-gradient-to-r from-emerald-400 to-green-500 dark:from-emerald-500 dark:to-green-600 hover:from-emerald-500 hover:to-green-600 dark:hover:from-emerald-400 dark:hover:to-green-500 text-white font-medium shadow-md shadow-green-500/20 dark:shadow-green-500/30 transition-all duration-200"
                   >
                     <CheckCircle className="w-4 h-4" />
-                    Confirm & Save
+                    {isSaving ? 'Saving...' : 'Confirm & Save'}
                   </Button>
                   <Button 
                     onClick={() => setExtractedData(null)}

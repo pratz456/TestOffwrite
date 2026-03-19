@@ -114,6 +114,8 @@ export function ActionItemsScreen({
   profile,
   transactions = [],
 }: ActionItemsScreenProps) {
+  const dismissedStorageKey = `writeoff_dismissed_actions_${user.id}`;
+
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [items, setItems] = useState<ActionItem[]>([]);
   const [options, setOptions] = useState<{
@@ -124,14 +126,14 @@ export function ActionItemsScreen({
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const stored = localStorage.getItem('writeoff_dismissed_actions');
+    const stored = localStorage.getItem(dismissedStorageKey);
     if (stored) {
       try {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed)) setDismissed(new Set(parsed));
       } catch { /* ignore */ }
     }
-  }, []);
+  }, [dismissedStorageKey]);
 
   useEffect(() => {
     async function fetchExtras() {
@@ -182,19 +184,19 @@ export function ActionItemsScreen({
     setDismissed((prev) => {
       const next = new Set(prev);
       next.add(id);
-      localStorage.setItem('writeoff_dismissed_actions', JSON.stringify([...next]));
+      localStorage.setItem(dismissedStorageKey, JSON.stringify([...next]));
       return next;
     });
-  }, []);
+  }, [dismissedStorageKey]);
 
   const handleUndismiss = useCallback((id: string) => {
     setDismissed((prev) => {
       const next = new Set(prev);
       next.delete(id);
-      localStorage.setItem('writeoff_dismissed_actions', JSON.stringify([...next]));
+      localStorage.setItem(dismissedStorageKey, JSON.stringify([...next]));
       return next;
     });
-  }, []);
+  }, [dismissedStorageKey]);
 
   const activeItems = items.filter((i) => !dismissed.has(i.id));
   const dismissedItems = items.filter((i) => dismissed.has(i.id));

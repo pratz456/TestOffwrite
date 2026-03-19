@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import type { Account } from '@/lib/firebase/accounts';
 // Simple modal component
 type ModalProps = {
@@ -46,6 +46,7 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { formatCategory, consolidateCategory } from '@/lib/utils';
+import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
 
 interface Transaction {
@@ -100,7 +101,8 @@ export default function TransactionsPage() {
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [activeTab, setActiveTab] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
-  const [dateRange, setDateRange] = useState<'all' | 'today' | 'week' | 'month' | 'quarter' | 'year' | 'custom'>('month');
+  // Default to "All time" so no filter is active on initial page load.
+  const [dateRange, setDateRange] = useState<'all' | 'today' | 'week' | 'month' | 'quarter' | 'year' | 'custom'>('all');
   const [sortBy, setSortBy] = useState<'date' | 'amount' | 'merchant'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
@@ -114,24 +116,6 @@ export default function TransactionsPage() {
   // Use real-time transactions hook for instant updates
   const { transactions, isLoading: loading, error } = useTransactions(user?.id || '');
 
-  // Apply learning to pending transactions once per session when we have pending items
-  const applyLearningRunRef = useRef(false);
-  useEffect(() => {
-    if (loading || !user?.id || applyLearningRunRef.current) return;
-    const pending = transactions.filter((t) => t.is_deductible === null || t.is_deductible === undefined);
-    if (pending.length === 0) return;
-    applyLearningRunRef.current = true;
-    fetch('/api/transactions/apply-learning', { method: 'POST', credentials: 'include' })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data && (data.applied as number) > 0) {
-          // Real-time hook will re-render with updated transactions
-        }
-      })
-      .catch(() => {})
-      .finally(() => {});
-  }, [loading, user?.id, transactions.length]);
-
   // Handle error state
   if (error) {
     console.error('Error loading transactions:', error);
@@ -140,7 +124,7 @@ export default function TransactionsPage() {
   // Calculate summary statistics
   const deductibleTransactions = transactions.filter(t => t.is_deductible === true);
   const personalTransactions = transactions.filter(t => t.is_deductible === false);
-  const pendingTransactions = transactions.filter(t => t.is_deductible === null || t.is_deductible === undefined);
+  const pendingTransactions = transactions.filter((t) => transactionNeedsTaxReview(t));
 
   const deductibleTotal = deductibleTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
   const pendingTotal = pendingTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
@@ -197,7 +181,7 @@ export default function TransactionsPage() {
     } else if (activeTab === 'personal') {
       filtered = filtered.filter(t => t.is_deductible === false);
     } else if (activeTab === 'pending') {
-      filtered = filtered.filter(t => t.is_deductible === null || t.is_deductible === undefined);
+      filtered = filtered.filter((t) => transactionNeedsTaxReview(t));
     }
 
     // Search filter
@@ -335,7 +319,7 @@ export default function TransactionsPage() {
     <div className="bg-background text-foreground min-h-screen overflow-x-hidden">
       {/* Header */}
       <div className="bg-background">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div>
               <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-foreground mb-1">Transactions</h1>
@@ -347,7 +331,7 @@ export default function TransactionsPage() {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 space-y-4 sm:space-y-6">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 space-y-3 sm:space-y-4">
         {/* Summary Cards — semantic accents, premium fintech */}
         <div className="grid grid-cols-1 min-[480px]:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-5">
           <div
@@ -577,7 +561,7 @@ export default function TransactionsPage() {
         </div>
 
         {/* Status Tabs — pill-style segmented, hover glow, 44px tap */}
-        <div className="flex gap-1.5 p-1 rounded-xl bg-muted/40 border border-border/50 w-fit max-w-full overflow-x-auto scrollbar-none mb-6">
+        <div className="flex gap-1.5 p-1 rounded-xl bg-muted/40 border border-border/50 w-fit max-w-full overflow-x-auto scrollbar-none mb-5 sm:mb-6">
           <button
             type="button"
             onClick={() => setActiveTab('all')}

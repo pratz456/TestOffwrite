@@ -5,6 +5,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { getUserProfile } from '@/lib/firebase/profiles';
 import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
+import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 import { 
   CreditCard, 
   Building2, 
@@ -169,7 +170,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate = () => {
         const newDeductionsCount = transactionsData
           .filter((t: any) => t.is_deductible === true && new Date(t.created_at) >= thirtyDaysAgo).length;
 
-        const needsReviewCount = transactionsData.filter((t: any) => t.is_deductible === null).length;
+        const needsReviewCount = transactionsData.filter((t: any) =>
+          transactionNeedsTaxReview(t)
+        ).length;
 
         const totalExpensesValue = transactionsData
           .filter((t: any) => t.amount > 0) // Exclude revenue transactions (negative amounts)

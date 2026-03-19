@@ -12,6 +12,7 @@ import { db } from './client';
 import { Transaction } from './transactions';
 import { queryKeys } from './hooks';
 import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
+import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 
 // Types for transaction updates
 export interface TransactionUpdate {
@@ -69,7 +70,7 @@ async function findTransactionDoc(transactionId: string, userId: string) {
 function calculateLocalStats(transactions: Transaction[]) {
   const totalTransactions = transactions.length;
   const deductibleTransactions = transactions.filter(t => t.is_deductible === true).length;
-  const needsReviewTransactions = transactions.filter(t => t.is_deductible === null).length;
+  const needsReviewTransactions = transactions.filter((t) => transactionNeedsTaxReview(t)).length;
   const totalDeductibleAmount = transactions
     .filter(t => t.is_deductible === true)
     .reduce((sum, t) => sum + Math.abs(t.amount || 0), 0);

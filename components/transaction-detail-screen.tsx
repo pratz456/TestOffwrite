@@ -161,6 +161,12 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
     getInitialClassification()
   );
   const [additionalContext, setAdditionalContext] = useState(transaction.notes || '');
+  const [businessPurpose, setBusinessPurpose] = useState(transaction.business_purpose || '');
+  const [clientProject, setClientProject] = useState(transaction.client_project || '');
+  const [documentationStatus, setDocumentationStatus] = useState<'complete' | 'partial' | 'missing'>(
+    transaction.documentation_status || 'missing'
+  );
+  const [meetingNotes, setMeetingNotes] = useState(transaction.meeting_notes || '');
   const [isUploadingReceipt, setIsUploadingReceipt] = useState(false);
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [showCamera, setShowCamera] = useState(false);
@@ -183,6 +189,34 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
   const currentUser = auth.currentUser;
   const userId = currentUser?.uid;
 
+  // Track whether analysis is running (safe to read inside setTimeout callbacks).
+  const isAnalyzingRef = useRef(false);
+  const reanalysisTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const handleAnalyzeTransactionRef = useRef<null | (() => Promise<void>)>(null);
+
+  useEffect(() => {
+    isAnalyzingRef.current = isAnalyzing;
+  }, [isAnalyzing]);
+
+  const scheduleReanalysis = useCallback(() => {
+    if (!userId || !currentUser) return;
+    if (isAnalyzingRef.current) return;
+    if (reanalysisTimeoutRef.current) {
+      clearTimeout(reanalysisTimeoutRef.current);
+    }
+
+    // Debounce so multiple context saves batch into one re-run.
+    reanalysisTimeoutRef.current = setTimeout(async () => {
+      if (isAnalyzingRef.current) return;
+      try {
+        await handleAnalyzeTransactionRef.current?.();
+      } catch (e) {
+        // handleAnalyzeTransaction has its own error handling, but keep this safe anyway.
+        console.error('Error running scheduled reanalysis:', e);
+      }
+    }, 700);
+  }, [userId, currentUser]);
+
   // Use React Query mutation with optimistic updates for instant UI feedback
   const updateTransactionMutation = useUpdateTransaction();
   const { showSuccess, showError } = useToasts();
@@ -191,6 +225,10 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
   useEffect(() => {
     setClassification(getInitialClassification());
     setAdditionalContext(transaction.notes || '');
+    setBusinessPurpose(transaction.business_purpose || '');
+    setClientProject(transaction.client_project || '');
+    setDocumentationStatus(transaction.documentation_status || 'missing');
+    setMeetingNotes(transaction.meeting_notes || '');
   }, [transaction]);
 
   // Check if currently saving
@@ -211,17 +249,22 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
           userId,
           updates
         });
+        // After context fields are saved, re-run AI for this specific transaction.
+        scheduleReanalysis();
       } catch (error) {
         console.error('Error saving context field:', error);
       }
     }, 500);
-  }, [userId, transaction.trans_id, transaction.id, updateTransactionMutation]);
+  }, [userId, transaction.trans_id, transaction.id, updateTransactionMutation, scheduleReanalysis]);
 
   // Cleanup timeout on unmount
   useEffect(() => {
     return () => {
       if (debounceTimeoutRef.current) {
         clearTimeout(debounceTimeoutRef.current);
+      }
+      if (reanalysisTimeoutRef.current) {
+        clearTimeout(reanalysisTimeoutRef.current);
       }
     };
   }, []);
@@ -252,6 +295,8 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
       notes: additionalContext || undefined
     };
 
+    const notesChanged = (additionalContext || '') !== (transaction.notes || '');
+
     const transactionId = getTransactionId(transaction);
 
     try {
@@ -273,6 +318,11 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
       };
 
       await onSave(updatedTransaction);
+
+      // If the user added/edited their notes context, re-run AI to improve the recommendation.
+      if (notesChanged) {
+        scheduleReanalysis();
+      }
     } catch (error) {
       console.error('Error updating transaction:', error);
       showError('Update Failed', 'Failed to save changes. Please try again.');
@@ -523,6 +573,11 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
         fullTransaction: transaction
       });
 
+      const trimmedAdditionalContext = (additionalContext || '').trim();
+      const trimmedBusinessPurpose = (businessPurpose || '').trim();
+      const trimmedClientProject = (clientProject || '').trim();
+      const trimmedMeetingNotes = (meetingNotes || '').trim();
+
       const response = await fetch('/api/ai/analyze-transaction', {
         method: 'POST',
         headers: {
@@ -539,7 +594,23 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
             datetime: transaction.datetime, // Include datetime from Plaid
             account_id: transaction.account_id,
             description: transaction.description,
-            notes: transaction.notes || additionalContext,
+
+            // Prefer user-added context over original description.
+            notes: trimmedAdditionalContext || undefined,
+
+            // User-added transaction context fields (saved via debouncedSave).
+            business_purpose: trimmedBusinessPurpose || undefined,
+            client_project: trimmedClientProject || undefined,
+            documentation_status: documentationStatus || undefined,
+            meeting_notes: trimmedMeetingNotes || undefined,
+
+            // Forward any additional context already present on the transaction record.
+            attendees: transaction.attendees,
+            travel_destination: transaction.travel_destination,
+            equipment_details: transaction.equipment_details,
+            mileage_details: transaction.mileage_details,
+            city: transaction.location?.city || transaction.city,
+            state: transaction.location?.state || transaction.state,
           },
         }),
       });
@@ -554,15 +625,36 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
       if (result.success) {
         showSuccess('Analysis Complete', 'Transaction has been analyzed successfully');
 
-        // Update the transaction with new analysis data
+        // Update the transaction with new analysis data (flat fields are authoritative after re-run).
+        const newReasoning = result.analysis.reasoning;
+        const newStatus = result.analysis.deductionStatus;
         const updatedTransaction = {
           ...transaction,
-          deductionStatus: result.analysis.deductionStatus,
+          notes: trimmedAdditionalContext || undefined,
+          business_purpose: trimmedBusinessPurpose || undefined,
+          client_project: trimmedClientProject || undefined,
+          documentation_status: documentationStatus || undefined,
+          meeting_notes: trimmedMeetingNotes || undefined,
+
+          deductionStatus: newStatus,
           confidence: result.analysis.confidence,
-          reasoning: result.analysis.reasoning,
+          reasoning: newReasoning,
           irsPublication: result.analysis.irsReference?.publication,
           irsSection: result.analysis.irsReference?.section,
           analysisUpdatedAt: result.analysis.updatedAt,
+          // Keep nested `ai` in sync so list/detail views that read key_analysis_factors see fresh text.
+          ai: transaction.ai
+            ? {
+                ...transaction.ai,
+                key_analysis_factors: {
+                  ...transaction.ai.key_analysis_factors,
+                  reasoning_summary: newReasoning,
+                },
+                last_analyzed_at: result.analysis.updatedAt
+                  ? new Date(result.analysis.updatedAt).getTime()
+                  : transaction.ai.last_analyzed_at,
+              }
+            : transaction.ai,
         };
 
         onSave(updatedTransaction);
@@ -579,6 +671,11 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
       setIsAnalyzing(false);
     }
   };
+
+  // Keep a ref to the latest callback so scheduleReanalysis() always calls the most recent version.
+  useEffect(() => {
+    handleAnalyzeTransactionRef.current = handleAnalyzeTransaction;
+  }, [handleAnalyzeTransaction]);
 
   // Check if there are unsaved changes
   const hasUnsavedChanges =
@@ -778,8 +875,8 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                           </span>
                         )}
                         </li>
-                        <li>• <strong>Deduction Status:</strong> {transaction.ai?.key_analysis_factors?.deduction_status || transaction.deductionStatus || transaction.ai?.status_label || 'Not Analyzed'}</li>
-                        <li>• <strong>Reasoning:</strong> {transaction.ai?.key_analysis_factors?.reasoning_summary || transaction.reasoning || transaction.ai?.reasoning || transaction.deductible_reason || 'Professional analysis pending'}</li>
+                        <li>• <strong>Deduction Status:</strong> {transaction.deductionStatus || transaction.ai?.key_analysis_factors?.deduction_status || transaction.ai?.status_label || 'Not Analyzed'}</li>
+                        <li>• <strong>Reasoning:</strong> {transaction.reasoning || transaction.ai?.key_analysis_factors?.reasoning_summary || transaction.ai?.reasoning || transaction.deductible_reason || 'Professional analysis pending'}</li>
                         {(transaction.ai?.key_analysis_factors?.irs_reference || (transaction.irsPublication || transaction.irsSection) || (transaction.ai?.irs?.publication || transaction.ai?.irs?.section)) && (
                           <li>• <strong>IRS Reference:</strong> {transaction.ai?.key_analysis_factors?.irs_reference ||
                             `${transaction.irsPublication || transaction.ai?.irs?.publication ? `Publication ${transaction.irsPublication || transaction.ai?.irs?.publication}` : ''}${(transaction.irsPublication || transaction.ai?.irs?.publication) && (transaction.irsSection || transaction.ai?.irs?.section) ? ', ' : ''}${transaction.irsSection || transaction.ai?.irs?.section ? `Section ${transaction.irsSection || transaction.ai?.irs?.section}` : ''}`
@@ -878,7 +975,11 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
               <Textarea
                 placeholder="Tell us more about this purchase..."
                 value={additionalContext}
-                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setAdditionalContext(e.target.value)}
+                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
+                  const next = e.target.value;
+                  setAdditionalContext(next);
+                  debouncedSave({ notes: next });
+                }}
                 className="min-h-[100px] rounded-lg border-border bg-background text-foreground placeholder:text-muted-foreground"
               />
               {additionalContext !== (transaction.notes || '') && (
@@ -1197,9 +1298,11 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                   <Textarea
                     id="business-purpose"
                     placeholder="Why was this expense necessary for your business?"
-                    value={transaction.business_purpose || ''}
+                    value={businessPurpose}
                     onChange={(e) => {
-                      const updates = { business_purpose: e.target.value };
+                      const next = e.target.value;
+                      setBusinessPurpose(next);
+                      const updates = { business_purpose: next };
                       debouncedSave(updates);
                     }}
                     className="min-h-[80px] rounded-lg border-border bg-background text-foreground placeholder:text-muted-foreground"
@@ -1215,9 +1318,11 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                     id="client-project"
                     type="text"
                     placeholder="Associated client or project name"
-                    value={transaction.client_project || ''}
+                    value={clientProject}
                     onChange={(e) => {
-                      const updates = { client_project: e.target.value };
+                      const next = e.target.value;
+                      setClientProject(next);
+                      const updates = { client_project: next };
                       debouncedSave(updates);
                     }}
                     className="w-full px-3 py-2 rounded-lg border border-border bg-background text-foreground placeholder:text-muted-foreground focus:ring-2 focus:ring-green-500/50 focus:border-green-500"
@@ -1231,9 +1336,11 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                   </label>
                   <select
                     id="documentation-status"
-                    value={transaction.documentation_status || 'missing'}
+                    value={documentationStatus || 'missing'}
                     onChange={(e) => {
-                      const updates = { documentation_status: e.target.value as 'complete' | 'partial' | 'missing' };
+                      const next = e.target.value as 'complete' | 'partial' | 'missing';
+                      setDocumentationStatus(next);
+                      const updates = { documentation_status: next };
                       debouncedSave(updates);
                     }}
                     className="w-full px-3 py-2 rounded-lg border border-border bg-background text-foreground focus:ring-2 focus:ring-green-500/50 focus:border-green-500"
@@ -1251,9 +1358,11 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                   <Textarea
                     id="meeting-notes"
                     placeholder="Notes about business meetings or discussions"
-                    value={transaction.meeting_notes || ''}
+                    value={meetingNotes}
                     onChange={(e) => {
-                      const updates = { meeting_notes: e.target.value };
+                      const next = e.target.value;
+                      setMeetingNotes(next);
+                      const updates = { meeting_notes: next };
                       debouncedSave(updates);
                     }}
                     className="min-h-[80px] rounded-lg border-border bg-background text-foreground placeholder:text-muted-foreground"

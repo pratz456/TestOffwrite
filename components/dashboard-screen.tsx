@@ -14,6 +14,7 @@ import { ToastContainer, useToasts } from '@/components/ui/toast';
 import { auth } from '@/lib/firebase/client';
 import { HistoricalAccessUpgradeCard } from '@/components/historical-access-upgrade-card';
 import { consolidateCategory } from '@/lib/utils';
+import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 import { toast } from 'sonner';
 
 import {
@@ -130,7 +131,9 @@ export default function DashboardScreen({
   const projectedAnnual = taxSavingsData?.taxSavings?.projectedAnnual ?? fallbackProjectedAnnual;
   const estimatedTaxRate = calculateEffectiveTaxRate(profile);
 
-  const needsReviewCount = stats?.needsReviewTransactions ?? transactions.filter(t => t.is_deductible === null).length;
+  const needsReviewCount =
+    stats?.needsReviewTransactions ??
+    transactions.filter((t) => transactionNeedsTaxReview(t)).length;
   const needsAnalysisCount = transactions.filter(t => t.deduction_score === undefined || t.deduction_score === null).length;
 
   const deductibleTransactions = transactions.filter(t => t.is_deductible === true);
@@ -185,10 +188,7 @@ export default function DashboardScreen({
           analysisInProgress={analysisInProgress}
         />
 
-        <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 space-y-4">
-          {/* Upgrade card */}
-          <HistoricalAccessUpgradeCard />
-
+        <div className="max-w-7xl mx-auto px-4 md:px-6 py-3 sm:py-4 space-y-3 sm:space-y-4">
           {/* Proactive Action Items */}
           <ActionItemsBanner
             profile={profile}
@@ -207,6 +207,9 @@ export default function DashboardScreen({
             projectedAnnual={projectedAnnual}
             loadingTaxSavings={isLoadingTaxSavings}
           />
+
+          {/* Upgrade card (keep the initial KPI view uncluttered) */}
+          <HistoricalAccessUpgradeCard />
 
           {/* Row 2: Analytics + Optimization — subtle radial glows behind key sections */}
           <div className="grid grid-cols-1 lg:grid-cols-10 gap-4">

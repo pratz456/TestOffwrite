@@ -87,9 +87,9 @@ export function AnalyticsPanel({ transactions }: AnalyticsPanelProps) {
           </div>
         </div>
       </CardHeader>
-      <CardContent className="px-4 sm:px-5 pb-5">
+      <CardContent className="px-4 sm:px-5 pb-4">
         {hasData ? (
-          <div className="h-[180px] sm:h-[220px] w-full min-w-0 chart-bar-hover">
+          <div className="h-[160px] sm:h-[190px] w-full min-w-0 chart-bar-hover">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartData} margin={{ top: 8, right: 4, left: -20, bottom: 0 }}>
                 <defs>
@@ -136,7 +136,7 @@ export function AnalyticsPanel({ transactions }: AnalyticsPanelProps) {
             </ResponsiveContainer>
           </div>
         ) : (
-          <div className="h-[180px] sm:h-[220px] flex flex-col items-center justify-center text-muted-foreground">
+          <div className="h-[160px] sm:h-[190px] flex flex-col items-center justify-center text-muted-foreground">
             <BarChart3 className="h-8 w-8 mb-2 opacity-40" />
             <p className="text-sm">No transaction data yet</p>
             <p className="text-xs mt-1">Connect your bank to see trends</p>

@@ -59,7 +59,8 @@ export async function POST(request: NextRequest) {
       amount_usd: transaction.amount,
       date_iso: transaction.date,
       datetime_iso: transaction.datetime, // Include datetime from Plaid
-      note: transaction.description || transaction.notes,
+      // Prefer user-added context (`notes`) over original transaction description.
+      note: transaction.notes || transaction.description,
       // Additional Plaid fields
       mcc: transaction.merchant_category_code || transaction.mcc,
       location: transaction.location,
@@ -115,7 +116,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       analysis: {
-        is_deductible: result.is_deductible,
+        // Suggestion only: do not finalize categorization.
+        is_deductible: null,
         deduction_reason: result.customized_reason,
         deduction_score: result.confidence,
         status_label: result.is_deductible ? 'Likely Deductible' : 'Unlikely Deductible',

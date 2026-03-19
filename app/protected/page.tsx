@@ -647,19 +647,29 @@ export default function ProtectedPage() {
   };
 
   // Handle receipt upload completion
-  const handleReceiptUploadComplete = (expenseData: any) => {
-    const transaction: Transaction = {
-      id: expenseData.id,
-      trans_id: expenseData.id || expenseData.trans_id || `receipt-${Date.now()}`,
-      merchant_name: expenseData.description,
-      amount: expenseData.amount,
-      category: expenseData.category,
-      date: expenseData.date,
-      type: 'expense',
-      is_deductible: expenseData.isDeductible,
-      notes: `Receipt uploaded: ${expenseData.receipt?.fileName || 'receipt.jpg'}`
-    };
-    handleSaveTransaction(transaction);
+  const handleReceiptUploadComplete = (transactionData: any) => {
+    if (!transactionData) return;
+
+    // Commit route returns the real Firestore transaction shape.
+    const amount = Number(transactionData.amount ?? 0);
+    const normalized: Transaction = {
+      id: String(transactionData.id ?? transactionData.trans_id ?? Date.now().toString()),
+      trans_id: String(transactionData.trans_id ?? transactionData.id ?? `receipt-${Date.now()}`),
+      merchant_name: String(transactionData.merchant_name ?? transactionData.description ?? ''),
+      amount,
+      category: String(transactionData.category ?? 'other'),
+      date: String(transactionData.date ?? ''),
+      type: transactionData.type ?? (amount < 0 ? 'income' : 'expense'),
+      is_deductible: transactionData.is_deductible ?? transactionData.isDeductible ?? null,
+      notes:
+        transactionData.notes ??
+        `Receipt uploaded: ${transactionData.receipt_filename || transactionData.receipt_url || 'receipt.jpg'}`,
+      receipt_url: transactionData.receipt_url,
+      receipt_filename: transactionData.receipt_filename
+    } as Transaction;
+
+    // Update UI state so any transaction detail view can reflect the newest receipt.
+    setViewingTransaction(normalized);
   };
 
   if (loading || isLoading) {

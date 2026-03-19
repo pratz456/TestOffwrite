@@ -743,6 +743,22 @@ function applyMinimalHeuristics(transaction: TransactionInput, userContext?: Use
   const displayName = formatDisplayName(transaction);
   const profLabel = professionLabel(professions);
 
+  // If the user provided meaningful transaction context, skip heuristics so GPT can
+  // incorporate that context into both the recommendation and the explanation.
+  const hasUserProvidedContext =
+    (typeof transaction.notes === 'string' && transaction.notes.trim().length > 0) ||
+    (typeof transaction.business_purpose === 'string' && transaction.business_purpose.trim().length > 0) ||
+    (typeof transaction.client_project === 'string' && transaction.client_project.trim().length > 0) ||
+    (typeof transaction.meeting_notes === 'string' && transaction.meeting_notes.trim().length > 0) ||
+    (typeof transaction.documentation_status === 'string' && transaction.documentation_status.trim().length > 0) ||
+    (typeof transaction.travel_destination === 'string' && transaction.travel_destination.trim().length > 0) ||
+    !!transaction.mileage_details ||
+    !!transaction.equipment_details;
+
+  if (hasUserProvidedContext) {
+    return null;
+  }
+
   const { CATEGORY_MAP } = require('@/lib/schedule-c/aggregate');
 
   // ── 1. Refunds / credits (negative amount) ──────────────────────────
@@ -908,7 +924,7 @@ OUTPUT: Return ONLY valid JSON (no markdown, no text outside the JSON). Required
 - is_deductible: boolean
 - expense_type: "business" or "personal" (must align with is_deductible; default to "personal" if uncertain)
 - category: one of: advertising_marketing, supplies_small_tools, software_subscriptions, contract_labor, equipment, vehicle_expense, travel, meals_50, home_office, utilities_phone_internet, education_training, dues_and_memberships, bank_and_payment_fees, rent, other
-- customized_reason: 2-3 plain-English sentences the user will read. Sentence 1: whether this is deductible and why, specific to their profession. Sentence 2: what they should do (save receipt, note attendees, track mileage, etc.). Never use filler like "commonly deductible for businesses."
+- customized_reason: 2-3 plain-English sentences the user will read. Sentence 1: whether this is deductible and why, specific to their profession. Sentence 2: what they should do next, explicitly referencing the user-provided transaction context you were given (e.g., notes, business purpose, meeting notes, client/project, documentation status). Never use filler like "commonly deductible for businesses."
 - key_analysis_factor: one-sentence summary for the UI card (<=400 chars)
 - reasoning_summary: brief note mentioning their profession and relevant context. No rigid formula - write naturally.
 - confidence: 0-1
@@ -928,6 +944,9 @@ KEY RULES:
 - If info is insufficient: status="needs_more_info" with up to 3 specific questions.
 - account_usage_type: if "personal", this account is personal-only - expenses are likely personal unless user overrides. If "business", assume business-related. If "mixed", evaluate each tx individually. If "unknown", no signal.
 - is_recurring: if true, this is a recurring subscription/payment detected by Plaid. Recurring business subscriptions (software, SaaS, professional memberships) are typically fully deductible. Recurring personal subscriptions (streaming, gym) are not.
+- USER PROVIDED TRANSACTION CONTEXT: If any of the following fields are provided and non-empty: tx.note, tx.business_purpose, tx.client_project, tx.documentation_status, tx.meeting_notes, tx.travel_destination, tx.mileage_details, tx.equipment_details, then you MUST incorporate those details into both:
+  - customized_reason (explicitly say you're basing the recommendation on the context the user provided)
+  - key_analysis_factor (include a short phrase that references the relevant user-provided context)
 - NEVER use generic phrases like "Travel expenses are generally deductible" or "commonly deductible for freelancer businesses". Be specific to this person and this transaction.`;
 
   // Build user income type context for the prompt
@@ -978,8 +997,14 @@ CONTEXT:
     "counterparties": ${JSON.stringify(transaction.counterparties || [])},
     "merchant_entity_id": "${transaction.merchant_entity_id || ''}",
     "is_recurring": ${transaction.is_recurring ? 'true' : 'false'},
-    "note": "${transaction.note || transaction.notes || transaction.description || ''}",
-    "business_purpose": "${transaction.business_purpose || ''}",
+    "note": ${JSON.stringify(transaction.note || transaction.notes || transaction.description || '')},
+    "business_purpose": ${JSON.stringify(transaction.business_purpose || '')},
+    "client_project": ${JSON.stringify(transaction.client_project || '')},
+    "documentation_status": ${JSON.stringify(transaction.documentation_status || '')},
+    "meeting_notes": ${JSON.stringify(transaction.meeting_notes || '')},
+    "travel_destination": ${JSON.stringify(transaction.travel_destination || '')},
+    "equipment_details": ${JSON.stringify(transaction.equipment_details || {})},
+    "mileage_details": ${JSON.stringify(transaction.mileage_details || {})},
     "attendees": ${JSON.stringify(transaction.attendees || [])}
   }
 }

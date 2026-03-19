@@ -156,6 +156,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, CheckCircle, XCircle, AlertTriangle, HelpCircle, Info, ChevronRight, Tag, SkipForward } from 'lucide-react';
 import { updateProgress, setTotalPages } from '@/lib/firebase/progress';
+import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 
 interface Transaction {
   id: string;
@@ -222,24 +223,18 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
   // Local state to track classified transactions for immediate UI feedback
   const [classifiedTransactionIds, setClassifiedTransactionIds] = useState<Set<string>>(new Set());
 
-  // Needs review = transactions that need either AI analysis or manual review
-  const needsReviewTransactions = transactions.filter(t => {
-    // Immediately exclude transactions that have just been classified (optimistic UI update)
+  // Same rule as Transactions → Pending: needs tax classification until user confirms (or skips).
+  const needsReviewTransactions = transactions.filter((t) => {
     const transId = (t as any).trans_id || t.id;
     if (classifiedTransactionIds.has(transId)) {
       console.log('🚫 [Optimistic] Excluding classified transaction:', transId);
       return false;
     }
-
-    // Use the same logic as dashboard for consistency: is_deductible === null
-    // This ensures the counts match between dashboard and review screen
-    const needsReview = t.is_deductible === null;
-
-    if (needsReview) {
+    const needs = transactionNeedsTaxReview(t);
+    if (needs) {
       console.log('✅ [Filter] Transaction needs review:', transId, t.merchant_name);
     }
-
-    return needsReview;
+    return needs;
   });
 
   // Debug logging

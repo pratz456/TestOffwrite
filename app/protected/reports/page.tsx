@@ -495,7 +495,7 @@ export default function ReportsPage() {
   return (
     <div className="p-4 sm:p-6 bg-background min-h-screen overflow-x-hidden min-w-0 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="mb-5 sm:mb-6">
+      <div className="mb-4 sm:mb-5">
         <div className="mb-4">
           <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-foreground mb-0.5">Tax Reports & Analytics</h1>
           {(lastSync != null || analysisInProgress) && (
@@ -537,7 +537,7 @@ export default function ReportsPage() {
       </div>
 
       {/* KPI Summary Cards — semantic accents (2–3px left border + soft glow), no full fills; mobile 2-col then 1-col */}
-      <div className="grid grid-cols-1 min-[480px]:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-5 sm:mb-6">
+      <div className="grid grid-cols-1 min-[480px]:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-5">
         {/* Year to Date — Savings: emerald accent */}
         <Card className="p-4 sm:p-5 bg-card border border-border border-l-[3px] border-l-[hsl(var(--success)/0.8)] shadow-[0_0_0_1px_hsl(var(--success)/0.05),0_2px_6px_-2px_hsl(var(--success)/0.08)] rounded-xl overflow-hidden">
           <div className="flex items-center justify-between mb-1">
@@ -625,7 +625,7 @@ export default function ReportsPage() {
       </div>
 
       {/* Monthly Tax Savings Chart — radial glow, softer grid, premium bars/tooltip */}
-      <div className="relative mb-6">
+      <div className="relative mb-4 sm:mb-5">
         <div className="absolute inset-0 rounded-xl bg-[radial-gradient(ellipse_80%_50%_at_50%_0%,hsl(var(--primary)/0.04),transparent)] pointer-events-none" aria-hidden />
         <Card className="relative p-4 sm:p-6 bg-card border border-border shadow-[0_2px_12px_-4px_rgba(0,0,0,0.08)] dark:shadow-[0_2px_12px_-4px_rgba(0,0,0,0.25)] rounded-xl overflow-hidden">
           <div className="flex flex-col gap-4 mb-5">
@@ -952,7 +952,7 @@ export default function ReportsPage() {
       </div>
 
       {/* Tax Filing Summary — stronger hierarchy, aligned metrics, Export CTA, callout */}
-      <Card className="p-4 sm:p-5 bg-card border border-border shadow-[0_2px_8px_-2px_rgba(0,0,0,0.06)] rounded-xl mb-5 sm:mb-6">
+      <Card className="p-4 sm:p-5 bg-card border border-border shadow-[0_2px_8px_-2px_rgba(0,0,0,0.06)] rounded-xl mb-4 sm:mb-5">
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>
             <h3 className="text-base sm:text-lg font-semibold text-foreground">Tax Filing Summary</h3>

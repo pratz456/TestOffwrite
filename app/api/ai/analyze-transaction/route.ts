@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { analyzeTransactionWithRetry, TransactionInput, UserContext, findMissingUserFields, convertToEnhancedContext } from '@/lib/ai/analyzeTransaction';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getUserProfileServer } from '@/lib/firebase/profiles-server';
-import { updateTransactionServerWithUserId } from '@/lib/firebase/transactions-server';
+import { getTransactionServer, updateTransactionServerWithUserId } from '@/lib/firebase/transactions-server';
 
 // Zod schema for request validation
 const AnalyzeTransactionRequestSchema = z.object({
@@ -20,6 +20,30 @@ const AnalyzeTransactionRequestSchema = z.object({
     account_id: z.string().optional(),
     description: z.string().optional(),
     notes: z.string().optional(),
+
+    // User-added transaction context fields
+    business_purpose: z.string().optional(),
+    attendees: z.array(z.string()).optional(),
+    travel_destination: z.string().optional(),
+    equipment_details: z.object({
+      make: z.string().optional(),
+      model: z.string().optional(),
+      year: z.number().optional(),
+      business_use_percentage: z.number().optional(),
+      depreciation_method: z.enum(['straight_line', 'declining_balance', 'section_179']).optional()
+    }).optional(),
+    client_project: z.string().optional(),
+    documentation_status: z.enum(['complete', 'partial', 'missing']).optional(),
+    meeting_notes: z.string().optional(),
+    mileage_details: z.object({
+      start_location: z.string().optional(),
+      end_location: z.string().optional(),
+      miles: z.number().optional(),
+      business_purpose: z.string().optional()
+    }).optional(),
+
+    city: z.string().optional(),
+    state: z.string().optional(),
   }),
 });
 
@@ -92,6 +116,15 @@ export async function POST(request: NextRequest) {
       }, { status: 422 });
     }
 
+    // Preserve tax treatment only when the user explicitly recorded a classification reason (detail save, swipe, etc.).
+    // Old AI-only `is_deductible` values must not block re-analysis from updating suggestions.
+    const { data: existingTransaction } = await getTransactionServer(user.uid, transactionId);
+    const userReason =
+      existingTransaction?.user_classification_reason != null
+        ? String(existingTransaction.user_classification_reason).trim()
+        : '';
+    const shouldPreserveClassification = userReason.length > 0;
+
     // Prepare transaction input with enhanced format
     const transactionInput: TransactionInput = {
       tx_id: transactionId,
@@ -99,7 +132,8 @@ export async function POST(request: NextRequest) {
       amount_usd: transaction.amount,
       date_iso: transaction.date,
       datetime_iso: transaction.datetime, // Include datetime from Plaid
-      note: transaction.description || transaction.notes,
+      // Prefer user-added context (`notes`) over original transaction description.
+      note: transaction.notes || transaction.description,
       // Additional Plaid fields
       mcc: transaction.merchant_category_code || transaction.mcc,
       location: transaction.location,
@@ -158,14 +192,13 @@ export async function POST(request: NextRequest) {
       audit_risk: result.audit_risk,
     });
 
-    // Determine expense_type from AI result or infer from is_deductible
-    const expenseType = result.expense_type || (result.is_deductible ? 'business' : 'personal');
-
     // Save analysis results to Firestore with compatible schema
     const analysisData = {
       // Legacy fields for backward compatibility
-      is_deductible: result.is_deductible ?? (expenseType === 'business'),
-      expense_type: expenseType, // Explicit classification: business or personal
+      // IMPORTANT: AI suggests only; do not set business/personal until the user confirms.
+      // If the user already classified this transaction, preserve their choice (omit fields).
+      is_deductible: shouldPreserveClassification ? undefined : null,
+      expense_type: shouldPreserveClassification ? undefined : null,
       deductible_reason: result.customized_reason,
       deduction_score: result.confidence,
       analyzed: true,
@@ -353,7 +386,8 @@ export async function POST(request: NextRequest) {
       analysis: {
         deductionStatus: analysisData.deductionStatus,
         confidence: result.confidence,
-        reasoning: result.key_analysis_factor,
+        // Match persisted `reasoning` field (reasoning_summary is profile-aware; key_analysis_factor is the card line).
+        reasoning: result.reasoning_summary || result.key_analysis_factor,
         irsReference: {
           publication: result.irs_refs?.[0] || null,
           section: null

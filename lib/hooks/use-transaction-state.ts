@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
+import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 
 export interface Transaction {
   id: string;
@@ -16,6 +17,7 @@ export interface Transaction {
   deduction_score?: number;
   description?: string;
   notes?: string;
+  user_classification_reason?: string | null;
   account_id?: string;
   user_id?: string;
   analyzed?: boolean;
@@ -220,7 +222,7 @@ export function useTransactionState(userId: string): TransactionState & Transact
       case 'personal':
         return state.transactions.filter(t => t.is_deductible === false);
       case 'pending':
-        return state.transactions.filter(t => t.is_deductible === null);
+        return state.transactions.filter((t) => transactionNeedsTaxReview(t));
       default:
         return [];
     }
