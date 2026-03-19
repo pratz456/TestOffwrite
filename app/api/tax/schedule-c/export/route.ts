@@ -74,16 +74,7 @@ function drawHLineWithColor(page: PDFPage, y: number, color: ReturnType<typeof r
 function formatDate(dateStr: string | undefined): string {
   if (!dateStr) return '-';
   try {
-<<<<<<< HEAD
     return safeYMD(dateStr) ?? '—';
-=======
-    const d = new Date(dateStr);
-    if (Number.isNaN(d.getTime())) return '-';
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
->>>>>>> 454713be4d4a0e76f6ed1ab611b3837c8f7065fb
   } catch {
     return '-';
   }
@@ -139,16 +130,12 @@ export async function POST(request: NextRequest) {
     console.log(`📊 [Schedule C Export] Total transactions fetched: ${transactions.length}`);
 
     // Single source of truth: shared aggregation (year filter, deductible rule, 50% meals)
-<<<<<<< HEAD
     const { totalExpenses, totalDeductible, lineItems, lineItemsArray } = aggregateScheduleC(
       transactions,
       year,
       CATEGORY_MAP,
       { mode: 'confirmed-only' }
     );
-=======
-    const { totalExpenses, totalDeductible, lineItems, lineItemsArray } = aggregateScheduleC(transactions as any[], year);
->>>>>>> 454713be4d4a0e76f6ed1ab611b3837c8f7065fb
     console.log(`📊 [Schedule C Export] Year ${year}: totalExpenses=${totalExpenses.toFixed(2)}, totalDeductible=${totalDeductible.toFixed(2)}, lineItems=${lineItemsArray.length}`);
 
     // Credits/refunds (negative amounts) are already netted into line totals in `confirmed-only` mode.

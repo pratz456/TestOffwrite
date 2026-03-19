@@ -1,6 +1,6 @@
 export type TaxFilingEventName =
   | "file_taxes_tab_viewed"
-  | "taxbandits_cta_clicked"
+  | "provider_clicked"
   | "redirect_confirmed"
   | "redirect_cancelled"
   | "tax_summary_downloaded";

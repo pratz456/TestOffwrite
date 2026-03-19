@@ -78,7 +78,12 @@ export async function GET(request: NextRequest) {
             yearToDateTotal: 0,
             estimatedRefund: 0
           },
-          availableYears
+          availableYears,
+          diagnostics: {
+            expensesInYear: 0,
+            deductibleInYear: 0,
+            unclassifiedInYear: 0,
+          },
         }
       });
     }
@@ -91,15 +96,12 @@ export async function GET(request: NextRequest) {
              transactionDate <= endOfYear;
     });
 
-    console.log(`📊 [Monthly Deductions API] Found ${transactions.length} transactions for user ${user.uid} in ${currentYear}`);
-    if (transactions.length > 0) {
-      console.log('📋 [Monthly Deductions API] Sample transaction:', {
-        id: transactions[0].trans_id,
-        amount: transactions[0].amount,
-        is_deductible: transactions[0].is_deductible,
+    const deductibleInYear = transactions.filter(t => t.is_deductible === true).length;
+    const unclassifiedInYear = transactions.filter(t => t.is_deductible === null || t.is_deductible === undefined).length;
 
-        date: transactions[0].date
-      });
+    console.log(`📊 [Monthly Deductions API] Year ${currentYear}: ${transactions.length} expenses, ${deductibleInYear} deductible, ${unclassifiedInYear} unclassified`);
+    if (transactions.length > 0 && deductibleInYear === 0) {
+      console.warn(`⚠️ [Monthly Deductions API] User ${user.uid} has ${transactions.length} expenses in ${currentYear} but 0 are marked deductible (${unclassifiedInYear} unclassified). Tax savings will be $0.`);
     }
 
     // Group transactions by month
@@ -174,7 +176,12 @@ export async function GET(request: NextRequest) {
         yearToDateTotal,
         estimatedRefund
       },
-      availableYears
+      availableYears,
+      diagnostics: {
+        expensesInYear: transactions.length,
+        deductibleInYear,
+        unclassifiedInYear,
+      },
     };
 
     console.log('✅ [Monthly Deductions API] Successfully calculated reports data:', {

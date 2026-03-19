@@ -21,6 +21,12 @@ interface MonthlyData {
   count: number;
 }
 
+interface ReportsDiagnostics {
+  expensesInYear: number;
+  deductibleInYear: number;
+  unclassifiedInYear: number;
+}
+
 interface ReportsData {
   monthlyData: MonthlyData[];
   summary: {
@@ -33,6 +39,7 @@ interface ReportsData {
   };
   /** Years that have transaction activity (for year selector); may be absent from older API */
   availableYears?: number[];
+  diagnostics?: ReportsDiagnostics;
 }
 
 interface TransactionDetail {
@@ -445,26 +452,50 @@ export default function ReportsPage() {
   }
 
   if (!reportsData || !metrics) {
+    const hasTxns = allTransactions.length > 0;
     return (
       <div className="p-4 sm:p-6 bg-background min-h-screen max-w-7xl mx-auto">
         <div className="text-center py-12">
           <AlertCircle className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-          <h2 className="text-xl font-semibold text-foreground mb-2">No Reports Data</h2>
-          <p className="text-muted-foreground mb-4">
-            No reports data is available. This could be because:
-          </p>
-          <ul className="text-muted-foreground text-left max-w-md mx-auto mb-4 list-disc list-inside">
-            <li>You haven&apos;t imported any transactions yet</li>
-            <li>Your transactions haven&apos;t been analyzed for deductions</li>
-            <li>There was an issue loading your data</li>
-          </ul>
-          <Button
-            onClick={() => refetch()}
-            className="min-h-[44px] bg-primary hover:bg-primary-hover text-primary-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          >
-            <RefreshCw className="w-4 h-4 mr-2" />
-            Refresh
-          </Button>
+          <h2 className="text-xl font-semibold text-foreground mb-2">
+            {hasTxns ? 'Reports data loading' : 'No Reports Data'}
+          </h2>
+          {hasTxns ? (
+            <p className="text-muted-foreground mb-4 max-w-md mx-auto">
+              {analysisInProgress
+                ? 'Your transactions are being analyzed. Reports will populate once classification completes.'
+                : 'Your transactions may not have deductible expenses classified yet. Review them in the Transactions tab.'}
+            </p>
+          ) : (
+            <>
+              <p className="text-muted-foreground mb-4">
+                No reports data is available. This could be because:
+              </p>
+              <ul className="text-muted-foreground text-left max-w-md mx-auto mb-4 list-disc list-inside">
+                <li>You haven&apos;t imported any transactions yet</li>
+                <li>Your transactions haven&apos;t been analyzed for deductions</li>
+                <li>There was an issue loading your data</li>
+              </ul>
+            </>
+          )}
+          <div className="flex flex-wrap justify-center gap-3">
+            <Button
+              onClick={() => refetch()}
+              className="min-h-[44px] bg-primary hover:bg-primary-hover text-primary-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Refresh
+            </Button>
+            {hasTxns && (
+              <Button
+                variant="outline"
+                onClick={() => router.push('/protected/transactions')}
+                className="min-h-[44px]"
+              >
+                Review Transactions
+              </Button>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -547,7 +578,11 @@ export default function ReportsPage() {
             <span className="text-[10px] sm:text-xs text-muted-foreground/80 uppercase tracking-wide">Year to Date</span>
           </div>
           <div className="text-xl sm:text-2xl font-bold text-foreground tabular-nums whitespace-nowrap overflow-hidden text-ellipsis">${summary.yearToDateTotal.toFixed(2)}</div>
-          <div className="text-[10px] sm:text-xs text-muted-foreground/80 mt-0.5">Total tax savings</div>
+          <div className="text-[10px] sm:text-xs text-muted-foreground/80 mt-0.5">
+            {summary.yearToDateTotal === 0 && totalPaid > 0
+              ? (analysisInProgress ? 'Calculating — analysis in progress' : 'No deductible expenses classified yet')
+              : 'Total tax savings'}
+          </div>
           <div className="text-[10px] text-muted-foreground/75 mt-2 flex flex-wrap gap-x-2 gap-y-0.5">
             <span>Paid: <span className="tabular-nums text-destructive/85">${formatCur(totalPaid)}</span></span>
             <span aria-hidden>·</span>
@@ -570,9 +605,15 @@ export default function ReportsPage() {
             <span className="text-[10px] sm:text-xs text-muted-foreground/80 uppercase tracking-wide">This Month</span>
           </div>
           <div className="text-xl sm:text-2xl font-bold text-foreground tabular-nums whitespace-nowrap overflow-hidden text-ellipsis">${summary.currentMonthTotal.toFixed(2)}</div>
-          <div className="flex items-center gap-0.5 text-[10px] sm:text-xs text-muted-foreground/80 mt-0.5">
-            {isPositiveChange ? <><ArrowUpRight className="w-3 h-3 text-[hsl(var(--success))]" /><span>{Math.abs(monthOverMonthChange).toFixed(1)}%</span></> : monthOverMonthChange !== 0 ? <><ArrowDownRight className="w-3 h-3 text-destructive/80" /><span>{Math.abs(monthOverMonthChange).toFixed(1)}%</span></> : <span>No change</span>}
-            <span className="hidden sm:inline ml-0.5">vs last month</span>
+          <div className="text-[10px] sm:text-xs text-muted-foreground/80 mt-0.5">
+            {summary.currentMonthTotal === 0 && thisMonthAgg && (thisMonthAgg.paid > 0 || thisMonthAgg.received > 0)
+              ? (analysisInProgress ? 'Analysis in progress' : 'No deductible expenses yet')
+              : (
+                <span className="flex items-center gap-0.5">
+                  {isPositiveChange ? <><ArrowUpRight className="w-3 h-3 text-[hsl(var(--success))]" /><span>{Math.abs(monthOverMonthChange).toFixed(1)}%</span></> : monthOverMonthChange !== 0 ? <><ArrowDownRight className="w-3 h-3 text-destructive/80" /><span>{Math.abs(monthOverMonthChange).toFixed(1)}%</span></> : <span>No change</span>}
+                  <span className="hidden sm:inline ml-0.5">vs last month</span>
+                </span>
+              )}
           </div>
           {thisMonthAgg && (thisMonthAgg.paid > 0 || thisMonthAgg.received > 0) && (
             <div className="text-[10px] text-muted-foreground/75 mt-2 flex flex-wrap gap-x-2 gap-y-0.5">
@@ -676,10 +717,69 @@ export default function ReportsPage() {
         {!hasData ? (
           <div className="text-center py-16">
             <BarChart3 className="w-20 h-20 text-muted mx-auto mb-4" />
-            <p className="text-muted-foreground mb-2 text-lg font-medium">No tax savings data available</p>
-            <p className="text-sm text-muted-foreground/70 max-w-md mx-auto">
-              Import and analyze your transactions to see your tax savings breakdown by month
-            </p>
+            {(() => {
+              const diag = reportsData?.diagnostics;
+              const hasExpenses = diag ? diag.expensesInYear > 0 : transactionAggregates.totalCount > 0;
+              const hasUnclassified = diag ? diag.unclassifiedInYear > 0 : false;
+
+              if (analysisInProgress && hasExpenses) {
+                return (
+                  <>
+                    <p className="text-muted-foreground mb-2 text-lg font-medium">Analysis in progress</p>
+                    <p className="text-sm text-muted-foreground/70 max-w-md mx-auto">
+                      Your {diag?.expensesInYear ?? ''} transactions are being analyzed.
+                      Tax savings will appear once classification completes.
+                    </p>
+                  </>
+                );
+              }
+              if (hasExpenses && hasUnclassified) {
+                return (
+                  <>
+                    <p className="text-muted-foreground mb-2 text-lg font-medium">Transactions need review</p>
+                    <p className="text-sm text-muted-foreground/70 max-w-md mx-auto">
+                      You have {diag?.expensesInYear} expenses in {chartYear} but {diag?.unclassifiedInYear} haven&apos;t been classified yet.
+                      Review your transactions to mark deductible expenses.
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-4 min-h-[44px]"
+                      onClick={() => router.push('/protected/transactions')}
+                    >
+                      Review Transactions
+                    </Button>
+                  </>
+                );
+              }
+              if (hasExpenses) {
+                return (
+                  <>
+                    <p className="text-muted-foreground mb-2 text-lg font-medium">No deductible expenses found</p>
+                    <p className="text-sm text-muted-foreground/70 max-w-md mx-auto">
+                      You have {diag?.expensesInYear ?? transactionAggregates.totalCount} transactions in {chartYear}, but none are marked as deductible.
+                      Review and classify your business expenses.
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-4 min-h-[44px]"
+                      onClick={() => router.push('/protected/transactions')}
+                    >
+                      Review Transactions
+                    </Button>
+                  </>
+                );
+              }
+              return (
+                <>
+                  <p className="text-muted-foreground mb-2 text-lg font-medium">No transaction data for {chartYear}</p>
+                  <p className="text-sm text-muted-foreground/70 max-w-md mx-auto">
+                    Import and analyze your transactions to see your tax savings breakdown by month.
+                  </p>
+                </>
+              );
+            })()}
           </div>
         ) : (
           <>

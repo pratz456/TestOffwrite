@@ -49,7 +49,7 @@ export const MobileNav: React.FC<MobileNavProps> = ({ user, userProfile }) => {
       name: 'File Taxes',
       href: '/protected/file-taxes',
       icon: FileText,
-      description: 'File your tax return'
+      description: 'Filing options & providers'
     },
     {
       name: 'Settings',

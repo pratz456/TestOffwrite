@@ -44,16 +44,10 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Filter transactions for current year
-<<<<<<< HEAD
-    const currentYearTransactions = transactions.filter((transaction) => {
+    // Filter transactions for current year (timezone-safe).
+    const currentYearTransactions = transactions.filter((transaction: any) => {
       const y = safeTaxYear(transaction.date);
       return y !== null && y === currentYear;
-=======
-    const currentYearTransactions = transactions.filter((transaction: any) => {
-      const transactionDate = new Date(transaction.date);
-      return transactionDate.getFullYear() === currentYear;
->>>>>>> 454713be4d4a0e76f6ed1ab611b3837c8f7065fb
     });
 
     // Calculate Schedule C line items

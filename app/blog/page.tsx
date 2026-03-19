@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Calendar, Clock, Receipt, CalendarDays, FolderCheck, FileText, Sparkles } from "lucide-react";
+import { Calendar, Clock, Receipt, CalendarDays, FolderCheck, FileText, Sparkles, PlayCircle } from "lucide-react";
 import { getAllPosts } from "@/lib/blog";
 import { ScrollRevealWrapper } from "@/components/blog/scroll-reveal-wrapper";
 
@@ -121,6 +121,35 @@ export default function BlogIndexPage() {
 
       {/* Post Grid */}
       <section className="mx-auto max-w-6xl px-4 pb-16 sm:px-6 lg:px-8">
+        {/* Tutorial videos placeholder */}
+        <div className="mb-8 rounded-xl border border-border bg-card p-5 sm:p-6">
+          <div className="mb-4 flex items-center gap-2">
+            <PlayCircle className="h-5 w-5 text-primary" />
+            <h2 className="text-lg font-semibold text-foreground">Tutorial Videos</h2>
+          </div>
+          <p className="mb-4 text-sm text-muted-foreground">
+            Step-by-step video walkthroughs are coming soon. In the meantime, use the written guides below.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {[
+              "Getting started with WriteOff",
+              "How to categorize transactions",
+              "How to prepare for filing",
+            ].map((title) => (
+              <div
+                key={title}
+                className="rounded-lg border border-dashed border-primary/30 bg-primary/5 p-4"
+              >
+                <div className="mb-2 flex items-center gap-2">
+                  <PlayCircle className="h-4 w-4 text-primary" />
+                  <span className="text-sm font-medium text-foreground">{title}</span>
+                </div>
+                <p className="text-xs text-muted-foreground">coming soon</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
         <ScrollRevealWrapper className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 stagger-children">
           {posts.map((post) => {
             const { style, tag, Icon } = getTagStyle(post.tags);
