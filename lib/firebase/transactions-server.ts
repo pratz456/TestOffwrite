@@ -87,6 +87,35 @@ function parseDateToISO(dateLike: any): string {
   }
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object') return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === null || proto === Object.prototype;
+}
+
+/** Recursively omit undefined (Firestore rejects nested undefined). Preserves Date and non-plain objects. */
+function stripUndefinedDeep<T>(value: T): T {
+  if (value === undefined || value === null) return value;
+  if (typeof value !== 'object') return value;
+  if (value instanceof Date) return value;
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => stripUndefinedDeep(item))
+      .filter((item) => item !== undefined) as T;
+  }
+  if (!isPlainObject(value)) return value;
+
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value)) {
+    if (v === undefined) continue;
+    const cleaned = stripUndefinedDeep(v);
+    if (cleaned === undefined) continue;
+    if (isPlainObject(cleaned) && Object.keys(cleaned).length === 0) continue;
+    out[k] = cleaned;
+  }
+  return out as T;
+}
+
 /** Normalize a single Firestore doc into Transaction shape */
 function normalizeDoc(doc: FirebaseFirestore.QueryDocumentSnapshot): Transaction {
   const data: any = doc.data();
@@ -318,7 +347,7 @@ export async function updateTransactionServerWithUserId(
   transactionId: string,
   updates: {
     is_deductible?: boolean | null;
-    expense_type?: 'business' | 'personal'; // Explicit classification from AI or user
+    expense_type?: 'business' | 'personal' | null; // null clears until user confirms
     deductible_reason?: string;
     deduction_score?: number;
     ai_analysis?: string;
@@ -355,13 +384,10 @@ export async function updateTransactionServerWithUserId(
       if (!querySnapshot.empty) {
         console.log('✅ [UPDATE→DB Server] Found transaction via collectionGroup query');
         const docRef = querySnapshot.docs[0].ref;
-        // Filter out undefined values to prevent Firestore errors
-        const updateData: any = Object.fromEntries(
-          Object.entries({
-            ...updates,
-            updated_at: new Date(),
-          }).filter(([_, value]) => value !== undefined)
-        );
+        const updateData: any = stripUndefinedDeep({
+          ...updates,
+          updated_at: new Date(),
+        });
 
         console.log('📝 [UPDATE→DB Server] Updating document at path:', docRef.path);
         await docRef.update(updateData);
@@ -426,13 +452,10 @@ export async function updateTransactionServerWithUserId(
         if (targetTransaction) {
           console.log('✅ [UPDATE→DB Server] Found transaction via fallback method');
           const docRef = targetTransaction.ref;
-          // Filter out undefined values to prevent Firestore errors
-          const updateData: any = Object.fromEntries(
-            Object.entries({
-              ...updates,
-              updated_at: new Date(),
-            }).filter(([_, value]) => value !== undefined)
-          );
+          const updateData: any = stripUndefinedDeep({
+            ...updates,
+            updated_at: new Date(),
+          });
 
           console.log('📝 [UPDATE→DB Server] Updating document at path:', docRef.path);
           await docRef.update(updateData);
@@ -824,10 +847,7 @@ export async function createTransactionServer(
       };
     }
 
-    // Filter out undefined values to prevent Firestore errors
-    const cleanTransactionData = Object.fromEntries(
-      Object.entries(transactionData).filter(([, v]) => v !== undefined)
-    );
+    const cleanTransactionData = stripUndefinedDeep(transactionData);
 
     const newTransaction = {
       ...cleanTransactionData,

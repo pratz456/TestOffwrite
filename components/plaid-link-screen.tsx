@@ -26,6 +26,11 @@ interface PlaidLinkScreenProps {
 
 export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess, onBack, fromSettings = false }) => {
   const router = useRouter();
+  // Capture the app origin from the top-level page. Some Plaid callbacks can run
+  // in a different browsing context (e.g. iframe), where relative URLs might
+  // resolve against the wrong origin (like plaid.com). Using this captured
+  // origin ensures our API calls hit our Next.js server.
+  const appOriginRef = useRef<string | null>(null);
   // Consent for Plaid data access
   const [bankConsent, setBankConsent] = useState(false);
   const [linkToken, setLinkToken] = useState<string | null>(null);
@@ -129,6 +134,10 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
 
   // Create link token on component mount (only if not redirected from account usage)
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      appOriginRef.current = window.location.origin;
+    }
+
     const urlParams = new URLSearchParams(window.location.search);
     const accountIdParam = urlParams.get('accountId');
     const analyzingParam = urlParams.get('analyzing');
@@ -609,12 +618,16 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
             if (importComplete) {
               const pending = accountTransactions.filter((t: any) =>
                 t.analysisStatus === 'pending' ||
+                t.analysis_status === 'pending' ||
                 (t.is_deductible === null && !t.analyzed)
               ).length;
-              const running = accountTransactions.filter((t: any) => t.analysisStatus === 'running').length;
+              const running = accountTransactions.filter((t: any) =>
+                t.analysisStatus === 'running' || t.analysis_status === 'running'
+              ).length;
               const completed = accountTransactions.filter((t: any) =>
                 t.analysisStatus === 'completed' ||
-                (t.analyzed && t.is_deductible !== null)
+                t.analysis_status === 'completed' ||
+                t.analyzed === true
               ).length;
               const failed = accountTransactions.filter((t: any) => t.analysisStatus === 'failed').length;
 
@@ -857,7 +870,12 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
       const token = await currentUser.getIdToken(true); // Force refresh the token
       console.log('🔑 Got Firebase token for Plaid API call');
 
-      const response = await fetch('/api/plaid/exchange-public-token', {
+      // Compute the API URL at click-time. Some Plaid callback contexts can
+      // resolve relative fetch paths against unexpected origins.
+      const exchangeUrl = `${window.location.origin}/api/plaid/exchange-public-token`;
+      console.log('🔄 [Plaid] Exchanging public token at:', exchangeUrl);
+
+      const response = await fetch(exchangeUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

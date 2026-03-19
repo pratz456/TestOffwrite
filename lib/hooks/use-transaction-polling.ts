@@ -160,11 +160,36 @@ export function useTransactionPolling(
           rawText ||
           (response.ok ? 'Failed to sync transactions' : `Failed to sync transactions (${response.status})`);
         const errorMessage = typeof fallback === 'string' ? fallback : 'Failed to sync transactions';
+
+        // If the user hasn't connected a bank yet, don't spam console errors.
+        // The sync endpoint expects `user_profiles/<uid>.plaid_token` to already exist
+        // (written during the Plaid exchange-public-token step).
+        const isNoPlaidToken = typeof errorMessage === 'string' && /no plaid token/i.test(errorMessage);
+        if (isNoPlaidToken) {
+          setError(null);
+          setInfo('Connect your bank account first to enable transaction syncing.');
+          if (infoTimeoutRef.current) clearTimeout(infoTimeoutRef.current);
+          infoTimeoutRef.current = setTimeout(() => setInfo(null), 8000);
+          console.log('ℹ️ [Transaction Polling] Plaid token missing; waiting for bank connection.');
+          return;
+        }
+
         setError(errorMessage);
         console.error('❌ [Transaction Polling] Sync failed:', errorMessage);
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+
+      const isNoPlaidToken = typeof errorMessage === 'string' && /no plaid token/i.test(errorMessage);
+      if (isNoPlaidToken) {
+        setError(null);
+        setInfo('Connect your bank account first to enable transaction syncing.');
+        if (infoTimeoutRef.current) clearTimeout(infoTimeoutRef.current);
+        infoTimeoutRef.current = setTimeout(() => setInfo(null), 8000);
+        console.log('ℹ️ [Transaction Polling] Plaid token missing; waiting for bank connection.');
+        return;
+      }
+
       setError(errorMessage);
       console.error('❌ [Transaction Polling] Sync error:', err);
     } finally {

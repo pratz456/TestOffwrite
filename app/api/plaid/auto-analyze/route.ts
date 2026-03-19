@@ -535,16 +535,14 @@ async function analyzeOneTransaction(
 
   const result = analysisResult.result;
 
-  // Determine expense_type from AI result or infer from is_deductible
-  const expenseType = result.expense_type || (result.is_deductible ? 'business' : 'personal');
-
   // Update transaction with analysis results using new schema
   await txRef.set({
     // Legacy fields for backward compatibility
     deduction_score: result.confidence || 0,
     deductible_reason: result.customized_reason || result.reasoning_summary || 'Analysis pending',
-    is_deductible: result.is_deductible ?? (expenseType === 'business'),
-    expense_type: expenseType, // Explicit classification: business or personal
+    // IMPORTANT: AI should suggest, not finalize. User must confirm in review flow.
+    is_deductible: null,
+    expense_type: null,
 
     // New enhanced analysis fields
     ai: {

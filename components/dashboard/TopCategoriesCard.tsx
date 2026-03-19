@@ -49,10 +49,10 @@ export function TopCategoriesCard({ categories, totalDeductions, onViewAll, prof
           </Button>
         </div>
       </CardHeader>
-      <CardContent className="px-5 pb-5">
+      <CardContent className="px-5 pb-4">
         {topFive.length > 0 ? (
-          <div className="space-y-3">
-            {topFive.map(([category, amount]) => {
+          <div className="space-y-2 sm:space-y-3">
+            {topFive.map(([category, amount], idx) => {
               const pct = totalDeductions > 0 ? (amount / totalDeductions) * 100 : 0;
               const Icon = getCategoryIcon(category);
               const { displayName } = consolidateCategory(category);
@@ -61,7 +61,7 @@ export function TopCategoriesCard({ categories, totalDeductions, onViewAll, prof
                   key={category}
                   role="button"
                   tabIndex={0}
-                  className="min-h-[44px] cursor-pointer hover:bg-muted/50 rounded-lg p-2.5 -mx-2 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  className={`min-h-[44px] cursor-pointer hover:bg-muted/50 rounded-lg p-2.5 -mx-2 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${idx >= 3 ? 'hidden sm:block' : ''}`}
                   onClick={onViewAll}
                   onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onViewAll(); } }}
                 >

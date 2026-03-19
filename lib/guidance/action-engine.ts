@@ -1,3 +1,5 @@
+import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
+
 /**
  * Proactive Action Items Engine
  *
@@ -40,15 +42,21 @@ interface UserProfile {
   w2_income?: number;
   annual_gross_income_usd?: number;
   plaidToken?: string;
+  // This is the field name returned by our profile loader.
+  // Keep `plaidToken` for backward compatibility with older data/code.
+  plaid_token?: string;
   plaid_accounts?: any[];
   [key: string]: any;
 }
 
 interface Transaction {
   id?: string;
-  analysis_status?: string;
   analyzed?: boolean;
-  is_deductible?: boolean;
+  // `deduction_score` is set during AI analysis.
+  deduction_score?: number | null;
+  is_deductible?: boolean | null;
+  // Set only when the user confirms/corrects/skips during review.
+  user_classification_reason?: string | null;
   category?: string;
   amount?: number;
   date?: string;
@@ -79,7 +87,12 @@ export function generateActionItems(
 
   // ── Setup & Onboarding ──────────────────────────────────────
 
-  if (!profile?.plaidToken && (!profile?.plaid_accounts || profile.plaid_accounts.length === 0)) {
+  const hasPlaidConnected =
+    !!profile?.plaid_token ||
+    !!profile?.plaidToken ||
+    (Array.isArray(profile?.plaid_accounts) && profile.plaid_accounts.length > 0);
+
+  if (!hasPlaidConnected) {
     items.push({
       id: 'connect-bank',
       title: 'Connect your bank account',
@@ -131,9 +144,16 @@ export function generateActionItems(
     });
   }
 
+  const asPositiveNumber = (v: unknown) => {
+    const n = typeof v === 'number' ? v : Number(v ?? 0);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  };
+
   const hasIncome =
-    (profile?.business_income && profile.business_income > 0) ||
-    (profile?.annual_gross_income_usd && profile.annual_gross_income_usd > 0);
+    asPositiveNumber(profile?.business_income) > 0 ||
+    asPositiveNumber(profile?.w2_income) > 0 ||
+    asPositiveNumber(profile?.other_income) > 0 ||
+    asPositiveNumber(profile?.annual_gross_income_usd) > 0;
   if (!hasIncome) {
     items.push({
       id: 'set-income',
@@ -149,9 +169,7 @@ export function generateActionItems(
 
   // ── Transaction Review ──────────────────────────────────────
 
-  const pendingAnalysis = transactions.filter(
-    (t) => t.analysis_status === 'pending' || (!t.analyzed && !t.analysis_status)
-  );
+  const pendingAnalysis = transactions.filter((t) => t.deduction_score === undefined || t.deduction_score === null);
   if (pendingAnalysis.length > 0) {
     items.push({
       id: 'analyze-transactions',
@@ -165,18 +183,19 @@ export function generateActionItems(
     });
   }
 
+  // After we have an AI confidence score (suggestion), require user confirmation.
   const analyzedNotReviewed = transactions.filter(
     (t) =>
-      t.analyzed === true &&
-      t.analysis_status !== 'confirmed' &&
-      t.analysis_status !== 'rejected'
+      t.deduction_score !== undefined &&
+      t.deduction_score !== null &&
+      transactionNeedsTaxReview(t)
   );
   if (analyzedNotReviewed.length > 0) {
     items.push({
       id: 'review-analyzed',
-      title: `${analyzedNotReviewed.length} analyzed transactions to review`,
+      title: `${analyzedNotReviewed.length} transactions to review`,
       description:
-        'The AI has classified these. Confirm or correct them to keep your deductions accurate.',
+        'AI provided suggestions. Confirm or correct them to keep your deductions accurate.',
       priority: analyzedNotReviewed.length > 10 ? 'high' : 'medium',
       category: 'review',
       screen: 'review-transactions',

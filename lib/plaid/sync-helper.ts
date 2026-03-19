@@ -8,7 +8,6 @@ import {
 import { adminDb } from '../firebase/admin';
 import { fetchAllPlaidTransactions } from './pagination';
 import { debugPlaid } from './debug';
-import { aiLearningEngine } from '../ai/learning-engine';
 import { analyzeTransactionWithRetry, convertToEnhancedContext, findMissingUserFields, TransactionInput } from '../ai/analyzeTransaction';
 
 // Helper function to get Plaid config from both environment variables and functions.config()
@@ -61,66 +60,9 @@ export interface SyncResult {
 }
 
 /**
- * Auto-classify newly synced transactions using the learning engine.
- * Only applies when the engine has high confidence (>=0.8) for a merchant pattern.
- */
-async function autoClassifyFromLearning(
-  userId: string,
-  accountId: string,
-  newTransactions: Array<{ trans_id: string; merchant_name: string; amount: number; category: string; date: string }>
-): Promise<number> {
-  let classified = 0;
-  for (const tx of newTransactions) {
-    try {
-      const learningCtx = await aiLearningEngine.getLearningContext(userId, {
-        tx_id: tx.trans_id,
-        merchant: tx.merchant_name,
-        amount_usd: tx.amount,
-        date_iso: tx.date,
-        category: tx.category,
-      });
-
-      if (
-        learningCtx &&
-        typeof learningCtx === 'object' &&
-        'overallConfidence' in learningCtx &&
-        (learningCtx as any).overallConfidence >= 0.8 &&
-        'merchantPreference' in learningCtx &&
-        (learningCtx as any).merchantPreference
-      ) {
-        const pref = (learningCtx as any).merchantPreference;
-        const docRef = adminDb
-          .collection('user_profiles')
-          .doc(userId)
-          .collection('accounts')
-          .doc(accountId)
-          .collection('transactions')
-          .doc(tx.trans_id);
-
-        await docRef.update({
-          is_deductible: pref.preferredClassification,
-          deduction_score: (learningCtx as any).overallConfidence,
-          analysis_status: 'completed',
-          analysisStatus: 'completed',
-          analyzed: true,
-          auto_classified: true,
-          auto_classified_source: 'learning_engine',
-          updated_at: new Date(),
-          updatedAt: Date.now(),
-        });
-        classified++;
-      }
-    } catch (err) {
-      // Non-fatal — skip this transaction if learning lookup fails
-      console.warn(`⚠️ [Auto-Classify] Failed for ${tx.trans_id}:`, err);
-    }
-  }
-  return classified;
-}
-
-/**
- * Run AI analysis on newly synced transactions that weren't auto-classified
- * by the learning engine. Runs in the background (fire-and-forget).
+ * Run AI analysis on newly synced transactions (suggestions only).
+ * Does not set is_deductible / expense_type — users must confirm tax treatment in-app.
+ * Runs in the background (fire-and-forget).
  */
 async function analyzeNewTransactions(
   userId: string,
@@ -226,13 +168,13 @@ async function analyzeNewTransactions(
           }
 
           const result = analysisResult.result;
-          const expenseType = result.expense_type || (result.is_deductible ? 'business' : 'personal');
 
           await txRef.set({
             deduction_score: result.confidence || 0,
             deductible_reason: result.customized_reason || result.reasoning_summary || 'Analysis complete',
-            is_deductible: result.is_deductible ?? (expenseType === 'business'),
-            expense_type: expenseType,
+            // Tax classification must be confirmed by the user (review flow / transaction detail).
+            is_deductible: null,
+            expense_type: null,
             ai: {
               status_label: result.is_deductible ? 'Likely Deductible' : 'Unlikely Deductible',
               score_pct: typeof result.confidence === 'number' ? Math.round(result.confidence * 100) : 0,
@@ -452,25 +394,7 @@ export async function syncUserTransactionsIncremental(userId: string): Promise<S
       await deleteTransactionByUserIdAndTransId(userId, r.transaction_id);
     }
 
-    // Auto-classify using learning engine for high-confidence patterns
-    let autoClassified = 0;
-    if (newlySaved.length > 0) {
-      // Group by account_id for auto-classification
-      const byAccount = new Map<string, typeof newlySaved>();
-      for (const tx of newlySaved) {
-        const existing = byAccount.get(tx.account_id) || [];
-        existing.push(tx);
-        byAccount.set(tx.account_id, existing);
-      }
-      for (const [accountId, txs] of byAccount) {
-        autoClassified += await autoClassifyFromLearning(userId, accountId, txs);
-      }
-      if (autoClassified > 0) {
-        console.log(`🤖 [Sync Helper] Auto-classified ${autoClassified} transactions from learning patterns`);
-      }
-    }
-
-    // Fire-and-forget AI analysis for remaining pending transactions
+    // Fire-and-forget AI suggestions (does not finalize business vs personal)
     if (newlySaved.length > 0) {
       void analyzeNewTransactions(userId, newlySaved, userProfile).catch(err =>
         console.error(`❌ [Sync Helper] Background analysis error:`, err)
@@ -483,8 +407,8 @@ export async function syncUserTransactionsIncremental(userId: string): Promise<S
       last_sync_source: 'incremental',
     } as any);
 
-    console.log(`🎉 [Sync Helper] Incremental sync completed. Added: ${transactionsSaved}, modified: ${allModified.length}, removed: ${allRemoved.length}, auto-classified: ${autoClassified}`);
-    return { success: true, transactionsSaved, autoClassified };
+    console.log(`🎉 [Sync Helper] Incremental sync completed. Added: ${transactionsSaved}, modified: ${allModified.length}, removed: ${allRemoved.length}`);
+    return { success: true, transactionsSaved };
   } catch (error) {
     console.error(`❌ [Sync Helper] Incremental sync error for user ${userId}:`, error);
     return {
@@ -679,24 +603,7 @@ export async function syncUserTransactions(
         }
       }
 
-      // Auto-classify using learning engine for high-confidence patterns
-      let autoClassified = 0;
-      if (newlySaved.length > 0) {
-        const byAccount = new Map<string, typeof newlySaved>();
-        for (const tx of newlySaved) {
-          const existing = byAccount.get(tx.account_id) || [];
-          existing.push(tx);
-          byAccount.set(tx.account_id, existing);
-        }
-        for (const [accountId, txs] of byAccount) {
-          autoClassified += await autoClassifyFromLearning(userId, accountId, txs);
-        }
-        if (autoClassified > 0) {
-          console.log(`🤖 [Sync Helper] Auto-classified ${autoClassified} transactions from learning patterns`);
-        }
-      }
-
-      // Fire-and-forget AI analysis for remaining pending transactions
+      // Fire-and-forget AI suggestions (does not finalize business vs personal)
       if (newlySaved.length > 0) {
         void analyzeNewTransactions(userId, newlySaved, userProfile).catch(err =>
           console.error(`❌ [Sync Helper] Background analysis error:`, err)

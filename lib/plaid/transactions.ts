@@ -82,7 +82,7 @@ export async function fetchTransactions(userId: string) {
 
       console.log(`📊 Total transactions fetched for account ${account.account_id}: ${accountTransactionCount} across ${totalPages} page(s)`);
 
-      // Store transactions in database with AI analysis
+      // Store transactions — tax treatment is user-confirmed only (same as server-side Plaid sync).
       for (const txn of transactions) {
         const transactionData = {
           trans_id: txn.transaction_id,
@@ -91,69 +91,14 @@ export async function fetchTransactions(userId: string) {
           amount: txn.amount,
           merchant_name: txn.merchant_name || 'Unknown Merchant',
           category: txn.category?.join(', ') || 'Uncategorized',
-        }
+          is_deductible: null as null,
+          analyzed: false,
+          analysis_status: 'pending' as const,
+          analysisStatus: 'pending' as const,
+        };
 
-        // Analyze transaction with OpenAI via API route
-        console.log(`Analyzing transaction: ${transactionData.merchant_name} - $${transactionData.amount}`)
-
-        try {
-          const analysisResponse = await fetch('/api/openai/analyze-transaction', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              transaction: {
-                merchant_name: transactionData.merchant_name,
-                amount: transactionData.amount,
-                category: transactionData.category,
-                date: transactionData.date,
-              }
-            }),
-          });
-
-          if (analysisResponse.ok) {
-            const analysisData = await analysisResponse.json();
-
-            if (analysisData.success) {
-              // Add AI analysis results to transaction data
-              Object.assign(transactionData, {
-                is_deductible: analysisData.analysis.is_deductible,
-                deductible_reason: analysisData.analysis.deductible_reason,
-                deduction_score: analysisData.analysis.deduction_score,
-              })
-
-              console.log(`✅ AI Analysis: ${analysisData.analysis.is_deductible ? 'Deductible' : 'Not Deductible'} - ${analysisData.analysis.deductible_reason} (${analysisData.analysis.confidence_percentage}% confidence)`)
-            } else {
-              console.log(`❌ AI Analysis failed for ${transactionData.merchant_name}:`, analysisData.error)
-              // Set defaults if analysis fails
-              Object.assign(transactionData, {
-                is_deductible: false,
-                deductible_reason: 'Analysis failed - requires manual review',
-                deduction_score: 0,
-              })
-            }
-          } else {
-            console.log(`❌ AI Analysis API failed for ${transactionData.merchant_name}`)
-            // Set defaults if analysis fails
-            Object.assign(transactionData, {
-              is_deductible: false,
-              deductible_reason: 'Analysis failed - requires manual review',
-              deduction_score: 0,
-            })
-          }
-        } catch (error) {
-          console.error(`Error analyzing transaction ${transactionData.merchant_name}:`, error)
-          // Set defaults if analysis throws an error
-          Object.assign(transactionData, {
-            is_deductible: false,
-            deductible_reason: 'Analysis error - requires manual review',
-            deduction_score: 0,
-          })
-        }
-
-        await addTransaction(userId, account.account_id, transactionData)
-        console.log(`💾 Transaction saved: ${transactionData.merchant_name} - $${transactionData.amount}`)
+        await addTransaction(userId, account.account_id, transactionData);
+        console.log(`💾 Transaction saved: ${transactionData.merchant_name} - $${transactionData.amount}`);
       }
 
       totalTransactions += transactions.length

@@ -13,6 +13,7 @@ import { getAuth } from 'firebase/auth';
 import { db } from './client';
 import { Transaction, hydrateTransactionRecord } from './transactions';
 import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
+import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 
 // Query keys for consistent caching
 export const queryKeys = {
@@ -212,7 +213,9 @@ export function useUserStats(uid: string) {
 
           const totalTransactions = transactions.length;
           const deductibleTransactions = transactions.filter((t: Transaction) => t.is_deductible === true).length;
-          const needsReviewTransactions = transactions.filter((t: Transaction) => t.is_deductible === null).length;
+          const needsReviewTransactions = transactions.filter((t: Transaction) =>
+            transactionNeedsTaxReview(t)
+          ).length;
           const totalDeductibleAmount: number = transactions
             .filter((t: Transaction) => t.is_deductible === true)
             .reduce((sum: number, t: Transaction) => sum + Math.abs(t.amount || 0), 0);

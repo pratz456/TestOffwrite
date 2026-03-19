@@ -29,6 +29,7 @@ import {
   type ActionItem,
   type ActionPriority,
 } from '@/lib/guidance/action-engine';
+import { auth } from '@/lib/firebase/client';
 
 const ICON_MAP: Record<string, React.ElementType> = {
   Landmark,
@@ -87,33 +88,85 @@ interface ActionItemsBannerProps {
 }
 
 export function ActionItemsBanner({ profile, transactions, onNavigate, options }: ActionItemsBannerProps) {
+  const userId = profile?.id || profile?.userId || null;
+  const dismissedStorageKey = userId ? `writeoff_dismissed_actions_${userId}` : 'writeoff_dismissed_actions_anon';
+
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [fetchedOptions, setFetchedOptions] = useState<NonNullable<ActionItemsBannerProps['options']>>({});
   const [items, setItems] = useState<ActionItem[]>([]);
 
   useEffect(() => {
-    const stored = localStorage.getItem('writeoff_dismissed_actions');
+    const stored = localStorage.getItem(dismissedStorageKey);
     if (stored) {
       try {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed)) setDismissed(new Set(parsed));
       } catch { /* ignore */ }
     }
-  }, []);
+    // If user changes, reload dismissed state so other users don't inherit it.
+  }, [dismissedStorageKey]);
 
   useEffect(() => {
-    const all = generateActionItems(profile, transactions, options);
+    if (!userId) return;
+
+    let isCancelled = false;
+
+    async function fetchExtras() {
+      try {
+        const token = await auth.currentUser?.getIdToken();
+        if (!token) return;
+
+        const headers = { Authorization: `Bearer ${token}` };
+
+        const [income1099Res, mileageRes, quarterlyRes] = await Promise.all([
+          fetch('/api/income/1099', { headers }).catch(() => null),
+          fetch('/api/mileage', { headers }).catch(() => null),
+          fetch('/api/tax/quarterly-payments', { headers }).catch(() => null),
+        ]);
+
+        const newOpts: NonNullable<ActionItemsBannerProps['options']> = {};
+        if (income1099Res?.ok) {
+          const data = await income1099Res.json();
+          newOpts.has1099Forms = Array.isArray(data.forms) && data.forms.length > 0;
+        }
+        if (mileageRes?.ok) {
+          const data = await mileageRes.json();
+          newOpts.hasMileageTrips = Array.isArray(data.trips) && data.trips.length > 0;
+        }
+        if (quarterlyRes?.ok) {
+          const data = await quarterlyRes.json();
+          newOpts.hasQuarterlyPayments =
+            Array.isArray(data.quarters) && data.quarters.some((q: any) => q.amountPaid > 0);
+        }
+
+        if (!isCancelled) setFetchedOptions(newOpts);
+      } catch {
+        // Non-critical: banner will fall back to base eligibility rules.
+      }
+    }
+
+    fetchExtras();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [userId]);
+
+  useEffect(() => {
+    const effectiveOptions = { ...(options || {}), ...fetchedOptions };
+    const all = generateActionItems(profile, transactions, effectiveOptions);
     const visible = all.filter((i) => !dismissed.has(i.id));
     setItems(visible);
-  }, [profile, transactions, options, dismissed]);
+  }, [profile, transactions, options, fetchedOptions, dismissed]);
 
   const handleDismiss = useCallback((id: string) => {
     setDismissed((prev) => {
       const next = new Set(prev);
       next.add(id);
-      localStorage.setItem('writeoff_dismissed_actions', JSON.stringify([...next]));
+      localStorage.setItem(dismissedStorageKey, JSON.stringify([...next]));
       return next;
     });
-  }, []);
+  }, [dismissedStorageKey]);
 
   if (items.length === 0) return null;
 
@@ -123,10 +176,10 @@ export function ActionItemsBanner({ profile, transactions, onNavigate, options }
   const Icon = ICON_MAP[top.icon] || AlertTriangle;
 
   return (
-    <div className={`rounded-xl border ${style.border} ${style.bg} backdrop-blur-sm p-4 sm:p-5 shadow-sm`}>
+    <div className={`rounded-xl border ${style.border} ${style.bg} backdrop-blur-sm p-3 sm:p-4 shadow-sm`}>
       {/* Top item */}
       <div className="flex items-start gap-3.5">
-        <div className={`w-9 h-9 rounded-lg ${style.bg} flex items-center justify-center shrink-0 mt-0.5`}>
+        <div className={`w-9 h-9 rounded-lg ${style.bg} flex items-center justify-center shrink-0`}>
           <Icon className={`h-4.5 w-4.5 ${style.text}`} />
         </div>
         <div className="flex-1 min-w-0">
@@ -171,7 +224,7 @@ export function ActionItemsBanner({ profile, transactions, onNavigate, options }
         <button
           type="button"
           onClick={() => onNavigate('action-items')}
-          className="mt-3 pt-3 border-t border-border/50 w-full flex items-center justify-between text-xs text-muted-foreground hover:text-foreground transition-colors group"
+          className="hidden sm:flex mt-3 pt-3 border-t border-border/50 w-full flex items-center justify-between text-xs text-muted-foreground hover:text-foreground transition-colors group"
         >
           <span>
             <span className="font-medium">{remainingCount} more</span>{' '}
