@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
+<<<<<<< HEAD
 import { aggregateQuarterlyEstimatesForYear, getLocalTransactionDate } from '@/lib/tax-provider/quarterly-estimates';
+=======
+import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
+>>>>>>> 454713be4d4a0e76f6ed1ab611b3837c8f7065fb
 
 interface TaxCalculation {
   totalIncome: number;
@@ -187,8 +191,14 @@ function calculateTaxes(userProfile: any, transactions: any[]): TaxCalculation {
   // Total estimated tax
   const estimatedTax = selfEmploymentTax + incomeTax;
 
-  // Safe harbor amount (100% of prior year's tax - simplified to 25% of income)
-  const safeHarborAmount = totalIncome * 0.25;
+  // IRS safe harbor: 100% of prior year tax (110% if AGI > $150k)
+  let safeHarborAmount: number;
+  if (userProfile.prior_year_tax != null && userProfile.prior_year_tax > 0) {
+    const multiplier = totalIncome > 150000 ? 1.10 : 1.00;
+    safeHarborAmount = userProfile.prior_year_tax * multiplier;
+  } else {
+    safeHarborAmount = totalIncome * getUserTaxRate(userProfile);
+  }
 
   // Quarterly amount
   const quarterlyAmount = Math.min(estimatedTax / 4, safeHarborAmount / 4);

@@ -4,7 +4,11 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+function getOpenAIOrNull() {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return null;
+  return new OpenAI({ apiKey });
+}
 
 interface VoiceCommand {
   type: 'add_expense' | 'add_mileage' | 'question' | 'unknown';
@@ -21,6 +25,14 @@ interface VoiceCommand {
 
 export async function POST(request: NextRequest) {
   try {
+    const openai = getOpenAIOrNull();
+    if (!openai) {
+      return NextResponse.json(
+        { error: 'OpenAI is not configured (missing OPENAI_API_KEY)' },
+        { status: 500 }
+      );
+    }
+
     const { text } = await request.json();
 
     if (!text || typeof text !== 'string') {

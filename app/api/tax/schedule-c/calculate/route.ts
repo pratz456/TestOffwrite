@@ -45,9 +45,15 @@ export async function GET(request: NextRequest) {
     }
 
     // Filter transactions for current year
+<<<<<<< HEAD
     const currentYearTransactions = transactions.filter((transaction) => {
       const y = safeTaxYear(transaction.date);
       return y !== null && y === currentYear;
+=======
+    const currentYearTransactions = transactions.filter((transaction: any) => {
+      const transactionDate = new Date(transaction.date);
+      return transactionDate.getFullYear() === currentYear;
+>>>>>>> 454713be4d4a0e76f6ed1ab611b3837c8f7065fb
     });
 
     // Calculate Schedule C line items
@@ -85,7 +91,7 @@ export async function GET(request: NextRequest) {
     };
 
     // Process each transaction
-    currentYearTransactions.forEach(transaction => {
+    currentYearTransactions.forEach((transaction: any) => {
       const amount = Math.abs(transaction.amount); // Use absolute value
       
       if (transaction.category === 'income' || transaction.category === 'revenue') {

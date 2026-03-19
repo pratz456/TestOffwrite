@@ -109,7 +109,7 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ user, userProfile }) => 
       </div>
 
       {/* Navigation Items */}
-      <nav className="flex-1 px-2 py-2 space-y-0.5">
+      <nav className="flex-1 px-2 py-2 space-y-0.5" aria-label="Main navigation">
         {navItems.map((item) => {
           const Icon = item.icon;
           const active = isActive(item.href);
@@ -126,6 +126,7 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ user, userProfile }) => 
                 key={item.name}
                 onClick={() => router.push('/protected')}
                 className={`${baseClasses} ${activeClasses}`}
+                aria-current={active ? 'page' : undefined}
               >
                 <Icon className={`w-4 h-4 shrink-0 ${iconClasses}`} />
                 <span className="font-medium truncate">{item.name}</span>
@@ -138,6 +139,7 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ user, userProfile }) => 
               key={item.name}
               href={item.href}
               className={`${baseClasses} ${activeClasses}`}
+              aria-current={active ? 'page' : undefined}
             >
               <Icon className={`w-4 h-4 shrink-0 ${iconClasses}`} />
               <span className="font-medium truncate">{item.name}</span>

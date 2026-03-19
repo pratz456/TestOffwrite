@@ -9,8 +9,9 @@ import { fetchAllPlaidTransactions } from '@/lib/plaid/pagination';
 import { logPlaidRequest, debugPlaid } from '@/lib/plaid/debug';
 
 export async function POST(req: Request) {
+  let uid = '';
   try {
-    const { uid } = await getUserFromReqOrThrow(req);
+    ({ uid } = await getUserFromReqOrThrow(req));
 
     const { public_token, import_timeframe = '2years' } = await req.json();
 
@@ -36,7 +37,7 @@ export async function POST(req: Request) {
       debugPlaid('[Plaid] Item status', {
         item_id,
         institution_id: institutionId,
-        status: item.status,
+        status: (item as any).status,
         error: item.error ?? null,
       });
     } catch (err) {

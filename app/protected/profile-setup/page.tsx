@@ -6,16 +6,6 @@ import { useRouter } from 'next/navigation';
 import { getUserProfile } from '@/lib/firebase/profiles';
 import { ProfileSetupScreen } from '@/components/profile-setup-screen';
 
-interface UserProfile {
-  email: string;
-  name: string;
-  profession: string;
-  income: string;
-  state: string;
-  filingStatus: string;
-  plaidToken?: string;
-}
-
 export default function ProfileSetupPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
@@ -82,7 +72,7 @@ export default function ProfileSetupPage() {
     router.back();
   };
 
-  const handleProfileComplete = async (profile: UserProfile, redirectTo?: string) => {
+  const handleProfileComplete = (profile: any, redirectTo?: string) => {
     console.log('Profile setup completed:', profile);
     setHasProfile(true);
 

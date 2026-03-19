@@ -147,7 +147,7 @@ export async function GET(request: NextRequest) {
         // Accounts
         accounts: {
           count: accounts.length,
-          details: accounts.map(acc => ({
+          details: accounts.map((acc: any) => ({
             id: acc.id,
             name: acc.name || acc.official_name || 'Unknown',
             transactionCount: transactionsPerAccount[acc.id] || 0,

@@ -1,7 +1,9 @@
 "use client";
 
 import React from 'react';
+import { toast } from 'sonner';
 import { Card } from '@/components/ui/card';
+import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
 import { TrendingUp, Calendar, DollarSign } from 'lucide-react';
 
 interface TaxSavingsData {
@@ -43,7 +45,7 @@ export const TaxSavingsChart: React.FC<TaxSavingsChartProps> = ({ transactions =
       // Calculate deductible amount and tax savings for this day
       const deductibleTransactions = dayTransactions.filter(t => t.is_deductible === true);
       const deductibleAmount = deductibleTransactions.reduce((sum, t) => sum + (t.amount || 0), 0);
-      const taxSavings = deductibleAmount * 0.3; // 30% tax rate
+      const taxSavings = deductibleAmount * getUserTaxRate();
       
       cumulativeSavings += taxSavings;
       
@@ -61,8 +63,28 @@ export const TaxSavingsChart: React.FC<TaxSavingsChartProps> = ({ transactions =
 
   const chartData = generateChartData();
   const maxDailySavings = chartData.length > 0 ? Math.max(...chartData.map(d => d.taxSavings)) : 0;
+  const safeMax = maxDailySavings || 1;
   const totalSavings = chartData.length > 0 ? chartData[chartData.length - 1]?.cumulativeSavings || 0 : 0;
-  const avgDailySavings = chartData.length > 0 ? totalSavings / chartData.filter(d => d.taxSavings > 0).length : 0;
+  const activeDays = chartData.filter(d => d.taxSavings > 0).length;
+  const avgDailySavings = activeDays > 0 ? totalSavings / activeDays : 0;
+
+  const deductibleTransactions = transactions.filter(t => t.is_deductible === true);
+
+  const now = new Date();
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const monthProgress = (now.getDate() / daysInMonth) * 100;
+
+  if (deductibleTransactions.length === 0) {
+    return (
+      <Card className="p-4 sm:p-6 bg-white border-0 shadow-xl">
+        <div className="text-center py-8 px-4">
+          <TrendingUp className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
+          <h3 className="text-sm font-medium text-muted-foreground mb-1">No tax savings data yet</h3>
+          <p className="text-xs text-muted-foreground">Deductible transactions will appear here as they are classified.</p>
+        </div>
+      </Card>
+    );
+  }
 
   return (
     <Card className="p-4 sm:p-6 bg-white border-0 shadow-xl">
@@ -87,7 +109,7 @@ export const TaxSavingsChart: React.FC<TaxSavingsChartProps> = ({ transactions =
       </div>
 
       {/* Chart Container */}
-      <div className="relative h-64 mb-6">
+      <div className="relative h-64 mb-6" role="img" aria-label="Bar chart showing daily tax savings for the current month">
         {/* Y-axis labels - Hidden on mobile, shown on desktop */}
         <div className="hidden sm:block absolute left-0 top-0 h-full flex flex-col justify-between text-xs text-muted-foreground -ml-12">
           <span>${maxDailySavings.toFixed(0)}</span>
@@ -100,35 +122,49 @@ export const TaxSavingsChart: React.FC<TaxSavingsChartProps> = ({ transactions =
         {/* Scrollable chart area for mobile */}
         <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-2 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
           <div className="inline-flex items-end h-full gap-1 sm:gap-0.5 min-w-full sm:min-w-0" style={{ minWidth: `${chartData.length * 24}px` }}>
-            {chartData.map((data, index) => (
+            {chartData.map((data, index) => {
+              const handleBarAction = () => {
+                const dayTransactions = transactions.filter(t => {
+                  const txnDate = new Date(t.date).toISOString().split('T')[0];
+                  return txnDate === data.date && t.is_deductible === true;
+                });
+
+                if (dayTransactions.length > 0) {
+                  const transactionList = dayTransactions
+                    .map(t => `${t.merchant_name || 'Unknown'} — $${Math.abs(t.amount || 0).toFixed(2)}`)
+                    .join(', ');
+
+                  toast.info(`Day ${data.day} Breakdown`, {
+                    description: `Deductible: $${data.deductibleAmount.toFixed(2)} · Savings: $${data.taxSavings.toFixed(2)} · Cumulative: $${data.cumulativeSavings.toFixed(2)} — ${transactionList}`,
+                    duration: 6000,
+                  });
+                } else {
+                  toast.info(`Day ${data.day}`, { description: 'No deductible transactions found.' });
+                }
+              };
+
+              return (
               <div key={data.day} className="flex flex-col items-center touch-target" style={{ minWidth: '24px', width: '24px' }}>
                 {/* Bar */}
                 <div 
-                  className="w-full bg-accent hover:bg-accent/90 active:bg-accent/80 transition-all duration-300 cursor-pointer relative group shadow-sm touch-target"
+                  role="button"
+                  tabIndex={0}
+                  className="w-full bg-accent hover:bg-accent/90 active:bg-accent/80 transition-all duration-300 cursor-pointer relative group shadow-sm touch-target focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                   style={{
-                    height: `${(data.taxSavings / maxDailySavings) * 100}%`,
+                    height: `${(data.taxSavings / safeMax) * 100}%`,
                     minHeight: data.taxSavings > 0 ? '4px' : '0px',
                     minWidth: '20px',
                     width: '20px',
                     animationDelay: `${index * 50}ms`
                   }}
-                  onClick={() => {
-                    // Show detailed breakdown for this day
-                    const dayTransactions = transactions.filter(t => {
-                      const txnDate = new Date(t.date).toISOString().split('T')[0];
-                      return txnDate === data.date && t.is_deductible === true;
-                    });
-                    
-                    if (dayTransactions.length > 0) {
-                      const transactionList = dayTransactions
-                        .map(t => `• ${t.merchant_name || 'Unknown'} - $${Math.abs(t.amount || 0).toFixed(2)}`)
-                        .join('\n');
-                      
-                      alert(`Day ${data.day} Breakdown:\n\nDeductible Amount: $${data.deductibleAmount.toFixed(2)}\nTax Savings: $${data.taxSavings.toFixed(2)}\nCumulative Total: $${data.cumulativeSavings.toFixed(2)}\n\nTransactions:\n${transactionList}`);
-                    } else {
-                      alert(`Day ${data.day}: No deductible transactions found.`);
+                  onClick={handleBarAction}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      handleBarAction();
                     }
                   }}
+                  aria-label={`Day ${data.day}: $${data.taxSavings.toFixed(2)} tax savings`}
                 >
                   {/* Tooltip */}
                   <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 sm:px-3 py-1 sm:py-2 bg-foreground text-white text-[10px] sm:text-xs rounded-lg opacity-0 group-hover:opacity-100 sm:group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10">
@@ -155,7 +191,8 @@ export const TaxSavingsChart: React.FC<TaxSavingsChartProps> = ({ transactions =
                   )}
                 </div>
               </div>
-            ))}
+            );
+            })}
           </div>
         </div>
         
@@ -211,18 +248,18 @@ export const TaxSavingsChart: React.FC<TaxSavingsChartProps> = ({ transactions =
       <div className="mt-3 sm:mt-4">
         <div className="flex justify-between text-xs sm:text-sm text-muted-foreground mb-2">
           <span>Monthly Progress</span>
-          <span>{Math.round((new Date().getDate() / 31) * 100)}% of month</span>
+          <span>{Math.round(monthProgress)}% of month</span>
         </div>
         <div className="w-full bg-muted rounded-full h-2">
           <div 
             className="bg-accent h-2 rounded-full transition-all duration-300"
-            style={{ width: `${(new Date().getDate() / 31) * 100}%` }}
+            style={{ width: `${monthProgress}%` }}
           />
         </div>
       </div>
       
       <div className="mt-3 text-[10px] sm:text-xs text-muted-foreground text-center">
-        💡 Based on 30% effective tax rate. Each bar shows daily tax savings.
+        💡 Based on {Math.round(getUserTaxRate() * 100)}% effective tax rate. Each bar shows daily tax savings.
       </div>
 
       {/* Insights */}

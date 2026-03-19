@@ -46,8 +46,20 @@ function formatCurrency(amount: number): string {
 export function FileTaxesScreen() {
   const router = useRouter();
   const { user } = useAuth();
+<<<<<<< HEAD
 
   const { hasAccess, isLoading: subscriptionLoading } = useSubscription();
+=======
+  const {
+    hasAccess,
+    isLoading: subscriptionLoading,
+    error: subscriptionError,
+  } = useSubscription();
+>>>>>>> 454713be4d4a0e76f6ed1ab611b3837c8f7065fb
+
+  // If the subscription check itself failed (e.g. server error), don't
+  // block the user — the start-filing API route enforces gating server-side.
+  const effectiveAccess = hasAccess || !!subscriptionError;
 
   const { data: response, isLoading: txLoading } = useTransactions(
     user?.id || ""
@@ -199,7 +211,7 @@ export function FileTaxesScreen() {
         </Card>
 
         {/* Subscription Gate */}
-        {!subscriptionLoading && !hasAccess && (
+        {!subscriptionLoading && !effectiveAccess && (
           <Card className="p-6 bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/30 dark:to-blue-900/30 border border-purple-200 dark:border-purple-700 shadow-sm">
             <div className="flex items-start gap-4">
               <div className="p-3 bg-purple-100 dark:bg-purple-800/50 rounded-xl">
@@ -228,7 +240,11 @@ export function FileTaxesScreen() {
         )}
 
         {/* ── Step: Review ─────────────────────────────────────────── */}
+<<<<<<< HEAD
         {step === "review" && hasAccess && (
+=======
+        {step === 'review' && effectiveAccess && (
+>>>>>>> 454713be4d4a0e76f6ed1ab611b3837c8f7065fb
           <>
             {/* Year Selector */}
             <Card className="p-4 sm:p-6 bg-card border border-border shadow-sm">
@@ -457,8 +473,62 @@ export function FileTaxesScreen() {
           </Card>
         )}
 
+<<<<<<< HEAD
         {/* ── Step: Redirecting ───────────────────────────────────── */}
         {step === "redirecting" && hasAccess && (
+=======
+        {/* ── Step: Filing (Column Tax Module) ──────────────────────── */}
+        {step === 'filing' && (
+          <Card className="p-6 sm:p-8 bg-card border border-border shadow-sm">
+            <div className="text-center space-y-4">
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mx-auto">
+                <ExternalLink className="w-8 h-8 text-primary" />
+              </div>
+              <h3 className="text-xl font-semibold text-foreground">
+                Complete Your Return
+              </h3>
+              <p className="text-muted-foreground max-w-md mx-auto">
+                Your Schedule C data has been sent to Column Tax. The filing
+                module should have opened - review your pre-filled return and
+                follow the steps to submit.
+              </p>
+              <div className="flex flex-wrap justify-center gap-3 pt-2">
+                {userUrl && (
+                  <Button
+                    onClick={() => {
+                      if ((window as any).ColumnTax) {
+                        (window as any).ColumnTax.openModule({
+                          userUrl,
+                          onClose: () => setStep('review'),
+                          onUserEvent: (event: { name: string; metadata?: unknown }) => {
+                            if (event.name === 'filing_complete' || event.name === 'tax_return_submitted') {
+                              handleFilingComplete();
+                            }
+                          },
+                        });
+                      }
+                    }}
+                    className="min-h-[44px]"
+                  >
+                    <ExternalLink className="w-4 h-4 mr-2" />
+                    Reopen Filing Module
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  onClick={() => setStep('review')}
+                  className="min-h-[44px]"
+                >
+                  Back to Review
+                </Button>
+              </div>
+            </div>
+          </Card>
+        )}
+
+        {/* ── Step: Complete ────────────────────────────────────────── */}
+        {step === 'complete' && (
+>>>>>>> 454713be4d4a0e76f6ed1ab611b3837c8f7065fb
           <Card className="p-8 bg-card border border-border shadow-sm">
             <div className="text-center">
               <Loader2 className="w-10 h-10 animate-spin text-primary mx-auto mb-4" />
@@ -509,7 +579,27 @@ export function FileTaxesScreen() {
           </Card>
         )}
 
+<<<<<<< HEAD
         {/* No embedding: TaxBandits is opened externally */}
+=======
+        {/* Column Tax branding footer */}
+        {effectiveAccess && (
+          <div className="text-center py-4">
+            <p className="text-xs text-muted-foreground">
+              Tax filing is powered by Column Tax. Column Tax provides an
+              accuracy guarantee and audit assistance.{' '}
+              <a
+                href="https://www.columntax.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary hover:underline"
+              >
+                Learn more
+              </a>
+            </p>
+          </div>
+        )}
+>>>>>>> 454713be4d4a0e76f6ed1ab611b3837c8f7065fb
       </div>
     </div>
   );

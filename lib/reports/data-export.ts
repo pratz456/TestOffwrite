@@ -49,7 +49,7 @@ export async function generateUserDataExport(userId: string): Promise<UserDataEx
       id: doc.id,
       path: doc.ref.path,
       ...doc.data()
-    }));
+    })) as Array<Record<string, any>>;
     
     // 4. Get receipt metadata (from transaction documents)
     const receipts = transactions

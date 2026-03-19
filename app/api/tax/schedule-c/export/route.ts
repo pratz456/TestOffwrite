@@ -72,11 +72,20 @@ function drawHLineWithColor(page: PDFPage, y: number, color: ReturnType<typeof r
 }
 
 function formatDate(dateStr: string | undefined): string {
-  if (!dateStr) return '—';
+  if (!dateStr) return '-';
   try {
+<<<<<<< HEAD
     return safeYMD(dateStr) ?? '—';
+=======
+    const d = new Date(dateStr);
+    if (Number.isNaN(d.getTime())) return '-';
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+>>>>>>> 454713be4d4a0e76f6ed1ab611b3837c8f7065fb
   } catch {
-    return '—';
+    return '-';
   }
 }
 
@@ -130,12 +139,16 @@ export async function POST(request: NextRequest) {
     console.log(`📊 [Schedule C Export] Total transactions fetched: ${transactions.length}`);
 
     // Single source of truth: shared aggregation (year filter, deductible rule, 50% meals)
+<<<<<<< HEAD
     const { totalExpenses, totalDeductible, lineItems, lineItemsArray } = aggregateScheduleC(
       transactions,
       year,
       CATEGORY_MAP,
       { mode: 'confirmed-only' }
     );
+=======
+    const { totalExpenses, totalDeductible, lineItems, lineItemsArray } = aggregateScheduleC(transactions as any[], year);
+>>>>>>> 454713be4d4a0e76f6ed1ab611b3837c8f7065fb
     console.log(`📊 [Schedule C Export] Year ${year}: totalExpenses=${totalExpenses.toFixed(2)}, totalDeductible=${totalDeductible.toFixed(2)}, lineItems=${lineItemsArray.length}`);
 
     // Credits/refunds (negative amounts) are already netted into line totals in `confirmed-only` mode.
@@ -161,7 +174,7 @@ export async function POST(request: NextRequest) {
         currentPage = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
         yPosition = PAGE_HEIGHT - MARGIN;
         // Continuation header so loose pages are identifiable
-        currentPage.drawText(`WriteOff — Schedule C Summary (Tax Year ${year})`, {
+        currentPage.drawText(`WriteOff - Schedule C Summary (Tax Year ${year})`, {
           x: MARGIN,
           y: yPosition,
           size: FOOTER_SIZE,
@@ -285,7 +298,7 @@ export async function POST(request: NextRequest) {
 
     // Expense Offsets (Credits/Refunds) — display only if credits detected
     if (hasCredits) {
-      currentPage.drawText('—', { x: colLine, y: yPosition, size: BODY_SIZE, font: font, color: GRAY });
+      currentPage.drawText('-', { x: colLine, y: yPosition, size: BODY_SIZE, font: font, color: GRAY });
       currentPage.drawText('Expense Offsets (Credits/Refunds)', { x: colDesc, y: yPosition, size: BODY_SIZE, font: font, color: GRAY });
       drawTextRight(currentPage, formatCurrency(totalCreditAmount), colDeductRight, yPosition, BODY_SIZE, courierFont, GRAY);
       yPosition -= summaryRowHeight;
@@ -335,7 +348,7 @@ export async function POST(request: NextRequest) {
         drawHLineWithColor(currentPage, yPosition, BORDER_MED, 0.5);
         yPosition -= 14;
       }
-      currentPage.drawText(`Line ${item.lineCode} – ${item.lineName}`, {
+      currentPage.drawText(`Line ${item.lineCode} - ${item.lineName}`, {
         x: MARGIN,
         y: yPosition,
         size: 11,
@@ -418,7 +431,7 @@ export async function POST(request: NextRequest) {
     }
 
     nextPageIfNeeded(80);
-    currentPage.drawText('Appendix – Transaction Detail by Schedule C Line', {
+    currentPage.drawText('Appendix - Transaction Detail by Schedule C Line', {
       x: MARGIN,
       y: yPosition,
       size: SECTION_HEADER,
@@ -445,7 +458,7 @@ export async function POST(request: NextRequest) {
       nextPageIfNeeded(60);
       yPosition -= 10; // spacing before group
       let lastAppendixPage = currentPage;
-      currentPage.drawText(`Line ${item.lineCode} – ${item.lineName} (${item.transactionCount} transactions)`, {
+      currentPage.drawText(`Line ${item.lineCode} - ${item.lineName} (${item.transactionCount} transactions)`, {
         x: MARGIN,
         y: yPosition,
         size: 11,
@@ -462,7 +475,7 @@ export async function POST(request: NextRequest) {
         nextPageIfNeeded(appendixRowHeight + 24);
         if (currentPage !== lastAppendixPage) {
           lastAppendixPage = currentPage;
-          currentPage.drawText(`Line ${item.lineCode} – ${item.lineName} (continued)`, {
+          currentPage.drawText(`Line ${item.lineCode} - ${item.lineName} (continued)`, {
             x: MARGIN,
             y: yPosition,
             size: BODY_SIZE,
@@ -497,7 +510,7 @@ export async function POST(request: NextRequest) {
       nextPageIfNeeded(appendixRowHeight + 30);
       if (currentPage !== lastAppendixPage) {
         lastAppendixPage = currentPage;
-        currentPage.drawText(`Line ${item.lineCode} – ${item.lineName} (continued)`, {
+        currentPage.drawText(`Line ${item.lineCode} - ${item.lineName} (continued)`, {
           x: MARGIN,
           y: yPosition,
           size: BODY_SIZE,
@@ -525,7 +538,7 @@ export async function POST(request: NextRequest) {
 
     // ----- Footer: every page = "WriteOff – Schedule C Summary (Tax Year YYYY)" (left), "Page X of Y" (right); disclaimer only on page 1 -----
     const disclaimer = 'This is a summary for data entry into tax software. Not an official IRS form. Consult a tax professional.';
-    const footerBrand = `WriteOff – Schedule C Summary (Tax Year ${year})`;
+    const footerBrand = `WriteOff - Schedule C Summary (Tax Year ${year})`;
     const pageCount = pdfDoc.getPageCount();
     const yFooter = FOOTER_BOTTOM - 4;
 

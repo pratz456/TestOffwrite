@@ -7,3 +7,4 @@ export { TopCategoriesCard } from './TopCategoriesCard';
 export { RecentActivityCard } from './RecentActivityCard';
 export { AiAdvisoryCard } from './AiAdvisoryCard';
 export { QuickActionsBar } from './QuickActionsBar';
+export { ActionItemsBanner } from './ActionItemsBanner';

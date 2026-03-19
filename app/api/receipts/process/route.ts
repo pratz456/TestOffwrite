@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { receiptProcessor } from '@/lib/ocr/receipt-processor';
-import { createTransactionServer } from '@/lib/firebase/transactions-server';
+import { createTransactionServer, type Transaction } from '@/lib/firebase/transactions-server';
+import { adminDb } from '@/lib/firebase/admin';
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,14 +16,26 @@ export async function POST(request: NextRequest) {
 
     const formData = await request.formData();
     const file = formData.get('file') as File;
-    const accountId = formData.get('accountId') as string;
+    let accountId = formData.get('accountId') as string | null;
 
     if (!file) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });
     }
 
+    // If no accountId provided, find the user's first account
     if (!accountId) {
-      return NextResponse.json({ error: 'No account ID provided' }, { status: 400 });
+      const accountsSnap = await adminDb
+        .collection('user_profiles')
+        .doc(user.uid)
+        .collection('accounts')
+        .limit(1)
+        .get();
+
+      if (!accountsSnap.empty) {
+        accountId = accountsSnap.docs[0].id;
+      } else {
+        return NextResponse.json({ error: 'No linked accounts found. Please connect a bank account first.' }, { status: 400 });
+      }
     }
 
     console.log('🔄 [Receipt OCR] Processing receipt:', file.name);
@@ -41,23 +54,22 @@ export async function POST(request: NextRequest) {
     const receiptData = ocrResult.data;
 
     // Create transaction from receipt data
-    const transactionData = {
+    const transactionData: Partial<Transaction> = {
       trans_id: `receipt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       merchant_name: receiptData.merchant,
-      amount: -Math.abs(receiptData.amount), // Negative for expense
+      amount: -Math.abs(receiptData.amount),
       category: receiptData.category || 'other',
       date: receiptData.date,
       description: `Receipt: ${receiptData.merchant}`,
       notes: `OCR processed from receipt. Confidence: ${Math.round(receiptData.confidence * 100)}%`,
       analysis_status: 'pending',
       analyzed: false,
-      receipt_url: null, // Will be set after file upload
       receipt_filename: file.name,
       ocr_data: {
         confidence: receiptData.confidence,
         raw_text: receiptData.rawText,
         items: receiptData.items || []
-      }
+      },
     };
 
     // Save transaction to database
@@ -86,6 +98,7 @@ export async function POST(request: NextRequest) {
         date: receiptData.date,
         category: receiptData.category,
         confidence: receiptData.confidence,
+        items: receiptData.items || [],
         processingTime: ocrResult.processingTime
       }
     });

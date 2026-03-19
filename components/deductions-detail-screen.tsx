@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ArrowLeft, DollarSign, FileText, TrendingUp, Calendar } from 'lucide-react';
 import { formatCategory } from '@/lib/utils';
+import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
 
 interface Transaction {
   id: string;
@@ -29,7 +30,7 @@ interface DeductionsDetailScreenProps {
     };
   };
   onBack: () => void;
-  transactions: Transaction[];
+  transactions?: Transaction[] | null;
 }
 
 export const DeductionsDetailScreen: React.FC<DeductionsDetailScreenProps> = ({ 
@@ -41,6 +42,45 @@ export const DeductionsDetailScreen: React.FC<DeductionsDetailScreenProps> = ({
   const [selectedCategory, setSelectedCategory] = useState('All Categories');
 
   const periods = ['This Month', 'Last Month', 'This Quarter', 'This Year', 'All Time'];
+
+  if (!transactions) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+        <div className="bg-white border-b border-blue-100 sticky top-0 z-50 shadow-sm">
+          <div className="max-w-6xl mx-auto px-6 py-4">
+            <div className="flex items-center gap-4">
+              <div className="h-9 w-20 bg-muted rounded animate-pulse" />
+              <div className="space-y-2">
+                <div className="h-6 w-56 bg-muted rounded animate-pulse" />
+                <div className="h-4 w-72 bg-muted rounded animate-pulse" />
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="max-w-6xl mx-auto p-6 space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {[...Array(3)].map((_, i) => (
+              <div key={i} className="h-24 bg-muted rounded-xl animate-pulse" />
+            ))}
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div className="lg:col-span-2 space-y-3">
+              <div className="h-10 w-48 bg-muted rounded animate-pulse" />
+              {[...Array(6)].map((_, i) => (
+                <div key={i} className="h-16 bg-muted rounded-lg animate-pulse" />
+              ))}
+            </div>
+            <div className="space-y-3">
+              <div className="h-10 w-40 bg-muted rounded animate-pulse" />
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="h-12 bg-muted rounded-lg animate-pulse" />
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // Filter deductible expenses
   const deductibleTransactions = transactions.filter(t => t.type === 'expense' && t.is_deductible);
@@ -94,7 +134,7 @@ export const DeductionsDetailScreen: React.FC<DeductionsDetailScreenProps> = ({
   });
 
   const totalDeductions = filteredTransactions.reduce((sum, t) => sum + t.amount, 0);
-  const estimatedTaxSavings = totalDeductions * 0.3; // 30% tax rate assumption
+  const estimatedTaxSavings = totalDeductions * getUserTaxRate();
 
   // Group by category for breakdown
   const categoryBreakdown = filteredTransactions.reduce((acc, transaction) => {
@@ -176,6 +216,7 @@ export const DeductionsDetailScreen: React.FC<DeductionsDetailScreenProps> = ({
                   <select
                     value={selectedPeriod}
                     onChange={(e) => setSelectedPeriod(e.target.value)}
+                    aria-label="Filter by time period"
                     className="px-3 py-2 border border-gray-300 rounded-md text-sm"
                   >
                     {periods.map(period => (
@@ -185,6 +226,7 @@ export const DeductionsDetailScreen: React.FC<DeductionsDetailScreenProps> = ({
                   <select
                     value={selectedCategory}
                     onChange={(e) => setSelectedCategory(e.target.value)}
+                    aria-label="Filter by category"
                     className="px-3 py-2 border border-gray-300 rounded-md text-sm"
                   >
                     {categories.map(category => (
@@ -196,9 +238,18 @@ export const DeductionsDetailScreen: React.FC<DeductionsDetailScreenProps> = ({
 
               <div className="space-y-3">
                 {filteredTransactions.length === 0 ? (
-                  <div className="text-center py-8">
+                  <div className="text-center py-12">
                     <FileText className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                    <p className="text-slate-500">No deductible expenses found for the selected criteria</p>
+                    <h4 className="text-sm font-medium text-slate-700 mb-1">
+                      {deductibleTransactions.length === 0
+                        ? 'No deductible expenses yet'
+                        : 'No results for this filter'}
+                    </h4>
+                    <p className="text-sm text-slate-500 max-w-sm mx-auto">
+                      {deductibleTransactions.length === 0
+                        ? 'Once your transactions are classified as deductible, they will appear here with estimated tax savings.'
+                        : 'Try changing the time period or category filter to see more expenses.'}
+                    </p>
                   </div>
                 ) : (
                   filteredTransactions

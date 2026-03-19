@@ -156,3 +156,13 @@ export function getMarginalTaxRate(userProfile: UserProfile): number {
   // If income is above the highest bracket
   return brackets[brackets.length - 1].rate * 100;
 }
+
+/**
+ * Returns the user's effective tax rate as a decimal (e.g. 0.27) for use in
+ * tax-savings calculations. Falls back to 0.25 when profile data is missing.
+ */
+export function getUserTaxRate(profile?: Partial<UserProfile> | null): number {
+  if (!profile || !profile.income) return 0.25;
+  const pct = calculateEffectiveTaxRate(profile as UserProfile);
+  return pct / 100;
+}

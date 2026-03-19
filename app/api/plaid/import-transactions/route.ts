@@ -9,8 +9,9 @@ import { fetchAllPlaidTransactions } from '@/lib/plaid/pagination';
 import { logPlaidRequest, debugPlaid } from '@/lib/plaid/debug';
 
 export async function POST(req: Request) {
+  let uid = '';
   try {
-    const { uid } = await getUserFromReqOrThrow(req);
+    ({ uid } = await getUserFromReqOrThrow(req));
     const { account_id, import_timeframe = '2years', access_token } = await req.json();
 
     if (!account_id || !access_token) {
@@ -76,6 +77,12 @@ export async function POST(req: Request) {
 
     // Import transactions for this specific account
     let imported = 0;
+    let startDateStr = '';
+    let endDateStr = '';
+    let totalTransactions = 0;
+    let plaidTotalTransactions: number | undefined;
+    let plaidEarliestTxDate: string | undefined;
+    let plaidLatestTxDate: string | undefined;
     try {
       // Calculate date range based on timeframe - use same robust calculation
       const endDate = new Date();
@@ -91,8 +98,8 @@ export async function POST(req: Request) {
       startDate.setTime(startDateMs);
       startDate.setHours(0, 0, 0, 0); // Start of the day
 
-      const startDateStr = startDate.toISOString().split('T')[0];
-      const endDateStr = endDate.toISOString().split('T')[0];
+      startDateStr = startDate.toISOString().split('T')[0];
+      endDateStr = endDate.toISOString().split('T')[0];
       const actualDateRange = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
 
       console.log(`📅 [Import Transactions] Transaction import configuration:`);
@@ -114,14 +121,7 @@ export async function POST(req: Request) {
         end_date: endDateStr,
         options: { account_ids: [account_id], include_personal_finance_category: true, include_logo_and_counterparty_beta: true },
       });
-      const {
-        transactions: allTransactions,
-        totalPages,
-        totalTransactions,
-        plaidTotalTransactions,
-        earliestTxDate: plaidEarliestTxDate,
-        latestTxDate: plaidLatestTxDate,
-      } = await fetchAllPlaidTransactions(
+      const fetchResult = await fetchAllPlaidTransactions(
         plaidClient,
         {
           access_token,
@@ -135,6 +135,12 @@ export async function POST(req: Request) {
         },
         '[Import Transactions]'
       );
+      const allTransactions = fetchResult.transactions;
+      const totalPages = fetchResult.totalPages;
+      totalTransactions = fetchResult.totalTransactions;
+      plaidTotalTransactions = fetchResult.plaidTotalTransactions;
+      plaidEarliestTxDate = fetchResult.earliestTxDate;
+      plaidLatestTxDate = fetchResult.latestTxDate;
 
       console.log(`📊 [Import Transactions] Fetched ${totalTransactions} transactions from Plaid for account: ${selectedAccount.name} across ${totalPages} page(s)`);
       if (plaidTotalTransactions !== undefined) {

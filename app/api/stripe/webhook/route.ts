@@ -6,14 +6,20 @@ import { headers } from 'next/headers';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2024-12-18.acacia',
-});
+function getStripeOrNull() {
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) return null;
+  return new Stripe(key, { apiVersion: '2025-10-29.clover' });
+}
 
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET || '';
 
 export async function POST(req: Request) {
   try {
+    const stripe = getStripeOrNull();
+    if (!stripe) {
+      return NextResponse.json({ error: 'Stripe not configured' }, { status: 500 });
+    }
     const body = await req.text();
     const headersList = await headers();
     const signature = headersList.get('stripe-signature');
@@ -60,8 +66,9 @@ export async function POST(req: Request) {
 
       case 'invoice.payment_succeeded': {
         const invoice = event.data.object as Stripe.Invoice;
-        if (invoice.subscription) {
-          const subscription = await stripe.subscriptions.retrieve(invoice.subscription as string);
+        const invoiceSubId = invoice.parent?.subscription_details?.subscription;
+        if (invoiceSubId) {
+          const subscription = await stripe.subscriptions.retrieve(invoiceSubId as string);
           await handleSubscriptionUpdate(subscription);
         }
         break;
@@ -151,7 +158,8 @@ async function handleSubscriptionUpdate(subscription: Stripe.Subscription) {
   const customerId = subscription.customer as string;
   // Active includes subscriptions that are active even if scheduled for cancellation
   const isActive = subscription.status === 'active';
-  let currentPeriodEnd = subscription.current_period_end ? new Date(subscription.current_period_end * 1000) : null;
+  const firstItem = subscription.items?.data?.[0];
+  let currentPeriodEnd = firstItem?.current_period_end ? new Date(firstItem.current_period_end * 1000) : null;
 
   // TEST MODE: Set subscription end to 0 days (today) for testing expiration behavior
   if (process.env.STRIPE_TEST_MODE_EXPIRE_TODAY === 'true') {

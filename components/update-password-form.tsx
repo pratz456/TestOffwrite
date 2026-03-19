@@ -1,8 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-// Firebase doesn't handle password updates the same way as Supabase
-// This component may need to be redesigned for Firebase Auth
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -53,7 +52,7 @@ export function UpdatePasswordForm({
       const { error } = await updateUserPassword(password);
       if (error) throw new Error(error.message);
       setError(null);
-      alert("Password updated successfully. Please log in with your new password.");
+      toast.success("Password updated. Please log in with your new password.");
       router.push("/auth/login");
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "An error occurred");

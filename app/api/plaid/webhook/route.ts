@@ -75,6 +75,9 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
       }
       console.log('✅ [Webhook] Signature verified');
+    } else if (process.env.NODE_ENV === 'production') {
+      console.error('❌ [Webhook] Missing PLAID_WEBHOOK_SECRET or signature in production');
+      return NextResponse.json({ error: 'Webhook verification required' }, { status: 401 });
     } else {
       console.warn('⚠️ [Webhook] No signature verification (development mode)');
     }

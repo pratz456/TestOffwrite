@@ -1,15 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { exchangePublicToken, removePlaidConnection } from '@/lib/api'
+import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 
 export async function POST(request: NextRequest) {
   try {
-    const { publicToken, userId } = await request.json()
+    const { uid } = await getUserFromReqOrThrow(request);
+    const { publicToken } = await request.json()
     
-    if (!publicToken || !userId) {
-      return NextResponse.json({ error: 'Public token and user ID are required' }, { status: 400 })
+    if (!publicToken) {
+      return NextResponse.json({ error: 'Public token is required' }, { status: 400 })
     }
 
-    const result = await exchangePublicToken(publicToken, userId)
+    const result = await exchangePublicToken(publicToken, uid)
     
     if (!result.success) {
       return NextResponse.json({ error: result.error }, { status: 500 })
@@ -17,10 +19,12 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ 
       success: true, 
-      accessToken: result.accessToken,
       itemId: result.itemId 
     })
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.message?.includes('Authorization')) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     console.error('Error exchanging token:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
@@ -28,21 +32,20 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const { userId } = await request.json()
-    
-    if (!userId) {
-      return NextResponse.json({ error: 'User ID is required' }, { status: 400 })
-    }
+    const { uid } = await getUserFromReqOrThrow(request);
 
-    const result = await removePlaidConnection(userId)
+    const result = await removePlaidConnection(uid)
     
     if (!result.success) {
       return NextResponse.json({ error: result.error }, { status: 500 })
     }
 
     return NextResponse.json({ success: true })
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.message?.includes('Authorization')) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     console.error('Error removing Plaid connection:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-} 
+}

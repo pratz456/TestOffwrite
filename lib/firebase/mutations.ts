@@ -11,6 +11,7 @@ import {
 import { db } from './client';
 import { Transaction } from './transactions';
 import { queryKeys } from './hooks';
+import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
 
 // Types for transaction updates
 export interface TransactionUpdate {
@@ -72,7 +73,7 @@ function calculateLocalStats(transactions: Transaction[]) {
   const totalDeductibleAmount = transactions
     .filter(t => t.is_deductible === true)
     .reduce((sum, t) => sum + Math.abs(t.amount || 0), 0);
-  const potentialSavings = totalDeductibleAmount * 0.3;
+  const potentialSavings = totalDeductibleAmount * getUserTaxRate();
 
   return {
     totalTransactions,

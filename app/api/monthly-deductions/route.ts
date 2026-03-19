@@ -4,6 +4,8 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { getTransactionsServer } from '@/lib/firebase/transactions-server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
+import { getUserProfileServer } from '@/lib/firebase/profiles-server';
+import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
 
 export async function GET(request: NextRequest) {
   try {
@@ -16,6 +18,9 @@ export async function GET(request: NextRequest) {
       console.error('❌ [Monthly Deductions API] Authentication failed:', authError);
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    const { data: userProfile } = await getUserProfileServer(user.uid);
+    const TAX_RATE = getUserTaxRate(userProfile ?? undefined);
 
     console.log('✅ [Monthly Deductions API] User authenticated:', user.uid);
 
@@ -108,8 +113,7 @@ export async function GET(request: NextRequest) {
     // Calculate monthly estimated tax savings
     let totalDeductibleTransactions = 0;
     let totalNonDeductibleTransactions = 0;
-    const TAX_RATE = 0.3; // 30% tax rate for estimated tax savings
-    
+
     transactions.forEach(transaction => {
       const transactionDate = new Date(transaction.date);
       const month = transactionDate.getMonth();

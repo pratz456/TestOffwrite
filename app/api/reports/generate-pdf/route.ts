@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
     const filename = `tax-report-${new Date().toISOString().split('T')[0]}.pdf`;
 
     // Return PDF as response
-    return new NextResponse(pdfBytes, {
+    return new NextResponse(Buffer.from(pdfBytes), {
       headers: {
         'Content-Type': 'application/pdf',
         'Content-Disposition': `attachment; filename="${filename}"`,

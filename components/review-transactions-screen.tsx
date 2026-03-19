@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useState as useReactState, useRef } from 'react';
+import { toast } from 'sonner';
 
 // Modal for Ask a CPA (matches Transaction Details page)
 const AskCpaModal: React.FC<{
@@ -42,7 +43,7 @@ const AskCpaModal: React.FC<{
         onClose();
       }, 1800);
     } catch (e) {
-      alert('Failed to submit your question. Please try again.');
+      toast.error('Failed to submit your question. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -188,6 +189,8 @@ interface Transaction {
   // Analysis status
   analyzed?: boolean;
   analysisStatus?: 'pending' | 'running' | 'completed' | 'failed';
+  _source?: string;
+  expense_type?: 'business' | 'personal';
 }
 
 interface ReviewTransactionsScreenProps {
@@ -452,7 +455,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
           errorMessage = 'Server error. Please try again later or contact support if the problem persists.';
         }
 
-        alert(errorMessage);
+        toast.error(errorMessage);
         return;
       }
 
@@ -523,8 +526,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
         error: e,
         message: e.message,
         stack: e.stack,
-        transactionId: transactionId,
-        updateData: updateData
+        transactionId: transaction.trans_id || transaction.id,
       });
 
       // Show detailed user-friendly error message
@@ -537,7 +539,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
         errorMessage = 'Permission error. You may not have access to update this transaction.';
       }
 
-      alert(errorMessage);
+      toast.error(errorMessage);
     } finally {
       setIsProcessing(false);
     }
@@ -548,7 +550,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
     return category
       .split('_')
       .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-      .join(' & ');
+      .join(' ');
   };
 
   if (needsReviewTransactions.length === 0) {
@@ -907,11 +909,10 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    <p className="text-sm text-card-foreground">
-                      {`${formatCategory(currentTransaction.category)} at ${currentTransaction.merchant_name} are commonly deductible for freelancer/creator businesses. Keep detailed records of services provided and business purpose.`}
+                    <p className="text-sm text-muted-foreground">
+                      AI analysis has not been completed for this transaction yet. Use the buttons below to classify it, or tap &quot;Ask a CPA&quot; for professional guidance.
                     </p>
 
-                    {/* Key Analysis Factors */}
                     <div>
                       <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
                         KEY ANALYSIS FACTORS
@@ -922,11 +923,8 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
                           day: 'numeric',
                           year: 'numeric'
                         })}</li>
-                        <li>• <strong>Deduction Status:</strong> {currentTransaction.ai?.status_label || 'Not Analyzed'}</li>
-                        <li>• <strong>Reasoning:</strong> {currentTransaction.ai?.reasoning || 'Professional analysis pending'}</li>
-                        {(currentTransaction.ai?.irs?.publication || currentTransaction.ai?.irs?.section) && (
-                          <li>• <strong>IRS Reference:</strong> {currentTransaction.ai?.irs?.publication ? `Publication ${currentTransaction.ai.irs.publication}` : ''}{currentTransaction.ai?.irs?.publication && currentTransaction.ai?.irs?.section ? ', ' : ''}{currentTransaction.ai?.irs?.section ? `Section ${currentTransaction.ai.irs.section}` : ''}</li>
-                        )}
+                        <li>• <strong>Deduction Status:</strong> Not Analyzed</li>
+                        <li>• <strong>Reasoning:</strong> Analysis pending</li>
                       </ul>
                     </div>
                   </div>

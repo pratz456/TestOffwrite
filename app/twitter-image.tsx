@@ -22,12 +22,14 @@ export default async function Image() {
   let interRegular: ArrayBuffer | undefined;
   let interSemibold: ArrayBuffer | undefined;
   try {
-    interRegular = await readFile(
+    const regBuf = await readFile(
       join(process.cwd(), "public", "fonts", "Inter-Regular.ttf")
     );
-    interSemibold = await readFile(
+    interRegular = regBuf.buffer.slice(regBuf.byteOffset, regBuf.byteOffset + regBuf.byteLength) as ArrayBuffer;
+    const semiBuf = await readFile(
       join(process.cwd(), "public", "fonts", "Inter-SemiBold.ttf")
     );
+    interSemibold = semiBuf.buffer.slice(semiBuf.byteOffset, semiBuf.byteOffset + semiBuf.byteLength) as ArrayBuffer;
   } catch {
     // no local fonts
   }
@@ -303,7 +305,7 @@ export default async function Image() {
               >
                 Start your <span style={{ color: "#34D399" }}>30-day free trial</span>
                 <span style={{ color: "rgba(255,255,255,0.70)", fontWeight: 600 }}>
-                  — no card
+                  - no card
                 </span>
               </div>
               <div style={{ fontSize: 14, color: "rgba(255,255,255,0.58)" }}>
@@ -321,8 +323,8 @@ export default async function Image() {
     {
       ...size,
       fonts: [
-        { name: "Inter", data: interRegular, weight: 400, style: "normal" },
-        ...(interSemibold ? [{ name: "Inter", data: interSemibold, weight: 600, style: "normal" as const }] : []),
+        { name: "Inter", data: interRegular!, weight: 400 as const, style: "normal" as const },
+        ...(interSemibold ? [{ name: "Inter", data: interSemibold, weight: 600 as const, style: "normal" as const }] : []),
       ],
     }
   );

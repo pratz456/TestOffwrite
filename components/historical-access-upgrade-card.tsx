@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation';
 import { Sparkles, Calendar, TrendingUp, Loader2 } from 'lucide-react';
 import { TrialCountdown } from '@/components/trial-countdown';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { toast } from 'sonner';
 
 interface HistoricalAccessStatus {
   hasAccess: boolean;
@@ -77,7 +78,7 @@ export function HistoricalAccessUpgradeCard() {
           window.location.href = data.url;
         } else {
           console.error('No checkout URL in response:', data);
-          alert('Failed to get checkout URL. Please try again.');
+          toast.error('Failed to get checkout URL. Please try again.');
         }
       } else {
         let errorMessage = 'Failed to start checkout. Please try again.';
@@ -99,11 +100,11 @@ export function HistoricalAccessUpgradeCard() {
           });
           errorMessage = responseText || `Server returned ${response.status} ${response.statusText}`;
         }
-        alert(errorMessage);
+        toast.error(errorMessage);
       }
     } catch (error) {
       console.error('Error creating checkout:', error);
-      alert('Failed to start checkout. Please check the console for details and try again.');
+      toast.error('Failed to start checkout. Please check the console for details and try again.');
     } finally {
       setCheckoutLoading(false);
     }
@@ -133,9 +134,9 @@ export function HistoricalAccessUpgradeCard() {
                 : undefined,
             });
           }
-          alert('Subscription reactivated successfully! Your subscription will continue after the current billing period.');
+          toast.success('Subscription reactivated successfully! Your subscription will continue after the current billing period.');
         } else {
-          alert(data.message || 'Failed to reactivate subscription. Please try again.');
+          toast.error(data.message || 'Failed to reactivate subscription. Please try again.');
         }
       } else {
         let errorMessage = 'Failed to reactivate subscription. Please try again.';
@@ -147,11 +148,11 @@ export function HistoricalAccessUpgradeCard() {
         } catch (jsonError) {
           errorMessage = responseText || `Server returned ${response.status} ${response.statusText}`;
         }
-        alert(errorMessage);
+        toast.error(errorMessage);
       }
     } catch (error) {
       console.error('Error reactivating subscription:', error);
-      alert('Failed to reactivate subscription. Please check the console for details and try again.');
+      toast.error('Failed to reactivate subscription. Please check the console for details and try again.');
     } finally {
       setCheckoutLoading(false);
     }

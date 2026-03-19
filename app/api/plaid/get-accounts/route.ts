@@ -43,7 +43,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ 
       ok: true, 
       accounts: allAccounts,
-      access_token // Store temporarily for transaction import
     });
 
   } catch (err: any) {

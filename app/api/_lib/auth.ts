@@ -9,7 +9,9 @@ export async function getUserFromReqOrThrow(req: Request) {
     throw new Error('Missing or invalid Authorization header');
   }
 
-  // verify with Admin Auth
-  const decoded = await adminAuth.verifyIdToken(idToken, true);
+  // Verify with Admin Auth.
+  // Note: avoid "checkRevoked" here since it requires additional Google APIs/quotas
+  // and can break local dev setups that don't have Identity Toolkit enabled.
+  const decoded = await adminAuth.verifyIdToken(idToken);
   return { uid: decoded.uid };
 }

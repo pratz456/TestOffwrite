@@ -4,6 +4,7 @@ import React, { useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ArrowLeft, Upload, FileText, Camera, CheckCircle, AlertCircle } from 'lucide-react';
+import { auth } from '@/lib/firebase/client';
 
 interface ReceiptUploadScreenProps {
   user: {
@@ -51,31 +52,51 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
     event.preventDefault();
   };
 
+  const [error, setError] = useState<string | null>(null);
+
   const processReceipt = async () => {
     if (!selectedFile) return;
 
     setIsUploading(true);
+    setError(null);
     
     try {
-      // Mock extracted data (removed artificial delay)
-      const mockData = {
-        merchant: "Staples Office Supplies",
-        amount: 149.99,
-        date: new Date().toISOString().split('T')[0],
-        category: "Office Supplies",
-        items: [
-          { description: "Paper Clips", amount: 12.99 },
-          { description: "Printer Paper", amount: 24.99 },
-          { description: "Pens (Pack of 12)", amount: 15.99 },
-          { description: "Stapler", amount: 29.99 },
-          { description: "Tax", amount: 11.03 }
-        ]
-      };
-      
-      setExtractedData(mockData);
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        throw new Error('Please sign in to upload receipts');
+      }
+      const idToken = await currentUser.getIdToken();
+
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+
+      const response = await fetch('/api/receipts/process', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${idToken}` },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errBody = await response.json().catch(() => ({}));
+        throw new Error(errBody.error || 'Failed to process receipt');
+      }
+
+      const result = await response.json();
+      const ocr = result.ocrResult || {};
+
+      setExtractedData({
+        merchant: ocr.merchant || 'Unknown Merchant',
+        amount: ocr.amount || 0,
+        date: ocr.date || new Date().toISOString().split('T')[0],
+        category: ocr.category || 'other',
+        confidence: ocr.confidence || 0,
+        items: ocr.items || result.transaction?.ocr_data?.items || [],
+        transactionId: result.transaction?.trans_id,
+      });
       setUploadComplete(true);
-    } catch (error) {
-      console.error('Error processing receipt:', error);
+    } catch (err) {
+      console.error('Error processing receipt:', err);
+      setError(err instanceof Error ? err.message : 'Failed to process receipt. Please try again.');
     } finally {
       setIsUploading(false);
     }
@@ -174,6 +195,13 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
                   </div>
                 )}
 
+                {error && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
+                    <p className="text-sm text-red-700">{error}</p>
+                  </div>
+                )}
+
                 <div className="flex gap-3">
                   <Button
                     onClick={processReceipt}
@@ -218,9 +246,16 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
               </div>
             ) : (
               <div className="space-y-6">
-                <div className="flex items-center gap-2 text-green-600">
-                  <CheckCircle className="w-5 h-5" />
-                  <span className="font-medium">Data extracted successfully!</span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-green-600">
+                    <CheckCircle className="w-5 h-5" />
+                    <span className="font-medium">Data extracted successfully!</span>
+                  </div>
+                  {typeof extractedData.confidence === 'number' && (
+                    <span className="text-xs px-2 py-1 bg-blue-50 text-blue-600 rounded-full">
+                      {Math.round(extractedData.confidence * 100)}% confidence
+                    </span>
+                  )}
                 </div>
 
                 <div className="space-y-4">

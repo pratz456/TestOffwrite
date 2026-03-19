@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ArrowLeft, Search, ChevronDown, ChevronUp, Building, Settings, Info, Home, TrendingUp } from 'lucide-react';
 import { formatCategory, consolidateCategory } from '@/lib/utils';
+import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
 
 const writeOffLogo = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAzMiAzMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iOCIgZmlsbD0iIzMzNjZDQyIvPgo8dGV4dCB4PSIxNiIgeT0iMjIiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxOCIgZm9udC13ZWlnaHQ9ImJvbGQiIGZpbGw9IndoaXRlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5XPC90ZXh0Pgo8L3N2Zz4K';
 
@@ -31,9 +32,43 @@ interface CategoriesScreenProps {
     };
   };
   onBack: () => void;
-  transactions: Transaction[];
+  transactions: Transaction[] | null | undefined;
   onTransactionClick?: (transaction: Transaction) => void;
 }
+
+const CategoriesSkeleton = () => (
+  <div className="bg-background min-h-screen">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
+      <div className="h-7 w-36 bg-muted rounded animate-pulse mb-1" />
+      <div className="h-4 w-64 bg-muted rounded animate-pulse" />
+    </div>
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-5 space-y-5 sm:space-y-6">
+      <div className="grid grid-cols-1 min-[480px]:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-5">
+        {[...Array(4)].map((_, i) => (
+          <div key={i} className="bg-card rounded-xl p-4 sm:p-5 border border-border space-y-2">
+            <div className="h-6 w-24 bg-muted rounded animate-pulse" />
+            <div className="h-3 w-32 bg-muted rounded animate-pulse" />
+          </div>
+        ))}
+      </div>
+      <div className="bg-card border border-border rounded-xl p-3 sm:p-4">
+        <div className="h-11 bg-muted rounded-xl animate-pulse" />
+      </div>
+      <div className="space-y-3">
+        {[...Array(6)].map((_, i) => (
+          <div key={i} className="bg-card border border-border rounded-xl p-5 flex items-center gap-4">
+            <div className="w-10 h-10 bg-muted rounded-full animate-pulse shrink-0" />
+            <div className="flex-1 space-y-2">
+              <div className="h-4 w-32 bg-muted rounded animate-pulse" />
+              <div className="h-3 w-48 bg-muted rounded animate-pulse" />
+            </div>
+            <div className="h-4 w-16 bg-muted rounded animate-pulse" />
+          </div>
+        ))}
+      </div>
+    </div>
+  </div>
+);
 
 
 
@@ -87,6 +122,32 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
   const [showDeductionsTooltip, setShowDeductionsTooltip] = useState(false);
   const [showSavingsTooltip, setShowSavingsTooltip] = useState(false);
 
+  if (transactions == null) {
+    return <CategoriesSkeleton />;
+  }
+
+  if (transactions.length === 0) {
+    return (
+      <div className="bg-background min-h-screen">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-foreground mb-0.5">Categories</h1>
+          <p className="text-xs sm:text-sm text-muted-foreground">Your tax deduction breakdown and category analysis</p>
+        </div>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-5">
+          <div className="bg-card border border-border rounded-xl shadow-sm">
+            <div className="text-center py-12">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-muted flex items-center justify-center">
+                <Building className="w-8 h-8 text-muted-foreground" />
+              </div>
+              <h3 className="text-lg font-medium text-foreground mb-2">No expense data yet</h3>
+              <p className="text-sm text-muted-foreground max-w-sm mx-auto">Your spending categories will appear here once you have transactions.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // Filter deductible transactions (include all deductible transactions regardless of amount sign)
   const deductibleTransactions = transactions.filter(t => t.is_deductible === true);
 
@@ -115,7 +176,7 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
   const categoryData = Object.entries(categoryGroups).map(([consolidatedName, groupData]) => {
     const totalAmount = groupData.transactions.reduce((sum, t) => sum + Math.abs(t.amount || 0), 0);
     const percentage = totalDeductions > 0 ? (totalAmount / totalDeductions) * 100 : 0;
-    const taxSavings = totalAmount * 0.3; // 30% tax rate
+    const taxSavings = totalAmount * getUserTaxRate();
     
     return {
       category: consolidatedName,
@@ -146,7 +207,7 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
   };
 
   // Calculate total tax savings directly from total deductions
-  const totalTaxSavings = totalDeductions * 0.30;
+  const totalTaxSavings = totalDeductions * getUserTaxRate();
   const activeCategories = categoryData.length;
 
   return (
@@ -189,6 +250,7 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
               placeholder="Search categories..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
+              aria-label="Search categories"
               className="w-full pl-9 pr-3 py-3 min-h-[44px] text-sm bg-background rounded-xl border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-primary/40 focus:shadow-[0_0_0_3px_hsl(var(--primary)/0.12)] shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-[inset_0_1px_2px_rgba(0,0,0,0.2)] transition-all duration-150"
             />
           </div>
@@ -314,7 +376,7 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
                                   ${Math.abs(transaction.amount).toFixed(2)}
                                 </div>
                                 <div className="col-span-2 font-semibold text-[hsl(var(--success))] tabular-nums">
-                                  ${(Math.abs(transaction.amount) * 0.3).toFixed(2)}
+                                  ${(Math.abs(transaction.amount) * getUserTaxRate()).toFixed(2)}
                                 </div>
                                 <div className="col-span-2 text-xs text-muted-foreground">
                                   {((Math.abs(transaction.amount) / categoryData.totalAmount) * 100).toFixed(1)}%
@@ -431,7 +493,7 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
                                 ${Math.abs(transaction.amount).toFixed(2)}
                               </div>
                               <div className="text-xs text-[hsl(var(--success))]">
-                                ${(Math.abs(transaction.amount) * 0.3).toFixed(0)} tax saved
+                                ${(Math.abs(transaction.amount) * getUserTaxRate()).toFixed(0)} tax saved
                               </div>
                             </div>
                           </div>

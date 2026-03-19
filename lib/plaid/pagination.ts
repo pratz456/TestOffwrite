@@ -16,7 +16,7 @@ const DEBUG_PLAID = process.env.DEBUG_PLAID === 'true';
 export async function fetchAllPlaidTransactions(
   plaidClient: PlaidApi,
   request: Omit<TransactionsGetRequest, 'options'> & {
-    options?: Omit<TransactionsGetRequest['options'], 'offset' | 'count'>
+    options?: Omit<TransactionsGetRequest['options'], 'offset' | 'count'> & Record<string, any>
   },
   logPrefix: string = '[Plaid]'
 ): Promise<{
@@ -78,7 +78,7 @@ export async function fetchAllPlaidTransactions(
         ...request.options,
         count: PAGE_SIZE,
         offset: offset,
-      },
+      } as TransactionsGetRequest['options'] & Record<string, any>,
     };
     if (DEBUG_PLAID) {
       debugPlaid(`${logPrefix} transactionsGet payload (page ${pageCount})`, {
@@ -227,7 +227,7 @@ export async function fetchAllPlaidTransactions(
         const isPlaidLimitation =
           plaidTotalTransactions !== undefined &&
           allTransactions.length === plaidTotalTransactions &&
-          earliestTxDate > request.start_date;
+          !!earliestTxDate && earliestTxDate > request.start_date;
         debugPlaid(`${logPrefix} Fetch summary`, {
           minTxDate: earliestTxDate,
           maxTxDate: latestTxDate,

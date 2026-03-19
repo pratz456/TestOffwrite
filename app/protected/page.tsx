@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { getUserProfile } from "@/lib/firebase/profiles";
 import { ProfileSetupScreen } from "@/components/profile-setup-screen";
@@ -10,18 +11,51 @@ import { ReceiptUploadScreen } from "@/components/receipt-upload-screen";
 import { TaxCalendarScreen } from "@/components/tax-calendar-screen";
 import { TransactionDetailScreen } from "@/components/transaction-detail-screen";
 import { ReviewTransactionsScreen } from "@/components/review-transactions-screen";
-import { ScheduleCExportScreen } from "@/components/schedule-c-export-screen";
 import { DeductionsDetailScreen } from "@/components/deductions-detail-screen";
 import { ExpensesDetailScreen } from "@/components/expenses-detail-screen";
 import { BanksDetailScreen } from "@/components/banks-detail-screen";
-import { ProfitLossDetailScreen } from "@/components/profit-loss-detail-screen";
 import { CategoriesScreen } from "@/components/categories-screen";
 import { PlaidLinkScreen } from "@/components/plaid-link-screen";
 import { PlaidScreen } from "@/components/plaid-screen";
 import { AIInsightsPage } from "@/components/ai-insights-page";
 import { TaxEducationModal } from "@/components/tax-education-modal";
 import { MobileQuickActions } from "@/components/mobile-quick-actions";
-import { QuarterlyTaxCalculator } from "@/components/quarterly-tax-calculator";
+import { ProfitLossReportScreen } from "@/components/profit-loss-report-screen";
+import { QuarterlyPaymentTrackingScreen } from "@/components/quarterly-payment-tracking-screen";
+import { ActionItemsScreen } from "@/components/action-items-screen";
+
+const ScheduleCExportScreen = dynamic(
+  () => import("@/components/schedule-c-export-screen").then((m) => m.ScheduleCExportScreen || m.default),
+  { ssr: false }
+);
+const TaxAssistantScreen = dynamic(
+  () => import("@/components/tax-assistant-screen").then((m) => m.TaxAssistantScreen || m.default),
+  { ssr: false }
+);
+const MileageTrackerScreen = dynamic(
+  () => import("@/components/mileage-tracker-screen").then((m) => m.MileageTrackerScreen || m.default),
+  { ssr: false }
+);
+const ProfitLossDetailScreen = dynamic(
+  () => import("@/components/profit-loss-detail-screen").then((m) => m.ProfitLossDetailScreen || m.default),
+  { ssr: false }
+);
+const QuarterlyTaxCalculator = dynamic(
+  () => import("@/components/quarterly-tax-calculator").then((m) => m.QuarterlyTaxCalculator || m.default),
+  { ssr: false }
+);
+const IncomeTrackingScreen = dynamic(
+  () => import("@/components/income-tracking-screen").then((m) => m.IncomeTrackingScreen || m.default),
+  { ssr: false }
+);
+const TaxFormWizardScreen = dynamic(
+  () => import("@/components/tax-form-wizard-screen").then((m) => m.TaxFormWizardScreen || m.default),
+  { ssr: false }
+);
+const StateTaxCalculatorScreen = dynamic(
+  () => import("@/components/state-tax-calculator-screen").then((m) => m.StateTaxCalculatorScreen || m.default),
+  { ssr: false }
+);
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useTransactions } from "@/lib/firebase/hooks";
@@ -47,7 +81,7 @@ export default function ProtectedPage() {
   const [userProfile, setUserProfile] = useState<any>(null);
   const [hasProfile, setHasProfile] = useState<boolean | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [currentScreen, setCurrentScreen] = useState<'dashboard' | 'settings' | 'add-expense' | 'receipt-upload' | 'tax-calendar' | 'transactions' | 'review-transactions' | 'schedule-c-export' | 'edit-expense' | 'deductions-detail' | 'expenses-detail' | 'banks-detail' | 'profit-loss-detail' | 'categories' | 'plaid-link' | 'plaid' | 'transaction-detail' | 'reports' | 'ai-insights' | 'quarterly-taxes'>('dashboard');
+  const [currentScreen, setCurrentScreen] = useState<'dashboard' | 'settings' | 'add-expense' | 'receipt-upload' | 'tax-calendar' | 'transactions' | 'review-transactions' | 'schedule-c-export' | 'edit-expense' | 'deductions-detail' | 'expenses-detail' | 'banks-detail' | 'profit-loss-detail' | 'categories' | 'plaid-link' | 'plaid' | 'transaction-detail' | 'reports' | 'ai-insights' | 'quarterly-taxes' | 'mileage-tracker' | 'income-tracking' | 'tax-form-wizard' | 'state-tax-calculator' | 'tax-assistant' | 'profit-loss-report' | 'quarterly-payments' | 'action-items'>('dashboard');
   const [navigationStack, setNavigationStack] = useState<string[]>(['dashboard']);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
@@ -472,6 +506,10 @@ export default function ProtectedPage() {
       setCurrentScreen('ai-insights');
     } else if (screen === 'quarterly-taxes') {
       setCurrentScreen('quarterly-taxes');
+    } else if (screen === 'tax-form-wizard') {
+      setCurrentScreen('tax-form-wizard');
+    } else if (screen === 'state-tax-calculator') {
+      setCurrentScreen('state-tax-calculator');
     } else if (screen === 'mobile-actions') {
       setIsMobileQuickActionsVisible(!isMobileQuickActionsVisible);
     }
@@ -856,6 +894,84 @@ export default function ProtectedPage() {
           transaction={viewingTransaction}
           onBack={handleGoBack}
           onSave={handleSaveTransaction}
+        />
+      );
+    }
+
+    if (currentScreen === 'mileage-tracker') {
+      return (
+        <MileageTrackerScreen
+          user={{ id: user.id, email: user.email ?? undefined }}
+          onBack={handleGoBack}
+        />
+      );
+    }
+
+    if (currentScreen === 'income-tracking') {
+      return (
+        <IncomeTrackingScreen
+          user={{ id: user.id, email: user.email ?? undefined }}
+          onBack={handleGoBack}
+        />
+      );
+    }
+
+    if (currentScreen === 'tax-form-wizard') {
+      return (
+        <TaxFormWizardScreen
+          user={{ id: user.id, email: user.email ?? undefined }}
+          userProfile={userProfile}
+          onBack={handleGoBack}
+        />
+      );
+    }
+
+    if (currentScreen === 'state-tax-calculator') {
+      return (
+        <StateTaxCalculatorScreen
+          user={{ id: user.id, email: user.email ?? undefined }}
+          userProfile={userProfile}
+          onBack={handleGoBack}
+        />
+      );
+    }
+
+    if (currentScreen === 'tax-assistant') {
+      return (
+        <TaxAssistantScreen
+          user={{ id: user.id, email: user.email ?? undefined }}
+          userProfile={userProfile}
+          onBack={handleGoBack}
+        />
+      );
+    }
+
+    if (currentScreen === 'profit-loss-report') {
+      return (
+        <ProfitLossReportScreen
+          user={{ id: user.id, email: user.email ?? undefined }}
+          onBack={handleGoBack}
+        />
+      );
+    }
+
+    if (currentScreen === 'action-items') {
+      return (
+        <ActionItemsScreen
+          user={{ id: user.id, email: user.email ?? undefined }}
+          onBack={handleGoBack}
+          onNavigate={handleNavigate}
+          profile={userProfile}
+          transactions={transactions}
+        />
+      );
+    }
+
+    if (currentScreen === 'quarterly-payments') {
+      return (
+        <QuarterlyPaymentTrackingScreen
+          user={{ id: user.id, email: user.email ?? undefined }}
+          onBack={handleGoBack}
         />
       );
     }

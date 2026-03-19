@@ -1,9 +1,11 @@
 import Stripe from 'stripe';
 import { adminDb } from '@/lib/firebase/admin';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2024-12-18.acacia',
-});
+function getStripeOrNull() {
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) return null;
+  return new Stripe(key, { apiVersion: '2025-10-29.clover' });
+}
 
 /**
  * Cancel all Stripe subscriptions for a user and clean up Stripe customer
@@ -19,6 +21,10 @@ export async function cancelUserStripeSubscriptions(
   canceledSubscriptions?: number;
 }> {
   try {
+    const stripe = getStripeOrNull();
+    if (!stripe) {
+      return { success: true, canceledSubscriptions: 0 };
+    }
     console.log(`🔄 [Cancel Stripe Subscriptions] Starting for user ${userId}`);
 
     // Get user profile to find Stripe customer ID

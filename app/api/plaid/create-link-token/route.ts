@@ -1,3 +1,6 @@
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 import { NextRequest, NextResponse } from 'next/server';
 import { Configuration, PlaidApi, PlaidEnvironments, LinkTokenCreateRequest, Products, CountryCode } from 'plaid';
 import { startFreeTrial } from '@/lib/subscriptions/trial-manager';
@@ -42,28 +45,28 @@ function getPlaidConfig() {
   return { plaidClientId, plaidSecret, plaidEnv };
 }
 
-const { plaidClientId, plaidSecret, plaidEnv } = getPlaidConfig();
+function pickPlaidErrorDetails(error: any): Record<string, any> | undefined {
+  const data = error?.response?.data;
+  if (!data || typeof data !== 'object') return undefined;
 
-if (!plaidClientId || !plaidSecret) {
-  console.error('❌ Plaid credentials not configured:', {
-    hasClientId: !!plaidClientId,
-    hasSecret: !!plaidSecret,
-    env: plaidEnv
-  });
-  throw new Error('Plaid credentials not configured. Please add PLAID_CLIENT_ID and PLAID_SECRET to your environment variables.');
+  const details: Record<string, any> = {};
+  const allow = [
+    'error_type',
+    'error_code',
+    'error_message',
+    'display_message',
+    'request_id',
+    'documentation_url',
+    'suggested_action',
+    'causes',
+    'status',
+  ] as const;
+
+  for (const k of allow) {
+    if (data[k] !== undefined) details[k] = data[k];
+  }
+  return Object.keys(details).length ? details : undefined;
 }
-
-const configuration = new Configuration({
-  basePath: PlaidEnvironments[plaidEnv as keyof typeof PlaidEnvironments] || PlaidEnvironments.sandbox,
-  baseOptions: {
-    headers: {
-      'PLAID-CLIENT-ID': plaidClientId,
-      'PLAID-SECRET': plaidSecret,
-    },
-  },
-});
-
-const client = new PlaidApi(configuration);
 
 export async function POST(request: NextRequest) {
   try {
@@ -93,6 +96,33 @@ export async function POST(request: NextRequest) {
       console.log('✅ [Plaid Link Token] User ID received:', uid);
     }
 
+    const { plaidClientId, plaidSecret, plaidEnv } = getPlaidConfig();
+    if (!plaidClientId || !plaidSecret) {
+      console.error('❌ Plaid credentials not configured:', {
+        hasClientId: !!plaidClientId,
+        hasSecret: !!plaidSecret,
+        env: plaidEnv,
+      });
+      return NextResponse.json(
+        {
+          error: 'Plaid credentials not configured. Please add PLAID_CLIENT_ID and PLAID_SECRET.',
+          debug: { hasClientId: !!plaidClientId, hasSecret: !!plaidSecret, env: plaidEnv },
+        },
+        { status: 500 }
+      );
+    }
+
+    const configuration = new Configuration({
+      basePath: PlaidEnvironments[plaidEnv as keyof typeof PlaidEnvironments] || PlaidEnvironments.sandbox,
+      baseOptions: {
+        headers: {
+          'PLAID-CLIENT-ID': plaidClientId,
+          'PLAID-SECRET': plaidSecret,
+        },
+      },
+    });
+    const client = new PlaidApi(configuration);
+
     const configs: LinkTokenCreateRequest = {
       user: {
         client_user_id: uid,
@@ -119,6 +149,9 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('❌ [Plaid Link Token] Error creating link token:', error);
 
+    const { plaidClientId, plaidSecret, plaidEnv } = getPlaidConfig();
+    const plaid = pickPlaidErrorDetails(error);
+
     // More detailed error logging
     if (error instanceof Error) {
       console.error('❌ [Plaid Link Token] Error details:', {
@@ -130,28 +163,44 @@ export async function POST(request: NextRequest) {
       // Handle specific error types
       if (error.message.includes('ENOTFOUND') || error.message.includes('getaddrinfo')) {
         return NextResponse.json(
-          { error: 'Network connectivity issue. Please check your internet connection and try again.' },
+          {
+            error: 'Network connectivity issue. Please check your internet connection and try again.',
+            plaid,
+            debug: { hasClientId: !!plaidClientId, hasSecret: !!plaidSecret, env: plaidEnv },
+          },
           { status: 503 }
         );
       }
 
       if (error.message.includes('credentials not configured')) {
         return NextResponse.json(
-          { error: 'Plaid credentials not configured. Please contact support.' },
+          {
+            error: 'Plaid credentials not configured. Please contact support.',
+            plaid,
+            debug: { hasClientId: !!plaidClientId, hasSecret: !!plaidSecret, env: plaidEnv },
+          },
           { status: 500 }
         );
       }
 
       if (error.message.includes('Request failed with status code 400')) {
         return NextResponse.json(
-          { error: 'Invalid Plaid configuration. Please check your Plaid credentials and environment settings.' },
+          {
+            error: 'Invalid Plaid configuration. Please check your Plaid credentials and environment settings.',
+            plaid,
+            debug: { hasClientId: !!plaidClientId, hasSecret: !!plaidSecret, env: plaidEnv },
+          },
           { status: 400 }
         );
       }
     }
 
     return NextResponse.json(
-      { error: 'Failed to create link token. Please check your Plaid configuration.' },
+      {
+        error: 'Failed to create link token. Please check your Plaid configuration.',
+        plaid,
+        debug: { hasClientId: !!plaidClientId, hasSecret: !!plaidSecret, env: plaidEnv },
+      },
       { status: 500 }
     );
   }

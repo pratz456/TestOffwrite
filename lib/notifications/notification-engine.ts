@@ -1,6 +1,5 @@
 import { adminDb } from '@/lib/firebase/admin';
-import { getFirestore, collection, doc, getDocs, query, where, orderBy, limit } from 'firebase/firestore';
-import { getAuth } from 'firebase/auth';
+import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
 
 export interface Notification {
   id: string;
@@ -35,7 +34,7 @@ export interface NotificationPreferences {
 }
 
 export class NotificationEngine {
-  private db = getFirestore();
+  private get db() { return adminDb; }
 
   /**
    * Send a notification to a user
@@ -173,14 +172,12 @@ export class NotificationEngine {
    */
   async getUserNotifications(userId: string, limitCount: number = 50): Promise<Notification[]> {
     try {
-      const q = query(
-        collection(this.db, 'notifications'),
-        where('userId', '==', userId),
-        orderBy('sentAt', 'desc'),
-        limit(limitCount)
-      );
+      const snapshot = await this.db.collection('notifications')
+        .where('userId', '==', userId)
+        .orderBy('sentAt', 'desc')
+        .limit(limitCount)
+        .get();
 
-      const snapshot = await getDocs(q);
       return snapshot.docs.map(doc => {
         const data = doc.data();
         return {
@@ -294,13 +291,12 @@ export class NotificationEngine {
       for (const userDoc of usersSnapshot.docs) {
         const userId = userDoc.id;
         
-        // Count unreviewed transactions
-        const unreviewedQuery = query(
-          collection(this.db, 'user_profiles', userId, 'accounts', 'default', 'transactions'),
-          where('analysis_status', '==', 'pending')
-        );
-        
-        const unreviewedSnapshot = await getDocs(unreviewedQuery);
+        const unreviewedSnapshot = await this.db
+          .collection('user_profiles').doc(userId)
+          .collection('accounts').doc('default')
+          .collection('transactions')
+          .where('analysis_status', '==', 'pending')
+          .get();
         const unreviewedCount = unreviewedSnapshot.size;
 
         if (unreviewedCount >= 5) {
@@ -338,13 +334,13 @@ export class NotificationEngine {
         const sevenDaysAgo = new Date();
         sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
         
-        const mileageQuery = query(
-          collection(this.db, 'user_profiles', userId, 'accounts', 'default', 'transactions'),
-          where('category', '==', 'vehicle_expense'),
-          where('date', '>=', sevenDaysAgo.toISOString().split('T')[0])
-        );
-        
-        const mileageSnapshot = await getDocs(mileageQuery);
+        const mileageSnapshot = await this.db
+          .collection('user_profiles').doc(userId)
+          .collection('accounts').doc('default')
+          .collection('transactions')
+          .where('category', '==', 'vehicle_expense')
+          .where('date', '>=', sevenDaysAgo.toISOString().split('T')[0])
+          .get();
         
         if (mileageSnapshot.size === 0) {
           await this.sendNotification({
@@ -373,18 +369,19 @@ export class NotificationEngine {
 
       for (const userDoc of usersSnapshot.docs) {
         const userId = userDoc.id;
+        const userData = userDoc.data();
         
         // Calculate recent deductions (last 30 days)
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
         
-        const deductionsQuery = query(
-          collection(this.db, 'user_profiles', userId, 'accounts', 'default', 'transactions'),
-          where('is_deductible', '==', true),
-          where('date', '>=', thirtyDaysAgo.toISOString().split('T')[0])
-        );
-        
-        const deductionsSnapshot = await getDocs(deductionsQuery);
+        const deductionsSnapshot = await this.db
+          .collection('user_profiles').doc(userId)
+          .collection('accounts').doc('default')
+          .collection('transactions')
+          .where('is_deductible', '==', true)
+          .where('date', '>=', thirtyDaysAgo.toISOString().split('T')[0])
+          .get();
         let totalDeductions = 0;
         
         deductionsSnapshot.forEach(doc => {
@@ -398,7 +395,7 @@ export class NotificationEngine {
             userId,
             type: 'celebration',
             title: '🎉 Great Job!',
-            message: `You've identified $${totalDeductions.toFixed(0)} in deductions this month. That's potential tax savings of $${(totalDeductions * 0.25).toFixed(0)}!`,
+            message: `You've identified $${totalDeductions.toFixed(0)} in deductions this month. That's potential tax savings of $${(totalDeductions * getUserTaxRate(userData)).toFixed(0)}!`,
             priority: 'low',
             actionUrl: '/protected?screen=ai-insights',
             actionText: 'View Insights',
@@ -433,8 +430,9 @@ export class NotificationEngine {
     const w2Income = userData.w2_income || 0;
     const totalIncome = businessIncome + w2Income;
     
-    // Simple estimation: 25% of business income for self-employment tax + income tax
-    return businessIncome * 0.25;
+    // Use effective tax rate from profile for estimation
+    const profileForRate = { income: totalIncome, filing_status: userData.filing_status || 'single' };
+    return businessIncome * getUserTaxRate(profileForRate);
   }
 
   private async sendPushNotification(notification: Notification): Promise<void> {

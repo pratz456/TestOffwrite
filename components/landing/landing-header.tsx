@@ -7,11 +7,12 @@ import { Menu, X } from "lucide-react";
 import { AuthButtons } from "./cta-button";
 
 const NAV_LINKS = [
-  { label: "Home", href: "#" },
-  { label: "Problem", href: "#problem" },
-  { label: "Features", href: "#features" },
-  { label: "How It Works", href: "#how-it-works" },
-  { label: "Reviews", href: "#reviews" },
+  { label: "Home", href: "/" },
+  { label: "Problem", href: "/#problem" },
+  { label: "Features", href: "/#features" },
+  { label: "How It Works", href: "/#how-it-works" },
+  { label: "Reviews", href: "/#reviews" },
+  { label: "Blog", href: "/blog" },
 ];
 
 export function LandingHeader() {

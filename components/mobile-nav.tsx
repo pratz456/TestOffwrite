@@ -219,7 +219,7 @@ export const MobileNav: React.FC<MobileNavProps> = ({ user, userProfile }) => {
             </div>
 
             {/* Navigation Items */}
-            <nav className="flex-1 p-2 space-y-1">
+            <nav className="flex-1 p-2 space-y-1" aria-label="Mobile navigation">
               {navItems.map((item) => {
                 const Icon = item.icon;
                 const active = isActive(item.href);
@@ -229,6 +229,7 @@ export const MobileNav: React.FC<MobileNavProps> = ({ user, userProfile }) => {
                     key={item.name}
                     type="button"
                     onClick={() => handleNavClick(item.href)}
+                    aria-current={active ? 'page' : undefined}
                     className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-[background-color,color,box-shadow] duration-150 ease-out group w-full text-left min-h-[52px] min-w-[44px] no-tap-highlight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${active
                       ? 'bg-[var(--sidebar-item-active-bg)] text-foreground shadow-[inset_0_0_0_1px_var(--sidebar-item-active-border)]'
                       : 'text-foreground hover:bg-muted active:bg-muted/80 hover:text-foreground'

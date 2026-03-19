@@ -7,10 +7,11 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { useToasts } from '@/components/ui/toast';
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { auth } from '@/lib/firebase/client';
 import { formatCategory, consolidateCategory } from '@/lib/utils';
 import { getTransactionId } from '@/lib/utils/transaction-id';
-import { calculateEffectiveTaxRate } from '@/lib/tax-rules/federal-brackets';
+import { calculateEffectiveTaxRate, getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
 import { useUpdateTransaction } from '@/lib/firebase/mutations';
 // Using API route instead of direct database access
 import {
@@ -122,33 +123,25 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
   // Router hook (top-level hook call)
   const router = useRouter();
 
-  // Add confirmation for unsaved changes
+  // State for unsaved changes confirmation dialog
+  const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
+
+  const performBackNavigation = () => {
+    onBack && onBack();
+    setTimeout(() => {
+      try {
+        router.back();
+      } catch (e) {
+        try { router.push('/protected'); } catch (e) { window.location.href = '/protected'; }
+      }
+    }, 60);
+  };
+
   const handleBackNavigation = () => {
     if (hasUnsavedChanges) {
-      const confirmed = window.confirm(
-        'You have unsaved changes. Are you sure you want to leave? Your changes will be lost.'
-      );
-      if (confirmed) {
-        onBack && onBack();
-        // Fallback: ensure navigation happens even if parent navigation stack is out-of-sync
-        setTimeout(() => {
-          try {
-            router.back();
-          } catch (e) {
-            try { router.push('/protected'); } catch (e) { window.location.href = '/protected'; }
-          }
-        }, 60);
-      }
+      setShowUnsavedDialog(true);
     } else {
-      onBack && onBack();
-      // Fallback navigation: if parent didn't change screen, navigate back in history
-      setTimeout(() => {
-        try {
-          router.back();
-        } catch (e) {
-          try { router.push('/protected'); } catch (e) { window.location.href = '/protected'; }
-        }
-      }, 60);
+      performBackNavigation();
     }
   };
   // Initialize classification from expense_type (AI classification) or fall back to is_deductible
@@ -599,7 +592,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
 
   // Simplified logic - no partial deductions
   const deductiblePercent = 100; // All deductible transactions are 100% deductible
-  const estimatedTaxRatePercent = 31; // Default fallback rate
+  const estimatedTaxRatePercent = Math.round(getUserTaxRate() * 100);
   // Tax savings amount = deductible amount × tax rate
   const deductibleSavingsAmount = classification === 'business'
     ? Math.abs(transaction.amount) * (estimatedTaxRatePercent / 100)
@@ -829,7 +822,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
               ) : (
                 <div className="space-y-4">
                   <p className="text-foreground/90">
-                    {transaction.ai_analysis || transaction.deductible_reason || `${formatCategory(transaction.category)} at ${transaction.merchant_name} are commonly deductible for freelancer/creator businesses. Keep detailed records of services provided and business purpose.`}
+                    {transaction.ai_analysis || transaction.deductible_reason || 'This transaction hasn\'t been analyzed yet. Tap "Analyze" to get a deduction assessment based on your profile and business.'}
                   </p>
                   <div className="space-y-3">
                     <h4 className="font-semibold text-foreground">Key Analysis Factors</h4>
@@ -850,8 +843,8 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                           </span>
                         )}
                         </li>
-                        <li>• <strong className="text-foreground">Deduction Status:</strong> Not Analyzed</li>
-                        <li>• <strong className="text-foreground">Reasoning:</strong> Professional analysis pending</li>
+                        <li>• <strong className="text-foreground">Deduction Status:</strong> Not yet analyzed</li>
+                        <li>• <strong className="text-foreground">Reasoning:</strong> Tap &quot;Analyze&quot; to check if this is deductible for your business.</li>
                       </ul>
                     </div>
                   </div>
@@ -889,7 +882,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                 className="min-h-[100px] rounded-lg border-border bg-background text-foreground placeholder:text-muted-foreground"
               />
               {additionalContext !== (transaction.notes || '') && (
-                <p className="mt-2 text-sm text-green-600 dark:text-green-400">Notes modified — click Save Changes to save</p>
+                <p className="mt-2 text-sm text-green-600 dark:text-green-400">Notes modified - click Save Changes to save</p>
               )}
             </Card>
 
@@ -1051,7 +1044,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-muted-foreground">Deductible %</span>
                   <span className="font-semibold text-emerald-600 dark:text-emerald-400">
-                    {classification === 'business' ? `${deductiblePercent}%` : classification === 'personal' ? '0%' : '—'}
+                    {classification === 'business' ? `${deductiblePercent}%` : classification === 'personal' ? '0%' : '-'}
                   </span>
                 </div>
 
@@ -1178,7 +1171,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                 <div className="rounded-lg p-3 bg-blue-500/10 dark:bg-blue-600/20 border border-blue-600/30 dark:border-blue-500/30">
                   <div className="text-sm text-muted-foreground mb-1">Estimated Tax Savings</div>
                   <div className="font-medium text-blue-700 dark:text-blue-300">
-                    {classification === null ? '—' : `$${deductibleSavingsAmount.toFixed(2)} ${classification === 'business' ? `(${estimatedTaxRatePercent}% of $${Math.abs(transaction.amount).toFixed(2)})` : '(0%)'}`}
+                    {classification === null ? '-' : `$${deductibleSavingsAmount.toFixed(2)} ${classification === 'business' ? `(${estimatedTaxRatePercent}% of $${Math.abs(transaction.amount).toFixed(2)})` : '(0%)'}`}
                   </div>
                 </div>
 
@@ -1316,6 +1309,22 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
           </div>
         </div>
       </div>
+
+      {/* Unsaved Changes Confirmation Dialog */}
+      <ConfirmationDialog
+        open={showUnsavedDialog}
+        onOpenChange={setShowUnsavedDialog}
+        title="Unsaved Changes"
+        description="You have unsaved changes. Are you sure you want to leave? Your changes will be lost."
+        confirmLabel="Leave"
+        cancelLabel="Stay"
+        variant="destructive"
+        onConfirm={() => {
+          setShowUnsavedDialog(false);
+          performBackNavigation();
+        }}
+        onCancel={() => setShowUnsavedDialog(false)}
+      />
 
       {/* CPA Question Modal */}
       {showCpaModal && (

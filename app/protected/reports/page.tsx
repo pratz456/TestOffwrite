@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useMemo, useEffect } from 'react';
+import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
 import { FileText, TrendingUp, TrendingDown, Calendar, BarChart3, AlertCircle, Download, Eye, X, Filter, ChevronDown, DollarSign, ArrowUpRight, ArrowDownRight, Info, RefreshCw, Target, Lock, Sparkles } from 'lucide-react';
 import { Card } from '@/components/ui/card';
@@ -10,6 +11,8 @@ import { useMonthlyDeductions, useTransactions } from '@/lib/react-query/hooks';
 import { ReportsChartSkeleton, PageHeaderSkeleton } from '@/components/ui/skeleton';
 import { ToastContainer, useToasts } from '@/components/ui/toast';
 import { useSubscription } from '@/lib/hooks/use-subscription';
+import { getUserProfile } from '@/lib/firebase/profiles';
+import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
 
 interface MonthlyData {
   month: number;
@@ -41,8 +44,6 @@ interface TransactionDetail {
   is_deductible: boolean;
   deduction_score?: number;
 }
-
-const TAX_RATE = 0.3;
 
 function formatLastSyncReport(ms: number): string {
   const date = new Date(ms);
@@ -91,6 +92,13 @@ export default function ReportsPage() {
   const { toasts, removeToast } = useToasts();
   const [lastSync, setLastSync] = useState<number | null>(null);
   const [analysisInProgress, setAnalysisInProgress] = useState(false);
+  const [profile, setProfile] = useState<any>(null);
+
+  // Load profile for tax rate calculation
+  useEffect(() => {
+    if (!user?.id) return;
+    getUserProfile(user.id).then(({ data }) => setProfile(data ?? null)).catch(() => setProfile(null));
+  }, [user?.id]);
 
   // Data last refreshed & analysis status
   useEffect(() => {
@@ -136,6 +144,7 @@ export default function ReportsPage() {
   const allTransactions = (transactionsResponse?.transactions ?? transactionsResponse?.data ?? []) as ReportTransaction[];
 
   // Memoized aggregates: per-month and summary for chart year (paid, received, deductible, receipts)
+  const taxRate = getUserTaxRate(profile);
   const transactionAggregates = useMemo(() => {
     if (!allTransactions.length) {
       return {
@@ -180,7 +189,7 @@ export default function ReportsPage() {
         perMonth[month].paid += abs;
         totalPaid += abs;
         if (t.is_deductible === true) {
-          perMonth[month].deductibleSavings += abs * TAX_RATE;
+          perMonth[month].deductibleSavings += abs * taxRate;
         }
       }
       if (t.is_deductible !== null && t.is_deductible !== undefined) categorizedCount++;
@@ -207,7 +216,7 @@ export default function ReportsPage() {
       hasReceiptField,
       readyPct
     };
-  }, [allTransactions, chartYear]);
+  }, [allTransactions, chartYear, taxRate]);
 
   // Calculate additional metrics
   const metrics = useMemo(() => {
@@ -298,7 +307,7 @@ export default function ReportsPage() {
   // Function to generate and download report
   const handleGenerateReport = async () => {
     if (!reportsData || !reportsData.summary || !reportsData.monthlyData) {
-      alert('No report data available. Please ensure you have transactions and data to generate a report.');
+      toast.warning('No report data available. Please ensure you have transactions and data to generate a report.');
       return;
     }
 
@@ -330,7 +339,7 @@ export default function ReportsPage() {
 
           // Check if it's a subscription required error
           if (errorData.requiresSubscription) {
-            alert('An active subscription is required to export reports. Please subscribe to access this feature.');
+            toast.warning('An active subscription is required to export reports. Please subscribe to access this feature.');
             router.push('/protected/subscriptions');
             setShowExportModal(false);
             return;
@@ -375,7 +384,7 @@ export default function ReportsPage() {
     } catch (error) {
       console.error('❌ [Reports Page] Error generating report:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to generate report. Please try again.';
-      alert(`Error: ${errorMessage}`);
+      toast.error(errorMessage);
     } finally {
       setIsGeneratingReport(false);
     }

@@ -5,13 +5,18 @@ import { startFreeTrial } from '@/lib/subscriptions/trial-manager';
 import { adminDb } from '@/lib/firebase/admin';
 import Stripe from 'stripe';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2024-12-18.acacia' as any,
-});
+function getStripeOrNull() {
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) return null;
+  return new Stripe(key, {
+    apiVersion: '2025-10-29.clover',
+  });
+}
 
 export async function GET(req: Request) {
   try {
     const { uid } = await getUserFromReqOrThrow(req);
+    const stripe = getStripeOrNull();
 
     // Get user profile first
     const userDoc = await adminDb.doc(`user_profiles/${uid}`).get();
@@ -23,11 +28,12 @@ export async function GET(req: Request) {
     let subscriptionDeleted = false;
 
     // Sync subscription status from Stripe if subscription exists
-    if (subscriptionId) {
+    if (subscriptionId && stripe) {
       try {
         const subscription = await stripe.subscriptions.retrieve(subscriptionId) as any;
         const isActive = subscription.status === 'active';
-        let currentPeriodEnd = subscription.current_period_end ? new Date(subscription.current_period_end * 1000) : null;
+        const firstItem = subscription.items?.data?.[0];
+        let currentPeriodEnd = firstItem?.current_period_end ? new Date(firstItem.current_period_end * 1000) : null;
 
         // TEST MODE: Set subscription end to 0 days (today) for testing expiration behavior
         if (process.env.STRIPE_TEST_MODE_EXPIRE_TODAY === 'true') {
@@ -87,7 +93,7 @@ export async function GET(req: Request) {
           console.error('Error fetching subscription from Stripe:', error);
         }
       }
-    } else if (customerId) {
+    } else if (customerId && stripe) {
       // If no subscription ID but we have customer ID, try to find active subscription
       try {
         const subscriptions = await stripe.subscriptions.list({
@@ -103,9 +109,8 @@ export async function GET(req: Request) {
         if (activeSubscription) {
           const isActive = activeSubscription.status === 'active';
           let currentPeriodEnd: Date | null = null;
-          if (activeSubscription.current_period_end) {
-            currentPeriodEnd = new Date(activeSubscription.current_period_end * 1000);
-          }
+          const activeFirstItem = activeSubscription.items?.data?.[0];
+          if (activeFirstItem?.current_period_end) currentPeriodEnd = new Date(activeFirstItem.current_period_end * 1000);
 
           // TEST MODE: Set subscription end to 0 days (today) for testing expiration behavior
           const testModeEnabled = process.env.STRIPE_TEST_MODE_EXPIRE_TODAY === 'true';
@@ -155,17 +160,18 @@ export async function GET(req: Request) {
     const finalSubscriptionId = updatedUserData?.stripeSubscriptionId;
 
     // Only fetch subscription details if we have a valid ID and it wasn't deleted
-    if (finalSubscriptionId && !subscriptionDeleted) {
+    if (finalSubscriptionId && !subscriptionDeleted && stripe) {
       try {
         const subscription = await stripe.subscriptions.retrieve(finalSubscriptionId) as any;
         const priceId = subscription.items.data[0]?.price?.id;
         const price = priceId ? await stripe.prices.retrieve(priceId) : null;
 
+        const detailFirstItem = subscription.items?.data?.[0];
         subscriptionDetails = {
           id: subscription.id,
           status: subscription.status,
-          currentPeriodStart: subscription.current_period_start ? new Date(subscription.current_period_start * 1000) : null,
-          currentPeriodEnd: subscription.current_period_end ? new Date(subscription.current_period_end * 1000) : null,
+          currentPeriodStart: detailFirstItem?.current_period_start ? new Date(detailFirstItem.current_period_start * 1000) : null,
+          currentPeriodEnd: detailFirstItem?.current_period_end ? new Date(detailFirstItem.current_period_end * 1000) : null,
           cancelAtPeriodEnd: subscription.cancel_at_period_end,
           canceledAt: subscription.canceled_at ? new Date(subscription.canceled_at * 1000) : null,
           planInterval: price?.recurring?.interval || null, // 'month' or 'year'

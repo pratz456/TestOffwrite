@@ -14,6 +14,7 @@ import { ToastContainer, useToasts } from '@/components/ui/toast';
 import { auth } from '@/lib/firebase/client';
 import { HistoricalAccessUpgradeCard } from '@/components/historical-access-upgrade-card';
 import { consolidateCategory } from '@/lib/utils';
+import { toast } from 'sonner';
 
 import {
   DashboardHeader,
@@ -24,6 +25,7 @@ import {
   RecentActivityCard,
   AiAdvisoryCard,
   QuickActionsBar,
+  ActionItemsBanner,
 } from '@/components/dashboard/index';
 
 interface DashboardScreenProps {
@@ -159,10 +161,10 @@ export default function DashboardScreen({
       if (response.ok) {
         setTimeout(() => window.location.reload(), 500);
       } else {
-        alert('Failed to refresh balances. Please try again.');
+        toast.error('Failed to refresh balances. Please try again.');
       }
     } catch {
-      alert('Error refreshing balances. Please try again.');
+      toast.error('Error refreshing balances. Please try again.');
     } finally {
       setIsRefreshingBalances(false);
     }
@@ -186,6 +188,13 @@ export default function DashboardScreen({
         <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 space-y-4">
           {/* Upgrade card */}
           <HistoricalAccessUpgradeCard />
+
+          {/* Proactive Action Items */}
+          <ActionItemsBanner
+            profile={profile}
+            transactions={transactions}
+            onNavigate={onNavigate}
+          />
 
           {/* Row 1: KPI Cards */}
           <KpiGrid

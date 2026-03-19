@@ -10,6 +10,8 @@ export {
   Settings,
   LogOut,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Sparkles,
   CheckCircle,
   Clock,

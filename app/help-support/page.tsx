@@ -1,6 +1,7 @@
 "use client";
 
 import React from 'react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { HelpCircle, ArrowLeft, BookOpen, CreditCard, FileText, MessageCircle, Users } from 'lucide-react';
@@ -34,7 +35,7 @@ export default function HelpSupportPage() {
   };
 
   const handleCommunity = () => {
-    alert('Community features coming soon!');
+    toast.info('Community features coming soon!');
   };
 
   return (

@@ -18,6 +18,7 @@ import {
 } from '@/lib/icons';
 import { Lightbulb, Target, Car, Phone, Calendar, PieChart } from 'lucide-react';
 import { getUserProfile } from '@/lib/firebase/profiles';
+import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
 import { useTransactions } from '@/lib/firebase/hooks';
 import type { Transaction } from '@/lib/firebase/transactions';
 
@@ -88,9 +89,8 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
     loadUserData();
   }, [user.id, transactions]);
 
-  const TAX_RATE_ESTIMATE = 0.25; // 25% for potential savings estimate
-
-    const generateAIInsights = async (profile: any, txList: Transaction[]): Promise<UserInsights> => {
+  const generateAIInsights = async (profile: any, txList: Transaction[]): Promise<UserInsights> => {
+    const TAX_RATE_ESTIMATE = getUserTaxRate(profile);
     const effectiveProfile = profile || {
       profession: ['Freelancer'],
       business_purpose: '',
@@ -156,6 +156,7 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
     const profLower = String(profession).toLowerCase();
 
     // Freelance Designer / creative insights
+    // Illustrative examples; actual savings computed from user transactions when available
     if (profLower.includes('design') || profLower.includes('freelance') || profLower.includes('creative') || profLower.includes('graphic')) {
       insights.push({
         id: 'design-software-deduction',
@@ -164,7 +165,7 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
         category: 'deduction',
         impact: 'high',
         difficulty: 'easy',
-        estimatedSavings: 780, // $52.99/month * 12 * 0.25 tax rate
+        estimatedSavings: 780,
         icon: <FileText className="w-5 h-5" />,
         actionable: true,
         actionText: 'Mark as Business Expense',
@@ -178,7 +179,7 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
         category: 'deduction',
         impact: 'high',
         difficulty: 'medium',
-        estimatedSavings: 750, // 150 sq ft * $5 * 12 months
+        estimatedSavings: 750,
         icon: <Home className="w-5 h-5" />,
         actionable: true,
         actionText: 'Set Up Home Office',
@@ -192,7 +193,7 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
         category: 'deduction',
         impact: 'medium',
         difficulty: 'easy',
-        estimatedSavings: 270, // $90/month * 0.25 tax rate
+        estimatedSavings: 270,
         icon: <Phone className="w-5 h-5" />,
         actionable: true,
         actionText: 'Track Phone Usage',
@@ -201,6 +202,7 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
     }
 
     // Uber/Lyft driver insights
+    // Illustrative examples; actual savings computed from user transactions when available
     if (profLower.includes('uber') || profLower.includes('lyft') || profLower.includes('driver') || profLower.includes('rideshare')) {
       insights.push({
         id: 'mileage-deduction',
@@ -231,6 +233,7 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
     }
 
     // Consultant / developer / writer (software, tools, home office)
+    // Illustrative examples; actual savings computed from user transactions when available
     if (profLower.includes('consultant') || profLower.includes('developer') || profLower.includes('writer') || profLower.includes('software')) {
       insights.push({
         id: 'software-tools-deduction',
