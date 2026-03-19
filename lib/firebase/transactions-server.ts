@@ -95,6 +95,7 @@ function normalizeDoc(doc: FirebaseFirestore.QueryDocumentSnapshot): Transaction
     date: dateIso,
     type: amount < 0 ? 'income' : 'expense',
     is_deductible: data.is_deductible ?? data.deductible ?? null,
+    pending: data.pending ?? null,
     deductible_reason: data.deductible_reason || null,
     deduction_score: data.deduction_score || null,
     ai_analysis: data.ai_analysis || null,
@@ -173,14 +174,24 @@ export async function getTransactionsServer(
     console.log('🔍 [getTransactionsServer] Fetching transactions for user:', userId);
     if (!userId) return { data: [], error: 'Missing userId' };
 
-    const foundMap = new Map<string, Transaction>(); // dedupe by doc path or trans_id
+    const foundMap = new Map<string, Transaction>(); // dedupe by trans_id (+ account_id when available)
 
     // Helper to add docs, dedupe by doc.ref.path (if available) or trans_id
     const addDocs = (docs: FirebaseFirestore.QueryDocumentSnapshot[] | FirebaseFirestore.QuerySnapshot) => {
       const arr = Array.isArray(docs) ? docs : docs.docs;
       arr.forEach((doc: FirebaseFirestore.QueryDocumentSnapshot) => {
         try {
-          const key = doc.ref?.path || (doc.data()?.trans_id || doc.id);
+          const data: any = doc.data() || {};
+          const transId: string | undefined = data?.trans_id || data?.transId || doc.id;
+          const accountId: string | undefined = data?.account_id || data?.accountId;
+
+          // Prefer a stable business identifier (trans_id) instead of doc.ref.path,
+          // because the same transaction can appear in multiple document paths.
+          const key = transId
+            ? accountId
+              ? `${accountId}::${transId}`
+              : `${transId}`
+            : doc.ref?.path || doc.id;
           if (foundMap.has(key)) return;
           const tx = normalizeDoc(doc);
           foundMap.set(key, tx);

@@ -5,9 +5,9 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, Download, FileText, Calendar, Lock, Sparkles } from 'lucide-react';
-import { useAuth } from '@/lib/firebase/auth-context';
 import { useSubscription } from '@/lib/hooks/use-subscription';
 import { useRouter } from 'next/navigation';
+import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 
 interface Transaction {
   id: string;
@@ -37,6 +37,7 @@ interface ScheduleCExportScreenProps {
 
 interface CategorySummary {
   category: string;
+  lineCode?: string;
   lineItem: string;
   amount: number;
   transactionCount: number;
@@ -67,7 +68,9 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
 
 
   // Category mapping to Schedule C line items
-  const categoryToScheduleC: { [key: string]: string } = {
+  // Legacy mapping kept for historical UI logic; not used in the CPA-grade confirmed-only preview.
+  // Kept intentionally to avoid disrupting older debugging flows.
+  const _categoryToScheduleC: { [key: string]: string } = {
     // Meals
     'FOOD_AND_DRINK_COFFEE_SHOP': 'Meals',
     'FOOD_AND_DRINK_FAST_FOOD': 'Meals',
@@ -175,94 +178,43 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
 
   // Memoize transactions array reference to prevent unnecessary re-renders
   const transactionsKey = useMemo(() => {
-    return transactions.map(t => `${t.id}-${t.date}-${t.amount}-${t.is_deductible}`).join('|');
+    return transactions.map(t => `${t.id}-${t.date}-${t.amount}-${t.is_deductible}-${String(t.pending ?? '')}`).join('|');
   }, [transactions]);
 
   // Memoize calculateDeductions to prevent recreation on every render
   const calculateDeductions = useCallback((overrideYearTx?: Transaction[]) => {
-    // Filter transactions for selected year
-    // Ensure we always work with an array
+    // Use shared CPA-grade Schedule C aggregation logic.
+    // confirmed-only excludes is_deductible === null/undefined and nets credits/refunds via signed totals.
     const sourceTx = Array.isArray(overrideYearTx) ? overrideYearTx : (Array.isArray(transactions) ? transactions : []);
-    const yearTransactions = sourceTx.filter(t => {
-      const transactionYear = new Date(t.date).getFullYear().toString();
-      return transactionYear === selectedYear;
+    const aggregation = aggregateScheduleC(sourceTx, selectedYear, CATEGORY_MAP, { mode: 'confirmed-only' });
+
+    const nextLineDetails: Record<string, { confirmed: number; potential: number; amount: number; transactions: Transaction[] }> = {};
+    aggregation.lineItemsArray.forEach((item) => {
+      nextLineDetails[item.lineName] = {
+        confirmed: item.transactionCount,
+        potential: 0,
+        amount: item.deductible,
+        transactions: item.transactions as Transaction[],
+      };
     });
+    setLineDetails(nextLineDetails);
 
-    // Filter for confirmed deductible transactions
-    const confirmedDeductible = yearTransactions.filter(t =>
-      t.is_deductible === true
-    );
-
-    // Find potentially deductible transactions (business categories)
-    // where is_deductible is null or undefined (not yet reviewed)
-    const potentiallyDeductible = yearTransactions.filter(t =>
-      (t.is_deductible === null || t.is_deductible === undefined) &&
-      potentialBusinessCategories.includes(t.category) &&
-      t.amount > 0 // Only expenses, not income
-    );
-
-    const allDeductibleTransactions = [...confirmedDeductible, ...potentiallyDeductible];
-    // Build per-line details for improved preview
-    const perLine: Record<string, { confirmed: number; potential: number; amount: number; transactions: Transaction[] }> = {};
-    allDeductibleTransactions.forEach(t => {
-      const lineItem = categoryToScheduleC[t.category] || 'Other expenses';
-      const key = lineItem;
-      if (!perLine[key]) perLine[key] = { confirmed: 0, potential: 0, amount: 0, transactions: [] };
-      perLine[key].amount += Math.abs(t.amount);
-      perLine[key].transactions.push(t);
-      if (t.is_deductible === true) perLine[key].confirmed += 1; else perLine[key].potential += 1;
-    });
-    setLineDetails(perLine);
-
-    setDeductibleCount(allDeductibleTransactions.length);
-    setConfirmedCount(confirmedDeductible.length);
-    setPotentialCount(potentiallyDeductible.length);
-
-    console.log('🔍 Deduction Calculation Debug:', {
-      yearTransactions: yearTransactions.length,
-      confirmedDeductible: confirmedDeductible.length,
-      potentiallyDeductible: potentiallyDeductible.length,
-      allDeductible: allDeductibleTransactions.length,
-      samplePotentialCategories: potentiallyDeductible.slice(0, 5).map(t => ({
-        merchant: t.merchant_name,
-        category: t.category,
-        amount: t.amount,
-        is_deductible: t.is_deductible
+    const summaries: CategorySummary[] = aggregation.lineItemsArray
+      .map((item) => ({
+        category: item.lineName,
+        lineCode: item.lineCode,
+        lineItem: item.lineName,
+        amount: item.deductible,
+        transactionCount: item.transactionCount,
       }))
-    });
-
-    // Group by Schedule C categories
-    const categoryGroups: { [key: string]: { amount: number; count: number; category: string } } = {};
-
-    allDeductibleTransactions.forEach(transaction => {
-      const scheduleCCategory = categoryToScheduleC[transaction.category] || 'Other expenses';
-
-      if (!categoryGroups[scheduleCCategory]) {
-        categoryGroups[scheduleCCategory] = {
-          amount: 0,
-          count: 0,
-          category: scheduleCCategory
-        };
-      }
-
-      categoryGroups[scheduleCCategory].amount += Math.abs(transaction.amount);
-      categoryGroups[scheduleCCategory].count += 1;
-    });
-
-    // Convert to array and sort by amount
-    const summaries: CategorySummary[] = Object.entries(categoryGroups)
-      .map(([lineItem, data]) => ({
-        category: data.category,
-        lineItem: lineItem,
-        amount: data.amount,
-        transactionCount: data.count
-      }))
-      .sort((a, b) => b.amount - a.amount);
+      // UI currently sorts by descending magnitude.
+      .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
 
     setCategorySummaries(summaries);
-
-    const total = summaries.reduce((sum, cat) => sum + cat.amount, 0);
-    setTotalDeductible(total);
+    setTotalDeductible(aggregation.totalDeductible);
+    setDeductibleCount(aggregation.counts.deductible);
+    setConfirmedCount(aggregation.counts.deductible);
+    setPotentialCount(0);
   }, [transactions, selectedYear]);
 
   useEffect(() => {
@@ -293,6 +245,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
             date: t.date,
             type: t.type,
             is_deductible: t.is_deductible,
+            pending: t.pending ?? null,
             deductible_reason: t.deductible_reason,
             deduction_score: t.deduction_score,
             description: t.description,
@@ -332,51 +285,39 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [transactionsKey, selectedYear, user]);
 
+  const lineNameToLineCode = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const entry of Object.values(CATEGORY_MAP)) {
+      map[entry.name] = entry.line;
+    }
+    return map;
+  }, []);
+
   const getScheduleCLineNumber = (lineItem: string): string => {
-    const lineNumbers: { [key: string]: string } = {
-      'Meals': '24b',
-      'Office expense': '18',
-      'Professional services': '17',
-      'Car and truck expenses': '9',
-      'Travel': '24a',
-      'Other expenses': '27a'
-    };
-    return lineNumbers[lineItem] || '27a';
+    return lineNameToLineCode[lineItem] || '27a';
   };
 
   const handleExport = async () => {
     setIsExporting(true);
 
     try {
-      // Get all transactions for the selected year
-      const yearTransactions = transactions.filter(t => {
-        const transactionYear = new Date(t.date).getFullYear().toString();
-        return transactionYear === selectedYear;
-      });
-
-      // Include both confirmed and potentially deductible transactions
-      const confirmedDeductible = yearTransactions.filter(t => t.is_deductible === true);
-      const potentiallyDeductible = yearTransactions.filter(t =>
-        t.is_deductible == null &&
-        potentialBusinessCategories.includes(t.category) &&
-        t.amount > 0
-      );
-
-      const allDeductibleTransactions = [...confirmedDeductible, ...potentiallyDeductible];
+      // Confirmed-only export: `lineDetails` was computed from the shared aggregateScheduleC() confirmed-only mode,
+      // so it already includes exactly the transactions contributing to the Schedule C totals.
+      const includedTransactions = Object.values(lineDetails).flatMap(d => d.transactions);
 
       // Prepare export data
       const exportData = {
         year: selectedYear,
         format: exportFormat,
         summary: {
-          confirmedDeductible: confirmedDeductible.length,
-          potentiallyDeductible: potentiallyDeductible.length,
-          totalTransactions: allDeductibleTransactions.length,
+          confirmedDeductible: includedTransactions.length,
+          potentiallyDeductible: 0,
+          totalTransactions: includedTransactions.length,
           scheduleCCategories: categorySummaries.length,
           totalBusinessExpenses: totalDeductible
         },
         categories: categorySummaries,
-        transactions: allDeductibleTransactions,
+        transactions: includedTransactions,
         lineDetails
       };
 
@@ -407,6 +348,14 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
   };
 
   const generateCSV = (data: any): string => {
+    const halfCentsAwayFromZero = (cents: number): number => {
+      const abs = Math.abs(cents);
+      const half = Math.floor(abs / 2);
+      const extra = abs % 2;
+      const rounded = half + extra;
+      return cents < 0 ? -rounded : rounded;
+    };
+
     const headers = [
       'Date',
       'Merchant',
@@ -417,15 +366,22 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
       'Description'
     ];
 
-    const rows = data.transactions.map((t: Transaction) => [
-      t.date,
-      t.merchant_name,
-      t.category,
-      getScheduleCLineNumber(categoryToScheduleC[t.category] || 'Other expenses'),
-      Math.abs(t.amount).toFixed(2),
-      t.is_deductible === true ? 'Confirmed Deductible' : 'Potentially Deductible',
-      t.description || t.deductible_reason || t.notes || ''
-    ]);
+    const rows = data.transactions.map((t: Transaction) => {
+      const lineCode = CATEGORY_MAP[t.category]?.line || '27a';
+      const cents = Math.round((t.amount ?? 0) * 100); // signed cents for credits/refunds
+      const contributionCents = lineCode === '24b' ? halfCentsAwayFromZero(cents) : cents;
+      const contribution = contributionCents / 100;
+
+      return [
+        t.date,
+        t.merchant_name,
+        t.category,
+        lineCode,
+        contribution.toFixed(2),
+        'Confirmed Deductible',
+        t.description || t.deductible_reason || t.notes || ''
+      ];
+    });
 
     return [headers, ...rows].map(row =>
       row.map((field: any) => escapeCsvValue(field)).join(',')

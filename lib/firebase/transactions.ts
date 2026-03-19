@@ -252,6 +252,7 @@ export const hydrateTransactionRecord = (data: DocumentData, fallbackId: string)
     datetime: data.datetime,
     type: data.amount < 0 ? 'income' : 'expense',
     is_deductible: data.is_deductible,
+    pending: data.pending ?? null,
     deductible_reason: data.deductible_reason || normalizedAi.reasoning,
     deduction_score: data.deduction_score,
     ai_analysis: data.ai_analysis,

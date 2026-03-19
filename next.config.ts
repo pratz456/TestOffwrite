@@ -4,6 +4,13 @@ import type { NextConfig } from "next";
 const withPWA = require("@ducanh2912/next-pwa").default;
 
 const nextConfig: NextConfig = {
+  // When you open the dev app via LAN/Tailscale (e.g. http://100.70.x.x:3000), Next blocks
+  // cross-origin /_next/* by default. Set NEXT_ALLOWED_DEV_ORIGINS in .env.local (comma-separated hostnames).
+  allowedDevOrigins: (process.env.NEXT_ALLOWED_DEV_ORIGINS ?? "")
+    .split(/[,;\s]+/)
+    .map((h) => h.trim())
+    .filter(Boolean),
+
   // Exclude api-backup directory from build
   pageExtensions: ["ts", "tsx", "js", "jsx"],
 

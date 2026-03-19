@@ -59,6 +59,7 @@ export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyT
   const [quarterlyData, setQuarterlyData] = useState<QuarterlyTaxData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [activeQuarter, setActiveQuarter] = useState(1);
+  const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   useEffect(() => {
     if (userProfile) {
@@ -76,7 +77,8 @@ export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyT
         },
         body: JSON.stringify({
           userProfile,
-          transactions: transactions || []
+          transactions: transactions || [],
+          userTimezone,
         }),
       });
 

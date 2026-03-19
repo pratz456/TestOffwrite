@@ -89,11 +89,8 @@ export interface UserProfile {
   stripeSubscriptionId?: string;
   stripeSubscriptionStatus?: string; // Stripe's subscription status (only set when paid)
 
-  // Column Tax Integration
-  columnTaxTaxpayerId?: string;
-  columnTaxFilingStatus?: 'draft' | 'submitted' | 'accepted' | 'rejected';
-  columnTaxFilingYear?: number;
-  columnTaxLastSyncedAt?: Date | any;
+  // NOTE: Legacy tax provider fields may still exist in Firestore documents for existing users,
+  // but WriteOff should not depend on them after provider migration.
 }
 
 // Server-side function (for use in API routes)

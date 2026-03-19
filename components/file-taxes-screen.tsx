@@ -1,157 +1,147 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import {
   ArrowLeft,
   FileText,
-  CheckCircle2,
   AlertCircle,
   Loader2,
-  Lock,
   Sparkles,
-  Send,
   ShieldCheck,
+  Send,
   ExternalLink,
-  RefreshCw,
-} from 'lucide-react';
-import { useAuth } from '@/lib/firebase/auth-context';
-import { useSubscription } from '@/lib/hooks/use-subscription';
-import { useTransactions } from '@/lib/react-query/hooks';
-import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
-import { useRouter } from 'next/navigation';
-import Script from 'next/script';
+} from "lucide-react";
+import { useAuth } from "@/lib/firebase/auth-context";
+import { useSubscription } from "@/lib/hooks/use-subscription";
+import { useTransactions } from "@/lib/react-query/hooks";
+import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 import {
   aggregateScheduleC,
   type AggregateScheduleCResult,
-} from '@/lib/schedule-c/aggregate';
+} from "@/lib/schedule-c/aggregate";
+import { trackTaxFilingEvent } from "@/lib/analytics/tax-filing";
 
-type FilingStep = 'review' | 'confirm' | 'filing' | 'complete' | 'error';
+type FilingStep = "review" | "confirm" | "redirecting" | "error";
 
-interface FilingStatus {
-  filingStatus: string | null;
-  filingYear?: number;
-  lastSyncedAt?: string;
+interface RedirectStartResponse {
+  success: boolean;
+  redirectUrl?: string;
+  sessionId?: string;
+  requiresSubscription?: boolean;
+  error?: string;
+  details?: string;
+}
+
+function formatCurrency(amount: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(amount);
 }
 
 export function FileTaxesScreen() {
   const router = useRouter();
   const { user } = useAuth();
-  const {
-    hasAccess,
-    isLoading: subscriptionLoading,
-  } = useSubscription();
+
+  const { hasAccess, isLoading: subscriptionLoading } = useSubscription();
 
   const { data: response, isLoading: txLoading } = useTransactions(
-    user?.id || '',
+    user?.id || ""
   );
   const transactions = response?.transactions || response?.data || [];
 
   const [selectedYear, setSelectedYear] = useState(
-    String(new Date().getFullYear()),
+    String(new Date().getFullYear())
   );
-  const [step, setStep] = useState<FilingStep>('review');
+  const [step, setStep] = useState<FilingStep>("review");
   const [confirmed, setConfirmed] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [userUrl, setUserUrl] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [filingStatus, setFilingStatus] = useState<FilingStatus | null>(null);
-  const [statusLoading, setStatusLoading] = useState(false);
 
   const aggregation: AggregateScheduleCResult | null = useMemo(() => {
     if (!transactions || transactions.length === 0) return null;
     return aggregateScheduleC(transactions, selectedYear);
   }, [transactions, selectedYear]);
 
-  const fetchFilingStatus = useCallback(async () => {
-    setStatusLoading(true);
-    try {
-      const res = await makeAuthenticatedRequest(
-        '/api/tax/column-tax/status',
-      );
-      if (res.ok) {
-        const data = await res.json();
-        setFilingStatus(data);
-      }
-    } catch {
-      // silent
-    } finally {
-      setStatusLoading(false);
-    }
+  const isLoading = txLoading || subscriptionLoading;
+
+  // Analytics (GA via gtag stub in app/layout.tsx)
+  useEffect(() => {
+    trackTaxFilingEvent("file_taxes_tab_viewed", {
+      providerName: "taxbandits",
+      taxYear: selectedYear,
+    });
   }, []);
 
-  useEffect(() => {
-    if (user?.id) {
-      fetchFilingStatus();
-    }
-  }, [user?.id, fetchFilingStatus]);
-
-  const handleStartFiling = async () => {
+  const startTaxFiling = useCallback(async () => {
     setIsSubmitting(true);
     setErrorMessage(null);
 
     try {
+      // Important: explicit external redirect flow
       const res = await makeAuthenticatedRequest(
-        '/api/tax/column-tax/start-filing',
+        "/api/tax/taxbandits/start-filing",
         {
-          method: 'POST',
+          method: "POST",
           body: JSON.stringify({ year: parseInt(selectedYear, 10) }),
-        },
+        }
       );
 
-      const data = await res.json();
+      const data = (await res.json()) as RedirectStartResponse;
 
       if (!res.ok) {
         if (data.requiresSubscription) {
-          router.push('/protected/subscriptions');
+          router.push("/protected/subscriptions");
           return;
         }
-        throw new Error(data.error || 'Failed to start filing');
+        throw new Error(data.error || data.details || "Failed to start filing");
       }
 
-      setUserUrl(data.userUrl);
-      setStep('filing');
+      if (!data.redirectUrl) {
+        throw new Error("Missing redirect URL from TaxBandits session.");
+      }
+
+      trackTaxFilingEvent("redirect_confirmed", {
+        providerName: "taxbandits",
+        taxYear: selectedYear,
+        sessionId: data.sessionId,
+      });
+
+      setStep("redirecting");
+
+      // Hard navigation: leave the app.
+      window.location.assign(data.redirectUrl);
     } catch (err) {
-      setErrorMessage(
-        err instanceof Error ? err.message : 'Something went wrong',
-      );
-      setStep('error');
+      const msg =
+        err instanceof Error ? err.message : "Something went wrong";
+      setErrorMessage(msg);
+      setStep("error");
     } finally {
       setIsSubmitting(false);
     }
-  };
+  }, [router, selectedYear]);
 
-  const handleFilingComplete = async () => {
-    setStep('complete');
-    await fetchFilingStatus();
-  };
+  const onContinueClicked = useCallback(() => {
+    trackTaxFilingEvent("taxbandits_cta_clicked", {
+      providerName: "taxbandits",
+      taxYear: selectedYear,
+    });
+    setStep("confirm");
+  }, [selectedYear]);
 
-  useEffect(() => {
-    if (step !== 'filing' || !userUrl) return;
+  const onCancelRedirect = useCallback(() => {
+    trackTaxFilingEvent("redirect_cancelled", {
+      providerName: "taxbandits",
+      taxYear: selectedYear,
+    });
 
-    if (typeof window !== 'undefined' && (window as any).ColumnTax) {
-      (window as any).ColumnTax.openModule({
-        userUrl,
-        onClose: () => setStep('review'),
-        onUserEvent: (event: { name: string; metadata?: unknown }) => {
-          if (event.name === 'filing_complete' || event.name === 'tax_return_submitted') {
-            handleFilingComplete();
-          }
-        },
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, userUrl]);
-
-  const formatCurrency = (amount: number): string =>
-    new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-    }).format(amount);
-
-  const isLoading = txLoading || subscriptionLoading;
+    setStep("review");
+    setConfirmed(false);
+  }, [selectedYear]);
 
   if (isLoading) {
     return (
@@ -167,7 +157,7 @@ export function FileTaxesScreen() {
       <div className="bg-card border-b border-border sticky top-0 z-50 shadow-sm min-w-0">
         <div className="flex items-center justify-between p-4 sm:p-6 min-w-0">
           <button
-            onClick={() => router.push('/protected/reports')}
+            onClick={() => router.push("/protected/reports")}
             className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 rounded min-h-[44px] min-w-[44px] justify-center"
           >
             <ArrowLeft className="w-5 h-5" />
@@ -177,7 +167,7 @@ export function FileTaxesScreen() {
               File Your Taxes
             </h1>
             <p className="text-sm text-muted-foreground">
-              Powered by Column Tax
+              Filing handled externally by TaxBandits
             </p>
           </div>
           <div className="w-12" />
@@ -185,56 +175,28 @@ export function FileTaxesScreen() {
       </div>
 
       <div className="p-4 sm:p-6 max-w-4xl mx-auto space-y-6 min-w-0">
-        {/* Existing Filing Status Banner */}
-        {filingStatus?.filingStatus && filingStatus.filingStatus !== 'draft' && (
-          <Card className="p-4 sm:p-6 bg-card border border-border shadow-sm">
-            <div className="flex items-center gap-3">
-              {filingStatus.filingStatus === 'submitted' && (
-                <Send className="w-5 h-5 text-blue-500" />
-              )}
-              {filingStatus.filingStatus === 'accepted' && (
-                <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-              )}
-              {filingStatus.filingStatus === 'rejected' && (
-                <AlertCircle className="w-5 h-5 text-red-500" />
-              )}
-              <div className="flex-1">
-                <p className="font-medium text-foreground">
-                  {filingStatus.filingYear} Tax Return:{' '}
-                  <Badge
-                    variant={
-                      filingStatus.filingStatus === 'accepted'
-                        ? 'default'
-                        : filingStatus.filingStatus === 'rejected'
-                          ? 'destructive'
-                          : 'secondary'
-                    }
-                    className="ml-1"
-                  >
-                    {filingStatus.filingStatus.charAt(0).toUpperCase() +
-                      filingStatus.filingStatus.slice(1)}
-                  </Badge>
-                </p>
-                {filingStatus.lastSyncedAt && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Last updated:{' '}
-                    {new Date(filingStatus.lastSyncedAt).toLocaleString()}
-                  </p>
-                )}
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={fetchFilingStatus}
-                disabled={statusLoading}
-              >
-                <RefreshCw
-                  className={`w-4 h-4 ${statusLoading ? 'animate-spin' : ''}`}
-                />
-              </Button>
+        {/* Redirect transparency banner */}
+        <Card className="p-4 sm:p-6 bg-card border border-border shadow-sm">
+          <div className="flex items-start gap-3">
+            <div className="p-2 bg-muted/60 rounded-lg shrink-0">
+              <ExternalLink className="w-5 h-5 text-primary" />
             </div>
-          </Card>
-        )}
+            <div className="flex-1">
+              <h2 className="text-lg font-semibold text-foreground">
+                You are leaving WriteOff
+              </h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                You will be redirected to <span className="font-medium">TaxBandits</span>{" "}
+                to complete filing workflows externally. WriteOff prepares your
+                expense summary; you must verify details before submission.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Badge variant="secondary">External partner</Badge>
+                <Badge variant="outline">Verify before submitting</Badge>
+              </div>
+            </div>
+          </div>
+        </Card>
 
         {/* Subscription Gate */}
         {!subscriptionLoading && !hasAccess && (
@@ -248,12 +210,12 @@ export function FileTaxesScreen() {
                   Unlock Tax Filing
                 </h3>
                 <p className="text-muted-foreground mb-4">
-                  Subscribe to file your taxes directly from WriteOff. Your
-                  Schedule C expenses will be pre-filled automatically.
+                  Subscribe to access the TaxBandits filing workflow. Your
+                  Schedule C-style expense summary will be prepared in WriteOff.
                 </p>
                 <div className="flex flex-wrap gap-3">
                   <Button
-                    onClick={() => router.push('/protected/subscriptions')}
+                    onClick={() => router.push("/protected/subscriptions")}
                     className="bg-gradient-to-r from-purple-500 to-purple-600 dark:from-purple-500 dark:to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white font-medium shadow-md shadow-purple-500/20 dark:shadow-purple-500/30 transition-all duration-200"
                   >
                     <Sparkles className="w-4 h-4 mr-2" />
@@ -266,7 +228,7 @@ export function FileTaxesScreen() {
         )}
 
         {/* ── Step: Review ─────────────────────────────────────────── */}
-        {step === 'review' && hasAccess && (
+        {step === "review" && hasAccess && (
           <>
             {/* Year Selector */}
             <Card className="p-4 sm:p-6 bg-card border border-border shadow-sm">
@@ -290,19 +252,18 @@ export function FileTaxesScreen() {
             {aggregation && aggregation.lineItemsArray.length > 0 ? (
               <Card className="p-4 sm:p-6 bg-card border border-border shadow-sm overflow-hidden">
                 <h3 className="text-lg font-semibold text-foreground mb-2">
-                  Schedule C Summary &mdash; Tax Year {selectedYear}
+                  Schedule C Summary — Tax Year {selectedYear}
                 </h3>
                 <p className="text-sm text-muted-foreground mb-4">
-                  This data will be sent to Column Tax to pre-fill your return.
+                  Use this summary to review your deductible expense categories.
+                  TaxBandits handles the filing workflow externally.
                 </p>
 
                 <div className="overflow-x-auto max-w-full rounded-lg border border-border">
                   <table className="w-full min-w-[480px] text-sm">
                     <thead className="bg-muted text-muted-foreground text-xs uppercase">
                       <tr>
-                        <th className="px-3 py-2 text-left font-medium">
-                          Line
-                        </th>
+                        <th className="px-3 py-2 text-left font-medium">Line</th>
                         <th className="px-3 py-2 text-left font-medium">
                           Description
                         </th>
@@ -324,8 +285,8 @@ export function FileTaxesScreen() {
                             {item.lineCode}
                           </td>
                           <td className="px-3 py-2 text-foreground">
-                            {item.lineCode === '24b'
-                              ? 'Meals (50%)'
+                            {item.lineCode === "24b"
+                              ? "Meals (50%)"
                               : item.lineName}
                           </td>
                           <td className="px-3 py-2 text-right text-muted-foreground tabular-nums">
@@ -353,17 +314,17 @@ export function FileTaxesScreen() {
                 </div>
 
                 <p className="mt-3 text-xs text-muted-foreground">
-                  This is a preview based on your classified transactions.
-                  Verify all amounts before filing.
+                  This preview is generated from your classified transactions.
+                  Verify every amount and category before submitting.
                 </p>
 
                 <div className="mt-6">
                   <Button
-                    onClick={() => setStep('confirm')}
+                    onClick={onContinueClicked}
                     className="w-full sm:w-auto min-h-[44px] h-12 font-medium rounded-lg flex items-center justify-center gap-2"
                   >
                     <FileText className="w-5 h-5" />
-                    Continue to File
+                    Continue to TaxBandits
                   </Button>
                 </div>
               </Card>
@@ -393,9 +354,8 @@ export function FileTaxesScreen() {
                     1
                   </div>
                   <p>
-                    <span className="text-foreground font-medium">Review</span>{' '}
-                    &mdash; Check your expense summary above. This is the data
-                    that will pre-fill your Schedule C.
+                    <span className="text-foreground font-medium">Review</span>{" "}
+                    — Check your expense summary in WriteOff.
                   </p>
                 </div>
                 <div className="flex items-start gap-3">
@@ -403,9 +363,8 @@ export function FileTaxesScreen() {
                     2
                   </div>
                   <p>
-                    <span className="text-foreground font-medium">Confirm</span>{' '}
-                    &mdash; Verify the data is accurate and confirm you want to
-                    proceed.
+                    <span className="text-foreground font-medium">Confirm</span>{" "}
+                    — Review and confirm you want to leave WriteOff.
                   </p>
                 </div>
                 <div className="flex items-start gap-3">
@@ -413,9 +372,8 @@ export function FileTaxesScreen() {
                     3
                   </div>
                   <p>
-                    <span className="text-foreground font-medium">File</span>{' '}
-                    &mdash; Column Tax pre-fills your return. Review, sign, and
-                    submit directly to the IRS.
+                    <span className="text-foreground font-medium">File</span>{" "}
+                    — TaxBandits handles the filing workflow externally. Verify everything before submission.
                   </p>
                 </div>
               </div>
@@ -424,30 +382,34 @@ export function FileTaxesScreen() {
         )}
 
         {/* ── Step: Confirm ────────────────────────────────────────── */}
-        {step === 'confirm' && (
+        {step === "confirm" && hasAccess && (
           <Card className="p-4 sm:p-6 bg-card border border-border shadow-sm">
             <div className="flex items-center gap-3 mb-4">
               <ShieldCheck className="w-6 h-6 text-primary" />
               <h3 className="text-lg font-semibold text-foreground">
-                Confirm Your Data
+                Confirm You Want to Leave WriteOff
               </h3>
             </div>
 
             <div className="bg-muted/50 rounded-lg p-4 mb-6 border border-border">
               <p className="text-sm text-foreground mb-2">
-                You are about to send the following to Column Tax for tax year{' '}
-                <span className="font-semibold">{selectedYear}</span>:
+                You will be redirected to TaxBandits for tax year{" "}
+                <span className="font-semibold">{selectedYear}</span>.
               </p>
+
               <ul className="text-sm text-muted-foreground space-y-1 ml-4 list-disc">
                 <li>
                   {aggregation?.lineItemsArray.length || 0} expense categories
-                  totaling{' '}
+                  totaling{" "}
                   <span className="font-medium text-foreground">
                     {formatCurrency(aggregation?.totalDeductible || 0)}
                   </span>
                 </li>
                 <li>
                   {aggregation?.counts.deductible || 0} classified transactions
+                </li>
+                <li>
+                  You are responsible for verifying details before submission.
                 </li>
               </ul>
             </div>
@@ -460,15 +422,18 @@ export function FileTaxesScreen() {
                 className="mt-1 w-4 h-4 rounded border-input text-primary focus:ring-primary"
               />
               <span className="text-sm text-foreground">
-                I confirm that the expenses shown above are accurate to the best
-                of my knowledge. I understand that I am responsible for the
-                information filed on my tax return.
+                I confirm the preview summary is accurate to the best of my
+                knowledge, and I understand I will be redirected to an external
+                filing partner (TaxBandits).
               </span>
             </label>
 
             <div className="flex flex-wrap gap-3">
               <Button
-                onClick={handleStartFiling}
+                onClick={() => {
+                  // Fire analytics for the CTA click (handled in review)
+                  startTaxFiling();
+                }}
                 disabled={!confirmed || isSubmitting}
                 className="min-h-[44px] h-12 font-medium rounded-lg flex items-center gap-2"
               >
@@ -477,121 +442,53 @@ export function FileTaxesScreen() {
                 ) : (
                   <Send className="w-5 h-5" />
                 )}
-                {isSubmitting ? 'Starting...' : 'Start Filing'}
+                {isSubmitting ? "Starting..." : "Continue to TaxBandits"}
               </Button>
+
               <Button
                 variant="outline"
-                onClick={() => {
-                  setStep('review');
-                  setConfirmed(false);
-                }}
+                onClick={onCancelRedirect}
                 disabled={isSubmitting}
                 className="min-h-[44px] h-12"
               >
-                Back to Review
+                Cancel
               </Button>
             </div>
           </Card>
         )}
 
-        {/* ── Step: Filing (Column Tax Module) ──────────────────────── */}
-        {step === 'filing' && (
-          <Card className="p-6 sm:p-8 bg-card border border-border shadow-sm">
-            <div className="text-center space-y-4">
-              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mx-auto">
-                <ExternalLink className="w-8 h-8 text-primary" />
-              </div>
-              <h3 className="text-xl font-semibold text-foreground">
-                Complete Your Return
-              </h3>
-              <p className="text-muted-foreground max-w-md mx-auto">
-                Your Schedule C data has been sent to Column Tax. The filing
-                module should have opened — review your pre-filled return and
-                follow the steps to submit.
-              </p>
-              <div className="flex flex-wrap justify-center gap-3 pt-2">
-                {userUrl && (
-                  <Button
-                    onClick={() => {
-                      if ((window as any).ColumnTax) {
-                        (window as any).ColumnTax.openModule({
-                          userUrl,
-                          onClose: () => setStep('review'),
-                          onUserEvent: (event: { name: string; metadata?: unknown }) => {
-                            if (event.name === 'filing_complete' || event.name === 'tax_return_submitted') {
-                              handleFilingComplete();
-                            }
-                          },
-                        });
-                      }
-                    }}
-                    className="min-h-[44px]"
-                  >
-                    <ExternalLink className="w-4 h-4 mr-2" />
-                    Reopen Filing Module
-                  </Button>
-                )}
-                <Button
-                  variant="outline"
-                  onClick={() => setStep('review')}
-                  className="min-h-[44px]"
-                >
-                  Back to Review
-                </Button>
-              </div>
-            </div>
-          </Card>
-        )}
-
-        {/* ── Step: Complete ────────────────────────────────────────── */}
-        {step === 'complete' && (
+        {/* ── Step: Redirecting ───────────────────────────────────── */}
+        {step === "redirecting" && hasAccess && (
           <Card className="p-8 bg-card border border-border shadow-sm">
             <div className="text-center">
-              <CheckCircle2 className="w-16 h-16 text-emerald-500 mx-auto mb-4" />
-              <h3 className="text-2xl font-bold text-foreground mb-2">
-                Filing Submitted!
+              <Loader2 className="w-10 h-10 animate-spin text-primary mx-auto mb-4" />
+              <h3 className="text-xl font-semibold text-foreground mb-2">
+                Redirecting to TaxBandits…
               </h3>
-              <p className="text-muted-foreground mb-6 max-w-md mx-auto">
-                Your {selectedYear} tax return has been submitted through Column
-                Tax. You'll receive confirmation once the IRS accepts it.
+              <p className="text-sm text-muted-foreground max-w-md mx-auto">
+                Leave this page open until the redirect completes.
               </p>
-              <div className="flex flex-wrap justify-center gap-3">
-                <Button
-                  onClick={fetchFilingStatus}
-                  variant="outline"
-                  className="min-h-[44px]"
-                >
-                  <RefreshCw className="w-4 h-4 mr-2" />
-                  Check Status
-                </Button>
-                <Button
-                  onClick={() => router.push('/protected/reports')}
-                  className="min-h-[44px]"
-                >
-                  Back to Reports
-                </Button>
-              </div>
             </div>
           </Card>
         )}
 
         {/* ── Step: Error ──────────────────────────────────────────── */}
-        {step === 'error' && (
+        {step === "error" && hasAccess && (
           <Card className="p-6 bg-card border border-destructive/30 shadow-sm">
             <div className="flex items-start gap-4">
               <AlertCircle className="w-6 h-6 text-destructive shrink-0 mt-0.5" />
               <div className="flex-1">
                 <h3 className="text-lg font-semibold text-foreground mb-1">
-                  Something Went Wrong
+                  Something went wrong
                 </h3>
                 <p className="text-sm text-muted-foreground mb-4">
                   {errorMessage ||
-                    'An unexpected error occurred while starting the filing process.'}
+                    "An unexpected error occurred while starting the filing process."}
                 </p>
                 <div className="flex flex-wrap gap-3">
                   <Button
                     onClick={() => {
-                      setStep('review');
+                      setStep("review");
                       setErrorMessage(null);
                       setConfirmed(false);
                     }}
@@ -601,7 +498,7 @@ export function FileTaxesScreen() {
                   </Button>
                   <Button
                     variant="outline"
-                    onClick={() => router.push('/protected/help')}
+                    onClick={() => router.push("/protected/help")}
                     className="min-h-[44px]"
                   >
                     Get Help
@@ -612,29 +509,9 @@ export function FileTaxesScreen() {
           </Card>
         )}
 
-        {/* Column Tax branding footer */}
-        {hasAccess && (
-          <div className="text-center py-4">
-            <p className="text-xs text-muted-foreground">
-              Tax filing is powered by Column Tax. Column Tax provides an
-              accuracy guarantee and audit assistance.{' '}
-              <a
-                href="https://www.columntax.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary hover:underline"
-              >
-                Learn more
-              </a>
-            </p>
-          </div>
-        )}
+        {/* No embedding: TaxBandits is opened externally */}
       </div>
-
-      <Script
-        src="https://prod.columntax.com/tax-module/column-tax.js"
-        strategy="lazyOnload"
-      />
     </div>
   );
 }
+

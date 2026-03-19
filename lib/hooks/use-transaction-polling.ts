@@ -108,10 +108,18 @@ export function useTransactionPolling(
         body: JSON.stringify({
           userId: user.id,
           import_timeframe: timeframe,
+          /** Background poll uses incremental (cursor) sync — same as on protected load. Avoids full-import lock + false "failures" from already_running. */
+          incremental: true,
         }),
       });
 
       const data = await response.json();
+
+      // Full sync in progress elsewhere — not a user-facing error; retry on next poll
+      if (response.ok && data.status === 'already_running') {
+        console.log('⏳ [Transaction Polling] Skipped — full import already running');
+        return;
+      }
 
       if (response.ok && data.success) {
         const now = new Date();
@@ -125,7 +133,11 @@ export function useTransactionPolling(
         
         console.log(`✅ [Transaction Polling] Synced ${data.transactions_saved} transactions`);
       } else {
-        const errorMessage = data.error || 'Failed to sync transactions';
+        const errorMessage =
+          data.error ||
+          data.details ||
+          (typeof data.message === 'string' ? data.message : null) ||
+          'Failed to sync transactions';
         setError(errorMessage);
         console.error('❌ [Transaction Polling] Sync failed:', errorMessage);
       }

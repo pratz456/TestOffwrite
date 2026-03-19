@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getTransactionsServer } from '@/lib/firebase/transactions-server';
+import { safeTaxYear } from '@/lib/schedule-c/taxDate';
 
 export async function GET(request: NextRequest) {
   try {
@@ -44,9 +45,9 @@ export async function GET(request: NextRequest) {
     }
 
     // Filter transactions for current year
-    const currentYearTransactions = transactions.filter(transaction => {
-      const transactionDate = new Date(transaction.date);
-      return transactionDate.getFullYear() === currentYear;
+    const currentYearTransactions = transactions.filter((transaction) => {
+      const y = safeTaxYear(transaction.date);
+      return y !== null && y === currentYear;
     });
 
     // Calculate Schedule C line items

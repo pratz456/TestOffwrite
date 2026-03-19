@@ -11,6 +11,8 @@
  * PDF generation path: route → getTransactionsServer(uid) → aggregateScheduleC → pdf-lib.
  */
 
+import { safeTaxYear } from './taxDate';
+
 export type CategoryMapEntry = { line: string; name: string; code: string };
 
 export const CATEGORY_MAP: Record<string, CategoryMapEntry> = {
@@ -122,6 +124,7 @@ export interface ScheduleCTransactionLike {
   date: string;
   category: string;
   is_deductible?: boolean | null;
+  pending?: boolean | null;
   merchant_name?: string;
   id?: string;
   [key: string]: unknown;
@@ -156,19 +159,48 @@ export interface AggregateScheduleCResult {
   counts: { deductible: number; year: number };
 }
 
+export type AggregateScheduleCMode = 'default' | 'confirmed-only';
+export interface AggregateScheduleCOptions {
+  mode?: AggregateScheduleCMode;
+}
+
 /**
  * Filter by year, then by isBusinessExpense; group by Schedule C line; apply 50% for meals (24b).
  */
 export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
   transactions: T[],
   year: string,
-  categoryMap: Record<string, CategoryMapEntry> = CATEGORY_MAP
+  categoryMap: Record<string, CategoryMapEntry> = CATEGORY_MAP,
+  options: AggregateScheduleCOptions = {}
 ): AggregateScheduleCResult {
   const yearStr = year.toString();
-  const yearTransactions = transactions.filter((t) => new Date(t.date).getFullYear().toString() === yearStr);
-  const deductibleTransactions = yearTransactions.filter(isBusinessExpense);
+  const mode: AggregateScheduleCMode = options.mode ?? 'default';
+  // Use timezone-safe year extraction (avoid local Date parsing shifting around year boundaries).
+  const yearTransactions = transactions.filter((t) => {
+    const y = safeTaxYear(t.date);
+    return y !== null && y.toString() === yearStr;
+  });
+
+  // CPA-grade logic:
+  // - default mode preserves current "confirmed or potential" behavior
+  // - confirmed-only counts only explicitly confirmed deductible transactions
+  //   and nets credits/refunds (negative amounts) against their mapped lines
+  // - pending transactions are excluded when present
+  const deductibleTransactions =
+    mode === 'confirmed-only'
+      ? yearTransactions.filter((t) => t.pending !== true && t.is_deductible === true)
+      : yearTransactions.filter(isBusinessExpense);
 
   const lineItems: Record<string, LineItemSummary> = {};
+
+  const halfCentsAwayFromZero = (cents: number): number => {
+    // For odd cents, round 0.5 away from zero (deterministic for odd-cent meals).
+    const abs = Math.abs(cents);
+    const half = Math.floor(abs / 2);
+    const extra = abs % 2;
+    const rounded = half + extra;
+    return cents < 0 ? -rounded : rounded;
+  };
 
   for (const tx of deductibleTransactions) {
     const info = categoryMap[tx.category];
@@ -186,16 +218,23 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
       };
     }
 
-    const amount = normalizeAmount(tx);
-    lineItems[lineKey].total += amount;
+    if (mode === 'confirmed-only') {
+      const cents = Math.round((tx.amount ?? 0) * 100); // signed cents
+      const deductibleCents = lineKey === '24b' ? halfCentsAwayFromZero(cents) : cents;
+      lineItems[lineKey].total += cents / 100;
+      lineItems[lineKey].deductible += deductibleCents / 100;
+    } else {
+      const amount = normalizeAmount(tx);
+      lineItems[lineKey].total += amount;
+
+      if (lineKey === '24b') {
+        lineItems[lineKey].deductible += amount * 0.5;
+      } else {
+        lineItems[lineKey].deductible += amount;
+      }
+    }
     lineItems[lineKey].transactionCount += 1;
     lineItems[lineKey].transactions.push(tx);
-
-    if (lineKey === '24b') {
-      lineItems[lineKey].deductible += amount * 0.5;
-    } else {
-      lineItems[lineKey].deductible += amount;
-    }
   }
 
   const lineItemsArray = Object.values(lineItems).sort((a, b) => {

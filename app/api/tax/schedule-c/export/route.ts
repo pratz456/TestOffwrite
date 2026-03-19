@@ -20,6 +20,7 @@ import { checkHistoricalAccess } from '@/lib/subscriptions/historical-access';
 import { getTransactionsServer } from '@/lib/firebase/transactions-server';
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import type { LineItemSummary } from '@/lib/schedule-c/aggregate';
+import { safeTaxYear, safeYMD } from '@/lib/schedule-c/taxDate';
 
 const MARGIN = 54;
 const PAGE_WIDTH = 612;
@@ -73,12 +74,7 @@ function drawHLineWithColor(page: PDFPage, y: number, color: ReturnType<typeof r
 function formatDate(dateStr: string | undefined): string {
   if (!dateStr) return '—';
   try {
-    const d = new Date(dateStr);
-    if (Number.isNaN(d.getTime())) return '—';
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
+    return safeYMD(dateStr) ?? '—';
   } catch {
     return '—';
   }
@@ -134,28 +130,21 @@ export async function POST(request: NextRequest) {
     console.log(`📊 [Schedule C Export] Total transactions fetched: ${transactions.length}`);
 
     // Single source of truth: shared aggregation (year filter, deductible rule, 50% meals)
-    const { totalExpenses, totalDeductible, lineItems, lineItemsArray } = aggregateScheduleC(transactions, year);
+    const { totalExpenses, totalDeductible, lineItems, lineItemsArray } = aggregateScheduleC(
+      transactions,
+      year,
+      CATEGORY_MAP,
+      { mode: 'confirmed-only' }
+    );
     console.log(`📊 [Schedule C Export] Year ${year}: totalExpenses=${totalExpenses.toFixed(2)}, totalDeductible=${totalDeductible.toFixed(2)}, lineItems=${lineItemsArray.length}`);
 
-    // --- Credit / refund detection (post-aggregation; aggregate.ts is NOT modified) ---
-    // Credits: negative-amount transactions in business categories for this year.
-    // aggregateScheduleC excludes them (isBusinessExpense requires amount > 0 for potential),
-    // but is_deductible===true credits slip through as positive via Math.abs.
-    const yearStr = year.toString();
-    const yearTxns = transactions.filter((t: any) => {
-      try { return new Date(t.date).getFullYear().toString() === yearStr; } catch { return false; }
-    });
-    const creditTxns = yearTxns.filter((t: any) => {
-      if (t.amount >= 0) return false;
-      return CATEGORY_MAP[t.category] != null || t.is_deductible === true;
-    });
-    const totalCreditAmount = creditTxns.reduce((sum: number, t: any) => sum + t.amount, 0); // negative
-    const alreadyCountedCredits = creditTxns
-      .filter((t: any) => t.is_deductible === true)
-      .reduce((sum: number, t: any) => sum + Math.abs(t.amount), 0); // positive
-    const hasCredits = creditTxns.length > 0;
-    // Net deductible: remove over-counted credits + apply all credit amounts
-    const netTotalDeductible = totalDeductible - alreadyCountedCredits + totalCreditAmount;
+    // Credits/refunds (negative amounts) are already netted into line totals in `confirmed-only` mode.
+    // We keep a small "offsets" display block for transparency.
+    const creditsInLines = lineItemsArray.flatMap((item: LineItemSummary) =>
+      (item.transactions ?? []).filter((tx: any) => (tx.amount ?? 0) < 0)
+    );
+    const totalCreditAmount = creditsInLines.reduce((sum: number, t: any) => sum + (t.amount ?? 0), 0); // negative
+    const hasCredits = creditsInLines.length > 0;
 
     // --- PDF generation (premium, accountant-ready) ---
     const pdfDoc = await PDFDocument.create();
@@ -284,13 +273,8 @@ export async function POST(request: NextRequest) {
     yPosition -= 14;
 
     lineItemsArray.forEach((item: LineItemSummary) => {
-      const overcountForLine = item.transactions
-        .filter((tx: { amount?: number }) => (tx.amount ?? 0) < 0)
-        .reduce((sum: number, tx: { amount?: number }) => {
-          const abs = Math.abs(tx.amount ?? 0);
-          return sum + (item.lineCode === '24b' ? abs * 0.5 : abs);
-        }, 0);
-      const adjustedDeductible = item.deductible - overcountForLine;
+      // In confirmed-only mode, line totals are already netted (credits/refunds reduce expenses).
+      const adjustedDeductible = item.deductible;
 
       currentPage.drawText(item.lineCode, { x: colLine, y: yPosition, size: BODY_SIZE, font: font, color: BLACK });
       const desc = item.lineCode === '24b' ? 'Meals (50%)' : item.lineName;
@@ -312,7 +296,7 @@ export async function POST(request: NextRequest) {
     drawHLineWithColor(currentPage, yPosition, BORDER_STRONG, 1);
     yPosition -= 14;
 
-    const displayTotal = hasCredits ? netTotalDeductible : totalDeductible;
+    const displayTotal = totalDeductible;
     currentPage.drawRectangle({
       x: MARGIN,
       y: yPosition - line28RowHeight,
@@ -341,14 +325,9 @@ export async function POST(request: NextRequest) {
 
     const breakdownLineGap = 18;
     lineItemsArray.forEach((item: LineItemSummary, idx: number) => {
-      const creditTxnsInLine = item.transactions.filter((tx: { amount?: number }) => (tx.amount ?? 0) < 0);
-      const overcountForLine = creditTxnsInLine.reduce((sum: number, tx: { amount?: number }) => {
-        const abs = Math.abs(tx.amount ?? 0);
-        return sum + (item.lineCode === '24b' ? abs * 0.5 : abs);
-      }, 0);
-      const grossOvercount = creditTxnsInLine.reduce((sum: number, tx: { amount?: number }) => sum + Math.abs(tx.amount ?? 0), 0);
-      const adjustedDeductible = item.deductible - overcountForLine;
-      const adjustedTotal = item.total - grossOvercount;
+      // In confirmed-only mode, these already represent net amounts.
+      const adjustedDeductible = item.deductible;
+      const adjustedTotal = item.total;
 
       nextPageIfNeeded(70);
       if (idx > 0) {
@@ -388,7 +367,7 @@ export async function POST(request: NextRequest) {
         color: GRAY
       });
       yPosition -= 16;
-      currentPage.drawText(`Offset: ${formatCurrency(totalCreditAmount)}  •  Transactions: ${creditTxns.length}`, {
+      currentPage.drawText(`Offset: ${formatCurrency(totalCreditAmount)}  •  Transactions: ${creditsInLines.length}`, {
         x: MARGIN + 8,
         y: yPosition,
         size: BODY_SIZE,
@@ -460,13 +439,8 @@ export async function POST(request: NextRequest) {
     lineItemsArray.forEach((item: LineItemSummary) => {
       if (item.transactions.length === 0) return;
 
-      const overcountForLine = item.transactions
-        .filter((tx: { amount?: number }) => (tx.amount ?? 0) < 0)
-        .reduce((sum: number, tx: { amount?: number }) => {
-          const abs = Math.abs(tx.amount ?? 0);
-          return sum + (item.lineCode === '24b' ? abs * 0.5 : abs);
-        }, 0);
-      const adjustedDeductible = item.deductible - overcountForLine;
+      // In confirmed-only mode, appendix subtotals already reconcile to line totals.
+      const adjustedDeductible = item.deductible;
 
       nextPageIfNeeded(60);
       yPosition -= 10; // spacing before group
