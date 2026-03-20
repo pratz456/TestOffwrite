@@ -248,69 +248,98 @@ export class AILearningEngine {
         ? patternsDoc.data() as LearningPattern
         : this.createEmptyPatterns(userId);
 
+      const now = new Date();
+
+      // Helper: update a single pattern entry with decay + conflict resolution
+      function applyCorrection(
+        entry: { correctionCount: number; lastCorrection: Date; preferredClassification: boolean; confidence: number } | undefined,
+        newClassification: boolean,
+        increment: number
+      ) {
+        if (!entry) {
+          return {
+            correctionCount: 1,
+            lastCorrection: now,
+            preferredClassification: newClassification,
+            confidence: 0.5 + increment,
+          };
+        }
+
+        // Decay confidence based on time since last correction (half-life ~90 days)
+        const daysSinceLast = (now.getTime() - new Date(entry.lastCorrection).getTime()) / (1000 * 60 * 60 * 24);
+        const decayFactor = Math.pow(0.5, daysSinceLast / 90);
+        const decayedConfidence = 0.5 + (entry.confidence - 0.5) * decayFactor;
+
+        if (entry.preferredClassification === newClassification) {
+          // Reinforcement: boost confidence
+          return {
+            correctionCount: entry.correctionCount + 1,
+            lastCorrection: now,
+            preferredClassification: newClassification,
+            confidence: Math.min(0.95, decayedConfidence + increment),
+          };
+        } else {
+          // Contradiction: flip direction and reset confidence to slightly above neutral
+          return {
+            correctionCount: entry.correctionCount + 1,
+            lastCorrection: now,
+            preferredClassification: newClassification,
+            confidence: Math.max(0.5, 0.5 + increment * 0.5),
+          };
+        }
+      }
+
       // Update merchant patterns
       const merchantName = correction.merchantName.toLowerCase();
-      if (!patterns.merchantPatterns[merchantName]) {
-        patterns.merchantPatterns[merchantName] = {
-          correctionCount: 0,
-          lastCorrection: new Date(),
-          preferredClassification: correction.userCorrection.isDeductible,
-          confidence: 0.5
-        };
-      }
-      patterns.merchantPatterns[merchantName].correctionCount++;
-      patterns.merchantPatterns[merchantName].lastCorrection = correction.timestamp;
-      patterns.merchantPatterns[merchantName].preferredClassification = correction.userCorrection.isDeductible;
-      patterns.merchantPatterns[merchantName].confidence = Math.min(0.95, 
-        patterns.merchantPatterns[merchantName].confidence + 0.1);
+      patterns.merchantPatterns[merchantName] = applyCorrection(
+        patterns.merchantPatterns[merchantName],
+        correction.userCorrection.isDeductible,
+        0.1
+      );
 
       // Update category patterns
       const category = correction.category.toLowerCase();
-      if (!patterns.categoryPatterns[category]) {
-        patterns.categoryPatterns[category] = {
-          correctionCount: 0,
-          lastCorrection: new Date(),
-          preferredClassification: correction.userCorrection.isDeductible,
-          confidence: 0.5
-        };
-      }
-      patterns.categoryPatterns[category].correctionCount++;
-      patterns.categoryPatterns[category].lastCorrection = correction.timestamp;
-      patterns.categoryPatterns[category].preferredClassification = correction.userCorrection.isDeductible;
-      patterns.categoryPatterns[category].confidence = Math.min(0.95, 
-        patterns.categoryPatterns[category].confidence + 0.1);
+      patterns.categoryPatterns[category] = applyCorrection(
+        patterns.categoryPatterns[category],
+        correction.userCorrection.isDeductible,
+        0.1
+      );
 
       // Update MCC patterns if available
       if (correction.context.mcc) {
-        if (!patterns.mccPatterns[correction.context.mcc]) {
-          patterns.mccPatterns[correction.context.mcc] = {
-            correctionCount: 0,
-            lastCorrection: new Date(),
-            preferredClassification: correction.userCorrection.isDeductible,
-            confidence: 0.5
-          };
-        }
-        patterns.mccPatterns[correction.context.mcc].correctionCount++;
-        patterns.mccPatterns[correction.context.mcc].lastCorrection = correction.timestamp;
-        patterns.mccPatterns[correction.context.mcc].preferredClassification = correction.userCorrection.isDeductible;
-        patterns.mccPatterns[correction.context.mcc].confidence = Math.min(0.95, 
-          patterns.mccPatterns[correction.context.mcc].confidence + 0.1);
+        patterns.mccPatterns[correction.context.mcc] = applyCorrection(
+          patterns.mccPatterns[correction.context.mcc],
+          correction.userCorrection.isDeductible,
+          0.1
+        );
       }
 
-      // Update amount patterns
+      // Update amount patterns (smaller increment — amount alone is weak signal)
+      // Note: amountPatterns have a different shape (no correctionCount/lastCorrection)
       const amount = Math.abs(correction.context.amount);
       if (amount < patterns.amountPatterns.lowAmount.threshold) {
-        patterns.amountPatterns.lowAmount.preferredClassification = correction.userCorrection.isDeductible;
-        patterns.amountPatterns.lowAmount.confidence = Math.min(0.95, 
-          patterns.amountPatterns.lowAmount.confidence + 0.05);
+        const prev = patterns.amountPatterns.lowAmount;
+        const sameDirection = prev.preferredClassification === correction.userCorrection.isDeductible;
+        patterns.amountPatterns.lowAmount = {
+          ...prev,
+          preferredClassification: correction.userCorrection.isDeductible,
+          confidence: sameDirection
+            ? Math.min(0.95, prev.confidence + 0.05)
+            : Math.max(0.5, 0.5 + 0.025),
+        };
       } else if (amount > patterns.amountPatterns.highAmount.threshold) {
-        patterns.amountPatterns.highAmount.preferredClassification = correction.userCorrection.isDeductible;
-        patterns.amountPatterns.highAmount.confidence = Math.min(0.95, 
-          patterns.amountPatterns.highAmount.confidence + 0.05);
+        const prev = patterns.amountPatterns.highAmount;
+        const sameDirection = prev.preferredClassification === correction.userCorrection.isDeductible;
+        patterns.amountPatterns.highAmount = {
+          ...prev,
+          preferredClassification: correction.userCorrection.isDeductible,
+          confidence: sameDirection
+            ? Math.min(0.95, prev.confidence + 0.05)
+            : Math.max(0.5, 0.5 + 0.025),
+        };
       }
 
-      patterns.lastUpdated = new Date();
-      // Strip undefined values — Firestore rejects them
+      patterns.lastUpdated = now;
       const cleanPatterns = JSON.parse(JSON.stringify(patterns));
       await patternsRef.set(cleanPatterns);
     } catch (error) {

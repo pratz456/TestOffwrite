@@ -431,3 +431,5 @@ export function MileageTrackerScreen({ user, onBack }: MileageTrackerScreenProps
     </div>
   );
 }
+
+export default MileageTrackerScreen;

@@ -315,3 +315,5 @@ export function TaxAssistantScreen({
     </div>
   );
 }
+
+export default TaxAssistantScreen;

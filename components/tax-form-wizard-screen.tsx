@@ -335,3 +335,5 @@ export function TaxFormWizardScreen({
     </div>
   );
 }
+
+export default TaxFormWizardScreen;

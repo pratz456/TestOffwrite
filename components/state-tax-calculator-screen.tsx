@@ -361,3 +361,5 @@ export function StateTaxCalculatorScreen({
     </div>
   );
 }
+
+export default StateTaxCalculatorScreen;

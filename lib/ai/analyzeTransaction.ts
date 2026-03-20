@@ -570,130 +570,76 @@ const IRS_PUBLICATIONS = {
 };
 
 // Function to get appropriate IRS publications based on expense category and context
+// Pre-compiled lookup maps — built once at module load, O(1) per call
+// MCC code → IRS publication key
+const MCC_TO_IRS_KEY: Record<string, keyof typeof IRS_PUBLICATIONS> = {
+  '5812': 'meals', '5814': 'meals',
+  '4121': 'transportation',
+  '7991': 'entertainment', '7996': 'entertainment',
+  '5941': 'equipment', '5945': 'equipment',
+  '5732': 'computers', '5734': 'computers',
+  '5999': 'general_business',
+};
+
+// Merchant keyword → IRS publication key (checked in order, first match wins)
+const MERCHANT_KEYWORD_MAP: Array<[string, keyof typeof IRS_PUBLICATIONS]> = [
+  ['uber', 'transportation'], ['lyft', 'transportation'], ['taxi', 'transportation'],
+  ['restaurant', 'meals'], ['food', 'meals'], ['coffee', 'meals'],
+  ['hotel', 'travel'], ['airbnb', 'travel'], ['travel', 'travel'],
+  ['software', 'software'], ['saas', 'software'], ['subscription', 'software'],
+  ['legal', 'legal'], ['attorney', 'legal'], ['lawyer', 'legal'],
+  ['accounting', 'accounting'], ['cpa', 'accounting'], ['bookkeeping', 'accounting'],
+  ['marketing', 'advertising'], ['advertising', 'advertising'], ['google ads', 'advertising'],
+  ['real estate', 'real_estate'], ['realtor', 'real_estate'], ['property', 'real_estate'],
+  ['farm', 'farming'], ['agriculture', 'farming'], ['crop', 'farming'],
+  ['health', 'healthcare'], ['medical', 'healthcare'], ['clinic', 'healthcare'],
+  ['construction', 'construction'], ['contractor', 'construction'], ['building', 'construction'],
+  ['phone', 'phone'], ['verizon', 'phone'], ['t-mobile', 'phone'],
+  ['internet', 'internet'], ['comcast', 'internet'], ['spectrum', 'internet'],
+  ['insurance', 'insurance'],
+  ['bank', 'bank_fees'], ['chase', 'bank_fees'], ['wells fargo', 'bank_fees'],
+  ['education', 'education'], ['training', 'education'], ['course', 'education'],
+  ['conference', 'conferences'], ['seminar', 'conferences'], ['workshop', 'conferences'],
+  ['office', 'general_business'], ['coworking', 'general_business'],
+  ['tech', 'technology'], ['computer', 'technology'], ['digital', 'technology'],
+  ['retail', 'retail'], ['store', 'retail'], ['shop', 'retail'],
+];
+
+// Category keyword → IRS publication key
+const CATEGORY_KEYWORD_MAP: Array<[string, keyof typeof IRS_PUBLICATIONS]> = [
+  ['travel', 'travel'], ['transportation', 'travel'],
+  ['meals', 'meals'], ['food', 'meals'],
+  ['entertainment', 'entertainment'],
+  ['office', 'office_supplies'], ['supplies', 'office_supplies'],
+  ['equipment', 'equipment'], ['computer', 'equipment'],
+  ['professional', 'professional_services'], ['services', 'professional_services'],
+  ['advertising', 'advertising'], ['marketing', 'advertising'],
+  ['utilities', 'utilities'], ['phone', 'phone'], ['internet', 'internet'],
+  ['insurance', 'insurance'],
+  ['education', 'education'], ['training', 'education'],
+  ['bank', 'bank_fees'], ['financial', 'bank_fees'],
+];
+
 function getIRSReferences(category: string, merchant: string, mcc?: string): string[] {
+  // 1. MCC exact match (O(1))
+  if (mcc && MCC_TO_IRS_KEY[mcc]) {
+    return IRS_PUBLICATIONS[MCC_TO_IRS_KEY[mcc]];
+  }
+
   const merchantLower = merchant.toLowerCase();
+
+  // 2. Merchant keyword scan (short list, linear but tiny)
+  for (const [keyword, key] of MERCHANT_KEYWORD_MAP) {
+    if (merchantLower.includes(keyword)) return IRS_PUBLICATIONS[key];
+  }
+
   const categoryLower = category.toLowerCase();
-  
-  // MCC-based mapping
-  if (mcc) {
-    switch (mcc) {
-      case '5812': // Restaurants
-      case '5814': // Fast Food
-        return IRS_PUBLICATIONS.meals;
-      case '4121': // Taxicabs
-        return IRS_PUBLICATIONS.transportation;
-      case '7991': // Tourist Attractions
-      case '7996': // Amusement Parks
-        return IRS_PUBLICATIONS.entertainment;
-      case '5941': // Sporting Goods
-      case '5945': // Hobby Shops
-        return IRS_PUBLICATIONS.equipment;
-      case '5732': // Electronics
-      case '5734': // Computer Software
-        return IRS_PUBLICATIONS.computers;
-      case '5999': // Miscellaneous Retail
-        return IRS_PUBLICATIONS.general_business;
-    }
+
+  // 3. Category keyword scan
+  for (const [keyword, key] of CATEGORY_KEYWORD_MAP) {
+    if (categoryLower.includes(keyword)) return IRS_PUBLICATIONS[key];
   }
-  
-  // Merchant name-based mapping
-  if (merchantLower.includes('uber') || merchantLower.includes('lyft') || merchantLower.includes('taxi')) {
-    return IRS_PUBLICATIONS.transportation;
-  }
-  if (merchantLower.includes('restaurant') || merchantLower.includes('food') || merchantLower.includes('coffee')) {
-    return IRS_PUBLICATIONS.meals;
-  }
-  if (merchantLower.includes('hotel') || merchantLower.includes('airbnb') || merchantLower.includes('travel')) {
-    return IRS_PUBLICATIONS.travel;
-  }
-  if (merchantLower.includes('office') || merchantLower.includes('coworking') || merchantLower.includes('weWork')) {
-    return IRS_PUBLICATIONS.general_business;
-  }
-  if (merchantLower.includes('software') || merchantLower.includes('saas') || merchantLower.includes('subscription')) {
-    return IRS_PUBLICATIONS.software;
-  }
-  if (merchantLower.includes('legal') || merchantLower.includes('attorney') || merchantLower.includes('lawyer')) {
-    return IRS_PUBLICATIONS.legal;
-  }
-  if (merchantLower.includes('accounting') || merchantLower.includes('cpa') || merchantLower.includes('bookkeeping')) {
-    return IRS_PUBLICATIONS.accounting;
-  }
-  if (merchantLower.includes('marketing') || merchantLower.includes('advertising') || merchantLower.includes('google ads')) {
-    return IRS_PUBLICATIONS.advertising;
-  }
-  if (merchantLower.includes('construction') || merchantLower.includes('contractor') || merchantLower.includes('building')) {
-    return IRS_PUBLICATIONS.construction;
-  }
-  if (merchantLower.includes('real estate') || merchantLower.includes('realtor') || merchantLower.includes('property')) {
-    return IRS_PUBLICATIONS.real_estate;
-  }
-  if (merchantLower.includes('farm') || merchantLower.includes('agriculture') || merchantLower.includes('crop')) {
-    return IRS_PUBLICATIONS.farming;
-  }
-  if (merchantLower.includes('health') || merchantLower.includes('medical') || merchantLower.includes('clinic')) {
-    return IRS_PUBLICATIONS.healthcare;
-  }
-  if (merchantLower.includes('tech') || merchantLower.includes('computer') || merchantLower.includes('digital')) {
-    return IRS_PUBLICATIONS.technology;
-  }
-  if (merchantLower.includes('retail') || merchantLower.includes('store') || merchantLower.includes('shop')) {
-    return IRS_PUBLICATIONS.retail;
-  }
-  if (merchantLower.includes('phone') || merchantLower.includes('verizon') || merchantLower.includes('att')) {
-    return IRS_PUBLICATIONS.phone;
-  }
-  if (merchantLower.includes('internet') || merchantLower.includes('comcast') || merchantLower.includes('spectrum')) {
-    return IRS_PUBLICATIONS.internet;
-  }
-  if (merchantLower.includes('insurance')) {
-    return IRS_PUBLICATIONS.insurance;
-  }
-  if (merchantLower.includes('bank') || merchantLower.includes('chase') || merchantLower.includes('wells fargo')) {
-    return IRS_PUBLICATIONS.bank_fees;
-  }
-  if (merchantLower.includes('education') || merchantLower.includes('training') || merchantLower.includes('course')) {
-    return IRS_PUBLICATIONS.education;
-  }
-  if (merchantLower.includes('conference') || merchantLower.includes('seminar') || merchantLower.includes('workshop')) {
-    return IRS_PUBLICATIONS.conferences;
-  }
-  
-  // Category-based mapping
-  if (categoryLower.includes('travel') || categoryLower.includes('transportation')) {
-    return IRS_PUBLICATIONS.travel;
-  }
-  if (categoryLower.includes('meals') || categoryLower.includes('food')) {
-    return IRS_PUBLICATIONS.meals;
-  }
-  if (categoryLower.includes('entertainment')) {
-    return IRS_PUBLICATIONS.entertainment;
-  }
-  if (categoryLower.includes('office') || categoryLower.includes('supplies')) {
-    return IRS_PUBLICATIONS.office_supplies;
-  }
-  if (categoryLower.includes('equipment') || categoryLower.includes('computer')) {
-    return IRS_PUBLICATIONS.equipment;
-  }
-  if (categoryLower.includes('professional') || categoryLower.includes('services')) {
-    return IRS_PUBLICATIONS.professional_services;
-  }
-  if (categoryLower.includes('advertising') || categoryLower.includes('marketing')) {
-    return IRS_PUBLICATIONS.advertising;
-  }
-  if (categoryLower.includes('utilities') || categoryLower.includes('phone') || categoryLower.includes('internet')) {
-    return IRS_PUBLICATIONS.utilities;
-  }
-  if (categoryLower.includes('insurance')) {
-    return IRS_PUBLICATIONS.insurance;
-  }
-  if (categoryLower.includes('education') || categoryLower.includes('training')) {
-    return IRS_PUBLICATIONS.education;
-  }
-  if (categoryLower.includes('bank') || categoryLower.includes('financial')) {
-    return IRS_PUBLICATIONS.bank_fees;
-  }
-  
-  // Default fallback
+
   return IRS_PUBLICATIONS.general_business;
 }
 
@@ -1020,6 +966,44 @@ Good example for a software subscription:
 Bad example (never write this):
 "Restaurant expenses are commonly deductible for freelancer/creator businesses. Keep detailed records."`;
 
+  // JSON schema for OpenAI structured outputs — mirrors OutputSchema exactly
+  const RESPONSE_JSON_SCHEMA = {
+    name: 'tax_analysis',
+    strict: true,
+    schema: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', enum: ['ok', 'needs_more_info', 'blocked'] },
+        is_deductible: { type: ['boolean', 'null'] },
+        expense_type: { type: ['string', 'null'], enum: ['business', 'personal', null] },
+        category: {
+          type: ['string', 'null'],
+          enum: [
+            'advertising_marketing', 'supplies_small_tools', 'software_subscriptions',
+            'contract_labor', 'equipment', 'vehicle_expense', 'travel', 'meals_50',
+            'home_office', 'utilities_phone_internet', 'education_training',
+            'dues_and_memberships', 'bank_and_payment_fees', 'rent', 'other', null,
+          ],
+        },
+        deductible_percent: { type: ['number', 'null'] },
+        key_analysis_factor: { type: ['string', 'null'] },
+        customized_reason: { type: ['string', 'null'] },
+        reasoning_summary: { type: ['string', 'null'] },
+        irs_refs: { type: ['array', 'null'], items: { type: 'string' } },
+        audit_risk: { type: ['string', 'null'], enum: ['low', 'medium', 'high', null] },
+        audit_risk_rationale: { type: ['string', 'null'] },
+        confidence: { type: ['number', 'null'] },
+        missing_fields: { type: ['array', 'null'], items: { type: 'string' } },
+        questions: { type: ['array', 'null'], items: { type: 'string' } },
+        documentation_required: { type: ['array', 'null'], items: { type: 'string' } },
+        reason: { type: ['string', 'null'] },
+        reason_hash: { type: ['string', 'null'] },
+      },
+      required: ['status'],
+      additionalProperties: false,
+    },
+  };
+
   try {
     const openai = getOpenAIOrThrow();
     const completion = await openai.chat.completions.create({
@@ -1030,128 +1014,46 @@ Bad example (never write this):
       ],
       temperature: 0.1,
       max_tokens: 1000,
-      seed: 42, // For determinism
+      seed: 42,
+      response_format: { type: 'json_schema', json_schema: RESPONSE_JSON_SCHEMA } as any,
     });
 
     const responseText = completion.choices?.[0]?.message?.content;
     if (!responseText) return { success: false, error: 'No response from OpenAI' };
 
-    console.log('🤖 [AI Analysis] Raw model response:', responseText);
-
-    const jsonMatch = typeof responseText === 'string' ? responseText.match(/\{[\s\S]*\}/) : null;
-    const raw = jsonMatch ? jsonMatch[0] : responseText;
-    
-    console.log('🤖 [AI Analysis] Extracted JSON:', raw);
-
     let parsed: any;
     try {
-      parsed = typeof raw === 'object' ? raw : JSON.parse(String(raw));
-    } catch (e) {
+      parsed = JSON.parse(responseText);
+    } catch {
       return { success: false, error: 'Invalid JSON from model' };
     }
 
-    // Post-process: clamp % to [0,100], trim KAF to 400 chars, compute reason_hash
-    if (parsed.deductible_percent !== undefined) {
+    // Light post-processing only — schema guarantees valid shape
+    if (typeof parsed.deductible_percent === 'number') {
       parsed.deductible_percent = Math.max(0, Math.min(100, parsed.deductible_percent));
     }
-    if (parsed.key_analysis_factor) {
+    if (typeof parsed.key_analysis_factor === 'string') {
       parsed.key_analysis_factor = parsed.key_analysis_factor.substring(0, 400);
     }
     if (!parsed.reason_hash) {
       parsed.reason_hash = generateReasonHash(transaction);
     }
-    
-    // Ensure expense_type is always set (infer from is_deductible if not provided by AI)
-    if (!parsed.expense_type && parsed.is_deductible !== undefined) {
+    // Infer expense_type from is_deductible if model omitted it
+    if (!parsed.expense_type && parsed.is_deductible !== undefined && parsed.is_deductible !== null) {
       parsed.expense_type = parsed.is_deductible ? 'business' : 'personal';
-    } else if (!parsed.expense_type) {
-      // Default to personal if neither is set (conservative approach)
+    }
+    if (!parsed.expense_type) {
       parsed.expense_type = 'personal';
-      parsed.is_deductible = false;
+      parsed.is_deductible = parsed.is_deductible ?? false;
     }
 
-    try {
-      const validated = OutputSchema.parse(parsed);
-      return { success: true, result: validated };
-    } catch (err) {
-      console.error('Validation error:', err);
-      console.error('Raw model response:', responseText);
-      console.error('Parsed JSON:', parsed);
-      
-      // Try to fix common issues
-      const fixedParsed = { ...parsed };
-      
-      // Fix missing status
-      if (!fixedParsed.status) {
-        fixedParsed.status = 'ok';
-      }
-      
-      // Ensure expense_type is set (infer from is_deductible if needed)
-      if (!fixedParsed.expense_type && fixedParsed.is_deductible !== undefined) {
-        fixedParsed.expense_type = fixedParsed.is_deductible ? 'business' : 'personal';
-      } else if (!fixedParsed.expense_type) {
-        fixedParsed.expense_type = 'personal';
-        fixedParsed.is_deductible = false;
-      }
-      
-      // Fix invalid category values
-      if (fixedParsed.category) {
-        const categoryMap: Record<string, string> = {
-          'Meals and Entertainment': 'meals_50',
-          'Meals & Entertainment': 'meals_50',
-          'Food and Beverage': 'meals_50',
-          'Restaurant': 'meals_50',
-          'Dining': 'meals_50',
-          'Meals': 'meals_50',
-          'Entertainment': 'meals_50',
-          'Business Meals': 'meals_50',
-          'Client Meals': 'meals_50',
-          'Travel and Entertainment': 'travel',
-          'Business Travel': 'travel',
-          'Transportation': 'vehicle_expense',
-          'Gas': 'vehicle_expense',
-          'Fuel': 'vehicle_expense',
-          'Office Supplies': 'supplies_small_tools',
-          'Software': 'software_subscriptions',
-          'Subscription': 'software_subscriptions',
-          'Equipment': 'equipment',
-          'Tools': 'supplies_small_tools',
-          'Marketing': 'advertising_marketing',
-          'Advertising': 'advertising_marketing',
-          'Professional Services': 'contract_labor',
-          'Contractor': 'contract_labor',
-          'Consulting': 'contract_labor',
-          'Education': 'education_training',
-          'Training': 'education_training',
-          'Membership': 'dues_and_memberships',
-          'Dues': 'dues_and_memberships',
-          'Rent': 'rent',
-          'Office Rent': 'rent',
-          'Home Office': 'home_office',
-          'Utilities': 'utilities_phone_internet',
-          'Phone': 'utilities_phone_internet',
-          'Internet': 'utilities_phone_internet',
-          'Bank Fees': 'bank_and_payment_fees',
-          'Payment Processing': 'bank_and_payment_fees'
-        };
-        
-        if (categoryMap[fixedParsed.category]) {
-          fixedParsed.category = categoryMap[fixedParsed.category];
-        } else if (!['advertising_marketing', 'supplies_small_tools', 'software_subscriptions', 'contract_labor', 'equipment', 'vehicle_expense', 'travel', 'meals_50', 'home_office', 'utilities_phone_internet', 'education_training', 'dues_and_memberships', 'bank_and_payment_fees', 'rent', 'other'].includes(fixedParsed.category)) {
-          fixedParsed.category = 'other';
-        }
-      }
-      
-      // Try validation again with fixes
-      try {
-        const validatedFixed = OutputSchema.parse(fixedParsed);
-        console.log('✅ Fixed validation issues and retried successfully');
-        return { success: true, result: validatedFixed };
-      } catch (fixErr) {
-        console.error('Still failed after fixes:', fixErr);
-        return { success: false, error: 'Model returned JSON that failed validation even after fixes' };
-      }
+    const validated = OutputSchema.safeParse(parsed);
+    if (!validated.success) {
+      console.error('❌ [AI Analysis] Schema validation failed after structured output:', validated.error);
+      return { success: false, error: 'Model returned invalid structure' };
     }
+
+    return { success: true, result: validated.data };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }

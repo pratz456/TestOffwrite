@@ -1,4 +1,4 @@
-import { openaiClient } from './client'
+import { getOpenAIClientOrThrow } from './client'
 import { getTransactionsServer, updateTransactionServerWithUserId } from '../firebase/transactions-server'
 
 export type AIAnalysis = {
@@ -96,7 +96,7 @@ Transaction:
 
 export async function analyzeTransaction(tx: any, userContext?: any): Promise<AIAnalysis> {
 
-  const res = await openaiClient.chat.completions.create({
+  const res = await getOpenAIClientOrThrow().chat.completions.create({
     model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
     temperature: 0,
     response_format: { type: 'json_object' },
@@ -177,20 +177,28 @@ export async function analyzeAllTransactions(userId: string) {
       return { success: false, error: 'No transactions found' }
     }
 
-    const analysisPromises = transactions.map(async (transaction) => {
-      const analysis = await analyzeTransactionDeductibility(transaction)
-      if (analysis.success) {
-        await updateTransactionServerWithUserId(userId, transaction.trans_id, {
-          is_deductible: null, // Always set to null to require user review
-          deductible_reason: analysis.deduction_reason ?? undefined,
-          deduction_score: analysis.deduction_score || undefined,
-        })
-      }
-      return analysis
-    })
+    // Process in batches of 10 — prevents hammering OpenAI rate limits
+    // with potentially thousands of simultaneous requests
+    const BATCH_SIZE = 10
+    let successful = 0
 
-    const results = await Promise.all(analysisPromises)
-    const successful = results.filter(r => r.success).length
+    for (let i = 0; i < transactions.length; i += BATCH_SIZE) {
+      const batch = transactions.slice(i, i + BATCH_SIZE)
+      const results = await Promise.all(
+        batch.map(async (transaction) => {
+          const analysis = await analyzeTransactionDeductibility(transaction)
+          if (analysis.success) {
+            await updateTransactionServerWithUserId(userId, transaction.trans_id, {
+              is_deductible: null, // Always null — user must confirm
+              deductible_reason: analysis.deduction_reason ?? undefined,
+              deduction_score: analysis.deduction_score || undefined,
+            })
+          }
+          return analysis
+        })
+      )
+      successful += results.filter(r => r.success).length
+    }
 
     return { success: true, analyzed: successful, total: transactions.length }
   } catch (error) {
@@ -222,7 +230,7 @@ export async function generateTaxSummary(userId: string) {
       Provide a brief summary of the tax implications and any recommendations.
     `
 
-    const response = await openaiClient.chat.completions.create({
+    const response = await getOpenAIClientOrThrow().chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
         {

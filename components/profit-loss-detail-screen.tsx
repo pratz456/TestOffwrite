@@ -273,3 +273,5 @@ export const ProfitLossDetailScreen: React.FC<ProfitLossDetailScreenProps> = ({
     </div>
   );
 };
+
+export default ProfitLossDetailScreen;

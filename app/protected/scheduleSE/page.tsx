@@ -28,31 +28,49 @@ export default function ScheduleSEPage() {
     if (user) {
       loadTaxSummary();
     }
-  }, [user]);
+  }, [user, selectedYear]);
 
   const loadTaxSummary = async () => {
     try {
       setIsLoading(true);
-      const response = await fetch('/api/settings/tax-summary');
+      // Try auto-calculate first (reads directly from transactions + income)
+      const { auth } = await import('@/lib/firebase/client');
+      const currentUser = auth.currentUser;
+      const token = currentUser ? await currentUser.getIdToken() : null;
 
+      if (token) {
+        const autoRes = await fetch(`/api/tax/schedule-se/auto?year=${selectedYear}`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (autoRes.ok) {
+          const autoData = await autoRes.json();
+          if (autoData.calculation) {
+            setCalculation(autoData.calculation);
+            setTaxSummary({ scheduleCNetProfit: autoData.netProfit, taxYear: parseInt(selectedYear) });
+            setValidationErrors([]);
+            return;
+          }
+        }
+      }
+
+      // Fallback to manual settings
+      const response = await fetch('/api/settings/tax-summary');
       if (response.ok) {
         const { data } = await response.json();
         setTaxSummary(data);
-
         if (data) {
           const calc = calcScheduleSE(data, (user as any)?.filing_status || 'single');
           setCalculation(calc);
-
           const errors = validateTaxSummarySettings(data);
           setValidationErrors(errors);
         }
       } else if (response.status === 404) {
         setTaxSummary(null);
-        setValidationErrors(['Tax summary settings not configured']);
+        setValidationErrors(['No income or expense data found. Add income in the Income section to auto-calculate.']);
       }
     } catch (error) {
       console.error('Error loading tax summary:', error);
-      showError('Load Failed', 'Failed to load tax summary settings');
+      showError('Load Failed', 'Failed to load tax summary');
     } finally {
       setIsLoading(false);
     }

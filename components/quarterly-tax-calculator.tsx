@@ -373,3 +373,5 @@ export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyT
     </div>
   );
 }
+
+export default QuarterlyTaxCalculator;

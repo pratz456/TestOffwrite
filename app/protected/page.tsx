@@ -56,6 +56,14 @@ const StateTaxCalculatorScreen = dynamic(
   () => import("@/components/state-tax-calculator-screen").then((m) => m.StateTaxCalculatorScreen || m.default),
   { ssr: false }
 );
+const AddManualTransactionScreen = dynamic(
+  () => import("@/components/add-manual-transaction-screen").then((m) => m.AddManualTransactionScreen || m.default),
+  { ssr: false }
+);
+const TaxFilingHubScreen = dynamic(
+  () => import("@/components/tax-filing-hub-screen").then((m) => m.TaxFilingHubScreen || m.default),
+  { ssr: false }
+);
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useTransactions } from "@/lib/firebase/hooks";
@@ -81,7 +89,7 @@ export default function ProtectedPage() {
   const [userProfile, setUserProfile] = useState<any>(null);
   const [hasProfile, setHasProfile] = useState<boolean | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [currentScreen, setCurrentScreen] = useState<'dashboard' | 'settings' | 'add-expense' | 'receipt-upload' | 'tax-calendar' | 'transactions' | 'review-transactions' | 'schedule-c-export' | 'edit-expense' | 'deductions-detail' | 'expenses-detail' | 'banks-detail' | 'profit-loss-detail' | 'categories' | 'plaid-link' | 'plaid' | 'transaction-detail' | 'reports' | 'ai-insights' | 'quarterly-taxes' | 'mileage-tracker' | 'income-tracking' | 'tax-form-wizard' | 'state-tax-calculator' | 'tax-assistant' | 'profit-loss-report' | 'quarterly-payments' | 'action-items'>('dashboard');
+  const [currentScreen, setCurrentScreen] = useState<'dashboard' | 'settings' | 'add-expense' | 'receipt-upload' | 'tax-calendar' | 'transactions' | 'review-transactions' | 'schedule-c-export' | 'edit-expense' | 'deductions-detail' | 'expenses-detail' | 'banks-detail' | 'profit-loss-detail' | 'categories' | 'plaid-link' | 'plaid' | 'transaction-detail' | 'reports' | 'ai-insights' | 'quarterly-taxes' | 'mileage-tracker' | 'income-tracking' | 'tax-form-wizard' | 'state-tax-calculator' | 'tax-assistant' | 'profit-loss-report' | 'quarterly-payments' | 'action-items' | 'add-manual-transaction' | 'tax-filing-hub'>('dashboard');
   const [navigationStack, setNavigationStack] = useState<string[]>(['dashboard']);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
@@ -982,6 +990,26 @@ export default function ProtectedPage() {
         <QuarterlyPaymentTrackingScreen
           user={{ id: user.id, email: user.email ?? undefined }}
           onBack={handleGoBack}
+        />
+      );
+    }
+
+    if (currentScreen === 'add-manual-transaction') {
+      return (
+        <AddManualTransactionScreen
+          user={{ id: user.id, email: user.email ?? undefined }}
+          onBack={handleGoBack}
+          onSaved={() => handleNavigate('dashboard')}
+        />
+      );
+    }
+
+    if (currentScreen === 'tax-filing-hub') {
+      return (
+        <TaxFilingHubScreen
+          user={{ id: user.id, email: user.email ?? undefined }}
+          onBack={handleGoBack}
+          onNavigate={handleNavigate}
         />
       );
     }

@@ -78,7 +78,7 @@ async function analyzeNewTransactions(
     byAccount.set(tx.account_id, existing);
   }
 
-  // Pre-load recurring merchant names for is_recurring detection
+  // Pre-load recurring merchant names ONCE for whole batch
   const recurringMerchants = new Set<string>();
   try {
     const recurringSnap = await adminDb.collection(`user_profiles/${userId}/recurring_transactions`).get();
@@ -89,6 +89,9 @@ async function analyzeNewTransactions(
   } catch {
     // Recurring data may not exist yet
   }
+
+  // Convert user profile ONCE for whole batch (not per-transaction)
+  const userContext = convertToEnhancedContext(userProfile, new Date().toISOString().split('T')[0]);
 
   for (const [accountId, txs] of byAccount) {
     const accountDoc = await adminDb.doc(`user_profiles/${userId}/accounts/${accountId}`).get();
@@ -108,23 +111,21 @@ async function analyzeNewTransactions(
 
     console.log(`🧠 [Sync Helper] Auto-analyzing ${toAnalyze.length} transactions for account ${accountId}`);
 
+    // Mark all as running in a single batch write
+    const markRunningBatch = adminDb.batch();
+    for (const tx of toAnalyze) {
+      markRunningBatch.update(
+        adminDb.doc(`${collectionPath}/${tx.trans_id}`),
+        { analysis_status: 'running', analysisStatus: 'running' }
+      );
+    }
+    await markRunningBatch.commit();
+
     for (let i = 0; i < toAnalyze.length; i += BATCH_SIZE) {
-      const batch = toAnalyze.slice(i, i + BATCH_SIZE);
+      const chunk = toAnalyze.slice(i, i + BATCH_SIZE);
 
-      await Promise.all(batch.map(async (tx) => {
-        const txRef = adminDb.doc(`${collectionPath}/${tx.trans_id}`);
+      const results = await Promise.all(chunk.map(async (tx) => {
         try {
-          await txRef.update({
-            analysis_status: 'running',
-            analysisStatus: 'running',
-          });
-
-          const userContext = convertToEnhancedContext(userProfile, tx.date);
-          const missingFields = findMissingUserFields(userContext);
-          if (missingFields.length > 0) {
-            console.warn(`⚠️ [Sync Helper] Missing user fields for ${tx.trans_id}:`, missingFields);
-          }
-
           const transactionInput: TransactionInput = {
             tx_id: tx.trans_id,
             merchant: tx.merchant_name,
@@ -160,59 +161,58 @@ async function analyzeNewTransactions(
           };
 
           const analysisResult = await analyzeTransactionWithRetry(transactionInput, userContext);
-
           if (!analysisResult.success) {
             console.error(`❌ [Sync Helper] Analysis failed for ${tx.trans_id}:`, analysisResult.error);
-            await txRef.update({ analysis_status: 'failed', analysisStatus: 'failed' });
-            return;
+            return { trans_id: tx.trans_id, failed: true };
           }
 
           const result = analysisResult.result;
-
-          await txRef.set({
-            deduction_score: result.confidence || 0,
-            deductible_reason: result.customized_reason || result.reasoning_summary || 'Analysis complete',
-            // Tax classification must be confirmed by the user (review flow / transaction detail).
-            is_deductible: null,
-            expense_type: null,
-            ai: {
-              status_label: result.is_deductible ? 'Likely Deductible' : 'Unlikely Deductible',
-              score_pct: typeof result.confidence === 'number' ? Math.round(result.confidence * 100) : 0,
-              reasoning: result.customized_reason || result.reasoning_summary || 'Analysis complete',
-              irs: {
-                publication: result.irs_refs?.[0] || 'IRS Pub 535 (Business Expenses)',
-                section: null,
-              },
-              required_docs: [],
-              model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-              last_analyzed_at: Date.now(),
-              key_analysis_factors: {
-                business_purpose: result.key_analysis_factor || 'Analysis complete',
-                ordinary_necessary: result.customized_reason || result.reasoning_summary || 'Analysis complete',
-                documentation_required: [],
+          return {
+            trans_id: tx.trans_id,
+            failed: false,
+            update: {
+              deduction_score: result.confidence || 0,
+              deductible_reason: result.customized_reason || result.reasoning_summary || 'Analysis complete',
+              is_deductible: null,
+              expense_type: null,
+              ai: {
+                status_label: result.is_deductible ? 'Likely Deductible' : 'Unlikely Deductible',
+                score_pct: typeof result.confidence === 'number' ? Math.round(result.confidence * 100) : 0,
+                reasoning: result.customized_reason || result.reasoning_summary || 'Analysis complete',
+                category: result.category,
                 audit_risk: result.audit_risk || 'medium',
-                specific_rules: result.irs_refs || ['IRS Pub 535 (Business Expenses)'],
-                limitations: [],
-                deduction_status: result.is_deductible ? 'Likely Deductible' : 'Unlikely Deductible',
-                deduction_percentage: typeof result.confidence === 'number' ? Math.round(result.confidence * 100) : 0,
+                irs_refs: result.irs_refs || ['IRS Pub 535 (Business Expenses)'],
+                key_analysis_factor: result.key_analysis_factor || '',
                 reasoning_summary: result.reasoning_summary || result.key_analysis_factor,
-                irs_reference: result.irs_refs?.[0] || '',
+                deductible_percent: result.deductible_percent,
+                documentation_required: result.documentation_required || [],
+                model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+                last_analyzed_at: Date.now(),
               },
+              analyzed: true,
+              analysis_status: 'completed',
+              analysisStatus: 'completed',
+              updatedAt: Date.now(),
             },
-            analyzed: true,
-            analysis_status: 'completed',
-            analysisStatus: 'completed',
-            updatedAt: Date.now(),
-          }, { merge: true });
-
-          console.log(`✅ [Sync Helper] Analyzed: ${tx.merchant_name}`);
+          };
         } catch (err) {
           console.error(`❌ [Sync Helper] Failed to analyze ${tx.trans_id}:`, err);
-          try {
-            await txRef.update({ analysis_status: 'failed', analysisStatus: 'failed' });
-          } catch { /* non-fatal */ }
+          return { trans_id: tx.trans_id, failed: true };
         }
       }));
+
+      // Write all results in a single Firestore batch (up to 500 ops — safe here since BATCH_SIZE=10)
+      const writeBatch = adminDb.batch();
+      for (const res of results) {
+        const txRef = adminDb.doc(`${collectionPath}/${res.trans_id}`);
+        if (!res.failed && res.update) {
+          writeBatch.set(txRef, res.update, { merge: true });
+          console.log(`✅ [Sync Helper] Queued analysis write: ${res.trans_id}`);
+        } else {
+          writeBatch.update(txRef, { analysis_status: 'failed', analysisStatus: 'failed' });
+        }
+      }
+      await writeBatch.commit();
     }
   }
 

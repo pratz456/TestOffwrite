@@ -3,10 +3,28 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { analyzeTransactionWithRetry, TransactionInput, UserContext, findMissingUserFields, convertToEnhancedContext } from '@/lib/ai/analyzeTransaction';
+import { analyzeTransactionWithRetry, TransactionInput, findMissingUserFields, convertToEnhancedContext } from '@/lib/ai/analyzeTransaction';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getUserProfileServer } from '@/lib/firebase/profiles-server';
-import { getTransactionServer, updateTransactionServerWithUserId } from '@/lib/firebase/transactions-server';
+import { getTransactionServer } from '@/lib/firebase/transactions-server';
+import { adminDb } from '@/lib/firebase/admin';
+
+// ── Per-user rate limit: max 60 AI analysis calls per hour ──────────────────
+const rateLimitMap = new Map<string, { count: number; windowStart: number }>();
+const RATE_LIMIT_MAX = 60;
+const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
+
+function checkRateLimit(uid: string): boolean {
+  const now = Date.now();
+  const entry = rateLimitMap.get(uid);
+  if (!entry || now - entry.windowStart > RATE_LIMIT_WINDOW_MS) {
+    rateLimitMap.set(uid, { count: 1, windowStart: now });
+    return true;
+  }
+  if (entry.count >= RATE_LIMIT_MAX) return false;
+  entry.count++;
+  return true;
+}
 
 // Zod schema for request validation
 const AnalyzeTransactionRequestSchema = z.object({
@@ -56,7 +74,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    console.log(`👤 [AI Analysis API] Analyzing transaction for user: ${user.uid}`);
+    // Rate limit: 60 AI calls per user per hour
+    if (!checkRateLimit(user.uid)) {
+      return NextResponse.json({ error: 'Rate limit exceeded. Max 60 AI analyses per hour.' }, { status: 429 });
+    }
 
     // Parse and validate request body
     const body = await request.json();
@@ -192,11 +213,9 @@ export async function POST(request: NextRequest) {
       audit_risk: result.audit_risk,
     });
 
-    // Save analysis results to Firestore with compatible schema
+    // Save analysis results to Firestore with flat, queryable fields
+    // IMPORTANT: AI suggests only — is_deductible stays null until the user confirms.
     const analysisData = {
-      // Legacy fields for backward compatibility
-      // IMPORTANT: AI suggests only; do not set business/personal until the user confirms.
-      // If the user already classified this transaction, preserve their choice (omit fields).
       is_deductible: shouldPreserveClassification ? undefined : null,
       expense_type: shouldPreserveClassification ? undefined : null,
       deductible_reason: result.customized_reason,
@@ -204,193 +223,85 @@ export async function POST(request: NextRequest) {
       analyzed: true,
       analysisStatus: 'completed' as const,
       analysisCompletedAt: new Date(),
-      
-      // New AI Analysis Fields (matching the function's type definition)
+      analysisUpdatedAt: new Date().toISOString(),
+
+      // Flat AI fields — all queryable in Firestore, no JSON blob
+      ai_status: result.status,
+      ai_category: result.category,
+      ai_deductible_percent: result.deductible_percent ?? null,
+      ai_key_analysis_factor: result.key_analysis_factor ?? null,
+      ai_customized_reason: result.customized_reason ?? null,
+      ai_reasoning_summary: result.reasoning_summary ?? null,
+      ai_irs_refs: result.irs_refs ?? [],
+      ai_audit_risk: result.audit_risk ?? null,
+      ai_audit_risk_rationale: result.audit_risk_rationale ?? null,
+      ai_confidence: result.confidence ?? null,
+      ai_missing_fields: result.missing_fields ?? [],
+      ai_questions: result.questions ?? [],
+      ai_documentation_required: result.documentation_required ?? [],
+      ai_reason_hash: result.reason_hash ?? null,
+      ai_model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+      ai_last_analyzed_at: Date.now(),
+
+      // Legacy shape kept for backward-compatible UI reads
       deductionStatus: result.is_deductible ? 'Likely Deductible' as const : 'Non-Deductible' as const,
       confidence: result.confidence,
-      reasoning: result.reasoning_summary || result.key_analysis_factor, // Use reasoning_summary if available, fallback to key_analysis_factor
+      reasoning: result.reasoning_summary || result.key_analysis_factor,
       irsPublication: result.irs_refs?.[0] || undefined,
-      irsSection: undefined,
-      analysisUpdatedAt: new Date().toISOString(),
-      
-      // Store additional data in ai_analysis field as JSON
-      ai_analysis: JSON.stringify({
-        status: result.status,
-        category: result.category,
-        deductible_percent: result.deductible_percent,
-        key_analysis_factor: result.key_analysis_factor,
-        customized_reason: result.customized_reason,
-        irs_refs: result.irs_refs,
-        audit_risk: result.audit_risk,
-        audit_risk_rationale: result.audit_risk_rationale,
-        missing_fields: result.missing_fields,
-        questions: result.questions,
-        reason: result.reason,
-        reason_hash: result.reason_hash,
-      }),
     };
 
-    console.log(`💾 [AI Analysis API] Attempting to save analysis data:`, {
-      transactionId,
-      userId: user.uid,
-      analysisDataKeys: Object.keys(analysisData),
-      analysisDataTypes: Object.entries(analysisData).map(([key, value]) => ({
-        key,
-        type: typeof value,
-        value: typeof value === 'object' ? JSON.stringify(value).substring(0, 100) : value
-      }))
-    });
-
-    console.log(`🔄 [AI Analysis API] Calling updateTransactionServerWithUserId with:`, {
-      userId: user.uid,
-      transactionId,
-      analysisDataKeys: Object.keys(analysisData)
-    });
-
-    // First, let's check if the transaction exists
+    // Direct Firestore lookup — queries both field name variants to cover
+    // legacy transactions written with user_id (snake_case) and new ones with userId (camelCase)
+    let updateError: any = null;
     try {
-      const { adminDb } = await import('@/lib/firebase/admin');
-      
-      // Try multiple approaches to find the transaction
-      console.log(`🔍 [AI Analysis API] Searching for transaction with ID: "${transactionId}"`);
-      
-      // Approach 1: Collection group with user_id and trans_id
-      const transactionsQuery1 = adminDb
+      let snap = await adminDb
         .collectionGroup('transactions')
-        .where('user_id', '==', user.uid)
+        .where('userId', '==', user.uid)
         .where('trans_id', '==', transactionId)
-        .limit(1);
-      
-      const querySnapshot1 = await transactionsQuery1.get();
-      console.log(`🔍 [AI Analysis API] Query 1 (user_id + trans_id) result:`, {
-        found: !querySnapshot1.empty,
-        size: querySnapshot1.size
-      });
-      
-      if (!querySnapshot1.empty) {
-        const doc = querySnapshot1.docs[0];
-        const data = doc.data();
-        console.log(`📄 [AI Analysis API] Found transaction data:`, {
-          trans_id: data.trans_id,
-          user_id: data.user_id,
-          merchant_name: data.merchant_name,
-          amount: data.amount,
-          path: doc.ref.path
-        });
-      } else {
-        // Approach 2: Try with just trans_id (in case user_id is missing)
-        const transactionsQuery2 = adminDb
+        .limit(1)
+        .get();
+
+      // Fallback: try snake_case user_id for older transactions
+      if (snap.empty) {
+        snap = await adminDb
           .collectionGroup('transactions')
+          .where('user_id', '==', user.uid)
           .where('trans_id', '==', transactionId)
-          .limit(5);
-        
-        const querySnapshot2 = await transactionsQuery2.get();
-        console.log(`🔍 [AI Analysis API] Query 2 (trans_id only) result:`, {
-          found: !querySnapshot2.empty,
-          size: querySnapshot2.size
-        });
-        
-        if (!querySnapshot2.empty) {
-          querySnapshot2.docs.forEach((doc, index) => {
-            const data = doc.data();
-            console.log(`📄 [AI Analysis API] Transaction ${index + 1}:`, {
-              trans_id: data.trans_id,
-              user_id: data.user_id,
-              merchant_name: data.merchant_name,
-              amount: data.amount,
-              path: doc.ref.path
-            });
-          });
-        }
+          .limit(1)
+          .get();
       }
-    } catch (lookupError) {
-      console.error(`❌ [AI Analysis API] Transaction lookup failed:`, lookupError);
-    }
 
-    // Try direct update approach first
-    let updateError = null;
-    try {
-      const { adminDb } = await import('@/lib/firebase/admin');
-      
-      // Find the transaction document directly
-      console.log(`🔍 [AI Analysis API] Direct update - Searching for:`, {
-        userId: user.uid,
-        transactionId,
-        transactionIdType: typeof transactionId,
-        transactionIdLength: transactionId?.length
-      });
-      
-      const transactionsQuery = adminDb
-        .collectionGroup('transactions')
-        .where('user_id', '==', user.uid)
-        .where('trans_id', '==', transactionId)
-        .limit(1);
-      
-      const querySnapshot = await transactionsQuery.get();
-      
-      if (!querySnapshot.empty) {
-        const docRef = querySnapshot.docs[0].ref;
-        console.log(`📝 [AI Analysis API] Direct update - Found document at: ${docRef.path}`);
-        
-        // Filter out undefined values to prevent Firestore errors
+      if (!snap.empty) {
         const updateData = Object.fromEntries(
-          Object.entries({
-            ...analysisData,
-            updated_at: new Date(),
-          }).filter(([_, value]) => value !== undefined)
+          Object.entries({ ...analysisData, updated_at: new Date() }).filter(([, v]) => v !== undefined)
         );
-        
-        await docRef.update(updateData);
-        console.log(`✅ [AI Analysis API] Direct update successful`);
+        await snap.docs[0].ref.update(updateData);
       } else {
-        console.error(`❌ [AI Analysis API] Direct update - Transaction not found`);
-        updateError = new Error('Transaction not found for direct update');
+        updateError = new Error(`Transaction ${transactionId} not found for user ${user.uid}`);
       }
-    } catch (directUpdateError) {
-      console.error(`❌ [AI Analysis API] Direct update failed:`, directUpdateError);
-      updateError = directUpdateError;
-    }
-
-    // If direct update failed, try the original method as fallback
-    if (updateError) {
-      console.log(`🔄 [AI Analysis API] Direct update failed, trying original method...`);
-      const { error: fallbackError } = await updateTransactionServerWithUserId(user.uid, transactionId, analysisData);
-      updateError = fallbackError;
+    } catch (err) {
+      updateError = err;
     }
 
     if (updateError) {
-      console.error(`❌ [AI Analysis API] Failed to save analysis for transaction ${transactionId}:`, updateError);
-      console.error(`❌ [AI Analysis API] Error details:`, {
-        errorType: typeof updateError,
-        errorCode: updateError?.code,
-        errorMessage: updateError?.message,
-        errorDetails: updateError?.details,
-        transactionId,
-        userId: user.uid,
-        analysisDataKeys: Object.keys(analysisData)
-      });
-      return NextResponse.json({ 
+      console.error(`❌ [AI Analysis API] Failed to save analysis:`, updateError?.message);
+      return NextResponse.json({
         error: 'Analysis completed but failed to save results',
         details: updateError?.message || 'Unknown database error',
-        transactionId,
-        userId: user.uid,
-        fullError: updateError
       }, { status: 500 });
     }
 
-    console.log(`💾 [AI Analysis API] Successfully saved analysis for transaction: ${transaction.merchant_name} (${transactionId})`);
+    console.log(`💾 [AI Analysis API] Saved analysis: ${transaction.merchant_name} (${transactionId})`);
 
-    // Return the full analyzer output to client
     return NextResponse.json({
       success: true,
       analysis: {
         deductionStatus: analysisData.deductionStatus,
         confidence: result.confidence,
-        // Match persisted `reasoning` field (reasoning_summary is profile-aware; key_analysis_factor is the card line).
         reasoning: result.reasoning_summary || result.key_analysis_factor,
         irsReference: {
           publication: result.irs_refs?.[0] || null,
-          section: null
+          section: null,
         },
         updatedAt: analysisData.analysisUpdatedAt,
       },

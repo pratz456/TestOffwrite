@@ -22,6 +22,7 @@ interface Transaction {
   deduction_score?: number;
   description?: string;
   notes?: string;
+  pending?: boolean | null;
 }
 
 interface ScheduleCExportScreenProps {
@@ -187,7 +188,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
     // Use shared CPA-grade Schedule C aggregation logic.
     // confirmed-only excludes is_deductible === null/undefined and nets credits/refunds via signed totals.
     const sourceTx = Array.isArray(overrideYearTx) ? overrideYearTx : (Array.isArray(transactions) ? transactions : []);
-    const aggregation = aggregateScheduleC(sourceTx, selectedYear, CATEGORY_MAP, { mode: 'confirmed-only' });
+    const aggregation = aggregateScheduleC(sourceTx as any[], selectedYear, CATEGORY_MAP, { mode: 'confirmed-only' });
 
     const nextLineDetails: Record<string, { confirmed: number; potential: number; amount: number; transactions: Transaction[] }> = {};
     aggregation.lineItemsArray.forEach((item) => {
@@ -433,7 +434,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
       const url = window.URL.createObjectURL(pdfBlob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `WriteOff_ScheduleC_Summary_${selectedYear}.pdf`;
+      link.download = `Schedule_C_${selectedYear}_WriteOff.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -760,3 +761,5 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
     </div>
   );
 };
+
+export default ScheduleCExportScreen;

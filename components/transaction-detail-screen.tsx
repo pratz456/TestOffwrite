@@ -78,6 +78,11 @@ interface TransactionDetailScreenProps {
       business_purpose?: string;
     };
 
+    // Location fields from Plaid
+    location?: { city?: string; state?: string; address?: string; lat?: number; lon?: number };
+    city?: string;
+    state?: string;
+
     // AI Analysis Fields from initial analysis
     ai?: {
       status_label?: string;

@@ -4,7 +4,7 @@ import React from 'react';
 import { LogoutButton } from './logout-button';
 import Link from 'next/link';
 import { usePathname, useSearchParams, useRouter } from 'next/navigation';
-import { Home, CreditCard, BarChart3, Settings, FolderOpen, HelpCircle, Shield, Info, FileText } from 'lucide-react';
+import { Home, CreditCard, BarChart3, Settings, FolderOpen, HelpCircle, Shield, Info, FileText, TrendingUp, PlusCircle, ClipboardCheck } from 'lucide-react';
 interface SidebarNavProps {
   user: { id: string; email?: string; user_metadata?: { name?: string } };
   userProfile?: { name?: string; email?: string };
@@ -32,6 +32,18 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ user, userProfile }) => 
       description: 'View and manage transactions'
     },
     {
+      name: 'Income',
+      href: '/protected?screen=income-tracking',
+      icon: TrendingUp,
+      description: 'Track income & 1099 forms'
+    },
+    {
+      name: 'Add Transaction',
+      href: '/protected?screen=add-manual-transaction',
+      icon: PlusCircle,
+      description: 'Manually enter income or expenses'
+    },
+    {
       name: 'Categories',
       href: '/protected?screen=categories',
       icon: FolderOpen,
@@ -45,9 +57,9 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ user, userProfile }) => 
     },
     {
       name: 'File Taxes',
-      href: '/protected/file-taxes',
-      icon: FileText,
-      description: 'Filing options & providers'
+      href: '/protected?screen=tax-filing-hub',
+      icon: ClipboardCheck,
+      description: 'Filing hub & form exports'
     },
     {
       name: 'Settings',
@@ -77,15 +89,13 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ user, userProfile }) => 
 
   const isActive = (href: string) => {
     if (href === '/protected') {
-      // Home should only be active when exactly on /protected with no query params
       return pathname === '/protected' && !searchParams.has('screen');
     }
-
-    // For Categories, check if we're on the categories screen
-    if (href === '/protected?screen=categories') {
-      return pathname === '/protected' && searchParams.get('screen') === 'categories';
+    // Handle all ?screen= routes generically
+    if (href.startsWith('/protected?screen=')) {
+      const screen = href.split('screen=')[1];
+      return pathname === '/protected' && searchParams.get('screen') === screen;
     }
-
     // For Settings, check if we're on the settings page
     if (href === '/protected/settings') {
       return pathname === '/protected/settings';

@@ -12,11 +12,12 @@ function getStripeOrNull() {
   return new Stripe(key, { apiVersion: '2025-10-29.clover' });
 }
 
+// Module-level stripe instance used by helper functions
+const stripe = getStripeOrNull();
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET || '';
 
 export async function POST(req: Request) {
   try {
-    const stripe = getStripeOrNull();
     if (!stripe) {
       return NextResponse.json({ error: 'Stripe not configured' }, { status: 500 });
     }
@@ -68,7 +69,7 @@ export async function POST(req: Request) {
         const invoice = event.data.object as Stripe.Invoice;
         const invoiceSubId = invoice.parent?.subscription_details?.subscription;
         if (invoiceSubId) {
-          const subscription = await stripe.subscriptions.retrieve(invoiceSubId as string);
+          const subscription = await stripe!.subscriptions.retrieve(invoiceSubId as string);
           await handleSubscriptionUpdate(subscription);
         }
         break;
@@ -101,7 +102,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   if (!firebaseUid && session.customer) {
     try {
       const customer = typeof session.customer === 'string'
-        ? await stripe.customers.retrieve(session.customer)
+        ? await stripe!.customers.retrieve(session.customer)
         : session.customer;
       if (customer && !customer.deleted) {
         firebaseUid = customer.metadata?.firebase_uid;
@@ -124,7 +125,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   }
 
   try {
-    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+    const subscription = await stripe!.subscriptions.retrieve(subscriptionId);
     await handleSubscriptionUpdate(subscription);
     console.log(`✅ Checkout completed for user ${firebaseUid}, subscription ${subscriptionId}`);
   } catch (error) {
@@ -140,7 +141,7 @@ async function handleSubscriptionUpdate(subscription: Stripe.Subscription) {
   if (!firebaseUid && subscription.customer) {
     try {
       const customer = typeof subscription.customer === 'string'
-        ? await stripe.customers.retrieve(subscription.customer)
+        ? await stripe!.customers.retrieve(subscription.customer)
         : subscription.customer;
       if (customer && !customer.deleted) {
         firebaseUid = customer.metadata?.firebase_uid;
@@ -195,7 +196,7 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
   if (!firebaseUid && subscription.customer) {
     try {
       const customer = typeof subscription.customer === 'string'
-        ? await stripe.customers.retrieve(subscription.customer)
+        ? await stripe!.customers.retrieve(subscription.customer)
         : subscription.customer;
       if (customer && !customer.deleted) {
         firebaseUid = customer.metadata?.firebase_uid;
