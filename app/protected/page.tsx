@@ -76,6 +76,10 @@ const Form8879Screen = dynamic(
   () => import("@/components/form-8879-screen").then((m) => m.Form8879Screen || m.default),
   { ssr: false }
 );
+const DocumentImportScreen = dynamic(
+  () => import("@/components/document-import-screen").then((m) => m.DocumentImportScreen || m.default),
+  { ssr: false }
+);
 const W2IncomeScreen = dynamic(
   () => import("@/components/w2-income-screen").then((m) => m.W2IncomeScreen || m.default),
   { ssr: false }
@@ -109,7 +113,7 @@ export default function ProtectedPage() {
   const [userProfile, setUserProfile] = useState<any>(null);
   const [hasProfile, setHasProfile] = useState<boolean | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [currentScreen, setCurrentScreen] = useState<'dashboard' | 'settings' | 'add-expense' | 'receipt-upload' | 'tax-calendar' | 'transactions' | 'review-transactions' | 'schedule-c-export' | 'edit-expense' | 'deductions-detail' | 'expenses-detail' | 'banks-detail' | 'profit-loss-detail' | 'categories' | 'plaid-link' | 'plaid' | 'transaction-detail' | 'reports' | 'ai-insights' | 'quarterly-taxes' | 'mileage-tracker' | 'income-tracking' | 'tax-form-wizard' | 'state-tax-calculator' | 'tax-assistant' | 'profit-loss-report' | 'quarterly-payments' | 'action-items' | 'add-manual-transaction' | 'tax-filing-hub' | 'tax-organizer' | 'w2-income' | 'tax-preview' | 'deductions-entry' | 'form-8879'>('dashboard');
+  const [currentScreen, setCurrentScreen] = useState<'dashboard' | 'settings' | 'add-expense' | 'receipt-upload' | 'tax-calendar' | 'transactions' | 'review-transactions' | 'schedule-c-export' | 'edit-expense' | 'deductions-detail' | 'expenses-detail' | 'banks-detail' | 'profit-loss-detail' | 'categories' | 'plaid-link' | 'plaid' | 'transaction-detail' | 'reports' | 'ai-insights' | 'quarterly-taxes' | 'mileage-tracker' | 'income-tracking' | 'tax-form-wizard' | 'state-tax-calculator' | 'tax-assistant' | 'profit-loss-report' | 'quarterly-payments' | 'action-items' | 'add-manual-transaction' | 'tax-filing-hub' | 'tax-organizer' | 'w2-income' | 'tax-preview' | 'deductions-entry' | 'form-8879' | 'document-import'>('dashboard');
   const [navigationStack, setNavigationStack] = useState<string[]>(['dashboard']);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
@@ -1076,6 +1080,16 @@ export default function ProtectedPage() {
     if (currentScreen === 'form-8879') {
       return (
         <Form8879Screen
+          user={{ id: user.id, email: user.email ?? undefined }}
+          onBack={handleGoBack}
+          onNavigate={handleNavigate}
+        />
+      );
+    }
+
+    if (currentScreen === 'document-import') {
+      return (
+        <DocumentImportScreen
           user={{ id: user.id, email: user.email ?? undefined }}
           onBack={handleGoBack}
           onNavigate={handleNavigate}

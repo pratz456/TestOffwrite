@@ -10,7 +10,7 @@ import {
 import {
   ArrowLeft, Download, CheckCircle2, Circle, AlertCircle,
   FileText, DollarSign, Home, Car, Calculator, Loader2,
-  ChevronRight, TrendingUp, Receipt, Shield,
+  ChevronRight, TrendingUp, Receipt, Shield, Upload,
 } from "lucide-react";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 
@@ -442,6 +442,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
                   { label: "Review Expenses",   screen: "transactions",           icon: FileText },
                   { label: "Schedule C Export", screen: "schedule-c-export",      icon: Download },
                   { label: "Sign Form 8879",   screen: "form-8879",              icon: Shield },
+                  { label: "Import Document",  screen: "document-import",        icon: Upload },
                 ].map(({ label, screen, icon: Icon }) => (
                   <Button
                     key={screen}

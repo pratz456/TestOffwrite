@@ -154,6 +154,33 @@ export function TaxPreviewScreen({ user, onBack, onNavigate }: Props) {
               ))}
             </div>
 
+            {/* State tax estimate */}
+            {data?.stateTax && (
+              <Card className={`border-border bg-card ${data.stateTax.type === 'no_tax' ? 'opacity-70' : ''}`}>
+                <CardContent className="p-3 sm:p-4 flex items-center justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-muted-foreground">
+                      {data.stateTax.stateName} State Tax Estimate
+                    </p>
+                    <p className="text-sm font-semibold text-foreground mt-0.5">
+                      {data.stateTax.type === 'no_tax'
+                        ? 'No state income tax'
+                        : `${fmt(data.stateTax.estimatedTax)} (${pct(data.stateTax.effectiveRate)} effective rate)`}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{data.stateTax.note}</p>
+                  </div>
+                  {data.stateTax.type !== 'no_tax' && (
+                    <div className="text-right shrink-0">
+                      <p className="text-lg font-bold text-orange-600 dark:text-orange-400 tabular-nums">
+                        {fmt(data.stateTax.estimatedTax)}
+                      </p>
+                      <p className="text-xs text-muted-foreground">state est.</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
             {/* Line-by-line 1040 breakdown */}
             <Card className="bg-card border-border">
               <CardHeader className="pb-2">
@@ -232,6 +259,7 @@ export function TaxPreviewScreen({ user, onBack, onNavigate }: Props) {
               if (data.income.grossReceipts === 0 && data.income.w2Wages === 0) gaps.push({ msg: "No income recorded yet", screen: "income-tracking" });
               if (data.income.totalDeductible === 0) gaps.push({ msg: "No confirmed expenses", screen: "transactions" });
               if (data.w2.count === 0 && data.income.w2Wages === 0) gaps.push({ msg: "Add W-2 income if you have a day job", screen: "w2-income" });
+              if (!data.stateTax) gaps.push({ msg: "Add your state in profile to see state tax estimate", screen: "settings" });
               if (!data.deductions.healthInsurancePremiums && !data.deductions.sepIraContribution) gaps.push({ msg: "Enter health insurance and retirement deductions to reduce your bill", screen: "tax-organizer" });
               return gaps.length > 0 ? (
                 <Card className="border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20">

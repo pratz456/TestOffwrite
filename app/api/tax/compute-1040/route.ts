@@ -16,6 +16,7 @@ import { adminDb } from '@/lib/firebase/admin';
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { calcScheduleSE } from '@/lib/reports/calcSE';
 import { compute1040 } from '@/lib/tax-rules/compute-1040';
+import { calculateStateTax, STATE_TAX_CONFIG } from '@/lib/tax/state-tax-data';
 
 export async function GET(request: NextRequest) {
   const { user, error } = await getAuthenticatedUser(request);
@@ -94,6 +95,13 @@ export async function GET(request: NextRequest) {
     studentLoanInterest,
   }, priorYearTotalTax > 0 ? priorYearTotalTax : undefined);
 
+  // State tax estimate
+  const userState = (profile.mailing_address?.state || profile.state || '').toUpperCase().slice(0,2);
+  const stateConfig = STATE_TAX_CONFIG[userState];
+  const stateTaxResult = userState && stateConfig
+    ? calculateStateTax(result.agi, userState, filingStatus as any)
+    : null;
+
   return NextResponse.json({
     taxYear: year,
     filingStatus,
@@ -111,6 +119,16 @@ export async function GET(request: NextRequest) {
     totalTax: result.totalTax,
     agi: result.agi,
     effectiveRate: result.effectiveRate,
+    stateTax: stateTaxResult ? {
+      state: userState,
+      stateName: stateConfig?.name || userState,
+      estimatedTax: Math.round(stateTaxResult.tax),
+      effectiveRate: Math.round(stateTaxResult.effectiveRate * 100) / 100,
+      type: stateConfig?.type || 'unknown',
+      note: stateConfig?.type === 'no_tax'
+        ? 'Your state has no income tax'
+        : 'State estimate only — does not include local taxes or state-specific deductions',
+    } : null,
     dataSource: 'auto',
   });
 }
