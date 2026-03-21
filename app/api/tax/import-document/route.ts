@@ -252,6 +252,9 @@ export async function POST(request: NextRequest) {
     const docType = String(formData.get('docType') || 'auto');
     const commit = formData.get('commit') !== 'false';
     const taxYear = formData.get('taxYear') ? parseInt(String(formData.get('taxYear')), 10) : null;
+    // User-edited field overrides (from inline editing in the UI)
+    const overrideFieldsRaw = formData.get('overrideFields');
+    const overrideFields: Record<string, any> = overrideFieldsRaw ? JSON.parse(String(overrideFieldsRaw)) : {};
 
     if (!file) return NextResponse.json({ error: 'No file provided' }, { status: 400 });
 
@@ -341,24 +344,27 @@ export async function POST(request: NextRequest) {
       ...imageIssues.length > 0 ? [`Image issues detected: ${imageIssues.join(', ')}`] : [],
     ];
 
+    // Merge user edits into extracted data before saving
+    const finalData = { ...extracted, ...overrideFields };
+
     // Save to Firestore if commit=true
     let saveResult: Record<string, any> = {};
     if (commit) {
-      const detectedType = extracted.docType || docType;
+      const detectedType = finalData.docType || docType;
       if (detectedType === 'w2') {
-        saveResult = await saveW2(user.uid, extracted);
+        saveResult = await saveW2(user.uid, finalData);
       } else if (detectedType === '1099') {
-        saveResult = await save1099(user.uid, extracted);
+        saveResult = await save1099(user.uid, finalData);
       } else if (detectedType === 'platform_summary') {
-        saveResult = await savePlatformSummary(user.uid, extracted);
+        saveResult = await savePlatformSummary(user.uid, finalData);
       } else {
         // Auto-route based on extracted docType
-        if (extracted.formVariant || extracted.form1099KAmount) {
-          saveResult = await save1099(user.uid, extracted);
-        } else if (extracted.box1Wages !== undefined) {
-          saveResult = await saveW2(user.uid, extracted);
-        } else if (extracted.grossEarnings !== undefined) {
-          saveResult = await savePlatformSummary(user.uid, extracted);
+        if (finalData.formVariant || finalData.form1099KAmount) {
+          saveResult = await save1099(user.uid, finalData);
+        } else if (finalData.box1Wages !== undefined) {
+          saveResult = await saveW2(user.uid, finalData);
+        } else if (finalData.grossEarnings !== undefined) {
+          saveResult = await savePlatformSummary(user.uid, finalData);
         }
       }
     }
