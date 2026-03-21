@@ -21,34 +21,53 @@ import { getOpenAIClientOrThrow } from '@/lib/openai/client';
 
 // ── Extraction prompts per document type ─────────────────────────────────────
 
-const W2_PROMPT = `You are a tax document parser. Extract data from this W-2 form image.
+const W2_PROMPT = `You are a tax document parser. Extract data from this W-2 form image with EXTREME precision — errors affect someone's actual tax return.
 Return ONLY valid JSON, no markdown, no explanation.
 
-Extract these fields exactly as they appear on the form:
+CRITICAL RULES:
+- If you cannot clearly read a number, use null — NEVER guess or estimate
+- Box numbers on a W-2 are labeled (Box 1, Box 2, etc.) — match them exactly
+- Confirm each amount by re-reading the box label before including it
+- SSNs and EINs: return null if partially obscured rather than guessing
+
 {
   "docType": "w2",
-  "employerName": "string — Box c employer name",
-  "employerEIN": "string — Box b employer EIN (XX-XXXXXXX format)",
-  "box1Wages": number,
-  "box2FederalWithheld": number,
-  "box3SocialSecurityWages": number,
-  "box4SocialSecurityWithheld": number,
-  "box5MedicareWages": number,
-  "box6MedicareWithheld": number,
+  "employerName": "string — Box c",
+  "employerEIN": "string — Box b (XX-XXXXXXX) or null if obscured",
+  "box1Wages": number or null,
+  "box2FederalWithheld": number or null,
+  "box3SocialSecurityWages": number or null,
+  "box4SocialSecurityWithheld": number or null,
+  "box5MedicareWages": number or null,
+  "box6MedicareWithheld": number or null,
   "box12Codes": [{"code": "string", "amount": number}],
-  "box16StateWages": number,
-  "box17StateWithheld": number,
-  "state": "string — 2-letter state code",
-  "taxYear": number,
-  "confidence": number
+  "box16StateWages": number or null,
+  "box17StateWithheld": number or null,
+  "state": "string — 2-letter or null",
+  "taxYear": number or null,
+  "confidence": number,
+  "fieldConfidence": {
+    "box1Wages": number,
+    "box2FederalWithheld": number,
+    "box3SocialSecurityWages": number,
+    "box5MedicareWages": number
+  },
+  "imageQualityIssues": ["list any: blur, shadow, rotation, cropping, glare, handwriting"],
+  "verificationWarnings": ["list fields that should be manually verified"]
 }
 
-If a field is not visible or illegible, use null. taxYear should be inferred from the form or default to ${new Date().getFullYear() - 1}.`;
+taxYear should be inferred from the YEAR field on the form. confidence = 0 means illegible, 1 means crystal clear.`;
 
-const FORM_1099_PROMPT = `You are a tax document parser. Extract data from this 1099 form image.
+const FORM_1099_PROMPT = `You are a tax document parser. Extract data from this 1099 form image with EXTREME precision.
 Return ONLY valid JSON, no markdown, no explanation.
 
-Determine the form type (1099-NEC, 1099-K, 1099-MISC, 1099-INT, 1099-DIV) and extract:
+CRITICAL RULES:
+- If you cannot clearly read a dollar amount, return null — NEVER guess
+- Confirm the form variant from the header (NEC, K, MISC, INT, DIV) before extracting
+- Box 1 on 1099-NEC is nonemployee compensation; Box 1 on 1099-K is gross payments — they are DIFFERENT
+- Return null for any field that is unclear rather than estimating
+
+Determine the exact form type from the form header and extract:
 {
   "docType": "1099",
   "formVariant": "NEC|K|MISC|INT|DIV",
@@ -290,14 +309,37 @@ export async function POST(request: NextRequest) {
     if (taxYear) extracted.taxYear = taxYear;
 
     // Low confidence warning
-    if ((extracted.confidence || 0) < 0.6) {
+    // Check for quality issues
+    const confidence = extracted.confidence || 0;
+    const imageIssues = extracted.imageQualityIssues || [];
+    const warnings = extracted.verificationWarnings || [];
+    const fieldConf = extracted.fieldConfidence || {};
+    const lowConfFields = Object.entries(fieldConf)
+      .filter(([, v]) => (v as number) < 0.8)
+      .map(([k]) => k);
+
+    if (confidence < 0.5) {
       return NextResponse.json({
         success: false,
-        warning: 'Low confidence extraction — please verify all values before saving',
+        warning: 'Image quality too low for reliable extraction. Try a clearer photo with better lighting.',
+        tips: [
+          'Lay the document flat on a white surface',
+          'Use the rear camera in good natural light',
+          'Avoid shadows and glare',
+          'Make sure all 4 corners are visible',
+        ],
         extracted,
+        imageIssues,
         committed: false,
-      });
+      }, { status: 422 });
     }
+
+    // Build verification checklist for the UI
+    const verificationRequired = [
+      ...warnings,
+      ...lowConfFields.map((f: string) => `Verify ${f} — low read confidence`),
+      ...imageIssues.length > 0 ? [`Image issues detected: ${imageIssues.join(', ')}`] : [],
+    ];
 
     // Save to Firestore if commit=true
     let saveResult: Record<string, any> = {};
@@ -324,6 +366,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       docType: extracted.docType,
+      verificationRequired,
+      imageIssues,
+      lowConfidenceFields: lowConfFields,
       taxYear: extracted.taxYear,
       extracted,
       committed: commit,

@@ -75,7 +75,12 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
         body: fd,
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Extraction failed");
+      if (!res.ok) {
+        const errData = data;
+        if (errData.tips) setError(`${errData.warning}\n\nTips: ${errData.tips.join(' • ')}`);
+        else throw new Error(errData.error || "Extraction failed");
+        return;
+      }
       setResult(data);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to extract document");
@@ -268,15 +273,43 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
         )}
 
         {result && !committed && (
-          <div className="flex gap-3">
-            <Button variant="outline" onClick={() => { setResult(null); setFile(null); setPreview(null); }} className="flex-1">
-              Try Again
-            </Button>
-            <Button onClick={handleCommit} disabled={committing} className="flex-1 gap-2 font-semibold">
-              {committing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-              {committing ? "Saving…" : "Save to WriteOff"}
-            </Button>
-          </div>
+          <>
+            {/* Verification warnings — shown BEFORE save button */}
+            {(result.verificationRequired?.length > 0 || result.imageIssues?.length > 0) && (
+              <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-950/30 p-4 space-y-2">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                  <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">Verify before saving</p>
+                </div>
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  Check each item below against your actual document. Errors on a tax return can trigger IRS notices.
+                </p>
+                <ul className="space-y-1">
+                  {[...(result.verificationRequired || []), ...(result.imageIssues || [])].map((w: string, i: number) => (
+                    <li key={i} className="flex items-start gap-1.5 text-xs text-amber-800 dark:text-amber-300">
+                      <span className="mt-0.5 shrink-0">•</span>{w}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Accuracy disclaimer */}
+            <div className="text-xs text-muted-foreground text-center px-2">
+              AI extraction is not 100% accurate. Always compare extracted values to your original document before saving.
+              Dollar amounts on the form are what matter — not the AI's interpretation.
+            </div>
+
+            <div className="flex gap-3">
+              <Button variant="outline" onClick={() => { setResult(null); setFile(null); setPreview(null); }} className="flex-1">
+                Try Again
+              </Button>
+              <Button onClick={handleCommit} disabled={committing} className="flex-1 gap-2 font-semibold">
+                {committing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                {committing ? "Saving…" : "Save to WriteOff"}
+              </Button>
+            </div>
+          </>
         )}
 
         {committed && (
