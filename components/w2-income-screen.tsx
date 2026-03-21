@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ArrowLeft, Plus, Trash2, Loader2, Briefcase, CheckCircle2, AlertCircle } from "lucide-react";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 
-interface W2Entry { id: string; employer: string; wages: number; federalWithheld: number; stateWithheld?: number; state?: string; taxYear: number; }
+interface W2Entry { id: string; employer: string; wages: number; federalWithheld: number; box1Wages?: number; box2FederalWithheld?: number; stateWithheld?: number; state?: string; taxYear: number; }
 interface Props { user: { id: string; email?: string }; onBack: () => void; }
 const fmt = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const US_STATES = ["AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY","DC"];
@@ -35,15 +35,15 @@ export function W2IncomeScreen({ user, onBack }: Props) {
 
   useEffect(() => { load(); }, [load]);
 
-  const totalWages = entries.reduce((s, e) => s + e.wages, 0);
-  const totalWithheld = entries.reduce((s, e) => s + e.federalWithheld, 0);
+  const totalWages = entries.reduce((s, e) => s + (e.box1Wages ?? e.wages), 0);
+  const totalWithheld = entries.reduce((s, e) => s + (e.box2FederalWithheld ?? e.federalWithheld), 0);
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.employer.trim() || !form.wages) return;
     setSaving(true); setError(null);
     try {
-      const res = await makeAuthenticatedRequest("/api/income/w2", { method: "POST", body: JSON.stringify({ employer: form.employer, wages: parseFloat(form.wages), federalWithheld: parseFloat(form.federalWithheld || "0"), stateWithheld: form.stateWithheld ? parseFloat(form.stateWithheld) : undefined, state: form.state || undefined, taxYear: year }) });
+      const res = await makeAuthenticatedRequest("/api/income/w2", { method: "POST", body: JSON.stringify({ employer: form.employer, box1Wages: parseFloat(form.wages), wages: parseFloat(form.wages), box2FederalWithheld: parseFloat(form.federalWithheld || "0"), federalWithheld: parseFloat(form.federalWithheld || "0"), stateWithheld: form.stateWithheld ? parseFloat(form.stateWithheld) : undefined, state: form.state || undefined, taxYear: year }) });
       if (!res.ok) throw new Error((await res.json()).error || "Failed");
       setForm({ employer: "", wages: "", federalWithheld: "", stateWithheld: "", state: "" });
       setShowForm(false);
@@ -154,10 +154,10 @@ export function W2IncomeScreen({ user, onBack }: Props) {
                   <li key={e.id} className="flex items-center justify-between gap-3 p-3 rounded-lg border border-border bg-card hover:bg-muted/20 transition-colors">
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-foreground text-sm truncate">{e.employer}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">Box 1: ${fmt(e.wages)} · Federal withheld: ${fmt(e.federalWithheld)}{e.state ? ` · ${e.state}` : ""}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">Box 1: ${fmt((e.box1Wages ?? e.wages))} · Federal withheld: ${fmt((e.box2FederalWithheld ?? e.federalWithheld))}{e.state ? ` · ${e.state}` : ""}</p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <p className="text-sm font-semibold tabular-nums whitespace-nowrap">${fmt(e.wages)}</p>
+                      <p className="text-sm font-semibold tabular-nums whitespace-nowrap">${fmt((e.box1Wages ?? e.wages))}</p>
                       <Button variant="ghost" size="icon" onClick={() => del(e.id)} disabled={deleting === e.id} className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 h-8 w-8">
                         {deleting === e.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
                       </Button>

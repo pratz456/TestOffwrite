@@ -59,23 +59,29 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
     // Computed fields from SE auto endpoint
     aboveLineDeductions: 0,
     adjustedNetIncome: 0,
+    // 1040 result
+    balanceDue: 0,
+    refund: 0,
+    totalTax: 0,
   });
 
   const loadSummary = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [grossRes, incomeRes, txRes, seRes] = await Promise.all([
+      const [grossRes, incomeRes, txRes, seRes, form1040Res] = await Promise.all([
         makeAuthenticatedRequest(`/api/income/gross-receipts?year=${year}`),
         makeAuthenticatedRequest(`/api/income/1099?year=${year}`),
         makeAuthenticatedRequest(`/api/tax/schedule-c/calculate?year=${year}`),
         makeAuthenticatedRequest(`/api/tax/schedule-se/auto?year=${year}`),
+        makeAuthenticatedRequest(`/api/tax/compute-1040?year=${year}`),
       ]);
 
       const grossData  = grossRes.ok  ? await grossRes.json()  : { totalGrossReceipts: 0, entries: [] };
       const incomeData = incomeRes.ok ? await incomeRes.json() : { forms: [] };
       const txData     = txRes.ok     ? await txRes.json()     : {};
       const seData     = seRes.ok     ? await seRes.json()     : {};
+      const tax1040    = form1040Res.ok ? await form1040Res.json() : {};
 
       const grossReceipts = grossData.totalGrossReceipts || 0;
       const income1099    = (incomeData.forms || []).reduce((s: number, f: any) => s + f.amount, 0);
@@ -99,6 +105,9 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
         hasW2: (seData.w2Income || 0) > 0,
         aboveLineDeductions: seData.aboveLineDeductions?.total || 0,
         adjustedNetIncome: seData.adjustedNetIncome || netProfit,
+        balanceDue: tax1040?.balanceDue || 0,
+        refund: tax1040?.refund || 0,
+        totalTax: tax1040?.totalTax || 0,
       });
     } catch (e) {
       setError("Failed to load filing summary. Please try again.");
@@ -168,7 +177,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
       status: summary.hasW2 ? "complete" : "partial",
       detail: summary.hasW2 ? `${fmt(summary.w2Wages)} in W-2 wages · ${fmt(summary.w2Withheld)} withheld` : "Add any employer W-2s for complete tax picture",
       action: "Tax Organizer",
-      actionScreen: "tax-organizer",
+      actionScreen: "w2-income",
     },
     {
       id: "deductions",
@@ -177,7 +186,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
       status: summary.hasDeductions ? "complete" : "partial",
       detail: summary.hasDeductions ? "Above-the-line deductions recorded" : "Enter health insurance and retirement contributions to reduce taxes",
       action: "Tax Organizer",
-      actionScreen: "tax-organizer",
+      actionScreen: "deductions-entry",
     },
   ];
 
@@ -285,10 +294,13 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
             {/* Summary cards */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {[
-                { label: "Total Income",       value: fmt(summary.totalIncome + summary.w2Wages), accent: "text-green-600 dark:text-green-400",  icon: TrendingUp },
-                { label: "Total Deductions",   value: fmt(summary.totalExpenses + summary.aboveLineDeductions), accent: "text-red-500 dark:text-red-400", icon: Receipt },
-                { label: "Taxable Income",     value: fmt(summary.adjustedNetIncome), accent: "text-blue-600 dark:text-blue-400", icon: DollarSign },
-                { label: "Est. SE Tax",        value: fmt(summary.seTax),             accent: "text-orange-600 dark:text-orange-400", icon: Calculator },
+                { label: "Total Income",    value: fmt(summary.totalIncome + summary.w2Wages), accent: "text-green-600 dark:text-green-400",  icon: TrendingUp },
+                { label: "Total Expenses",  value: fmt(summary.totalExpenses), accent: "text-red-500 dark:text-red-400", icon: Receipt },
+                { label: "Total Tax",       value: fmt(summary.totalTax), accent: "text-orange-600 dark:text-orange-400", icon: DollarSign },
+                { label: summary.refund > 0 ? "Est. Refund" : "Balance Due",
+                  value: fmt(summary.refund > 0 ? summary.refund : summary.balanceDue),
+                  accent: summary.refund > 0 ? "text-green-600 dark:text-green-400" : "text-orange-600 dark:text-orange-400",
+                  icon: Calculator },
               ].map(({ label, value, accent, icon: Icon }) => (
                 <Card key={label} className="bg-card border-border">
                   <CardContent className="p-3 sm:p-4">
@@ -411,8 +423,10 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
               </CardHeader>
               <CardContent className="grid grid-cols-2 gap-2 p-4 pt-0">
                 {[
+                  { label: "Tax Preview",       screen: "tax-preview",            icon: DollarSign },
                   { label: "Add Income",        screen: "income-tracking",        icon: TrendingUp },
                   { label: "Add Transaction",   screen: "add-manual-transaction", icon: Receipt },
+                  { label: "Deductions",        screen: "deductions-entry",       icon: Receipt },
                   { label: "Review Expenses",   screen: "transactions",           icon: FileText },
                   { label: "Schedule C Export", screen: "schedule-c-export",      icon: Download },
                 ].map(({ label, screen, icon: Icon }) => (
