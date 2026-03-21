@@ -20,13 +20,7 @@ const getAuthDomain = () => {
 
 // Graceful environment variable handling - fails gracefully in dev instead of crashing
 const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || (() => {
-    if (process.env.NODE_ENV === 'development') {
-      console.warn('[Firebase Client] NEXT_PUBLIC_FIREBASE_API_KEY not set, using fallback');
-    }
-    if (process.env.NODE_ENV === "production") throw new Error("NEXT_PUBLIC_FIREBASE_API_KEY is required");
-    return "";
-  })(),
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "AIzaSyCVvpY-M571W0I3Faz-i8mAyofLobqm5ZE",
   authDomain: getAuthDomain(),
   projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || (() => {
     if (process.env.NODE_ENV === 'development') {
