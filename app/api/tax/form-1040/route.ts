@@ -332,6 +332,13 @@ export async function POST(request: NextRequest) {
 
     const displayData: Record<string, any> = { ...result, w2Wages, scheduleCNetProfit, w2FederalWithheld, estimatedPayments };
 
+    // Add completeness warnings to displayData
+    const warnings: string[] = [];
+    if (!result.totalIncome || result.totalIncome === 0) warnings.push('No income entered - add income in WriteOff before using this form');
+    if (!enrichedProfile.ssn) warnings.push('SSN not filled in - enter SSN in Tax Organizer');
+    if (!enrichedProfile.mailing_address?.street) warnings.push('Mailing address incomplete - update in Tax Organizer');
+    displayData.warnings = warnings;
+
     const p1 = await page1(pdfDoc, font, boldFont, displayData, enrichedProfile, String(year));
     const p2 = await page2(pdfDoc, font, boldFont, displayData, String(year));
     footer(p1, 1, 2, String(year), font);

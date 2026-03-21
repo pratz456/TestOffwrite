@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { usePathname, useSearchParams, useRouter } from 'next/navigation';
-import { Menu, X, Home, CreditCard, BarChart3, Settings, FolderOpen, HelpCircle, Shield, Info, FileText } from 'lucide-react';
+import { Menu, X, Home, CreditCard, BarChart3, Settings, FolderOpen, HelpCircle, Shield, Info, FileText, TrendingUp, PlusCircle, ClipboardCheck, ClipboardList, Eye, Minus, PenLine, ScanLine, Briefcase, Sparkles } from 'lucide-react';
 import { LogoutButton } from './logout-button';
 
 interface MobileNavProps {
@@ -20,61 +20,24 @@ export const MobileNav: React.FC<MobileNavProps> = ({ user, userProfile }) => {
   const drawerRef = useRef<HTMLDivElement>(null);
 
   const navItems = [
-    {
-      name: 'Home',
-      href: '/protected',
-      icon: Home,
-      description: 'Dashboard overview',
-      isHome: true
-    },
-    {
-      name: 'Transactions',
-      href: '/protected/transactions',
-      icon: CreditCard,
-      description: 'View and manage transactions'
-    },
-    {
-      name: 'Categories',
-      href: '/protected?screen=categories',
-      icon: FolderOpen,
-      description: 'Manage expense categories'
-    },
-    {
-      name: 'Reports',
-      href: '/protected/reports',
-      icon: BarChart3,
-      description: 'Tax reports and analytics'
-    },
-    {
-      name: 'File Taxes',
-      href: '/protected/file-taxes',
-      icon: FileText,
-      description: 'Filing options & providers'
-    },
-    {
-      name: 'Settings',
-      href: '/protected/settings',
-      icon: Settings,
-      description: 'Account and preferences'
-    },
-    {
-      name: 'Help',
-      href: '/protected/help',
-      icon: HelpCircle,
-      description: 'Help and support'
-    },
-    {
-      name: 'Privacy',
-      href: '/protected/privacy',
-      icon: Shield,
-      description: 'Privacy policy'
-    },
-    {
-      name: 'About',
-      href: '/protected/about',
-      icon: Info,
-      description: 'About WriteOff'
-    }
+    { name: 'Home',             href: '/protected',                            icon: Home,          description: 'Dashboard overview', isHome: true },
+    { name: 'Transactions',     href: '/protected/transactions',               icon: CreditCard,    description: 'View and categorize transactions' },
+    { name: 'Income',           href: '/protected?screen=income-tracking',     icon: TrendingUp,    description: 'Gross receipts and 1099 income' },
+    { name: 'W-2 Income',       href: '/protected?screen=w2-income',           icon: Briefcase,     description: 'Employer W-2 wages' },
+    { name: 'Add Transaction',  href: '/protected?screen=add-manual-transaction', icon: PlusCircle, description: 'Add income or expense manually' },
+    { name: 'Import Document',  href: '/protected?screen=document-import',     icon: ScanLine,      description: 'Upload W-2, 1099, or platform summary' },
+    { name: 'Tax Organizer',    href: '/protected?screen=tax-organizer',       icon: ClipboardList, description: 'Guided intake for complete return' },
+    { name: 'Tax Preview',      href: '/protected?screen=tax-preview',         icon: Eye,           description: 'Live balance due or refund' },
+    { name: 'Deductions',       href: '/protected?screen=deductions-entry',    icon: Minus,         description: 'Health insurance, retirement, HSA' },
+    { name: 'Sign Form 8879',   href: '/protected?screen=form-8879',           icon: PenLine,       description: 'E-file authorization signature' },
+    { name: 'Categories',       href: '/protected?screen=categories',          icon: FolderOpen,    description: 'Manage expense categories' },
+    { name: 'Reports',          href: '/protected/reports',                    icon: BarChart3,     description: 'Tax reports and analytics' },
+    { name: 'File Taxes',       href: '/protected?screen=tax-filing-hub',      icon: ClipboardCheck, description: 'Tax filing hub and exports' },
+    { name: 'AI Tax Assistant', href: '/protected?screen=tax-assistant',       icon: Sparkles,      description: 'Ask tax questions' },
+    { name: 'Settings',         href: '/protected/settings',                   icon: Settings,      description: 'Account and preferences' },
+    { name: 'Help',             href: '/protected/help',                       icon: HelpCircle,    description: 'Help and support' },
+    { name: 'Privacy',          href: '/protected/privacy',                    icon: Shield,        description: 'Privacy policy' },
+    { name: 'About',            href: '/protected/about',                      icon: Info,          description: 'About WriteOff' },
   ];
 
   const isActive = (href: string) => {
