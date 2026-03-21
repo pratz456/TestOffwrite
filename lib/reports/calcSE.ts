@@ -16,14 +16,14 @@ export interface ScheduleSECalculation {
   halfSEDeduction: number; // Half of SE tax (deductible)
 }
 
-// 2024 Tax Rates and Limits
+// 2025 Tax Rates and Limits (IRS Rev. Proc. 2024-40, IR-2024-285)
 const SOCIAL_SECURITY_RATE = 0.124; // 12.4%
 const MEDICARE_RATE = 0.029; // 2.9%
 const ADDITIONAL_MEDICARE_RATE = 0.009; // 0.9%
 const SE_ADJUSTMENT_FACTOR = 0.9235; // 92.35%
 
-// 2024 Wage Base and Thresholds
-const SOCIAL_SECURITY_WAGE_BASE = 168600; // $168,600
+// 2025 Wage Base and Thresholds
+const SOCIAL_SECURITY_WAGE_BASE = 176100; // $176,100 for 2025 (IRS IR-2024-285)
 const ADDITIONAL_MEDICARE_THRESHOLD_SINGLE = 200000; // $200,000
 const ADDITIONAL_MEDICARE_THRESHOLD_MARRIED = 250000; // $250,000
 

@@ -448,6 +448,12 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     vehicle_business_use_percentage: undefined as number | undefined,
     vehicle_deduction_method: '',
     itemization_status: '',
+    // Above-the-line deductions
+    health_insurance_premiums: undefined as number | undefined,
+    sep_ira_contribution: undefined as number | undefined,
+    solo_401k_contribution: undefined as number | undefined,
+    hsa_contribution: undefined as number | undefined,
+    w2_federal_withheld: undefined as number | undefined,
 
     // Advanced Tab
     audit_history: 'none',
@@ -602,8 +608,12 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             vehicle_business_use_percentage: existingProfile.vehicle_business_use_percentage,
             vehicle_deduction_method: existingProfile.vehicle_deduction_method || '',
             itemization_status: existingProfile.itemization_status || '',
-
-            // Advanced Tab - Map all advanced fields
+            health_insurance_premiums: existingProfile.health_insurance_premiums,
+            sep_ira_contribution: existingProfile.sep_ira_contribution,
+            solo_401k_contribution: existingProfile.solo_401k_contribution,
+            hsa_contribution: existingProfile.hsa_contribution,
+            w2_federal_withheld: existingProfile.w2_federal_withheld,
+// Advanced Tab - Map all advanced fields
             audit_history: existingProfile.audit_history || 'none',
             tax_professional: existingProfile.tax_professional || false,
             documentation_habits: existingProfile.documentation_habits || 'moderate',
@@ -1633,6 +1643,101 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                           ? `$${profile.prior_year_tax.toLocaleString()}`
                           : '-'
                       )
+                    )}
+                  </div>
+                </div>
+              </section>
+
+              {/* Above-the-Line Deductions */}
+              <section className="space-y-4">
+                <div>
+                  <h3 className="text-base font-semibold text-foreground">Above-the-Line Deductions</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">These reduce your AGI and flow into your quarterly tax estimates and Schedule SE calculation.</p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    {editState.taxSettings ? (
+                      <>
+                        <Label className="text-sm font-medium text-foreground">Self-Employed Health Insurance Premiums</Label>
+                        <Input
+                          type="number" min={0}
+                          value={profile.health_insurance_premiums ?? ''}
+                          onChange={(e) => handleProfileChange({ health_insurance_premiums: e.target.value ? parseFloat(e.target.value) : undefined })}
+                          placeholder="e.g., 7200"
+                          className="h-12 rounded-lg border-border bg-background"
+                        />
+                        <p className="text-xs text-muted-foreground">Annual premiums for medical/dental/vision paid out of pocket. Schedule 1 Line 17.</p>
+                      </>
+                    ) : (
+                      renderViewField('Health Insurance Premiums', profile.health_insurance_premiums != null ? `$${profile.health_insurance_premiums.toLocaleString()}` : '-')
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    {editState.taxSettings ? (
+                      <>
+                        <Label className="text-sm font-medium text-foreground">SEP-IRA Contribution</Label>
+                        <Input
+                          type="number" min={0}
+                          value={profile.sep_ira_contribution ?? ''}
+                          onChange={(e) => handleProfileChange({ sep_ira_contribution: e.target.value ? parseFloat(e.target.value) : undefined })}
+                          placeholder="e.g., 14000"
+                          className="h-12 rounded-lg border-border bg-background"
+                        />
+                        <p className="text-xs text-muted-foreground">Max 25% of net SE income up to $70,000 (2025). Schedule 1 Line 16.</p>
+                      </>
+                    ) : (
+                      renderViewField('SEP-IRA Contribution', profile.sep_ira_contribution != null ? `$${profile.sep_ira_contribution.toLocaleString()}` : '-')
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    {editState.taxSettings ? (
+                      <>
+                        <Label className="text-sm font-medium text-foreground">Solo 401(k) Contribution</Label>
+                        <Input
+                          type="number" min={0}
+                          value={profile.solo_401k_contribution ?? ''}
+                          onChange={(e) => handleProfileChange({ solo_401k_contribution: e.target.value ? parseFloat(e.target.value) : undefined })}
+                          placeholder="e.g., 23500"
+                          className="h-12 rounded-lg border-border bg-background"
+                        />
+                        <p className="text-xs text-muted-foreground">Employee deferral up to $23,500 + employer portion (2025). Schedule 1 Line 16.</p>
+                      </>
+                    ) : (
+                      renderViewField('Solo 401(k) Contribution', profile.solo_401k_contribution != null ? `$${profile.solo_401k_contribution.toLocaleString()}` : '-')
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    {editState.taxSettings ? (
+                      <>
+                        <Label className="text-sm font-medium text-foreground">HSA Contribution</Label>
+                        <Input
+                          type="number" min={0}
+                          value={profile.hsa_contribution ?? ''}
+                          onChange={(e) => handleProfileChange({ hsa_contribution: e.target.value ? parseFloat(e.target.value) : undefined })}
+                          placeholder="e.g., 4300"
+                          className="h-12 rounded-lg border-border bg-background"
+                        />
+                        <p className="text-xs text-muted-foreground">2025 limits: $4,300 self-only / $8,550 family. Schedule 1 Line 13.</p>
+                      </>
+                    ) : (
+                      renderViewField('HSA Contribution', profile.hsa_contribution != null ? `$${profile.hsa_contribution.toLocaleString()}` : '-')
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    {editState.taxSettings ? (
+                      <>
+                        <Label className="text-sm font-medium text-foreground">W-2 Federal Tax Withheld</Label>
+                        <Input
+                          type="number" min={0}
+                          value={profile.w2_federal_withheld ?? ''}
+                          onChange={(e) => handleProfileChange({ w2_federal_withheld: e.target.value ? parseFloat(e.target.value) : undefined })}
+                          placeholder="e.g., 8500"
+                          className="h-12 rounded-lg border-border bg-background"
+                        />
+                        <p className="text-xs text-muted-foreground">Box 2 of your W-2. Already withheld by employer — reduces your quarterly payment obligations.</p>
+                      </>
+                    ) : (
+                      renderViewField('W-2 Federal Tax Withheld', profile.w2_federal_withheld != null ? `$${profile.w2_federal_withheld.toLocaleString()}` : '-')
                     )}
                   </div>
                 </div>

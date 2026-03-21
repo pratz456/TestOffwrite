@@ -40,8 +40,14 @@ export interface UserProfile {
   business_purpose?: string;
   ein?: string;
   w2_income?: number;
+  w2_federal_withheld?: number;     // Box 2 of W-2 — federal tax already withheld
   business_income?: number;
   other_income?: number;
+  // Above-the-line deductions (Schedule 1)
+  health_insurance_premiums?: number;   // Self-employed health insurance (Schedule 1 Line 17)
+  sep_ira_contribution?: number;        // SEP-IRA contribution (Schedule 1 Line 16)
+  solo_401k_contribution?: number;      // Solo 401(k) contribution (Schedule 1 Line 16)
+  hsa_contribution?: number;            // HSA contribution (Schedule 1 Line 13)
   tax_bracket?: number;
   professional_licenses?: string[];
 

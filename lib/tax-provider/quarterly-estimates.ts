@@ -276,7 +276,7 @@ export function sumPotentialExpensesForQuarter(
 type FilingStatus = 'single' | 'married_filing_jointly' | string;
 
 // 2024 rates/limits used by existing code paths.
-const SOCIAL_SECURITY_WAGE_BASE_CENTS = 168600 * 100;
+const SOCIAL_SECURITY_WAGE_BASE_CENTS = 176100 * 100;
 const ADDITIONAL_MEDICARE_THRESHOLD_SINGLE_CENTS = 200000 * 100;
 const ADDITIONAL_MEDICARE_THRESHOLD_MARRIED_CENTS = 250000 * 100;
 
@@ -355,6 +355,11 @@ export function aggregateQuarterlyEstimatesForYear(
     filingStatus: FilingStatus;
     w2Income?: number;
     otherIncome?: number;
+    // Above-the-line deductions that reduce AGI and SE tax base
+    healthInsurancePremiums?: number;   // self-employed health insurance (Schedule 1 Line 17)
+    retirementContributions?: number;   // SEP-IRA / Solo 401k (Schedule 1 Line 16)
+    // Manual income not captured in transactions (gross receipts + 1099s)
+    manualGrossReceipts?: number;       // from gross_receipts + income_1099 collections
   }
 ): {
   quarters: Array<{

@@ -43,6 +43,8 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
   const [summary, setSummary] = useState({
     grossReceipts: 0,
     income1099: 0,
+    w2Wages: 0,
+    w2Withheld: 0,
     totalIncome: 0,
     confirmedExpenses: 0,
     totalExpenses: 0,
@@ -52,6 +54,11 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
     hasHomeOffice: false,
     hasVehicle: false,
     quarterlyPaid: 0,
+    hasDeductions: false,
+    hasW2: false,
+    // Computed fields from SE auto endpoint
+    aboveLineDeductions: 0,
+    adjustedNetIncome: 0,
   });
 
   const loadSummary = useCallback(async () => {
@@ -79,11 +86,19 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
       const confirmedCount = txData.confirmedCount || 0;
 
       setSummary({
-        grossReceipts, income1099, totalIncome, confirmedExpenses: totalExpenses,
+        grossReceipts, income1099,
+        w2Wages: seData.w2Income || seData.w2Wages || 0,
+        w2Withheld: seData.w2Withheld || 0,
+        totalIncome: seData.totalIncome || totalIncome,
+        confirmedExpenses: totalExpenses,
         totalExpenses, netProfit, seTax, confirmedCount,
         hasHomeOffice: !!(txData.hasHomeOffice),
         hasVehicle: !!(txData.hasVehicle),
         quarterlyPaid: 0,
+        hasDeductions: !!(seData.aboveLineDeductions?.total),
+        hasW2: (seData.w2Income || 0) > 0,
+        aboveLineDeductions: seData.aboveLineDeductions?.total || 0,
+        adjustedNetIncome: seData.adjustedNetIncome || netProfit,
       });
     } catch (e) {
       setError("Failed to load filing summary. Please try again.");
@@ -145,6 +160,24 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
       detail: "Review if you made quarterly payments",
       action: "Quarterly Payments",
       actionScreen: "quarterly-payments",
+    },
+    {
+      id: "w2",
+      label: "W-2 income entered",
+      description: "Wages from employer jobs this year",
+      status: summary.hasW2 ? "complete" : "partial",
+      detail: summary.hasW2 ? `${fmt(summary.w2Wages)} in W-2 wages · ${fmt(summary.w2Withheld)} withheld` : "Add any employer W-2s for complete tax picture",
+      action: "Tax Organizer",
+      actionScreen: "tax-organizer",
+    },
+    {
+      id: "deductions",
+      label: "Deductions entered",
+      description: "Health insurance, retirement, HSA contributions",
+      status: summary.hasDeductions ? "complete" : "partial",
+      detail: summary.hasDeductions ? "Above-the-line deductions recorded" : "Enter health insurance and retirement contributions to reduce taxes",
+      action: "Tax Organizer",
+      actionScreen: "tax-organizer",
     },
   ];
 
@@ -252,10 +285,10 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
             {/* Summary cards */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {[
-                { label: "Gross Income",   value: fmt(summary.totalIncome),   accent: "text-green-600 dark:text-green-400",  icon: TrendingUp },
-                { label: "Total Expenses", value: fmt(summary.totalExpenses),  accent: "text-red-500 dark:text-red-400",      icon: Receipt },
-                { label: "Net Profit",     value: fmt(summary.netProfit),      accent: "text-blue-600 dark:text-blue-400",    icon: DollarSign },
-                { label: "Est. SE Tax",    value: fmt(summary.seTax),          accent: "text-orange-600 dark:text-orange-400", icon: Calculator },
+                { label: "Total Income",       value: fmt(summary.totalIncome + summary.w2Wages), accent: "text-green-600 dark:text-green-400",  icon: TrendingUp },
+                { label: "Total Deductions",   value: fmt(summary.totalExpenses + summary.aboveLineDeductions), accent: "text-red-500 dark:text-red-400", icon: Receipt },
+                { label: "Taxable Income",     value: fmt(summary.adjustedNetIncome), accent: "text-blue-600 dark:text-blue-400", icon: DollarSign },
+                { label: "Est. SE Tax",        value: fmt(summary.seTax),             accent: "text-orange-600 dark:text-orange-400", icon: Calculator },
               ].map(({ label, value, accent, icon: Icon }) => (
                 <Card key={label} className="bg-card border-border">
                   <CardContent className="p-3 sm:p-4">

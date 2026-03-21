@@ -64,6 +64,14 @@ const TaxFilingHubScreen = dynamic(
   () => import("@/components/tax-filing-hub-screen").then((m) => m.TaxFilingHubScreen || m.default),
   { ssr: false }
 );
+const W2IncomeScreen = dynamic(
+  () => import("@/components/w2-income-screen").then((m) => m.W2IncomeScreen || m.default),
+  { ssr: false }
+);
+const TaxOrganizerScreen = dynamic(
+  () => import("@/components/tax-organizer-screen").then((m) => m.TaxOrganizerScreen || m.default),
+  { ssr: false }
+);
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useTransactions } from "@/lib/firebase/hooks";
@@ -89,7 +97,7 @@ export default function ProtectedPage() {
   const [userProfile, setUserProfile] = useState<any>(null);
   const [hasProfile, setHasProfile] = useState<boolean | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [currentScreen, setCurrentScreen] = useState<'dashboard' | 'settings' | 'add-expense' | 'receipt-upload' | 'tax-calendar' | 'transactions' | 'review-transactions' | 'schedule-c-export' | 'edit-expense' | 'deductions-detail' | 'expenses-detail' | 'banks-detail' | 'profit-loss-detail' | 'categories' | 'plaid-link' | 'plaid' | 'transaction-detail' | 'reports' | 'ai-insights' | 'quarterly-taxes' | 'mileage-tracker' | 'income-tracking' | 'tax-form-wizard' | 'state-tax-calculator' | 'tax-assistant' | 'profit-loss-report' | 'quarterly-payments' | 'action-items' | 'add-manual-transaction' | 'tax-filing-hub'>('dashboard');
+  const [currentScreen, setCurrentScreen] = useState<'dashboard' | 'settings' | 'add-expense' | 'receipt-upload' | 'tax-calendar' | 'transactions' | 'review-transactions' | 'schedule-c-export' | 'edit-expense' | 'deductions-detail' | 'expenses-detail' | 'banks-detail' | 'profit-loss-detail' | 'categories' | 'plaid-link' | 'plaid' | 'transaction-detail' | 'reports' | 'ai-insights' | 'quarterly-taxes' | 'mileage-tracker' | 'income-tracking' | 'tax-form-wizard' | 'state-tax-calculator' | 'tax-assistant' | 'profit-loss-report' | 'quarterly-payments' | 'action-items' | 'add-manual-transaction' | 'tax-filing-hub' | 'tax-organizer' | 'w2-income'>('dashboard');
   const [navigationStack, setNavigationStack] = useState<string[]>(['dashboard']);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
@@ -1007,6 +1015,25 @@ export default function ProtectedPage() {
     if (currentScreen === 'tax-filing-hub') {
       return (
         <TaxFilingHubScreen
+          user={{ id: user.id, email: user.email ?? undefined }}
+          onBack={handleGoBack}
+          onNavigate={handleNavigate}
+        />
+      );
+    }
+
+    if (currentScreen === 'w2-income') {
+      return (
+        <W2IncomeScreen
+          user={{ id: user.id, email: user.email ?? undefined }}
+          onBack={handleGoBack}
+        />
+      );
+    }
+
+    if (currentScreen === 'tax-organizer') {
+      return (
+        <TaxOrganizerScreen
           user={{ id: user.id, email: user.email ?? undefined }}
           onBack={handleGoBack}
           onNavigate={handleNavigate}

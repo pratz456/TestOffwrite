@@ -41,6 +41,11 @@ export interface UserProfile {
   business_purpose?: string;
   ein?: string;
   w2_income?: number;
+  w2_federal_withheld?: number;
+  health_insurance_premiums?: number;
+  sep_ira_contribution?: number;
+  solo_401k_contribution?: number;
+  hsa_contribution?: number;
   business_income?: number;
   other_income?: number;
   tax_bracket?: number;

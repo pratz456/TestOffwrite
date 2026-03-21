@@ -4,7 +4,7 @@ import React from 'react';
 import { LogoutButton } from './logout-button';
 import Link from 'next/link';
 import { usePathname, useSearchParams, useRouter } from 'next/navigation';
-import { Home, CreditCard, BarChart3, Settings, FolderOpen, HelpCircle, Shield, Info, FileText, TrendingUp, PlusCircle, ClipboardCheck } from 'lucide-react';
+import { Home, CreditCard, BarChart3, Settings, FolderOpen, HelpCircle, Shield, Info, FileText, TrendingUp, PlusCircle, ClipboardCheck, ClipboardList } from 'lucide-react';
 interface SidebarNavProps {
   user: { id: string; email?: string; user_metadata?: { name?: string } };
   userProfile?: { name?: string; email?: string };
@@ -42,6 +42,12 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ user, userProfile }) => 
       href: '/protected?screen=add-manual-transaction',
       icon: PlusCircle,
       description: 'Manually enter income or expenses'
+    },
+    {
+      name: 'Tax Organizer',
+      href: '/protected?screen=tax-organizer',
+      icon: ClipboardList,
+      description: 'W-2 income, deductions, retirement'
     },
     {
       name: 'Categories',
