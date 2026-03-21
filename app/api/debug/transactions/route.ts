@@ -9,22 +9,10 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const accountId = searchParams.get('accountId');
-    const userId = searchParams.get('userId');
     
-    // Allow passing userId directly for debugging (unsafe for production)
-    let uid = userId;
-    
-    if (!uid) {
-      try {
-        const authResult = await getUserFromReqOrThrow(request);
-        uid = authResult.uid;
-      } catch (authError) {
-        return NextResponse.json({ 
-          error: 'Authentication required. Provide userId parameter for debugging.',
-          hint: 'Add ?userId=YOUR_UID to the URL'
-        }, { status: 401 });
-      }
-    }
+    // Always require proper authentication — never accept userId from query params
+    const authResult = await getUserFromReqOrThrow(request);
+    const uid = authResult.uid;
     
     console.log(`🔍 [DEBUG] Checking transactions for user: ${uid}`);
     

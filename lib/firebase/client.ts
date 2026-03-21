@@ -24,7 +24,8 @@ const firebaseConfig = {
     if (process.env.NODE_ENV === 'development') {
       console.warn('[Firebase Client] NEXT_PUBLIC_FIREBASE_API_KEY not set, using fallback');
     }
-    return "AIzaSyCVvpY-M571W0I3Faz-i8mAyofLobqm5ZE";
+    if (process.env.NODE_ENV === "production") throw new Error("NEXT_PUBLIC_FIREBASE_API_KEY is required");
+    return "";
   })(),
   authDomain: getAuthDomain(),
   projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || (() => {

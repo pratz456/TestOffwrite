@@ -110,7 +110,7 @@ async function page1(doc: PDFDocument, f: PDFFont, bf: PDFFont, d: Record<string
   vl(p, ML + 205, y, y - 16);
   field(p, 'Last name', ML + 208, y - 2, 162, parts.slice(1).join(' '), f, bf);
   vl(p, ML + 374, y, y - 16);
-  field(p, 'Social security number', ML + 377, y - 2, 159, '___-__-____', f, bf);
+  field(p, 'Social security number', ML + 377, y - 2, 159, profile.ssn || '___-__-____', f, bf);
   hl(p, y - 16, ML, MR, 0.5, BLACK); y -= 20;
 
   field(p, 'Home address', ML, y - 2, 430, profile.mailing_address?.street || profile.primary_work_location || '', f, bf);
@@ -254,7 +254,7 @@ export async function POST(request: NextRequest) {
     if (!year) return NextResponse.json({ error: 'Year required' }, { status: 400 });
     const taxYear = parseInt(String(year), 10);
 
-    const [txResult, profileResult, grossSnap, income1099Snap, w2Snap, deductionsSnap, quarterlySnap] = await Promise.all([
+    const [txResult, profileResult, grossSnap, income1099Snap, w2Snap, deductionsSnap, quarterlySnap, organizerSnap] = await Promise.all([
       getTransactionsServer(uid),
       getUserProfileServer(uid),
       adminDb.collection('gross_receipts').where('userId', '==', uid).where('taxYear', '==', taxYear).get(),
@@ -262,11 +262,42 @@ export async function POST(request: NextRequest) {
       adminDb.collection('w2_income').where('userId', '==', uid).where('taxYear', '==', taxYear).get(),
       adminDb.collection('tax_deductions').where('userId', '==', uid).where('taxYear', '==', taxYear).limit(1).get(),
       adminDb.collection('quarterly_payments').where('userId', '==', uid).where('taxYear', '==', taxYear).get(),
+      adminDb.collection('tax_organizers').where('userId', '==', uid).where('taxYear', '==', taxYear).limit(1).get(),
     ]);
 
     const transactions = (txResult.data || []) as any[];
     const profile = (profileResult.data || {}) as Record<string, any>;
     const ded = deductionsSnap.empty ? {} as Record<string, any> : deductionsSnap.docs[0].data();
+    const org = organizerSnap.empty ? {} as Record<string, any> : organizerSnap.docs[0].data();
+
+    // Merge organizer data into profile for PDF pre-fill
+    const enrichedProfile: Record<string, any> = {
+      ...profile,
+      // SSN from organizer (formatted as XXX-XX-XXXX)
+      ssn: org.taxpayerSSN
+        ? `${org.taxpayerSSN.slice(0,3)}-${org.taxpayerSSN.slice(3,5)}-${org.taxpayerSSN.slice(5,9)}`
+        : '',
+      // Spouse
+      spouseName: org.spouseName || '',
+      spouseSSN: org.spouseSSN
+        ? `${org.spouseSSN.slice(0,3)}-${org.spouseSSN.slice(3,5)}-${org.spouseSSN.slice(5,9)}`
+        : '',
+      // Address (organizer address takes priority over profile)
+      mailing_address: {
+        street: org.streetAddress || profile.mailing_address?.street || '',
+        city: org.city || profile.mailing_address?.city || '',
+        state: org.stateAddr || profile.mailing_address?.state || profile.state || '',
+        zip: org.zipCode || profile.mailing_address?.zip || '',
+      },
+      // Bank for direct deposit
+      bankRouting: org.bankRouting || '',
+      bankAccount: org.bankAccount || '',
+      bankAccountType: org.bankAccountType || 'checking',
+      // Prior year AGI for e-file
+      priorYearAGI: org.priorYearAGI || '',
+      // IP PIN
+      ipPin: org.ipPin || '',
+    };
 
     const grossReceipts =
       grossSnap.docs.reduce((s, d) => s + (d.data().amount || 0), 0) +
@@ -301,7 +332,7 @@ export async function POST(request: NextRequest) {
 
     const displayData: Record<string, any> = { ...result, w2Wages, scheduleCNetProfit, w2FederalWithheld, estimatedPayments };
 
-    const p1 = await page1(pdfDoc, font, boldFont, displayData, profile, String(year));
+    const p1 = await page1(pdfDoc, font, boldFont, displayData, enrichedProfile, String(year));
     const p2 = await page2(pdfDoc, font, boldFont, displayData, String(year));
     footer(p1, 1, 2, String(year), font);
     footer(p2, 2, 2, String(year), font);

@@ -34,6 +34,7 @@ export async function GET(request: NextRequest) {
     w2Snap,
     deductionsSnap,
     quarterlySnap,
+    organizerSnap,
   ] = await Promise.all([
     getTransactionsServer(user.uid),
     getUserProfileServer(user.uid),
@@ -42,10 +43,24 @@ export async function GET(request: NextRequest) {
     adminDb.collection('w2_income').where('userId', '==', user.uid).where('taxYear', '==', year).get(),
     adminDb.collection('tax_deductions').where('userId', '==', user.uid).where('taxYear', '==', year).limit(1).get(),
     adminDb.collection('quarterly_payments').where('userId', '==', user.uid).where('taxYear', '==', year).get(),
+    adminDb.collection('tax_organizers').where('userId', '==', user.uid).where('taxYear', '==', year).limit(1).get(),
   ]);
 
   const transactions = (txResult.data || []) as any[];
   const profile = (profileResult.data || {}) as any;
+
+  // ── Organizer data: additional income not in Plaid/manual ──
+  const org = organizerSnap.empty ? {} as Record<string, any> : organizerSnap.docs[0].data();
+  const orgInterest = parseFloat(org.amount1099INT || '0') || 0;
+  const orgDividends = parseFloat(org.amount1099DIV || '0') || 0;
+  const orgCapGains = parseFloat(org.amountCapGains || '0') || 0;
+  const orgSocialSecurity = parseFloat(org.amountSocialSecurity || '0') || 0;
+  const orgIRADist = parseFloat(org.amountIRADistributions || '0') || 0;
+  const orgRentalIncome = parseFloat(org.amountRentalIncome || '0') || 0;
+  const orgOtherIncome = parseFloat(org.amountOtherIncome || '0') || 0;
+  // Taxable SS: simplified — up to 85% taxable (full calculation needs provisional income)
+  const taxableSS = orgSocialSecurity * 0.85;
+  const otherIncome = orgInterest + orgDividends + orgCapGains + taxableSS + orgIRADist + orgRentalIncome + orgOtherIncome;
 
   // ── Income ──
   const grossReceipts =
@@ -83,6 +98,7 @@ export async function GET(request: NextRequest) {
     filingStatus,
     scheduleCNetProfit,
     w2Wages,
+    otherIncome,
     w2FederalWithheld: totalW2Withheld,
     estimatedPayments,
     selfEmploymentTax: seCalc.totalSETax,
@@ -106,7 +122,9 @@ export async function GET(request: NextRequest) {
     taxYear: year,
     filingStatus,
     // Input summary for display
-    income: { grossReceipts, w2Wages, scheduleCNetProfit, totalDeductible },
+    income: { grossReceipts, w2Wages, scheduleCNetProfit, totalDeductible,
+      otherIncome, interest: orgInterest, dividends: orgDividends, capGains: orgCapGains,
+      socialSecurity: taxableSS, iraDist: orgIRADist, rental: orgRentalIncome },
     w2: { wages: w2Wages, withheld: totalW2Withheld, count: w2Snap.docs.length },
     deductions: { healthInsurancePremiums, sepIraContribution, solo401kContribution, hsaContribution, studentLoanInterest },
     payments: { estimatedPayments, w2FederalWithheld: totalW2Withheld },

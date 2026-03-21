@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Configuration, PlaidApi, PlaidEnvironments } from 'plaid';
 import { getUserProfile } from '@/lib/firebase/profiles';
+import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 
 const configuration = new Configuration({
   basePath: PlaidEnvironments[process.env.PLAID_ENV as keyof typeof PlaidEnvironments || 'sandbox'],
@@ -16,12 +17,11 @@ const client = new PlaidApi(configuration);
 
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
-    const userId = searchParams.get('userId');
+    const { user, error: authError } = await getAuthenticatedUser(request);
+    if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    if (!userId) {
-      return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
-    }
+    // Users can only fetch their own Plaid accounts
+    const userId = user.uid;
 
     // Get user's Plaid access token from Firebase
     const { data: userProfile, error: userError } = await getUserProfile(userId);

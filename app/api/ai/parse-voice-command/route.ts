@@ -1,3 +1,4 @@
+import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -24,6 +25,9 @@ interface VoiceCommand {
 }
 
 export async function POST(request: NextRequest) {
+  const { user, error: authError } = await getAuthenticatedUser(request);
+  if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   try {
     const openai = getOpenAIOrNull();
     if (!openai) {

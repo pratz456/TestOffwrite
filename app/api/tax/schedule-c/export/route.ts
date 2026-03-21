@@ -209,7 +209,7 @@ async function buildPage1(
   const ssnW = MR - ML - nameW - 10;
   inputLine(page, nameLabel, ML, y - 2, nameW, profile?.name || '', font, boldFont);
   vLine(page, ML + nameW + 5, y - 2, y - 15);
-  inputLine(page, ssnLabel, ML + nameW + 8, y - 2, ssnW, '', font, boldFont);
+  inputLine(page, ssnLabel, ML + nameW + 8, y - 2, ssnW, profile?.ssn || '', font, boldFont);
   hLine(page, y - 16, ML, MR, 0.5, BLACK);
   y -= 20;
 
@@ -487,6 +487,19 @@ export async function POST(request: NextRequest) {
     const { data: transactions = [] } = await getTransactionsServer(uid);
     const { data: profile } = await getUserProfileServer(uid);
 
+    // Fetch organizer for SSN
+    const orgSnap = await adminDb.collection('tax_organizers')
+      .where('userId', '==', uid)
+      .where('taxYear', '==', parseInt(String(year), 10))
+      .limit(1).get();
+    const orgData = orgSnap.empty ? {} as any : orgSnap.docs[0].data();
+    const enrichedProfile = {
+      ...profile,
+      ssn: orgData.taxpayerSSN
+        ? `${String(orgData.taxpayerSSN).slice(0,3)}-${String(orgData.taxpayerSSN).slice(3,5)}-${String(orgData.taxpayerSSN).slice(5,9)}`
+        : '',
+    } as any;
+
     // Fetch gross receipts (manual income entries) for this tax year
     const grossReceiptsSnap = await adminDb
       .collection('gross_receipts')
@@ -537,8 +550,8 @@ export async function POST(request: NextRequest) {
     const font     = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
-    const page1 = await buildPage1(pdfDoc, font, boldFont, lines, profile, String(year));
-    const page2 = await buildPage2(pdfDoc, font, boldFont, lines, lineItemsArray, profile, String(year));
+    const page1 = await buildPage1(pdfDoc, font, boldFont, lines, enrichedProfile, String(year));
+    const page2 = await buildPage2(pdfDoc, font, boldFont, lines, lineItemsArray, enrichedProfile, String(year));
 
     // Add footers
     footer(page1, 1, 2, font, String(year));

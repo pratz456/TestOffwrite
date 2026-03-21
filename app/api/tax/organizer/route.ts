@@ -7,6 +7,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
+import { encryptSensitive, sanitizeString } from '@/lib/security/utils';
 import { adminDb } from '@/lib/firebase/admin';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 
@@ -28,7 +29,22 @@ export async function POST(request: NextRequest) {
   const year = taxYear ? parseInt(String(taxYear), 10) : new Date().getFullYear();
   // Upsert
   const snap = await adminDb.collection('tax_organizers').where('userId', '==', user.uid).where('taxYear', '==', year).limit(1).get();
-  const data = { userId: user.uid, taxYear: year, ...answers, updatedAt: new Date() };
+  // Encrypt sensitive fields before Firestore storage
+  const encryptedAnswers = { ...answers };
+  if (answers.taxpayerSSN && answers.taxpayerSSN.length === 9) {
+    encryptedAnswers.taxpayerSSN = encryptSensitive(answers.taxpayerSSN);
+  }
+  if (answers.spouseSSN && answers.spouseSSN.length === 9) {
+    encryptedAnswers.spouseSSN = encryptSensitive(answers.spouseSSN);
+  }
+  if (answers.bankAccount && answers.bankAccount.length > 3) {
+    encryptedAnswers.bankAccount = encryptSensitive(answers.bankAccount);
+  }
+  // Sanitize text fields
+  if (answers.dependentDetails) {
+    encryptedAnswers.dependentDetails = sanitizeString(answers.dependentDetails, 2000);
+  }
+  const data = { userId: user.uid, taxYear: year, ...encryptedAnswers, updatedAt: new Date() };
   if (snap.empty) {
     const ref = await adminDb.collection('tax_organizers').add({ ...data, createdAt: new Date() });
     return NextResponse.json({ success: true, id: ref.id }, { status: 201 });

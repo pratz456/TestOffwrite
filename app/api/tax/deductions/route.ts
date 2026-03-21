@@ -10,6 +10,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
+import { validateDeductionEntry } from '@/lib/security/utils';
 import { adminDb } from '@/lib/firebase/admin';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 
@@ -70,6 +71,10 @@ export async function POST(request: NextRequest) {
   if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json();
+  const dedValidation = validateDeductionEntry(body);
+  if (!dedValidation.valid) {
+    return NextResponse.json({ error: dedValidation.errors.join(', ') }, { status: 400 });
+  }
   const {
     taxYear,
     healthInsurancePremiums = 0,

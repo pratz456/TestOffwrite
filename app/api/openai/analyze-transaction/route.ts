@@ -1,27 +1,17 @@
+/**
+ * DEPRECATED — use /api/ai/analyze-transaction instead.
+ * Kept for backward compatibility with older clients.
+ */
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 
-/**
- * DEPRECATED — this route is a legacy alias.
- * All AI analysis now goes through /api/ai/analyze-transaction which uses
- * the full analyzeTransaction engine with heuristics, learning context,
- * profession hints, and OpenAI structured outputs.
- *
- * This handler proxies to the canonical route so any clients still calling
- * the old path keep working without a breaking change.
- */
 export async function POST(request: NextRequest) {
-  const url = new URL(request.url);
-  url.pathname = '/api/ai/analyze-transaction';
-
-  const body = await request.text();
-  const forwarded = new Request(url.toString(), {
-    method: 'POST',
-    headers: request.headers,
-    body,
-  });
-
-  return fetch(forwarded);
+  const { user, error } = await getAuthenticatedUser(request);
+  if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  // Forward to the canonical route
+  const url = new URL('/api/ai/analyze-transaction', request.url);
+  return fetch(url.toString(), { method: 'POST', headers: request.headers, body: request.body });
 }
