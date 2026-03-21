@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { User, Briefcase, MapPin, FileText, Mail, ArrowRight, ArrowLeft, ChevronDown, ChevronUp } from '@/lib/icons';
 import { upsertUserProfile } from '@/lib/firebase/profiles';
 import { PlaidLinkScreen } from './plaid-link-screen';
+import { DataSourceScreen } from './data-source-screen';
 
 interface UserProfile {
   email: string;
@@ -92,7 +93,7 @@ const workRelatedTravelPatterns = [
 
 export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, onBack, onComplete }) => {
   useBeforeUnload(true);
-  const [currentStep, setCurrentStep] = useState<'profile' | 'plaid'>('profile');
+  const [currentStep, setCurrentStep] = useState<'profile' | 'data-source' | 'plaid'>('profile');
   const [currentSlide, setCurrentSlide] = useState<'about' | 'business'>('about');
   const [showMoreDetails, setShowMoreDetails] = useState(false);
   const [skipBusiness, setSkipBusiness] = useState(false);
@@ -203,7 +204,7 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
       }
 
       console.log('Profile saved successfully:', data);
-      setCurrentStep('plaid');
+      setCurrentStep('data-source');
     } catch (error) {
       console.error('Error saving profile:', error);
       setError(error instanceof Error ? error.message : 'Failed to save profile');
@@ -217,15 +218,26 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
   };
 
   const handlePlaidBack = () => {
-    setCurrentStep('profile');
+    setCurrentStep('data-source');
   };
+
+  if (currentStep === 'data-source') {
+    return (
+      <DataSourceScreen
+        user={user}
+        onConnectBank={() => setCurrentStep('plaid')}
+        onSkipToApp={() => onComplete(formData, '/protected')}
+        onBack={() => setCurrentStep('profile')}
+      />
+    );
+  }
 
   if (currentStep === 'plaid') {
     return (
       <PlaidLinkScreen
         user={user}
         onSuccess={handlePlaidSuccess}
-        onBack={handlePlaidBack}
+        onBack={() => setCurrentStep('data-source')}
       />
     );
   }

@@ -564,6 +564,15 @@ export default function ReportsPage() {
             <Download className="w-4 h-4" />
             <span className="ml-2 text-sm font-medium">Schedule C</span>
           </Button>
+          <a
+            href={`/api/transactions/export-csv?year=${currentYear}&filter=deductible`}
+            download
+            className="inline-flex items-center gap-2 min-h-[44px] h-11 px-4 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors"
+            title="Export deductible transactions as CSV for your accountant"
+          >
+            <Download className="w-4 h-4" />
+            <span className="ml-2 text-sm font-medium">Export CSV</span>
+          </a>
         </div>
       </div>
 

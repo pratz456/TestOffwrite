@@ -121,6 +121,9 @@ export default function DashboardScreen({
     );
   }
 
+  // --- New user empty state (no transactions at all) ---
+  const isNewUser = transactions.length === 0 && !transactionsLoading;
+
   // --- Derived data (unchanged business logic) ---
   const currentDate = new Date();
   const currentMonth = currentDate.getMonth();
@@ -190,6 +193,47 @@ export default function DashboardScreen({
         />
 
         <div className="max-w-7xl mx-auto px-4 md:px-6 py-3 sm:py-4 space-y-3 sm:space-y-4">
+
+          {/* New user onboarding checklist */}
+          {isNewUser && (
+            <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 sm:p-5">
+              <div className="flex items-start gap-3 mb-4">
+                <div className="w-9 h-9 rounded-lg bg-primary/15 flex items-center justify-center shrink-0">
+                  <span className="text-xl">👋</span>
+                </div>
+                <div>
+                  <h2 className="text-sm font-semibold text-foreground">Welcome to WriteOff - let's get you set up</h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">Complete these 5 steps to start saving on taxes</p>
+                </div>
+              </div>
+              <div className="space-y-2">
+                {[
+                  { step: 1, label: 'Complete your profile', sub: 'Filing status, state, profession', screen: 'settings', done: !!profile?.filing_status },
+                  { step: 2, label: 'Connect your bank', sub: 'Auto-import transactions via Plaid', screen: 'plaid', done: !!profile?.plaid_token },
+                  { step: 3, label: 'Fill the Tax Organizer', sub: 'SSN, address, income, dependents', screen: 'tax-organizer', done: false },
+                  { step: 4, label: 'Review your transactions', sub: 'Confirm which are deductible', screen: 'review-transactions', done: false },
+                  { step: 5, label: 'Preview your taxes', sub: 'Live refund or balance due estimate', screen: 'tax-preview', done: false },
+                ].map(({ step, label, sub, screen, done }) => (
+                  <button
+                    key={step}
+                    type="button"
+                    onClick={() => onNavigate(screen)}
+                    className="w-full flex items-center gap-3 p-3 rounded-lg bg-card border border-border hover:bg-muted/50 transition-colors text-left"
+                  >
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${done ? 'bg-emerald-500 text-white' : 'bg-muted text-muted-foreground'}`}>
+                      {done ? '✓' : step}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-medium ${done ? 'line-through text-muted-foreground' : 'text-foreground'}`}>{label}</p>
+                      <p className="text-xs text-muted-foreground">{sub}</p>
+                    </div>
+                    <span className="text-muted-foreground text-sm">›</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Proactive Action Items */}
           <ActionItemsBanner
             profile={profile}

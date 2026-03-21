@@ -7,8 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   ArrowLeft, Upload, FileText, CheckCircle2, AlertCircle, XCircle,
-  Loader2, Camera, DollarSign, Building2, Receipt, Info, Edit3, Eye,
-} from "lucide-react";
+  Loader2, Camera, DollarSign, Building2, Receipt, Info, Edit3, Eye, CreditCard} from "lucide-react";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 
 interface Props {
@@ -17,7 +16,7 @@ interface Props {
   onNavigate?: (screen: string) => void;
 }
 
-type DocType = "auto" | "w2" | "1099" | "platform_summary";
+type DocType = "auto" | "w2" | "1099" | "platform_summary" | "bank_statement" | "credit_card" | "receipt";
 
 // ── Field definitions with full context ──────────────────────────────────────
 
@@ -299,10 +298,13 @@ function FieldRow({
 // ── Main component ─────────────────────────────────────────────────────────────
 
 const DOC_TYPES: { value: DocType; label: string; icon: React.ElementType }[] = [
-  { value: "auto",             label: "Auto-detect",      icon: FileText   },
-  { value: "w2",               label: "W-2 Form",         icon: Building2  },
-  { value: "1099",             label: "1099 Form",        icon: Receipt    },
-  { value: "platform_summary", label: "Platform Summary", icon: DollarSign },
+  { value: "auto",             label: "Auto-detect",         icon: FileText   },
+  { value: "w2",               label: "W-2 Form",            icon: Building2  },
+  { value: "1099",             label: "1099 Form",           icon: Receipt    },
+  { value: "platform_summary", label: "Platform Summary",    icon: DollarSign },
+  { value: "bank_statement",   label: "Bank Statement",      icon: CreditCard },
+  { value: "credit_card",      label: "Credit Card Statement", icon: CreditCard },
+  { value: "receipt",          label: "Receipt / Invoice",   icon: Receipt    },
 ];
 
 export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {

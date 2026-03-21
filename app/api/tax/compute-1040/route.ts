@@ -98,12 +98,28 @@ export async function GET(request: NextRequest) {
   const totalW2Withheld = w2FederalWithheld + (profile.w2_federal_withheld || 0);
 
   // ── Compute 1040 ──
+  // Parse organizer for credits data
+  const numDependents = parseInt(org.dependents || '0', 10) || 0;
+  const numEITCChildren = numDependents; // Simplified: all dependents assumed to qualify
+  const taxPayerAge = org.dateOfBirth
+    ? new Date().getFullYear() - new Date(org.dateOfBirth).getFullYear()
+    : undefined;
+  const investmentIncome = (orgInterest + orgDividends + Math.max(0, orgCapGains));
+  const longTermCapGains = Math.max(0, orgCapGains); // Simplified: treat all cap gains as LT
+  const shortTermCapGains = 0; // User would need to specify
+
   const result = compute1040({
     taxYear: year,
     filingStatus,
     scheduleCNetProfit,
     w2Wages,
     otherIncome,
+    numDependents,
+    numEITCChildren,
+    taxPayerAge,
+    investmentIncome,
+    longTermCapGains,
+    shortTermCapGains,
     w2FederalWithheld: totalW2Withheld,
     estimatedPayments,
     selfEmploymentTax: seCalc.totalSETax,
