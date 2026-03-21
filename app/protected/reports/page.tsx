@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
+import { KpiTooltip } from '@/components/ui/kpi-tooltip';
 import { FileText, TrendingUp, TrendingDown, Calendar, BarChart3, AlertCircle, Download, Eye, X, Filter, ChevronDown, DollarSign, ArrowUpRight, ArrowDownRight, Info, RefreshCw, Target, Lock, Sparkles } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -584,7 +585,15 @@ export default function ReportsPage() {
             <div className="w-8 h-8 rounded-lg bg-[hsl(var(--success)/0.15)] flex items-center justify-center">
               <DollarSign className="w-4 h-4 text-[hsl(var(--success))]" />
             </div>
-            <span className="text-[10px] sm:text-xs text-muted-foreground/80 uppercase tracking-wide">Year to Date</span>
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] sm:text-xs text-muted-foreground/80 uppercase tracking-wide">YTD Tax Savings</span>
+              <KpiTooltip content={{
+                what: 'Total estimated tax dollars saved this year through confirmed deductions.',
+                how: 'Sum of all deductible transactions multiplied by your effective combined tax rate (income tax + SE tax). Based only on transactions you have confirmed as deductible.',
+                action: 'Review more transactions to increase this number. Unreviewed transactions may contain additional deductions.',
+                irsRef: 'Based on IRS Schedule C Part II deductions',
+              }} />
+            </div>
           </div>
           <div className="text-xl sm:text-2xl font-bold text-foreground tabular-nums whitespace-nowrap overflow-hidden text-ellipsis">${summary.yearToDateTotal.toFixed(2)}</div>
           <div className="text-[10px] sm:text-xs text-muted-foreground/80 mt-0.5">
@@ -633,25 +642,38 @@ export default function ReportsPage() {
           )}
         </Card>
 
-        {/* Monthly Avg - violet/blue accent */}
-        <Card className="p-4 sm:p-5 bg-card border border-border border-l-[3px] border-l-[hsl(var(--chart-4)/0.7)] shadow-[0_0_0_1px_hsl(var(--chart-4)/0.05),0_2px_6px_-2px_hsl(var(--chart-4)/0.08)] rounded-xl overflow-hidden">
-          <div className="flex items-center justify-between mb-1">
-            <div className="w-8 h-8 rounded-lg bg-[hsl(var(--chart-4)/0.15)] flex items-center justify-center">
-              <TrendingUp className="w-4 h-4 text-[hsl(var(--chart-4))]" />
-            </div>
-            <span className="text-[10px] sm:text-xs text-muted-foreground/80 uppercase tracking-wide">Monthly Avg</span>
-          </div>
-          <div className="text-xl sm:text-2xl font-bold text-foreground tabular-nums whitespace-nowrap overflow-hidden text-ellipsis">${summary.avgMonthly.toFixed(2)}</div>
-          <div className="text-[10px] sm:text-xs text-muted-foreground/80 mt-0.5">
-            <span className="sm:hidden">{summary.monthsWithData}mo data</span>
-            <span className="hidden sm:inline">Based on {summary.monthsWithData} {summary.monthsWithData === 1 ? 'month' : 'months'}</span>
-          </div>
-          <div className="text-[10px] text-muted-foreground/75 mt-2 flex flex-wrap gap-x-2 gap-y-0.5">
-            <span>Paid: <span className="tabular-nums text-destructive/85">${formatCur(totalPaid)}</span></span>
-            <span aria-hidden>·</span>
-            <span>Received: <span className="tabular-nums text-[hsl(var(--success))]">${formatCur(totalReceived)}</span></span>
-          </div>
-        </Card>
+        {/* Deduction Capture Rate */}
+        {(() => {
+          const reviewed = allTransactions.filter((t: any) => t.is_deductible === true || t.is_deductible === false);
+          const deductible = reviewed.filter((t: any) => t.is_deductible === true);
+          const rate = reviewed.length > 0 ? Math.round((deductible.length / reviewed.length) * 100) : 0;
+          const unreviewed = allTransactions.filter((t: any) => t.is_deductible === null || t.is_deductible === undefined);
+          return (
+            <Card className="p-4 sm:p-5 bg-card border border-border border-l-[3px] border-l-violet-500/70 rounded-xl overflow-hidden">
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-8 h-8 rounded-lg bg-violet-500/10 flex items-center justify-center">
+                    <BarChart3 className="w-4 h-4 text-violet-500" />
+                  </div>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] sm:text-xs text-muted-foreground/80 uppercase tracking-wide">Capture Rate</span>
+                  <KpiTooltip content={{
+                    what: 'What percentage of your reviewed transactions are deductible.',
+                    how: 'Confirmed deductible divided by total reviewed (yes + no). Does not include unreviewed transactions. A typical freelancer deducts 40-65% of reviewed spending.',
+                    action: unreviewed.length > 0 ? `You have ${unreviewed.length} unreviewed transactions. Review them to improve accuracy.` : 'All transactions reviewed. Good work.',
+                    irsRef: 'IRS Schedule C Part II',
+                  }} />
+                </div>
+              </div>
+              <div className="text-xl sm:text-2xl font-bold text-foreground tabular-nums">{rate > 0 ? `${rate}%` : '--'}</div>
+              <div className="text-[10px] sm:text-xs text-muted-foreground/80 mt-0.5">{deductible.length} of {reviewed.length} reviewed</div>
+              {unreviewed.length > 0 && (
+                <div className="text-[10px] text-orange-500 mt-1">{unreviewed.length} unreviewed</div>
+              )}
+            </Card>
+          );
+        })()}
 
         {/* Projected - violet/blue accent */}
         <Card className="p-4 sm:p-5 bg-card border border-border border-l-[3px] border-l-primary/70 shadow-[0_0_0_1px_hsl(var(--primary)/0.05),0_2px_6px_-2px_hsl(var(--primary)/0.08)] rounded-xl overflow-hidden">
@@ -659,12 +681,20 @@ export default function ReportsPage() {
             <div className="w-8 h-8 rounded-lg bg-primary/15 flex items-center justify-center">
               <Target className="w-4 h-4 text-primary" />
             </div>
-            <span className="text-[10px] sm:text-xs text-muted-foreground/80 uppercase tracking-wide">Projected</span>
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] sm:text-xs text-muted-foreground/80 uppercase tracking-wide">Projected Annual</span>
+              <KpiTooltip content={{
+                what: 'Your estimated tax savings for the full year if your current rate continues.',
+                how: 'Year-to-date savings divided by months with data, multiplied by 12. Requires at least 3 months of data to be meaningful.',
+                action: 'If this is lower than expected, review unconfirmed transactions or check that your income is entered correctly.',
+                irsRef: 'Based on current deduction run rate',
+              }} />
+            </div>
           </div>
           <div className="text-xl sm:text-2xl font-bold text-foreground tabular-nums whitespace-nowrap overflow-hidden text-ellipsis">${projectedAnnual.toFixed(2)}</div>
           <div className="text-[10px] sm:text-xs text-muted-foreground/80 mt-0.5">
             <span className="sm:hidden">Yearly</span>
-            <span className="hidden sm:inline">Estimated yearly savings</span>
+            <span className="hidden sm:inline">Based on {summary.monthsWithData} month{summary.monthsWithData !== 1 ? 's' : ''} of data{summary.monthsWithData < 3 ? ' (needs 3+ for accuracy)' : ''}</span>
           </div>
           <div className="text-[10px] text-muted-foreground/75 mt-2 flex flex-wrap gap-x-2 gap-y-0.5">
             <span>Paid: <span className="tabular-nums text-destructive/85">${formatCur(totalPaid)}</span></span>
@@ -1020,37 +1050,27 @@ export default function ReportsPage() {
               </div>
             </div>
 
-            {/* Lower summary cards - unified radius, padding, border, icon badges, hover 150-200ms */}
+            {/* Chart stats - Deduction total and top category only (meaningful, not vanity) */}
             {bestMonth.total > 0 && (
-              <div className="mt-6 pt-6 border-t border-border grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="flex items-center gap-3 p-4 bg-card rounded-xl border border-border shadow-sm hover:shadow-[0_2px_8px_-2px_rgba(0,0,0,0.06)] hover:bg-muted/20 transition-all duration-150 focus-within:ring-2 focus-within:ring-ring">
+              <div className="mt-6 pt-6 border-t border-border grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="flex items-center gap-3 p-4 bg-card rounded-xl border border-border shadow-sm">
                   <div className="w-10 h-10 rounded-xl bg-[hsl(var(--success)/0.15)] flex items-center justify-center shrink-0">
                     <TrendingUp className="w-5 h-5 text-[hsl(var(--success))]" />
                   </div>
                   <div className="min-w-0">
-                    <div className="text-xs text-muted-foreground uppercase tracking-wide">Best Month</div>
+                    <div className="text-xs text-muted-foreground uppercase tracking-wide">Highest Deduction Month</div>
                     <div className="font-semibold text-foreground">{bestMonth.monthName}</div>
-                    <div className="text-sm font-medium text-[hsl(var(--success))] tabular-nums">${bestMonth.total.toFixed(2)}</div>
+                    <div className="text-sm font-medium text-[hsl(var(--success))] tabular-nums">${bestMonth.total.toFixed(0)} in deductions</div>
                   </div>
                 </div>
-                <div className="flex items-center gap-3 p-4 bg-card rounded-xl border border-border shadow-sm hover:shadow-[0_2px_8px_-2px_rgba(0,0,0,0.06)] hover:bg-muted/20 transition-all duration-150 focus-within:ring-2 focus-within:ring-ring">
+                <div className="flex items-center gap-3 p-4 bg-card rounded-xl border border-border shadow-sm">
                   <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center shrink-0">
                     <BarChart3 className="w-5 h-5 text-primary" />
                   </div>
                   <div className="min-w-0">
-                    <div className="text-xs text-muted-foreground uppercase tracking-wide">Total Transactions</div>
+                    <div className="text-xs text-muted-foreground uppercase tracking-wide">Deductible Transactions</div>
                     <div className="font-semibold text-foreground tabular-nums">{monthlyData.reduce((sum, m) => sum + m.count, 0)}</div>
-                    <div className="text-sm text-primary font-medium">Deductible items</div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 p-4 bg-card rounded-xl border border-border shadow-sm hover:shadow-[0_2px_8px_-2px_rgba(0,0,0,0.06)] hover:bg-muted/20 transition-all duration-150 focus-within:ring-2 focus-within:ring-ring">
-                  <div className="w-10 h-10 rounded-xl bg-[hsl(var(--chart-4)/0.15)] flex items-center justify-center shrink-0">
-                    <Info className="w-5 h-5 text-[hsl(var(--chart-4))]" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-xs text-muted-foreground uppercase tracking-wide">Estimated Refund</div>
-                    <div className="font-semibold text-foreground tabular-nums">${summary.estimatedRefund.toFixed(2)}</div>
-                    <div className="text-sm text-[hsl(var(--chart-4))] font-medium">Based on 30% rate</div>
+                    <div className="text-sm text-primary font-medium">confirmed this year</div>
                   </div>
                 </div>
               </div>
@@ -1059,56 +1079,6 @@ export default function ReportsPage() {
         )}
         </Card>
       </div>
-
-      {/* Tax Filing Summary - stronger hierarchy, aligned metrics, Export CTA, callout */}
-      <Card className="p-4 sm:p-5 bg-card border border-border shadow-[0_2px_8px_-2px_rgba(0,0,0,0.06)] rounded-xl mb-4 sm:mb-5">
-        <div className="flex items-start justify-between gap-3 mb-4">
-          <div>
-            <h3 className="text-base sm:text-lg font-semibold text-foreground">Tax Filing Summary</h3>
-            <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">Your estimated tax situation for {chartYear}</p>
-          </div>
-          <div className="w-9 h-9 rounded-lg bg-muted/60 flex items-center justify-center shrink-0">
-            <FileText className="w-4 h-4 text-muted-foreground" />
-          </div>
-        </div>
-        <div className="grid grid-cols-3 gap-3 sm:gap-4 mb-4 pb-4 border-b border-border">
-          <div className="p-3 sm:p-4 bg-muted/30 rounded-xl border border-border text-center transition-colors duration-150 hover:bg-muted/40 focus-within:ring-2 focus-within:ring-ring">
-            <div className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wide mb-1">Est. Refund</div>
-            <div className="text-base sm:text-xl font-bold text-[hsl(var(--success))] tabular-nums">${summary.estimatedRefund.toFixed(0)}</div>
-          </div>
-          <div className="p-3 sm:p-4 bg-muted/30 rounded-xl border border-border text-center transition-colors duration-150 hover:bg-muted/40 focus-within:ring-2 focus-within:ring-ring">
-            <div className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wide mb-1">YTD Savings</div>
-            <div className="text-base sm:text-xl font-bold text-primary tabular-nums">${summary.yearToDateTotal.toFixed(0)}</div>
-          </div>
-          <div className="p-3 sm:p-4 bg-muted/30 rounded-xl border border-border text-center transition-colors duration-150 hover:bg-muted/40 focus-within:ring-2 focus-within:ring-ring">
-            <div className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wide mb-1">Projected</div>
-            <div className="text-base sm:text-xl font-bold text-[hsl(var(--chart-4))] tabular-nums">${projectedAnnual.toFixed(0)}</div>
-          </div>
-        </div>
-        <div className="p-3 rounded-xl bg-muted/20 border border-border">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="min-w-0">
-              <div className="text-sm font-medium text-foreground">Ready to file?</div>
-              <div className="text-xs text-muted-foreground mt-0.5">Export reports for tax preparation</div>
-            </div>
-            <Button
-              size="sm"
-              onClick={() => setShowExportModal(true)}
-              className="min-h-[44px] px-4 bg-primary hover:bg-primary-hover text-primary-foreground shrink-0 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 transition-all duration-150"
-              disabled={!canExport}
-            >
-              <Download className="w-4 h-4 sm:mr-2" />
-              Export
-            </Button>
-          </div>
-          <p className="text-xs text-muted-foreground mt-3 pt-3 border-t border-border/50">
-            Ready: {transactionAggregates.readyPct}% categorized
-            {transactionAggregates.hasReceiptField && transactionAggregates.totalCount > 0 && (
-              <> · Missing receipts: {transactionAggregates.missingReceipts}</>
-            )}
-          </p>
-        </div>
-      </Card>
 
       {/* Monthly Breakdown Modal */}
       {showMonthlyModal && selectedMonth && (

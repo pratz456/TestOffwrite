@@ -277,7 +277,7 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
               {[
                 { icon: '⚡', label: 'Instant import', desc: 'All transactions pulled automatically' },
                 { icon: '🤖', label: 'AI categorization', desc: 'Every expense analyzed for deductibility' },
-                { icon: '🔒', label: 'Bank-level security', desc: 'Read-only access via Plaid — WriteOff cannot move money' },
+                { icon: '🔒', label: 'Bank-level security', desc: 'Read-only access via Plaid  -  WriteOff cannot move money' },
                 { icon: '🔌', label: 'Disconnect anytime', desc: 'Revoke access in Settings at any time' },
               ].map(item => (
                 <div key={item.label} className="flex items-start gap-3">
@@ -360,7 +360,7 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
                     <Upload className="w-5 h-5 text-muted-foreground" />
                   </div>
                   <p className="text-sm font-medium text-foreground">Drop files here or tap to upload</p>
-                  <p className="text-xs text-muted-foreground">PDF, JPG, PNG — bank statements, credit card statements, receipts</p>
+                  <p className="text-xs text-muted-foreground">PDF, JPG, PNG  -  bank statements, credit card statements, receipts</p>
                 </div>
               )}
             </div>
@@ -387,7 +387,7 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
                           {f.result?.transactionsImported
                             ? `${f.result.transactionsImported} transactions imported from ${f.result.bankName || 'statement'}`
                             : f.result?.merchant
-                            ? `Receipt: ${f.result.merchant} — $${f.result.amount}`
+                            ? `Receipt: ${f.result.merchant}  -  $${f.result.amount}`
                             : f.result?.message || 'Processed successfully'}
                         </p>
                       )}
@@ -421,7 +421,7 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
                 onClick={onSkipToApp}
                 className="w-full text-xs text-muted-foreground hover:text-foreground text-center py-1.5 transition-colors"
               >
-                {hasSuccessfulUploads ? 'Continue to dashboard' : 'Skip for now — I\'ll add data later'}
+                {hasSuccessfulUploads ? 'Continue to dashboard' : 'Skip for now  -  I\'ll add data later'}
               </button>
             </div>
           </div>
@@ -435,7 +435,7 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
                 <PenLine className="w-7 h-7 text-white" />
               </div>
               <h2 className="text-lg font-bold text-foreground">Manual Entry</h2>
-              <p className="text-sm text-muted-foreground mt-1">You're in full control — add what you need, when you need it</p>
+              <p className="text-sm text-muted-foreground mt-1">You're in full control  -  add what you need, when you need it</p>
             </div>
 
             <div className="rounded-xl border border-border bg-card p-4 space-y-3">
@@ -449,7 +449,7 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
 
             <div className="rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20 p-3">
               <p className="text-xs text-blue-800 dark:text-blue-300">
-                <span className="font-semibold">Tip:</span> You can connect your bank account or upload statements anytime — just go to Settings → Connect Bank. Many users start manual and connect later.
+                <span className="font-semibold">Tip:</span> You can connect your bank account or upload statements anytime  -  just go to Settings → Connect Bank. Many users start manual and connect later.
               </p>
             </div>
 
@@ -478,7 +478,7 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
               className="w-full h-12 text-sm font-semibold bg-violet-600 hover:bg-violet-700 text-white"
             >
               <PenLine className="w-4 h-4 mr-2" />
-              Go to Dashboard — I'll add data manually
+              Go to Dashboard  -  I'll add data manually
               <ArrowRight className="w-4 h-4 ml-auto" />
             </Button>
             <button

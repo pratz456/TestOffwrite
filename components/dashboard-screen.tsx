@@ -143,10 +143,12 @@ export default function DashboardScreen({
   const deductibleTransactions = transactions.filter(t => t.is_deductible === true);
   const totalDeductions = stats?.totalDeductibleAmount ?? deductibleTransactions.reduce((sum, t) => sum + Math.abs(t.amount || 0), 0);
 
-  const netSpend = transactions.reduce((sum, t) => {
-    if (t.amount > 0) return sum + t.amount;
-    return sum;
-  }, 0);
+  // New accurate KPI data
+  const reviewedCount = transactions.filter(t => t.is_deductible === true || t.is_deductible === false).length;
+  const unreviewedTransactions = transactions.filter(t => t.is_deductible === null || t.is_deductible === undefined);
+  const grossReceipts = (profile?.income ? parseFloat(String(profile.income).replace(/[^0-9.]/g, '')) : 0);
+  const scheduleCNetProfit = Math.max(0, grossReceipts - totalDeductions);
+  const aboveLineDeductions = (profile?.health_insurance_premiums || 0) + (profile?.sep_ira_contribution || 0) + (profile?.hsa_contribution || 0);
 
   // Category breakdown (unchanged)
   const categoryBreakdown: Record<string, number> = {};
@@ -243,13 +245,19 @@ export default function DashboardScreen({
 
           {/* Row 1: KPI Cards */}
           <KpiGrid
-            netSpend={netSpend}
-            totalTransactions={transactions.length}
+            grossReceipts={grossReceipts}
+            scheduleCNetProfit={scheduleCNetProfit}
+            w2Wages={profile?.w2_income || 0}
             totalDeductions={totalDeductions}
             deductibleCount={deductibleTransactions.length}
-            estimatedTaxRate={estimatedTaxRate}
-            taxSavings={taxSavings}
-            projectedAnnual={projectedAnnual}
+            totalTransactions={transactions.length}
+            reviewedCount={reviewedCount}
+            unreviewedTransactions={unreviewedTransactions}
+            filingStatus={profile?.filing_status || 'single'}
+            aboveLineDeductions={aboveLineDeductions}
+            totalQuarterlyPaid={0}
+            priorYearTax={profile?.prior_year_tax || undefined}
+            onNavigate={onNavigate}
             loadingTaxSavings={isLoadingTaxSavings}
           />
 

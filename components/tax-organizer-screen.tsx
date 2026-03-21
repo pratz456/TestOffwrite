@@ -391,7 +391,7 @@ export function TaxOrganizerScreen({ user, onBack, onNavigate }: Props) {
                 </div>
               )}
 
-              {yesno("hasCapGains", "Capital gains or losses — stocks, crypto, or property sold (1099-B)")}
+              {yesno("hasCapGains", "Capital gains or losses  -  stocks, crypto, or property sold (1099-B)")}
               {answers.hasCapGains === "yes" && (
                 <div className="ml-4 border-l-2 border-primary/30 pl-4 space-y-1.5">
                   <Label className="text-sm font-medium">Net capital gain or (loss) from Schedule D, Line 21</Label>
