@@ -16,7 +16,7 @@ interface Props {
 }
 
 const num = (v: string) => (v === "" ? 0 : parseFloat(v) || 0);
-const fmt = (n: number) => (n > 0 ? `$${n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : "—");
+const fmt = (n: number) => (n > 0 ? `$${n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : "-");
 
 export function DeductionsEntryScreen({ user, onBack, onNavigate }: Props) {
   const currentYear = new Date().getFullYear();
@@ -114,8 +114,8 @@ export function DeductionsEntryScreen({ user, onBack, onNavigate }: Props) {
       color: "text-emerald-600",
       fields: [
         { key: "sepIraContribution", label: "SEP-IRA Contribution", hint: "Up to 25% of net SE income, max $70,000 (2025). Schedule 1 Line 16.", limit: "Max $70,000 (2025)" },
-        { key: "solo401kEmployeeContribution", label: "Solo 401(k) — Employee Deferral", hint: "Up to $23,500 (or $31,000 if age 50+) for 2025. Schedule 1 Line 16.", limit: "Max $23,500 / $31,000 if 50+" },
-        { key: "solo401kEmployerContribution", label: "Solo 401(k) — Employer Contribution", hint: "Up to 25% of net SE income. Combined 401k limit: $70,000 (2025).", limit: "Combined max $70,000" },
+        { key: "solo401kEmployeeContribution", label: "Solo 401(k) - Employee Deferral", hint: "Up to $23,500 (or $31,000 if age 50+) for 2025. Schedule 1 Line 16.", limit: "Max $23,500 / $31,000 if 50+" },
+        { key: "solo401kEmployerContribution", label: "Solo 401(k) - Employer Contribution", hint: "Up to 25% of net SE income. Combined 401k limit: $70,000 (2025).", limit: "Combined max $70,000" },
         { key: "simpleIraContribution", label: "SIMPLE IRA Contribution", hint: "Up to $16,500 for 2025 ($19,500 if age 50+).", limit: "Max $16,500 (2025)" },
       ],
     },
@@ -170,7 +170,7 @@ export function DeductionsEntryScreen({ user, onBack, onNavigate }: Props) {
                 {fmt(totalDeductions)} in above-the-line deductions
               </p>
               <p className="text-xs text-green-700 dark:text-green-400">
-                Estimated tax savings: {fmt(totalDeductions * 0.30)} – {fmt(totalDeductions * 0.36)} (at 30–36% combined rate)
+                Estimated tax savings: {fmt(totalDeductions * 0.30)} to {fmt(totalDeductions * 0.36)} (at 30-36% combined rate)
               </p>
             </div>
           </div>
@@ -179,7 +179,7 @@ export function DeductionsEntryScreen({ user, onBack, onNavigate }: Props) {
         {/* Explainer */}
         <div className="flex items-start gap-2 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/30 px-4 py-3 text-xs text-blue-800 dark:text-blue-300">
           <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-          <p>These deductions reduce your AGI <strong>before</strong> the standard deduction — every dollar here saves both income tax and affects your QBI deduction threshold. They appear on Schedule 1 of Form 1040.</p>
+          <p>These deductions reduce your AGI <strong>before</strong> the standard deduction - every dollar here saves both income tax and affects your QBI deduction threshold. They appear on Schedule 1 of Form 1040.</p>
         </div>
 
         {error && (
@@ -240,7 +240,7 @@ export function DeductionsEntryScreen({ user, onBack, onNavigate }: Props) {
                     className="pl-7 bg-background"
                   />
                 </div>
-                <p className="text-xs text-muted-foreground">From last year's return (Line 24). Used to calculate your safe harbor quarterly payment — pay this ÷ 4 each quarter and you are penalty-free regardless of what you owe in April.</p>
+                <p className="text-xs text-muted-foreground">From last year's return (Line 24). Used to calculate your safe harbor quarterly payment - pay this ÷ 4 each quarter and you are penalty-free regardless of what you owe in April.</p>
               </CardContent>
             </Card>
 

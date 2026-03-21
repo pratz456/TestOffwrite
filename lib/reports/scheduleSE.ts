@@ -207,7 +207,7 @@ export async function generateScheduleSEPDF(data: ScheduleSEData): Promise<Uint8
 
   const rateItems = [
     { label: 'Social Security Rate:', value: '12.4%' },
-    { label: 'Social Security Wage Base:', value: '$168,600' },
+    { label: 'Social Security Wage Base:', value: '$176,100' },
     { label: 'Medicare Rate:', value: '2.9%' },
     { label: 'Additional Medicare Rate:', value: '0.9%' },
     { label: 'Additional Medicare Threshold (Single):', value: '$200,000' },

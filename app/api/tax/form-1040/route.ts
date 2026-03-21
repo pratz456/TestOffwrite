@@ -98,7 +98,7 @@ async function page1(doc: PDFDocument, f: PDFFont, bf: PDFFont, d: Record<string
   p.drawText('1040', { x: ML + 4, y: y - 24, size: 18, font: bf, color: WHITE });
   p.drawText('U.S. Individual Income Tax Return', { x: ML + 70, y: y - 12, size: 10, font: bf, color: WHITE });
   p.drawText('Department of the Treasury—Internal Revenue Service', { x: ML + 70, y: y - 22, size: 7, font: f, color: rgb(0.6, 0.6, 0.6) });
-  p.drawText('For the year Jan. 1–Dec. 31, 2025', { x: ML + 70, y: y - 31, size: 6, font: f, color: rgb(0.55, 0.55, 0.55) });
+  p.drawText('For the year Jan. 1-Dec. 31, 2025', { x: ML + 70, y: y - 31, size: 6, font: f, color: rgb(0.55, 0.55, 0.55) });
   p.drawText('OMB No. 1545-0074', { x: MR - 80, y: y - 11, size: 7, font: bf, color: WHITE });
   p.drawText(yr, { x: MR - 50, y: y - 26, size: 14, font: bf, color: GOLD });
   y -= 42;
@@ -154,7 +154,7 @@ async function page1(doc: PDFDocument, f: PDFFont, bf: PDFFont, d: Record<string
   y = row(p, '4b', 'IRA distributions (taxable)', y, 0, f, bf, false);
   y = row(p, '5b', 'Pensions and annuities (taxable)', y, 0, f, bf, true);
   y = row(p, '6b', 'Social security benefits (taxable)', y, 0, f, bf, false);
-  y = row(p, '7', 'Capital gain or (loss) — attach Schedule D', y, 0, f, bf, true);
+  y = row(p, '7', 'Capital gain or (loss)  -  attach Schedule D', y, 0, f, bf, true);
   y = row(p, '8', 'Additional income from Schedule 1 (includes Schedule C net profit)', y, d.scheduleCNetProfit, f, bf, false);
   y -= 4;
   y = hrow(p, '9', 'Total income. Add lines 1z, 2b, 3b, 4b, 5b, 6b, 7, 8.', y, d.totalIncome, f, bf, rgb(0.88, 0.92, 1.0), BLUE);
@@ -178,7 +178,7 @@ async function page2(doc: PDFDocument, f: PDFFont, bf: PDFFont, d: Record<string
   // Deductions
   y = banner(p, 'Standard Deduction or Itemized Deductions', y, f, bf);
   const stdAmt = d.standardDeduction?.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }) || '$15,750';
-  y = row(p, '12', `${d.usingStandardDeduction ? 'Standard' : 'Itemized'} deduction (standard: ${stdAmt} single, $31,500 MFJ — 2025)`, y, d.deductionUsed, f, bf, false);
+  y = row(p, '12', `${d.usingStandardDeduction ? 'Standard' : 'Itemized'} deduction (standard: ${stdAmt} single, $31,500 MFJ  -  2025)`, y, d.deductionUsed, f, bf, false);
   y = row(p, '13', 'Qualified business income deduction (Form 8995 / 8995-A)', y, d.qbiDeduction, f, bf, true);
   y = row(p, '14', 'Add lines 12 and 13', y, (d.deductionUsed || 0) + (d.qbiDeduction || 0), f, bf, false, true);
   y -= 4;
@@ -202,8 +202,8 @@ async function page2(doc: PDFDocument, f: PDFFont, bf: PDFFont, d: Record<string
 
   // Payments
   y = banner(p, 'Payments', y, f, bf);
-  y = row(p, '25a', 'W-2 federal income tax withheld (Box 2 — all employers)', y, d.w2FederalWithheld, f, bf, false);
-  y = row(p, '25d', 'Total withholding (25a–25c)', y, d.w2FederalWithheld, f, bf, true, true);
+  y = row(p, '25a', 'W-2 federal income tax withheld (Box 2  -  all employers)', y, d.w2FederalWithheld, f, bf, false);
+  y = row(p, '25d', 'Total withholding (25a-25c)', y, d.w2FederalWithheld, f, bf, true, true);
   y = row(p, '26', '2025 estimated tax payments and amount applied from 2024', y, d.estimatedPayments, f, bf, false);
   y = row(p, '27', 'Earned income credit (EIC)', y, 0, f, bf, true);
   y = row(p, '28', 'Additional child tax credit', y, 0, f, bf, false);

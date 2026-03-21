@@ -221,7 +221,7 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-5 space-y-5 sm:space-y-6">
-        {/* Summary Cards — 2px left border glow, semantic accents: Emerald / Blue / Cyan / Steel */}
+        {/* Summary Cards - 2px left border glow, semantic accents: Emerald / Blue / Cyan / Steel */}
         <div className="grid grid-cols-1 min-[480px]:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-5">
           <div className="bg-card rounded-xl p-4 sm:p-5 border border-border border-l-2 border-l-[hsl(var(--success)/0.75)] shadow-[0_0_0_1px_hsl(var(--success)/0.05),0_2px_6px_-2px_hsl(var(--success)/0.08)] min-h-[44px] flex flex-col justify-center">
             <div className="text-xl sm:text-2xl font-semibold text-foreground tabular-nums whitespace-nowrap overflow-hidden text-ellipsis">${totalDeductions.toFixed(2)}</div>
@@ -241,7 +241,7 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
           </div>
         </div>
 
-        {/* Search Bar — full width, inset shadow, focus glow, 150ms transition */}
+        {/* Search Bar - full width, inset shadow, focus glow, 150ms transition */}
         <div className="w-full bg-card border border-border rounded-xl p-3 sm:p-4 shadow-sm">
           <div className="relative w-full">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4 pointer-events-none" />

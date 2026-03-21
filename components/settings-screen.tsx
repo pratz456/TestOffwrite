@@ -1734,7 +1734,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                           placeholder="e.g., 8500"
                           className="h-12 rounded-lg border-border bg-background"
                         />
-                        <p className="text-xs text-muted-foreground">Box 2 of your W-2. Already withheld by employer — reduces your quarterly payment obligations.</p>
+                        <p className="text-xs text-muted-foreground">Box 2 of your W-2. Already withheld by employer - reduces your quarterly payment obligations.</p>
                       </>
                     ) : (
                       renderViewField('W-2 Federal Tax Withheld', profile.w2_federal_withheld != null ? `$${profile.w2_federal_withheld.toLocaleString()}` : '-')

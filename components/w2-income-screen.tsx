@@ -67,7 +67,7 @@ export function W2IncomeScreen({ user, onBack }: Props) {
           <Button onClick={onBack} variant="ghost" size="icon" className="shrink-0 min-h-[44px] min-w-[44px]"><ArrowLeft className="w-5 h-5" /></Button>
           <div className="flex-1">
             <h1 className="text-lg sm:text-xl font-semibold">W-2 Income</h1>
-            <p className="text-xs text-muted-foreground">Salary income from employers — affects your combined tax bracket</p>
+            <p className="text-xs text-muted-foreground">Salary income from employers - affects your combined tax bracket</p>
           </div>
           <Select value={String(year)} onValueChange={v => setYear(parseInt(v))}>
             <SelectTrigger className="w-[90px] h-9"><SelectValue /></SelectTrigger>
@@ -110,17 +110,17 @@ export function W2IncomeScreen({ user, onBack }: Props) {
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">Box 1 — Wages ($) *</Label>
+                    <Label className="text-xs text-muted-foreground">Box 1 - Wages ($) *</Label>
                     <Input type="number" min="0" step="0.01" value={form.wages} onChange={e=>setForm(p=>({...p,wages:e.target.value}))} placeholder="0.00" className="bg-background" required />
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">Box 2 — Federal Withheld ($)</Label>
+                    <Label className="text-xs text-muted-foreground">Box 2 - Federal Withheld ($)</Label>
                     <Input type="number" min="0" step="0.01" value={form.federalWithheld} onChange={e=>setForm(p=>({...p,federalWithheld:e.target.value}))} placeholder="0.00" className="bg-background" />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">Box 17 — State Withheld ($)</Label>
+                    <Label className="text-xs text-muted-foreground">Box 17 - State Withheld ($)</Label>
                     <Input type="number" min="0" step="0.01" value={form.stateWithheld} onChange={e=>setForm(p=>({...p,stateWithheld:e.target.value}))} placeholder="0.00" className="bg-background" />
                   </div>
                   <div className="space-y-1.5">

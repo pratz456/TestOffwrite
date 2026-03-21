@@ -1,5 +1,5 @@
 /**
- * WriteOff Dashboard — Premium Fintech Corporate
+ * WriteOff Dashboard - Premium Fintech Corporate
  *
  * All data fetching and computation stays in this parent component.
  * Presentation is delegated to components/dashboard/*.
@@ -211,7 +211,7 @@ export default function DashboardScreen({
           {/* Upgrade card (keep the initial KPI view uncluttered) */}
           <HistoricalAccessUpgradeCard />
 
-          {/* Row 2: Analytics + Optimization — subtle radial glows behind key sections */}
+          {/* Row 2: Analytics + Optimization - subtle radial glows behind key sections */}
           <div className="grid grid-cols-1 lg:grid-cols-10 gap-4">
             <div className="lg:col-span-7 relative">
               <div className="absolute inset-0 rounded-xl bg-[radial-gradient(ellipse_80%_60%_at_50%_0%,hsl(var(--primary)/0.05),transparent)] pointer-events-none" aria-hidden />

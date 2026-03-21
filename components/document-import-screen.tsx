@@ -37,75 +37,75 @@ const W2_FIELDS: FieldDef[] = [
   {
     key: "employerName",
     label: "Employer Name",
-    irsLabel: "Box c — Employer's name, address, and ZIP code",
+    irsLabel: "Box c - Employer's name, address, and ZIP code",
     location: "Center-left of the W-2, below the boxes for Social Security numbers",
-    flowsTo: "Identification only — not a dollar amount",
+    flowsTo: "Identification only - not a dollar amount",
     isMonetary: false,
     isCritical: false,
   },
   {
     key: "employerEIN",
     label: "Employer EIN",
-    irsLabel: "Box b — Employer identification number (EIN)",
+    irsLabel: "Box b - Employer identification number (EIN)",
     location: "Top-left area, format XX-XXXXXXX",
-    flowsTo: "IRS matching — must match what employer filed",
+    flowsTo: "IRS matching - must match what employer filed",
     isMonetary: false,
     isCritical: true,
   },
   {
     key: "box1Wages",
-    label: "Box 1 — Wages, Tips, Other Compensation",
+    label: "Box 1 - Wages, Tips, Other Compensation",
     irsLabel: "Box 1",
     location: "Upper-right section of the W-2, first numbered box",
     flowsTo: "Form 1040 Line 1a (Total wages)",
     isMonetary: true,
     isCritical: true,
-    warningIfZero: "Box 1 is your taxable wages — it should not be $0 unless you had no taxable pay",
+    warningIfZero: "Box 1 is your taxable wages - it should not be $0 unless you had no taxable pay",
     sanityCheck: (v, f) => {
       if (f.box3SocialSecurityWages && Math.abs(v - f.box3SocialSecurityWages) / Math.max(v, 1) > 0.15) {
-        return `Box 1 ($${v.toLocaleString()}) differs from Box 3 ($${f.box3SocialSecurityWages.toLocaleString()}) by more than 15% — this can happen with 401(k) contributions but verify both boxes`;
+        return `Box 1 ($${v.toLocaleString()}) differs from Box 3 ($${f.box3SocialSecurityWages.toLocaleString()}) by more than 15% - this can happen with 401(k) contributions but verify both boxes`;
       }
       return null;
     },
   },
   {
     key: "box2FederalWithheld",
-    label: "Box 2 — Federal Income Tax Withheld",
+    label: "Box 2 - Federal Income Tax Withheld",
     irsLabel: "Box 2",
     location: "Directly below Box 1 on the right side",
-    flowsTo: "Form 1040 Line 25a (Federal tax withheld) — reduces your balance due or increases your refund",
+    flowsTo: "Form 1040 Line 25a (Federal tax withheld) - reduces your balance due or increases your refund",
     isMonetary: true,
     isCritical: true,
-    warningIfZero: "Box 2 being $0 is possible but unusual — verify you did not have any withholding",
+    warningIfZero: "Box 2 being $0 is possible but unusual - verify you did not have any withholding",
     sanityCheck: (v, f) => {
       if (f.box1Wages && v > f.box1Wages) {
-        return `Box 2 ($${v.toLocaleString()}) is larger than Box 1 wages ($${f.box1Wages.toLocaleString()}) — this is impossible. Check for a misread.`;
+        return `Box 2 ($${v.toLocaleString()}) is larger than Box 1 wages ($${f.box1Wages.toLocaleString()}) - this is impossible. Check for a misread.`;
       }
       return null;
     },
   },
   {
     key: "box3SocialSecurityWages",
-    label: "Box 3 — Social Security Wages",
+    label: "Box 3 - Social Security Wages",
     irsLabel: "Box 3",
-    location: "Left side, middle section — labeled 'Social security wages'",
-    flowsTo: "Not on Form 1040 directly — used for Social Security tax verification",
+    location: "Left side, middle section - labeled 'Social security wages'",
+    flowsTo: "Not on Form 1040 directly - used for Social Security tax verification",
     isMonetary: true,
     isCritical: false,
   },
   {
     key: "box4SocialSecurityWithheld",
-    label: "Box 4 — Social Security Tax Withheld",
+    label: "Box 4 - Social Security Tax Withheld",
     irsLabel: "Box 4",
     location: "Directly to the right of Box 3",
-    flowsTo: "Not deducted from income — already paid through payroll",
+    flowsTo: "Not deducted from income - already paid through payroll",
     isMonetary: true,
     isCritical: false,
     sanityCheck: (v, f) => {
       if (f.box3SocialSecurityWages) {
         const expected = Math.min(f.box3SocialSecurityWages, 176100) * 0.062;
         if (Math.abs(v - expected) > 50) {
-          return `Box 4 ($${v.toLocaleString()}) differs from expected SS withholding of $${Math.round(expected).toLocaleString()} — verify this is correct`;
+          return `Box 4 ($${v.toLocaleString()}) differs from expected SS withholding of $${Math.round(expected).toLocaleString()} - verify this is correct`;
         }
       }
       return null;
@@ -113,44 +113,44 @@ const W2_FIELDS: FieldDef[] = [
   },
   {
     key: "box5MedicareWages",
-    label: "Box 5 — Medicare Wages",
+    label: "Box 5 - Medicare Wages",
     irsLabel: "Box 5",
     location: "Below Box 3, labeled 'Medicare wages and tips'",
-    flowsTo: "Not on Form 1040 directly — used for Medicare tax verification",
+    flowsTo: "Not on Form 1040 directly - used for Medicare tax verification",
     isMonetary: true,
     isCritical: false,
   },
   {
     key: "box6MedicareWithheld",
-    label: "Box 6 — Medicare Tax Withheld",
+    label: "Box 6 - Medicare Tax Withheld",
     irsLabel: "Box 6",
     location: "Directly to the right of Box 5",
-    flowsTo: "Not deducted from income — already paid through payroll",
+    flowsTo: "Not deducted from income - already paid through payroll",
     isMonetary: true,
     isCritical: false,
   },
   {
     key: "box16StateWages",
-    label: "Box 16 — State Wages",
+    label: "Box 16 - State Wages",
     irsLabel: "Box 16",
     location: "Bottom section, labeled 'State wages, tips, etc.'",
-    flowsTo: "Your state tax return — not on federal Form 1040",
+    flowsTo: "Your state tax return - not on federal Form 1040",
     isMonetary: true,
     isCritical: false,
   },
   {
     key: "box17StateWithheld",
-    label: "Box 17 — State Income Tax Withheld",
+    label: "Box 17 - State Income Tax Withheld",
     irsLabel: "Box 17",
     location: "Bottom section, directly to the right of Box 16",
-    flowsTo: "Your state tax return — reduces state balance due",
+    flowsTo: "Your state tax return - reduces state balance due",
     isMonetary: true,
     isCritical: false,
   },
   {
     key: "state",
     label: "State",
-    irsLabel: "Box 15 — State",
+    irsLabel: "Box 15 - State",
     location: "Bottom-left, 2-letter state abbreviation",
     flowsTo: "Determines which state return to file",
     isMonetary: false,
@@ -163,24 +163,24 @@ const FORM_1099_FIELDS: FieldDef[] = [
   { key: "payerEIN", label: "Payer EIN", irsLabel: "Payer's TIN", location: "Below payer name, format XX-XXXXXXX", flowsTo: "IRS matching", isMonetary: false, isCritical: true },
   {
     key: "box1Amount",
-    label: "Box 1 — Nonemployee Compensation (1099-NEC) / Gross Payments (1099-K)",
+    label: "Box 1 - Nonemployee Compensation (1099-NEC) / Gross Payments (1099-K)",
     irsLabel: "Box 1",
-    location: "First box on the form — labeled differently depending on form type",
+    location: "First box on the form - labeled differently depending on form type",
     flowsTo: "Schedule C Line 1 (business income) → Form 1040 Line 8",
     isMonetary: true,
     isCritical: true,
-    warningIfZero: "Box 1 is your main income amount — verify this is correct",
+    warningIfZero: "Box 1 is your main income amount - verify this is correct",
   },
-  { key: "box4FederalWithheld", label: "Box 4 — Federal Income Tax Withheld", irsLabel: "Box 4", location: "Usually in the middle section", flowsTo: "Form 1040 Line 25b (reduces balance due)", isMonetary: true, isCritical: true },
+  { key: "box4FederalWithheld", label: "Box 4 - Federal Income Tax Withheld", irsLabel: "Box 4", location: "Usually in the middle section", flowsTo: "Form 1040 Line 25b (reduces balance due)", isMonetary: true, isCritical: true },
 ];
 
 const PLATFORM_FIELDS: FieldDef[] = [
-  { key: "platform", label: "Platform", irsLabel: "N/A — platform branding", location: "Top of the document", flowsTo: "Income source identification", isMonetary: false, isCritical: false },
-  { key: "grossEarnings", label: "Gross Earnings (before fees)", irsLabel: "Gross earnings / Gross trip earnings", location: "Usually the largest amount near the top", flowsTo: "Schedule C Line 1 — your total self-employment income before deductions", isMonetary: true, isCritical: true, warningIfZero: "Gross earnings should not be $0" },
-  { key: "platformFees", label: "Platform Fees / Service Fees", irsLabel: "Uber service fee, Etsy transaction fees, etc.", location: "Deduction section — subtracted from gross", flowsTo: "Schedule C Line 10 (Commissions and fees) — deductible", isMonetary: true, isCritical: false },
-  { key: "netEarnings", label: "Net Earnings (after fees)", irsLabel: "Net earnings / Driver pay", location: "Bottom summary — gross minus fees", flowsTo: "NOT what you report as income — report gross, then deduct fees separately", isMonetary: true, isCritical: false },
+  { key: "platform", label: "Platform", irsLabel: "N/A - platform branding", location: "Top of the document", flowsTo: "Income source identification", isMonetary: false, isCritical: false },
+  { key: "grossEarnings", label: "Gross Earnings (before fees)", irsLabel: "Gross earnings / Gross trip earnings", location: "Usually the largest amount near the top", flowsTo: "Schedule C Line 1 - your total self-employment income before deductions", isMonetary: true, isCritical: true, warningIfZero: "Gross earnings should not be $0" },
+  { key: "platformFees", label: "Platform Fees / Service Fees", irsLabel: "Uber service fee, Etsy transaction fees, etc.", location: "Deduction section - subtracted from gross", flowsTo: "Schedule C Line 10 (Commissions and fees) - deductible", isMonetary: true, isCritical: false },
+  { key: "netEarnings", label: "Net Earnings (after fees)", irsLabel: "Net earnings / Driver pay", location: "Bottom summary - gross minus fees", flowsTo: "NOT what you report as income - report gross, then deduct fees separately", isMonetary: true, isCritical: false },
   { key: "milesDriven", label: "Miles Driven", irsLabel: "Mileage / Online miles", location: "Activity summary section", flowsTo: "Schedule C Line 9 (Car and truck expenses) at $0.70/mile (2025)", isMonetary: false, isCritical: false },
-  { key: "form1099KAmount", label: "1099-K Amount", irsLabel: "Box 1a on Form 1099-K", location: "Tax document section", flowsTo: "Schedule C Line 1 — must match what you report", isMonetary: true, isCritical: true },
+  { key: "form1099KAmount", label: "1099-K Amount", irsLabel: "Box 1a on Form 1099-K", location: "Tax document section", flowsTo: "Schedule C Line 1 - must match what you report", isMonetary: true, isCritical: true },
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -190,7 +190,7 @@ const fmt = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits
 function ConfidenceDot({ score }: { score: number | undefined }) {
   if (score === undefined) return null;
   const color = score >= 0.9 ? "bg-green-500" : score >= 0.75 ? "bg-amber-400" : "bg-red-500";
-  const label = score >= 0.9 ? "High confidence" : score >= 0.75 ? "Medium — verify" : "Low — must verify";
+  const label = score >= 0.9 ? "High confidence" : score >= 0.75 ? "Medium - verify" : "Low - must verify";
   return (
     <div className="flex items-center gap-1.5 shrink-0" title={label}>
       <div className={`w-2 h-2 rounded-full ${color}`} />
@@ -413,7 +413,7 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
           </Button>
           <div className="flex-1 min-w-0">
             <h1 className="text-lg sm:text-xl font-semibold">Import Tax Document</h1>
-            <p className="text-xs sm:text-sm text-muted-foreground">AI reads the form — you verify each field before saving</p>
+            <p className="text-xs sm:text-sm text-muted-foreground">AI reads the form - you verify each field before saving</p>
           </div>
           <Select value={year} onValueChange={setYear}>
             <SelectTrigger className="w-[90px] h-9"><SelectValue /></SelectTrigger>
@@ -431,7 +431,7 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
         <div className="flex items-start gap-2 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/30 px-4 py-3 text-xs text-blue-800 dark:text-blue-300">
           <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
           <div>
-            <p>Upload a photo or scan of your W-2, 1099, or platform summary. AI extracts every field with confidence scores — you see <strong>exactly where to find each value on your document</strong> and can edit anything before saving.</p>
+            <p>Upload a photo or scan of your W-2, 1099, or platform summary. AI extracts every field with confidence scores - you see <strong>exactly where to find each value on your document</strong> and can edit anything before saving.</p>
           </div>
         </div>
 
@@ -464,7 +464,7 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
                 : <>
                     <Upload className="w-8 h-8 text-muted-foreground/50 mb-2" />
                     <p className="text-sm font-medium">Drop file here or click to upload</p>
-                    <p className="text-xs text-muted-foreground mt-1">JPG, PNG, PDF — phone photo works</p>
+                    <p className="text-xs text-muted-foreground mt-1">JPG, PNG, PDF - phone photo works</p>
                   </>
               }
               {file && <p className="text-xs text-muted-foreground mt-2">{file.name}</p>}
@@ -514,7 +514,7 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
             <div className="flex items-center gap-4 text-xs text-muted-foreground bg-muted/40 rounded-lg px-3 py-2">
               <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> High confidence</span>
               <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block" /> Verify manually</span>
-              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Low — must verify</span>
+              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Low - must verify</span>
             </div>
 
             {/* Field rows */}
@@ -546,7 +546,7 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
 
             {/* Disclaimer */}
             <div className="text-xs text-center text-muted-foreground px-2 leading-relaxed">
-              AI is not 100% accurate. The values above are what the AI read — your actual document is the source of truth.
+              AI is not 100% accurate. The values above are what the AI read - your actual document is the source of truth.
               Edit any field using the Edit button before saving. Tax-critical fields are labeled.
             </div>
 

@@ -337,7 +337,7 @@ export default function ScheduleSEPage() {
               This form calculates self-employment tax on your business income.
             </p>
             <div className="text-sm text-gray-500 space-y-1">
-              <p>• Social Security tax: 12.4% up to $168,600 (2024)</p>
+              <p>• Social Security tax: 12.4% up to $176,100 (2024)</p>
               <p>• Medicare tax: 2.9% on all earnings</p>
               <p>• Additional Medicare tax: 0.9% on high earners</p>
               <p>• Half of SE tax is deductible on Schedule 1</p>

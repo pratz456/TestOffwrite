@@ -544,7 +544,7 @@ export default function ReportsPage() {
           )}
           <p className="text-xs sm:text-sm text-muted-foreground">Comprehensive tax deduction analysis and savings insights</p>
         </div>
-        {/* Action Bar — Refresh (outline) + Schedule C (emerald accent) */}
+        {/* Action Bar - Refresh (outline) + Schedule C (emerald accent) */}
         <div className="flex flex-wrap gap-2 sm:gap-3">
           <Button
             onClick={() => refetch()}
@@ -567,9 +567,9 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      {/* KPI Summary Cards — semantic accents (2–3px left border + soft glow), no full fills; mobile 2-col then 1-col */}
+      {/* KPI Summary Cards - semantic accents (2-3px left border + soft glow), no full fills; mobile 2-col then 1-col */}
       <div className="grid grid-cols-1 min-[480px]:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-5">
-        {/* Year to Date — Savings: emerald accent */}
+        {/* Year to Date - Savings: emerald accent */}
         <Card className="p-4 sm:p-5 bg-card border border-border border-l-[3px] border-l-[hsl(var(--success)/0.8)] shadow-[0_0_0_1px_hsl(var(--success)/0.05),0_2px_6px_-2px_hsl(var(--success)/0.08)] rounded-xl overflow-hidden">
           <div className="flex items-center justify-between mb-1">
             <div className="w-8 h-8 rounded-lg bg-[hsl(var(--success)/0.15)] flex items-center justify-center">
@@ -580,7 +580,7 @@ export default function ReportsPage() {
           <div className="text-xl sm:text-2xl font-bold text-foreground tabular-nums whitespace-nowrap overflow-hidden text-ellipsis">${summary.yearToDateTotal.toFixed(2)}</div>
           <div className="text-[10px] sm:text-xs text-muted-foreground/80 mt-0.5">
             {summary.yearToDateTotal === 0 && totalPaid > 0
-              ? (analysisInProgress ? 'Calculating — analysis in progress' : 'No deductible expenses classified yet')
+              ? (analysisInProgress ? 'Calculating - analysis in progress' : 'No deductible expenses classified yet')
               : 'Total tax savings'}
           </div>
           <div className="text-[10px] text-muted-foreground/75 mt-2 flex flex-wrap gap-x-2 gap-y-0.5">
@@ -590,7 +590,7 @@ export default function ReportsPage() {
           </div>
         </Card>
 
-        {/* This Month — emerald accent */}
+        {/* This Month - emerald accent */}
         <Card
           className="p-4 sm:p-5 bg-card border border-border border-l-[3px] border-l-[hsl(var(--success)/0.7)] shadow-[0_0_0_1px_hsl(var(--success)/0.05),0_2px_6px_-2px_hsl(var(--success)/0.08)] rounded-xl cursor-pointer hover:shadow-[0_0_0_1px_hsl(var(--success)/0.1),0_4px_10px_-2px_hsl(var(--success)/0.12)] transition-all duration-150 no-tap-highlight min-h-[44px]"
           onClick={() => {
@@ -624,7 +624,7 @@ export default function ReportsPage() {
           )}
         </Card>
 
-        {/* Monthly Avg — violet/blue accent */}
+        {/* Monthly Avg - violet/blue accent */}
         <Card className="p-4 sm:p-5 bg-card border border-border border-l-[3px] border-l-[hsl(var(--chart-4)/0.7)] shadow-[0_0_0_1px_hsl(var(--chart-4)/0.05),0_2px_6px_-2px_hsl(var(--chart-4)/0.08)] rounded-xl overflow-hidden">
           <div className="flex items-center justify-between mb-1">
             <div className="w-8 h-8 rounded-lg bg-[hsl(var(--chart-4)/0.15)] flex items-center justify-center">
@@ -644,7 +644,7 @@ export default function ReportsPage() {
           </div>
         </Card>
 
-        {/* Projected — violet/blue accent */}
+        {/* Projected - violet/blue accent */}
         <Card className="p-4 sm:p-5 bg-card border border-border border-l-[3px] border-l-primary/70 shadow-[0_0_0_1px_hsl(var(--primary)/0.05),0_2px_6px_-2px_hsl(var(--primary)/0.08)] rounded-xl overflow-hidden">
           <div className="flex items-center justify-between mb-1">
             <div className="w-8 h-8 rounded-lg bg-primary/15 flex items-center justify-center">
@@ -665,7 +665,7 @@ export default function ReportsPage() {
         </Card>
       </div>
 
-      {/* Monthly Tax Savings Chart — radial glow, softer grid, premium bars/tooltip */}
+      {/* Monthly Tax Savings Chart - radial glow, softer grid, premium bars/tooltip */}
       <div className="relative mb-4 sm:mb-5">
         <div className="absolute inset-0 rounded-xl bg-[radial-gradient(ellipse_80%_50%_at_50%_0%,hsl(var(--primary)/0.04),transparent)] pointer-events-none" aria-hidden />
         <Card className="relative p-4 sm:p-6 bg-card border border-border shadow-[0_2px_12px_-4px_rgba(0,0,0,0.08)] dark:shadow-[0_2px_12px_-4px_rgba(0,0,0,0.25)] rounded-xl overflow-hidden">
@@ -864,7 +864,7 @@ export default function ReportsPage() {
                                 aria-label={`${month.monthName}: tax savings $${month.total.toFixed(2)}. Click for breakdown.`}
                                 onKeyDown={(e) => isClickable && (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), handleMonthClick(month))}
                               >
-                                {/* Tooltip — glass, never off-screen */}
+                                {/* Tooltip - glass, never off-screen */}
                                 <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-popover/95 backdrop-blur-sm border border-border text-popover-foreground text-xs rounded-xl shadow-xl opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-200 pointer-events-none z-20 min-w-[140px] max-w-[min(200px,90vw)]">
                                   <div className="font-semibold">{month.monthName}</div>
                                   <div className="text-primary font-bold tabular-nums">${month.total.toFixed(2)} <span className="text-muted-foreground font-normal text-[10px]">savings</span></div>
@@ -929,7 +929,7 @@ export default function ReportsPage() {
                 </div>
               </div>
 
-              {/* Mobile Chart Layout — reduced height, softer grid */}
+              {/* Mobile Chart Layout - reduced height, softer grid */}
               <div className="md:hidden">
                 <div className="flex justify-between text-xs text-muted-foreground mb-2 px-2">
                   <span className="font-medium">${maxAmount.toLocaleString()}</span>
@@ -1011,7 +1011,7 @@ export default function ReportsPage() {
               </div>
             </div>
 
-            {/* Lower summary cards — unified radius, padding, border, icon badges, hover 150–200ms */}
+            {/* Lower summary cards - unified radius, padding, border, icon badges, hover 150-200ms */}
             {bestMonth.total > 0 && (
               <div className="mt-6 pt-6 border-t border-border grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="flex items-center gap-3 p-4 bg-card rounded-xl border border-border shadow-sm hover:shadow-[0_2px_8px_-2px_rgba(0,0,0,0.06)] hover:bg-muted/20 transition-all duration-150 focus-within:ring-2 focus-within:ring-ring">
@@ -1051,7 +1051,7 @@ export default function ReportsPage() {
         </Card>
       </div>
 
-      {/* Tax Filing Summary — stronger hierarchy, aligned metrics, Export CTA, callout */}
+      {/* Tax Filing Summary - stronger hierarchy, aligned metrics, Export CTA, callout */}
       <Card className="p-4 sm:p-5 bg-card border border-border shadow-[0_2px_8px_-2px_rgba(0,0,0,0.06)] rounded-xl mb-4 sm:mb-5">
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>

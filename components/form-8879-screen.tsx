@@ -108,7 +108,7 @@ export function Form8879Screen({ user, onBack, onNavigate }: Props) {
             <ArrowLeft className="w-5 h-5" />
           </Button>
           <div className="flex-1 min-w-0">
-            <h1 className="text-lg sm:text-xl font-semibold text-foreground">Form 8879 — E-File Authorization</h1>
+            <h1 className="text-lg sm:text-xl font-semibold text-foreground">Form 8879 - E-File Authorization</h1>
             <p className="text-xs sm:text-sm text-muted-foreground">Authorize WriteOff to e-file your federal return</p>
           </div>
           <Select value={year} onValueChange={setYear}>
@@ -158,7 +158,7 @@ export function Form8879Screen({ user, onBack, onNavigate }: Props) {
                 <div className="text-xs text-blue-800 dark:text-blue-300 space-y-1">
                   <p className="font-semibold text-sm">What is Form 8879?</p>
                   <p>Form 8879 is the IRS-required authorization that allows WriteOff to electronically submit your tax return on your behalf. You must sign this before your return can be e-filed.</p>
-                  <p>By signing, you confirm the return information is correct and authorize the filing. Your 5-digit self-selected PIN serves as your electronic signature — treat it like a password.</p>
+                  <p>By signing, you confirm the return information is correct and authorize the filing. Your 5-digit self-selected PIN serves as your electronic signature - treat it like a password.</p>
                   <a href="https://www.irs.gov/forms-pubs/about-form-8879" target="_blank" rel="noopener noreferrer" className="underline font-medium">IRS Form 8879 instructions →</a>
                 </div>
               </CardContent>
@@ -170,7 +170,7 @@ export function Form8879Screen({ user, onBack, onNavigate }: Props) {
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base font-semibold flex items-center gap-2">
                     <FileText className="w-4 h-4 text-primary" />
-                    Return Summary — {year}
+                    Return Summary - {year}
                   </CardTitle>
                   <p className="text-xs text-muted-foreground">Verify these numbers match your records before signing.</p>
                 </CardHeader>

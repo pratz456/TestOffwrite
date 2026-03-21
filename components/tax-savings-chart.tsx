@@ -131,11 +131,11 @@ export const TaxSavingsChart: React.FC<TaxSavingsChartProps> = ({ transactions =
 
                 if (dayTransactions.length > 0) {
                   const transactionList = dayTransactions
-                    .map(t => `${t.merchant_name || 'Unknown'} — $${Math.abs(t.amount || 0).toFixed(2)}`)
+                    .map(t => `${t.merchant_name || 'Unknown'} - $${Math.abs(t.amount || 0).toFixed(2)}`)
                     .join(', ');
 
                   toast.info(`Day ${data.day} Breakdown`, {
-                    description: `Deductible: $${data.deductibleAmount.toFixed(2)} · Savings: $${data.taxSavings.toFixed(2)} · Cumulative: $${data.cumulativeSavings.toFixed(2)} — ${transactionList}`,
+                    description: `Deductible: $${data.deductibleAmount.toFixed(2)} · Savings: $${data.taxSavings.toFixed(2)} · Cumulative: $${data.cumulativeSavings.toFixed(2)} - ${transactionList}`,
                     duration: 6000,
                   });
                 } else {

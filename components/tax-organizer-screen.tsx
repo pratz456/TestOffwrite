@@ -253,7 +253,7 @@ export function TaxOrganizerScreen({ user, onBack, onNavigate }: Props) {
               {yesno("paidHSA", "Did you contribute to an HSA (Health Savings Account)?")}
               {answers.paidHSA === "yes" && (
                 <div className="space-y-1.5">
-                  <Label className="text-sm font-medium">HSA contributions ($) — 2025 limits: $4,300 self-only / $8,550 family</Label>
+                  <Label className="text-sm font-medium">HSA contributions ($) - 2025 limits: $4,300 self-only / $8,550 family</Label>
                   <Input type="number" min="0" step="0.01" value={answers.hsaAmount} onChange={e => set("hsaAmount", e.target.value)} placeholder="0.00" className="bg-background" />
                 </div>
               )}

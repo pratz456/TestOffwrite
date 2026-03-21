@@ -332,7 +332,7 @@ export default function TransactionsPage() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 space-y-3 sm:space-y-4">
-        {/* Summary Cards — semantic accents, premium fintech */}
+        {/* Summary Cards - semantic accents, premium fintech */}
         <div className="grid grid-cols-1 min-[480px]:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-5">
           <div
             className="bg-card rounded-xl p-4 sm:p-5 border border-border border-l-[3px] border-l-[hsl(var(--success)/0.8)] shadow-[0_0_0_1px_hsl(var(--success)/0.06),0_2px_8px_-2px_hsl(var(--success)/0.12)] cursor-pointer hover:shadow-[0_0_0_1px_hsl(var(--success)/0.1),0_4px_12px_-2px_hsl(var(--success)/0.15)] active:scale-[0.99] transition-all duration-150 min-h-[44px] flex flex-col justify-center"
@@ -364,10 +364,10 @@ export default function TransactionsPage() {
           </div>
         </div>
 
-        {/* Search and Filter Bar — premium fintech: stack on mobile, pill controls */}
+        {/* Search and Filter Bar - premium fintech: stack on mobile, pill controls */}
         <div className="bg-card rounded-xl p-3 sm:p-4 shadow-sm border border-border">
           <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-            {/* Search Input — full-width on mobile, soft inner shadow, 44px tap */}
+            {/* Search Input - full-width on mobile, soft inner shadow, 44px tap */}
             <div className="w-full sm:flex-1 relative min-w-0 order-1 sm:order-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4 pointer-events-none" />
               <input
@@ -379,7 +379,7 @@ export default function TransactionsPage() {
               />
             </div>
 
-            {/* Filters row — horizontally scrollable on mobile, pill-style */}
+            {/* Filters row - horizontally scrollable on mobile, pill-style */}
             <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 scrollbar-none min-h-[44px] shrink-0 order-2 sm:order-2">
             {/* Date Range Selector */}
             <DropdownMenu>
@@ -560,7 +560,7 @@ export default function TransactionsPage() {
           )}
         </div>
 
-        {/* Status Tabs — pill-style segmented, hover glow, 44px tap */}
+        {/* Status Tabs - pill-style segmented, hover glow, 44px tap */}
         <div className="flex gap-1.5 p-1 rounded-xl bg-muted/40 border border-border/50 w-fit max-w-full overflow-x-auto scrollbar-none mb-5 sm:mb-6">
           <button
             type="button"
@@ -694,7 +694,7 @@ export default function TransactionsPage() {
             </table>
           </div>
 
-          {/* Mobile Card View — card layout, no horizontal scroll, 44px tap */}
+          {/* Mobile Card View - card layout, no horizontal scroll, 44px tap */}
           <div className="md:hidden divide-y divide-border">
             {filteredTransactions.map((transaction) => {
               const direction = (transaction.type ?? (transaction.amount < 0 ? 'income' : 'expense')) === 'income' ? 'Received' : 'Paid';

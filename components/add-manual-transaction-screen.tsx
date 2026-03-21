@@ -153,7 +153,7 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
         {saved && (
           <div className="flex items-center gap-2 rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/40 px-4 py-3 text-sm text-green-800 dark:text-green-300">
             <CheckCircle2 className="w-4 h-4 shrink-0" />
-            {mode === "expense" ? "Expense saved and queued for AI analysis." : "Income saved — it will appear on Schedule C Line 1."}
+            {mode === "expense" ? "Expense saved and queued for AI analysis." : "Income saved - it will appear on Schedule C Line 1."}
           </div>
         )}
 

@@ -172,7 +172,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
     },
     {
       id: "form8879",
-      label: "Form 8879 — E-File Authorization",
+      label: "Form 8879 - E-File Authorization",
       description: "Required IRS signature before anyone can e-file on your behalf",
       status: "missing",
       detail: "Sign Form 8879 to authorize WriteOff to transmit your return",
@@ -342,7 +342,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
                 </div>
                 <p className="text-xs text-muted-foreground mt-2">
                   {completeCount} of {checklist.length} steps complete
-                  {pct === 100 ? " — ready to export your forms!" : " — complete the steps below to prepare your return."}
+                  {pct === 100 ? " - ready to export your forms!" : " - complete the steps below to prepare your return."}
                 </p>
               </CardContent>
             </Card>

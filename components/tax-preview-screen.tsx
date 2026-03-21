@@ -190,7 +190,7 @@ export function TaxPreviewScreen({ user, onBack, onNavigate }: Props) {
                     {showDetails ? <><ChevronUp className="w-3.5 h-3.5" />Hide</> : <><ChevronDown className="w-3.5 h-3.5" />Show</>}
                   </Button>
                 </div>
-                <p className="text-xs text-muted-foreground">Estimated — based on your current data. Review with a tax professional before filing.</p>
+                <p className="text-xs text-muted-foreground">Estimated - based on your current data. Review with a tax professional before filing.</p>
               </CardHeader>
 
               {showDetails && (

@@ -170,7 +170,7 @@ async function buildPage1(
 
   // Pre-fill banner
   page.drawRectangle({ x: ML, y: y - 13, width: MR - ML, height: 13, color: BLUE });
-  page.drawText(`WRITEOFF PRE-FILL  |  Tax Year ${taxYear}  |  Income lines 1-7 are blank — enter gross receipts and COGS manually`, {
+  page.drawText(`WRITEOFF PRE-FILL  |  Tax Year ${taxYear}  |  Income lines 1-7 are blank  -  enter gross receipts and COGS manually`, {
     x: ML + 4, y: y - 9.5, size: SZ_BANNER, font: boldFont, color: WHITE
   });
   y -= 17;
@@ -285,8 +285,8 @@ async function buildPage1(
 
   y = exp2(page, '8', 'Advertising', lines['8'], '18', 'Office expense (see instructions)', lines['18'], y, font, boldFont, false);
   y = exp2(page, '9', 'Car and truck expenses (see instructions)', lines['9'], '19', 'Pension and profit-sharing plans', undefined, y, font, boldFont, true);
-  y = exp2(page, '10', 'Commissions and fees', lines['10'], '20a', 'Rent/lease—vehicles, machinery', lines['20a'], y, font, boldFont, false);
-  y = exp2(page, '11', 'Contract labor (see instructions)', lines['11'], '20b', 'Rent/lease—other business property', lines['20b'], y, font, boldFont, true);
+  y = exp2(page, '10', 'Commissions and fees', lines['10'], '20a', 'Rent/lease - vehicles, machinery', lines['20a'], y, font, boldFont, false);
+  y = exp2(page, '11', 'Contract labor (see instructions)', lines['11'], '20b', 'Rent/lease - other business property', lines['20b'], y, font, boldFont, true);
   y = exp2(page, '12', 'Depletion', undefined, '21', 'Repairs and maintenance', undefined, y, font, boldFont, false);
   y = exp2(page, '13', 'Depreciation (Form 4562)', undefined, '22', 'Supplies (not in Part III)', lines['22'], y, font, boldFont, true);
   y = exp2(page, '14', 'Employee benefit programs', undefined, '23', 'Taxes and licenses', undefined, y, font, boldFont, false);
@@ -440,7 +440,7 @@ async function buildPage2(
   if (y > 120) {
     hLine(page, y, ML, MR, 0.5, LTGRAY);
     y -= 10;
-    page.drawText('WriteOff Transaction Summary — Confirmed Deductible Transactions by Schedule C Line', {
+    page.drawText('WriteOff Transaction Summary  -  Confirmed Deductible Transactions by Schedule C Line', {
       x: ML, y, size: SZ_LBL, font: boldFont, color: DKGRAY
     });
     y -= 12;
