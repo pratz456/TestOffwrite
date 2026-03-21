@@ -10,7 +10,7 @@ import {
 import {
   ArrowLeft, Download, CheckCircle2, Circle, AlertCircle,
   FileText, DollarSign, Home, Car, Calculator, Loader2,
-  ChevronRight, TrendingUp, Receipt,
+  ChevronRight, TrendingUp, Receipt, Shield,
 } from "lucide-react";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 
@@ -171,6 +171,15 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
       actionScreen: "quarterly-payments",
     },
     {
+      id: "form8879",
+      label: "Form 8879 — E-File Authorization",
+      description: "Required IRS signature before anyone can e-file on your behalf",
+      status: "missing",
+      detail: "Sign Form 8879 to authorize WriteOff to transmit your return",
+      action: "Sign Form 8879",
+      actionScreen: "form-8879",
+    },
+    {
       id: "w2",
       label: "W-2 income entered",
       description: "Wages from employer jobs this year",
@@ -201,6 +210,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
 
       let url = "", body: any = { year };
       if (formType === "schedule-c") url = "/api/tax/schedule-c/export";
+      else if (formType === "form-1040") url = "/api/tax/form-1040";
       else { url = "/api/reports/export"; body = { type: formType }; }
 
       const res = await fetch(url, {
@@ -220,10 +230,11 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
       const dl = document.createElement("a");
       dl.href = URL.createObjectURL(blob);
       const names: Record<string, string> = {
+        "form-1040":  `Form_1040_${year}_WriteOff.pdf`,
         "schedule-c": `Schedule_C_${year}_WriteOff.pdf`,
         "scheduleSE": `Schedule_SE_${year}_WriteOff.pdf`,
-        "form8829": `Form_8829_${year}_WriteOff.pdf`,
-        "form4562": `Form_4562_${year}_WriteOff.pdf`,
+        "form8829":   `Form_8829_${year}_WriteOff.pdf`,
+        "form4562":   `Form_4562_${year}_WriteOff.pdf`,
       };
       dl.download = names[formType] || `${formType}_${year}.pdf`;
       document.body.appendChild(dl);
@@ -253,7 +264,8 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
   const pct = Math.round((completeCount / checklist.length) * 100);
 
   const forms = [
-    { id: "schedule-c", label: "Schedule C", sub: "Profit or Loss from Business",          icon: FileText,     always: true },
+    { id: "form-1040",  label: "Form 1040",   sub: "U.S. Individual Income Tax Return",     icon: DollarSign,   always: true },
+    { id: "schedule-c", label: "Schedule C",  sub: "Profit or Loss from Business",          icon: FileText,     always: true },
     { id: "scheduleSE", label: "Schedule SE", sub: "Self-Employment Tax",                   icon: Calculator,   always: true },
     { id: "form8829",   label: "Form 8829",   sub: "Home Office Deduction",                 icon: Home,         always: false },
     { id: "form4562",   label: "Form 4562",   sub: "Depreciation & Section 179",            icon: Car,          always: false },
@@ -429,6 +441,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
                   { label: "Deductions",        screen: "deductions-entry",       icon: Receipt },
                   { label: "Review Expenses",   screen: "transactions",           icon: FileText },
                   { label: "Schedule C Export", screen: "schedule-c-export",      icon: Download },
+                  { label: "Sign Form 8879",   screen: "form-8879",              icon: Shield },
                 ].map(({ label, screen, icon: Icon }) => (
                   <Button
                     key={screen}
