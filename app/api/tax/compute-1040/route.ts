@@ -76,7 +76,12 @@ export async function GET(request: NextRequest) {
 
   // ── Schedule SE ──
   const filingStatus = (profile.filing_status || 'single') as any;
-  const seCalc = calcScheduleSE({ scheduleCNetProfit, taxYear: year }, filingStatus);
+  const seCalc = calcScheduleSE(
+      { scheduleCNetProfit, taxYear: year },
+      filingStatus,
+      // Pass W-2 Box 3 SS wages to reduce SE SS wage base (IRS Schedule SE Line 8a)
+      w2Snap.docs.reduce((sum: number, d: any) => sum + (d.data().box3SocialSecurityWages || d.data().box1Wages || 0), 0)
+    );
 
   // ── Above-the-line deductions ──
   const ded = deductionsSnap.empty ? {} : deductionsSnap.docs[0].data();

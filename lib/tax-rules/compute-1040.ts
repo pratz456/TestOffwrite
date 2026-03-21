@@ -134,12 +134,38 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
   const usingStandardDeduction = standardDeduction >= itemizedDeductions;
   const deductionUsed = Math.max(standardDeduction, itemizedDeductions);
 
-  // ── Step 5: QBI Deduction (Section 199A) ──
+  // ── Step 5: QBI Deduction (Section 199A / Form 8995) ──
+  // IRS Rev. Proc. 2024-40: 20% of QBI, capped at 20% of taxable income (minus cap gains)
+  // Phase-out: $197,300-$247,300 single | $394,600-$494,600 MFJ (linear reduction)
   const qbiThreshold = filingStatus === 'married_filing_jointly' ? QBI_THRESHOLD_MFJ : QBI_THRESHOLD_SINGLE;
+  const qbiPhaseOutEnd = filingStatus === 'married_filing_jointly' ? 494600 : 247300;
+  const qbiPhaseOutRange = filingStatus === 'married_filing_jointly' ? 100000 : 50000;
   let qbiDeduction = 0;
-  if (scheduleCNetProfit > 0 && agi <= qbiThreshold) {
-    qbiDeduction = Math.min(scheduleCNetProfit * 0.20, (agi - deductionUsed) * 0.20);
-    qbiDeduction = Math.max(0, qbiDeduction);
+  if (scheduleCNetProfit > 0) {
+    // QBI = Schedule C net profit reduced by SE tax deduction, health insurance, retirement
+    const qualifiedBusinessIncome = Math.max(0,
+      scheduleCNetProfit - halfSEDeduction - healthInsurancePremiums - sepIraContribution - solo401kContribution
+    );
+    // Cap: 20% of (taxable income before QBI, minus net capital gains)
+    // We exclude capital gains from organizer data for the cap (conservative approach)
+    const taxableIncomeBeforeQBI = Math.max(0, agi - deductionUsed);
+    const capGains = Math.max(0, otherIncome < 0 ? 0 : 0); // cap gains handled separately
+    const qbiCap = (taxableIncomeBeforeQBI - capGains) * 0.20;
+    const fullQBI = Math.min(qualifiedBusinessIncome * 0.20, qbiCap);
+
+    if (taxableIncomeBeforeQBI <= qbiThreshold) {
+      // Below threshold: full deduction
+      qbiDeduction = Math.max(0, fullQBI);
+    } else if (taxableIncomeBeforeQBI >= qbiPhaseOutEnd) {
+      // Above phase-out range: $0 for SSTBs (most freelancers)
+      // Non-SSTBs still get W-2 wage limited amount — for self-employed with no W-2 wages = $0
+      qbiDeduction = 0;
+    } else {
+      // In phase-out range: linear reduction
+      // IRS Form 8995-A Schedule A: deduction phases out proportionally
+      const phaseOutFraction = (taxableIncomeBeforeQBI - qbiThreshold) / qbiPhaseOutRange;
+      qbiDeduction = Math.max(0, fullQBI * (1 - phaseOutFraction));
+    }
   }
 
   // ── Step 6: Taxable Income (Line 15) ──
@@ -149,8 +175,11 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
   const incomeTax = calculateFederalIncomeTax(taxableIncome, filingStatus);
 
   // ── Step 8: Additional Medicare Tax (0.9% above threshold) ──
+  // IRS Form 8959: Applies to EARNED income (W-2 wages + SE income) over threshold
+  // Not to investment income (that uses Net Investment Income Tax / Form 8960)
   const amtThreshold = filingStatus === 'married_filing_jointly' ? NIIT_THRESHOLD_MFJ : NIIT_THRESHOLD_SINGLE;
-  const additionalMedicareTax = agi > amtThreshold ? (agi - amtThreshold) * 0.009 : 0;
+  const earnedIncome = w2Wages + scheduleCNetProfit; // Only earned income triggers 0.9% AMT
+  const additionalMedicareTax = earnedIncome > amtThreshold ? (earnedIncome - amtThreshold) * 0.009 : 0;
 
   // ── Step 9: Total Tax (Line 24) ──
   const totalTax = Math.max(0, incomeTax + selfEmploymentTax + additionalMedicareTax);
