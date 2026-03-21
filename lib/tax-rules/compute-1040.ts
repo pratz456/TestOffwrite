@@ -184,6 +184,13 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
   // ── Step 9: Total Tax (Line 24) ──
   const totalTax = Math.max(0, incomeTax + selfEmploymentTax + additionalMedicareTax);
 
+  // ── Step 9b: Tax Credits (reduce Line 24 tax) ──
+  // Child Tax Credit: $2,200 per qualifying child under 17 (2025)
+  // Phases out at $400,000 MFJ / $200,000 others (MAGI-based)
+  // Note: we show estimate only — exact amount requires Form 8812
+  // EITC: not calculated here (requires earned income tables + filing status)
+  // These credits are displayed as informational in Tax Preview
+
   // ── Step 10: Payments (Lines 25-26) ──
   const totalPayments = w2FederalWithheld + estimatedPayments;
 
