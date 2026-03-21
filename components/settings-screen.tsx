@@ -712,6 +712,12 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         vehicle_business_use_percentage: profile.vehicle_business_use_percentage,
         vehicle_deduction_method: profile.vehicle_deduction_method,
         itemization_status: profile.itemization_status,
+        // Above-the-line deductions
+        health_insurance_premiums: profile.health_insurance_premiums,
+        sep_ira_contribution: profile.sep_ira_contribution,
+        solo_401k_contribution: profile.solo_401k_contribution,
+        hsa_contribution: profile.hsa_contribution,
+        w2_federal_withheld: profile.w2_federal_withheld,
 
         // Advanced Settings
         audit_history: profile.audit_history,
@@ -726,7 +732,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         prior_year_deductions: profile.prior_year_deductions
       };
 
-      console.log('Profile data to save:', profileData);
+      // Profile data saved (do not log - contains PII)
 
       const { data, error } = await upsertUserProfile(user.id, profileData as any);
 
@@ -737,7 +743,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         return;
       }
 
-      console.log('Profile saved successfully:', data);
       setSaveStatus('success');
       setHasUnsavedChanges(false);
       setOriginalProfile(JSON.parse(JSON.stringify(profile)));

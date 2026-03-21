@@ -260,6 +260,7 @@ export function TaxPreviewScreen({ user, onBack, onNavigate }: Props) {
               if (data.income.totalDeductible === 0) gaps.push({ msg: "No confirmed expenses", screen: "transactions" });
               if (data.w2.count === 0 && data.income.w2Wages === 0) gaps.push({ msg: "Add W-2 income if you have a day job", screen: "w2-income" });
               if (!data.stateTax) gaps.push({ msg: "Add your state in profile to see state tax estimate", screen: "settings" });
+              if (!data.income.grossReceipts && !data.income.w2Wages) gaps.push({ msg: "Complete the Tax Organizer to ensure all income is captured", screen: "tax-organizer" });
               if (!data.deductions.healthInsurancePremiums && !data.deductions.sepIraContribution) gaps.push({ msg: "Enter health insurance and retirement deductions to reduce your bill", screen: "tax-organizer" });
               return gaps.length > 0 ? (
                 <Card className="border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20">
