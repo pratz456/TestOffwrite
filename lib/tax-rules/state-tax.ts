@@ -24,17 +24,17 @@ const STATE_NAMES: Record<string, string> = {
   GA: 'Georgia', NC: 'North Carolina',
 };
 
-// California 2025 brackets (single)
+// California 2025 brackets (FTB 2025 Tax Rate Schedules)
 function calcCA(taxableIncome: number, fs: FilingStatus): number {
   const brackets = fs === 'married_filing_jointly' ? [
-    { min: 0, rate: 0.01 }, { min: 20824, rate: 0.02 }, { min: 49368, rate: 0.04 },
-    { min: 77918, rate: 0.06 }, { min: 108162, rate: 0.08 }, { min: 136700, rate: 0.093 },
-    { min: 698274, rate: 0.103 }, { min: 837922, rate: 0.113 }, { min: 1000000, rate: 0.123 },
-    { min: 1396542, rate: 0.133 },
+    { min: 0, rate: 0.01 }, { min: 22158, rate: 0.02 }, { min: 52530, rate: 0.04 },
+    { min: 82898, rate: 0.06 }, { min: 115066, rate: 0.08 }, { min: 145236, rate: 0.093 },
+    { min: 750442, rate: 0.103 }, { min: 900532, rate: 0.113 }, { min: 1000000, rate: 0.123 },
+    { min: 1500620, rate: 0.133 },
   ] : [
-    { min: 0, rate: 0.01 }, { min: 10412, rate: 0.02 }, { min: 24684, rate: 0.04 },
-    { min: 38959, rate: 0.06 }, { min: 54081, rate: 0.08 }, { min: 68350, rate: 0.093 },
-    { min: 349137, rate: 0.103 }, { min: 418961, rate: 0.113 }, { min: 698271, rate: 0.123 },
+    { min: 0, rate: 0.01 }, { min: 11079, rate: 0.02 }, { min: 26264, rate: 0.04 },
+    { min: 41449, rate: 0.06 }, { min: 57533, rate: 0.08 }, { min: 72618, rate: 0.093 },
+    { min: 375221, rate: 0.103 }, { min: 450266, rate: 0.113 }, { min: 1000000, rate: 0.123 },
     { min: 1000000, rate: 0.133 },
   ];
   return calcProgressive(taxableIncome, brackets);
@@ -74,23 +74,25 @@ function calcPA(taxableIncome: number): number {
   return taxableIncome * 0.0307;
 }
 
-// Ohio 2025 brackets
+// Ohio 2025 brackets (HB 33 rate reduction: 0% under $26,050, 2.75% to $100K, 3.125% above)
 function calcOH(taxableIncome: number): number {
   if (taxableIncome <= 26050) return 0;
-  const brackets = [
-    { min: 26050, rate: 0.0275 }, { min: 100000, rate: 0.035 },
-  ];
-  return calcProgressive(taxableIncome - 26050, brackets.map(b => ({ min: b.min - 26050, rate: b.rate })));
+  let tax = 0;
+  const tier1 = Math.min(taxableIncome, 100000) - 26050;
+  if (tier1 > 0) tax += tier1 * 0.0275;
+  const tier2 = taxableIncome - 100000;
+  if (tier2 > 0) tax += tier2 * 0.03125;
+  return tax;
 }
 
-// Georgia — flat 5.49% (2024+)
+// Georgia — flat 5.19% (2025, phasing down to 4.99%)
 function calcGA(taxableIncome: number): number {
-  return taxableIncome * 0.0549;
+  return taxableIncome * 0.0519;
 }
 
-// North Carolina — flat 4.5% (2025)
+// North Carolina — flat 4.25% (2025, reduced from 4.5%)
 function calcNC(taxableIncome: number): number {
-  return taxableIncome * 0.045;
+  return taxableIncome * 0.0425;
 }
 
 // Helper: progressive bracket calculation
