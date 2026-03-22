@@ -72,6 +72,13 @@ export interface UserProfile {
   income?: number | string;
   filing_status?: string;
   w2_income?: number;
+  // Above-the-line deductions (actual field names from Firebase profile)
+  health_insurance_premiums?: number;
+  sep_ira_contribution?: number;
+  solo_401k_contribution?: number;
+  hsa_contribution?: number;
+  simple_ira_contribution?: number;
+  // Legacy field names (kept for backwards compatibility)
   health_insurance_premium?: number;
   retirement_contribution?: number;
 }
@@ -108,9 +115,14 @@ export function calculateEffectiveTaxRate(userProfile: UserProfile): number {
   const seTax = seIncome * 0.9235 * 0.153;
   const halfSEDeduction = seTax / 2;
 
-  // Above-the-line deductions
-  const healthInsurance = userProfile.health_insurance_premium ?? 0;
-  const retirementContrib = userProfile.retirement_contribution ?? 0;
+  // Above-the-line deductions - use actual profile field names, fall back to legacy names
+  const healthInsurance = userProfile.health_insurance_premiums ?? userProfile.health_insurance_premium ?? 0;
+  const retirementContrib = (
+    (userProfile.sep_ira_contribution ?? 0) +
+    (userProfile.solo_401k_contribution ?? 0) +
+    (userProfile.hsa_contribution ?? 0) +
+    (userProfile.simple_ira_contribution ?? 0)
+  ) || (userProfile.retirement_contribution ?? 0);
 
   // W-2 income (already taxed via withholding, but affects bracket)
   const w2Income = userProfile.w2_income ?? 0;

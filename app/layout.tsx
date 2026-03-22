@@ -64,7 +64,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className="light" suppressHydrationWarning>
       <body
         className={`${geistSans.className} antialiased bg-background text-foreground min-h-screen`}
         suppressHydrationWarning
@@ -81,7 +81,7 @@ export default function RootLayout({
             gtag('config', 'G-1P3GNBHB9J');
           `}
         </Script>
-        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+        <ThemeProvider attribute="class" defaultTheme="light" forcedTheme="light" disableTransitionOnChange>
           <ReactQueryProvider>
             <AuthProvider>
               {children}

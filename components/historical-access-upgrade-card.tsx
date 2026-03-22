@@ -24,7 +24,7 @@ interface HistoricalAccessStatus {
   currentPeriodEnd?: Date;
 }
 
-export function HistoricalAccessUpgradeCard() {
+export function HistoricalAccessUpgradeCard({ variant = 'default' }: { variant?: 'default' | 'slim' | 'square' }) {
   const { user } = useAuth();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -178,6 +178,167 @@ export function HistoricalAccessUpgradeCard() {
   // Hide card when user has active subscription (not cancelled)
   if (accessStatus?.hasAccess && accessStatus.isPaid && !accessStatus.cancelAtPeriodEnd) {
     return null;
+  }
+
+  // --- Slim variant: compact single-line banner ---
+  if (variant === 'slim') {
+    // Cancelled
+    if (accessStatus?.hasAccess && accessStatus.isPaid && accessStatus.cancelAtPeriodEnd) {
+      return (
+        <div className="rounded-lg border border-border bg-card/60 p-3 flex flex-wrap items-center gap-3">
+          <Sparkles className="h-4 w-4 text-warning shrink-0" />
+          <span className="text-xs font-medium text-foreground">Subscription ending</span>
+          <Badge variant="warning" className="text-[10px] px-1.5 py-0">Cancelling</Badge>
+          {accessStatus.currentPeriodEnd && (
+            <span className="text-[10px] text-muted-foreground">
+              Access until {new Date(accessStatus.currentPeriodEnd).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+            </span>
+          )}
+          <Button
+            onClick={handleReactivate}
+            disabled={checkoutLoading}
+            variant="outline"
+            size="sm"
+            className="ml-auto shrink-0 h-7 px-3 text-[11px]"
+          >
+            {checkoutLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Re-enable'}
+          </Button>
+        </div>
+      );
+    }
+
+    // Trial
+    if (accessStatus?.hasAccess && accessStatus.isTrial) {
+      const daysRemaining = accessStatus.trialEnd
+        ? Math.ceil((new Date(accessStatus.trialEnd).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+        : 0;
+      return (
+        <div className="rounded-lg border border-border bg-card/60 p-3 flex flex-wrap items-center gap-3">
+          <Sparkles className="h-4 w-4 text-primary shrink-0" />
+          <span className="text-xs font-medium text-foreground">Free Trial</span>
+          <Badge variant="default" className="text-[10px] px-1.5 py-0">{daysRemaining}d left</Badge>
+          <div className="flex items-center gap-2 ml-auto">
+            <span className="text-xs font-semibold tabular-nums text-foreground">
+              ${billingInterval === 'monthly' ? '14.99/mo' : '150/yr'}
+            </span>
+            <Button
+              onClick={handleUpgrade}
+              disabled={checkoutLoading}
+              size="sm"
+              className="shrink-0 h-7 px-3 text-[11px]"
+            >
+              {checkoutLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Subscribe'}
+            </Button>
+          </div>
+        </div>
+      );
+    }
+
+    // No access
+    return (
+      <div className="rounded-lg border border-border bg-card/60 p-3 flex flex-wrap items-center gap-3">
+        <Sparkles className="h-4 w-4 text-primary shrink-0" />
+        <span className="text-xs font-medium text-foreground">Unlock WriteOff Premium</span>
+        <span className="text-[10px] text-muted-foreground">Reports, exports & extended history</span>
+        <div className="flex items-center gap-2 ml-auto">
+          <span className="text-xs font-semibold tabular-nums text-foreground">
+            ${billingInterval === 'monthly' ? '14.99/mo' : '150/yr'}
+          </span>
+          <Button
+            onClick={handleUpgrade}
+            disabled={checkoutLoading}
+            size="sm"
+            className="shrink-0 h-7 px-3 text-[11px]"
+          >
+            {checkoutLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Subscribe'}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // --- Square variant: compact card for side-by-side layout ---
+  if (variant === 'square') {
+    // Cancelled
+    if (accessStatus?.hasAccess && accessStatus.isPaid && accessStatus.cancelAtPeriodEnd) {
+      return (
+        <div className="rounded-xl border border-border bg-card p-4 sm:p-5 h-full flex flex-col justify-between">
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-8 h-8 rounded-lg bg-warning/10 flex items-center justify-center">
+                <Sparkles className="h-4 w-4 text-warning" />
+              </div>
+              <Badge variant="warning" className="text-[10px] px-1.5 py-0">Cancelling</Badge>
+            </div>
+            <p className="text-sm font-semibold text-foreground mb-1">Subscription ending</p>
+            {accessStatus.currentPeriodEnd && (
+              <p className="text-xs text-muted-foreground">
+                Access until {new Date(accessStatus.currentPeriodEnd).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+              </p>
+            )}
+          </div>
+          <Button
+            onClick={handleReactivate}
+            disabled={checkoutLoading}
+            variant="outline"
+            size="sm"
+            className="mt-3 w-full text-xs"
+          >
+            {checkoutLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
+            Re-enable Subscription
+          </Button>
+        </div>
+      );
+    }
+
+    // Trial
+    if (accessStatus?.hasAccess && accessStatus.isTrial) {
+      const daysRemaining = accessStatus.trialEnd
+        ? Math.ceil((new Date(accessStatus.trialEnd).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+        : 0;
+      return (
+        <div className="rounded-xl border border-border bg-card p-4 sm:p-5 h-full flex flex-col justify-between">
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Sparkles className="h-4 w-4 text-primary" />
+              </div>
+              <Badge variant="default" className="text-[10px] px-1.5 py-0">Trial</Badge>
+              <span className="text-[10px] text-muted-foreground ml-auto">{daysRemaining}d left</span>
+            </div>
+            <p className="text-sm font-semibold text-foreground mb-1">Free Trial Active</p>
+            <p className="text-xs text-muted-foreground">Subscribe to keep access to reports, exports & history.</p>
+          </div>
+          <div className="mt-3 flex items-center justify-between">
+            <span className="text-lg font-semibold tabular-nums">${billingInterval === 'monthly' ? '14.99' : '150'}<span className="text-xs text-muted-foreground font-normal">/{billingInterval === 'monthly' ? 'mo' : 'yr'}</span></span>
+            <Button onClick={handleUpgrade} disabled={checkoutLoading} size="sm" className="text-xs px-4">
+              {checkoutLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Subscribe'}
+            </Button>
+          </div>
+        </div>
+      );
+    }
+
+    // No access
+    return (
+      <div className="rounded-xl border border-border bg-card p-4 sm:p-5 h-full flex flex-col justify-between">
+        <div>
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+              <Sparkles className="h-4 w-4 text-primary" />
+            </div>
+          </div>
+          <p className="text-sm font-semibold text-foreground mb-1">Unlock WriteOff Premium</p>
+          <p className="text-xs text-muted-foreground">Full access to reports, exports, and extended history.</p>
+        </div>
+        <div className="mt-3 flex items-center justify-between">
+          <span className="text-lg font-semibold tabular-nums">${billingInterval === 'monthly' ? '14.99' : '150'}<span className="text-xs text-muted-foreground font-normal">/{billingInterval === 'monthly' ? 'mo' : 'yr'}</span></span>
+          <Button onClick={handleUpgrade} disabled={checkoutLoading} size="sm" className="text-xs px-4">
+            {checkoutLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Subscribe'}
+          </Button>
+        </div>
+      </div>
+    );
   }
 
   // --- Cancelled subscription (still has access until period end) ---

@@ -140,10 +140,23 @@ export default function DashboardScreen({
   const deductibleTransactions = transactions.filter(t => t.is_deductible === true);
   const totalDeductions = stats?.totalDeductibleAmount ?? deductibleTransactions.reduce((sum, t) => sum + Math.abs(t.amount || 0), 0);
 
-  const netSpend = transactions.reduce((sum, t) => {
+  // Plaid convention: positive = expense/debit, negative = income/credit
+  const grossIncome = transactions.reduce((sum, t) => {
+    if (t.amount < 0) return sum + Math.abs(t.amount);
+    return sum;
+  }, 0);
+
+  const totalExpenses = transactions.reduce((sum, t) => {
     if (t.amount > 0) return sum + t.amount;
     return sum;
   }, 0);
+
+  const scheduleCProfit = grossIncome - totalExpenses;
+
+  // SE tax effective rate: 15.3% on 92.35% of net earnings = ~14.13%
+  const SE_TAX_EFFECTIVE_RATE = 15.3 * 0.9235; // ~14.13%
+  const combinedTaxRate = SE_TAX_EFFECTIVE_RATE + estimatedTaxRate;
+  const quarterlyTaxes = Math.max(0, (scheduleCProfit * combinedTaxRate / 100) / 4);
 
   // Category breakdown (unchanged)
   const categoryBreakdown: Record<string, number> = {};
@@ -190,29 +203,35 @@ export default function DashboardScreen({
         />
 
         <div className="max-w-7xl mx-auto px-4 md:px-6 py-3 sm:py-4 space-y-3 sm:space-y-4">
-          {/* Proactive Action Items */}
-          <ActionItemsBanner
-            profile={profile}
-            transactions={transactions}
-            onNavigate={onNavigate}
-          />
-
           {/* Row 1: KPI Cards */}
           <KpiGrid
-            netSpend={netSpend}
-            totalTransactions={transactions.length}
+            scheduleCProfit={scheduleCProfit}
+            grossIncome={grossIncome}
+            totalExpenses={totalExpenses}
             totalDeductions={totalDeductions}
             deductibleCount={deductibleTransactions.length}
             estimatedTaxRate={estimatedTaxRate}
-            taxSavings={taxSavings}
-            projectedAnnual={projectedAnnual}
-            loadingTaxSavings={isLoadingTaxSavings}
+            quarterlyTaxes={quarterlyTaxes}
           />
 
-          {/* Upgrade card (keep the initial KPI view uncluttered) */}
-          <HistoricalAccessUpgradeCard />
+          {/* Row 2: Action Items + Premium - side-by-side square cards */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
+            <ActionItemsBanner
+              profile={profile}
+              transactions={transactions}
+              onNavigate={onNavigate}
+            />
+            <HistoricalAccessUpgradeCard variant="square" />
+          </div>
 
-          {/* Row 2: Analytics + Optimization - subtle radial glows behind key sections */}
+          {/* Row 3: Quick Actions */}
+          <QuickActionsBar
+            onNavigate={onNavigate}
+            needsReviewCount={needsReviewCount}
+            needsAnalysisCount={needsAnalysisCount}
+          />
+
+          {/* Row 4: Analytics + Optimization */}
           <div className="grid grid-cols-1 lg:grid-cols-10 gap-4">
             <div className="lg:col-span-7 relative">
               <div className="absolute inset-0 rounded-xl bg-[radial-gradient(ellipse_80%_60%_at_50%_0%,hsl(var(--primary)/0.05),transparent)] pointer-events-none" aria-hidden />
@@ -230,7 +249,7 @@ export default function DashboardScreen({
             </div>
           </div>
 
-          {/* Row 3: Categories + Activity */}
+          {/* Row 5: Categories + Activity */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <TopCategoriesCard
               categories={categoryEntries}
@@ -245,19 +264,12 @@ export default function DashboardScreen({
             />
           </div>
 
-          {/* AI Advisory */}
+          {/* Row 6: AI Advisory */}
           <AiAdvisoryCard
             needsReviewCount={needsReviewCount}
             needsAnalysisCount={needsAnalysisCount}
             taxSavings={taxSavings}
             onNavigate={onNavigate}
-          />
-
-          {/* Quick Actions */}
-          <QuickActionsBar
-            onNavigate={onNavigate}
-            needsReviewCount={needsReviewCount}
-            needsAnalysisCount={needsAnalysisCount}
           />
         </div>
       </div>

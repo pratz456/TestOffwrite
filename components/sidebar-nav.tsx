@@ -1,10 +1,10 @@
 "use client";
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { LogoutButton } from './logout-button';
 import Link from 'next/link';
 import { usePathname, useSearchParams, useRouter } from 'next/navigation';
-import { Home, CreditCard, BarChart3, Settings, FolderOpen, HelpCircle, Shield, Info, FileText, TrendingUp, PlusCircle, ClipboardCheck, ClipboardList, Eye, Minus, PenLine, ScanLine, Briefcase, Sparkles } from 'lucide-react';
+import { Home, CreditCard, BarChart3, Settings, TrendingUp, ClipboardCheck, Eye, Minus, Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
 interface SidebarNavProps {
   user: { id: string; email?: string; user_metadata?: { name?: string } };
   userProfile?: { name?: string; email?: string };
@@ -14,10 +14,9 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ user, userProfile }) => 
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
-
-
-  const navItems = [
+  const mainItems = [
     {
       name: 'Home',
       href: '/protected',
@@ -38,28 +37,25 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ user, userProfile }) => 
       description: 'Track income & 1099 forms'
     },
     {
-      name: 'Add Transaction',
-      href: '/protected?screen=add-manual-transaction',
-      icon: PlusCircle,
-      description: 'Manually enter income or expenses'
+      name: 'Deductions',
+      href: '/protected?screen=deductions-entry',
+      icon: Minus,
+      description: 'Health insurance, retirement, HSA'
     },
     {
-      name: 'Import Document',
-      href: '/protected?screen=document-import',
-      icon: ScanLine,
-      description: 'Upload W-2, 1099, or platform summary'
+      name: 'File Taxes',
+      href: '/protected?screen=tax-filing-hub',
+      icon: ClipboardCheck,
+      description: 'Filing hub & form exports'
     },
+  ];
+
+  const advancedItems = [
     {
-      name: 'Tax Organizer',
-      href: '/protected?screen=tax-organizer',
-      icon: ClipboardList,
-      description: 'W-2 income, deductions, retirement'
-    },
-    {
-      name: 'Categories',
-      href: '/protected?screen=categories',
-      icon: FolderOpen,
-      description: 'Manage expense categories'
+      name: 'Tax Preview',
+      href: '/protected?screen=tax-preview',
+      icon: Eye,
+      description: 'Live balance due or refund'
     },
     {
       name: 'Reports',
@@ -68,35 +64,20 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ user, userProfile }) => 
       description: 'Tax reports and analytics'
     },
     {
-      name: 'File Taxes',
-      href: '/protected?screen=tax-filing-hub',
-      icon: ClipboardCheck,
-      description: 'Filing hub & form exports'
+      name: 'AI Tax Assistant',
+      href: '/protected?screen=tax-assistant',
+      icon: Sparkles,
+      description: 'Ask tax questions'
     },
+  ];
+
+  const bottomItems = [
     {
       name: 'Settings',
       href: '/protected/settings',
       icon: Settings,
       description: 'Account and preferences'
     },
-    {
-      name: 'Help',
-      href: '/protected/help',
-      icon: HelpCircle,
-      description: 'Help and support'
-    },
-    {
-      name: 'Privacy',
-      href: '/protected/privacy',
-      icon: Shield,
-      description: 'Privacy policy'
-    },
-    {
-      name: 'About',
-      href: '/protected/about',
-      icon: Info,
-      description: 'About WriteOff'
-    }
   ];
 
   const isActive = (href: string) => {
@@ -117,6 +98,51 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ user, userProfile }) => 
     return pathname.startsWith(href);
   };
 
+  // Auto-open advanced section if any advanced item is active
+  useEffect(() => {
+    const anyAdvancedActive = advancedItems.some((item) => isActive(item.href));
+    if (anyAdvancedActive) {
+      setAdvancedOpen(true);
+    }
+  }, [pathname, searchParams]);
+
+  const renderNavItem = (item: typeof mainItems[0]) => {
+    const Icon = item.icon;
+    const active = isActive(item.href);
+
+    const baseClasses = 'flex items-center gap-2.5 px-2.5 py-1.5 rounded-md transition-colors duration-150 group w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 text-sm';
+    const activeClasses = active
+      ? 'bg-muted/60 text-foreground border-l-2 border-primary pl-2'
+      : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground';
+    const iconClasses = active ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground';
+
+    if (item.isHome) {
+      return (
+        <button
+          key={item.name}
+          onClick={() => router.push('/protected')}
+          className={`${baseClasses} ${activeClasses}`}
+          aria-current={active ? 'page' : undefined}
+        >
+          <Icon className={`w-4 h-4 shrink-0 ${iconClasses}`} />
+          <span className="font-medium truncate">{item.name}</span>
+        </button>
+      );
+    }
+
+    return (
+      <Link
+        key={item.name}
+        href={item.href}
+        className={`${baseClasses} ${activeClasses}`}
+        aria-current={active ? 'page' : undefined}
+      >
+        <Icon className={`w-4 h-4 shrink-0 ${iconClasses}`} />
+        <span className="font-medium truncate">{item.name}</span>
+      </Link>
+    );
+  };
+
   return (
     <div className="hidden lg:flex w-60 bg-card border-r border-border/50 h-screen flex-col">
       {/* Logo/Brand */}
@@ -131,43 +157,41 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ user, userProfile }) => 
       </div>
 
       {/* Navigation Items */}
-      <nav className="flex-1 px-2 py-2 space-y-0.5" aria-label="Main navigation">
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const active = isActive(item.href);
+      <nav className="flex-1 px-2 py-2 space-y-0.5 overflow-y-auto" aria-label="Main navigation">
+        {/* Main Items */}
+        {mainItems.map((item) => renderNavItem(item))}
 
-          const baseClasses = 'flex items-center gap-2.5 px-2.5 py-1.5 rounded-md transition-colors duration-150 group w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 text-sm';
-          const activeClasses = active
-            ? 'bg-muted/60 text-foreground border-l-2 border-primary pl-2'
-            : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground';
-          const iconClasses = active ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground';
+        {/* Advanced Taxes Collapsible Section */}
+        <div className="pt-2 mt-2 border-t border-border/40">
+          <button
+            onClick={() => setAdvancedOpen(!advancedOpen)}
+            className="flex items-center justify-between w-full px-2.5 py-1.5 rounded-md text-sm text-muted-foreground hover:bg-muted/40 hover:text-foreground transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            aria-expanded={advancedOpen}
+          >
+            <span className="font-medium text-xs uppercase tracking-wider">Advanced Taxes</span>
+            {advancedOpen ? (
+              <ChevronUp className="w-4 h-4 shrink-0" />
+            ) : (
+              <ChevronDown className="w-4 h-4 shrink-0" />
+            )}
+          </button>
+          <div
+            className="overflow-hidden transition-[max-height,opacity] duration-300 ease-in-out"
+            style={{
+              maxHeight: advancedOpen ? `${advancedItems.length * 40}px` : '0px',
+              opacity: advancedOpen ? 1 : 0,
+            }}
+          >
+            <div className="pl-2 space-y-0.5 pt-0.5">
+              {advancedItems.map((item) => renderNavItem(item))}
+            </div>
+          </div>
+        </div>
 
-          if (item.isHome) {
-            return (
-              <button
-                key={item.name}
-                onClick={() => router.push('/protected')}
-                className={`${baseClasses} ${activeClasses}`}
-                aria-current={active ? 'page' : undefined}
-              >
-                <Icon className={`w-4 h-4 shrink-0 ${iconClasses}`} />
-                <span className="font-medium truncate">{item.name}</span>
-              </button>
-            );
-          }
-
-          return (
-            <Link
-              key={item.name}
-              href={item.href}
-              className={`${baseClasses} ${activeClasses}`}
-              aria-current={active ? 'page' : undefined}
-            >
-              <Icon className={`w-4 h-4 shrink-0 ${iconClasses}`} />
-              <span className="font-medium truncate">{item.name}</span>
-            </Link>
-          );
-        })}
+        {/* Bottom Items */}
+        <div className="pt-2 mt-2 border-t border-border/40">
+          {bottomItems.map((item) => renderNavItem(item))}
+        </div>
       </nav>
 
       {/* User Info and Sign Out */}

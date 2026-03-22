@@ -20,8 +20,7 @@ export default function Head() {
     <>
       <title>WriteOff</title>
       <meta name="description" content="WriteOff - Effortless Tax Management for Freelancers and Businesses" />
-      <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff" />
-      <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0b1220" />
+      <meta name="theme-color" content="#ffffff" />
       <link rel="icon" href="/favicon.ico" type="image/x-icon" />
       <link rel="apple-touch-icon" href="/favicon.ico" />
     </>
