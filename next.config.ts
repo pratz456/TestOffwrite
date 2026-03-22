@@ -115,14 +115,13 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   generateEtags: false,
 
-  // ✅ Ignore TS errors during builds
+  // TypeScript and ESLint errors must be fixed before production builds
   typescript: {
-    ignoreBuildErrors: true
+    ignoreBuildErrors: false
   },
 
-  // ✅ Ignore ESLint errors during builds (Next.js 15)
   eslint: {
-    ignoreDuringBuilds: true
+    ignoreDuringBuilds: false
   },
 };
 

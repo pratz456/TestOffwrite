@@ -66,16 +66,16 @@ export function HomeContent() {
                 <p className="text-xs sm:text-xs font-medium text-muted-foreground">AI Analysis</p>
               </div>
               <div className="text-center space-y-2 p-3 rounded-lg hover:bg-muted/50 transition-colors">
-                <div className="w-10 h-10 sm:w-8 sm:h-8 bg-accent/10 rounded-lg flex items-center justify-center mx-auto">
-                  <svg className="w-5 h-5 sm:w-4 sm:h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <div className="w-10 h-10 sm:w-8 sm:h-8 bg-primary/10 rounded-lg flex items-center justify-center mx-auto">
+                  <svg className="w-5 h-5 sm:w-4 sm:h-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                   </svg>
                 </div>
                 <p className="text-xs sm:text-xs font-medium text-muted-foreground">Bank Sync</p>
               </div>
               <div className="text-center space-y-2 p-3 rounded-lg hover:bg-muted/50 transition-colors">
-                <div className="w-10 h-10 sm:w-8 sm:h-8 bg-muted rounded-lg flex items-center justify-center mx-auto">
-                  <svg className="w-5 h-5 sm:w-4 sm:h-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <div className="w-10 h-10 sm:w-8 sm:h-8 bg-primary/10 rounded-lg flex items-center justify-center mx-auto">
+                  <svg className="w-5 h-5 sm:w-4 sm:h-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
                   </svg>
                 </div>
