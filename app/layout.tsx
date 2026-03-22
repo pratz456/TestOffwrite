@@ -63,12 +63,35 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const organizationJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    name: "WriteOff",
+    url: defaultUrl,
+    logo: `${defaultUrl.replace(/\/$/, "")}/writeofflogo.png`,
+    description:
+      "AI-powered tax deduction tracker that helps freelancers and small business owners automatically find, categorize, and maximize tax savings.",
+    email: "writeoffapp@gmail.com",
+    contactPoint: {
+      "@type": "ContactPoint",
+      email: "writeoffapp@gmail.com",
+      contactType: "customer support",
+      availableLanguage: "English",
+    },
+    sameAs: [],
+  };
+
   return (
     <html lang="en" className="light" suppressHydrationWarning>
       <body
         className={`${geistSans.className} antialiased bg-background text-foreground min-h-screen`}
         suppressHydrationWarning
       >
+        <script
+          type="application/ld+json"
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
+        />
         <Script
           src="https://www.googletagmanager.com/gtag/js?id=G-1P3GNBHB9J"
           strategy="afterInteractive"

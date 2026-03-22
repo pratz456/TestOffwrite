@@ -20,32 +20,12 @@ export function OptimizationCard({
   deductibleCount,
   onNavigate,
 }: OptimizationCardProps) {
-  const score = totalTransactions > 0
-    ? Math.round((deductibleCount / totalTransactions) * 100)
-    : 0;
-
-  const scoreColor =
-    score >= 70 ? 'text-success' :
-    score >= 40 ? 'text-warning' :
-    'text-muted-foreground';
-
   return (
     <Card className="h-full flex flex-col">
       <CardHeader className="pb-2 px-5">
-        <CardTitle className="text-sm font-medium">Tax Optimization</CardTitle>
+        <CardTitle className="text-sm font-medium">Transaction Status</CardTitle>
       </CardHeader>
       <CardContent className="px-5 pb-5 flex-1 flex flex-col">
-        {/* Score */}
-        <div className="flex items-center gap-3 mb-4">
-          <div className={`text-4xl font-bold tabular-nums ${scoreColor}`}>
-            {score}
-          </div>
-          <div className="text-xs text-muted-foreground leading-tight">
-            optimization<br />score
-          </div>
-        </div>
-
-        {/* Bullets */}
         <div className="space-y-2.5 flex-1">
           {needsAnalysisCount > 0 && (
             <div className="flex items-start gap-2">

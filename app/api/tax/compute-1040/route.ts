@@ -76,7 +76,12 @@ export async function GET(request: NextRequest) {
 
   // ── Schedule SE ──
   const filingStatus = (profile.filing_status || 'single') as any;
-  const seCalc = calcScheduleSE({ scheduleCNetProfit, taxYear: year }, filingStatus);
+  const seCalc = calcScheduleSE(
+      { scheduleCNetProfit, taxYear: year },
+      filingStatus,
+      // Pass W-2 Box 3 SS wages to reduce SE SS wage base (IRS Schedule SE Line 8a)
+      w2Snap.docs.reduce((sum: number, d: any) => sum + (d.data().box3SocialSecurityWages || d.data().box1Wages || 0), 0)
+    );
 
   // ── Above-the-line deductions ──
   const ded = deductionsSnap.empty ? {} : deductionsSnap.docs[0].data();
@@ -93,12 +98,28 @@ export async function GET(request: NextRequest) {
   const totalW2Withheld = w2FederalWithheld + (profile.w2_federal_withheld || 0);
 
   // ── Compute 1040 ──
+  // Parse organizer for credits data
+  const numDependents = parseInt(org.dependents || '0', 10) || 0;
+  const numEITCChildren = numDependents; // Simplified: all dependents assumed to qualify
+  const taxPayerAge = org.dateOfBirth
+    ? new Date().getFullYear() - new Date(org.dateOfBirth).getFullYear()
+    : undefined;
+  const investmentIncome = (orgInterest + orgDividends + Math.max(0, orgCapGains));
+  const longTermCapGains = Math.max(0, orgCapGains); // Simplified: treat all cap gains as LT
+  const shortTermCapGains = 0; // User would need to specify
+
   const result = compute1040({
     taxYear: year,
     filingStatus,
     scheduleCNetProfit,
     w2Wages,
     otherIncome,
+    numDependents,
+    numEITCChildren,
+    taxPayerAge,
+    investmentIncome,
+    longTermCapGains,
+    shortTermCapGains,
     w2FederalWithheld: totalW2Withheld,
     estimatedPayments,
     selfEmploymentTax: seCalc.totalSETax,

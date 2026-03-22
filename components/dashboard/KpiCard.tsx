@@ -2,8 +2,9 @@
 
 import React from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
+import { KpiTooltip, type KpiTooltipContent } from '@/components/ui/kpi-tooltip';
 
-export type KpiAccent = 'blue' | 'emerald' | 'amber' | 'emeraldStrong';
+export type KpiAccent = 'blue' | 'emerald' | 'amber' | 'emeraldStrong' | 'violet' | 'orange';
 
 interface KpiCardProps {
   title: string;
@@ -14,6 +15,8 @@ interface KpiCardProps {
   loading?: boolean;
   /** Semantic accent: left border + icon tint only (no full-color fills). */
   accent?: KpiAccent;
+  /** Hover tooltip explaining what this number means and what to do with it */
+  tooltip?: KpiTooltipContent;
 }
 
 const accentBorder: Record<KpiAccent, string> = {
@@ -21,6 +24,8 @@ const accentBorder: Record<KpiAccent, string> = {
   emerald: 'border-l-[hsl(var(--success)/0.7)]',
   amber: 'border-l-[hsl(var(--warning)/0.7)]',
   emeraldStrong: 'border-l-[hsl(var(--success)/0.85)]',
+  violet: 'border-l-violet-500/70',
+  orange: 'border-l-orange-500/70',
 };
 
 const accentIconWrap: Record<KpiAccent, string> = {
@@ -28,9 +33,11 @@ const accentIconWrap: Record<KpiAccent, string> = {
   emerald: 'bg-[hsl(var(--success)/0.12)] [&_svg]:text-[hsl(var(--success)/0.9)]',
   amber: 'bg-[hsl(var(--warning)/0.12)] [&_svg]:text-[hsl(var(--warning)/0.9)]',
   emeraldStrong: 'bg-[hsl(var(--success)/0.18)] [&_svg]:text-[hsl(var(--success))]',
+  violet: 'bg-violet-500/10 [&_svg]:text-violet-500',
+  orange: 'bg-orange-500/10 [&_svg]:text-orange-500',
 };
 
-export function KpiCard({ title, value, subtitle, delta, icon, loading, accent }: KpiCardProps) {
+export function KpiCard({ title, value, subtitle, delta, icon, loading, accent, tooltip }: KpiCardProps) {
   if (loading) {
     return (
       <div className="rounded-lg border border-border bg-card p-4 sm:p-5 min-h-[88px]">
@@ -51,9 +58,12 @@ export function KpiCard({ title, value, subtitle, delta, icon, loading, accent }
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5">
-            {title}
-          </p>
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              {title}
+            </p>
+            {tooltip && <KpiTooltip content={tooltip} />}
+          </div>
           <p className="text-xl sm:text-2xl font-semibold text-foreground tabular-nums tracking-tight break-words">
             {value}
           </p>

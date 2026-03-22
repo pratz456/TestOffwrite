@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { Calendar, Clock, ArrowLeft, ChevronLeft, ChevronRight, User } from "lucide-react";
 import { getAllPosts, getPostBySlug, getAdjacentPosts } from "@/lib/blog";
 import { BlogCTA } from "@/components/blog/blog-cta";
+import { RelatedPosts } from "@/components/blog/related-posts";
 
 export async function generateStaticParams() {
   return getAllPosts().map((p) => ({ slug: p.slug }));
@@ -152,6 +153,13 @@ export default async function BlogPostPage({
 
         {/* End-of-post CTA */}
         <BlogCTA variant="full" />
+
+        {/* Related Posts */}
+        <RelatedPosts
+          currentSlug={slug}
+          currentTags={post.tags}
+          allPosts={getAllPosts()}
+        />
 
         {/* Previous / Next navigation */}
         <nav className="mt-12 grid gap-4 sm:grid-cols-2">

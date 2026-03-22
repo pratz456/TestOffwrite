@@ -33,18 +33,37 @@ const ADDITIONAL_MEDICARE_THRESHOLD_MARRIED = 250000; // $250,000
  */
 export function calcScheduleSE(
   taxSummary: TaxSummarySettings,
-  filingStatus: string = 'single'
+  filingStatus: string = 'single',
+  w2SocialSecurityWages: number = 0  // Box 3 of W-2 — reduces SS wage base (Schedule SE Line 8a)
 ): ScheduleSECalculation {
   const { scheduleCNetProfit, adjustments = 0 } = taxSummary;
 
   // Net earnings from self-employment
   const netEarnings = scheduleCNetProfit + adjustments;
 
-  // Apply SE adjustment factor (92.35%)
+  // Apply SE adjustment factor (92.35%) — IRS Schedule SE Line 4a
   const seBase = netEarnings * SE_ADJUSTMENT_FACTOR;
 
+  // IRS: No SE tax if net earnings < $400 (Schedule SE Part I Line 4c)
+  if (seBase < 400) {
+    return {
+      netProfitFromScheduleC: Math.round(scheduleCNetProfit * 100) / 100,
+      adjustments: Math.round(adjustments * 100) / 100,
+      netEarnings: Math.round(netEarnings * 100) / 100,
+      seBase: Math.round(seBase * 100) / 100,
+      socialSecurityTax: 0,
+      medicareTax: 0,
+      additionalMedicareTax: 0,
+      totalSETax: 0,
+      halfSEDeduction: 0,
+    };
+  }
+
   // Social Security tax (12.4% up to wage base)
-  const socialSecurityTaxable = Math.min(seBase, SOCIAL_SECURITY_WAGE_BASE);
+  // IRS Schedule SE Line 8: W-2 SS wages already paid reduce available SS wage base
+  // This prevents double-paying SS tax for workers with both W-2 and SE income
+  const remainingSSWageBase = Math.max(0, SOCIAL_SECURITY_WAGE_BASE - w2SocialSecurityWages);
+  const socialSecurityTaxable = Math.min(seBase, remainingSSWageBase);
   const socialSecurityTax = socialSecurityTaxable * SOCIAL_SECURITY_RATE;
 
   // Medicare tax (2.9% on all earnings)
