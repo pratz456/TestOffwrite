@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState } from "react";
 import { Search, X } from "lucide-react";
 
 interface BlogPostMeta {
@@ -15,7 +15,7 @@ interface BlogPostMeta {
 
 interface BlogSearchProps {
   posts: BlogPostMeta[];
-  onFilter: (filtered: BlogPostMeta[]) => void;
+  onFilter: (query: string, tag: string | null) => void;
 }
 
 export function BlogSearch({ posts, onFilter }: BlogSearchProps) {
@@ -23,39 +23,28 @@ export function BlogSearch({ posts, onFilter }: BlogSearchProps) {
   const [activeTag, setActiveTag] = useState<string | null>(null);
 
   // Extract unique tags sorted by frequency
-  const popularTags = useMemo(() => {
-    const tagCounts: Record<string, number> = {};
-    for (const post of posts) {
-      for (const tag of post.tags) {
-        tagCounts[tag] = (tagCounts[tag] || 0) + 1;
-      }
+  const popularTags: string[] = [];
+  const tagCounts: Record<string, number> = {};
+  for (const post of posts) {
+    for (const tag of post.tags) {
+      tagCounts[tag] = (tagCounts[tag] || 0) + 1;
     }
-    return Object.entries(tagCounts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
-      .map(([tag]) => tag);
-  }, [posts]);
+  }
+  Object.entries(tagCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .forEach(([tag]) => popularTags.push(tag));
 
-  // Filter posts by query and active tag
-  useEffect(() => {
-    const q = query.toLowerCase().trim();
-    let filtered = posts;
+  const handleQueryChange = (value: string) => {
+    setQuery(value);
+    onFilter(value, activeTag);
+  };
 
-    if (activeTag) {
-      filtered = filtered.filter((p) => p.tags.includes(activeTag));
-    }
-
-    if (q) {
-      filtered = filtered.filter(
-        (p) =>
-          p.title.toLowerCase().includes(q) ||
-          p.description.toLowerCase().includes(q) ||
-          p.tags.some((t) => t.toLowerCase().includes(q))
-      );
-    }
-
-    onFilter(filtered);
-  }, [query, activeTag, posts, onFilter]);
+  const handleTagClick = (tag: string) => {
+    const newTag = activeTag === tag ? null : tag;
+    setActiveTag(newTag);
+    onFilter(query, newTag);
+  };
 
   return (
     <div className="mb-8 space-y-4">
@@ -66,12 +55,12 @@ export function BlogSearch({ posts, onFilter }: BlogSearchProps) {
           type="text"
           placeholder="Search articles by title, topic, or keyword..."
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => handleQueryChange(e.target.value)}
           className="w-full rounded-xl border border-border bg-card pl-10 pr-10 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/40 transition-shadow shadow-sm"
         />
         {query && (
           <button
-            onClick={() => setQuery("")}
+            onClick={() => handleQueryChange("")}
             className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
           >
             <X className="h-4 w-4" />
@@ -84,7 +73,8 @@ export function BlogSearch({ posts, onFilter }: BlogSearchProps) {
         {popularTags.map((tag) => (
           <button
             key={tag}
-            onClick={() => setActiveTag(activeTag === tag ? null : tag)}
+            type="button"
+            onClick={() => handleTagClick(tag)}
             className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
               activeTag === tag
                 ? "bg-primary text-white"

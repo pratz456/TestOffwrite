@@ -8,7 +8,7 @@ const FEATURES = [
   { icon: Zap, tag: "AI-Powered", tagColor: "bg-violet-100 text-violet-700", iconColor: "text-violet-600", iconBg: "bg-violet-100", title: "AI that spots write-offs", body: "Spots deductible expenses from where you shop, what you buy, and how you spend." },
   { icon: TrendingUp, tag: "Live Updates", tagColor: "bg-blue-100 text-blue-700", iconColor: "text-blue-600", iconBg: "bg-blue-100", title: "Real-time tax savings", body: "Watch your potential refund grow as you log expenses. No waiting until April." },
   { icon: FileText, tag: "One-Click", tagColor: "bg-amber-100 text-amber-700", iconColor: "text-amber-600", iconBg: "bg-amber-100", title: "Tax summary in one tap", body: "Export a clean PDF or CSV of your deductions, or file directly in the app." },
-  { icon: FolderCheck, tag: "Audit-Ready", tagColor: "bg-rose-100 text-rose-700", iconColor: "text-rose-600", iconBg: "bg-rose-100", title: "Audit-ready records", body: "Upload receipts when you want. We organise by category so you're ready if the IRS asks." },
+  { icon: FolderCheck, tag: "Audit-Ready", tagColor: "bg-rose-100 text-rose-700", iconColor: "text-rose-600", iconBg: "bg-rose-100", title: "Audit-ready records", body: "Upload receipts when you want. We organize by category so you're ready if the IRS asks." },
   { icon: BarChart3, tag: "Smart Reports", tagColor: "bg-cyan-100 text-cyan-700", iconColor: "text-cyan-600", iconBg: "bg-cyan-100", title: "Monthly insights", body: "Gentle reminders and insights so you stay on top of things all year." },
 ];
 

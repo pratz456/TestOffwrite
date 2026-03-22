@@ -6,7 +6,7 @@ import { useScrollReveal } from "./use-scroll-reveal";
 
 const STEPS = [
   { num: "01", icon: Link2, numBg: "bg-gradient-to-br from-blue-500 to-blue-600", title: "Connect your accounts", body: "Link your bank and cards in under 2 minutes. We use Plaid and MX with read-only access so your data stays safe and under your control.", checks: ["Quick setup", "256-bit encryption", "Plaid and MX"] },
-  { num: "02", icon: Brain, numBg: "bg-gradient-to-br from-violet-500 to-violet-600", title: "AI learns your patterns", body: "Our AI scans your transactions and learns what's business vs personal. It categorises as you spend so you don't have to guess.", checks: ["Smart categorisation", "Merchant recognition", "Location-aware"] },
+  { num: "02", icon: Brain, numBg: "bg-gradient-to-br from-violet-500 to-violet-600", title: "AI learns your patterns", body: "Our AI scans your transactions and learns what's business vs personal. It categorizes as you spend so you don't have to guess.", checks: ["Smart categorization", "Merchant recognition", "Location-aware"] },
   { num: "03", icon: Send, numBg: "bg-gradient-to-br from-emerald-500 to-emerald-600", title: "Approve and go", body: "Get a nudge when we spot a write-off. Your tax savings update live. Export a Schedule C or file through our tax partner when you're ready.", checks: ["One-tap approvals", "Live savings tracker", "Ready for filing"] },
 ];
 

@@ -2,8 +2,9 @@
 
 import React, { useState, useMemo } from "react";
 import Link from "next/link";
+import { LandingHeader } from "@/components/landing/landing-header";
 import Image from "next/image";
-import { ArrowLeft, Calculator, DollarSign, Info, ArrowRight, TrendingDown, Percent, PiggyBank } from "lucide-react";
+import { Calculator, DollarSign, Info, ArrowRight, TrendingDown, Percent, PiggyBank } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { calcScheduleSE } from "@/lib/reports/calcSE";
@@ -98,24 +99,7 @@ export function TaxCalculator1099Client() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white">
-      <header className="border-b border-gray-200 bg-white">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <Link href="/" className="flex items-center gap-2">
-              <Image src="/writeofflogo.png" alt="WriteOff" width={28} height={28} className="rounded-md" />
-              <span className="font-semibold text-gray-900">WriteOff</span>
-            </Link>
-            <div className="flex items-center gap-2">
-              <Link href="/tools">
-                <Button variant="outline" size="sm">
-                  <ArrowLeft className="w-4 h-4 mr-1.5" />
-                  All Tools
-                </Button>
-              </Link>
-            </div>
-          </div>
-        </div>
-      </header>
+      <LandingHeader />
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
         {/* Hero */}

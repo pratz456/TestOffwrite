@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { LogoutButton } from './logout-button';
 import Link from 'next/link';
 import { usePathname, useSearchParams, useRouter } from 'next/navigation';
-import { Home, CreditCard, BarChart3, Settings, TrendingUp, ClipboardCheck, Eye, Minus, Sparkles, ChevronDown, ChevronUp, Briefcase, PenLine } from 'lucide-react';
+import { Home, CreditCard, BarChart3, Settings, TrendingUp, ClipboardCheck, Eye, Minus, Sparkles, ChevronDown, ChevronUp, Briefcase, PenLine, FolderOpen } from 'lucide-react';
 interface SidebarNavProps {
   user: { id: string; email?: string; user_metadata?: { name?: string } };
   userProfile?: { name?: string; email?: string };
@@ -41,6 +41,12 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ user, userProfile }) => 
       href: '/protected?screen=deductions-entry',
       icon: Minus,
       description: 'Health insurance, retirement, HSA'
+    },
+    {
+      name: 'Categories',
+      href: '/protected?screen=categories',
+      icon: FolderOpen,
+      description: 'Expense categories & rules'
     },
     {
       name: 'File Taxes',

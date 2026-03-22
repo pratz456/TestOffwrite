@@ -20,7 +20,7 @@ export function HeroSection() {
         </h1>
 
         <p className="animate-hero-enter-delay-2 mx-auto mt-5 max-w-2xl text-lg leading-relaxed text-muted-foreground sm:text-xl">
-          Our <span className="font-semibold text-primary">AI</span> finds, categorises, and tracks your business expenses as you go. Your phone becomes your tax-saving sidekick.
+          Our <span className="font-semibold text-primary">AI</span> finds, categorizes, and tracks your business expenses as you go. Your phone becomes your tax-saving sidekick.
         </p>
 
         <div className="animate-hero-enter-delay-3 mt-8 flex flex-col items-center gap-4">

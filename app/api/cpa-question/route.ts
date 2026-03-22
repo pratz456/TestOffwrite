@@ -64,11 +64,52 @@ export async function POST(request: NextRequest) {
     // Save to Firestore
     const docRef = await adminDb.collection('cpa_questions').add(cpaQuestionData);
 
-    // TODO: Send notification to CPA team (email, Slack, etc.)
-    // This could be implemented with:
-    // - Email service (SendGrid, AWS SES)
-    // - Slack webhook
-    // - Internal notification system
+    // Send email notification to WriteOff team
+    try {
+      const emailBody = [
+        `New CPA Question (ID: ${docRef.id})`,
+        ``,
+        `From: ${decodedToken.name || 'Unknown'} (${decodedToken.email || userId})`,
+        `Date: ${new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })}`,
+        ``,
+        `Transaction: ${merchantName}`,
+        `Amount: $${parseFloat(amount).toFixed(2)}`,
+        `Category: ${category}`,
+        `Transaction Date: ${date}`,
+        ``,
+        `Question:`,
+        `${question.trim()}`,
+        ``,
+        `---`,
+        `View in Firestore: https://console.firebase.google.com/project/${process.env.FIREBASE_ADMIN_PROJECT_ID}/firestore/data/cpa_questions/${docRef.id}`,
+      ].join('\n');
+
+      // Use Resend if available, otherwise log for manual review
+      if (process.env.RESEND_API_KEY) {
+        const resendRes = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            from: 'WriteOff Notifications <notifications@writeoffapp.com>',
+            to: ['writeoffapp@gmail.com'],
+            subject: `CPA Question: ${merchantName} ($${parseFloat(amount).toFixed(2)}) - ${decodedToken.name || decodedToken.email || 'User'}`,
+            text: emailBody,
+          }),
+        });
+        if (!resendRes.ok) {
+          console.error('Failed to send CPA email notification:', await resendRes.text());
+        }
+      } else {
+        // Fallback: use mailto-style logging so questions aren't lost
+        console.log(`📧 CPA Question Email (RESEND_API_KEY not set):\nTo: writeoffapp@gmail.com\n${emailBody}`);
+      }
+    } catch (emailErr) {
+      // Don't fail the request if email fails
+      console.error('Email notification error (non-blocking):', emailErr);
+    }
 
     console.log(`New CPA question submitted: ${docRef.id} for user ${userId}`);
 

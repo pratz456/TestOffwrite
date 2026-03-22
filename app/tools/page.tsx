@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import Image from "next/image";
-import { Calculator, ArrowRight, ArrowLeft } from "lucide-react";
+import { Calculator, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { LandingHeader } from "@/components/landing/landing-header";
 
 export const metadata: Metadata = {
   title: "Free Tax Tools & Calculators",
@@ -51,22 +52,7 @@ const tools = [
 export default function ToolsPage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white">
-      <header className="border-b border-gray-200 bg-white">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <Link href="/" className="flex items-center gap-2">
-              <Image src="/writeofflogo.png" alt="WriteOff" width={28} height={28} className="rounded-md" />
-              <span className="font-semibold text-gray-900">WriteOff</span>
-            </Link>
-            <Link href="/">
-              <Button variant="outline" size="sm">
-                <ArrowLeft className="w-4 h-4 mr-1.5" />
-                Home
-              </Button>
-            </Link>
-          </div>
-        </div>
-      </header>
+      <LandingHeader />
 
       <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="text-center mb-12">

@@ -64,11 +64,28 @@ function getIconForTag(tag: string, tagIcons: Record<string, string>) {
 }
 
 export function BlogGridClient({ posts, tagStyles, tagIcons }: BlogGridClientProps) {
-  const [filteredPosts, setFilteredPosts] = useState(posts);
+  const [query, setQuery] = useState("");
+  const [activeTag, setActiveTag] = useState<string | null>(null);
 
-  const handleFilter = useCallback((filtered: typeof posts) => {
-    setFilteredPosts(filtered);
+  const handleFilter = useCallback((q: string, tag: string | null) => {
+    setQuery(q);
+    setActiveTag(tag);
   }, []);
+
+  // Filter posts based on current query and tag
+  let filteredPosts = posts;
+  if (activeTag) {
+    filteredPosts = filteredPosts.filter((p) => p.tags.includes(activeTag));
+  }
+  if (query.trim()) {
+    const q = query.toLowerCase().trim();
+    filteredPosts = filteredPosts.filter(
+      (p) =>
+        p.title.toLowerCase().includes(q) ||
+        p.description.toLowerCase().includes(q) ||
+        p.tags.some((t) => t.toLowerCase().includes(q))
+    );
+  }
 
   return (
     <>
