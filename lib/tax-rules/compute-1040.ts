@@ -17,6 +17,7 @@ import {
   calculateSEPIRAMax,
   type FilingStatus as CreditFilingStatus,
 } from './credits';
+import { calculateStateTax } from './state-tax';
 
 // 2025 QBI thresholds (IRS Rev. Proc. 2024-40)
 const QBI_THRESHOLD_SINGLE = 197300;
@@ -61,6 +62,11 @@ export interface Form1040Input {
 
   // Itemized deductions (if itemizing)
   itemizedDeductions?: number;
+
+  charitableDonations?: number;          // Schedule A charitable contributions
+  saltDeduction?: number;                // State and local tax deduction (capped at $10,000)
+  depreciationDeduction?: number;        // Section 179 / MACRS from Form 4562
+  stateCode?: string;                    // State used for state tax calculation
 }
 
 export interface Form1040Result {
@@ -112,6 +118,12 @@ export interface Form1040Result {
   priorYearTax?: number;
   safeHarborAmount?: number;       // 100% of prior year tax (110% if AGI > $150k)
   quarterlyRecommended?: number;   // Recommended quarterly payment
+
+  // State tax (informational)
+  stateTaxEstimate: number;              // Estimated state income tax
+  stateCode?: string;                    // State used for calculation
+  totalTaxWithState: number;             // Federal + state combined
+  stateTaxNote?: string;                 // Informational note about state tax
 }
 
 export function compute1040(input: Form1040Input, priorYearTax?: number): Form1040Result {
@@ -135,7 +147,9 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
   } = input;
 
   // ── Step 1: Total Income (Form 1040 Line 9) ──
-  const totalIncome = scheduleCNetProfit + w2Wages + otherIncome;
+  // Subtract depreciation (Section 179 / MACRS) from Schedule C net profit
+  const adjustedScheduleC = Math.max(0, scheduleCNetProfit - (input.depreciationDeduction || 0));
+  const totalIncome = adjustedScheduleC + w2Wages + otherIncome;
 
   // ── Step 2: Above-the-line adjustments (Schedule 1) ──
   const adjustments = Math.max(0,
@@ -153,7 +167,10 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
 
   // ── Step 4: Standard vs Itemized ──
   const standardDeduction = STANDARD_DEDUCTIONS_2025[filingStatus] ?? 15750;
-  const itemizedDeductions = itemizedInput ?? 0;
+  // Itemized = base itemized + charitable donations + SALT (capped at $10,000 per IRC §164(b)(6))
+  const itemizedDeductions = (itemizedInput ?? 0)
+    + (input.charitableDonations || 0)
+    + Math.min(input.saltDeduction || 0, 10000);
   const usingStandardDeduction = standardDeduction >= itemizedDeductions;
   const deductionUsed = Math.max(standardDeduction, itemizedDeductions);
 
@@ -164,10 +181,10 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
   const qbiPhaseOutEnd = filingStatus === 'married_filing_jointly' ? 494600 : 247300;
   const qbiPhaseOutRange = filingStatus === 'married_filing_jointly' ? 100000 : 50000;
   let qbiDeduction = 0;
-  if (scheduleCNetProfit > 0) {
-    // QBI = Schedule C net profit reduced by SE tax deduction, health insurance, retirement
+  if (adjustedScheduleC > 0) {
+    // QBI = Schedule C net profit (after depreciation) reduced by SE tax deduction, health insurance, retirement
     const qualifiedBusinessIncome = Math.max(0,
-      scheduleCNetProfit - halfSEDeduction - healthInsurancePremiums - sepIraContribution - solo401kContribution
+      adjustedScheduleC - halfSEDeduction - healthInsurancePremiums - sepIraContribution - solo401kContribution
     );
     // Cap: 20% of (taxable income before QBI, minus net capital gains)
     // We exclude capital gains from organizer data for the cap (conservative approach)
@@ -201,12 +218,12 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
   // IRS Form 8959: Applies to EARNED income (W-2 wages + SE income) over threshold
   // Not to investment income (that uses Net Investment Income Tax / Form 8960)
   const amtThreshold = filingStatus === 'married_filing_jointly' ? NIIT_THRESHOLD_MFJ : NIIT_THRESHOLD_SINGLE;
-  const earnedIncome = w2Wages + scheduleCNetProfit; // Only earned income triggers 0.9% AMT
+  const earnedIncome = w2Wages + adjustedScheduleC; // Only earned income triggers 0.9% AMT
   const additionalMedicareTax = earnedIncome > amtThreshold ? (earnedIncome - amtThreshold) * 0.009 : 0;
 
   // ── Step 9: Credits and preferential capital gains tax ──
   const creditsInput = {
-    earnedIncome: w2Wages + scheduleCNetProfit,
+    earnedIncome: w2Wages + adjustedScheduleC,
     agi,
     filingStatus: filingStatus as CreditFilingStatus,
     numDependents: input.numDependents ?? 0,
@@ -229,7 +246,7 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
     : 0;
 
   // SEP-IRA max for user guidance
-  const sepIRAMax = calculateSEPIRAMax(scheduleCNetProfit);
+  const sepIRAMax = calculateSEPIRAMax(adjustedScheduleC);
 
   // ── Step 9b: Total Tax (Line 24) ──
   const totalTax = Math.max(0, incomeTax + selfEmploymentTax + additionalMedicareTax
@@ -274,6 +291,9 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
     quarterlyRecommended = remaining / 4;
   }
 
+  // State tax (informational — not part of federal return)
+  const stateResult = input.stateCode ? calculateStateTax(input.stateCode, agi, filingStatus) : null;
+
   return {
     totalIncome: round2(totalIncome),
     adjustments: round2(adjustments),
@@ -308,6 +328,11 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
     priorYearTax,
     safeHarborAmount: safeHarborAmount !== undefined ? round2(safeHarborAmount) : undefined,
     quarterlyRecommended: quarterlyRecommended !== undefined ? round2(quarterlyRecommended) : undefined,
+    // State tax
+    stateTaxEstimate: stateResult?.stateTax ?? 0,
+    stateCode: input.stateCode,
+    totalTaxWithState: round2(totalTax + (stateResult?.stateTax ?? 0)),
+    stateTaxNote: stateResult?.note,
   };
 }
 

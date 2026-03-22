@@ -30,6 +30,9 @@ export interface TaxDeductions {
   priorYearTotalTax: number;
   // Student loan interest — Schedule 1, Line 21
   studentLoanInterest: number;
+  // Schedule A — Charitable contributions (itemized)
+  charitableCashDonations: number;
+  charitableNonCashDonations: number;
   updatedAt?: string;
 }
 
@@ -85,6 +88,8 @@ export async function POST(request: NextRequest) {
     hsaContribution = 0,
     priorYearTotalTax = 0,
     studentLoanInterest = 0,
+    charitableCashDonations = 0,
+    charitableNonCashDonations = 0,
   } = body;
 
   const year = taxYear ? parseInt(String(taxYear), 10) : new Date().getFullYear();
@@ -100,6 +105,8 @@ export async function POST(request: NextRequest) {
     hsaContribution: Number(hsaContribution),
     priorYearTotalTax: Number(priorYearTotalTax),
     studentLoanInterest: Number(studentLoanInterest),
+    charitableCashDonations: Number(charitableCashDonations),
+    charitableNonCashDonations: Number(charitableNonCashDonations),
     updatedAt: new Date(),
   };
 

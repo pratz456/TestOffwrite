@@ -17,6 +17,8 @@ import { getUserProfileServer } from '@/lib/firebase/profiles-server';
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { calcScheduleSE } from '@/lib/reports/calcSE';
 import { compute1040 } from '@/lib/tax-rules/compute-1040';
+import { getAssetsSettings } from '@/lib/firebase/settings-server';
+import { calc4562 } from '@/lib/reports/calc4562';
 
 const PW = 612, PH = 792, ML = 36, MR = 576, MT = 756;
 const BLACK  = rgb(0, 0, 0);
@@ -254,7 +256,7 @@ export async function POST(request: NextRequest) {
     if (!year) return NextResponse.json({ error: 'Year required' }, { status: 400 });
     const taxYear = parseInt(String(year), 10);
 
-    const [txResult, profileResult, grossSnap, income1099Snap, w2Snap, deductionsSnap, quarterlySnap, organizerSnap] = await Promise.all([
+    const [txResult, profileResult, grossSnap, income1099Snap, w2Snap, deductionsSnap, quarterlySnap, organizerSnap, assetsResult] = await Promise.all([
       getTransactionsServer(uid),
       getUserProfileServer(uid),
       adminDb.collection('gross_receipts').where('userId', '==', uid).where('taxYear', '==', taxYear).get(),
@@ -263,6 +265,7 @@ export async function POST(request: NextRequest) {
       adminDb.collection('tax_deductions').where('userId', '==', uid).where('taxYear', '==', taxYear).limit(1).get(),
       adminDb.collection('quarterly_payments').where('userId', '==', uid).where('taxYear', '==', taxYear).get(),
       adminDb.collection('tax_organizers').where('userId', '==', uid).where('taxYear', '==', taxYear).limit(1).get(),
+      getAssetsSettings(uid),
     ]);
 
     const transactions = (txResult.data || []) as any[];
@@ -312,6 +315,12 @@ export async function POST(request: NextRequest) {
     const filingStatus = (profile.filing_status || 'single') as any;
     const seCalc = calcScheduleSE({ scheduleCNetProfit, taxYear }, filingStatus);
 
+    // Depreciation from assets (Section 179 / MACRS / Form 4562)
+    const assets = assetsResult.data || [];
+    const depreciationDeduction = assets.length > 0
+      ? calc4562(assets, scheduleCNetProfit).totalDepreciation
+      : 0;
+
     const result = compute1040({
       taxYear, filingStatus, scheduleCNetProfit, w2Wages, w2FederalWithheld, estimatedPayments,
       selfEmploymentTax: seCalc.totalSETax,
@@ -322,6 +331,9 @@ export async function POST(request: NextRequest) {
       simpleIraContribution: ded.simpleIraContribution || 0,
       hsaContribution: ded.hsaContribution || profile.hsa_contribution || 0,
       studentLoanInterest: ded.studentLoanInterest || 0,
+      charitableDonations: (ded?.charitableCashDonations || 0) + (ded?.charitableNonCashDonations || 0),
+      depreciationDeduction,
+      stateCode: profile?.state,
     }, ded.priorYearTotalTax || profile.prior_year_tax || undefined);
 
     const pdfDoc = await PDFDocument.create();

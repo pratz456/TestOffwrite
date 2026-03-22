@@ -193,6 +193,8 @@ export function validateDeductionEntry(body: unknown): ValidationResult {
     ['solo401kEmployeeContribution', 'Solo 401k employee contribution'],
     ['hsaContribution', 'HSA contribution'],
     ['studentLoanInterest', 'Student loan interest'],
+    ['charitableCashDonations', 'Charitable cash donations'],
+    ['charitableNonCashDonations', 'Charitable non-cash donations'],
   ];
   for (const [field, label] of checks) {
     if (b[field] !== undefined) {

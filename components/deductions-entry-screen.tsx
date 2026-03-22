@@ -35,6 +35,8 @@ export function DeductionsEntryScreen({ user, onBack, onNavigate }: Props) {
     hsaContribution: "",
     studentLoanInterest: "",
     priorYearTotalTax: "",
+    charitableCashDonations: "",
+    charitableNonCashDonations: "",
   });
 
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
@@ -56,6 +58,8 @@ export function DeductionsEntryScreen({ user, onBack, onNavigate }: Props) {
             hsaContribution: deductions.hsaContribution > 0 ? String(deductions.hsaContribution) : "",
             studentLoanInterest: deductions.studentLoanInterest > 0 ? String(deductions.studentLoanInterest) : "",
             priorYearTotalTax: deductions.priorYearTotalTax > 0 ? String(deductions.priorYearTotalTax) : "",
+            charitableCashDonations: deductions.charitableCashDonations > 0 ? String(deductions.charitableCashDonations) : "",
+            charitableNonCashDonations: deductions.charitableNonCashDonations > 0 ? String(deductions.charitableNonCashDonations) : "",
           });
         }
       }
@@ -79,6 +83,8 @@ export function DeductionsEntryScreen({ user, onBack, onNavigate }: Props) {
           hsaContribution: num(fields.hsaContribution),
           studentLoanInterest: num(fields.studentLoanInterest),
           priorYearTotalTax: num(fields.priorYearTotalTax),
+          charitableCashDonations: num(fields.charitableCashDonations),
+          charitableNonCashDonations: num(fields.charitableNonCashDonations),
         }),
       });
       if (!res.ok) { let m = "Save failed"; try { m = (await res.json()).error || m; } catch {} throw new Error(m); }
@@ -217,6 +223,55 @@ export function DeductionsEntryScreen({ user, onBack, onNavigate }: Props) {
                 </CardContent>
               </Card>
             ))}
+
+            {/* Charitable Contributions (Schedule A — Itemized) */}
+            <Card className="bg-card border-border">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base font-semibold flex items-center gap-2">
+                  <DollarSign className="w-4 h-4 text-pink-500" /> Charitable Contributions
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm font-medium">Cash Donations</Label>
+                    <span className="text-xs text-muted-foreground">Schedule A</span>
+                  </div>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
+                    <Input
+                      type="number" min={0} step={1}
+                      value={fields.charitableCashDonations}
+                      onChange={set("charitableCashDonations")}
+                      placeholder="0"
+                      className="pl-7 bg-background"
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">Cash or check donations to qualified organizations.</p>
+                </div>
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm font-medium">Non-Cash Donations</Label>
+                    <span className="text-xs text-muted-foreground">Schedule A</span>
+                  </div>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
+                    <Input
+                      type="number" min={0} step={1}
+                      value={fields.charitableNonCashDonations}
+                      onChange={set("charitableNonCashDonations")}
+                      placeholder="0"
+                      className="pl-7 bg-background"
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">Fair market value of donated property, clothing, etc.</p>
+                </div>
+                <div className="flex items-start gap-2 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/30 px-3 py-2 text-xs text-blue-800 dark:text-blue-300">
+                  <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                  <p>Charitable contributions are itemized deductions (Schedule A). If your total itemized deductions exceed the standard deduction, they'll reduce your taxes.</p>
+                </div>
+              </CardContent>
+            </Card>
 
             {/* Prior year tax for safe harbor */}
             <Card className="bg-card border-border">
