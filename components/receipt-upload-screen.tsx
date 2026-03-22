@@ -3,7 +3,7 @@
 import React, { useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { ArrowLeft, Upload, FileText, Camera, CheckCircle, AlertCircle } from 'lucide-react';
+import { Upload, FileText, Camera, CheckCircle, AlertCircle } from 'lucide-react';
 import { auth } from '@/lib/firebase/client';
 import type { ReceiptMatchCandidate } from '@/lib/ocr/receipt-processor';
 
@@ -195,10 +195,6 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
       <div className="bg-white border-b border-blue-100 sticky top-0 z-50 shadow-sm">
         <div className="max-w-4xl mx-auto px-6 py-4">
           <div className="flex items-center gap-4">
-            <Button onClick={onBack} variant="outline" size="sm" className="gap-2">
-              <ArrowLeft className="w-4 h-4" />
-              Back
-            </Button>
             <div>
               <h1 className="text-xl font-semibold text-slate-900">Upload Receipt</h1>
               <p className="text-sm text-slate-600">Scan and automatically extract expense data</p>

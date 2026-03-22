@@ -5,7 +5,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  ArrowLeft,
   Send,
   Bot,
   User,
@@ -184,9 +183,6 @@ export function TaxAssistantScreen({
       <div className="sticky top-0 z-50 border-b border-border bg-background">
         <div className="mx-auto max-w-4xl px-4 py-3 sm:px-6 sm:py-4">
           <div className="flex items-center gap-3 sm:gap-4">
-            <Button onClick={onBack} variant="ghost" size="icon">
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
             <div className="flex items-center gap-2">
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
                 <Bot className="h-4 w-4 text-primary" />

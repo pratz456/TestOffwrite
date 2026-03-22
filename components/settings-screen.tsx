@@ -916,9 +916,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             </Card>
 
             {/* Personal Information */}
-            <section className="space-y-4">
-              <div className="flex items-center gap-2 pb-2 border-b border-border">
-                <User className="w-4 h-4 text-primary" />
+            <section className="rounded-xl border border-border bg-card p-5 space-y-4 shadow-sm">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <User className="w-4 h-4 text-primary" />
+                </div>
                 <h3 className="text-sm font-semibold text-foreground">Personal Information</h3>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -943,9 +945,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             </section>
 
             {/* Professional Information */}
-            <section className="space-y-4">
-              <div className="flex items-center gap-2 pb-2 border-b border-border">
-                <Briefcase className="w-4 h-4 text-primary" />
+            <section className="rounded-xl border border-border bg-card p-5 space-y-4 shadow-sm">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <Briefcase className="w-4 h-4 text-primary" />
+                </div>
                 <h3 className="text-sm font-semibold text-foreground">Professional Information</h3>
               </div>
               <SettingsField label="Profession(s)" hint="Select all that apply">
@@ -1084,9 +1088,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         {activeTab === 'tax' && (
           <div className="space-y-6">
             {/* Home Office Deduction */}
-            <section className="space-y-4">
-              <div className="flex items-center gap-2 pb-2 border-b border-border">
-                <Home className="w-4 h-4 text-primary" />
+            <section className="rounded-xl border border-border bg-card p-5 space-y-4 shadow-sm">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <Home className="w-4 h-4 text-primary" />
+                </div>
                 <h3 className="text-sm font-semibold text-foreground">Home Office Deduction</h3>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1123,9 +1129,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             </section>
 
             {/* Vehicle Deduction */}
-            <section className="space-y-4">
-              <div className="flex items-center gap-2 pb-2 border-b border-border">
-                <Car className="w-4 h-4 text-primary" />
+            <section className="rounded-xl border border-border bg-card p-5 space-y-4 shadow-sm">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <Car className="w-4 h-4 text-primary" />
+                </div>
                 <h3 className="text-sm font-semibold text-foreground">Vehicle Deduction</h3>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1155,9 +1163,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             </section>
 
             {/* Tax Preferences */}
-            <section className="space-y-4">
-              <div className="flex items-center gap-2 pb-2 border-b border-border">
-                <FileText className="w-4 h-4 text-primary" />
+            <section className="rounded-xl border border-border bg-card p-5 space-y-4 shadow-sm">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <FileText className="w-4 h-4 text-primary" />
+                </div>
                 <h3 className="text-sm font-semibold text-foreground">Tax Preferences</h3>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1199,9 +1209,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             </section>
 
             {/* Above-the-Line Deductions */}
-            <section className="space-y-4">
-              <div className="flex items-center gap-2 pb-2 border-b border-border">
-                <Receipt className="w-4 h-4 text-primary" />
+            <section className="rounded-xl border border-border bg-card p-5 space-y-4 shadow-sm">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <Receipt className="w-4 h-4 text-primary" />
+                </div>
                 <h3 className="text-sm font-semibold text-foreground">Above-the-Line Deductions</h3>
               </div>
               <div className="p-3 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg flex items-start gap-2">
@@ -1280,9 +1292,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         {activeTab === 'account' && (
           <div className="space-y-6">
             {/* Bank Connections */}
-            <section className="space-y-4">
-              <div className="flex items-center gap-2 pb-2 border-b border-border">
-                <Landmark className="w-4 h-4 text-primary" />
+            <section className="rounded-xl border border-border bg-card p-5 space-y-4 shadow-sm">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <Landmark className="w-4 h-4 text-primary" />
+                </div>
                 <h3 className="text-sm font-semibold text-foreground">Bank Connections</h3>
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -1313,18 +1327,22 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             </section>
 
             {/* Subscription */}
-            <section className="space-y-4">
-              <div className="flex items-center gap-2 pb-2 border-b border-border">
-                <CreditCard className="w-4 h-4 text-primary" />
+            <section className="rounded-xl border border-border bg-card p-5 space-y-4 shadow-sm">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <CreditCard className="w-4 h-4 text-primary" />
+                </div>
                 <h3 className="text-sm font-semibold text-foreground">Subscription</h3>
               </div>
               <PaymentSettingsTab user={user} />
             </section>
 
             {/* Data & Privacy */}
-            <section className="space-y-4">
-              <div className="flex items-center gap-2 pb-2 border-b border-border">
-                <Shield className="w-4 h-4 text-primary" />
+            <section className="rounded-xl border border-border bg-card p-5 space-y-4 shadow-sm">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-destructive/10 flex items-center justify-center">
+                  <Shield className="w-4 h-4 text-destructive" />
+                </div>
                 <h3 className="text-sm font-semibold text-foreground">Data & Privacy</h3>
               </div>
               <div className="space-y-3">

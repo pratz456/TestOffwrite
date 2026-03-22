@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Building2, CheckCircle, AlertCircle, Plus, Trash2 } from 'lucide-react';
+import { Building2, CheckCircle, AlertCircle, Plus, Trash2 } from 'lucide-react';
 import { auth } from '@/lib/firebase/client';
 import { toast } from 'sonner';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
@@ -285,9 +285,6 @@ export const PlaidScreen: React.FC<PlaidScreenProps> = ({ user, onBack, onConnec
       <div className="bg-background sticky top-0 z-10 border-b border-border/50 backdrop-blur-sm bg-background/95">
         <div className="max-w-3xl mx-auto px-4 md:px-6 py-3 sm:py-4">
           <div className="flex items-center gap-3">
-            <Button onClick={onBack} variant="outline" size="sm" className="h-9 w-9 p-0">
-              <ArrowLeft className="w-4 h-4" />
-            </Button>
             <div>
               <h1 className="text-lg sm:text-xl font-semibold text-foreground">Connected Banks</h1>
               <p className="text-xs text-muted-foreground">Manage your bank connections</p>

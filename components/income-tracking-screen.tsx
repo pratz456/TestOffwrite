@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  ArrowLeft, Plus, Trash2, Loader2, DollarSign, FileText,
+  Plus, Trash2, Loader2, DollarSign, FileText,
   TrendingUp, Building2, Receipt, CheckCircle2,
 } from "lucide-react";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
@@ -111,7 +111,7 @@ export function IncomeTrackingScreen({ user, onBack }: IncomeTrackingScreenProps
         method: "POST",
         body: JSON.stringify({ formType: newForm.formType, payerName: newForm.payerName.trim(), amount, taxYear: newForm.taxYear }),
       });
-      if (!res.ok) throw new Error((await res.json()).error || "Failed");
+      if (!res.ok) { let m = "Failed"; try { m = (await res.json()).error || m; } catch {} throw new Error(m); }
       const data = await res.json();
       setForms(prev => [data.form, ...prev]);
       setNewForm({ formType: "1099-NEC", payerName: "", amount: "", taxYear: currentYear });
@@ -140,7 +140,7 @@ export function IncomeTrackingScreen({ user, onBack }: IncomeTrackingScreenProps
         method: "POST",
         body: JSON.stringify({ ...newReceipt, amount }),
       });
-      if (!res.ok) throw new Error((await res.json()).error || "Failed");
+      if (!res.ok) { let m = "Failed"; try { m = (await res.json()).error || m; } catch {} throw new Error(m); }
       setNewReceipt({ source: "", amount: "", date: new Date().toISOString().slice(0, 10), type: "freelance", description: "", taxYear: currentYear });
       setShowAddReceipt(false);
       fetchReceipts();
@@ -163,9 +163,6 @@ export function IncomeTrackingScreen({ user, onBack }: IncomeTrackingScreenProps
       {/* Header */}
       <div className="sticky top-0 z-50 bg-background border-b border-border">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3">
-          <Button onClick={onBack} variant="ghost" size="icon" className="shrink-0 min-h-[44px] min-w-[44px]">
-            <ArrowLeft className="w-5 h-5" />
-          </Button>
           <div className="min-w-0 flex-1">
             <h1 className="text-lg sm:text-xl font-semibold text-foreground truncate">Income Tracking</h1>
             <p className="text-xs sm:text-sm text-muted-foreground">All income flows to Schedule C Line 1</p>

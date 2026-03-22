@@ -27,39 +27,57 @@ export interface W2Entry {
 }
 
 export async function GET(request: NextRequest) {
-  const { user, error } = await getAuthenticatedUser(request);
-  if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const year = parseInt(request.nextUrl.searchParams.get('year') || String(new Date().getFullYear()), 10);
-  const snap = await adminDb.collection('w2_income').where('userId', '==', user.uid).where('taxYear', '==', year).orderBy('createdAt', 'desc').get();
-  const entries: W2Entry[] = snap.docs.map(doc => {
-    const d = doc.data();
-    return { id: doc.id, userId: d.userId, taxYear: d.taxYear, employer: d.employer, wages: d.wages, federalWithheld: d.federalWithheld, socialSecurityWages: d.socialSecurityWages || 0, medicareWages: d.medicareWages || 0, stateWages: d.stateWages, stateWithheld: d.stateWithheld, state: d.state, createdAt: d.createdAt?.toDate?.()?.toISOString?.() || '' };
-  });
-  const totalWages = entries.reduce((s, e) => s + e.wages, 0);
-  const totalWithheld = entries.reduce((s, e) => s + e.federalWithheld, 0);
-  return NextResponse.json({ entries, totalWages, totalWithheld, taxYear: year });
+  try {
+    const { user, error } = await getAuthenticatedUser(request);
+    if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const year = parseInt(request.nextUrl.searchParams.get('year') || String(new Date().getFullYear()), 10);
+    // Query without orderBy to avoid needing a composite index
+    const snap = await adminDb.collection('w2_income').where('userId', '==', user.uid).where('taxYear', '==', year).get();
+    const entries: W2Entry[] = snap.docs.map(doc => {
+      const d = doc.data();
+      return { id: doc.id, userId: d.userId, taxYear: d.taxYear, employer: d.employer, wages: d.wages, federalWithheld: d.federalWithheld, socialSecurityWages: d.socialSecurityWages || 0, medicareWages: d.medicareWages || 0, stateWages: d.stateWages, stateWithheld: d.stateWithheld, state: d.state, createdAt: d.createdAt?.toDate?.()?.toISOString?.() || '' };
+    });
+    // Sort in JS instead of Firestore to avoid composite index requirement
+    entries.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    const totalWages = entries.reduce((s, e) => s + e.wages, 0);
+    const totalWithheld = entries.reduce((s, e) => s + e.federalWithheld, 0);
+    return NextResponse.json({ entries, totalWages, totalWithheld, taxYear: year });
+  } catch (err) {
+    console.error('[W-2 GET] Error:', err);
+    return NextResponse.json({ error: err instanceof Error ? err.message : 'Failed to load W-2 data' }, { status: 500 });
+  }
 }
 
 export async function POST(request: NextRequest) {
-  const { user, error } = await getAuthenticatedUser(request);
-  if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const body = await request.json();
-  const { employer, wages, federalWithheld, socialSecurityWages, medicareWages, stateWages, stateWithheld, state, taxYear } = body;
-  if (!employer?.trim()) return NextResponse.json({ error: 'Employer name required' }, { status: 400 });
-  if (!wages || isNaN(Number(wages)) || Number(wages) < 0) return NextResponse.json({ error: 'Wages required' }, { status: 400 });
-  const year = taxYear ? parseInt(String(taxYear), 10) : new Date().getFullYear();
-  const ref = await adminDb.collection('w2_income').add({ userId: user.uid, taxYear: year, employer: employer.trim(), wages: Number(wages), federalWithheld: Number(federalWithheld || 0), socialSecurityWages: Number(socialSecurityWages || 0), medicareWages: Number(medicareWages || 0), stateWages: stateWages ? Number(stateWages) : null, stateWithheld: stateWithheld ? Number(stateWithheld) : null, state: state || null, createdAt: new Date() });
-  return NextResponse.json({ success: true, id: ref.id }, { status: 201 });
+  try {
+    const { user, error } = await getAuthenticatedUser(request);
+    if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const body = await request.json();
+    const { employer, wages, federalWithheld, socialSecurityWages, medicareWages, stateWages, stateWithheld, state, taxYear } = body;
+    if (!employer?.trim()) return NextResponse.json({ error: 'Employer name required' }, { status: 400 });
+    if (!wages || isNaN(Number(wages)) || Number(wages) < 0) return NextResponse.json({ error: 'Wages required' }, { status: 400 });
+    const year = taxYear ? parseInt(String(taxYear), 10) : new Date().getFullYear();
+    const ref = await adminDb.collection('w2_income').add({ userId: user.uid, taxYear: year, employer: employer.trim(), wages: Number(wages), federalWithheld: Number(federalWithheld || 0), socialSecurityWages: Number(socialSecurityWages || 0), medicareWages: Number(medicareWages || 0), stateWages: stateWages ? Number(stateWages) : null, stateWithheld: stateWithheld ? Number(stateWithheld) : null, state: state || null, createdAt: new Date() });
+    return NextResponse.json({ success: true, id: ref.id }, { status: 201 });
+  } catch (err) {
+    console.error('[W-2 POST] Error:', err);
+    return NextResponse.json({ error: err instanceof Error ? err.message : 'Failed to save W-2' }, { status: 500 });
+  }
 }
 
 export async function DELETE(request: NextRequest) {
-  const { user, error } = await getAuthenticatedUser(request);
-  if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const id = request.nextUrl.searchParams.get('id');
-  if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
-  const doc = await adminDb.collection('w2_income').doc(id).get();
-  if (!doc.exists) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-  if (doc.data()?.userId !== user.uid) return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
-  await adminDb.collection('w2_income').doc(id).delete();
-  return NextResponse.json({ success: true });
+  try {
+    const { user, error } = await getAuthenticatedUser(request);
+    if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const id = request.nextUrl.searchParams.get('id');
+    if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
+    const doc = await adminDb.collection('w2_income').doc(id).get();
+    if (!doc.exists) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    if (doc.data()?.userId !== user.uid) return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+    await adminDb.collection('w2_income').doc(id).delete();
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    console.error('[W-2 DELETE] Error:', err);
+    return NextResponse.json({ error: err instanceof Error ? err.message : 'Failed to delete W-2' }, { status: 500 });
+  }
 }

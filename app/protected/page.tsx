@@ -483,7 +483,9 @@ export default function ProtectedPage() {
   };
 
   // Handle navigation between screens with history tracking
-  const handleNavigate = (screen: string) => {
+  const handleNavigate = (rawScreen: string) => {
+    // Strip query parameters from screen name (e.g., 'plaid-link?from=settings' → 'plaid-link')
+    const screen = rawScreen.split('?')[0];
     console.log('Navigate to:', screen);
 
     // Add current screen to navigation stack before navigating
@@ -515,12 +517,20 @@ export default function ProtectedPage() {
       return;
     }
 
+    // Settings has its own route
+    if (screen === 'settings') {
+      router.push('/protected/settings');
+      return;
+    }
+
     // All other screens are handled as in-app screen switches.
     // Update URL for screens that benefit from deep-linking.
     const deepLinkScreens = [
       'review-transactions', 'categories', 'income-tracking', 'w2-income',
       'deductions-entry', 'tax-organizer', 'tax-preview', 'tax-filing-hub',
       'tax-assistant', 'add-manual-transaction', 'document-import', 'form-8879',
+      'receipt-upload', 'ai-insights', 'quarterly-taxes', 'mileage-tracker',
+      'plaid', 'action-items', 'schedule-c-export', 'tax-calendar',
     ];
     if (deepLinkScreens.includes(screen)) {
       router.push(`/protected?screen=${screen}`);

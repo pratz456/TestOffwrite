@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, Loader2, Save, CheckCircle2, Heart, PiggyBank, Shield, GraduationCap, Info, DollarSign } from "lucide-react";
+import { Loader2, Save, CheckCircle2, Heart, PiggyBank, Shield, GraduationCap, Info, DollarSign } from "lucide-react";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 
 interface Props {
@@ -81,7 +81,7 @@ export function DeductionsEntryScreen({ user, onBack, onNavigate }: Props) {
           priorYearTotalTax: num(fields.priorYearTotalTax),
         }),
       });
-      if (!res.ok) throw new Error((await res.json()).error || "Save failed");
+      if (!res.ok) { let m = "Save failed"; try { m = (await res.json()).error || m; } catch {} throw new Error(m); }
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
     } catch (e) {
@@ -142,9 +142,6 @@ export function DeductionsEntryScreen({ user, onBack, onNavigate }: Props) {
       {/* Header */}
       <div className="sticky top-0 z-50 bg-background border-b border-border">
         <div className="max-w-2xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3">
-          <Button onClick={onBack} variant="ghost" size="icon" className="shrink-0 min-h-[44px] min-w-[44px]">
-            <ArrowLeft className="w-5 h-5" />
-          </Button>
           <div className="flex-1 min-w-0">
             <h1 className="text-lg sm:text-xl font-semibold text-foreground">Above-the-Line Deductions</h1>
             <p className="text-xs sm:text-sm text-muted-foreground">Reduce your AGI and tax bill directly</p>

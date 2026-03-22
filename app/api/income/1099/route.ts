@@ -49,7 +49,6 @@ export async function GET(request: NextRequest) {
     const snapshot = await adminDb
       .collection('income_1099')
       .where('userId', '==', user.uid)
-      .orderBy('createdAt', 'desc')
       .get();
 
     const forms: Form1099[] = snapshot.docs

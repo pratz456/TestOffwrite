@@ -92,7 +92,10 @@ export function calcCombinedSERate(
     if (taxableIncome >= b.min) marginalIncomeBracket = b.rate;
   }
 
-  const combinedMarginalRate = (seMarginal + marginalIncomeBracket * (1 - seMarginal)) * 100;
+  // On next $1 of SE income: SE tax = 14.13%, plus income tax on the remaining
+  // (1 - half SE deduction rate) portion at the marginal bracket
+  const halfSEDeductionRate = seMarginal / 2; // ~7.065% deducted from AGI
+  const combinedMarginalRate = (seMarginal + marginalIncomeBracket * (1 - halfSEDeductionRate)) * 100;
 
   return {
     seTaxRate: Math.round(seTaxRate * 10) / 10,

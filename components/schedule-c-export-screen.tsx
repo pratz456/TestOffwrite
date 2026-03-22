@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, Download, FileText, Calendar, Lock, Sparkles } from 'lucide-react';
+import { Download, FileText, Calendar, Lock, Sparkles } from 'lucide-react';
 import { useSubscription } from '@/lib/hooks/use-subscription';
 import { useRouter } from 'next/navigation';
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
@@ -470,17 +470,10 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
       {/* Header */}
       <div className="bg-card border-b border-border sticky top-0 z-50 shadow-sm min-w-0">
         <div className="flex items-center justify-between p-4 sm:p-6 min-w-0">
-          <button
-            onClick={onBack}
-            className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 rounded min-h-[44px] min-w-[44px] justify-center"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <div className="text-center">
+          <div className="text-center flex-1">
             <h1 className="text-xl font-semibold text-foreground">Schedule C Export</h1>
             <p className="text-sm text-muted-foreground">Export your business expenses for tax filing</p>
           </div>
-          <div className="w-12" />
         </div>
       </div>
 

@@ -1,9 +1,9 @@
 'use client';
 
 import React from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { CheckCircle, AlertCircle, ChevronRight } from 'lucide-react';
+import { CheckCircle, AlertCircle, ChevronRight, TrendingUp } from 'lucide-react';
 
 interface OptimizationCardProps {
   needsReviewCount: number;
@@ -20,35 +20,58 @@ export function OptimizationCard({
   deductibleCount,
   onNavigate,
 }: OptimizationCardProps) {
+  const analyzedCount = totalTransactions - needsAnalysisCount;
+  const progressPercent = totalTransactions > 0 ? Math.round((analyzedCount / totalTransactions) * 100) : 0;
+
   return (
-    <Card className="h-full flex flex-col">
-      <CardHeader className="pb-2 px-5">
-        <CardTitle className="text-sm font-medium">Transaction Status</CardTitle>
-      </CardHeader>
-      <CardContent className="px-5 pb-5 flex-1 flex flex-col">
-        <div className="space-y-2.5 flex-1">
+    <Card className="h-full">
+      <CardContent className="p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-foreground">Transaction Status</h3>
+          <span className="text-xs text-muted-foreground">{totalTransactions} total</span>
+        </div>
+
+        {/* Progress bar */}
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs text-muted-foreground">Expenses verified</span>
+            <span className="text-xs font-medium tabular-nums">{progressPercent}%</span>
+          </div>
+          <div className="h-2 rounded-full bg-muted overflow-hidden">
+            <div
+              className="h-full rounded-full bg-primary transition-all duration-500"
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Status items */}
+        <div className="space-y-2">
           {needsAnalysisCount > 0 && (
-            <div className="flex items-start gap-2">
-              <AlertCircle className="h-4 w-4 text-warning mt-0.5 shrink-0" />
-              <span className="text-xs text-muted-foreground">
-                {needsAnalysisCount} uncategorized transactions
-              </span>
+            <div className="flex items-center justify-between py-1.5 px-2.5 rounded-lg bg-warning/5 border border-warning/20">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="h-3.5 w-3.5 text-warning shrink-0" />
+                <span className="text-xs font-medium text-foreground">Uncategorized</span>
+              </div>
+              <span className="text-xs font-semibold tabular-nums text-warning">{needsAnalysisCount}</span>
             </div>
           )}
           {needsReviewCount > 0 && (
-            <div className="flex items-start gap-2">
-              <AlertCircle className="h-4 w-4 text-warning mt-0.5 shrink-0" />
-              <span className="text-xs text-muted-foreground">
-                {needsReviewCount} pending review
-              </span>
+            <div className="flex items-center justify-between py-1.5 px-2.5 rounded-lg bg-primary/5 border border-primary/20">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="h-3.5 w-3.5 text-primary shrink-0" />
+                <span className="text-xs font-medium text-foreground">Pending review</span>
+              </div>
+              <span className="text-xs font-semibold tabular-nums text-primary">{needsReviewCount}</span>
             </div>
           )}
           {deductibleCount > 0 && (
-            <div className="flex items-start gap-2">
-              <CheckCircle className="h-4 w-4 text-success mt-0.5 shrink-0" />
-              <span className="text-xs text-muted-foreground">
-                {deductibleCount} confirmed deductions
-              </span>
+            <div className="flex items-center justify-between py-1.5 px-2.5 rounded-lg bg-emerald-500/5 border border-emerald-500/20">
+              <div className="flex items-center gap-2">
+                <CheckCircle className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                <span className="text-xs font-medium text-foreground">Confirmed deductions</span>
+              </div>
+              <span className="text-xs font-semibold tabular-nums text-emerald-600">{deductibleCount}</span>
             </div>
           )}
         </div>
@@ -58,7 +81,7 @@ export function OptimizationCard({
           variant="outline"
           size="sm"
           onClick={() => onNavigate('review-transactions')}
-          className="w-full min-h-[44px] mt-4 text-xs gap-1 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          className="w-full text-xs gap-1"
         >
           Review recommendations
           <ChevronRight className="h-3.5 w-3.5" />

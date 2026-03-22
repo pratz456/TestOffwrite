@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, ChevronRight, ChevronLeft, CheckCircle2, Circle, Loader2, Save, Info } from "lucide-react";
+import { ChevronRight, ChevronLeft, CheckCircle2, Circle, Loader2, Save, Info } from "lucide-react";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 
 interface Props { user: { id: string; email?: string }; onBack: () => void; onNavigate?: (screen: string) => void; }
@@ -117,7 +117,7 @@ export function TaxOrganizerScreen({ user, onBack, onNavigate }: Props) {
     setSaving(true); setError(null);
     try {
       const res = await makeAuthenticatedRequest("/api/tax/organizer", { method: "POST", body: JSON.stringify({ ...answers, taxYear: year }) });
-      if (!res.ok) throw new Error((await res.json()).error || "Failed");
+      if (!res.ok) { let m = "Failed"; try { m = (await res.json()).error || m; } catch {} throw new Error(m); }
       setSaved(true); setTimeout(() => setSaved(false), 2500);
     } catch (err) { setError(err instanceof Error ? err.message : "Failed to save"); }
     finally { setSaving(false); }
@@ -152,7 +152,6 @@ export function TaxOrganizerScreen({ user, onBack, onNavigate }: Props) {
     <div className="min-h-screen bg-background">
       <div className="sticky top-0 z-50 bg-background border-b border-border">
         <div className="max-w-2xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3">
-          <Button onClick={onBack} variant="ghost" size="icon" className="shrink-0 min-h-[44px] min-w-[44px]"><ArrowLeft className="w-5 h-5" /></Button>
           <div className="flex-1">
             <h1 className="text-lg sm:text-xl font-semibold">Tax Organizer {year}</h1>
             <p className="text-xs text-muted-foreground">{completedSteps} of {STEPS.length} sections complete</p>
@@ -391,7 +390,7 @@ export function TaxOrganizerScreen({ user, onBack, onNavigate }: Props) {
                 </div>
               )}
 
-              {yesno("hasCapGains", "Capital gains or losses  -  stocks, crypto, or property sold (1099-B)")}
+              {yesno("hasCapGains", "Capital gains or losses — stocks, crypto, or property sold (1099-B)")}
               {answers.hasCapGains === "yes" && (
                 <div className="ml-4 border-l-2 border-primary/30 pl-4 space-y-1.5">
                   <Label className="text-sm font-medium">Net capital gain or (loss) from Schedule D, Line 21</Label>

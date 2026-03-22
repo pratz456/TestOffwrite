@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, RefreshCw, TrendingUp, TrendingDown, DollarSign, Calculator, ChevronDown, ChevronUp, AlertCircle, CheckCircle2, Loader2, Info } from "lucide-react";
+import { RefreshCw, TrendingUp, TrendingDown, DollarSign, Calculator, ChevronDown, ChevronUp, AlertCircle, CheckCircle2, Loader2, Info } from "lucide-react";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 
 interface Props {
@@ -61,9 +61,6 @@ export function TaxPreviewScreen({ user, onBack, onNavigate }: Props) {
       {/* Header */}
       <div className="sticky top-0 z-50 bg-background border-b border-border">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3">
-          <Button onClick={onBack} variant="ghost" size="icon" className="shrink-0 min-h-[44px] min-w-[44px]">
-            <ArrowLeft className="w-5 h-5" />
-          </Button>
           <div className="flex-1 min-w-0">
             <h1 className="text-lg sm:text-xl font-semibold text-foreground">Tax Preview</h1>
             <p className="text-xs sm:text-sm text-muted-foreground">Your estimated federal return, updated in real time</p>

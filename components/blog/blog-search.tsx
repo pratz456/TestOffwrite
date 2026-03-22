@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Search, X } from "lucide-react";
 
 interface BlogPostMeta {
@@ -37,7 +37,7 @@ export function BlogSearch({ posts, onFilter }: BlogSearchProps) {
   }, [posts]);
 
   // Filter posts by query and active tag
-  useMemo(() => {
+  useEffect(() => {
     const q = query.toLowerCase().trim();
     let filtered = posts;
 

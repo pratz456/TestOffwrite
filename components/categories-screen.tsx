@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { ArrowLeft, Search, ChevronDown, ChevronUp, Building, Settings, Info, Home, TrendingUp } from 'lucide-react';
+import { Search, ChevronDown, ChevronUp, Building, Settings, Info, Home, TrendingUp } from 'lucide-react';
 import { formatCategory, consolidateCategory } from '@/lib/utils';
 import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
 

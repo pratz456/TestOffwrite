@@ -372,14 +372,6 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
       <header className="bg-card border-b border-border sticky top-0 z-50 shadow-sm">
         <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 sm:p-6">
           <div className="flex items-center gap-3 sm:gap-4 w-full sm:w-auto">
-            <Button
-              onClick={onBack}
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-foreground shrink-0"
-            >
-              ← Back
-            </Button>
             <div className="min-w-0">
               <h1 className="text-xl sm:text-2xl font-bold text-foreground">AI Tax Insights</h1>
               <p className="text-sm text-muted-foreground">Personalized tax-saving opportunities</p>

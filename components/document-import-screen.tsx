@@ -6,8 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  ArrowLeft, Upload, FileText, CheckCircle2, AlertCircle, XCircle,
-  Loader2, Camera, DollarSign, Building2, Receipt, Info, Edit3, Eye, CreditCard} from "lucide-react";
+  Upload, FileText, CheckCircle2, AlertCircle, XCircle,
+  Loader2, Camera, DollarSign, Building2, Receipt, Info, Edit3, Eye,
+} from "lucide-react";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 
 interface Props {
@@ -16,7 +17,7 @@ interface Props {
   onNavigate?: (screen: string) => void;
 }
 
-type DocType = "auto" | "w2" | "1099" | "platform_summary" | "bank_statement" | "credit_card" | "receipt";
+type DocType = "auto" | "w2" | "1099" | "platform_summary";
 
 // ── Field definitions with full context ──────────────────────────────────────
 
@@ -298,13 +299,10 @@ function FieldRow({
 // ── Main component ─────────────────────────────────────────────────────────────
 
 const DOC_TYPES: { value: DocType; label: string; icon: React.ElementType }[] = [
-  { value: "auto",             label: "Auto-detect",         icon: FileText   },
-  { value: "w2",               label: "W-2 Form",            icon: Building2  },
-  { value: "1099",             label: "1099 Form",           icon: Receipt    },
-  { value: "platform_summary", label: "Platform Summary",    icon: DollarSign },
-  { value: "bank_statement",   label: "Bank Statement",      icon: CreditCard },
-  { value: "credit_card",      label: "Credit Card Statement", icon: CreditCard },
-  { value: "receipt",          label: "Receipt / Invoice",   icon: Receipt    },
+  { value: "auto",             label: "Auto-detect",      icon: FileText   },
+  { value: "w2",               label: "W-2 Form",         icon: Building2  },
+  { value: "1099",             label: "1099 Form",        icon: Receipt    },
+  { value: "platform_summary", label: "Platform Summary", icon: DollarSign },
 ];
 
 export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
@@ -410,9 +408,6 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
       {/* Header */}
       <div className="sticky top-0 z-50 bg-background border-b border-border">
         <div className="max-w-2xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3">
-          <Button onClick={onBack} variant="ghost" size="icon" className="shrink-0 min-h-[44px] min-w-[44px]">
-            <ArrowLeft className="w-5 h-5" />
-          </Button>
           <div className="flex-1 min-w-0">
             <h1 className="text-lg sm:text-xl font-semibold">Import Tax Document</h1>
             <p className="text-xs sm:text-sm text-muted-foreground">AI reads the form - you verify each field before saving</p>

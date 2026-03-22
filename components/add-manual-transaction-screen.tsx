@@ -88,7 +88,7 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
           is_deductible: exp.is_deductible,
         }),
       });
-      if (!res.ok) throw new Error((await res.json()).error || "Failed to save");
+      if (!res.ok) { let m = "Failed to save"; try { m = (await res.json()).error || m; } catch {} throw new Error(m); }
       setSaved(true);
       setExp({ merchant_name: "", amount: "", date: today(), category: "other", notes: "", business_purpose: "", is_deductible: true });
       setTimeout(() => { setSaved(false); onSaved?.(); }, 1800);
@@ -114,7 +114,7 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
           taxYear: parseInt(inc.date.slice(0, 4), 10),
         }),
       });
-      if (!res.ok) throw new Error((await res.json()).error || "Failed to save");
+      if (!res.ok) { let m = "Failed to save"; try { m = (await res.json()).error || m; } catch {} throw new Error(m); }
       setSaved(true);
       setInc({ source: "", amount: "", date: today(), type: "freelance", description: "" });
       setTimeout(() => { setSaved(false); onSaved?.(); }, 1800);

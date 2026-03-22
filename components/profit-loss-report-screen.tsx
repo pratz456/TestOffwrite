@@ -12,7 +12,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  ArrowLeft,
   Download,
   TrendingUp,
   TrendingDown,
@@ -140,15 +139,6 @@ export function ProfitLossReportScreen({ user, onBack }: ProfitLossReportScreenP
       <div className="sticky top-0 z-50 bg-background border-b border-border">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
           <div className="flex items-center gap-3 sm:gap-4">
-            <Button
-              onClick={onBack}
-              variant="ghost"
-              size="icon"
-              className="shrink-0 min-h-[44px] min-w-[44px] sm:min-h-9 sm:min-w-9"
-              aria-label="Back"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </Button>
             <div className="min-w-0 flex-1">
               <h1 className="text-lg sm:text-xl font-semibold text-foreground truncate">
                 Profit & Loss Report

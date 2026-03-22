@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  ArrowLeft, Shield, CheckCircle2, AlertCircle, Loader2,
+  Shield, CheckCircle2, AlertCircle, Loader2,
   FileText, Lock, Eye, EyeOff, Info,
 } from "lucide-react";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
@@ -89,7 +89,7 @@ export function Form8879Screen({ user, onBack, onNavigate }: Props) {
           consentToDisclosure: true,
         }),
       });
-      if (!res.ok) throw new Error((await res.json()).error || "Failed to authorize");
+      if (!res.ok) { let m = "Failed to authorize"; try { m = (await res.json()).error || m; } catch {} throw new Error(m); }
       setSigned(true);
       load(); // Refresh to show signed status
     } catch (err) {
@@ -104,9 +104,6 @@ export function Form8879Screen({ user, onBack, onNavigate }: Props) {
       {/* Header */}
       <div className="sticky top-0 z-50 bg-background border-b border-border">
         <div className="max-w-2xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3">
-          <Button onClick={onBack} variant="ghost" size="icon" className="shrink-0 min-h-[44px] min-w-[44px]">
-            <ArrowLeft className="w-5 h-5" />
-          </Button>
           <div className="flex-1 min-w-0">
             <h1 className="text-lg sm:text-xl font-semibold text-foreground">Form 8879 - E-File Authorization</h1>
             <p className="text-xs sm:text-sm text-muted-foreground">Authorize WriteOff to e-file your federal return</p>

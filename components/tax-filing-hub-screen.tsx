@@ -8,7 +8,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  ArrowLeft, Download, CheckCircle2, Circle, AlertCircle,
+  Download, CheckCircle2, Circle, AlertCircle,
   FileText, DollarSign, Home, Car, Calculator, Loader2,
   ChevronRight, TrendingUp, Receipt, Shield, Upload,
 } from "lucide-react";
@@ -276,9 +276,6 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
       {/* Header */}
       <div className="sticky top-0 z-50 bg-background border-b border-border">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3">
-          <Button onClick={onBack} variant="ghost" size="icon" className="shrink-0 min-h-[44px] min-w-[44px]">
-            <ArrowLeft className="w-5 h-5" />
-          </Button>
           <div className="flex-1 min-w-0">
             <h1 className="text-lg sm:text-xl font-semibold text-foreground">Tax Filing Hub</h1>
             <p className="text-xs sm:text-sm text-muted-foreground">Everything you need to file your self-employment taxes</p>

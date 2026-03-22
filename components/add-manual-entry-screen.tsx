@@ -75,7 +75,7 @@ export function AddManualEntryScreen({ user, onBack, onSaved, defaultType = "exp
           is_deductible: entryType === "expense" ? form.is_deductible : null,
         }),
       });
-      if (!res.ok) throw new Error((await res.json()).error || "Failed to save");
+      if (!res.ok) { let m = "Failed to save"; try { m = (await res.json()).error || m; } catch {} throw new Error(m); }
       setSaved(true);
       if (onSaved) onSaved();
       setTimeout(() => { reset(); }, 1800);

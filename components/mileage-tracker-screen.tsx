@@ -9,7 +9,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
-  ArrowLeft,
   MapPin,
   Plus,
   Trash2,
@@ -161,14 +160,6 @@ export function MileageTrackerScreen({ user, onBack }: MileageTrackerScreenProps
       <div className="sticky top-0 z-50 bg-background border-b border-border">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
           <div className="flex items-center gap-3 sm:gap-4">
-            <Button
-              onClick={onBack}
-              variant="ghost"
-              size="icon"
-              className="shrink-0"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </Button>
             <div>
               <h1 className="text-lg sm:text-xl font-semibold text-foreground">
                 Mileage Tracker

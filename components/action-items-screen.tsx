@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import {
-  ArrowLeft,
   ArrowRight,
   AlertTriangle,
   CheckCircle2,
@@ -208,9 +207,6 @@ export function ActionItemsScreen({
       {/* Header */}
       <div className="sticky top-0 z-10 bg-background/80 backdrop-blur-xl border-b border-border">
         <div className="max-w-3xl mx-auto px-4 py-3 flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={onBack} className="h-9 w-9 p-0">
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
           <div className="flex-1">
             <h1 className="text-base font-semibold text-foreground">Action Items</h1>
             <p className="text-xs text-muted-foreground">

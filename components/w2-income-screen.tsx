@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, Plus, Trash2, Loader2, Briefcase, CheckCircle2, AlertCircle } from "lucide-react";
+import { Plus, Trash2, Loader2, Briefcase, CheckCircle2, AlertCircle } from "lucide-react";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 
 interface W2Entry { id: string; employer: string; wages: number; federalWithheld: number; box1Wages?: number; box2FederalWithheld?: number; stateWithheld?: number; state?: string; taxYear: number; }
@@ -28,6 +28,7 @@ export function W2IncomeScreen({ user, onBack }: Props) {
     setLoading(true);
     try {
       const res = await makeAuthenticatedRequest(`/api/income/w2?year=${year}`);
+      if (!res.ok) throw new Error("Failed to load W-2 data");
       const data = await res.json();
       setEntries(data.entries || []);
     } catch { setEntries([]); } finally { setLoading(false); }
@@ -44,7 +45,11 @@ export function W2IncomeScreen({ user, onBack }: Props) {
     setSaving(true); setError(null);
     try {
       const res = await makeAuthenticatedRequest("/api/income/w2", { method: "POST", body: JSON.stringify({ employer: form.employer, box1Wages: parseFloat(form.wages), wages: parseFloat(form.wages), box2FederalWithheld: parseFloat(form.federalWithheld || "0"), federalWithheld: parseFloat(form.federalWithheld || "0"), stateWithheld: form.stateWithheld ? parseFloat(form.stateWithheld) : undefined, state: form.state || undefined, taxYear: year }) });
-      if (!res.ok) throw new Error((await res.json()).error || "Failed");
+      if (!res.ok) {
+        let errMsg = "Failed to save W-2";
+        try { const errData = await res.json(); errMsg = errData.error || errMsg; } catch {}
+        throw new Error(errMsg);
+      }
       setForm({ employer: "", wages: "", federalWithheld: "", stateWithheld: "", state: "" });
       setShowForm(false);
       load();
@@ -64,7 +69,6 @@ export function W2IncomeScreen({ user, onBack }: Props) {
     <div className="min-h-screen bg-background">
       <div className="sticky top-0 z-50 bg-background border-b border-border">
         <div className="max-w-2xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3">
-          <Button onClick={onBack} variant="ghost" size="icon" className="shrink-0 min-h-[44px] min-w-[44px]"><ArrowLeft className="w-5 h-5" /></Button>
           <div className="flex-1">
             <h1 className="text-lg sm:text-xl font-semibold">W-2 Income</h1>
             <p className="text-xs text-muted-foreground">Salary income from employers - affects your combined tax bracket</p>

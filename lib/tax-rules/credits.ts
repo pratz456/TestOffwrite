@@ -240,7 +240,7 @@ export function calculateCTC(input: CreditInput): { ctc: number; actc: number } 
   if (earnedIncome >= CTC_EARNED_INCOME_MIN) {
     const refundableBase = (earnedIncome - CTC_EARNED_INCOME_MIN) * 0.15;
     const maxACTC = numDependents * CTC_REFUNDABLE_PER_CHILD_2025;
-    actc = Math.min(refundableBase, maxACTC, baseCTC);
+    actc = Math.min(refundableBase, maxACTC);
   }
 
   return { ctc: Math.round(baseCTC * 100) / 100, actc: Math.round(actc * 100) / 100 };

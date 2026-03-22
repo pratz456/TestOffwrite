@@ -95,28 +95,28 @@ export function MobileQuickActions({
       id: 'receipts',
       label: 'Receipts',
       icon: Receipt,
-      action: () => onNavigate('receipts'),
+      action: () => onNavigate('receipt-upload'),
       color: 'bg-green-100 text-green-700 hover:bg-green-200'
     },
     {
       id: 'mileage',
       label: 'Mileage',
       icon: Car,
-      action: () => onNavigate('mileage'),
+      action: () => onNavigate('mileage-tracker'),
       color: 'bg-blue-100 text-blue-700 hover:bg-blue-200'
     },
     {
       id: 'home-office',
       label: 'Home Office',
       icon: Home,
-      action: () => onNavigate('home-office'),
+      action: () => onNavigate('settings'),
       color: 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'
     },
     {
       id: 'business',
       label: 'Business',
       icon: Briefcase,
-      action: () => onNavigate('business'),
+      action: () => onNavigate('settings'),
       color: 'bg-purple-100 text-purple-700 hover:bg-purple-200'
     }
   ];

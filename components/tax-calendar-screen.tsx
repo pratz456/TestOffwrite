@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { ArrowLeft, Calendar, Bell, CheckCircle, AlertTriangle, Clock } from 'lucide-react';
+import { Calendar, Bell, CheckCircle, AlertTriangle, Clock } from 'lucide-react';
 
 interface TaxCalendarScreenProps {
   user: {
@@ -134,10 +134,6 @@ export const TaxCalendarScreen: React.FC<TaxCalendarScreenProps> = ({ user, onBa
       <div className="bg-white border-b border-blue-100 sticky top-0 z-50 shadow-sm">
         <div className="max-w-6xl mx-auto px-6 py-4">
           <div className="flex items-center gap-4">
-            <Button onClick={onBack} variant="outline" size="sm" className="gap-2">
-              <ArrowLeft className="w-4 h-4" />
-              Back
-            </Button>
             <div>
               <h1 className="text-xl font-semibold text-slate-900">Tax Calendar</h1>
               <p className="text-sm text-slate-600">Important tax dates and deadlines</p>

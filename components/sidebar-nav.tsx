@@ -58,6 +58,18 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ user, userProfile }) => 
       description: 'Live balance due or refund'
     },
     {
+      name: 'W-2 Income',
+      href: '/protected?screen=w2-income',
+      icon: Briefcase,
+      description: 'Enter W-2 wages from employers'
+    },
+    {
+      name: 'Sign Form 8879',
+      href: '/protected?screen=form-8879',
+      icon: PenLine,
+      description: 'E-file authorization'
+    },
+    {
       name: 'Reports',
       href: '/protected/reports',
       icon: BarChart3,
@@ -68,45 +80,6 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ user, userProfile }) => 
       href: '/protected?screen=tax-assistant',
       icon: Sparkles,
       description: 'Ask tax questions'
-    },
-  ];
-
-  const bottomItems = [
-    {
-      name: 'Tax Preview',
-      href: '/protected?screen=tax-preview',
-      icon: Eye,
-      description: 'Live balance due or refund'
-    },
-    {
-      name: 'W-2 Income',
-      href: '/protected?screen=w2-income',
-      icon: Briefcase,
-      description: 'Enter W-2 wages from employers'
-    },
-    {
-      name: 'Deductions',
-      href: '/protected?screen=deductions-entry',
-      icon: Minus,
-      description: 'Health insurance, retirement, HSA'
-    },
-    {
-      name: 'Sign Form 8879',
-      href: '/protected?screen=form-8879',
-      icon: PenLine,
-      description: 'E-file authorization'
-    },
-    {
-      name: 'AI Tax Assistant',
-      href: '/protected?screen=tax-assistant',
-      icon: Sparkles,
-      description: 'Ask tax questions'
-    },
-    {
-      name: 'Settings',
-      href: '/protected/settings',
-      icon: Settings,
-      description: 'Account and preferences'
     },
   ];
 
@@ -220,7 +193,12 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ user, userProfile }) => 
 
         {/* Bottom Items */}
         <div className="pt-2 mt-2 border-t border-border/40">
-          {bottomItems.map((item) => renderNavItem(item))}
+          {renderNavItem({
+            name: 'Settings',
+            href: '/protected/settings',
+            icon: Settings,
+            description: 'Account and preferences'
+          })}
         </div>
       </nav>
 

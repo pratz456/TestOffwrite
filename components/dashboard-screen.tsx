@@ -153,10 +153,18 @@ export default function DashboardScreen({
 
   const scheduleCProfit = grossIncome - totalExpenses;
 
-  // SE tax effective rate: 15.3% on 92.35% of net earnings = ~14.13%
-  const SE_TAX_EFFECTIVE_RATE = 15.3 * 0.9235; // ~14.13%
-  const combinedTaxRate = SE_TAX_EFFECTIVE_RATE + estimatedTaxRate;
-  const quarterlyTaxes = Math.max(0, (scheduleCProfit * combinedTaxRate / 100) / 4);
+  // Compute actual SE tax + income tax for accurate combined rate
+  const seBase = scheduleCProfit * 0.9235;
+  const seTax = Math.max(0, seBase * 0.153);
+  const halfSE = seTax / 2;
+  const standardDeduction = profile?.filing_status === 'married_filing_jointly' ? 31500
+    : profile?.filing_status === 'head_of_household' ? 23625 : 15750;
+  const agi = Math.max(0, scheduleCProfit - halfSE);
+  const taxableIncome = Math.max(0, agi - standardDeduction);
+  const incomeTax = taxableIncome * (estimatedTaxRate / 100);
+  const totalTax = seTax + incomeTax;
+  const combinedTaxRate = scheduleCProfit > 0 ? (totalTax / scheduleCProfit) * 100 : 0;
+  const quarterlyTaxes = Math.max(0, totalTax / 4);
 
   // Category breakdown (unchanged)
   const categoryBreakdown: Record<string, number> = {};
