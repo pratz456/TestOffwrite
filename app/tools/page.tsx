@@ -7,12 +7,12 @@ import { Button } from "@/components/ui/button";
 export const metadata: Metadata = {
   title: "Free Tax Tools & Calculators",
   description:
-    "Free tax calculators for freelancers and self-employed professionals. Calculate self-employment tax, quarterly estimates, and more — no sign-up required.",
+    "Free tax calculators for freelancers and self-employed professionals. Calculate self-employment tax, quarterly estimates, and more  - no sign-up required.",
   alternates: { canonical: "/tools" },
   openGraph: {
     title: "Free Tax Tools & Calculators | WriteOff",
     description:
-      "Free tax calculators for freelancers — self-employment tax, quarterly estimates, and more.",
+      "Free tax calculators for freelancers  - self-employment tax, quarterly estimates, and more.",
     type: "website",
     url: "/tools",
   },
@@ -28,7 +28,7 @@ const tools = [
   {
     title: "1099 Tax Calculator",
     description:
-      "Estimate your total federal tax as a freelancer — income tax, self-employment tax, QBI deduction, standard deduction, and effective rate. The complete picture.",
+      "Estimate your total federal tax as a freelancer  - income tax, self-employment tax, QBI deduction, standard deduction, and effective rate. The complete picture.",
     href: "/tools/1099-tax-calculator",
     badge: "Free",
   },
@@ -42,7 +42,7 @@ const tools = [
   {
     title: "Self-Employment Tax Calculator",
     description:
-      "Calculate your 2025 self-employment tax — Social Security (12.4%), Medicare (2.9%), and the deductible half. Supports W-2 wage offsets and all filing statuses.",
+      "Calculate your 2025 self-employment tax  - Social Security (12.4%), Medicare (2.9%), and the deductible half. Supports W-2 wage offsets and all filing statuses.",
     href: "/tools/se-tax-calculator",
     badge: "Free",
   },

@@ -17,7 +17,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Free Quarterly Estimated Tax Calculator (2025)",
     description:
-      "Calculate your quarterly estimated tax payments — avoid IRS underpayment penalties.",
+      "Calculate your quarterly estimated tax payments  - avoid IRS underpayment penalties.",
   },
 };
 

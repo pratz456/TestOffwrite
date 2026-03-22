@@ -9,7 +9,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Help & Support | WriteOff",
     description:
-      "Guides and support resources for WriteOff — AI tax deduction tracking for freelancers.",
+      "Guides and support resources for WriteOff  - AI tax deduction tracking for freelancers.",
     type: "website",
     url: "/help-support",
   },

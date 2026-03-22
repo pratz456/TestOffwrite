@@ -4,7 +4,7 @@ import AboutUsPageClient from "./about-page-client";
 export const metadata: Metadata = {
   title: "About Us",
   description:
-    "Learn about WriteOff — the AI-powered tax deduction tracker that helps freelancers and small business owners automatically find, categorize, and maximize tax savings.",
+    "Learn about WriteOff  - the AI-powered tax deduction tracker that helps freelancers and small business owners automatically find, categorize, and maximize tax savings.",
   alternates: { canonical: "/about" },
   openGraph: {
     title: "About WriteOff | AI Tax Deduction Tracker",

@@ -405,7 +405,7 @@ export function QuarterlyEstimateClient() {
                 <h3 className="text-xl font-bold">Let WriteOff Calculate Your Quarterlies Automatically</h3>
                 <p className="text-green-100 max-w-lg mx-auto">
                   WriteOff connects to your bank, tracks your income and expenses in real time, and tells you
-                  exactly how much to pay each quarter — updated as your income changes.
+                  exactly how much to pay each quarter  - updated as your income changes.
                 </p>
                 <Link href="/auth/sign-up">
                   <Button size="lg" className="bg-white text-green-700 hover:bg-green-50 mt-2">

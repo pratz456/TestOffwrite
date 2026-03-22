@@ -2,14 +2,14 @@ import type { Metadata } from "next";
 import { TaxCalculator1099Client } from "./1099-tax-calculator-client";
 
 export const metadata: Metadata = {
-  title: "Free 1099 Tax Calculator (2025) — Federal + SE Tax Estimate",
+  title: "Free 1099 Tax Calculator (2025)  - Federal + SE Tax Estimate",
   description:
-    "Calculate your total federal tax bill as a 1099 contractor or freelancer. See income tax, self-employment tax, QBI deduction, and effective rate — free, no sign-up required.",
+    "Calculate your total federal tax bill as a 1099 contractor or freelancer. See income tax, self-employment tax, QBI deduction, and effective rate  - free, no sign-up required.",
   alternates: { canonical: "/tools/1099-tax-calculator" },
   openGraph: {
     title: "Free 1099 Tax Calculator (2025) | WriteOff",
     description:
-      "Estimate your total federal tax as a freelancer — income tax, SE tax, QBI deduction, and effective rate.",
+      "Estimate your total federal tax as a freelancer  - income tax, SE tax, QBI deduction, and effective rate.",
     type: "website",
     url: "/tools/1099-tax-calculator",
   },
@@ -17,7 +17,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Free 1099 Tax Calculator (2025)",
     description:
-      "Estimate your total 1099 tax — income tax, self-employment tax, QBI deduction, and effective rate.",
+      "Estimate your total 1099 tax  - income tax, self-employment tax, QBI deduction, and effective rate.",
   },
 };
 

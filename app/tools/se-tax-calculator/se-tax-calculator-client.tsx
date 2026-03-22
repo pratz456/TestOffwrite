@@ -145,7 +145,7 @@ export function SETaxCalculatorClient() {
                   />
                 </div>
                 <p className="mt-1 text-xs text-gray-500">
-                  Box 3 of your W-2 — reduces your Social Security wage base
+                  Box 3 of your W-2  - reduces your Social Security wage base
                 </p>
               </div>
             </CardContent>
@@ -252,7 +252,7 @@ export function SETaxCalculatorClient() {
             <p className="text-gray-600 leading-relaxed mb-3">
               Self-employment tax is the Social Security and Medicare tax that self-employed
               individuals pay. When you work as an employee, your employer pays half of these
-              taxes. But when you&apos;re self-employed, you pay both halves — a combined rate
+              taxes. But when you&apos;re self-employed, you pay both halves  - a combined rate
               of 15.3% on your net earnings.
             </p>
             <p className="text-gray-600 leading-relaxed">
@@ -306,23 +306,23 @@ export function SETaxCalculatorClient() {
             </h2>
             <ol className="list-decimal list-inside space-y-3 text-gray-600">
               <li>
-                <strong>Determine your net profit</strong> — This is your Schedule C, Line 31
+                <strong>Determine your net profit</strong>  - This is your Schedule C, Line 31
                 (gross income minus business expenses).
               </li>
               <li>
-                <strong>Multiply by 92.35%</strong> — The IRS only taxes 92.35% of your net
+                <strong>Multiply by 92.35%</strong>  - The IRS only taxes 92.35% of your net
                 earnings (this accounts for the employer-equivalent portion).
               </li>
               <li>
-                <strong>Calculate Social Security tax</strong> — 12.4% on the first $176,100
+                <strong>Calculate Social Security tax</strong>  - 12.4% on the first $176,100
                 (2025 wage base). If you have W-2 income, subtract those Social Security wages first.
               </li>
               <li>
-                <strong>Calculate Medicare tax</strong> — 2.9% on all net earnings, plus an
+                <strong>Calculate Medicare tax</strong>  - 2.9% on all net earnings, plus an
                 additional 0.9% on earnings over $200,000 (single) or $250,000 (married).
               </li>
               <li>
-                <strong>Deduct half</strong> — Half of your total SE tax is deductible on
+                <strong>Deduct half</strong>  - Half of your total SE tax is deductible on
                 Schedule 1, Line 15, reducing your adjusted gross income.
               </li>
             </ol>
@@ -335,7 +335,7 @@ export function SETaxCalculatorClient() {
                 <h3 className="text-xl font-bold">Want to Find More Tax Deductions?</h3>
                 <p className="text-green-100 max-w-lg mx-auto">
                   WriteOff automatically tracks your expenses and identifies every deduction
-                  you qualify for — reducing both your income tax and self-employment tax.
+                  you qualify for  - reducing both your income tax and self-employment tax.
                 </p>
                 <Link href="/auth/sign-up">
                   <Button size="lg" className="bg-white text-green-700 hover:bg-green-50 mt-2">

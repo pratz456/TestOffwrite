@@ -4,12 +4,12 @@ import HelpPageClient from "./help-page-client";
 export const metadata: Metadata = {
   title: "Help Center",
   description:
-    "Get help with WriteOff — FAQs, tutorials, bank connection guides, receipt scanning tips, tax report help, and contact support for freelancer tax deductions.",
+    "Get help with WriteOff  - FAQs, tutorials, bank connection guides, receipt scanning tips, tax report help, and contact support for freelancer tax deductions.",
   alternates: { canonical: "/help" },
   openGraph: {
     title: "Help Center | WriteOff",
     description:
-      "FAQs, tutorials, and support for WriteOff — the AI tax deduction tracker for freelancers.",
+      "FAQs, tutorials, and support for WriteOff  - the AI tax deduction tracker for freelancers.",
     type: "website",
     url: "/help",
   },

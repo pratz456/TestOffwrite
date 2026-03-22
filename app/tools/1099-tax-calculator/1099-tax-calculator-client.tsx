@@ -43,7 +43,7 @@ function calculate1099Tax(netProfit: number, filingStatus: string, w2Wages: numb
     w2Wages
   );
 
-  // QBI deduction (simplified — 20% of net profit for income under threshold)
+  // QBI deduction (simplified  - 20% of net profit for income under threshold)
   const standardDeduction = STANDARD_DEDUCTIONS_2025[filingStatus as keyof typeof STANDARD_DEDUCTIONS_2025] ?? 15750;
   const totalIncome = adjustedProfit + w2Wages;
   const agi = Math.max(0, totalIncome - se.halfSEDeduction);
@@ -324,13 +324,13 @@ export function TaxCalculator1099Client() {
             <p className="text-gray-600 leading-relaxed mb-3">
               When you receive 1099 income, no taxes are withheld for you. Unlike W-2 employees whose employers
               withhold income tax, Social Security, and Medicare, freelancers are responsible for paying all of these
-              taxes themselves — typically through quarterly estimated payments.
+              taxes themselves  - typically through quarterly estimated payments.
             </p>
             <p className="text-gray-600 leading-relaxed">
               Your total tax bill as a 1099 contractor includes two main components: federal income tax (based on tax
               brackets) and self-employment tax (15.3% for Social Security and Medicare). The good news is that you can
               deduct business expenses, take the QBI deduction (up to 20% off your business income), and deduct half of
-              your SE tax — all of which significantly reduce your bill.
+              your SE tax  - all of which significantly reduce your bill.
             </p>
           </section>
 
@@ -342,7 +342,7 @@ export function TaxCalculator1099Client() {
               {[
                 { title: "Federal Income Tax", desc: "2025 tax brackets applied to your taxable income after all deductions." },
                 { title: "Self-Employment Tax", desc: "15.3% SE tax (Social Security 12.4% + Medicare 2.9%) on 92.35% of net profit." },
-                { title: "QBI Deduction", desc: "Section 199A qualified business income deduction — up to 20% off your business profit." },
+                { title: "QBI Deduction", desc: "Section 199A qualified business income deduction  - up to 20% off your business profit." },
                 { title: "Standard Deduction", desc: "2025 standard deduction ($15,750 single, $31,500 MFJ) applied automatically." },
               ].map((item) => (
                 <div key={item.title} className="rounded-lg border border-gray-200 p-4">
@@ -383,7 +383,7 @@ export function TaxCalculator1099Client() {
                 <h3 className="text-xl font-bold">Want to Find Every Deduction You Qualify For?</h3>
                 <p className="text-green-100 max-w-lg mx-auto">
                   WriteOff automatically tracks your expenses, categorizes them for Schedule C,
-                  and finds deductions you might be missing — reducing both income tax and SE tax.
+                  and finds deductions you might be missing  - reducing both income tax and SE tax.
                 </p>
                 <Link href="/auth/sign-up">
                   <Button size="lg" className="bg-white text-green-700 hover:bg-green-50 mt-2">

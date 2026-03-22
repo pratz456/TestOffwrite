@@ -17,7 +17,7 @@ export const metadata: Metadata = {
     card: "summary",
     title: "Contact Support | WriteOff",
     description:
-      "Get help from the WriteOff support team — we respond within 24 hours.",
+      "Get help from the WriteOff support team  - we respond within 24 hours.",
   },
 };
 

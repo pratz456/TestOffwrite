@@ -549,7 +549,7 @@ export function HistoricalAccessUpgradeCard({ variant = 'default' }: { variant?:
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <Calendar className="w-3.5 h-3.5 text-primary shrink-0" />
-          <span>Cancel anytime &mdash; no commitment</span>
+          <span>Cancel anytime - no commitment</span>
         </div>
       </div>
 

@@ -38,7 +38,7 @@ export function DashboardHeader({ userName, isRefreshing, onRefresh, lastSync, a
           <div>
             <h1 className="text-xl sm:text-2xl font-semibold text-foreground">Dashboard</h1>
             <p className="text-sm text-muted-foreground">
-              Financial overview &mdash; {year}
+              Financial overview - {year}
               {lastSync != null && (
                 <span className="ml-2">· Data last refreshed {formatLastSync(lastSync)}</span>
               )}

@@ -17,7 +17,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Free Self-Employment Tax Calculator (2025)",
     description:
-      "Calculate your self-employment tax instantly — Social Security, Medicare, and deductible amounts.",
+      "Calculate your self-employment tax instantly  - Social Security, Medicare, and deductible amounts.",
   },
 };
 
