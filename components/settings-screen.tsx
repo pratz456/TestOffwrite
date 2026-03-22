@@ -1,19 +1,17 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/simple-select';
-import { Badge } from '@/components/ui/badge';
 import {
   User,
   Briefcase,
   DollarSign,
   FileText,
-  Save,
   Loader2,
   CheckCircle,
   AlertCircle,
@@ -22,11 +20,12 @@ import {
 } from '@/lib/icons';
 import { getUserProfile, upsertUserProfile, UserProfile } from '@/lib/firebase/profiles';
 import { useBeforeUnload } from '@/lib/hooks/use-before-unload';
-import { CreditCard, Calendar, Sparkles, ExternalLink, XCircle, AlertTriangle } from 'lucide-react';
+import { CreditCard, Calendar, Sparkles, ExternalLink, XCircle, AlertTriangle, Home, Car, Receipt, Info, Building2, Landmark, Download, Trash2, Link2 } from 'lucide-react';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import { TrialCountdown } from '@/components/trial-countdown';
 import { toast } from 'sonner';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
+import { Badge } from '@/components/ui/badge';
 
 // Payment Settings Tab Component
 const PaymentSettingsTab: React.FC<{ user: any }> = ({ user }) => {
@@ -109,257 +108,243 @@ const PaymentSettingsTab: React.FC<{ user: any }> = ({ user }) => {
 
   if (loading) {
     return (
-      <Card className="p-8 bg-card border border-border shadow-lg">
+      <div className="p-8">
         <div className="flex items-center justify-center py-12">
           <Loader2 className="w-8 h-8 animate-spin text-primary" />
         </div>
-      </Card>
+      </div>
     );
   }
 
   return (
-    <Card className="p-8 bg-card border border-border shadow-lg">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6 mb-8">
-        <div className="flex items-center gap-4">
-          <div className="w-16 h-16 md:w-20 md:h-20 rounded-xl bg-primary/90 flex items-center justify-center">
-            <CreditCard className="w-10 h-10 text-white" />
+    <div className="space-y-6">
+      <div className="space-y-4">
+        <div className="flex items-center gap-2">
+          <Sparkles className="w-5 h-5 text-primary" />
+          <h3 className="text-sm font-semibold text-foreground">Historical Transactions Subscription</h3>
+        </div>
+
+        {accessStatus?.hasAccess ? (
+          <div className="space-y-4">
+            {/* Trial Countdown Timer */}
+            {accessStatus.isTrial && accessStatus.trialEnd && (
+              <TrialCountdown
+                trialEnd={new Date(accessStatus.trialEnd)}
+                isTrial={true}
+              />
+            )}
+
+            {/* Subscription Status Card */}
+            <div className="p-4 bg-accent/5 border border-accent/20 rounded-lg space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium text-foreground text-sm">Status</p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <Badge variant={accessStatus.isTrial ? 'default' : 'default'}>
+                      {accessStatus.isTrial ? 'Trial Active' : accessStatus.subscription?.status === 'canceled' ? 'Cancelled' : 'Active'}
+                    </Badge>
+                    {accessStatus.subscription?.cancelAtPeriodEnd && (
+                      <Badge variant="secondary" className="bg-yellow-500/20 text-yellow-700 dark:text-yellow-300">
+                        Cancelling at period end
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+                {!accessStatus.isTrial && accessStatus.daysRemaining !== undefined && (
+                  <div className="text-right">
+                    <p className="text-xs text-muted-foreground">Renews in</p>
+                    <p className="text-lg font-semibold text-foreground">
+                      {accessStatus.daysRemaining} day{accessStatus.daysRemaining !== 1 ? 's' : ''}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Plan Details */}
+              {accessStatus.subscription && (
+                <div className="space-y-2 pt-2 border-t border-accent/20">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Plan</span>
+                    <span className="font-medium text-foreground">
+                      {accessStatus.subscription.planInterval === 'year' ? 'Yearly' : 'Monthly'} Plan
+                      {accessStatus.subscription.planAmount && (
+                        <span className="ml-2">
+                          ${accessStatus.subscription.planAmount.toFixed(2)}/{accessStatus.subscription.planInterval === 'year' ? 'year' : 'month'}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                  {accessStatus.subscription.currentPeriodStart && (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Current Period</span>
+                      <span className="text-foreground">
+                        {new Date(accessStatus.subscription.currentPeriodStart).toLocaleDateString()} - {accessStatus.subscription.currentPeriodEnd ? new Date(accessStatus.subscription.currentPeriodEnd).toLocaleDateString() : 'N/A'}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {accessStatus.trialEnd && !accessStatus.isTrial && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Calendar className="w-4 h-4" />
+                  <span>
+                    Next billing: {accessStatus.subscriptionEnd ? new Date(accessStatus.subscriptionEnd).toLocaleDateString() : 'N/A'}
+                  </span>
+                </div>
+              )}
+
+              {accessStatus.subscription?.cancelAtPeriodEnd && (
+                <div className="p-3 bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-yellow-600 dark:text-yellow-400 mt-0.5 flex-shrink-0" />
+                    <div className="text-xs text-yellow-800 dark:text-yellow-200">
+                      <p className="font-medium mb-1">Subscription Cancelled</p>
+                      <p>Your subscription will end on {accessStatus.subscription.currentPeriodEnd ? new Date(accessStatus.subscription.currentPeriodEnd).toLocaleDateString() : 'the end of the current period'}. You will continue to have access until then.</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-3">
+                <Button
+                  onClick={handleManageBilling}
+                  className="flex-1"
+                  size="sm"
+                >
+                  Manage Subscription
+                  <ExternalLink className="ml-2 w-4 h-4" />
+                </Button>
+
+                {accessStatus.subscription && accessStatus.subscription.status !== 'canceled' && !accessStatus.subscription.cancelAtPeriodEnd && (
+                  <Button
+                    onClick={handleCancelSubscription}
+                    disabled={cancelLoading}
+                    variant="destructive"
+                    size="sm"
+                    className="flex-1"
+                  >
+                    {cancelLoading ? (
+                      <>
+                        <Loader2 className="mr-2 w-4 h-4 animate-spin" />
+                        Cancelling...
+                      </>
+                    ) : (
+                      <>
+                        <XCircle className="mr-2 w-4 h-4" />
+                        Cancel Subscription
+                      </>
+                    )}
+                  </Button>
+                )}
+              </div>
+            </div>
           </div>
-          <div>
-            <h2 className="text-2xl font-semibold text-foreground">Payment & Billing</h2>
-            <p className="text-sm text-muted-foreground">Manage your subscription and payment methods</p>
+        ) : (
+          <div className="p-4 bg-muted/30 border border-border rounded-lg space-y-4">
+            <p className="text-sm text-muted-foreground">
+              You don't have an active subscription. Upgrade to access up to 24 months (depending on your bank).
+            </p>
+            <div className="flex gap-3">
+              <Button
+                onClick={() => window.location.href = '/protected/subscriptions'}
+                variant="outline"
+                size="sm"
+                className="flex-1"
+              >
+                View Upgrade Options
+                <ExternalLink className="ml-2 w-4 h-4" />
+              </Button>
+              <Button
+                onClick={() => {
+                  setConfirmDialog({
+                    open: true,
+                    title: 'Sync Subscription',
+                    description: 'This will check Stripe for your subscription and sync it to your account. Continue?',
+                    confirmLabel: 'Sync',
+                    variant: 'default',
+                    onConfirm: async () => {
+                      setLoading(true);
+                      try {
+                        const response = await makeAuthenticatedRequest('/api/subscriptions/fix-access', {
+                          method: 'POST',
+                        });
+                        if (response.ok) {
+                          const data = await response.json();
+                          toast.success('Subscription synced successfully!');
+                          window.location.reload();
+                        } else {
+                          const errorData = await response.json().catch(() => ({}));
+                          toast.error(errorData.error || 'No subscription found in Stripe.');
+                        }
+                      } catch (error) {
+                        console.error('Error fixing access:', error);
+                        toast.error('Failed to sync subscription.');
+                      } finally {
+                        setLoading(false);
+                      }
+                    },
+                  });
+                }}
+                disabled={loading}
+                variant="secondary"
+                size="sm"
+                className="flex-1"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="mr-2 w-4 h-4 animate-spin" />
+                    Checking...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="mr-2 w-4 h-4" />
+                    Sync Subscription
+                  </>
+                )}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground text-center">
+              If you just paid, click "Sync Subscription" to update your account
+            </p>
           </div>
+        )}
+      </div>
+
+      {/* Payment Methods */}
+      <div className="space-y-4">
+        <div className="flex items-center gap-2">
+          <CreditCard className="w-5 h-5 text-primary" />
+          <h3 className="text-sm font-semibold text-foreground">Payment Methods</h3>
+        </div>
+        <div className="p-4 bg-muted/30 border border-border rounded-lg">
+          <p className="text-sm text-muted-foreground mb-3">
+            Manage your payment methods, billing address, and invoice history through the Stripe billing portal.
+          </p>
+          <Button
+            onClick={handleManageBilling}
+            disabled={!accessStatus?.hasAccess}
+            variant="outline"
+            size="sm"
+            className="w-full"
+          >
+            Open Billing Portal
+            <ExternalLink className="ml-2 w-4 h-4" />
+          </Button>
+          {!accessStatus?.hasAccess && (
+            <p className="text-xs text-muted-foreground mt-2">
+              Subscribe first to access billing management
+            </p>
+          )}
         </div>
       </div>
 
-      <div className="space-y-6">
-        {/* Subscription Status */}
-        <section className="space-y-4">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-primary" />
-            <h3 className="text-lg font-semibold text-foreground">Historical Transactions Subscription</h3>
-          </div>
-
-          {accessStatus?.hasAccess ? (
-            <div className="space-y-4">
-              {/* Trial Countdown Timer */}
-              {accessStatus.isTrial && accessStatus.trialEnd && (
-                <TrialCountdown
-                  trialEnd={new Date(accessStatus.trialEnd)}
-                  isTrial={true}
-                />
-              )}
-
-              {/* Subscription Status Card */}
-              <div className="p-6 bg-accent/5 border border-accent/20 rounded-lg space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-medium text-foreground">Status</p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <Badge variant={accessStatus.isTrial ? 'default' : 'default'}>
-                        {accessStatus.isTrial ? 'Trial Active' : accessStatus.subscription?.status === 'canceled' ? 'Cancelled' : 'Active'}
-                      </Badge>
-                      {accessStatus.subscription?.cancelAtPeriodEnd && (
-                        <Badge variant="secondary" className="bg-yellow-500/20 text-yellow-700 dark:text-yellow-300">
-                          Cancelling at period end
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-                  {!accessStatus.isTrial && accessStatus.daysRemaining !== undefined && (
-                    <div className="text-right">
-                      <p className="text-sm text-muted-foreground">Renews in</p>
-                      <p className="text-lg font-semibold text-foreground">
-                        {accessStatus.daysRemaining} day{accessStatus.daysRemaining !== 1 ? 's' : ''}
-                      </p>
-                    </div>
-                  )}
-                </div>
-
-                {/* Plan Details */}
-                {accessStatus.subscription && (
-                  <div className="space-y-2 pt-2 border-t border-accent/20">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Plan</span>
-                      <span className="font-medium text-foreground">
-                        {accessStatus.subscription.planInterval === 'year' ? 'Yearly' : 'Monthly'} Plan
-                        {accessStatus.subscription.planAmount && (
-                          <span className="ml-2">
-                            ${accessStatus.subscription.planAmount.toFixed(2)}/{accessStatus.subscription.planInterval === 'year' ? 'year' : 'month'}
-                          </span>
-                        )}
-                      </span>
-                    </div>
-                    {accessStatus.subscription.currentPeriodStart && (
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">Current Period</span>
-                        <span className="text-foreground">
-                          {new Date(accessStatus.subscription.currentPeriodStart).toLocaleDateString()} - {accessStatus.subscription.currentPeriodEnd ? new Date(accessStatus.subscription.currentPeriodEnd).toLocaleDateString() : 'N/A'}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {accessStatus.trialEnd && !accessStatus.isTrial && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Calendar className="w-4 h-4" />
-                    <span>
-                      Next billing: {accessStatus.subscriptionEnd ? new Date(accessStatus.subscriptionEnd).toLocaleDateString() : 'N/A'}
-                    </span>
-                  </div>
-                )}
-
-                {accessStatus.subscription?.cancelAtPeriodEnd && (
-                  <div className="p-3 bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
-                    <div className="flex items-start gap-2">
-                      <AlertTriangle className="w-4 h-4 text-yellow-600 dark:text-yellow-400 mt-0.5 flex-shrink-0" />
-                      <div className="text-xs text-yellow-800 dark:text-yellow-200">
-                        <p className="font-medium mb-1">Subscription Cancelled</p>
-                        <p>Your subscription will end on {accessStatus.subscription.currentPeriodEnd ? new Date(accessStatus.subscription.currentPeriodEnd).toLocaleDateString() : 'the end of the current period'}. You'll continue to have access until then.</p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex gap-3">
-                  <Button
-                    onClick={handleManageBilling}
-                    className="flex-1"
-                    size="lg"
-                  >
-                    Manage Subscription
-                    <ExternalLink className="ml-2 w-4 h-4" />
-                  </Button>
-
-                  {accessStatus.subscription && accessStatus.subscription.status !== 'canceled' && !accessStatus.subscription.cancelAtPeriodEnd && (
-                    <Button
-                      onClick={handleCancelSubscription}
-                      disabled={cancelLoading}
-                      variant="destructive"
-                      size="lg"
-                      className="flex-1"
-                    >
-                      {cancelLoading ? (
-                        <>
-                          <Loader2 className="mr-2 w-4 h-4 animate-spin" />
-                          Cancelling...
-                        </>
-                      ) : (
-                        <>
-                          <XCircle className="mr-2 w-4 h-4" />
-                          Cancel Subscription
-                        </>
-                      )}
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="p-6 bg-muted/30 border border-border rounded-lg space-y-4">
-              <p className="text-muted-foreground mb-4">
-                You don't have an active subscription. Upgrade to access up to 24 months (depending on your bank).
-              </p>
-              <div className="flex gap-3">
-                <Button
-                  onClick={() => window.location.href = '/protected/subscriptions'}
-                  variant="outline"
-                  className="flex-1"
-                >
-                  View Upgrade Options
-                  <ExternalLink className="ml-2 w-4 h-4" />
-                </Button>
-                <Button
-                  onClick={() => {
-                    setConfirmDialog({
-                      open: true,
-                      title: 'Sync Subscription',
-                      description: 'This will check Stripe for your subscription and sync it to your account. Continue?',
-                      confirmLabel: 'Sync',
-                      variant: 'default',
-                      onConfirm: async () => {
-                        setLoading(true);
-                        try {
-                          const response = await makeAuthenticatedRequest('/api/subscriptions/fix-access', {
-                            method: 'POST',
-                          });
-                          if (response.ok) {
-                            const data = await response.json();
-                            toast.success('Subscription synced successfully!');
-                            window.location.reload();
-                          } else {
-                            const errorData = await response.json().catch(() => ({}));
-                            toast.error(errorData.error || 'No subscription found in Stripe.');
-                          }
-                        } catch (error) {
-                          console.error('Error fixing access:', error);
-                          toast.error('Failed to sync subscription.');
-                        } finally {
-                          setLoading(false);
-                        }
-                      },
-                    });
-                  }}
-                  disabled={loading}
-                  variant="secondary"
-                  className="flex-1"
-                >
-                  {loading ? (
-                    <>
-                      <Loader2 className="mr-2 w-4 h-4 animate-spin" />
-                      Checking...
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="mr-2 w-4 h-4" />
-                      Sync Subscription
-                    </>
-                  )}
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground text-center">
-                If you just paid, click "Sync Subscription" to update your account
-              </p>
-            </div>
-          )}
-        </section>
-
-        {/* Payment Methods */}
-        <section className="space-y-4">
-          <div className="flex items-center gap-2">
-            <CreditCard className="w-5 h-5 text-primary" />
-            <h3 className="text-lg font-semibold text-foreground">Payment Methods</h3>
-          </div>
-          <div className="p-6 bg-muted/30 border border-border rounded-lg">
-            <p className="text-sm text-muted-foreground mb-4">
-              Manage your payment methods, billing address, and invoice history through the Stripe billing portal.
-            </p>
-            <Button
-              onClick={handleManageBilling}
-              disabled={!accessStatus?.hasAccess}
-              variant="outline"
-              className="w-full"
-            >
-              Open Billing Portal
-              <ExternalLink className="ml-2 w-4 h-4" />
-            </Button>
-            {!accessStatus?.hasAccess && (
-              <p className="text-xs text-muted-foreground mt-2">
-                Subscribe first to access billing management
-              </p>
-            )}
-          </div>
-        </section>
-
-        {/* Information */}
-        <section className="space-y-4">
-          <div className="p-4 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-            <p className="text-sm text-blue-800 dark:text-blue-200">
-              <strong>Note:</strong> The billing portal allows you to update payment methods, view invoices,
-              cancel your subscription, and manage all billing-related settings securely through Stripe.
-            </p>
-          </div>
-        </section>
+      {/* Information */}
+      <div className="p-3 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+        <p className="text-xs text-blue-800 dark:text-blue-200">
+          <strong>Note:</strong> The billing portal allows you to update payment methods, view invoices,
+          cancel your subscription, and manage all billing-related settings securely through Stripe.
+        </p>
       </div>
       <ConfirmationDialog
         open={confirmDialog.open}
@@ -373,7 +358,7 @@ const PaymentSettingsTab: React.FC<{ user: any }> = ({ user }) => {
           confirmDialog.onConfirm();
         }}
       />
-    </Card>
+    </div>
   );
 };
 
@@ -386,7 +371,7 @@ const SimpleSelectWrapper: React.FC<{
 }> = ({ value, onValueChange, placeholder, options }) => {
   return (
     <Select value={value} onValueChange={onValueChange}>
-      <SelectTrigger className="h-12 rounded-xl border border-border bg-background">
+      <SelectTrigger className="h-10 rounded-lg border border-border bg-background">
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>
       <SelectContent>
@@ -399,6 +384,15 @@ const SimpleSelectWrapper: React.FC<{
     </Select>
   );
 };
+
+// Reusable settings field component
+const SettingsField = ({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) => (
+  <div className="space-y-1.5">
+    <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{label}</Label>
+    {children}
+    {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+  </div>
+);
 
 interface SettingsScreenProps {
   user: {
@@ -413,7 +407,7 @@ interface SettingsScreenProps {
   inAppNavigation?: boolean;
 }
 
-type SettingsTab = 'profile' | 'businessDetails' | 'taxSettings' | 'advancedSettings' | 'payment';
+type SettingsTab = 'profile' | 'tax' | 'account';
 
 export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   user,
@@ -422,7 +416,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   inAppNavigation = false
 }) => {
   const [profile, setProfile] = useState({
-    // Profile Tab - Required Fields
+    // Profile & Business Tab
     name: user?.user_metadata?.name || '',
     email: user?.email || '',
     profession: [] as string[],
@@ -432,30 +426,28 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     filing_status: '',
     income: '',
     mailing_address: { street: '', city: '', state: '', zip: '' },
-
-    // Business Details Tab
     business_purpose: '',
     business_start_date: '',
     ein: '',
     w2_income: undefined as number | undefined,
     business_income: undefined as number | undefined,
     naics_code: '',
+    w2_federal_withheld: undefined as number | undefined,
 
-    // Tax Settings Tab - Required Fields
+    // Tax Settings Tab
     home_office_sqft: undefined as number | undefined,
     total_home_sqft: undefined as number | undefined,
     home_office_method: '',
     vehicle_business_use_percentage: undefined as number | undefined,
     vehicle_deduction_method: '',
     itemization_status: '',
-    // Above-the-line deductions
     health_insurance_premiums: undefined as number | undefined,
     sep_ira_contribution: undefined as number | undefined,
     solo_401k_contribution: undefined as number | undefined,
     hsa_contribution: undefined as number | undefined,
-    w2_federal_withheld: undefined as number | undefined,
+    simple_ira_contribution: undefined as number | undefined,
 
-    // Advanced Tab
+    // Advanced (kept for save compatibility)
     audit_history: 'none',
     tax_professional: false,
     documentation_habits: 'moderate',
@@ -470,7 +462,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState('');
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -482,288 +474,27 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     onConfirm: () => void;
   }>({ open: false, title: '', description: '', confirmLabel: 'Confirm', variant: 'default', onConfirm: () => {} });
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [originalProfile, setOriginalProfile] = useState<any>(null);
-  const [editState, setEditState] = useState<Record<SettingsTab, boolean>>({
-    profile: false,
-    businessDetails: false,
-    taxSettings: false,
-    advancedSettings: false,
-    payment: false,
-  });
+  const saveTimeoutRef = useRef<NodeJS.Timeout>();
 
   useBeforeUnload(hasUnsavedChanges);
 
-  const handleTabSwitch = (tab: SettingsTab) => {
-    if (hasUnsavedChanges) {
-      setConfirmDialog({
-        open: true,
-        title: 'Unsaved changes',
-        description: 'You have unsaved changes. Switching tabs will discard them.',
-        confirmLabel: 'Discard changes',
-        variant: 'destructive',
-        onConfirm: () => {
-          cancelEditing(activeTab);
-          setActiveTab(tab);
-        },
-      });
-      return;
-    }
-    setActiveTab(tab);
-  };
-
-  const isEditingCurrentTab = editState[activeTab];
-
-  const startEditing = (tab: SettingsTab) => {
-    setEditState(prev => ({ ...prev, [tab]: true }));
-    setSaveStatus('idle');
-    setErrorMessage('');
-    setHasUnsavedChanges(false);
-  };
-
-  const cancelEditing = (tab: SettingsTab) => {
-    if (originalProfile) {
-      setProfile(JSON.parse(JSON.stringify(originalProfile)));
-    }
-    setEditState(prev => ({ ...prev, [tab]: false }));
-    setHasUnsavedChanges(false);
-    setSaveStatus('idle');
-    setErrorMessage('');
-  };
-
-  // Track changes to show unsaved indicator
-  const handleProfileChange = (updates: any) => {
-    if (!isEditingCurrentTab) return;
-    setProfile(prev => ({ ...prev, ...updates }));
-    setHasUnsavedChanges(true);
-  };
-
-  // Load existing profile data
-  useEffect(() => {
-    const loadProfile = async () => {
-      try {
-        setIsLoading(true);
-        console.log('Loading profile for user:', {
-          id: user.id,
-          email: user.email,
-          metadata: user.user_metadata
-        });
-
-        const { data: existingProfile, error } = await getUserProfile(user.id);
-
-        if (error && error.code !== 'PGRST116') {
-          console.error('Error loading profile:', error);
-          setErrorMessage('Failed to load profile data');
-          return;
-        }
-
-        if (existingProfile) {
-          console.log('Loaded existing profile:', existingProfile);
-
-          // Parse profession string and handle custom professions
-          const professionString = existingProfile.profession || '';
-          const professionArray = professionString ? professionString.split(', ').filter(p => p.trim()) : [];
-
-          const predefinedProfessions = [
-            'Software Developer', 'Freelance Writer', 'Graphic Designer', 'Consultant', 'Marketing Specialist',
-            'Real Estate Agent', 'Photographer', 'Web Designer', 'Content Creator', 'Business Coach',
-            'Virtual Assistant', 'Social Media Manager', 'Online Tutor', 'E-commerce Store Owner', 'Other'
-          ];
-
-          const customProfessions = professionArray.filter(p => !predefinedProfessions.includes(p));
-          const standardProfessions = professionArray.filter(p => predefinedProfessions.includes(p));
-
-          const finalProfessions = customProfessions.length > 0
-            ? [...standardProfessions, 'Other']
-            : standardProfessions;
-
-          const loadedProfile = {
-            // Profile Tab - Map all fields from database
-            name: existingProfile.name || user?.user_metadata?.name || '',
-            email: existingProfile.email || user?.email || '',
-            profession: finalProfessions,
-            customProfession: customProfessions.join(', '),
-            businessEntityType: existingProfile.business_entity_type || '',
-            state: existingProfile.state || '',
-            filing_status: existingProfile.filing_status || '',
-            income: existingProfile.income || '',
-            mailing_address: {
-              street: existingProfile.mailing_address?.street || '',
-              city: existingProfile.mailing_address?.city || '',
-              state: existingProfile.mailing_address?.state || '',
-              zip: existingProfile.mailing_address?.zip || '',
-            },
-
-            // Business Details Tab - Map all business fields
-            business_purpose: existingProfile.business_purpose || '',
-            business_start_date: existingProfile.business_start_date || '',
-            ein: existingProfile.ein || '',
-            w2_income: existingProfile.w2_income,
-            business_income: existingProfile.business_income,
-            naics_code: existingProfile.naics_code || '',
-
-            // Tax Settings Tab - Map all tax-related fields
-            home_office_sqft: existingProfile.home_office_sqft,
-            total_home_sqft: existingProfile.total_home_sqft,
-            home_office_method: existingProfile.home_office_method || '',
-            vehicle_business_use_percentage: existingProfile.vehicle_business_use_percentage,
-            vehicle_deduction_method: existingProfile.vehicle_deduction_method || '',
-            itemization_status: existingProfile.itemization_status || '',
-            health_insurance_premiums: existingProfile.health_insurance_premiums,
-            sep_ira_contribution: existingProfile.sep_ira_contribution,
-            solo_401k_contribution: existingProfile.solo_401k_contribution,
-            hsa_contribution: existingProfile.hsa_contribution,
-            w2_federal_withheld: existingProfile.w2_federal_withheld,
-// Advanced Tab - Map all advanced fields
-            audit_history: existingProfile.audit_history || 'none',
-            tax_professional: existingProfile.tax_professional || false,
-            documentation_habits: existingProfile.documentation_habits || 'moderate',
-            business_seasonality: existingProfile.business_seasonality || 'year_round',
-            multiple_locations: existingProfile.multiple_locations || false,
-            international_business: existingProfile.international_business || false,
-            tax_bracket: existingProfile.tax_bracket,
-            prior_year_tax: existingProfile.prior_year_tax,
-            professional_licenses: existingProfile.professional_licenses || [],
-            prior_year_deductions: existingProfile.prior_year_deductions || []
-          };
-
-          console.log('Mapped profile data:', loadedProfile);
-
-          setProfile(loadedProfile);
-          setOriginalProfile(JSON.parse(JSON.stringify(loadedProfile)));
-          setHasUnsavedChanges(false);
-        }
-
-        setIsLoading(false);
-      } catch (err) {
-        console.error('Error loading profile:', err);
-        setErrorMessage('Failed to load profile data');
-        setIsLoading(false);
-      }
-    };
-
-    loadProfile();
-  }, [user.id, user?.user_metadata?.name, user?.email]);
-
-  const handleInputChange = (field: string, value: string | boolean) => {
-    setProfile(prev => ({
-      ...prev,
-      [field]: value
-    }));
-    setSaveStatus('idle');
-  };
-
-  // Handle profession selection (multiple selection)
-  const handleProfessionChange = (profession: string, checked: boolean) => {
-    if (!editState.profile) return;
-    setProfile(prev => ({
-      ...prev,
-      profession: checked
-        ? [...prev.profession, profession]
-        : prev.profession.filter(p => p !== profession),
-      // Clear custom profession if "Other" is deselected
-      customProfession: profession === 'Other' && !checked ? '' : prev.customProfession
-    }));
-    setHasUnsavedChanges(true);
-  };
-
-  const handleSave = async () => {
-    if (!editState[activeTab]) {
-      return;
-    }
-    try {
-      setIsSaving(true);
-      setSaveStatus('idle');
-      setErrorMessage('');
-
-      console.log('Attempting to save profile for user:', user.id);
-
-      // Prepare profession string - include custom profession if "Other" is selected
-      let professionString = profile.profession.join(', ');
-      if (profile.profession.includes('Other') && profile.customProfession?.trim()) {
-        professionString = profile.profession
-          .filter(p => p !== 'Other')
-          .concat(profile.customProfession.trim())
-          .join(', ');
-      }
-
-      const profileData = {
-        user_id: user.id,
-        email: profile.email,
-        name: profile.name,
-        profession: professionString,
-        business_entity_type: profile.businessEntityType,
-        state: profile.state,
-        filing_status: profile.filing_status,
-        income: profile.income,
-        mailing_address: profile.mailing_address,
-
-        // Business Details
-        business_purpose: profile.business_purpose,
-        business_start_date: profile.business_start_date,
-        ein: profile.ein,
-        w2_income: profile.w2_income,
-        business_income: profile.business_income,
-        naics_code: profile.naics_code,
-
-        // Tax Settings
-        home_office_sqft: profile.home_office_sqft,
-        total_home_sqft: profile.total_home_sqft,
-        home_office_method: profile.home_office_method,
-        vehicle_business_use_percentage: profile.vehicle_business_use_percentage,
-        vehicle_deduction_method: profile.vehicle_deduction_method,
-        itemization_status: profile.itemization_status,
-        // Above-the-line deductions
-        health_insurance_premiums: profile.health_insurance_premiums,
-        sep_ira_contribution: profile.sep_ira_contribution,
-        solo_401k_contribution: profile.solo_401k_contribution,
-        hsa_contribution: profile.hsa_contribution,
-        w2_federal_withheld: profile.w2_federal_withheld,
-
-        // Advanced Settings
-        audit_history: profile.audit_history,
-        tax_professional: profile.tax_professional,
-        documentation_habits: profile.documentation_habits,
-        business_seasonality: profile.business_seasonality,
-        multiple_locations: profile.multiple_locations,
-        international_business: profile.international_business,
-        tax_bracket: profile.tax_bracket,
-        prior_year_tax: profile.prior_year_tax,
-        professional_licenses: profile.professional_licenses,
-        prior_year_deductions: profile.prior_year_deductions
-      };
-
-      // Profile data saved (do not log - contains PII)
-
-      const { data, error } = await upsertUserProfile(user.id, profileData as any);
-
-      if (error) {
-        console.error('Error saving profile:', error);
-        setSaveStatus('error');
-        setErrorMessage(`Failed to save profile: ${(error as any)?.message || 'Unknown error'}`);
-        return;
-      }
-
-      setSaveStatus('success');
-      setHasUnsavedChanges(false);
-      setOriginalProfile(JSON.parse(JSON.stringify(profile)));
-      setEditState(prev => ({ ...prev, [activeTab]: false }));
-
-      // Clear success message after 3 seconds
-      setTimeout(() => {
-        setSaveStatus('idle');
-      }, 3000);
-
-    } catch (err) {
-      console.error('Error saving profile:', err);
-      setSaveStatus('error');
-      setErrorMessage(`Failed to save profile: ${err instanceof Error ? err.message : 'Unknown error'}`);
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  // Validation - require essential fields for AI analysis
-  const isFormValid = profile.name && profile.email && profile.profession.length > 0 && profile.income && profile.state && profile.filing_status;
+  const professionOptions = [
+    { value: 'Software Developer', label: 'Software Developer' },
+    { value: 'Freelance Writer', label: 'Freelance Writer' },
+    { value: 'Graphic Designer', label: 'Graphic Designer' },
+    { value: 'Consultant', label: 'Consultant' },
+    { value: 'Marketing Specialist', label: 'Marketing Specialist' },
+    { value: 'Real Estate Agent', label: 'Real Estate Agent' },
+    { value: 'Photographer', label: 'Photographer' },
+    { value: 'Web Designer', label: 'Web Designer' },
+    { value: 'Content Creator', label: 'Content Creator' },
+    { value: 'Business Coach', label: 'Business Coach' },
+    { value: 'Virtual Assistant', label: 'Virtual Assistant' },
+    { value: 'Social Media Manager', label: 'Social Media Manager' },
+    { value: 'Online Tutor', label: 'Online Tutor' },
+    { value: 'E-commerce Store Owner', label: 'E-commerce Store Owner' },
+    { value: 'Other', label: 'Other' }
+  ];
 
   const incomeOptions = [
     { value: 'Under $11,600', label: 'Under $11,600' },
@@ -833,97 +564,230 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     { value: 'Married Filing Jointly', label: 'Married Filing Jointly' },
     { value: 'Married Filing Separately', label: 'Married Filing Separately' },
     { value: 'Head of Household', label: 'Head of Household' },
-    { value: 'Qualifying Widower', label: 'Qualifying Widower' }
-  ];
-
-  const professionOptions = [
-    { value: 'Software Developer', label: 'Software Developer' },
-    { value: 'Freelance Writer', label: 'Freelance Writer' },
-    { value: 'Graphic Designer', label: 'Graphic Designer' },
-    { value: 'Consultant', label: 'Consultant' },
-    { value: 'Marketing Specialist', label: 'Marketing Specialist' },
-    { value: 'Real Estate Agent', label: 'Real Estate Agent' },
-    { value: 'Photographer', label: 'Photographer' },
-    { value: 'Web Designer', label: 'Web Designer' },
-    { value: 'Content Creator', label: 'Content Creator' },
-    { value: 'Business Coach', label: 'Business Coach' },
-    { value: 'Virtual Assistant', label: 'Virtual Assistant' },
-    { value: 'Social Media Manager', label: 'Social Media Manager' },
-    { value: 'Online Tutor', label: 'Online Tutor' },
-    { value: 'E-commerce Store Owner', label: 'E-commerce Store Owner' },
-    { value: 'Other', label: 'Other' }
+    { value: 'Qualifying Surviving Spouse', label: 'Qualifying Surviving Spouse' }
   ];
 
   const businessEntityTypeOptions = [
-    { value: 'Sole Proprietor / Independent Contractor', label: 'Sole proprietor or freelancer' },
-    { value: 'Single-Member LLC (disregarded entity)', label: 'Single-owner LLC' },
-    { value: 'Multi-Member LLC', label: 'LLC with multiple owners' },
-    { value: 'S-Corporation', label: 'S-Corp' },
-    { value: 'C-Corporation', label: 'C-Corp' },
+    { value: 'Sole Proprietor / Independent Contractor', label: 'Sole proprietor' },
+    { value: 'Single-Member LLC (disregarded entity)', label: 'Single-member LLC' },
     { value: 'Partnership', label: 'Partnership' },
-    { value: 'This does not apply to me', label: 'Not applicable' }
+    { value: 'S-Corporation', label: 'S-Corporation' },
+    { value: 'C-Corporation', label: 'C-Corporation' }
   ];
 
-  const primaryWorkLocationOptions = [
-    { value: 'home_office', label: 'Home Office' },
-    { value: 'rented_office', label: 'Rented Office / Coworking Space' },
-    { value: 'client_sites', label: 'Client Sites (Traveling)' },
-    { value: 'retail_storefront', label: 'Retail / Commercial Storefront' },
-    { value: 'warehouse_studio', label: 'Warehouse / Studio / Workshop' },
-    { value: 'multiple_locations', label: 'Multiple Locations' },
-    { value: 'not_applicable', label: 'This does not apply to me' }
-  ];
+  // --- Save logic ---
+  const handleSave = useCallback(async () => {
+    try {
+      setIsSaving(true);
+      setSaveStatus('saving');
+      setErrorMessage('');
 
-  const workRelatedTravelPatternOptions = [
-    { value: 'mostly_local', label: 'Mostly Local (rare overnight trips)' },
-    { value: 'frequent_local', label: 'Frequent Local Travel (client visits, local driving)' },
-    { value: 'regional_travel', label: 'Regional Travel (overnight <250 miles)' },
-    { value: 'national_travel', label: 'National Travel (frequent domestic flights)' },
-    { value: 'international_travel', label: 'International Travel' },
-    { value: 'not_applicable', label: 'This does not apply to me' }
-  ];
+      // Prepare profession string
+      let professionString = profile.profession.join(', ');
+      if (profile.profession.includes('Other') && profile.customProfession?.trim()) {
+        professionString = profile.profession
+          .filter(p => p !== 'Other')
+          .concat(profile.customProfession.trim())
+          .join(', ');
+      }
 
-  const displayedProfessions = React.useMemo(() => {
-    if (!profile.profession?.length) return [];
-    if (profile.profession.includes('Other') && profile.customProfession) {
-      return profile.profession
-        .filter(p => p !== 'Other')
-        .concat(profile.customProfession.split(',').map(item => item.trim()).filter(Boolean));
+      const profileData = {
+        user_id: user.id,
+        email: profile.email,
+        name: profile.name,
+        profession: professionString,
+        business_entity_type: profile.businessEntityType,
+        state: profile.state,
+        filing_status: profile.filing_status,
+        income: profile.income,
+        mailing_address: profile.mailing_address,
+        business_purpose: profile.business_purpose,
+        business_start_date: profile.business_start_date,
+        ein: profile.ein,
+        w2_income: profile.w2_income,
+        business_income: profile.business_income,
+        naics_code: profile.naics_code,
+        home_office_sqft: profile.home_office_sqft,
+        total_home_sqft: profile.total_home_sqft,
+        home_office_method: profile.home_office_method,
+        vehicle_business_use_percentage: profile.vehicle_business_use_percentage,
+        vehicle_deduction_method: profile.vehicle_deduction_method,
+        itemization_status: profile.itemization_status,
+        health_insurance_premiums: profile.health_insurance_premiums,
+        sep_ira_contribution: profile.sep_ira_contribution,
+        solo_401k_contribution: profile.solo_401k_contribution,
+        hsa_contribution: profile.hsa_contribution,
+        simple_ira_contribution: profile.simple_ira_contribution,
+        w2_federal_withheld: profile.w2_federal_withheld,
+        audit_history: profile.audit_history,
+        tax_professional: profile.tax_professional,
+        documentation_habits: profile.documentation_habits,
+        business_seasonality: profile.business_seasonality,
+        multiple_locations: profile.multiple_locations,
+        international_business: profile.international_business,
+        tax_bracket: profile.tax_bracket,
+        prior_year_tax: profile.prior_year_tax,
+        professional_licenses: profile.professional_licenses,
+        prior_year_deductions: profile.prior_year_deductions
+      };
+
+      const { data, error } = await upsertUserProfile(user.id, profileData as any);
+
+      if (error) {
+        console.error('Error saving profile:', error);
+        setSaveStatus('error');
+        setErrorMessage(`Failed to save: ${(error as any)?.message || 'Unknown error'}`);
+        return;
+      }
+
+      setSaveStatus('saved');
+      setHasUnsavedChanges(false);
+
+      // Clear saved message after 2 seconds
+      setTimeout(() => {
+        setSaveStatus('idle');
+      }, 2000);
+
+    } catch (err) {
+      console.error('Error saving profile:', err);
+      setSaveStatus('error');
+      setErrorMessage(`Failed to save: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setIsSaving(false);
     }
-    return profile.profession;
-  }, [profile.profession, profile.customProfession]);
+  }, [profile, user.id]);
 
-  const formatCurrency = (value?: number) => {
-    if (value === undefined || value === null || Number.isNaN(value)) return '-';
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(value);
+  // Auto-save with debounce
+  const handleProfileChange = useCallback((changes: Partial<typeof profile>) => {
+    setProfile(prev => ({ ...prev, ...changes }));
+    setHasUnsavedChanges(true);
+
+    // Clear any existing timeout
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+
+    // Set status to idle (pending)
+    setSaveStatus('idle');
+
+    // Auto-save after 1.5s of no changes
+    saveTimeoutRef.current = setTimeout(() => {
+      handleSave();
+    }, 1500);
+  }, [handleSave]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    };
+  }, []);
+
+  // Handle profession selection (multiple selection)
+  const handleProfessionChange = (profession: string, checked: boolean) => {
+    const newProfessions = checked
+      ? [...profile.profession, profession]
+      : profile.profession.filter(p => p !== profession);
+    const customProfession = profession === 'Other' && !checked ? '' : profile.customProfession;
+    handleProfileChange({ profession: newProfessions, customProfession });
   };
 
-  const formatDate = (value?: string) => {
-    if (!value) return '-';
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) return value;
-    return parsed.toLocaleDateString();
-  };
+  // Load existing profile data
+  useEffect(() => {
+    const loadProfile = async () => {
+      try {
+        setIsLoading(true);
 
-  const renderViewField = (label: string, value: React.ReactNode) => {
-    const content = value !== undefined && value !== null && value !== '' ? value : '-';
-    return (
-      <div className="space-y-1 rounded-lg border border-border bg-muted/40 px-4 py-3">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
-        <div className="text-sm md:text-base text-foreground">
-          {typeof content === 'string' ? <span>{content}</span> : content}
-        </div>
-      </div>
-    );
-  };
+        const { data: existingProfile, error } = await getUserProfile(user.id);
 
+        if (error && error.code !== 'PGRST116') {
+          console.error('Error loading profile:', error);
+          setErrorMessage('Failed to load profile data');
+          return;
+        }
+
+        if (existingProfile) {
+          // Parse profession string and handle custom professions
+          const professionString = existingProfile.profession || '';
+          const professionArray = professionString ? professionString.split(', ').filter((p: string) => p.trim()) : [];
+
+          const predefinedProfessions = [
+            'Software Developer', 'Freelance Writer', 'Graphic Designer', 'Consultant', 'Marketing Specialist',
+            'Real Estate Agent', 'Photographer', 'Web Designer', 'Content Creator', 'Business Coach',
+            'Virtual Assistant', 'Social Media Manager', 'Online Tutor', 'E-commerce Store Owner', 'Other'
+          ];
+
+          const customProfessions = professionArray.filter((p: string) => !predefinedProfessions.includes(p));
+          const standardProfessions = professionArray.filter((p: string) => predefinedProfessions.includes(p));
+
+          const finalProfessions = customProfessions.length > 0
+            ? [...standardProfessions, 'Other']
+            : standardProfessions;
+
+          const loadedProfile = {
+            name: existingProfile.name || user?.user_metadata?.name || '',
+            email: existingProfile.email || user?.email || '',
+            profession: finalProfessions,
+            customProfession: customProfessions.join(', '),
+            businessEntityType: existingProfile.business_entity_type || '',
+            state: existingProfile.state || '',
+            filing_status: existingProfile.filing_status || '',
+            income: existingProfile.income || '',
+            mailing_address: {
+              street: existingProfile.mailing_address?.street || '',
+              city: existingProfile.mailing_address?.city || '',
+              state: existingProfile.mailing_address?.state || '',
+              zip: existingProfile.mailing_address?.zip || '',
+            },
+            business_purpose: existingProfile.business_purpose || '',
+            business_start_date: existingProfile.business_start_date || '',
+            ein: existingProfile.ein || '',
+            w2_income: existingProfile.w2_income,
+            business_income: existingProfile.business_income,
+            naics_code: existingProfile.naics_code || '',
+            w2_federal_withheld: existingProfile.w2_federal_withheld,
+            home_office_sqft: existingProfile.home_office_sqft,
+            total_home_sqft: existingProfile.total_home_sqft,
+            home_office_method: existingProfile.home_office_method || '',
+            vehicle_business_use_percentage: existingProfile.vehicle_business_use_percentage,
+            vehicle_deduction_method: existingProfile.vehicle_deduction_method || '',
+            itemization_status: existingProfile.itemization_status || '',
+            health_insurance_premiums: existingProfile.health_insurance_premiums,
+            sep_ira_contribution: existingProfile.sep_ira_contribution,
+            solo_401k_contribution: existingProfile.solo_401k_contribution,
+            hsa_contribution: existingProfile.hsa_contribution,
+            simple_ira_contribution: (existingProfile as any).simple_ira_contribution,
+            audit_history: existingProfile.audit_history || 'none',
+            tax_professional: existingProfile.tax_professional || false,
+            documentation_habits: existingProfile.documentation_habits || 'moderate',
+            business_seasonality: existingProfile.business_seasonality || 'year_round',
+            multiple_locations: existingProfile.multiple_locations || false,
+            international_business: existingProfile.international_business || false,
+            tax_bracket: existingProfile.tax_bracket,
+            prior_year_tax: existingProfile.prior_year_tax,
+            professional_licenses: existingProfile.professional_licenses || [],
+            prior_year_deductions: existingProfile.prior_year_deductions || []
+          };
+
+          setProfile(loadedProfile);
+          setHasUnsavedChanges(false);
+        }
+
+        setIsLoading(false);
+      } catch (err) {
+        console.error('Error loading profile:', err);
+        setErrorMessage('Failed to load profile data');
+        setIsLoading(false);
+      }
+    };
+
+    loadProfile();
+  }, [user.id, user?.user_metadata?.name, user?.email]);
 
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center space-y-4">
           <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
-          <p className="text-muted-foreground">Loading profile settings...</p>
+          <p className="text-muted-foreground">Loading settings...</p>
         </div>
       </div>
     );
@@ -931,1286 +795,497 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header - Compact on mobile; same stacking as other pages so menu overlay covers it normally */}
-      <div className="bg-card border-b border-border sticky top-0 z-50 shadow-sm">
-        <div className="flex items-center justify-between p-3 sm:p-6">
-          <div className="w-full flex flex-col items-center">
-            <h2 className="text-2xl sm:text-4xl font-bold text-primary mb-1 text-center">Settings</h2>
-            <p className="text-sm sm:text-lg text-muted-foreground text-center">Manage your profile and preferences</p>
-          </div>
+      {/* Header */}
+      <div className="bg-card border-b border-border sticky top-0 z-50">
+        <div className="max-w-3xl mx-auto flex items-center justify-between px-4 py-3 sm:px-6 sm:py-4">
+          <h1 className="text-xl sm:text-2xl font-bold text-foreground">Settings</h1>
 
-          {/* Save Status Indicator */}
-          {hasUnsavedChanges && (
-            <div className="absolute right-3 top-3 flex items-center gap-1.5 px-2 py-1.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg">
-              <AlertCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-              <span className="text-xs font-medium text-amber-800 dark:text-amber-300 hidden sm:inline">Unsaved</span>
-            </div>
-          )}
+          {/* Save status pill */}
+          <div className="flex items-center">
+            {saveStatus === 'saving' && (
+              <div className="flex items-center gap-1.5 px-3 py-1 bg-muted rounded-full">
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
+                <span className="text-xs font-medium text-muted-foreground">Saving...</span>
+              </div>
+            )}
+            {saveStatus === 'saved' && (
+              <div className="flex items-center gap-1.5 px-3 py-1 bg-green-50 dark:bg-green-950/30 rounded-full">
+                <CheckCircle className="w-3.5 h-3.5 text-green-600 dark:text-green-400" />
+                <span className="text-xs font-medium text-green-700 dark:text-green-300">Saved</span>
+              </div>
+            )}
+            {saveStatus === 'error' && (
+              <div className="flex items-center gap-1.5 px-3 py-1 bg-red-50 dark:bg-red-950/30 rounded-full">
+                <AlertCircle className="w-3.5 h-3.5 text-red-600 dark:text-red-400" />
+                <span className="text-xs font-medium text-red-700 dark:text-red-300">Save failed</span>
+                <button
+                  onClick={handleSave}
+                  className="text-xs font-medium text-red-700 dark:text-red-300 underline ml-1"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      <div className="p-6">
-        <div className="max-w-5xl mx-auto space-y-6">
-        {/* Save Status Messages */}
-        {saveStatus === 'success' && (
-          <Card className="p-4 bg-accent/5 border-accent/20 shadow-sm mb-6">
-            <div className="flex items-center gap-3">
-              <CheckCircle className="w-6 h-6 text-accent" />
-              <div>
-                <p className="text-accent font-medium">Settings Updated Successfully</p>
-                <p className="text-accent/80 text-sm">Your changes have been saved.</p>
-              </div>
-            </div>
-          </Card>
-        )}
-
-        {saveStatus === 'error' && (
-          <Card className="p-4 bg-red-50 border-red-200 shadow-sm mb-6">
-            <div className="flex items-center gap-3">
-              <AlertCircle className="w-6 h-6 text-red-600" />
-              <div>
-                <p className="text-red-800 font-medium">Save Failed</p>
-                <p className="text-red-600 text-sm">{errorMessage}</p>
-              </div>
-            </div>
-          </Card>
-        )}
-
-        {/* Tab Navigation - Grid layout: 3 tabs on first row, 2 tabs on second row for mobile */}
-        <div className="mb-4 sm:mb-6">
-          {/* Mobile: Grid layout */}
-          <div className="grid grid-cols-3 gap-1 sm:hidden bg-card/80 rounded-lg p-1 border border-border">
+      <div className="max-w-3xl mx-auto px-4 py-4 sm:px-6 sm:py-6 space-y-4 sm:space-y-6">
+        {/* Tab Navigation */}
+        <div className="flex gap-1 bg-muted rounded-xl p-1.5 border border-border">
+          {([
+            { key: 'profile' as SettingsTab, label: 'Profile & Business', icon: User },
+            { key: 'tax' as SettingsTab, label: 'Tax Settings', icon: Receipt },
+            { key: 'account' as SettingsTab, label: 'Account', icon: Shield },
+          ]).map(({ key, label, icon: Icon }) => (
             <button
-              onClick={() => handleTabSwitch('profile')}
-              className={`px-2 py-2 rounded-md text-xs font-medium transition-colors flex flex-col items-center gap-1 no-tap-highlight ${activeTab === 'profile'
-                ? 'bg-primary/10 text-primary shadow-sm'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
-                }`}
+              key={key}
+              onClick={() => setActiveTab(key)}
+              className={`flex-1 px-3 py-2.5 rounded-lg text-xs sm:text-sm font-medium transition-all duration-150 flex items-center justify-center gap-1.5 ${
+                activeTab === key
+                  ? 'bg-primary text-primary-foreground shadow-md'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-background/60'
+              }`}
             >
-              <User className="w-4 h-4" />
-              <span>Profile</span>
+              <Icon className="w-4 h-4" />
+              <span className="hidden sm:inline">{label}</span>
+              <span className="sm:hidden">{label.split(' ')[0]}</span>
             </button>
-            <button
-              onClick={() => handleTabSwitch('businessDetails')}
-              className={`px-2 py-2 rounded-md text-xs font-medium transition-colors flex flex-col items-center gap-1 no-tap-highlight ${activeTab === 'businessDetails'
-                ? 'bg-primary/10 text-primary shadow-sm'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
-                }`}
-            >
-              <Briefcase className="w-4 h-4" />
-              <span>Business</span>
-            </button>
-            <button
-              onClick={() => handleTabSwitch('taxSettings')}
-              className={`px-2 py-2 rounded-md text-xs font-medium transition-colors flex flex-col items-center gap-1 no-tap-highlight ${activeTab === 'taxSettings'
-                ? 'bg-primary/10 text-primary shadow-sm'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
-                }`}
-            >
-              <FileText className="w-4 h-4" />
-              <span>Tax</span>
-            </button>
-          </div>
-          {/* Mobile: Second row with 2 tabs */}
-          <div className="grid grid-cols-2 gap-1 sm:hidden bg-card/80 rounded-lg p-1 border border-border mt-1">
-            <button
-              onClick={() => handleTabSwitch('payment')}
-              className={`px-2 py-2 rounded-md text-xs font-medium transition-colors flex flex-col items-center gap-1 no-tap-highlight ${activeTab === 'payment'
-                ? 'bg-primary/10 text-primary shadow-sm'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
-                }`}
-            >
-              <CreditCard className="w-4 h-4" />
-              <span>Payment</span>
-            </button>
-            <button
-              onClick={() => handleTabSwitch('advancedSettings')}
-              className={`px-2 py-2 rounded-md text-xs font-medium transition-colors flex flex-col items-center gap-1 no-tap-highlight ${activeTab === 'advancedSettings'
-                ? 'bg-primary/10 text-primary shadow-sm'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
-                }`}
-            >
-              <Shield className="w-4 h-4" />
-              <span>Advanced</span>
-            </button>
-          </div>
-          
-          {/* Desktop: Horizontal tabs */}
-          <div className="hidden sm:flex space-x-1 bg-card/80 rounded-lg p-1 w-fit overflow-x-auto border border-border">
-            <button
-              onClick={() => handleTabSwitch('profile')}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'profile'
-                ? 'bg-green-900/70 text-green-300 shadow-sm'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
-                }`}
-            >
-              <User className="w-4 h-4" />
-              Profile
-            </button>
-            <button
-              onClick={() => handleTabSwitch('businessDetails')}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'businessDetails'
-                ? 'bg-green-900/70 text-green-300 shadow-sm'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
-                }`}
-            >
-              <Briefcase className="w-4 h-4" />
-              Business Details
-            </button>
-            <button
-              onClick={() => handleTabSwitch('taxSettings')}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'taxSettings'
-                ? 'bg-green-900/70 text-green-300 shadow-sm'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
-                }`}
-            >
-              <FileText className="w-4 h-4" />
-              Tax Settings
-            </button>
-            <button
-              onClick={() => handleTabSwitch('payment')}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'payment'
-                ? 'bg-green-900/70 text-green-300 shadow-sm'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
-                }`}
-            >
-              <CreditCard className="w-4 h-4" />
-              Payment
-            </button>
-            <button
-              onClick={() => handleTabSwitch('advancedSettings')}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'advancedSettings'
-                ? 'bg-green-900/70 text-green-300 shadow-sm'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
-                }`}
-            >
-              <Shield className="w-4 h-4" />
-              Advanced
-            </button>
-          </div>
+          ))}
         </div>
 
-        {/* Profile Tab */}
+        {/* ============= TAB 1: Profile & Business ============= */}
         {activeTab === 'profile' && (
-          <Card className="p-8 bg-card border border-border shadow-lg">
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6 mb-8">
-              <div className="flex items-center gap-4">
-                <div className="w-16 h-16 md:w-20 md:h-20 rounded-xl bg-primary/90 flex items-center justify-center">
-                  <User className="w-10 h-10 text-white" />
-                </div>
-                <div>
-                  <h2 className="text-2xl font-semibold text-foreground">Profile Settings</h2>
-                  <p className="text-sm text-muted-foreground">Manage your personal and professional information</p>
-                </div>
+          <div className="space-y-6">
+            {/* Tax Filing Essentials - Highlighted Card */}
+            <Card className="p-4 sm:p-5 border-l-4 border-l-primary bg-primary/[0.03] border-border">
+              <div className="flex items-center gap-2 mb-4">
+                <FileText className="w-5 h-5 text-primary" />
+                <h3 className="text-sm font-semibold text-foreground">Tax Filing Essentials</h3>
               </div>
-              {!editState.profile && (
-                <Button
-                  variant="outline"
-                  className="h-11 rounded-lg border-border"
-                  onClick={() => startEditing('profile')}
-                >
-                  Edit Profile
-                </Button>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <SettingsField label="Filing Status">
+                  <SimpleSelectWrapper
+                    value={profile.filing_status}
+                    onValueChange={(value) => handleProfileChange({ filing_status: value })}
+                    placeholder="Select filing status"
+                    options={filingStatusOptions}
+                  />
+                </SettingsField>
+                <SettingsField label="State">
+                  <SimpleSelectWrapper
+                    value={profile.state}
+                    onValueChange={(value) => handleProfileChange({ state: value })}
+                    placeholder="Select your state"
+                    options={stateOptions}
+                  />
+                </SettingsField>
+                <SettingsField label="Annual Income Range">
+                  <SimpleSelectWrapper
+                    value={profile.income}
+                    onValueChange={(value) => handleProfileChange({ income: value })}
+                    placeholder="Select income range"
+                    options={incomeOptions}
+                  />
+                </SettingsField>
+                <SettingsField label="W-2 Income" hint="Total wages from W-2 forms">
+                  <div className="relative">
+                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      type="number"
+                      value={profile.w2_income ?? ''}
+                      onChange={(e) => handleProfileChange({ w2_income: e.target.value ? Number(e.target.value) : undefined })}
+                      placeholder="0"
+                      className="h-10 rounded-lg border-border bg-background pl-9"
+                    />
+                  </div>
+                </SettingsField>
+                <SettingsField label="W-2 Federal Tax Withheld" hint="Box 2 on your W-2">
+                  <div className="relative">
+                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      type="number"
+                      value={profile.w2_federal_withheld ?? ''}
+                      onChange={(e) => handleProfileChange({ w2_federal_withheld: e.target.value ? Number(e.target.value) : undefined })}
+                      placeholder="0"
+                      className="h-10 rounded-lg border-border bg-background pl-9"
+                    />
+                  </div>
+                </SettingsField>
+              </div>
+            </Card>
+
+            {/* Personal Information */}
+            <section className="space-y-4">
+              <div className="flex items-center gap-2 pb-2 border-b border-border">
+                <User className="w-4 h-4 text-primary" />
+                <h3 className="text-sm font-semibold text-foreground">Personal Information</h3>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <SettingsField label="Full Name">
+                  <Input
+                    type="text"
+                    value={profile.name}
+                    onChange={(e) => handleProfileChange({ name: e.target.value })}
+                    placeholder="Enter your full name"
+                    className="h-10 rounded-lg border-border bg-background"
+                  />
+                </SettingsField>
+                <SettingsField label="Email">
+                  <Input
+                    type="email"
+                    value={profile.email}
+                    readOnly
+                    className="h-10 rounded-lg border-border bg-muted/50 text-muted-foreground cursor-not-allowed"
+                  />
+                </SettingsField>
+              </div>
+            </section>
+
+            {/* Professional Information */}
+            <section className="space-y-4">
+              <div className="flex items-center gap-2 pb-2 border-b border-border">
+                <Briefcase className="w-4 h-4 text-primary" />
+                <h3 className="text-sm font-semibold text-foreground">Professional Information</h3>
+              </div>
+              <SettingsField label="Profession(s)" hint="Select all that apply">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto rounded-lg border border-border bg-muted/20 p-3">
+                  {professionOptions.map((option) => (
+                    <label key={option.value} className="flex items-center space-x-2 rounded-md px-2 py-1.5 hover:bg-muted transition-colors cursor-pointer">
+                      <Checkbox
+                        checked={profile.profession.includes(option.label)}
+                        onCheckedChange={(checked) => handleProfessionChange(option.label, checked as boolean)}
+                        className="text-primary"
+                      />
+                      <span className="text-sm text-foreground">{option.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </SettingsField>
+              {profile.profession.includes('Other') && (
+                <SettingsField label="Custom Profession" hint="Separate multiple with commas">
+                  <Input
+                    type="text"
+                    value={profile.customProfession || ''}
+                    onChange={(e) => handleProfileChange({ customProfession: e.target.value })}
+                    placeholder="Enter your profession"
+                    className="h-10 rounded-lg border-border bg-background"
+                  />
+                </SettingsField>
               )}
-            </div>
+              <SettingsField label="Business Entity Type">
+                <SimpleSelectWrapper
+                  value={profile.businessEntityType}
+                  onValueChange={(value) => handleProfileChange({ businessEntityType: value })}
+                  placeholder="Select entity type"
+                  options={businessEntityTypeOptions}
+                />
+              </SettingsField>
+            </section>
 
-            <div className="space-y-8">
-              {/* Personal Information Section */}
-              <section className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <User className="w-5 h-5 text-primary" />
-                  <h3 className="text-lg font-semibold text-foreground">Personal Information</h3>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    {editState.profile ? (
-                      <>
-                        <Label className="text-sm font-medium text-foreground">
-                          Full Name <span className="text-destructive">*</span>
-                        </Label>
-                        <Input
-                          type="text"
-                          value={profile.name}
-                          onChange={(e) => handleProfileChange({ name: e.target.value })}
-                          placeholder="Enter your full name"
-                          className="h-12 rounded-lg border-border bg-background"
-                          required
-                        />
-                        <p className="text-xs text-muted-foreground">Required for AI analysis</p>
-                      </>
-                    ) : (
-                      renderViewField('Full Name', profile.name || '-')
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    {editState.profile ? (
-                      <>
-                        <Label className="text-sm font-medium text-foreground">
-                          Email Address <span className="text-destructive">*</span>
-                        </Label>
-                        <Input
-                          type="email"
-                          value={profile.email}
-                          onChange={(e) => handleProfileChange({ email: e.target.value })}
-                          placeholder="Enter your email"
-                          className="h-12 rounded-lg border-border bg-background"
-                          required
-                        />
-                        <p className="text-xs text-muted-foreground">Required for account management</p>
-                      </>
-                    ) : (
-                      renderViewField('Email Address', profile.email || '-')
-                    )}
-                  </div>
-                </div>
-              </section>
-
-              {/* Professional Information Section */}
-              <section className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <Briefcase className="w-5 h-5 text-primary" />
-                  <h3 className="text-lg font-semibold text-foreground">Professional Information</h3>
-                </div>
-
-                <div className="space-y-3">
-                  {editState.profile ? (
-                    <>
-                      <Label className="text-sm font-medium text-foreground">
-                        Profession(s) <span className="text-destructive">*</span>
-                      </Label>
-                      <p className="text-xs text-muted-foreground">Select all that apply to your work</p>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-52 overflow-y-auto rounded-lg border border-border bg-muted/30 p-3">
-                        {professionOptions.map((option) => (
-                          <label key={option.value} className="flex items-center space-x-2 rounded-md px-3 py-2 hover:bg-muted transition-colors cursor-pointer">
-                            <Checkbox
-                              checked={profile.profession.includes(option.label)}
-                              onCheckedChange={(checked) => handleProfessionChange(option.label, checked as boolean)}
-                              className="text-primary"
-                            />
-                            <span className="text-sm text-foreground">{option.label}</span>
-                          </label>
-                        ))}
-                      </div>
-                      {profile.profession.includes('Other') && (
-                        <div className="space-y-2">
-                          <Label className="text-sm font-medium text-foreground">
-                            Custom Profession <span className="text-destructive">*</span>
-                          </Label>
-                          <Input
-                            type="text"
-                            value={profile.customProfession || ''}
-                            onChange={(e) => handleProfileChange({ customProfession: e.target.value })}
-                            placeholder="Enter your profession"
-                            className="h-10 rounded-lg border-border bg-background text-sm"
-                          />
-                          <p className="text-xs text-muted-foreground">Separate multiple professions with commas</p>
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    renderViewField(
-                      'Professions',
-                      displayedProfessions.length ? (
-                        <div className="flex flex-wrap gap-2">
-                          {displayedProfessions.map((item, idx) => (
-                            <Badge key={`${item}-${idx}`} variant="secondary" className="rounded-full px-3 py-1 text-xs">
-                              {item}
-                            </Badge>
-                          ))}
-                        </div>
-                      ) : (
-                        '-'
-                      )
-                    )
-                  )}
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    {editState.profile ? (
-                      <>
-                        <Label className="text-sm font-medium text-foreground">
-                          Business Entity Type <span className="text-destructive">*</span>
-                        </Label>
-                        <SimpleSelectWrapper
-                          value={profile.businessEntityType}
-                          onValueChange={(value) => handleProfileChange({ businessEntityType: value })}
-                          placeholder="How is your business set up?"
-                          options={businessEntityTypeOptions}
-                        />
-                        <p className="text-xs text-muted-foreground">Required for tax calculations</p>
-                      </>
-                    ) : (
-                      renderViewField('Business Entity Type', businessEntityTypeOptions.find(o => o.value === profile.businessEntityType)?.label ?? profile.businessEntityType ?? '-')
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    {editState.profile ? (
-                      <>
-                        <Label className="text-sm font-medium text-foreground">
-                          State <span className="text-destructive">*</span>
-                        </Label>
-                        <SimpleSelectWrapper
-                          value={profile.state}
-                          onValueChange={(value) => handleProfileChange({ state: value })}
-                          placeholder="Select your state"
-                          options={stateOptions}
-                        />
-                        <p className="text-xs text-muted-foreground">Required for state tax calculations</p>
-                      </>
-                    ) : (
-                      renderViewField('State', profile.state || '-')
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    {editState.profile ? (
-                      <>
-                        <Label className="text-sm font-medium text-foreground">
-                          Filing Status <span className="text-destructive">*</span>
-                        </Label>
-                        <SimpleSelectWrapper
-                          value={profile.filing_status}
-                          onValueChange={(value) => handleProfileChange({ filing_status: value })}
-                          placeholder="Select filing status"
-                          options={filingStatusOptions}
-                        />
-                        <p className="text-xs text-muted-foreground">Required for tax calculations</p>
-                      </>
-                    ) : (
-                      renderViewField('Filing Status', profile.filing_status || '-')
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    {editState.profile ? (
-                      <>
-                        <Label className="text-sm font-medium text-foreground">
-                          Annual Income <span className="text-destructive">*</span>
-                        </Label>
-                        <SimpleSelectWrapper
-                          value={profile.income}
-                          onValueChange={(value) => handleProfileChange({ income: value })}
-                          placeholder="Select income range"
-                          options={incomeOptions}
-                        />
-                        <p className="text-xs text-muted-foreground">Required for AI analysis</p>
-                      </>
-                    ) : (
-                      renderViewField('Annual Income', profile.income || '-')
-                    )}
-                  </div>
-                </div>
-              </section>
-
-              <section className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <MapPin className="w-5 h-5 text-green-500" />
-                  <h3 className="text-lg font-semibold text-foreground">Mailing Address</h3>
-                </div>
-                <p className="text-xs text-muted-foreground">Used for 1040-ES vouchers and Column Tax filing. Not required for AI analysis.</p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2 md:col-span-2">
-                    {editState.profile ? (
-                      <>
-                        <Label className="text-sm font-medium text-foreground">Street Address</Label>
-                        <Input
-                          value={profile.mailing_address?.street || ''}
-                          onChange={(e) => handleProfileChange({ mailing_address: { ...profile.mailing_address, street: e.target.value } })}
-                          placeholder="123 Main St, Apt 4B"
-                          className="h-12 rounded-lg border-border bg-background"
-                        />
-                      </>
-                    ) : (
-                      renderViewField('Street Address', profile.mailing_address?.street || '-')
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    {editState.profile ? (
-                      <>
-                        <Label className="text-sm font-medium text-foreground">City</Label>
-                        <Input
-                          value={profile.mailing_address?.city || ''}
-                          onChange={(e) => handleProfileChange({ mailing_address: { ...profile.mailing_address, city: e.target.value } })}
-                          placeholder="San Francisco"
-                          className="h-12 rounded-lg border-border bg-background"
-                        />
-                      </>
-                    ) : (
-                      renderViewField('City', profile.mailing_address?.city || '-')
-                    )}
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      {editState.profile ? (
-                        <>
-                          <Label className="text-sm font-medium text-foreground">State</Label>
-                          <Input
-                            value={profile.mailing_address?.state || ''}
-                            onChange={(e) => handleProfileChange({ mailing_address: { ...profile.mailing_address, state: e.target.value } })}
-                            placeholder="CA"
-                            maxLength={2}
-                            className="h-12 rounded-lg border-border bg-background"
-                          />
-                        </>
-                      ) : (
-                        renderViewField('State', profile.mailing_address?.state || '-')
-                      )}
-                    </div>
-                    <div className="space-y-2">
-                      {editState.profile ? (
-                        <>
-                          <Label className="text-sm font-medium text-foreground">ZIP Code</Label>
-                          <Input
-                            value={profile.mailing_address?.zip || ''}
-                            onChange={(e) => handleProfileChange({ mailing_address: { ...profile.mailing_address, zip: e.target.value } })}
-                            placeholder="94102"
-                            maxLength={10}
-                            className="h-12 rounded-lg border-border bg-background"
-                          />
-                        </>
-                      ) : (
-                        renderViewField('ZIP Code', profile.mailing_address?.zip || '-')
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              {/* Save Button */}
-              <div className="flex justify-end gap-3 pt-6 border-t border-border">
-                {editState.profile ? (
-                  <>
-                    <Button
-                      variant="outline"
-                      className="h-11 px-6 rounded-lg"
-                      onClick={() => cancelEditing('profile')}
-                      disabled={isSaving}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      onClick={handleSave}
-                      disabled={!isFormValid || isSaving}
-                      className="h-11 px-6 rounded-lg"
-                    >
-                      {isSaving ? (
-                        <>
-                          <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                          Saving...
-                        </>
-                      ) : (
-                        <>
-                          <Save className="w-5 h-5 mr-2" />
-                          Save Changes
-                        </>
-                      )}
-                    </Button>
-                  </>
-                ) : (
-                  <Button variant="outline" className="h-11 px-6 rounded-lg" onClick={onBack}>
-                    Close
-                  </Button>
-                )}
+            {/* Business Details */}
+            <section className="space-y-4">
+              <div className="flex items-center gap-2 pb-2 border-b border-border">
+                <Building2 className="w-4 h-4 text-primary" />
+                <h3 className="text-sm font-semibold text-foreground">Business Details</h3>
               </div>
-              {editState.profile && !isFormValid && (
-                <p className="text-sm text-destructive">
-                  Please fill in all required fields (marked with *) to save your profile.
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <SettingsField label="Business Purpose">
+                  <Input
+                    type="text"
+                    value={profile.business_purpose}
+                    onChange={(e) => handleProfileChange({ business_purpose: e.target.value })}
+                    placeholder="e.g., Software consulting"
+                    className="h-10 rounded-lg border-border bg-background"
+                  />
+                </SettingsField>
+                <SettingsField label="Business Start Date">
+                  <Input
+                    type="date"
+                    value={profile.business_start_date}
+                    onChange={(e) => handleProfileChange({ business_start_date: e.target.value })}
+                    className="h-10 rounded-lg border-border bg-background"
+                  />
+                </SettingsField>
+                <SettingsField label="EIN">
+                  <Input
+                    type="text"
+                    value={profile.ein}
+                    onChange={(e) => handleProfileChange({ ein: e.target.value })}
+                    placeholder="XX-XXXXXXX"
+                    className="h-10 rounded-lg border-border bg-background"
+                  />
+                </SettingsField>
+                <SettingsField label="NAICS Code">
+                  <Input
+                    type="text"
+                    value={profile.naics_code}
+                    onChange={(e) => handleProfileChange({ naics_code: e.target.value })}
+                    placeholder="e.g., 541511"
+                    className="h-10 rounded-lg border-border bg-background"
+                  />
+                </SettingsField>
+              </div>
+            </section>
+
+            {/* Mailing Address */}
+            <section className="space-y-4">
+              <div className="flex items-center gap-2 pb-2 border-b border-border">
+                <MapPin className="w-4 h-4 text-primary" />
+                <h3 className="text-sm font-semibold text-foreground">Mailing Address</h3>
+              </div>
+              <div className="grid grid-cols-1 gap-4">
+                <SettingsField label="Street Address">
+                  <Input
+                    type="text"
+                    value={profile.mailing_address.street}
+                    onChange={(e) => handleProfileChange({ mailing_address: { ...profile.mailing_address, street: e.target.value } })}
+                    placeholder="123 Main St"
+                    className="h-10 rounded-lg border-border bg-background"
+                  />
+                </SettingsField>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="col-span-2 md:col-span-1">
+                    <SettingsField label="City">
+                      <Input
+                        type="text"
+                        value={profile.mailing_address.city}
+                        onChange={(e) => handleProfileChange({ mailing_address: { ...profile.mailing_address, city: e.target.value } })}
+                        placeholder="City"
+                        className="h-10 rounded-lg border-border bg-background"
+                      />
+                    </SettingsField>
+                  </div>
+                  <SettingsField label="State">
+                    <Input
+                      type="text"
+                      value={profile.mailing_address.state}
+                      onChange={(e) => handleProfileChange({ mailing_address: { ...profile.mailing_address, state: e.target.value } })}
+                      placeholder="CA"
+                      className="h-10 rounded-lg border-border bg-background"
+                    />
+                  </SettingsField>
+                  <SettingsField label="Zip">
+                    <Input
+                      type="text"
+                      value={profile.mailing_address.zip}
+                      onChange={(e) => handleProfileChange({ mailing_address: { ...profile.mailing_address, zip: e.target.value } })}
+                      placeholder="90210"
+                      className="h-10 rounded-lg border-border bg-background"
+                    />
+                  </SettingsField>
+                </div>
+              </div>
+            </section>
+          </div>
+        )}
+
+        {/* ============= TAB 2: Tax Settings ============= */}
+        {activeTab === 'tax' && (
+          <div className="space-y-6">
+            {/* Home Office Deduction */}
+            <section className="space-y-4">
+              <div className="flex items-center gap-2 pb-2 border-b border-border">
+                <Home className="w-4 h-4 text-primary" />
+                <h3 className="text-sm font-semibold text-foreground">Home Office Deduction</h3>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <SettingsField label="Home Office Sqft">
+                  <Input
+                    type="number"
+                    value={profile.home_office_sqft ?? ''}
+                    onChange={(e) => handleProfileChange({ home_office_sqft: e.target.value ? Number(e.target.value) : undefined })}
+                    placeholder="0"
+                    className="h-10 rounded-lg border-border bg-background"
+                  />
+                </SettingsField>
+                <SettingsField label="Total Home Sqft">
+                  <Input
+                    type="number"
+                    value={profile.total_home_sqft ?? ''}
+                    onChange={(e) => handleProfileChange({ total_home_sqft: e.target.value ? Number(e.target.value) : undefined })}
+                    placeholder="0"
+                    className="h-10 rounded-lg border-border bg-background"
+                  />
+                </SettingsField>
+                <SettingsField label="Home Office Method">
+                  <SimpleSelectWrapper
+                    value={profile.home_office_method}
+                    onValueChange={(value) => handleProfileChange({ home_office_method: value })}
+                    placeholder="Select method"
+                    options={[
+                      { value: 'simplified', label: 'Simplified $5/sqft' },
+                      { value: 'actual', label: 'Actual Expenses' }
+                    ]}
+                  />
+                </SettingsField>
+              </div>
+            </section>
+
+            {/* Vehicle Deduction */}
+            <section className="space-y-4">
+              <div className="flex items-center gap-2 pb-2 border-b border-border">
+                <Car className="w-4 h-4 text-primary" />
+                <h3 className="text-sm font-semibold text-foreground">Vehicle Deduction</h3>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <SettingsField label="Vehicle Business Use %" hint="0-100">
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={profile.vehicle_business_use_percentage ?? ''}
+                    onChange={(e) => handleProfileChange({ vehicle_business_use_percentage: e.target.value ? Number(e.target.value) : undefined })}
+                    placeholder="0"
+                    className="h-10 rounded-lg border-border bg-background"
+                  />
+                </SettingsField>
+                <SettingsField label="Vehicle Deduction Method">
+                  <SimpleSelectWrapper
+                    value={profile.vehicle_deduction_method}
+                    onValueChange={(value) => handleProfileChange({ vehicle_deduction_method: value })}
+                    placeholder="Select method"
+                    options={[
+                      { value: 'standard_mileage', label: 'Standard Mileage' },
+                      { value: 'actual_expense', label: 'Actual Expense' }
+                    ]}
+                  />
+                </SettingsField>
+              </div>
+            </section>
+
+            {/* Tax Preferences */}
+            <section className="space-y-4">
+              <div className="flex items-center gap-2 pb-2 border-b border-border">
+                <FileText className="w-4 h-4 text-primary" />
+                <h3 className="text-sm font-semibold text-foreground">Tax Preferences</h3>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <SettingsField label="Itemization Status">
+                  <SimpleSelectWrapper
+                    value={profile.itemization_status}
+                    onValueChange={(value) => handleProfileChange({ itemization_status: value })}
+                    placeholder="Select status"
+                    options={[
+                      { value: 'standard', label: 'Standard Deduction' },
+                      { value: 'itemized', label: 'Itemized Deductions' }
+                    ]}
+                  />
+                </SettingsField>
+                <SettingsField label="Prior Year Total Tax" hint="From last year's return">
+                  <div className="relative">
+                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      type="number"
+                      value={profile.prior_year_tax ?? ''}
+                      onChange={(e) => handleProfileChange({ prior_year_tax: e.target.value ? Number(e.target.value) : undefined })}
+                      placeholder="0"
+                      className="h-10 rounded-lg border-border bg-background pl-9"
+                    />
+                  </div>
+                </SettingsField>
+                <SettingsField label="Tax Bracket Override %" hint="Optional, 0-100">
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={profile.tax_bracket ?? ''}
+                    onChange={(e) => handleProfileChange({ tax_bracket: e.target.value ? Number(e.target.value) : undefined })}
+                    placeholder="Auto-calculated"
+                    className="h-10 rounded-lg border-border bg-background"
+                  />
+                </SettingsField>
+              </div>
+            </section>
+
+            {/* Above-the-Line Deductions */}
+            <section className="space-y-4">
+              <div className="flex items-center gap-2 pb-2 border-b border-border">
+                <Receipt className="w-4 h-4 text-primary" />
+                <h3 className="text-sm font-semibold text-foreground">Above-the-Line Deductions</h3>
+              </div>
+              <div className="p-3 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg flex items-start gap-2">
+                <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
+                <p className="text-xs text-blue-800 dark:text-blue-200">
+                  These deductions reduce your adjusted gross income (AGI) and are available whether you itemize or take the standard deduction.
                 </p>
-              )}
-            </div>
-          </Card>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <SettingsField label="Health Insurance Premiums">
+                  <div className="relative">
+                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      type="number"
+                      value={profile.health_insurance_premiums ?? ''}
+                      onChange={(e) => handleProfileChange({ health_insurance_premiums: e.target.value ? Number(e.target.value) : undefined })}
+                      placeholder="0"
+                      className="h-10 rounded-lg border-border bg-background pl-9"
+                    />
+                  </div>
+                </SettingsField>
+                <SettingsField label="SEP-IRA Contribution">
+                  <div className="relative">
+                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      type="number"
+                      value={profile.sep_ira_contribution ?? ''}
+                      onChange={(e) => handleProfileChange({ sep_ira_contribution: e.target.value ? Number(e.target.value) : undefined })}
+                      placeholder="0"
+                      className="h-10 rounded-lg border-border bg-background pl-9"
+                    />
+                  </div>
+                </SettingsField>
+                <SettingsField label="Solo 401(k) Contribution">
+                  <div className="relative">
+                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      type="number"
+                      value={profile.solo_401k_contribution ?? ''}
+                      onChange={(e) => handleProfileChange({ solo_401k_contribution: e.target.value ? Number(e.target.value) : undefined })}
+                      placeholder="0"
+                      className="h-10 rounded-lg border-border bg-background pl-9"
+                    />
+                  </div>
+                </SettingsField>
+                <SettingsField label="HSA Contribution">
+                  <div className="relative">
+                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      type="number"
+                      value={profile.hsa_contribution ?? ''}
+                      onChange={(e) => handleProfileChange({ hsa_contribution: e.target.value ? Number(e.target.value) : undefined })}
+                      placeholder="0"
+                      className="h-10 rounded-lg border-border bg-background pl-9"
+                    />
+                  </div>
+                </SettingsField>
+                <SettingsField label="SIMPLE IRA Contribution">
+                  <div className="relative">
+                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      type="number"
+                      value={profile.simple_ira_contribution ?? ''}
+                      onChange={(e) => handleProfileChange({ simple_ira_contribution: e.target.value ? Number(e.target.value) : undefined })}
+                      placeholder="0"
+                      className="h-10 rounded-lg border-border bg-background pl-9"
+                    />
+                  </div>
+                </SettingsField>
+              </div>
+            </section>
+          </div>
         )}
 
-        {/* Tax Settings Tab */}
-        {activeTab === 'taxSettings' && (
-          <Card className="p-8 bg-card border border-border shadow-lg">
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6 mb-8">
-              <div className="flex items-center gap-4">
-                <div className="w-16 h-16 md:w-20 md:h-20 rounded-xl bg-purple-500/90 flex items-center justify-center">
-                  <FileText className="w-10 h-10 text-white" />
-                </div>
-                <div>
-                  <h2 className="text-2xl font-semibold text-foreground">Tax Settings</h2>
-                  <p className="text-sm text-muted-foreground">Configure your tax preferences and deduction methods</p>
-                </div>
+        {/* ============= TAB 3: Account ============= */}
+        {activeTab === 'account' && (
+          <div className="space-y-6">
+            {/* Bank Connections */}
+            <section className="space-y-4">
+              <div className="flex items-center gap-2 pb-2 border-b border-border">
+                <Landmark className="w-4 h-4 text-primary" />
+                <h3 className="text-sm font-semibold text-foreground">Bank Connections</h3>
               </div>
-              {!editState.taxSettings && (
-                <Button
-                  variant="outline"
-                  className="h-11 rounded-lg border-border"
-                  onClick={() => startEditing('taxSettings')}
-                >
-                  Edit Tax Settings
-                </Button>
-              )}
-            </div>
-
-            <div className="space-y-8">
-              <section className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <FileText className="w-5 h-5 text-purple-500" />
-                  <h3 className="text-lg font-semibold text-foreground">Home Office Deduction</h3>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    {editState.taxSettings ? (
-                      <>
-                        <Label className="text-sm font-medium text-foreground">
-                          Home Office Square Footage <span className="text-destructive">*</span>
-                        </Label>
-                        <Input
-                          type="number"
-                          value={profile.home_office_sqft ?? ''}
-                          onChange={(e) => handleProfileChange({ home_office_sqft: e.target.value ? parseInt(e.target.value, 10) : undefined })}
-                          placeholder="e.g., 150"
-                          className="h-12 rounded-lg border-border bg-background"
-                          required
-                        />
-                        <p className="text-xs text-muted-foreground">Required if you have a home office</p>
-                      </>
-                    ) : (
-                      renderViewField('Home Office Square Footage', profile.home_office_sqft ?? '-')
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    {editState.taxSettings ? (
-                      <>
-                        <Label className="text-sm font-medium text-foreground">
-                          Total Home Square Footage <span className="text-destructive">*</span>
-                        </Label>
-                        <Input
-                          type="number"
-                          value={profile.total_home_sqft ?? ''}
-                          onChange={(e) => handleProfileChange({ total_home_sqft: e.target.value ? parseInt(e.target.value, 10) : undefined })}
-                          placeholder="e.g., 2000"
-                          className="h-12 rounded-lg border-border bg-background"
-                          required
-                        />
-                        <p className="text-xs text-muted-foreground">Required for home office calculation</p>
-                      </>
-                    ) : (
-                      renderViewField('Total Home Square Footage', profile.total_home_sqft ?? '-')
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    {editState.taxSettings ? (
-                      <>
-                        <Label className="text-sm font-medium text-foreground">
-                          Home Office Method <span className="text-destructive">*</span>
-                        </Label>
-                        <SimpleSelectWrapper
-                          value={profile.home_office_method}
-                          onValueChange={(value) => handleProfileChange({ home_office_method: value })}
-                          placeholder="Select method"
-                          options={[
-                            { value: 'simplified', label: 'Simplified Method ($5/sq ft)' },
-                            { value: 'actual', label: 'Actual Expenses' }
-                          ]}
-                        />
-                        <p className="text-xs text-muted-foreground">Choose your deduction method</p>
-                      </>
-                    ) : (
-                      renderViewField(
-                        'Home Office Method',
-                        profile.home_office_method
-                          ? profile.home_office_method === 'simplified'
-                            ? 'Simplified Method'
-                            : 'Actual Expenses'
-                          : '-'
-                      )
-                    )}
-                  </div>
-                </div>
-              </section>
-
-              <section className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <FileText className="w-5 h-5 text-purple-500" />
-                  <h3 className="text-lg font-semibold text-foreground">Vehicle Deduction</h3>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    {editState.taxSettings ? (
-                      <>
-                        <Label className="text-sm font-medium text-foreground">
-                          Vehicle Business Use % <span className="text-destructive">*</span>
-                        </Label>
-                        <Input
-                          type="number"
-                          min={0}
-                          max={100}
-                          value={profile.vehicle_business_use_percentage ?? ''}
-                          onChange={(e) => handleProfileChange({
-                            vehicle_business_use_percentage: e.target.value ? parseInt(e.target.value, 10) : undefined
-                          })}
-                          placeholder="e.g., 75"
-                          className="h-12 rounded-lg border-border bg-background"
-                          required
-                        />
-                        <p className="text-xs text-muted-foreground">Required if you use a vehicle for business</p>
-                      </>
-                    ) : (
-                      renderViewField(
-                        'Vehicle Business Use %',
-                        profile.vehicle_business_use_percentage !== undefined && profile.vehicle_business_use_percentage !== null
-                          ? `${profile.vehicle_business_use_percentage}%`
-                          : '-'
-                      )
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    {editState.taxSettings ? (
-                      <>
-                        <Label className="text-sm font-medium text-foreground">
-                          Vehicle Deduction Method <span className="text-destructive">*</span>
-                        </Label>
-                        <SimpleSelectWrapper
-                          value={profile.vehicle_deduction_method}
-                          onValueChange={(value) => handleProfileChange({ vehicle_deduction_method: value })}
-                          placeholder="Select method"
-                          options={[
-                            { value: 'standard_mileage', label: 'Standard Mileage Rate' },
-                            { value: 'actual_expense', label: 'Actual Expenses' }
-                          ]}
-                        />
-                        <p className="text-xs text-muted-foreground">Choose your deduction method</p>
-                      </>
-                    ) : (
-                      renderViewField(
-                        'Vehicle Deduction Method',
-                        profile.vehicle_deduction_method
-                          ? profile.vehicle_deduction_method === 'standard_mileage'
-                            ? 'Standard Mileage Rate'
-                            : 'Actual Expenses'
-                          : '-'
-                      )
-                    )}
-                  </div>
-                </div>
-              </section>
-
-              <section className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <FileText className="w-5 h-5 text-purple-500" />
-                  <h3 className="text-lg font-semibold text-foreground">Tax Preferences</h3>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    {editState.taxSettings ? (
-                      <>
-                        <Label className="text-sm font-medium text-foreground">
-                          Itemization Status <span className="text-destructive">*</span>
-                        </Label>
-                        <SimpleSelectWrapper
-                          value={profile.itemization_status}
-                          onValueChange={(value) => handleProfileChange({ itemization_status: value })}
-                          placeholder="Select itemization status"
-                          options={[
-                            { value: 'itemize', label: 'I itemize deductions' },
-                            { value: 'standard', label: 'I take standard deduction' },
-                            { value: 'unsure', label: 'I\'m not sure' }
-                          ]}
-                        />
-                        <p className="text-xs text-muted-foreground">Required for tax calculations</p>
-                      </>
-                    ) : (
-                      renderViewField(
-                        'Itemization Status',
-                        profile.itemization_status
-                          ? profile.itemization_status === 'itemize'
-                            ? 'I itemize deductions'
-                            : profile.itemization_status === 'standard'
-                              ? 'I take standard deduction'
-                              : 'I\'m not sure'
-                          : '-'
-                      )
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    {editState.taxSettings ? (
-                      <>
-                        <Label className="text-sm font-medium text-foreground">
-                          Prior Year Total Tax
-                        </Label>
-                        <Input
-                          type="number"
-                          min={0}
-                          value={profile.prior_year_tax ?? ''}
-                          onChange={(e) => handleProfileChange({ prior_year_tax: e.target.value ? parseFloat(e.target.value) : undefined })}
-                          placeholder="e.g., 8500"
-                          className="h-12 rounded-lg border-border bg-background"
-                        />
-                        <p className="text-xs text-muted-foreground">From your prior year return (line 24 of Form 1040). Used for quarterly estimate safe harbor.</p>
-                      </>
-                    ) : (
-                      renderViewField(
-                        'Prior Year Total Tax',
-                        profile.prior_year_tax != null
-                          ? `$${profile.prior_year_tax.toLocaleString()}`
-                          : '-'
-                      )
-                    )}
-                  </div>
-                </div>
-              </section>
-
-              {/* Above-the-Line Deductions */}
-              <section className="space-y-4">
-                <div>
-                  <h3 className="text-base font-semibold text-foreground">Above-the-Line Deductions</h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">These reduce your AGI and flow into your quarterly tax estimates and Schedule SE calculation.</p>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    {editState.taxSettings ? (
-                      <>
-                        <Label className="text-sm font-medium text-foreground">Self-Employed Health Insurance Premiums</Label>
-                        <Input
-                          type="number" min={0}
-                          value={profile.health_insurance_premiums ?? ''}
-                          onChange={(e) => handleProfileChange({ health_insurance_premiums: e.target.value ? parseFloat(e.target.value) : undefined })}
-                          placeholder="e.g., 7200"
-                          className="h-12 rounded-lg border-border bg-background"
-                        />
-                        <p className="text-xs text-muted-foreground">Annual premiums for medical/dental/vision paid out of pocket. Schedule 1 Line 17.</p>
-                      </>
-                    ) : (
-                      renderViewField('Health Insurance Premiums', profile.health_insurance_premiums != null ? `$${profile.health_insurance_premiums.toLocaleString()}` : '-')
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    {editState.taxSettings ? (
-                      <>
-                        <Label className="text-sm font-medium text-foreground">SEP-IRA Contribution</Label>
-                        <Input
-                          type="number" min={0}
-                          value={profile.sep_ira_contribution ?? ''}
-                          onChange={(e) => handleProfileChange({ sep_ira_contribution: e.target.value ? parseFloat(e.target.value) : undefined })}
-                          placeholder="e.g., 14000"
-                          className="h-12 rounded-lg border-border bg-background"
-                        />
-                        <p className="text-xs text-muted-foreground">Max 25% of net SE income up to $70,000 (2025). Schedule 1 Line 16.</p>
-                      </>
-                    ) : (
-                      renderViewField('SEP-IRA Contribution', profile.sep_ira_contribution != null ? `$${profile.sep_ira_contribution.toLocaleString()}` : '-')
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    {editState.taxSettings ? (
-                      <>
-                        <Label className="text-sm font-medium text-foreground">Solo 401(k) Contribution</Label>
-                        <Input
-                          type="number" min={0}
-                          value={profile.solo_401k_contribution ?? ''}
-                          onChange={(e) => handleProfileChange({ solo_401k_contribution: e.target.value ? parseFloat(e.target.value) : undefined })}
-                          placeholder="e.g., 23500"
-                          className="h-12 rounded-lg border-border bg-background"
-                        />
-                        <p className="text-xs text-muted-foreground">Employee deferral up to $23,500 + employer portion (2025). Schedule 1 Line 16.</p>
-                      </>
-                    ) : (
-                      renderViewField('Solo 401(k) Contribution', profile.solo_401k_contribution != null ? `$${profile.solo_401k_contribution.toLocaleString()}` : '-')
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    {editState.taxSettings ? (
-                      <>
-                        <Label className="text-sm font-medium text-foreground">HSA Contribution</Label>
-                        <Input
-                          type="number" min={0}
-                          value={profile.hsa_contribution ?? ''}
-                          onChange={(e) => handleProfileChange({ hsa_contribution: e.target.value ? parseFloat(e.target.value) : undefined })}
-                          placeholder="e.g., 4300"
-                          className="h-12 rounded-lg border-border bg-background"
-                        />
-                        <p className="text-xs text-muted-foreground">2025 limits: $4,300 self-only / $8,550 family. Schedule 1 Line 13.</p>
-                      </>
-                    ) : (
-                      renderViewField('HSA Contribution', profile.hsa_contribution != null ? `$${profile.hsa_contribution.toLocaleString()}` : '-')
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    {editState.taxSettings ? (
-                      <>
-                        <Label className="text-sm font-medium text-foreground">W-2 Federal Tax Withheld</Label>
-                        <Input
-                          type="number" min={0}
-                          value={profile.w2_federal_withheld ?? ''}
-                          onChange={(e) => handleProfileChange({ w2_federal_withheld: e.target.value ? parseFloat(e.target.value) : undefined })}
-                          placeholder="e.g., 8500"
-                          className="h-12 rounded-lg border-border bg-background"
-                        />
-                        <p className="text-xs text-muted-foreground">Box 2 of your W-2. Already withheld by employer - reduces your quarterly payment obligations.</p>
-                      </>
-                    ) : (
-                      renderViewField('W-2 Federal Tax Withheld', profile.w2_federal_withheld != null ? `$${profile.w2_federal_withheld.toLocaleString()}` : '-')
-                    )}
-                  </div>
-                </div>
-              </section>
-
-              <div className="flex justify-end gap-3 pt-6 border-t border-border">
-                {editState.taxSettings ? (
-                  <>
-                    <Button
-                      variant="outline"
-                      className="h-11 px-6 rounded-lg"
-                      onClick={() => cancelEditing('taxSettings')}
-                      disabled={isSaving}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      onClick={handleSave}
-                      disabled={isSaving}
-                      className="h-11 px-6 rounded-lg"
-                    >
-                      {isSaving ? (
-                        <>
-                          <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                          Saving...
-                        </>
-                      ) : (
-                        <>
-                          <Save className="w-5 h-5 mr-2" />
-                          Save Changes
-                        </>
-                      )}
-                    </Button>
-                  </>
-                ) : (
-                  <Button variant="outline" className="h-11 px-6 rounded-lg" onClick={onBack}>
-                    Close
-                  </Button>
-                )}
-              </div>
-            </div>
-          </Card>
-        )}
-
-        {/* Business Details Tab */}
-        {activeTab === 'businessDetails' && (
-          <Card className="p-8 bg-card border border-border shadow-lg">
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6 mb-8">
-              <div className="flex items-center gap-4">
-                <div className="w-16 h-16 md:w-20 md:h-20 rounded-xl bg-orange-500/90 flex items-center justify-center">
-                  <Briefcase className="w-10 h-10 text-white" />
-                </div>
-                <div>
-                  <h2 className="text-2xl font-semibold text-foreground">Business Details</h2>
-                  <p className="text-sm text-muted-foreground">Configure your business structure and income information</p>
-                </div>
-              </div>
-              {!editState.businessDetails && (
-                <Button
-                  variant="outline"
-                  className="h-11 rounded-lg border-border"
-                  onClick={() => startEditing('businessDetails')}
-                >
-                  Edit Business Details
-                </Button>
-              )}
-            </div>
-
-            <div className="space-y-8">
-              <section className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <Briefcase className="w-5 h-5 text-orange-500" />
-                  <h3 className="text-lg font-semibold text-foreground">Business Information</h3>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    {editState.businessDetails ? (
-                      <>
-                        <Label className="text-sm font-medium text-foreground">Business Purpose</Label>
-                        <Input
-                          type="text"
-                          value={profile.business_purpose || ''}
-                          onChange={(e) => handleProfileChange({ business_purpose: e.target.value })}
-                          placeholder="Describe your business"
-                          className="h-12 rounded-lg border-border bg-background"
-                        />
-                        <p className="text-xs text-muted-foreground">Helps AI understand your business context</p>
-                      </>
-                    ) : (
-                      renderViewField('Business Purpose', profile.business_purpose || '-')
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    {editState.businessDetails ? (
-                      <>
-                        <Label className="text-sm font-medium text-foreground">Business Start Date</Label>
-                        <Input
-                          type="date"
-                          value={profile.business_start_date || ''}
-                          onChange={(e) => handleProfileChange({ business_start_date: e.target.value })}
-                          className="h-12 rounded-lg border-border bg-background"
-                        />
-                        <p className="text-xs text-muted-foreground">When did you start your business?</p>
-                      </>
-                    ) : (
-                      renderViewField('Business Start Date', formatDate(profile.business_start_date))
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    {editState.businessDetails ? (
-                      <>
-                        <Label className="text-sm font-medium text-foreground">EIN (Optional)</Label>
-                        <Input
-                          type="text"
-                          value={profile.ein || ''}
-                          onChange={(e) => handleProfileChange({ ein: e.target.value })}
-                          placeholder="XX-XXXXXXX"
-                          className="h-12 rounded-lg border-border bg-background"
-                        />
-                        <p className="text-xs text-muted-foreground">Employer Identification Number</p>
-                      </>
-                    ) : (
-                      renderViewField('EIN', profile.ein || '-')
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    {editState.businessDetails ? (
-                      <>
-                        <Label className="text-sm font-medium text-foreground">NAICS Code (Optional)</Label>
-                        <Input
-                          type="text"
-                          value={profile.naics_code || ''}
-                          onChange={(e) => handleProfileChange({ naics_code: e.target.value })}
-                          placeholder="e.g., 541511"
-                          className="h-12 rounded-lg border-border bg-background"
-                        />
-                        <p className="text-xs text-muted-foreground">North American Industry Classification System</p>
-                      </>
-                    ) : (
-                      renderViewField('NAICS Code', profile.naics_code || '-')
-                    )}
-                  </div>
-                </div>
-              </section>
-
-              <section className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <DollarSign className="w-5 h-5 text-orange-500" />
-                  <h3 className="text-lg font-semibold text-foreground">Income Information</h3>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    {editState.businessDetails ? (
-                      <>
-                        <Label className="text-sm font-medium text-foreground">W-2 Income (Annual)</Label>
-                        <Input
-                          type="number"
-                          value={profile.w2_income ?? ''}
-                          onChange={(e) => handleProfileChange({ w2_income: e.target.value ? parseInt(e.target.value, 10) : undefined })}
-                          placeholder="e.g., 50000"
-                          className="h-12 rounded-lg border-border bg-background"
-                        />
-                        <p className="text-xs text-muted-foreground">Income from employment (W-2)</p>
-                      </>
-                    ) : (
-                      renderViewField('W-2 Income', formatCurrency(profile.w2_income))
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    {editState.businessDetails ? (
-                      <>
-                        <Label className="text-sm font-medium text-foreground">Business Income (Annual)</Label>
-                        <Input
-                          type="number"
-                          value={profile.business_income ?? ''}
-                          onChange={(e) => handleProfileChange({ business_income: e.target.value ? parseInt(e.target.value, 10) : undefined })}
-                          placeholder="e.g., 30000"
-                          className="h-12 rounded-lg border-border bg-background"
-                        />
-                        <p className="text-xs text-muted-foreground">Income from business activities</p>
-                      </>
-                    ) : (
-                      renderViewField('Business Income', formatCurrency(profile.business_income))
-                    )}
-                  </div>
-                </div>
-              </section>
-
-              <div className="flex justify-end gap-3 pt-6 border-t border-border">
-                {editState.businessDetails ? (
-                  <>
-                    <Button
-                      variant="outline"
-                      className="h-11 px-6 rounded-lg"
-                      onClick={() => cancelEditing('businessDetails')}
-                      disabled={isSaving}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      onClick={handleSave}
-                      disabled={isSaving}
-                      className="h-11 px-6 rounded-lg"
-                    >
-                      {isSaving ? (
-                        <>
-                          <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                          Saving...
-                        </>
-                      ) : (
-                        <>
-                          <Save className="w-5 h-5 mr-2" />
-                          Save Changes
-                        </>
-                      )}
-                    </Button>
-                  </>
-                ) : (
-                  <Button variant="outline" className="h-11 px-6 rounded-lg" onClick={onBack}>
-                    Close
-                  </Button>
-                )}
-              </div>
-            </div>
-          </Card>
-        )}
-
-        {/* Payment Tab */}
-        {activeTab === 'payment' && (
-          <PaymentSettingsTab user={user} />
-        )}
-
-        {/* Advanced Settings Tab */}
-        {activeTab === 'advancedSettings' && (
-          <Card className="p-8 bg-card border border-border shadow-lg">
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6 mb-8">
-              <div className="flex items-center gap-4">
-                <div className="w-16 h-16 md:w-20 md:h-20 rounded-xl bg-indigo-500/90 flex items-center justify-center">
-                  <Shield className="w-10 h-10 text-white" />
-                </div>
-                <div>
-                  <h2 className="text-2xl font-semibold text-foreground">Advanced Settings</h2>
-                  <p className="text-sm text-muted-foreground">Optional advanced tax preferences and professional settings</p>
-                </div>
-              </div>
-              {!editState.advancedSettings && (
-                <Button
-                  variant="outline"
-                  className="h-11 rounded-lg border-border"
-                  onClick={() => startEditing('advancedSettings')}
-                >
-                  Edit Advanced Settings
-                </Button>
-              )}
-            </div>
-
-            <div className="space-y-8">
-              <section className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <Shield className="w-5 h-5 text-indigo-500" />
-                  <h3 className="text-lg font-semibold text-foreground">Professional Settings</h3>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    {editState.advancedSettings ? (
-                      <>
-                        <Label className="text-sm font-medium text-foreground">Audit History</Label>
-                        <SimpleSelectWrapper
-                          value={profile.audit_history || 'none'}
-                          onValueChange={(value) => handleProfileChange({ audit_history: value })}
-                          placeholder="Select audit history"
-                          options={[
-                            { value: 'none', label: 'No audit history' },
-                            { value: 'minor', label: 'Minor audit (simple questions)' },
-                            { value: 'major', label: 'Major audit (detailed examination)' }
-                          ]}
-                        />
-                        <p className="text-xs text-muted-foreground">Helps AI provide appropriate advice</p>
-                      </>
-                    ) : (
-                      renderViewField(
-                        'Audit History',
-                        profile.audit_history === 'minor'
-                          ? 'Minor audit (simple questions)'
-                          : profile.audit_history === 'major'
-                            ? 'Major audit (detailed examination)'
-                            : 'No audit history'
-                      )
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    {editState.advancedSettings ? (
-                      <>
-                        <Label className="text-sm font-medium text-foreground">Tax Bracket (Optional)</Label>
-                        <Input
-                          type="number"
-                          min={0}
-                          max={100}
-                          value={profile.tax_bracket ?? ''}
-                          onChange={(e) => handleProfileChange({ tax_bracket: e.target.value ? parseInt(e.target.value, 10) : undefined })}
-                          placeholder="e.g., 22"
-                          className="h-12 rounded-lg border-border bg-background"
-                        />
-                        <p className="text-xs text-muted-foreground">Your marginal tax rate percentage</p>
-                      </>
-                    ) : (
-                      renderViewField(
-                        'Tax Bracket',
-                        profile.tax_bracket !== undefined && profile.tax_bracket !== null
-                          ? `${profile.tax_bracket}%`
-                          : '-'
-                      )
-                    )}
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    {editState.advancedSettings ? (
-                      <div className="flex items-center space-x-2">
-                        <input
-                          type="checkbox"
-                          id="tax_professional"
-                          checked={profile.tax_professional || false}
-                          onChange={(e) => handleProfileChange({ tax_professional: e.target.checked })}
-                          className="w-4 h-4 text-indigo-600 border-border rounded focus:ring-indigo-500"
-                        />
-                        <Label htmlFor="tax_professional" className="text-sm font-medium text-foreground">
-                          I use a tax professional
-                        </Label>
-                      </div>
-                    ) : (
-                      renderViewField('Uses Tax Professional', profile.tax_professional ? 'Yes' : 'No')
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    {editState.advancedSettings ? (
-                      <div className="flex items-center space-x-2">
-                        <input
-                          type="checkbox"
-                          id="international_business"
-                          checked={profile.international_business || false}
-                          onChange={(e) => handleProfileChange({ international_business: e.target.checked })}
-                          className="w-4 h-4 text-indigo-600 border-border rounded focus:ring-indigo-500"
-                        />
-                        <Label htmlFor="international_business" className="text-sm font-medium text-foreground">
-                          International business activities
-                        </Label>
-                      </div>
-                    ) : (
-                      renderViewField('International Business Activities', profile.international_business ? 'Yes' : 'No')
-                    )}
-                  </div>
-                </div>
-              </section>
-
-              <section className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <Briefcase className="w-5 h-5 text-indigo-500" />
-                  <h3 className="text-lg font-semibold text-foreground">Business Preferences</h3>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    {editState.advancedSettings ? (
-                      <>
-                        <Label className="text-sm font-medium text-foreground">Documentation Habits</Label>
-                        <SimpleSelectWrapper
-                          value={profile.documentation_habits || 'moderate'}
-                          onValueChange={(value) => handleProfileChange({ documentation_habits: value })}
-                          placeholder="Select documentation habits"
-                          options={[
-                            { value: 'minimal', label: 'Minimal (basic receipts)' },
-                            { value: 'moderate', label: 'Moderate (organized records)' },
-                            { value: 'detailed', label: 'Detailed (comprehensive documentation)' }
-                          ]}
-                        />
-                        <p className="text-xs text-muted-foreground">How detailed are your expense records?</p>
-                      </>
-                    ) : (
-                      renderViewField(
-                        'Documentation Habits',
-                        profile.documentation_habits === 'minimal'
-                          ? 'Minimal (basic receipts)'
-                          : profile.documentation_habits === 'detailed'
-                            ? 'Detailed (comprehensive documentation)'
-                            : 'Moderate (organized records)'
-                      )
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    {editState.advancedSettings ? (
-                      <>
-                        <Label className="text-sm font-medium text-foreground">Business Seasonality</Label>
-                        <SimpleSelectWrapper
-                          value={profile.business_seasonality || 'year_round'}
-                          onValueChange={(value) => handleProfileChange({ business_seasonality: value })}
-                          placeholder="Select business pattern"
-                          options={[
-                            { value: 'year_round', label: 'Year-round business' },
-                            { value: 'seasonal', label: 'Seasonal business' },
-                            { value: 'project_based', label: 'Project-based work' }
-                          ]}
-                        />
-                        <p className="text-xs text-muted-foreground">How does your business operate throughout the year?</p>
-                      </>
-                    ) : (
-                      renderViewField(
-                        'Business Seasonality',
-                        profile.business_seasonality === 'seasonal'
-                          ? 'Seasonal business'
-                          : profile.business_seasonality === 'project_based'
-                            ? 'Project-based work'
-                            : 'Year-round business'
-                      )
-                    )}
-                  </div>
-                </div>
-              </section>
-
-              <div className="flex justify-end gap-3 pt-6 border-t border-border">
-                {editState.advancedSettings ? (
-                  <>
-                    <Button
-                      variant="outline"
-                      className="h-11 px-6 rounded-lg"
-                      onClick={() => cancelEditing('advancedSettings')}
-                      disabled={isSaving}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      onClick={handleSave}
-                      disabled={isSaving}
-                      className="h-11 px-6 rounded-lg"
-                    >
-                      {isSaving ? (
-                        <>
-                          <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                          Saving...
-                        </>
-                      ) : (
-                        <>
-                          <Save className="w-5 h-5 mr-2" />
-                          Save Changes
-                        </>
-                      )}
-                    </Button>
-                  </>
-                ) : (
-                  <Button variant="outline" className="h-11 px-6 rounded-lg" onClick={onBack}>
-                    Close
-                  </Button>
-                )}
-              </div>
-            </div>
-          </Card>
-        )}
-
-        {/* Bank Account Management & Data Rights - Only in Profile Tab */}
-        {activeTab === 'profile' && (
-          <div className="space-y-6 mt-6">
-            {/* Bank Account Management */}
-            <Card className="p-4 sm:p-6 bg-card border border-border shadow-lg">
-              <h3 className="text-base sm:text-lg font-medium text-foreground mb-3 flex items-center gap-2">
-                <DollarSign className="w-5 h-5 text-primary" />
-                Bank Account Management
-              </h3>
-              {/* Buttons in one row */}
-              <div className="grid grid-cols-2 gap-2 sm:gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 <Button
                   type="button"
                   onClick={() => {
@@ -2220,126 +1295,128 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                       window.location.href = '/protected/plaid-link?from=settings';
                     }
                   }}
-                  size="sm"
-                  className="h-10 sm:h-11 bg-primary hover:bg-primary/90 text-white rounded-lg flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 no-tap-highlight"
+                  className="h-10 bg-primary hover:bg-primary/90 text-white rounded-lg flex items-center justify-center gap-2"
                 >
-                  <DollarSign className="w-4 h-4 flex-shrink-0" />
-                  <span className="text-xs sm:text-sm truncate">Connect Bank</span>
+                  <Link2 className="w-4 h-4" />
+                  <span className="text-sm">Connect Bank</span>
                 </Button>
                 <Button
                   type="button"
                   onClick={() => onNavigate('plaid')}
                   variant="outline"
-                  size="sm"
-                  className="h-10 sm:h-11 justify-center gap-1.5 sm:gap-2 rounded-lg px-2 sm:px-4 no-tap-highlight text-foreground border-foreground/50 hover:bg-foreground/10 hover:border-foreground/70"
+                  className="h-10 rounded-lg flex items-center justify-center gap-2"
                 >
-                  <DollarSign className="w-4 h-4 flex-shrink-0" />
-                  <span className="text-xs sm:text-sm truncate">Manage Accounts</span>
+                  <DollarSign className="w-4 h-4" />
+                  <span className="text-sm">Manage Accounts</span>
                 </Button>
               </div>
-            </Card>
+            </section>
 
-            {/* Data Rights & Privacy */}
-            <Card className="p-4 sm:p-6 bg-card border border-border shadow-lg">
-              <h3 className="text-base sm:text-lg font-medium text-foreground mb-3 flex items-center gap-2">
-                <Shield className="w-5 h-5 text-primary" />
-                Data Rights & Privacy
-              </h3>
+            {/* Subscription */}
+            <section className="space-y-4">
+              <div className="flex items-center gap-2 pb-2 border-b border-border">
+                <CreditCard className="w-4 h-4 text-primary" />
+                <h3 className="text-sm font-semibold text-foreground">Subscription</h3>
+              </div>
+              <PaymentSettingsTab user={user} />
+            </section>
+
+            {/* Data & Privacy */}
+            <section className="space-y-4">
+              <div className="flex items-center gap-2 pb-2 border-b border-border">
+                <Shield className="w-4 h-4 text-primary" />
+                <h3 className="text-sm font-semibold text-foreground">Data & Privacy</h3>
+              </div>
               <div className="space-y-3">
-                <div className="text-xs sm:text-sm text-muted-foreground">
-                  <p>You have the right to view, export, and delete your data.</p>
-                </div>
-                {/* Buttons in grid */}
-                <div className="grid grid-cols-2 gap-2">
-                  <Button
-                    onClick={async () => {
-                      try {
-                        // Check if user can export (rate limiting)
-                        const statusRes = await fetch('/api/user/export');
-                        const statusData = await statusRes.json();
+                <Button
+                  onClick={async () => {
+                    try {
+                      // Check if user can export (rate limiting)
+                      const statusRes = await fetch('/api/user/export');
+                      const statusData = await statusRes.json();
 
-                        if (!statusData.canExport) {
-                          toast.warning(`Export limit reached. Please wait ${statusData.timeRemaining} minutes.`);
-                          return;
-                        }
-
-                        // Request the export
-                        const res = await fetch('/api/user/export', {
-                          method: 'POST',
-                          headers: {
-                            'Content-Type': 'application/json',
-                          },
-                        });
-
-                        if (res.ok) {
-                          const exportData = await res.json();
-
-                          // Create downloadable files
-                          const timestamp = new Date().toISOString().split('T')[0];
-                          const exportId = exportData.exportId;
-
-                          // Download JSON data
-                          const jsonBlob = new Blob([JSON.stringify(exportData.data.json, null, 2)], { type: 'application/json' });
-                          const jsonUrl = window.URL.createObjectURL(jsonBlob);
-                          const jsonLink = document.createElement('a');
-                          jsonLink.href = jsonUrl;
-                          jsonLink.download = `writeoff-export-${timestamp}-${exportId}.json`;
-                          document.body.appendChild(jsonLink);
-                          jsonLink.click();
-                          jsonLink.remove();
-                          window.URL.revokeObjectURL(jsonUrl);
-
-                          // Download CSV data
-                          const csvBlob = new Blob([exportData.data.csv], { type: 'text/csv' });
-                          const csvUrl = window.URL.createObjectURL(csvBlob);
-                          const csvLink = document.createElement('a');
-                          csvLink.href = csvUrl;
-                          csvLink.download = `writeoff-transactions-${timestamp}-${exportId}.csv`;
-                          document.body.appendChild(csvLink);
-                          csvLink.click();
-                          csvLink.remove();
-                          window.URL.revokeObjectURL(csvUrl);
-
-                          // Download README
-                          const readmeBlob = new Blob([exportData.data.readme], { type: 'text/plain' });
-                          const readmeUrl = window.URL.createObjectURL(readmeBlob);
-                          const readmeLink = document.createElement('a');
-                          readmeLink.href = readmeUrl;
-                          readmeLink.download = `writeoff-export-readme-${timestamp}-${exportId}.txt`;
-                          document.body.appendChild(readmeLink);
-                          readmeLink.click();
-                          readmeLink.remove();
-                          window.URL.revokeObjectURL(readmeUrl);
-
-                          toast.success(`Exported ${exportData.summary.transactions} transactions, ${exportData.summary.accounts} accounts, and ${exportData.summary.receipts} receipts.`);
-                        } else {
-                          const errorData = await res.json();
-                          toast.error(errorData.message || 'Failed to export data.');
-                        }
-                      } catch (err) {
-                        console.error('Export error:', err);
-                        toast.error('Failed to export data.');
+                      if (!statusData.canExport) {
+                        toast.warning(`Export limit reached. Please wait ${statusData.timeRemaining} minutes.`);
+                        return;
                       }
-                    }}
-                    variant="outline"
-                    size="sm"
-                    className="h-10 justify-center gap-1.5 rounded-lg text-xs sm:text-sm no-tap-highlight text-foreground border-foreground/50 hover:bg-foreground/10 hover:border-foreground/70"
-                  >
-                    <FileText className="w-4 h-4 flex-shrink-0" />
-                    <span className="truncate">Export Data</span>
-                  </Button>
-                  <Button
-                    asChild
-                    variant="outline"
-                    size="sm"
-                    className="h-10 justify-center gap-1.5 rounded-lg text-xs sm:text-sm no-tap-highlight text-foreground border-foreground/50 hover:bg-foreground/10 hover:border-foreground/70"
-                  >
-                    <a href="https://my.plaid.com/" target="_blank" rel="noopener noreferrer">
-                      <Shield className="w-4 h-4 flex-shrink-0" />
-                      <span className="truncate">Revoke Plaid</span>
-                    </a>
-                  </Button>
-                </div>
+
+                      // Request the export
+                      const res = await fetch('/api/user/export', {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                        },
+                      });
+
+                      if (res.ok) {
+                        const exportData = await res.json();
+
+                        // Create downloadable files
+                        const timestamp = new Date().toISOString().split('T')[0];
+                        const exportId = exportData.exportId;
+
+                        // Download JSON data
+                        const jsonBlob = new Blob([JSON.stringify(exportData.data.json, null, 2)], { type: 'application/json' });
+                        const jsonUrl = window.URL.createObjectURL(jsonBlob);
+                        const jsonLink = document.createElement('a');
+                        jsonLink.href = jsonUrl;
+                        jsonLink.download = `writeoff-export-${timestamp}-${exportId}.json`;
+                        document.body.appendChild(jsonLink);
+                        jsonLink.click();
+                        jsonLink.remove();
+                        window.URL.revokeObjectURL(jsonUrl);
+
+                        // Download CSV data
+                        const csvBlob = new Blob([exportData.data.csv], { type: 'text/csv' });
+                        const csvUrl = window.URL.createObjectURL(csvBlob);
+                        const csvLink = document.createElement('a');
+                        csvLink.href = csvUrl;
+                        csvLink.download = `writeoff-transactions-${timestamp}-${exportId}.csv`;
+                        document.body.appendChild(csvLink);
+                        csvLink.click();
+                        csvLink.remove();
+                        window.URL.revokeObjectURL(csvUrl);
+
+                        // Download README
+                        const readmeBlob = new Blob([exportData.data.readme], { type: 'text/plain' });
+                        const readmeUrl = window.URL.createObjectURL(readmeBlob);
+                        const readmeLink = document.createElement('a');
+                        readmeLink.href = readmeUrl;
+                        readmeLink.download = `writeoff-export-readme-${timestamp}-${exportId}.txt`;
+                        document.body.appendChild(readmeLink);
+                        readmeLink.click();
+                        readmeLink.remove();
+                        window.URL.revokeObjectURL(readmeUrl);
+
+                        toast.success(`Exported ${exportData.summary.transactions} transactions, ${exportData.summary.accounts} accounts, and ${exportData.summary.receipts} receipts.`);
+                      } else {
+                        const errorData = await res.json();
+                        toast.error(errorData.message || 'Failed to export data.');
+                      }
+                    } catch (err) {
+                      console.error('Export error:', err);
+                      toast.error('Failed to export data.');
+                    }
+                  }}
+                  variant="outline"
+                  className="w-full h-10 justify-center gap-2 rounded-lg"
+                >
+                  <Download className="w-4 h-4" />
+                  Export Data
+                </Button>
+
+                <Button
+                  asChild
+                  variant="outline"
+                  className="w-full h-10 justify-center gap-2 rounded-lg"
+                >
+                  <a href="https://my.plaid.com/" target="_blank" rel="noopener noreferrer">
+                    <Shield className="w-4 h-4" />
+                    Revoke Plaid Access
+                    <ExternalLink className="w-3.5 h-3.5 ml-1" />
+                  </a>
+                </Button>
+
                 <Button
                   onClick={() => {
                     setConfirmDialog({
@@ -2367,59 +1444,30 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     });
                   }}
                   variant="destructive"
-                  size="sm"
-                  className="w-full h-10 justify-center gap-2 rounded-lg text-xs sm:text-sm no-tap-highlight"
+                  className="w-full h-10 justify-center gap-2 rounded-lg"
                 >
-                  <Shield className="w-4 h-4" />
-                  Delete My Account & Data
+                  <Trash2 className="w-4 h-4" />
+                  Delete Account
                 </Button>
               </div>
-            </Card>
-
-            {/* Quick Actions */}
-            <Card className="p-4 sm:p-6 bg-card border border-border shadow-lg">
-              <h3 className="text-base sm:text-lg font-medium text-foreground mb-3 flex items-center gap-2">
-                <FileText className="w-5 h-5 text-primary" />
-                Quick Actions
-              </h3>
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  onClick={() => onNavigate('dashboard')}
-                  variant="outline"
-                  size="sm"
-                  className="h-10 justify-center gap-1.5 text-xs sm:text-sm no-tap-highlight text-foreground border-foreground/50 hover:bg-foreground/10 hover:border-foreground/70"
-                >
-                  <Briefcase className="w-4 h-4" />
-                  <span className="truncate">Dashboard</span>
-                </Button>
-                <Button
-                  onClick={() => onNavigate('transactions')}
-                  variant="outline"
-                  size="sm"
-                  className="h-10 justify-center gap-1.5 text-xs sm:text-sm no-tap-highlight text-foreground border-foreground/50 hover:bg-foreground/10 hover:border-foreground/70"
-                >
-                  <FileText className="w-4 h-4" />
-                  <span className="truncate">Transactions</span>
-                </Button>
-              </div>
-            </Card>
+            </section>
           </div>
         )}
-
       </div>
+
+      {/* Confirmation Dialog */}
+      <ConfirmationDialog
+        open={confirmDialog.open}
+        onOpenChange={(open) => setConfirmDialog(prev => ({ ...prev, open }))}
+        title={confirmDialog.title}
+        description={confirmDialog.description}
+        confirmLabel={confirmDialog.confirmLabel}
+        variant={confirmDialog.variant}
+        onConfirm={() => {
+          setConfirmDialog(prev => ({ ...prev, open: false }));
+          confirmDialog.onConfirm();
+        }}
+      />
     </div>
-    <ConfirmationDialog
-      open={confirmDialog.open}
-      onOpenChange={(open) => setConfirmDialog(prev => ({ ...prev, open }))}
-      title={confirmDialog.title}
-      description={confirmDialog.description}
-      confirmLabel={confirmDialog.confirmLabel}
-      variant={confirmDialog.variant}
-      onConfirm={() => {
-        setConfirmDialog(prev => ({ ...prev, open: false }));
-        confirmDialog.onConfirm();
-      }}
-    />
-  </div>
   );
 };

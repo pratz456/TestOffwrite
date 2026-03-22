@@ -489,63 +489,43 @@ export default function ProtectedPage() {
     // Add current screen to navigation stack before navigating
     setNavigationStack(prev => [...prev, currentScreen]);
 
-    if (screen === 'settings') {
-      setCurrentScreen('settings');
-    } else if (screen === 'dashboard') {
-      // Navigate to dashboard using Next.js router
+    // Screens that navigate via Next.js router (separate pages)
+    if (screen === 'dashboard') {
       router.push('/protected');
-      // Also update the local state immediately for responsive UI
       setCurrentScreen('dashboard');
-    } else if (screen === 'categorize' || screen === 'add-expense') {
+      return;
+    }
+    if (screen === 'transactions') {
+      router.push('/protected/transactions');
+      return;
+    }
+    if (screen === 'reports') {
+      router.push('/protected/reports');
+      return;
+    }
+
+    // Special cases
+    if (screen === 'categorize' || screen === 'add-expense') {
       setEditingTransaction(null);
       setCurrentScreen('add-expense');
-    } else if (screen === 'receipt-upload') {
-      setCurrentScreen('receipt-upload');
-    } else if (screen === 'tax-calendar') {
-      setCurrentScreen('tax-calendar');
-    } else if (screen === 'transactions') {
-      // Navigate to transactions page using Next.js router
-      router.push('/protected/transactions');
-    } else if (screen === 'review-transactions') {
-      router.push('/protected?screen=review-transactions');
-      setCurrentScreen('review-transactions');
-    } else if (screen === 'schedule-c-export') {
-      setCurrentScreen('schedule-c-export');
-    } else if (screen === 'deductions-detail') {
-      setCurrentScreen('deductions-detail');
-    } else if (screen === 'expenses-detail') {
-      setCurrentScreen('expenses-detail');
-    } else if (screen === 'banks-detail') {
-      setCurrentScreen('banks-detail');
-    } else if (screen === 'profit-loss-detail') {
-      setCurrentScreen('profit-loss-detail');
-    } else if (screen === 'categories') {
-      // Navigate to categories page using Next.js router with query parameter
-      router.push('/protected?screen=categories');
-    } else if (screen === 'plaid-link') {
-      setCurrentScreen('plaid-link');
-    } else if (screen === 'plaid') {
-      setCurrentScreen('plaid');
-    } else if (screen === 'transaction-detail') {
-      setCurrentScreen('transaction-detail');
-    } else if (screen === 'reports') {
-      // Navigate to reports page using Next.js router
-      router.push('/protected/reports');
-    } else if (screen === 'settings') {
-      // Navigate to internal settings screen
-      setCurrentScreen('settings');
-    } else if (screen === 'ai-insights') {
-      setCurrentScreen('ai-insights');
-    } else if (screen === 'quarterly-taxes') {
-      setCurrentScreen('quarterly-taxes');
-    } else if (screen === 'tax-form-wizard') {
-      setCurrentScreen('tax-form-wizard');
-    } else if (screen === 'state-tax-calculator') {
-      setCurrentScreen('state-tax-calculator');
-    } else if (screen === 'mobile-actions') {
-      setIsMobileQuickActionsVisible(!isMobileQuickActionsVisible);
+      return;
     }
-    // You can add more screen navigation logic here
+    if (screen === 'mobile-actions') {
+      setIsMobileQuickActionsVisible(!isMobileQuickActionsVisible);
+      return;
+    }
+
+    // All other screens are handled as in-app screen switches.
+    // Update URL for screens that benefit from deep-linking.
+    const deepLinkScreens = [
+      'review-transactions', 'categories', 'income-tracking', 'w2-income',
+      'deductions-entry', 'tax-organizer', 'tax-preview', 'tax-filing-hub',
+      'tax-assistant', 'add-manual-transaction', 'document-import', 'form-8879',
+    ];
+    if (deepLinkScreens.includes(screen)) {
+      router.push(`/protected?screen=${screen}`);
+    }
+    setCurrentScreen(screen as any);
   };
 
   // Handle going back to previous screen

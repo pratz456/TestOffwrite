@@ -85,9 +85,10 @@ interface ActionItemsBannerProps {
     hasMileageTrips?: boolean;
     hasQuarterlyPayments?: boolean;
   };
+  compact?: boolean;
 }
 
-export function ActionItemsBanner({ profile, transactions, onNavigate, options }: ActionItemsBannerProps) {
+export function ActionItemsBanner({ profile, transactions, onNavigate, options, compact }: ActionItemsBannerProps) {
   const userId = profile?.id || profile?.userId || null;
   const dismissedStorageKey = userId ? `writeoff_dismissed_actions_${userId}` : 'writeoff_dismissed_actions_anon';
 
@@ -175,8 +176,32 @@ export function ActionItemsBanner({ profile, transactions, onNavigate, options }
   const style = PRIORITY_STYLES[top.priority];
   const Icon = ICON_MAP[top.icon] || AlertTriangle;
 
+  if (compact) {
+    return (
+      <div className={`rounded-lg border ${style.border} ${style.bg} px-3 py-2 flex items-center gap-2.5 min-w-0`}>
+        <Icon className={`h-4 w-4 shrink-0 ${style.text}`} />
+        <Badge variant={style.badge} className="text-[10px] uppercase tracking-wider shrink-0">
+          {top.priority === 'critical' ? 'Action Required' : top.priority === 'high' ? 'Recommended' : 'Review'}
+        </Badge>
+        <span className="text-xs font-medium text-foreground truncate">{top.title}</span>
+        {remainingCount > 0 && (
+          <span className="text-[10px] text-muted-foreground shrink-0">+{remainingCount} more</span>
+        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => onNavigate(top.screen)}
+          className={`ml-auto shrink-0 h-7 px-2.5 text-[11px] font-medium ${style.text}`}
+        >
+          Review
+          <ArrowRight className="h-3 w-3 ml-1" />
+        </Button>
+      </div>
+    );
+  }
+
   return (
-    <div className={`rounded-xl border ${style.border} ${style.bg} backdrop-blur-sm p-3 sm:p-4 shadow-sm`}>
+    <div className={`rounded-xl border ${style.border} ${style.bg} backdrop-blur-sm p-3 sm:p-4 shadow-sm h-full`}>
       {/* Top item */}
       <div className="flex items-start gap-3.5">
         <div className={`w-9 h-9 rounded-lg ${style.bg} flex items-center justify-center shrink-0`}>

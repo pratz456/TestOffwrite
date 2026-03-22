@@ -121,9 +121,6 @@ export default function DashboardScreen({
     );
   }
 
-  // --- New user empty state (no transactions at all) ---
-  const isNewUser = transactions.length === 0 && !transactionsLoading;
-
   // --- Derived data (unchanged business logic) ---
   const currentDate = new Date();
   const currentMonth = currentDate.getMonth();
@@ -143,12 +140,23 @@ export default function DashboardScreen({
   const deductibleTransactions = transactions.filter(t => t.is_deductible === true);
   const totalDeductions = stats?.totalDeductibleAmount ?? deductibleTransactions.reduce((sum, t) => sum + Math.abs(t.amount || 0), 0);
 
-  // New accurate KPI data
-  const reviewedCount = transactions.filter(t => t.is_deductible === true || t.is_deductible === false).length;
-  const unreviewedTransactions = transactions.filter(t => t.is_deductible === null || t.is_deductible === undefined);
-  const grossReceipts = (profile?.income ? parseFloat(String(profile.income).replace(/[^0-9.]/g, '')) : 0);
-  const scheduleCNetProfit = Math.max(0, grossReceipts - totalDeductions);
-  const aboveLineDeductions = (profile?.health_insurance_premiums || 0) + (profile?.sep_ira_contribution || 0) + (profile?.hsa_contribution || 0);
+  // Plaid convention: positive = expense/debit, negative = income/credit
+  const grossIncome = transactions.reduce((sum, t) => {
+    if (t.amount < 0) return sum + Math.abs(t.amount);
+    return sum;
+  }, 0);
+
+  const totalExpenses = transactions.reduce((sum, t) => {
+    if (t.amount > 0) return sum + t.amount;
+    return sum;
+  }, 0);
+
+  const scheduleCProfit = grossIncome - totalExpenses;
+
+  // SE tax effective rate: 15.3% on 92.35% of net earnings = ~14.13%
+  const SE_TAX_EFFECTIVE_RATE = 15.3 * 0.9235; // ~14.13%
+  const combinedTaxRate = SE_TAX_EFFECTIVE_RATE + estimatedTaxRate;
+  const quarterlyTaxes = Math.max(0, (scheduleCProfit * combinedTaxRate / 100) / 4);
 
   // Category breakdown (unchanged)
   const categoryBreakdown: Record<string, number> = {};
@@ -195,76 +203,35 @@ export default function DashboardScreen({
         />
 
         <div className="max-w-7xl mx-auto px-4 md:px-6 py-3 sm:py-4 space-y-3 sm:space-y-4">
-
-          {/* New user onboarding checklist */}
-          {isNewUser && (
-            <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 sm:p-5">
-              <div className="flex items-start gap-3 mb-4">
-                <div className="w-9 h-9 rounded-lg bg-primary/15 flex items-center justify-center shrink-0">
-                  <span className="text-xl">👋</span>
-                </div>
-                <div>
-                  <h2 className="text-sm font-semibold text-foreground">Welcome to WriteOff - let's get you set up</h2>
-                  <p className="text-xs text-muted-foreground mt-0.5">Complete these 5 steps to start saving on taxes</p>
-                </div>
-              </div>
-              <div className="space-y-2">
-                {[
-                  { step: 1, label: 'Complete your profile', sub: 'Filing status, state, profession', screen: 'settings', done: !!profile?.filing_status },
-                  { step: 2, label: 'Connect your bank', sub: 'Auto-import transactions via Plaid', screen: 'plaid', done: !!profile?.plaid_token },
-                  { step: 3, label: 'Fill the Tax Organizer', sub: 'SSN, address, income, dependents', screen: 'tax-organizer', done: false },
-                  { step: 4, label: 'Review your transactions', sub: 'Confirm which are deductible', screen: 'review-transactions', done: false },
-                  { step: 5, label: 'Preview your taxes', sub: 'Live refund or balance due estimate', screen: 'tax-preview', done: false },
-                ].map(({ step, label, sub, screen, done }) => (
-                  <button
-                    key={step}
-                    type="button"
-                    onClick={() => onNavigate(screen)}
-                    className="w-full flex items-center gap-3 p-3 rounded-lg bg-card border border-border hover:bg-muted/50 transition-colors text-left"
-                  >
-                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${done ? 'bg-emerald-500 text-white' : 'bg-muted text-muted-foreground'}`}>
-                      {done ? '✓' : step}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className={`text-sm font-medium ${done ? 'line-through text-muted-foreground' : 'text-foreground'}`}>{label}</p>
-                      <p className="text-xs text-muted-foreground">{sub}</p>
-                    </div>
-                    <span className="text-muted-foreground text-sm">›</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Proactive Action Items */}
-          <ActionItemsBanner
-            profile={profile}
-            transactions={transactions}
-            onNavigate={onNavigate}
-          />
-
           {/* Row 1: KPI Cards */}
           <KpiGrid
-            grossReceipts={grossReceipts}
-            scheduleCNetProfit={scheduleCNetProfit}
-            w2Wages={profile?.w2_income || 0}
+            scheduleCProfit={scheduleCProfit}
+            grossIncome={grossIncome}
+            totalExpenses={totalExpenses}
             totalDeductions={totalDeductions}
             deductibleCount={deductibleTransactions.length}
-            totalTransactions={transactions.length}
-            reviewedCount={reviewedCount}
-            unreviewedTransactions={unreviewedTransactions}
-            filingStatus={profile?.filing_status || 'single'}
-            aboveLineDeductions={aboveLineDeductions}
-            totalQuarterlyPaid={0}
-            priorYearTax={profile?.prior_year_tax || undefined}
-            onNavigate={onNavigate}
-            loadingTaxSavings={isLoadingTaxSavings}
+            estimatedTaxRate={estimatedTaxRate}
+            quarterlyTaxes={quarterlyTaxes}
           />
 
-          {/* Upgrade card (keep the initial KPI view uncluttered) */}
-          <HistoricalAccessUpgradeCard />
+          {/* Row 2: Action Items + Premium - side-by-side square cards */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
+            <ActionItemsBanner
+              profile={profile}
+              transactions={transactions}
+              onNavigate={onNavigate}
+            />
+            <HistoricalAccessUpgradeCard variant="square" />
+          </div>
 
-          {/* Row 2: Analytics + Optimization - subtle radial glows behind key sections */}
+          {/* Row 3: Quick Actions */}
+          <QuickActionsBar
+            onNavigate={onNavigate}
+            needsReviewCount={needsReviewCount}
+            needsAnalysisCount={needsAnalysisCount}
+          />
+
+          {/* Row 4: Analytics + Optimization */}
           <div className="grid grid-cols-1 lg:grid-cols-10 gap-4">
             <div className="lg:col-span-7 relative">
               <div className="absolute inset-0 rounded-xl bg-[radial-gradient(ellipse_80%_60%_at_50%_0%,hsl(var(--primary)/0.05),transparent)] pointer-events-none" aria-hidden />
@@ -282,7 +249,7 @@ export default function DashboardScreen({
             </div>
           </div>
 
-          {/* Row 3: Categories + Activity */}
+          {/* Row 5: Categories + Activity */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <TopCategoriesCard
               categories={categoryEntries}
@@ -297,19 +264,12 @@ export default function DashboardScreen({
             />
           </div>
 
-          {/* AI Advisory */}
+          {/* Row 6: AI Advisory */}
           <AiAdvisoryCard
             needsReviewCount={needsReviewCount}
             needsAnalysisCount={needsAnalysisCount}
             taxSavings={taxSavings}
             onNavigate={onNavigate}
-          />
-
-          {/* Quick Actions */}
-          <QuickActionsBar
-            onNavigate={onNavigate}
-            needsReviewCount={needsReviewCount}
-            needsAnalysisCount={needsAnalysisCount}
           />
         </div>
       </div>

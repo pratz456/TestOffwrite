@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { usePathname, useSearchParams, useRouter } from 'next/navigation';
-import { Menu, X, Home, CreditCard, BarChart3, Settings, FolderOpen, HelpCircle, Shield, Info, FileText, TrendingUp, PlusCircle, ClipboardCheck, ClipboardList, Eye, Minus, PenLine, ScanLine, Briefcase, Sparkles } from 'lucide-react';
+import { Menu, X, Home, CreditCard, BarChart3, Settings, TrendingUp, ClipboardCheck, Eye, Minus, Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
 import { LogoutButton } from './logout-button';
 
 interface MobileNavProps {
@@ -14,38 +14,37 @@ const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabi
 
 export const MobileNav: React.FC<MobileNavProps> = ({ user, userProfile }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
   const drawerRef = useRef<HTMLDivElement>(null);
 
-  const navItems = [
+  const mainItems = [
     { name: 'Home',             href: '/protected',                            icon: Home,          description: 'Dashboard overview', isHome: true },
-    { name: 'Transactions',     href: '/protected/transactions',               icon: CreditCard,    description: 'View and categorize transactions' },
-    { name: 'Income',           href: '/protected?screen=income-tracking',     icon: TrendingUp,    description: 'Gross receipts and 1099 income' },
-    { name: 'W-2 Income',       href: '/protected?screen=w2-income',           icon: Briefcase,     description: 'Employer W-2 wages' },
-    { name: 'Add Transaction',  href: '/protected?screen=add-manual-transaction', icon: PlusCircle, description: 'Add income or expense manually' },
-    { name: 'Import Document',  href: '/protected?screen=document-import',     icon: ScanLine,      description: 'Upload W-2, 1099, or platform summary' },
-    { name: 'Tax Organizer',    href: '/protected?screen=tax-organizer',       icon: ClipboardList, description: 'Guided intake for complete return' },
-    { name: 'Tax Preview',      href: '/protected?screen=tax-preview',         icon: Eye,           description: 'Live balance due or refund' },
+    { name: 'Transactions',     href: '/protected/transactions',               icon: CreditCard,    description: 'View and manage transactions' },
+    { name: 'Income',           href: '/protected?screen=income-tracking',     icon: TrendingUp,    description: 'Track income & 1099 forms' },
     { name: 'Deductions',       href: '/protected?screen=deductions-entry',    icon: Minus,         description: 'Health insurance, retirement, HSA' },
-    { name: 'Sign Form 8879',   href: '/protected?screen=form-8879',           icon: PenLine,       description: 'E-file authorization signature' },
-    { name: 'Categories',       href: '/protected?screen=categories',          icon: FolderOpen,    description: 'Manage expense categories' },
+    { name: 'File Taxes',       href: '/protected?screen=tax-filing-hub',      icon: ClipboardCheck, description: 'Filing hub & form exports' },
+  ];
+
+  const advancedItems = [
+    { name: 'Tax Preview',      href: '/protected?screen=tax-preview',         icon: Eye,           description: 'Live balance due or refund' },
     { name: 'Reports',          href: '/protected/reports',                    icon: BarChart3,     description: 'Tax reports and analytics' },
-    { name: 'File Taxes',       href: '/protected?screen=tax-filing-hub',      icon: ClipboardCheck, description: 'Tax filing hub and exports' },
     { name: 'AI Tax Assistant', href: '/protected?screen=tax-assistant',       icon: Sparkles,      description: 'Ask tax questions' },
+  ];
+
+  const bottomItems = [
     { name: 'Settings',         href: '/protected/settings',                   icon: Settings,      description: 'Account and preferences' },
-    { name: 'Help',             href: '/protected/help',                       icon: HelpCircle,    description: 'Help and support' },
-    { name: 'Privacy',          href: '/protected/privacy',                    icon: Shield,        description: 'Privacy policy' },
-    { name: 'About',            href: '/protected/about',                      icon: Info,          description: 'About WriteOff' },
   ];
 
   const isActive = (href: string) => {
     if (href === '/protected') {
       return pathname === '/protected' && !searchParams.has('screen');
     }
-    if (href === '/protected?screen=categories') {
-      return pathname === '/protected' && searchParams.get('screen') === 'categories';
+    if (href.startsWith('/protected?screen=')) {
+      const screen = href.split('screen=')[1];
+      return pathname === '/protected' && searchParams.get('screen') === screen;
     }
     if (href === '/protected/settings') {
       return pathname === '/protected/settings';
@@ -53,13 +52,17 @@ export const MobileNav: React.FC<MobileNavProps> = ({ user, userProfile }) => {
     return pathname.startsWith(href);
   };
 
+  // Auto-open advanced section if any advanced item is active
+  useEffect(() => {
+    const anyAdvancedActive = advancedItems.some((item) => isActive(item.href));
+    if (anyAdvancedActive) {
+      setAdvancedOpen(true);
+    }
+  }, [pathname, searchParams]);
+
   const handleNavClick = (href: string) => {
     setIsOpen(false);
-    if (href === '/protected') {
-      router.push('/protected');
-    } else {
-      router.push(href);
-    }
+    router.push(href);
   };
 
   // Lock body scroll when menu is open to prevent background scrolling
@@ -117,6 +120,34 @@ export const MobileNav: React.FC<MobileNavProps> = ({ user, userProfile }) => {
       }
     }
   }, []);
+
+  const renderNavItem = (item: typeof mainItems[0]) => {
+    const Icon = item.icon;
+    const active = isActive(item.href);
+
+    return (
+      <button
+        key={item.name}
+        type="button"
+        onClick={() => handleNavClick(item.href)}
+        aria-current={active ? 'page' : undefined}
+        className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-[background-color,color,box-shadow] duration-150 ease-out group w-full text-left min-h-[52px] min-w-[44px] no-tap-highlight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${active
+          ? 'bg-[var(--sidebar-item-active-bg)] text-foreground shadow-[inset_0_0_0_1px_var(--sidebar-item-active-border)]'
+          : 'text-foreground hover:bg-muted active:bg-muted/80 hover:text-foreground'
+          }`}
+      >
+        <Icon
+          className={`w-5 h-5 flex-shrink-0 ${active ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground'}`}
+        />
+        <div className="flex-1 min-w-0">
+          <div className="font-medium text-sm">{item.name}</div>
+          <div className={`text-xs truncate ${active ? 'text-muted-foreground' : 'text-muted-foreground'}`}>
+            {item.description}
+          </div>
+        </div>
+      </button>
+    );
+  };
 
   return (
     <>
@@ -183,33 +214,41 @@ export const MobileNav: React.FC<MobileNavProps> = ({ user, userProfile }) => {
 
             {/* Navigation Items */}
             <nav className="flex-1 p-2 space-y-1" aria-label="Mobile navigation">
-              {navItems.map((item) => {
-                const Icon = item.icon;
-                const active = isActive(item.href);
+              {/* Main Items */}
+              {mainItems.map((item) => renderNavItem(item))}
 
-                return (
-                  <button
-                    key={item.name}
-                    type="button"
-                    onClick={() => handleNavClick(item.href)}
-                    aria-current={active ? 'page' : undefined}
-                    className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-[background-color,color,box-shadow] duration-150 ease-out group w-full text-left min-h-[52px] min-w-[44px] no-tap-highlight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${active
-                      ? 'bg-[var(--sidebar-item-active-bg)] text-foreground shadow-[inset_0_0_0_1px_var(--sidebar-item-active-border)]'
-                      : 'text-foreground hover:bg-muted active:bg-muted/80 hover:text-foreground'
-                      }`}
-                  >
-                    <Icon
-                      className={`w-5 h-5 flex-shrink-0 ${active ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground'}`}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium text-sm">{item.name}</div>
-                      <div className={`text-xs truncate ${active ? 'text-muted-foreground' : 'text-muted-foreground'}`}>
-                        {item.description}
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
+              {/* Advanced Taxes Collapsible Section */}
+              <div className="pt-2 mt-2 border-t border-border/40">
+                <button
+                  type="button"
+                  onClick={() => setAdvancedOpen(!advancedOpen)}
+                  className="flex items-center justify-between w-full px-3 py-3 rounded-xl text-sm text-muted-foreground hover:bg-muted active:bg-muted/80 transition-colors duration-150 min-h-[52px] no-tap-highlight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  aria-expanded={advancedOpen}
+                >
+                  <span className="font-medium text-xs uppercase tracking-wider">Advanced Taxes</span>
+                  {advancedOpen ? (
+                    <ChevronUp className="w-5 h-5 shrink-0" />
+                  ) : (
+                    <ChevronDown className="w-5 h-5 shrink-0" />
+                  )}
+                </button>
+                <div
+                  className="overflow-hidden transition-[max-height,opacity] duration-300 ease-in-out"
+                  style={{
+                    maxHeight: advancedOpen ? `${advancedItems.length * 64}px` : '0px',
+                    opacity: advancedOpen ? 1 : 0,
+                  }}
+                >
+                  <div className="pl-2 space-y-1 pt-1">
+                    {advancedItems.map((item) => renderNavItem(item))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Bottom Items */}
+              <div className="pt-2 mt-2 border-t border-border/40">
+                {bottomItems.map((item) => renderNavItem(item))}
+              </div>
             </nav>
 
             {/* User Info and Sign Out */}
