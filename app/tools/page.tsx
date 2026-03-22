@@ -26,6 +26,20 @@ export const metadata: Metadata = {
 
 const tools = [
   {
+    title: "1099 Tax Calculator",
+    description:
+      "Estimate your total federal tax as a freelancer — income tax, self-employment tax, QBI deduction, standard deduction, and effective rate. The complete picture.",
+    href: "/tools/1099-tax-calculator",
+    badge: "Free",
+  },
+  {
+    title: "Quarterly Estimated Tax Calculator",
+    description:
+      "Calculate how much to pay each quarter to avoid IRS underpayment penalties. Uses both current-year and safe harbor methods.",
+    href: "/tools/quarterly-estimate-calculator",
+    badge: "Free",
+  },
+  {
     title: "Self-Employment Tax Calculator",
     description:
       "Calculate your 2025 self-employment tax — Social Security (12.4%), Medicare (2.9%), and the deductible half. Supports W-2 wage offsets and all filing statuses.",
@@ -97,13 +111,7 @@ export default function ToolsPage() {
             </Link>
           ))}
 
-          {/* Coming soon placeholders */}
-          <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50/50 p-6 flex flex-col items-center justify-center text-center">
-            <Calculator className="h-6 w-6 text-gray-400 mb-3" />
-            <p className="text-sm font-medium text-gray-500">Quarterly Tax Estimate Calculator</p>
-            <p className="text-xs text-gray-400 mt-1">Coming soon</p>
-          </div>
-
+          {/* Coming soon placeholder */}
           <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50/50 p-6 flex flex-col items-center justify-center text-center">
             <Calculator className="h-6 w-6 text-gray-400 mb-3" />
             <p className="text-sm font-medium text-gray-500">Home Office Deduction Calculator</p>

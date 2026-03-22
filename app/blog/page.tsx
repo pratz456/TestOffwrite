@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { Calendar, Clock, Receipt, CalendarDays, FolderCheck, FileText, Sparkles, PlayCircle } from "lucide-react";
 import { getAllPosts } from "@/lib/blog";
-import { ScrollRevealWrapper } from "@/components/blog/scroll-reveal-wrapper";
+import { Sparkles, PlayCircle } from "lucide-react";
+import { BlogGridClient } from "@/components/blog/blog-grid-client";
 
 export const metadata: Metadata = {
   title: "Tax Tips & Guides for Freelancers",
@@ -39,7 +38,7 @@ const TAG_STYLES: Record<string, { gradient: string; iconColor: string; pillBg: 
   "Tax Compliance":           { gradient: "from-red-600 via-rose-500 to-pink-500",        iconColor: "text-white/25", pillBg: "bg-red-100",     pillText: "text-red-700" },
   "Tax Reporting":            { gradient: "from-rose-600 via-rose-500 to-red-500",        iconColor: "text-white/25", pillBg: "bg-rose-100",    pillText: "text-rose-700" },
   "Tax Preparation":          { gradient: "from-fuchsia-600 via-fuchsia-500 to-purple-500", iconColor: "text-white/25", pillBg: "bg-fuchsia-100", pillText: "text-fuchsia-700" },
-  // Business type  
+  // Business type
   "Gig Economy":              { gradient: "from-green-600 via-emerald-500 to-teal-500",   iconColor: "text-white/25", pillBg: "bg-green-100",   pillText: "text-green-700" },
   "Side Hustle":              { gradient: "from-lime-600 via-green-500 to-emerald-500",   iconColor: "text-white/25", pillBg: "bg-lime-100",    pillText: "text-lime-700" },
   "S-Corporation":            { gradient: "from-cyan-600 via-sky-500 to-blue-500",        iconColor: "text-white/25", pillBg: "bg-cyan-100",    pillText: "text-cyan-700" },
@@ -82,38 +81,28 @@ const TAG_STYLES: Record<string, { gradient: string; iconColor: string; pillBg: 
   "Expense Tracking":         { gradient: "from-violet-500 via-violet-400 to-blue-400",  iconColor: "text-white/25", pillBg: "bg-violet-100",  pillText: "text-violet-700" },
 };
 
-const TAG_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
-  "Tax Deductions": Receipt,
-  "Self-Employed": Sparkles,
-  "Quarterly Taxes": CalendarDays,
-  "Schedule C": FileText,
-  "Tax Planning": CalendarDays,
-  "Tax Strategies": Sparkles,
-  "Tax Filing": FileText,
-  "Tax Basics": FileText,
-  "1099 Forms": FileText,
-  "Tax Compliance": FolderCheck,
-  "Tax Reporting": FileText,
-  "Tax Preparation": FolderCheck,
-  "Gig Economy": Receipt,
-  "IRS Survival Guide": FileText,
-  "IRS Audit": FileText,
-  "Retirement": Sparkles,
-  "Bookkeeping": FolderCheck,
-  "Business Banking": Receipt,
-  "Expense Tracking": FolderCheck,
+// Map tag names to icon component names (serializable for client)
+const TAG_ICON_MAP: Record<string, string> = {
+  "Tax Deductions": "Receipt",
+  "Self-Employed": "Sparkles",
+  "Quarterly Taxes": "CalendarDays",
+  "Schedule C": "FileText",
+  "Tax Planning": "CalendarDays",
+  "Tax Strategies": "Sparkles",
+  "Tax Filing": "FileText",
+  "Tax Basics": "FileText",
+  "1099 Forms": "FileText",
+  "Tax Compliance": "FolderCheck",
+  "Tax Reporting": "FileText",
+  "Tax Preparation": "FolderCheck",
+  "Gig Economy": "Receipt",
+  "IRS Survival Guide": "FileText",
+  "IRS Audit": "FileText",
+  "Retirement": "Sparkles",
+  "Bookkeeping": "FolderCheck",
+  "Business Banking": "Receipt",
+  "Expense Tracking": "FolderCheck",
 };
-
-function getTagStyle(tags: string[]) {
-  for (const tag of tags) {
-    if (TAG_STYLES[tag]) return { style: TAG_STYLES[tag], tag, Icon: TAG_ICONS[tag] };
-  }
-  return {
-    style: TAG_STYLES["Tax Deductions"],
-    tag: tags[0] ?? "Guide",
-    Icon: Receipt,
-  };
-}
 
 export default function BlogIndexPage() {
   const posts = getAllPosts();
@@ -196,66 +185,11 @@ export default function BlogIndexPage() {
           </div>
         </div>
 
-        <ScrollRevealWrapper className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 stagger-children">
-          {posts.map((post) => {
-            const { style, tag, Icon } = getTagStyle(post.tags);
-            return (
-              <Link
-                key={post.slug}
-                href={`/blog/${post.slug}`}
-                className="animate-on-scroll group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-all duration-300 hover:-translate-y-1 hover:border-primary/20 hover:shadow-xl hover:shadow-primary/5"
-              >
-                {/* Gradient cover */}
-                <div className={`relative flex h-40 items-center justify-center bg-gradient-to-br ${style.gradient}`}>
-                  {Icon && <Icon className={`h-16 w-16 ${style.iconColor}`} />}
-                </div>
-
-                <div className="flex flex-1 flex-col p-5">
-                  <div className="mb-2">
-                    <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${style.pillBg} ${style.pillText}`}>
-                      {tag}
-                    </span>
-                  </div>
-                  <h2 className="text-lg font-semibold text-foreground group-hover:text-primary transition-colors">
-                    {post.title}
-                  </h2>
-                  <p className="mt-2 flex-1 text-sm leading-relaxed text-muted-foreground line-clamp-3">
-                    {post.description}
-                  </p>
-                  <div className="mt-4 flex items-center gap-3 text-xs text-muted-foreground">
-                    <span className="flex items-center gap-1">
-                      <Calendar className="h-3.5 w-3.5" />
-                      {new Date(post.date).toLocaleDateString("en-US", {
-                        month: "short",
-                        day: "numeric",
-                        year: "numeric",
-                      })}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <Clock className="h-3.5 w-3.5" />
-                      {post.readingTime} min read
-                    </span>
-                  </div>
-                </div>
-              </Link>
-            );
-          })}
-
-          {/* CTA card */}
-          <div className="animate-on-scroll flex flex-col items-center justify-center rounded-xl border border-dashed border-primary/30 bg-primary/5 p-6 text-center">
-            <Sparkles className="mb-3 h-8 w-8 text-primary" />
-            <h3 className="text-lg font-semibold text-foreground">Find your deductions</h3>
-            <p className="mt-2 text-sm text-muted-foreground">
-              WriteOff&apos;s AI tracks expenses and finds write-offs automatically. Try free for 30 days.
-            </p>
-            <Link
-              href="/welcome"
-              className="mt-4 inline-flex items-center rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-white shadow-md transition-all hover:shadow-lg hover:brightness-110"
-            >
-              Get Started Free
-            </Link>
-          </div>
-        </ScrollRevealWrapper>
+        <BlogGridClient
+          posts={posts}
+          tagStyles={TAG_STYLES}
+          tagIcons={TAG_ICON_MAP}
+        />
       </section>
     </>
   );
