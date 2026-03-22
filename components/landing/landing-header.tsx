@@ -13,6 +13,7 @@ const NAV_LINKS = [
   { label: "How It Works", href: "/#how-it-works" },
   { label: "Reviews", href: "/#reviews" },
   { label: "Blog", href: "/blog" },
+  { label: "Tools", href: "/tools" },
 ];
 
 export function LandingHeader() {
