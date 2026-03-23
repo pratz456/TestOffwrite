@@ -17,6 +17,8 @@ import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { calcScheduleSE } from '@/lib/reports/calcSE';
 import { compute1040 } from '@/lib/tax-rules/compute-1040';
 import { calculateStateTax, STATE_TAX_CONFIG } from '@/lib/tax/state-tax-data';
+import { getAssetsSettings } from '@/lib/firebase/settings-server';
+import { calc4562 } from '@/lib/reports/calc4562';
 
 export async function GET(request: NextRequest) {
   const { user, error } = await getAuthenticatedUser(request);
@@ -35,6 +37,7 @@ export async function GET(request: NextRequest) {
     deductionsSnap,
     quarterlySnap,
     organizerSnap,
+    assetsResult,
   ] = await Promise.all([
     getTransactionsServer(user.uid),
     getUserProfileServer(user.uid),
@@ -44,6 +47,7 @@ export async function GET(request: NextRequest) {
     adminDb.collection('tax_deductions').where('userId', '==', user.uid).where('taxYear', '==', year).limit(1).get(),
     adminDb.collection('quarterly_payments').where('userId', '==', user.uid).where('taxYear', '==', year).get(),
     adminDb.collection('tax_organizers').where('userId', '==', user.uid).where('taxYear', '==', year).limit(1).get(),
+    getAssetsSettings(user.uid),
   ]);
 
   const transactions = (txResult.data || []) as any[];
@@ -69,10 +73,17 @@ export async function GET(request: NextRequest) {
 
   const w2Wages = w2Snap.docs.reduce((s, d) => s + (d.data().box1Wages || d.data().wages || 0), 0);
   const w2FederalWithheld = w2Snap.docs.reduce((s, d) => s + (d.data().box2FederalWithheld || d.data().federalWithheld || 0), 0);
+  const w2StateWithheld = w2Snap.docs.reduce((s: number, d: any) => s + (d.data().stateWithheld || 0), 0);
 
   // ── Schedule C expenses ──
   const { totalDeductible } = aggregateScheduleC(transactions, String(year), CATEGORY_MAP, { mode: 'confirmed-only' });
   const scheduleCNetProfit = Math.max(0, grossReceipts - totalDeductible);
+
+  // ── Depreciation (Form 4562) ──
+  const assets = (assetsResult.data || []) as any[];
+  const depreciationDeduction = assets.length > 0
+    ? calc4562(assets, scheduleCNetProfit).totalDepreciation
+    : 0;
 
   // ── Schedule SE ──
   const filingStatus = (profile.filing_status || 'single') as any;
@@ -130,6 +141,8 @@ export async function GET(request: NextRequest) {
     simpleIraContribution,
     hsaContribution,
     studentLoanInterest,
+    charitableDonations: (ded.charitableCashDonations || 0) + (ded.charitableNonCashDonations || 0),
+    depreciationDeduction,
   }, priorYearTotalTax > 0 ? priorYearTotalTax : undefined);
 
   // State tax estimate
@@ -158,12 +171,15 @@ export async function GET(request: NextRequest) {
     totalTax: result.totalTax,
     agi: result.agi,
     effectiveRate: result.effectiveRate,
+    depreciation: { totalDepreciation: depreciationDeduction, assetCount: assets.length },
     stateTax: stateTaxResult ? {
       state: userState,
       stateName: stateConfig?.name || userState,
       estimatedTax: Math.round(stateTaxResult.tax),
       effectiveRate: Math.round(stateTaxResult.effectiveRate * 100) / 100,
       type: stateConfig?.type || 'unknown',
+      stateWithheld: w2StateWithheld,
+      stateBalanceDue: Math.max(0, Math.round(stateTaxResult.tax) - w2StateWithheld),
       note: stateConfig?.type === 'no_tax'
         ? 'Your state has no income tax'
         : 'State estimate only — does not include local taxes or state-specific deductions',

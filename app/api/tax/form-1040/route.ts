@@ -309,6 +309,7 @@ export async function POST(request: NextRequest) {
     const w2FederalWithheld =
       w2Snap.docs.reduce((s, d) => s + (d.data().box2FederalWithheld || d.data().federalWithheld || 0), 0) +
       (profile.w2_federal_withheld || 0);
+    const w2StateWithheld = w2Snap.docs.reduce((s: number, d: any) => s + (d.data().stateWithheld || 0), 0);
     const estimatedPayments = quarterlySnap.docs.reduce((s, d) => s + (d.data().amount || 0), 0);
     const { totalDeductible } = aggregateScheduleC(transactions, String(taxYear), CATEGORY_MAP, { mode: 'confirmed-only' });
     const scheduleCNetProfit = Math.max(0, grossReceipts - totalDeductible);
@@ -342,7 +343,7 @@ export async function POST(request: NextRequest) {
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
-    const displayData: Record<string, any> = { ...result, w2Wages, scheduleCNetProfit, w2FederalWithheld, estimatedPayments };
+    const displayData: Record<string, any> = { ...result, w2Wages, scheduleCNetProfit, w2FederalWithheld, w2StateWithheld, estimatedPayments };
 
     // Add completeness warnings to displayData
     const warnings: string[] = [];

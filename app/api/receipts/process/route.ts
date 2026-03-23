@@ -9,6 +9,7 @@ import {
   type Transaction
 } from '@/lib/firebase/transactions-server';
 import { adminDb } from '@/lib/firebase/admin';
+import { getUserProfileServer } from '@/lib/firebase/profiles-server';
 import { v4 as uuidv4 } from 'uuid';
 
 export async function POST(request: NextRequest) {
@@ -218,6 +219,40 @@ export async function POST(request: NextRequest) {
         { error: 'Failed to save transaction', details: saveError },
         { status: 500 }
       );
+    }
+
+    // Fire-and-forget AI analysis for the new receipt transaction
+    try {
+      const { analyzeTransactionWithRetry } = await import('@/lib/ai/analyzeTransaction');
+      const profileResult = await getUserProfileServer(user.uid);
+      const profile = (profileResult.data || {}) as any;
+
+      const txInput = {
+        merchant_name: receiptData.merchant,
+        amount: signedAmount,
+        category: receiptData.category || 'other',
+        date: receiptData.date,
+      };
+      const userContext = {
+        profession: profile.profession || '',
+        state: profile.state || '',
+        filing_status: profile.filing_status || 'single',
+        annual_gross_income_usd: profile.income || 0,
+      };
+
+      analyzeTransactionWithRetry(txInput as any, userContext as any)
+        .then(async (result: any) => {
+          if (result && savedTransaction.trans_id) {
+            const { updateTransactionServerWithUserId } = await import('@/lib/firebase/transactions-server');
+            await updateTransactionServerWithUserId(user.uid, savedTransaction.trans_id, {
+              analysisStatus: 'completed',
+              is_deductible: result.is_deductible,
+            });
+          }
+        })
+        .catch((err: any) => console.error('[Receipt OCR] Auto-analysis failed:', err));
+    } catch (err) {
+      console.error('[Receipt OCR] Auto-analysis setup failed:', err);
     }
 
     return NextResponse.json({

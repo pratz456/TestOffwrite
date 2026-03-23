@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { LogoutButton } from './logout-button';
 import Link from 'next/link';
 import { usePathname, useSearchParams, useRouter } from 'next/navigation';
-import { Home, CreditCard, BarChart3, Settings, TrendingUp, ClipboardCheck, Eye, Minus, Sparkles, ChevronDown, ChevronUp, Briefcase, PenLine, FolderOpen } from 'lucide-react';
+import { Home, CreditCard, BarChart3, Settings, TrendingUp, ClipboardCheck, Eye, Minus, Sparkles, ChevronDown, ChevronUp, Briefcase, PenLine, FolderOpen, Calculator } from 'lucide-react';
 interface SidebarNavProps {
   user: { id: string; email?: string; user_metadata?: { name?: string } };
   userProfile?: { name?: string; email?: string };
@@ -80,6 +80,12 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ user, userProfile }) => 
       href: '/protected/reports',
       icon: BarChart3,
       description: 'Tax reports and analytics'
+    },
+    {
+      name: 'Depreciation (4562)',
+      href: '/protected/form4562',
+      icon: Calculator,
+      description: 'Section 179 & MACRS assets'
     },
     {
       name: 'AI Tax Assistant',

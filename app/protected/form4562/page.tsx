@@ -26,6 +26,7 @@ export default function Form4562Page() {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [calculation, setCalculation] = useState<any>(null);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  const [businessIncome, setBusinessIncome] = useState(0);
   const [showAddAsset, setShowAddAsset] = useState(false);
   const [newAsset, setNewAsset] = useState<Partial<Asset>>({
     description: '',
@@ -41,8 +42,21 @@ export default function Form4562Page() {
   useEffect(() => {
     if (user) {
       loadAssets();
+      fetchBusinessIncome();
     }
   }, [user]);
+
+  const fetchBusinessIncome = async () => {
+    try {
+      const res = await fetch(`/api/tax/compute-1040?year=${selectedYear}`);
+      if (res.ok) {
+        const data = await res.json();
+        setBusinessIncome(data.income?.scheduleCNetProfit || 0);
+      }
+    } catch {
+      // Fall back to 0
+    }
+  };
 
   const loadAssets = async () => {
     try {
@@ -54,9 +68,7 @@ export default function Form4562Page() {
         setAssets(data || []);
 
         if (data && data.length > 0) {
-          // Use a default business income for calculation
-          const businessIncome = 100000; // Default business income - should be replaced with actual Schedule C data when available
-          const calc = calc4562(data, businessIncome);
+          const calc = calc4562(data, businessIncome || 0);
           setCalculation(calc);
 
           const errors = validateAssets(data);

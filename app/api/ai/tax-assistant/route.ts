@@ -290,7 +290,8 @@ ${fullContext}
 - If a question is outside your scope (legal advice, state-specific edge cases), recommend a CPA.
 - Keep responses concise but thorough. Use bullet points for clarity.
 - Never fabricate numbers — only reference data from the context above.
-- If data is missing (e.g., "Not set"), suggest they update their profile in Settings.`;
+- If data is missing (e.g., "Not set"), suggest they update their profile in Settings.
+- End each response with 2-3 suggested follow-up questions under "**You might also want to ask:**" — make them specific to the user's situation and data.`;
 
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
       { role: 'system', content: systemPrompt },
@@ -300,7 +301,7 @@ ${fullContext}
       { role: 'user', content: message },
     ];
 
-    const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+    const model = process.env.OPENAI_MODEL || 'gpt-4o';
     const completion = await openai.chat.completions.create({
       model,
       messages,

@@ -25,13 +25,19 @@ interface Message {
   content: string;
 }
 
-const SUGGESTED_QUESTIONS = [
-  "What can I deduct as a freelancer?",
-  "How much should my quarterly payment be?",
-  "Can I deduct my home internet?",
-  "What's the difference between standard mileage and actual expenses?",
-  "Am I at risk for an audit?",
-];
+function getPersonalizedSuggestions(profile: any): string[] {
+  const suggestions: string[] = [];
+  suggestions.push("How much do I owe in taxes this year?");
+  suggestions.push("What deductions am I missing?");
+  if (profile?.profession) {
+    const prof = Array.isArray(profile.profession) ? profile.profession[0] : profile.profession;
+    if (prof) suggestions.push(`What can I write off as a ${prof}?`);
+  }
+  suggestions.push("Review my quarterly payment plan");
+  if (!profile?.home_office_sqft) suggestions.push("Should I claim a home office deduction?");
+  if (!profile?.sep_ira_contribution && !profile?.solo_401k_contribution) suggestions.push("How can I reduce my taxes with retirement contributions?");
+  return suggestions.slice(0, 5);
+}
 
 function renderMarkdown(text: string): React.ReactNode {
   const lines = text.split("\n");
@@ -109,8 +115,22 @@ export function TaxAssistantScreen({
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [taxSummary, setTaxSummary] = useState<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const fetchSummary = async () => {
+      try {
+        const res = await makeAuthenticatedRequest(`/api/tax/compute-1040?year=${new Date().getFullYear()}`);
+        if (res.ok) {
+          const data = await res.json();
+          setTaxSummary(data);
+        }
+      } catch {}
+    };
+    fetchSummary();
+  }, []);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -205,6 +225,23 @@ export function TaxAssistantScreen({
         <div className="mx-auto max-w-4xl px-4 py-4 sm:px-6">
           {messages.length === 0 && !isLoading ? (
             <div className="flex flex-col items-center justify-center py-12">
+              {/* Financial summary header */}
+              {taxSummary && (
+                <div className="mb-6 flex gap-4 rounded-xl border border-border bg-card p-4 w-full max-w-md">
+                  <div className="flex-1 text-center">
+                    <p className="text-xs text-muted-foreground">Est. Tax</p>
+                    <p className="text-lg font-bold text-foreground">${Math.round(taxSummary.totalTax || 0).toLocaleString()}</p>
+                  </div>
+                  <div className="flex-1 text-center border-x border-border">
+                    <p className="text-xs text-muted-foreground">Eff. Rate</p>
+                    <p className="text-lg font-bold text-foreground">{((taxSummary.effectiveRate || 0) * 100).toFixed(1)}%</p>
+                  </div>
+                  <div className="flex-1 text-center">
+                    <p className="text-xs text-muted-foreground">AGI</p>
+                    <p className="text-lg font-bold text-foreground">${Math.round(taxSummary.agi || 0).toLocaleString()}</p>
+                  </div>
+                </div>
+              )}
               <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
                 <MessageCircle className="h-7 w-7 text-primary" />
               </div>
@@ -216,7 +253,7 @@ export function TaxAssistantScreen({
                 based on your profile and expenses.
               </p>
               <div className="flex flex-wrap justify-center gap-2">
-                {SUGGESTED_QUESTIONS.map((q) => (
+                {getPersonalizedSuggestions(userProfile).map((q) => (
                   <button
                     key={q}
                     onClick={() => handleSuggestionClick(q)}

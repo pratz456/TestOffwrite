@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { aggregateQuarterlyEstimatesForYear, getLocalTransactionDate } from '@/lib/tax-provider/quarterly-estimates';
+import { calculateStateTax, STATE_TAX_CONFIG } from '@/lib/tax/state-tax-data';
 
 interface TaxCalculation {
   totalIncome: number;
@@ -150,10 +151,25 @@ export async function POST(request: NextRequest) {
       remainingPayments,
     };
 
+    // State tax quarterly estimate
+    const userState = (userProfile.state || '').toUpperCase().slice(0, 2);
+    const stateConfig = STATE_TAX_CONFIG[userState];
+    const stateTaxResult = userState && stateConfig && stateConfig.type !== 'no_tax'
+      ? calculateStateTax(totalIncome, userState, filingStatus as any)
+      : null;
+    const stateQuarterlyAmount = stateTaxResult ? Math.round(stateTaxResult.tax / 4) : 0;
+
     return NextResponse.json({
       success: true,
       calculation,
-      quarterlyData
+      quarterlyData,
+      stateTax: stateTaxResult ? {
+        state: userState,
+        stateName: stateConfig?.name || userState,
+        estimatedAnnualTax: Math.round(stateTaxResult.tax),
+        quarterlyAmount: stateQuarterlyAmount,
+        effectiveRate: Math.round(stateTaxResult.effectiveRate * 100) / 100,
+      } : null,
     });
 
   } catch (error) {

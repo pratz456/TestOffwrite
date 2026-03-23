@@ -164,14 +164,23 @@ export function TaxPreviewScreen({ user, onBack, onNavigate }: Props) {
                         ? 'No state income tax'
                         : `${fmt(data.stateTax.estimatedTax)} (${pct(data.stateTax.effectiveRate)} effective rate)`}
                     </p>
+                    {data.stateTax.stateWithheld > 0 && data.stateTax.type !== 'no_tax' && (
+                      <p className="text-xs text-green-600 mt-0.5">
+                        W-2 state withholding applied: {fmt(data.stateTax.stateWithheld)}
+                      </p>
+                    )}
                     <p className="text-xs text-muted-foreground mt-0.5">{data.stateTax.note}</p>
                   </div>
                   {data.stateTax.type !== 'no_tax' && (
                     <div className="text-right shrink-0">
-                      <p className="text-lg font-bold text-orange-600 dark:text-orange-400 tabular-nums">
-                        {fmt(data.stateTax.estimatedTax)}
+                      <p className="text-lg font-bold text-orange-600 tabular-nums">
+                        {data.stateTax.stateWithheld > 0
+                          ? fmt(data.stateTax.stateBalanceDue)
+                          : fmt(data.stateTax.estimatedTax)}
                       </p>
-                      <p className="text-xs text-muted-foreground">state est.</p>
+                      <p className="text-xs text-muted-foreground">
+                        {data.stateTax.stateWithheld > 0 ? 'state balance due' : 'state est.'}
+                      </p>
                     </div>
                   )}
                 </CardContent>
