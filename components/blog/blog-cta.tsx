@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Sparkles } from "lucide-react";
 
 export function BlogCTA({ variant = "inline" }: { variant?: "inline" | "full" }) {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
   const href = user ? "/protected" : "/welcome";
   const buttonText = user ? "Go to Dashboard" : "Start Your Free Trial";
 
@@ -26,9 +26,16 @@ export function BlogCTA({ variant = "inline" }: { variant?: "inline" | "full" })
           <Link href={href}>
             <Button
               size="default"
+              disabled={loading}
               className="rounded-lg bg-primary font-semibold text-white shadow-md hover:shadow-lg hover:brightness-110"
             >
-              {buttonText}
+              {loading ? (
+                <span className="flex items-center gap-2">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                </span>
+              ) : (
+                buttonText
+              )}
             </Button>
           </Link>
         </div>
@@ -51,9 +58,16 @@ export function BlogCTA({ variant = "inline" }: { variant?: "inline" | "full" })
         <Link href={href}>
           <Button
             size="lg"
+            disabled={loading}
             className="rounded-lg bg-primary px-8 py-3 text-base font-semibold text-white shadow-md hover:shadow-lg hover:brightness-110"
           >
-            {buttonText}
+            {loading ? (
+              <span className="flex items-center gap-2">
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+              </span>
+            ) : (
+              buttonText
+            )}
           </Button>
         </Link>
         <p className="text-xs text-muted-foreground">

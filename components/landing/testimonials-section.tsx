@@ -6,22 +6,12 @@ import { useScrollReveal } from "./use-scroll-reveal";
 const TESTIMONIALS = [
   { icon: Briefcase, category: "Small Business Owner", name: "Lila Freeman", role: "Owner of Bloom & Bark Studios", avatarBg: "bg-gradient-to-br from-amber-400 to-orange-500", accentBorder: "hover:border-amber-400/30", quote: "I run my business, not a spreadsheet. WriteOff does the rest.", body: "As a small business owner I was drowning in receipts and missed deductions. WriteOff changed that. It tracks my expenses, flags write-offs I didn't know existed, and builds my Schedule C. This year it saved me $4,100 in taxes and a ton of busywork.", saved: "$4,100" },
   { icon: Video, category: "TikToker / Content Creator", name: "Jordan Ellis", role: "Beauty Content Creator", avatarBg: "bg-gradient-to-br from-pink-400 to-rose-500", accentBorder: "hover:border-pink-400/30", quote: "I had no idea snacks and camera gear were deductible until WriteOff showed me.", body: "I started creating on TikTok and Instagram last year. Nobody teaches you taxes. WriteOff flagged makeup, studio lights, props. I recovered $3,200 from last year alone.", saved: "$3,200" },
-  { icon: Car, category: "Uber/Lyft/Instacart Driver", name: "Carlos Mendoza", role: "Rideshare & Delivery Driver", avatarBg: "bg-gradient-to-br from-blue-400 to-cyan-500", accentBorder: "hover:border-cyan-400/30", quote: "Mileage, gas, car washes. WriteOff caught it all.", body: "Before WriteOff I was guessing my business miles and forgetting half my expenses. Now it's automatic. Real-time tracking, weekly savings updates. I saved $1,580 from better mileage tracking.", saved: "$1,580" },
+  { icon: Car, category: "Uber/Lyft/Instacart Driver", name: "Carlos Mendoza", role: "Rideshare & Delivery Driver", avatarBg: "bg-gradient-to-br from-blue-400 to-cyan-500", accentBorder: "hover:border-blue-400/30", quote: "Mileage, gas, car washes. WriteOff caught it all.", body: "Before WriteOff I was guessing my business miles and forgetting half my expenses. Now it's automatic. Real-time tracking, weekly savings updates. I saved $1,580 from better mileage tracking.", saved: "$1,580" },
   { icon: PiggyBank, category: "W-2 Worker with a Side Hustle", name: "Ashley Kim", role: "Marketing Analyst & Side Hustler", avatarBg: "bg-gradient-to-br from-violet-400 to-purple-500", accentBorder: "hover:border-violet-400/30", quote: "I thought I couldn't deduct anything with a W-2 job. I was wrong.", body: "I work full-time in marketing and freelance on the side. WriteOff helped me track my side hustle separately and find write-offs like my laptop, Wi-Fi, and software. Saved $2,200 I wasn't expecting.", saved: "$2,200" },
 ];
 
 function Stars() {
   return (<div className="flex gap-0.5">{[...Array(5)].map((_, i) => (<Star key={i} className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />))}</div>);
-}
-
-function RatingStars() {
-  return (
-    <div className="flex items-center gap-0.5">
-      {[...Array(5)].map((_, i) => (
-        <Star key={i} className="h-5 w-5 fill-amber-400 text-amber-400" />
-      ))}
-    </div>
-  );
 }
 
 export function TestimonialsSection() {
@@ -34,15 +24,6 @@ export function TestimonialsSection() {
           <span className="mb-3 inline-block rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-primary">Testimonials</span>
           <h2 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">Loved by people who'd rather not think about taxes</h2>
           <p className="mx-auto mt-4 max-w-xl text-muted-foreground">See how WriteOff is helping people in different lines of work keep more of what they earn.</p>
-        </div>
-
-        <div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-6">
-          <div className="flex items-center gap-2">
-            <RatingStars />
-            <span className="font-bold text-foreground">4.9 out of 5</span>
-            <span className="text-sm text-muted-foreground">from 200+ users</span>
-          </div>
-          <div className="rounded-full bg-green-100 px-4 py-1.5 text-sm font-semibold text-green-700">Over $11,000 saved and counting</div>
         </div>
 
         <div className="mt-10 grid gap-6 sm:grid-cols-2 stagger-children">

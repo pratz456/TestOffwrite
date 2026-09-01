@@ -115,9 +115,8 @@ export function SignUpForm({
       const { data, error } = await signUpUser(email, password);
       if (error) throw new Error(error.message);
       
-      // Land on /welcome (product entry). Authenticated users are forwarded
-      // to /protected, which shows profile setup for new accounts.
-      router.push("/welcome");
+      // Use push to preserve browser history and allow back button to work
+      router.push("/auth/sign-up-success");
     } catch (error: unknown) {
       // Only log errors in development
       if (process.env.NODE_ENV === 'development') {
