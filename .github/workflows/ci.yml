@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, master, feb-new]
+    branches: [main, master, feb-new, march-branch]
   pull_request:
-    branches: [main, master, feb-new]
+    branches: [main, master, feb-new, march-branch]
 
 jobs:
   ci:
