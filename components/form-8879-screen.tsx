@@ -105,8 +105,8 @@ export function Form8879Screen({ user, onBack, onNavigate }: Props) {
       <div className="sticky top-0 z-50 bg-background border-b border-border">
         <div className="max-w-2xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3">
           <div className="flex-1 min-w-0">
-            <h1 className="text-lg sm:text-xl font-semibold text-foreground">Form 8879 - E-File Authorization</h1>
-            <p className="text-xs sm:text-sm text-muted-foreground">Authorize WriteOff to e-file your federal return</p>
+            <h1 className="text-lg sm:text-xl font-semibold text-foreground">Form 8879 — PIN Consent</h1>
+            <p className="text-xs sm:text-sm text-muted-foreground">Store your PIN for later partner filing. WriteOff does not e-file.</p>
           </div>
           <Select value={year} onValueChange={setYear}>
             <SelectTrigger className="w-[90px] h-9"><SelectValue /></SelectTrigger>
@@ -126,12 +126,12 @@ export function Form8879Screen({ user, onBack, onNavigate }: Props) {
             <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400 shrink-0 mt-0.5" />
             <div>
               <p className="text-sm font-semibold text-green-800 dark:text-green-300">
-                Form 8879 signed for {year}
+                Form 8879 consent saved for {year}
               </p>
               <p className="text-xs text-green-700 dark:text-green-400 mt-0.5">
                 {existing?.signedAt
-                  ? `Authorized on ${new Date(existing.signedAt).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`
-                  : "Authorization saved"
+                  ? `Saved on ${new Date(existing.signedAt).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`
+                  : "Consent saved"
                 }
               </p>
             </div>
@@ -154,8 +154,8 @@ export function Form8879Screen({ user, onBack, onNavigate }: Props) {
                 <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
                 <div className="text-xs text-blue-800 dark:text-blue-300 space-y-1">
                   <p className="font-semibold text-sm">What is Form 8879?</p>
-                  <p>Form 8879 is the IRS-required authorization that allows WriteOff to electronically submit your tax return on your behalf. You must sign this before your return can be e-filed.</p>
-                  <p>By signing, you confirm the return information is correct and authorize the filing. Your 5-digit self-selected PIN serves as your electronic signature - treat it like a password.</p>
+                  <p>Form 8879 is the IRS e-file signature authorization. WriteOff stores your PIN and consent here so they can be used later if you file through a partner such as TurboTax or Column Tax. WriteOff prepares and exports your return — it does not transmit to the IRS today.</p>
+                  <p>By saving this form, you confirm the return summary is correct and consent to store your 5-digit self-selected PIN. Treat it like a password. A filing partner uses this PIN if they e-file on your behalf.</p>
                   <a href="https://www.irs.gov/forms-pubs/about-form-8879" target="_blank" rel="noopener noreferrer" className="underline font-medium">IRS Form 8879 instructions →</a>
                 </div>
               </CardContent>
@@ -200,7 +200,7 @@ export function Form8879Screen({ user, onBack, onNavigate }: Props) {
               <CardHeader className="pb-3">
                 <CardTitle className="text-base font-semibold flex items-center gap-2">
                   <Shield className="w-4 h-4 text-primary" />
-                  Your Authorization
+                  Your PIN and Consent
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -263,7 +263,7 @@ export function Form8879Screen({ user, onBack, onNavigate }: Props) {
                         className="mt-0.5 w-4 h-4 rounded border-border"
                       />
                       <span className="text-xs text-foreground">
-                        I have reviewed and verified the return summary above, and authorize WriteOff to transmit my return to the IRS.
+                        I have reviewed and verified the return summary above. I understand WriteOff prepares and exports my return and does not transmit it to the IRS.
                       </span>
                     </label>
 
@@ -275,7 +275,7 @@ export function Form8879Screen({ user, onBack, onNavigate }: Props) {
                         className="mt-0.5 w-4 h-4 rounded border-border"
                       />
                       <span className="text-xs text-foreground">
-                        I consent to have WriteOff electronically file my {year} federal income tax return on my behalf using the PIN I entered above as my signature.
+                        I consent to store this PIN as local consent for later partner filing (TurboTax, Column Tax, or another authorized e-file provider). WriteOff does not e-file my {year} federal return today.
                       </span>
                     </label>
                   </div>
@@ -286,11 +286,11 @@ export function Form8879Screen({ user, onBack, onNavigate }: Props) {
                     className="w-full min-h-[48px] gap-2 text-base font-semibold"
                   >
                     {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Shield className="w-5 h-5" />}
-                    {saving ? "Saving authorization…" : existing?.status === "signed" ? "Update Authorization" : "Sign and Authorize E-Filing"}
+                    {saving ? "Saving consent…" : existing?.status === "signed" ? "Update PIN Consent" : "Save PIN and Consent"}
                   </Button>
 
                   <p className="text-xs text-center text-muted-foreground">
-                    Your PIN and consent are stored securely. This authorization is required by the IRS under Publication 1345 before any electronic return can be transmitted.
+                    Your PIN and consent are stored securely in WriteOff. This is local consent for later partner filing — not authorization for WriteOff to transmit to the IRS.
                   </p>
                 </form>
               </CardContent>

@@ -184,7 +184,7 @@ export function TaxOrganizerScreen({ user, onBack, onNavigate }: Props) {
             {/* SSN notice */}
             <div className="flex items-start gap-2 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/30 px-4 py-3 text-xs text-blue-800 dark:text-blue-300">
               <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-              <p>Your SSN is required on Form 1040, Schedule C, and all supporting schedules. WriteOff stores it encrypted and only uses it to pre-fill your PDF exports. We never transmit it anywhere without your explicit authorization via Form 8879.</p>
+              <p>Your SSN is required on Form 1040, Schedule C, and all supporting schedules. WriteOff stores it encrypted and only uses it to pre-fill your PDF exports. WriteOff does not transmit your SSN to the IRS.</p>
             </div>
 
             <Card className="bg-card border-border">
@@ -285,8 +285,8 @@ export function TaxOrganizerScreen({ user, onBack, onNavigate }: Props) {
 
             <Card className="bg-card border-border">
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold">E-File Identity Verification</CardTitle>
-                <p className="text-xs text-muted-foreground">Required by the IRS to submit your return electronically</p>
+                <CardTitle className="text-sm font-semibold">Identity Info for Partner Filing</CardTitle>
+                <p className="text-xs text-muted-foreground">Used when a partner e-files your return. WriteOff does not submit to the IRS.</p>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-1.5">
@@ -301,7 +301,7 @@ export function TaxOrganizerScreen({ user, onBack, onNavigate }: Props) {
                       className="pl-7 bg-background"
                     />
                   </div>
-                  <p className="text-xs text-muted-foreground">Found on last year's Form 1040, Line 11. Required by the IRS to verify your identity when e-filing. If you filed for the first time last year, enter $0.</p>
+                  <p className="text-xs text-muted-foreground">Found on last year's Form 1040, Line 11. A filing partner uses this to verify your identity when they e-file. If you filed for the first time last year, enter $0.</p>
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-sm font-medium">IRS Identity Protection PIN (IP PIN)</Label>

@@ -172,11 +172,11 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
     },
     {
       id: "form8879",
-      label: "Form 8879 - E-File Authorization",
-      description: "Required IRS signature before anyone can e-file on your behalf",
+      label: "Form 8879 — PIN Consent",
+      description: "Local consent for later partner filing — WriteOff does not e-file",
       status: "missing",
-      detail: "Sign Form 8879 to authorize WriteOff to transmit your return",
-      action: "Sign Form 8879",
+      detail: "Save your PIN here. E-file happens through TurboTax, Column Tax, or another partner.",
+      action: "Save PIN Consent",
       actionScreen: "form-8879",
     },
     {
@@ -278,7 +278,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
         <div className="max-w-3xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3">
           <div className="flex-1 min-w-0">
             <h1 className="text-lg sm:text-xl font-semibold text-foreground">Tax Filing Hub</h1>
-            <p className="text-xs sm:text-sm text-muted-foreground">Everything you need to file your self-employment taxes</p>
+            <p className="text-xs sm:text-sm text-muted-foreground">Prepare and export your return. File with a partner.</p>
           </div>
           <Select value={year} onValueChange={setYear}>
             <SelectTrigger className="w-[100px] h-9"><SelectValue /></SelectTrigger>
@@ -438,7 +438,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
                   { label: "Deductions",        screen: "deductions-entry",       icon: Receipt },
                   { label: "Review Expenses",   screen: "transactions",           icon: FileText },
                   { label: "Schedule C Export", screen: "schedule-c-export",      icon: Download },
-                  { label: "Sign Form 8879",   screen: "form-8879",              icon: Shield },
+                  { label: "Form 8879 Consent", screen: "form-8879",              icon: Shield },
                   { label: "Import Document",  screen: "document-import",        icon: Upload },
                 ].map(({ label, screen, icon: Icon }) => (
                   <Button
