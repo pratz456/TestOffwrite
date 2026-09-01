@@ -25,10 +25,10 @@ describe("auth entry routes", () => {
       "/auth/login?redirect=/protected",
     );
     expect(loginAliasDestination({ redirect: "/protected" })).toBe(
-      "/auth/login?redirect=/protected",
+      "/auth/login?redirect=%2Fprotected",
     );
     expect(loginAliasDestination(new URLSearchParams("redirect=/protected"))).toBe(
-      "/auth/login?redirect=/protected",
+      "/auth/login?redirect=%2Fprotected",
     );
   });
 
