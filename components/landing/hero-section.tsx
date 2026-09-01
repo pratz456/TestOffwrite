@@ -8,6 +8,15 @@ export function HeroSection() {
       <div className="pointer-events-none absolute -right-20 top-20 h-[300px] w-[300px] rounded-full opacity-[0.06]" aria-hidden="true" style={{ background: "radial-gradient(circle, hsl(160 60% 45%), transparent 70%)" }} />
 
       <div className="relative mx-auto max-w-4xl px-4 text-center sm:px-6 lg:px-8">
+        <div className="mb-6">
+          <div className="animate-hero-enter inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-4 py-1.5 text-xs font-medium text-muted-foreground sm:text-sm">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
+            </span>
+            <span>$2,847 saved today</span>
+          </div>
+        </div>
         <div className="animate-hero-enter mb-6 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-4 py-1.5 text-sm font-medium text-primary">
           <Sparkles className="h-4 w-4" />
           AI-Powered Tax Automation

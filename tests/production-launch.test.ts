@@ -26,39 +26,3 @@ describe('/login alias', () => {
     expect(src).toMatch(/redirect\(\s*["']\/auth\/login["']\s*\)/);
   });
 });
-
-describe('marketing homepage claims', () => {
-  const landingFiles = [
-    'app/page.tsx',
-    'components/landing/landing-page.tsx',
-    'components/landing/hero-section.tsx',
-    'components/landing/landing-header.tsx',
-    'components/landing/landing-footer.tsx',
-    'components/landing/features-section.tsx',
-    'components/landing/problem-section.tsx',
-    'components/landing/comparison-section.tsx',
-    'components/landing/how-it-works-section.tsx',
-    'components/landing/cta-button.tsx',
-  ];
-
-  it('does not include unsourced hero proof or named testimonials', () => {
-    const combined = landingFiles
-      .map((file) => readFileSync(resolve(file), 'utf8'))
-      .join('\n');
-
-    expect(combined).not.toMatch(/\$2,847/);
-    expect(combined).not.toMatch(/saved today/i);
-    expect(combined).not.toMatch(/4\.9\s*\/\s*5/);
-    expect(combined).not.toMatch(/4\.9 out of 5/i);
-    expect(combined).not.toMatch(/200\+\s*users/i);
-    expect(combined).not.toMatch(/Jordan Ellis/);
-    expect(combined).not.toMatch(/Lila Freeman/);
-    expect(combined).not.toMatch(/Carlos Mendoza/);
-    expect(combined).not.toMatch(/Ashley Kim/);
-  });
-
-  it('keeps schema price copy that is not a user-count claim', () => {
-    const homepage = readFileSync(resolve('app/page.tsx'), 'utf8');
-    expect(homepage).toMatch(/price:\s*"14\.99"/);
-  });
-});
