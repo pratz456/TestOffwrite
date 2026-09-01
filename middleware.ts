@@ -118,6 +118,14 @@ export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const ip = getClientIP(request);
 
+  // /login alias → /auth/login before rate limit so ?qs does not inherit
+  // the dynamic SSR hang on the old Promise searchParams redirect page.
+  if (pathname === '/login') {
+    const url = request.nextUrl.clone();
+    url.pathname = '/auth/login';
+    return NextResponse.redirect(url, 307);
+  }
+
   // ── Block common attack paths ─────────────────────────────────────────
   for (const blocked of BLOCKED_PATHS) {
     if (pathname.startsWith(blocked)) {

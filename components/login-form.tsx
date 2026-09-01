@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
 import writeOffLogo from '@/public/writeofflogo.png';
 import Image from 'next/image';
@@ -25,10 +25,16 @@ export function LoginForm({
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const redirect = searchParams.get('redirect') || '/protected';
+  const [redirect, setRedirect] = useState('/protected');
   const { user, loading: authLoading } = useAuth();
   const hasRedirected = useRef(false);
+
+  // Client-only: reading search params via useSearchParams forces dynamic SSR
+  // and hangs uncached /auth/login?qs on Firebase Hosting frameworks.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setRedirect(params.get('redirect') || '/protected');
+  }, []);
 
   // Redirect already-authenticated users away from login page
   useEffect(() => {
