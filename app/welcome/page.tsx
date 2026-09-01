@@ -1,47 +1,31 @@
-"use client";
-
+import type { Metadata } from "next";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { HomeContent } from "@/components/home-content";
-import { useAuth } from "@/lib/firebase/auth-context";
-import { useRouter } from "next/navigation";
-import { useEffect, useRef } from "react";
+import { WelcomeAuthRedirect } from "@/components/welcome-auth-redirect";
+import { APP_SHELL_PATH, hasAuthSessionCookie } from "@/lib/auth-routes";
 
-export default function WelcomePage() {
-  const { user, loading } = useAuth();
-  const router = useRouter();
-  const hasRedirected = useRef(false);
+export const metadata: Metadata = {
+  title: "Welcome",
+  description:
+    "Create a WriteOff account or sign in to track 1099 tax deductions.",
+};
 
-  // Redirect authenticated users to /protected
-  useEffect(() => {
-    if (!loading && user && !hasRedirected.current) {
-      hasRedirected.current = true;
-      router.replace("/protected");
-    }
-    if (!user) {
-      hasRedirected.current = false;
-    }
-  }, [user, loading, router]);
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <div className="animate-spin rounded-full h-8 w-8 border-2 border-primary border-t-transparent mx-auto" />
-          <p className="text-muted-foreground">Loading...</p>
-        </div>
-      </div>
-    );
+/**
+ * SSR renders the real welcome/onboarding. Firebase auth is client-only, so
+ * we must not wait on it — that produced a spinner-only page for signed-out users.
+ * Signed-in visitors with a session cookie go straight to the app shell.
+ */
+export default async function WelcomePage() {
+  const cookieStore = await cookies();
+  if (hasAuthSessionCookie((name) => cookieStore.get(name))) {
+    redirect(APP_SHELL_PATH);
   }
 
-  if (user) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <div className="animate-spin rounded-full h-8 w-8 border-2 border-primary border-t-transparent mx-auto" />
-          <p className="text-muted-foreground">Redirecting...</p>
-        </div>
-      </div>
-    );
-  }
-
-  return <HomeContent />;
+  return (
+    <>
+      <WelcomeAuthRedirect />
+      <HomeContent />
+    </>
+  );
 }

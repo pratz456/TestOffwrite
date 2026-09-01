@@ -108,6 +108,17 @@ const nextConfig: NextConfig = {
     ];
   },
 
+  // /login was a 404; the real form is /auth/login. Alias, do not add a third login.
+  async redirects() {
+    return [
+      {
+        source: "/login",
+        destination: "/auth/login",
+        permanent: false,
+      },
+    ];
+  },
+
   // Enable compression
   compress: true,
 
