@@ -108,6 +108,12 @@ const nextConfig: NextConfig = {
     ];
   },
 
+  async redirects() {
+    return [
+      { source: "/login", destination: "/auth/login", permanent: false },
+    ];
+  },
+
   // Enable compression
   compress: true,
 

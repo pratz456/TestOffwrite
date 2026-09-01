@@ -118,6 +118,14 @@ export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const ip = getClientIP(request);
 
+  // ── Public login alias ────────────────────────────────────────────────
+  // GET /login is a 404 in production; the working form is /auth/login.
+  if (pathname === '/login' || pathname === '/login/') {
+    const url = request.nextUrl.clone();
+    url.pathname = '/auth/login';
+    return addSecurityHeaders(NextResponse.redirect(url));
+  }
+
   // ── Block common attack paths ─────────────────────────────────────────
   for (const blocked of BLOCKED_PATHS) {
     if (pathname.startsWith(blocked)) {
