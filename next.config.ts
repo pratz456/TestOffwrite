@@ -108,6 +108,13 @@ const nextConfig: NextConfig = {
     ];
   },
 
+  // /login is a common entry URL; the working page is /auth/login
+  async redirects() {
+    return [
+      { source: "/login", destination: "/auth/login", permanent: false },
+    ];
+  },
+
   // Enable compression
   compress: true,
 

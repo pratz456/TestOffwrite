@@ -10,11 +10,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { Mail, CheckCircle } from "lucide-react";
 import Link from "next/link";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { resendEmailVerification, getCurrentUser, checkAndSignInIfVerified } from "@/lib/firebase/auth";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { auth } from "@/lib/firebase/client";
+import { AUTH_SETTLE_TIMEOUT_MS } from "@/lib/welcome-view-state";
 
 export default function Page() {
   const [isResending, setIsResending] = useState(false);
@@ -24,7 +25,9 @@ export default function Page() {
   const [isPolling, setIsPolling] = useState(false);
   const [verificationStatus, setVerificationStatus] = useState<'checking' | 'waiting' | 'verified' | 'error'>('checking');
   const router = useRouter();
-  const { user, loading } = useAuth();
+  const { loading } = useAuth();
+  const loadingTimedOut = useRef(false);
+  const [authWaitTimedOut, setAuthWaitTimedOut] = useState(false);
 
   // Polling mechanism to check for email verification
   useEffect(() => {
@@ -34,7 +37,7 @@ export default function Page() {
     const pollInterval = 3000; // 3 seconds
 
     const startPolling = async () => {
-      if (loading) return; // Wait for auth context to load
+      if (loading && !loadingTimedOut.current) return; // Wait for auth context, but not forever
       
       try {
         // Initial check
@@ -107,7 +110,17 @@ export default function Page() {
       if (intervalId) clearInterval(intervalId);
       if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [loading, router]);
+  }, [loading, authWaitTimedOut, router]);
+
+  useEffect(() => {
+    if (!loading) return;
+    const id = window.setTimeout(() => {
+      loadingTimedOut.current = true;
+      setAuthWaitTimedOut(true);
+      setIsCheckingAuth(false);
+    }, AUTH_SETTLE_TIMEOUT_MS);
+    return () => window.clearTimeout(id);
+  }, [loading]);
 
   const handleResendVerification = async () => {
     setIsResending(true);
@@ -128,7 +141,7 @@ export default function Page() {
   };
 
   // Show loading state while checking authentication
-  if (isCheckingAuth || loading) {
+  if ((isCheckingAuth || loading) && !authWaitTimedOut) {
     return (
       <div className="flex min-h-svh w-full items-center justify-center p-6 md:p-10">
         <div className="w-full max-w-md">

@@ -9,6 +9,7 @@ import { getUserProfile } from '@/lib/firebase/profiles';
 import { useRouter, usePathname } from 'next/navigation';
 import { ToastContainer, useToasts } from '@/components/ui/toast';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
+import { AUTH_SETTLE_TIMEOUT_MS } from '@/lib/welcome-view-state';
 
 interface ProtectedLayoutClientProps {
   children: React.ReactNode;
@@ -24,7 +25,8 @@ export const ProtectedLayoutClient: React.FC<ProtectedLayoutClientProps> = ({ ch
   const { toasts, removeToast } = useToasts();
   const hasRedirected = useRef(false);
 
-  // Fetch user profile on mount
+  // Fetch user profile on mount. If there is no user, stop waiting — otherwise
+  // profileLoading stays true forever and /protected hangs on a spinner.
   useEffect(() => {
     const fetchProfile = async () => {
       if (user?.id) {
@@ -57,6 +59,7 @@ export const ProtectedLayoutClient: React.FC<ProtectedLayoutClientProps> = ({ ch
                 errorMessage: error?.message,
                 errorCode: error?.code
               });
+              setIsProfileSetup(true);
             }
           } else if (data) {
             console.log('✅ [ProtectedLayoutClient] User profile loaded successfully:', data);
@@ -65,9 +68,11 @@ export const ProtectedLayoutClient: React.FC<ProtectedLayoutClientProps> = ({ ch
             setIsProfileSetup(false);
           } else {
             console.log('ℹ️ [ProtectedLayoutClient] No profile data returned');
+            setIsProfileSetup(true);
           }
         } catch (error) {
           console.error('❌ [ProtectedLayoutClient] Exception in fetchProfile:', error);
+          setIsProfileSetup(true);
         } finally {
           setProfileLoading(false);
         }
@@ -75,7 +80,15 @@ export const ProtectedLayoutClient: React.FC<ProtectedLayoutClientProps> = ({ ch
     };
 
     if (user) {
-      fetchProfile();
+      setProfileLoading(true);
+      const timeoutId = window.setTimeout(() => {
+        console.warn('[ProtectedLayoutClient] Profile fetch timed out; showing setup');
+        setIsProfileSetup(true);
+        setProfileLoading(false);
+      }, AUTH_SETTLE_TIMEOUT_MS);
+      fetchProfile().finally(() => window.clearTimeout(timeoutId));
+    } else {
+      setProfileLoading(false);
     }
   }, [user]);
 
@@ -98,8 +111,9 @@ export const ProtectedLayoutClient: React.FC<ProtectedLayoutClientProps> = ({ ch
     }
   }, [user, loading, router, pathname]);
 
-  // If loading, show loading state
-  if (loading || profileLoading) {
+  // Auth still resolving — brief spinner. Do not AND this with profileLoading
+  // when there is no user (that combination never cleared before).
+  if (loading) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-2 border-primary border-t-transparent"></div>
@@ -112,6 +126,14 @@ export const ProtectedLayoutClient: React.FC<ProtectedLayoutClientProps> = ({ ch
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="text-lg">Redirecting to login...</div>
+      </div>
+    );
+  }
+
+  if (profileLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-2 border-primary border-t-transparent"></div>
       </div>
     );
   }

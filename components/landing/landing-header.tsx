@@ -11,7 +11,6 @@ const NAV_LINKS = [
   { label: "Problem", href: "/#problem" },
   { label: "Features", href: "/#features" },
   { label: "How It Works", href: "/#how-it-works" },
-  { label: "Reviews", href: "/#reviews" },
   { label: "Blog", href: "/blog" },
   { label: "Tools", href: "/tools" },
 ];
