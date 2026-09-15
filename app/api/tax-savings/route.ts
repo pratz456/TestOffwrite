@@ -3,6 +3,7 @@ import { getTransactionsServer } from '@/lib/firebase/transactions-server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getUserProfileServer } from '@/lib/firebase/profiles-server';
 import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
+import { FilingStatusReviewRequiredError } from '@/lib/tax-rules/filing-status';
 
 export async function GET(request: NextRequest) {
   try {
@@ -127,6 +128,7 @@ export async function GET(request: NextRequest) {
       }
     });
   } catch (error) {
+    if (error instanceof FilingStatusReviewRequiredError) return NextResponse.json({ error: error.message, code: error.code }, { status: 422 });
     console.error('❌ [Tax Savings API] Error in tax savings API:', error);
     
     // Provide more specific error messages
@@ -140,4 +142,4 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
-} 
+}

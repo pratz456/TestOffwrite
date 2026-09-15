@@ -1,7 +1,7 @@
 "use client";
 
 import { PremiumFeatureGate } from '@/components/premium-feature-gate';
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -26,7 +26,7 @@ interface ChecklistItem {
   id: string;
   label: string;
   description: string;
-  status: "complete" | "partial" | "missing";
+  status: "complete" | "partial" | "missing" | "unavailable";
   detail?: string;
   action?: string;
   actionScreen?: string;
@@ -43,6 +43,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
   const [error, setError] = useState<string | null>(null);
   const [calculationWarnings, setCalculationWarnings] = useState<unknown>([]);
   const [hasTaxEstimate, setHasTaxEstimate] = useState(false);
+  const loadRequest = useRef(0);
 
   const [summary, setSummary] = useState({
     grossReceipts: 0,
@@ -70,65 +71,71 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
   });
 
   const loadSummary = useCallback(async () => {
+    const request = ++loadRequest.current;
     setLoading(true);
     setError(null);
     setHasTaxEstimate(false);
     setCalculationWarnings([]);
     try {
-      const [grossRes, incomeRes, txRes, seRes, form1040Res] = await Promise.all([
-        makeAuthenticatedRequest(`/api/income/gross-receipts?year=${year}`),
-        makeAuthenticatedRequest(`/api/income/1099?year=${year}`),
+      const [txRes, form1040Res] = await Promise.all([
         makeAuthenticatedRequest(`/api/tax/schedule-c/calculate?year=${year}`),
-        makeAuthenticatedRequest(`/api/tax/schedule-se/auto?year=${year}`),
         makeAuthenticatedRequest(`/api/tax/compute-1040?year=${year}`),
       ]);
 
-      const grossData  = grossRes.ok  ? await grossRes.json()  : { totalGrossReceipts: 0, entries: [] };
-      const incomeData = incomeRes.ok ? await incomeRes.json() : { forms: [] };
-      const txData     = txRes.ok     ? await txRes.json()     : {};
-      const seData     = seRes.ok     ? await seRes.json()     : {};
-      const tax1040    = form1040Res.ok ? await form1040Res.json() : {};
+      const tax1040 = await form1040Res.json().catch(() => ({}));
+      if (!form1040Res.ok) throw new Error(tax1040.error || "The federal estimate could not be loaded. Open Tax Preview to retry before using these figures.");
+      const txData = await txRes.json().catch(() => ({}));
+      if (!txRes.ok) throw new Error(txData.error || "Expense review could not be loaded. Please retry before checking filing readiness.");
       const federalEstimate = tax1040.form1040;
-      setHasTaxEstimate(!!federalEstimate);
-      setCalculationWarnings(federalEstimate?.calculationWarnings);
-      if (!form1040Res.ok) setError("The federal estimate could not be loaded. Open Tax Preview to retry before using these figures.");
+      const income = tax1040.income;
+      if (Number(tax1040.taxYear) !== Number(year) || ![
+        federalEstimate?.totalIncome, federalEstimate?.totalTax, federalEstimate?.balanceDue, federalEstimate?.refund,
+        income?.grossReceipts, income?.scheduleCNetProfit, income?.totalDeductible, income?.w2Wages,
+        tax1040.seCalc?.totalSETax, tax1040.w2?.withheld,
+      ].every(value => typeof value === "number" && Number.isFinite(value))) {
+        throw new Error("The federal estimate is incomplete or belongs to another year. Open Tax Preview to retry.");
+      }
+      if (request !== loadRequest.current) return;
+      setHasTaxEstimate(true);
+      setCalculationWarnings(federalEstimate.calculationWarnings);
 
-      const grossReceipts = grossData.totalGrossReceipts || 0;
-      const income1099    = (incomeData.forms || []).reduce((s: number, f: any) => s + f.amount, 0);
-      const totalIncome   = grossReceipts + income1099;
-      const totalExpenses = txData.totalDeductible || seData.totalExpenses || 0;
-      const netProfit     = seData.netProfit ?? Math.max(0, totalIncome - totalExpenses);
-      const seTax         = seData.calculation?.totalSETax || 0;
+      const totalExpenses = income.totalDeductible;
+      const netProfit = income.scheduleCNetProfit;
+      const seTax = tax1040.seCalc.totalSETax;
       const confirmedCount = txData.confirmedCount || 0;
 
       setSummary({
-        grossReceipts, income1099,
-        w2Wages: seData.w2Income || seData.w2Wages || 0,
-        w2Withheld: seData.w2Withheld || 0,
-        totalIncome: federalEstimate?.totalIncome ?? seData.totalIncome ?? (totalIncome + (seData.w2Wages ?? seData.w2Income ?? 0)),
+        grossReceipts: income.grossReceipts, income1099: 0,
+        w2Wages: income.w2Wages,
+        w2Withheld: tax1040.w2.withheld,
+        totalIncome: federalEstimate.totalIncome,
         confirmedExpenses: totalExpenses,
         totalExpenses, netProfit, seTax, confirmedCount,
         hasHomeOffice: !!(txData.hasHomeOffice),
         hasVehicle: !!(txData.hasVehicle),
         quarterlyPaid: 0,
-        hasDeductions: !!(seData.aboveLineDeductions?.total),
-        hasW2: (seData.w2Income || 0) > 0,
-        aboveLineDeductions: seData.aboveLineDeductions?.total || 0,
-        adjustedNetIncome: seData.adjustedNetIncome || netProfit,
+        hasDeductions: Object.values(tax1040.deductions || {}).some(value => typeof value === "number" && value > 0),
+        hasW2: income.w2Wages > 0,
+        aboveLineDeductions: federalEstimate.adjustments || 0,
+        adjustedNetIncome: federalEstimate.agi ?? netProfit,
         balanceDue: federalEstimate?.balanceDue ?? 0,
         refund: federalEstimate?.refund ?? 0,
         totalTax: federalEstimate?.totalTax ?? 0,
       });
     } catch (e) {
-      setError("Failed to load filing summary. Please try again.");
+      if (request === loadRequest.current) setError(e instanceof Error ? e.message : "Failed to load filing summary. Please try again.");
     } finally {
-      setLoading(false);
+      if (request === loadRequest.current) setLoading(false);
     }
   }, [year]);
 
-  useEffect(() => { loadSummary(); }, [loadSummary]);
+  useEffect(() => {
+    const requests = loadRequest;
+    void loadSummary();
+    return () => { ++requests.current; };
+  }, [loadSummary, user.id]);
 
-  const checklist: ChecklistItem[] = [
+  const checklist: ChecklistItem[] = ([
     {
       id: "income",
       label: "Income entered",
@@ -207,7 +214,11 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
       action: "Tax Organizer",
       actionScreen: "deductions-entry",
     },
-  ];
+  ] satisfies ChecklistItem[]).map(item => hasTaxEstimate ? item : {
+    ...item,
+    status: "unavailable" as const,
+    detail: "Resolve the calculation issue before checking filing readiness.",
+  });
 
   const handleExport = async (formType: string) => {
     setExporting(formType);
@@ -259,12 +270,14 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
   };
 
   const statusIcon = (s: ChecklistItem["status"]) => {
+    if (s === "unavailable") return <AlertCircle className="w-5 h-5 text-muted-foreground shrink-0" />;
     if (s === "complete") return <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0" />;
     if (s === "partial")  return <AlertCircle  className="w-5 h-5 text-amber-500 shrink-0" />;
     return <Circle className="w-5 h-5 text-muted-foreground/40 shrink-0" />;
   };
 
   const statusBadge = (s: ChecklistItem["status"]) => {
+    if (s === "unavailable") return <Badge variant="outline" className="text-xs text-muted-foreground">Unavailable</Badge>;
     if (s === "complete") return <Badge className="bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 border-0 text-xs">Done</Badge>;
     if (s === "partial")  return <Badge className="bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 border-0 text-xs">Partial</Badge>;
     return <Badge variant="outline" className="text-xs text-muted-foreground">Needed</Badge>;
@@ -303,7 +316,10 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
 
       <div className="max-w-3xl mx-auto px-4 sm:px-6 py-5 space-y-5">
         {error && (
-          <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div>
+          <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive" role="alert">
+            <p>{error}</p>
+            <Button variant="outline" size="sm" onClick={loadSummary} disabled={loading} className="mt-2">Retry filing summary</Button>
+          </div>
         )}
 
         {loading ? (
@@ -313,8 +329,8 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
             {/* Summary cards */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {[
-                { label: "Total Income",    value: fmt(summary.totalIncome), accent: "text-green-600 dark:text-green-400",  icon: TrendingUp },
-                { label: "Total Expenses",  value: fmt(summary.totalExpenses), accent: "text-red-500 dark:text-red-400", icon: Receipt },
+                { label: "Total Income",    value: hasTaxEstimate ? fmt(summary.totalIncome) : "Unavailable", accent: "text-green-600 dark:text-green-400",  icon: TrendingUp },
+                { label: "Total Expenses",  value: hasTaxEstimate ? fmt(summary.totalExpenses) : "Unavailable", accent: "text-red-500 dark:text-red-400", icon: Receipt },
                 { label: "Total Tax",       value: hasTaxEstimate ? fmt(summary.totalTax) : "Unavailable", accent: "text-orange-600 dark:text-orange-400", icon: DollarSign },
                 { label: summary.refund > 0 ? "Est. Refund" : "Balance Due",
                   value: hasTaxEstimate ? fmt(summary.refund > 0 ? summary.refund : summary.balanceDue) : "Unavailable",
@@ -338,9 +354,9 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
               <CardContent className="p-4">
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-sm font-medium text-foreground">Filing readiness</p>
-                  <span className="text-sm font-semibold text-primary">{pct}%</span>
+                  <span className="text-sm font-semibold text-primary">{hasTaxEstimate ? `${pct}%` : "Unavailable"}</span>
                 </div>
-                <div className="w-full bg-muted rounded-full h-2.5">
+                {hasTaxEstimate && <div className="w-full bg-muted rounded-full h-2.5">
                   <div
                     className="h-2.5 rounded-full transition-all duration-700"
                     style={{
@@ -348,10 +364,11 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
                       background: pct === 100 ? "#22c55e" : pct >= 60 ? "#3b82f6" : "#f59e0b"
                     }}
                   />
-                </div>
+                </div>}
                 <p className="text-xs text-muted-foreground mt-2">
-                  {completeCount} of {checklist.length} steps complete
-                  {pct === 100 ? " - ready to export your forms!" : " - complete the steps below to prepare your return."}
+                  {hasTaxEstimate
+                    ? `${completeCount} of ${checklist.length} steps complete${pct === 100 ? " - ready to export your forms!" : " - complete the steps below to prepare your return."}`
+                    : "Resolve the calculation issue above, then retry to check filing readiness."}
                 </p>
               </CardContent>
             </Card>
@@ -423,7 +440,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
                         size="sm"
                         variant={isReady ? "default" : "outline"}
                         onClick={() => handleExport(form.id)}
-                        disabled={!!exporting}
+                        disabled={!!exporting || !hasTaxEstimate}
                         className="shrink-0 gap-1.5 min-h-[36px] text-xs"
                       >
                         {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}

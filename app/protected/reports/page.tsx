@@ -13,7 +13,7 @@ import { ReportsChartSkeleton, PageHeaderSkeleton } from '@/components/ui/skelet
 import { ToastContainer, useToasts } from '@/components/ui/toast';
 import { useSubscription } from '@/lib/hooks/use-subscription';
 import { getUserProfile } from '@/lib/firebase/profiles';
-import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
+import { getUserTaxRateDisplay } from '@/lib/tax-rules/federal-brackets';
 
 interface MonthlyData {
   month: number;
@@ -152,7 +152,7 @@ export default function ReportsPage() {
   const allTransactions = (transactionsResponse?.transactions ?? transactionsResponse?.data ?? []) as ReportTransaction[];
 
   // Memoized aggregates: per-month and summary for chart year (paid, received, deductible, receipts)
-  const taxRate = getUserTaxRate(profile);
+  const { rate: taxRate, reviewMessage: taxReviewMessage } = getUserTaxRateDisplay(profile);
   const transactionAggregates = useMemo(() => {
     if (!allTransactions.length) {
       return {
@@ -196,7 +196,7 @@ export default function ReportsPage() {
       } else {
         perMonth[month].paid += abs;
         totalPaid += abs;
-        if (t.is_deductible === true) {
+        if (t.is_deductible === true && taxRate !== null) {
           perMonth[month].deductibleSavings += abs * taxRate;
         }
       }
@@ -431,14 +431,14 @@ export default function ReportsPage() {
     );
   }
 
-  if (error) {
+  if (error || taxReviewMessage) {
     return (
       <div className="p-4 sm:p-6 bg-background min-h-screen max-w-7xl mx-auto">
         <div className="text-center py-12">
           <AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4" />
-          <h2 className="text-xl font-semibold text-foreground mb-2">Error Loading Reports</h2>
+          <h2 className="text-xl font-semibold text-foreground mb-2">{taxReviewMessage ? 'Review filing status' : 'Error Loading Reports'}</h2>
           <p className="text-muted-foreground mb-4">
-            {error instanceof Error ? error.message : 'Failed to load reports data'}
+            {taxReviewMessage || (error instanceof Error ? error.message : 'Failed to load reports data')}
           </p>
           <Button
             onClick={() => refetch()}
@@ -447,6 +447,7 @@ export default function ReportsPage() {
             <RefreshCw className="w-4 h-4 mr-2" />
             Try Again
           </Button>
+          {taxReviewMessage && <a className="block mt-4 underline" href="/protected/settings">Review profile</a>}
         </div>
       </div>
     );
@@ -1311,4 +1312,3 @@ export default function ReportsPage() {
     </div>
   );
 }
-

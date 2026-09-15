@@ -9,7 +9,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import { useTransactions, useUserStats } from '@/lib/firebase/hooks';
-import { calculateEffectiveTaxRate } from '@/lib/tax-rules/federal-brackets';
+import { getUserTaxRateDisplay, STANDARD_DEDUCTIONS_2025 } from '@/lib/tax-rules/federal-brackets';
 import { ToastContainer, useToasts } from '@/components/ui/toast';
 import { auth } from '@/lib/firebase/client';
 import { HistoricalAccessUpgradeCard } from '@/components/historical-access-upgrade-card';
@@ -93,6 +93,7 @@ export default function DashboardScreen({
   useEffect(() => {
     const fetchTaxSavings = async () => {
       if (!profile?.id) return;
+      setTaxSavingsData(null);
       try {
         setIsLoadingTaxSavings(true);
         const response = await makeAuthenticatedRequest('/api/tax-savings');
@@ -107,7 +108,7 @@ export default function DashboardScreen({
       }
     };
     fetchTaxSavings();
-  }, [profile?.id]);
+  }, [profile?.id, profile?.filing_status]);
 
   // --- Early return for no data ---
   if (!transactions) {
@@ -130,7 +131,8 @@ export default function DashboardScreen({
 
   const taxSavings = taxSavingsData?.taxSavings?.yearToDate ?? 0;
   const projectedAnnual = taxSavingsData?.taxSavings?.projectedAnnual ?? fallbackProjectedAnnual;
-  const estimatedTaxRate = calculateEffectiveTaxRate(profile);
+  const taxRateDisplay = getUserTaxRateDisplay(profile);
+  const estimatedTaxRate = taxRateDisplay.rate === null ? null : taxRateDisplay.rate * 100;
 
   const needsReviewCount =
     stats?.needsReviewTransactions ??
@@ -157,14 +159,12 @@ export default function DashboardScreen({
   const seBase = scheduleCProfit * 0.9235;
   const seTax = Math.max(0, seBase * 0.153);
   const halfSE = seTax / 2;
-  const standardDeduction = profile?.filing_status === 'married_filing_jointly' ? 31500
-    : profile?.filing_status === 'head_of_household' ? 23625 : 15750;
+  const standardDeduction = taxRateDisplay.filingStatus ? STANDARD_DEDUCTIONS_2025[taxRateDisplay.filingStatus] : null;
   const agi = Math.max(0, scheduleCProfit - halfSE);
-  const taxableIncome = Math.max(0, agi - standardDeduction);
-  const incomeTax = taxableIncome * (estimatedTaxRate / 100);
-  const totalTax = seTax + incomeTax;
-  const combinedTaxRate = scheduleCProfit > 0 ? (totalTax / scheduleCProfit) * 100 : 0;
-  const quarterlyTaxes = Math.max(0, totalTax / 4);
+  const taxableIncome = standardDeduction === null ? null : Math.max(0, agi - standardDeduction);
+  const incomeTax = taxableIncome === null || estimatedTaxRate === null ? null : taxableIncome * (estimatedTaxRate / 100);
+  const totalTax = incomeTax === null ? null : seTax + incomeTax;
+  const quarterlyTaxes = totalTax === null ? null : Math.max(0, totalTax / 4);
 
   // Category breakdown (unchanged)
   const categoryBreakdown: Record<string, number> = {};
@@ -212,7 +212,7 @@ export default function DashboardScreen({
 
         <div className="max-w-7xl mx-auto px-4 md:px-6 py-3 sm:py-4 space-y-3 sm:space-y-4">
           {/* Row 1: KPI Cards */}
-          <KpiGrid
+          {estimatedTaxRate !== null && quarterlyTaxes !== null ? <KpiGrid
             scheduleCProfit={scheduleCProfit}
             grossIncome={grossIncome}
             totalExpenses={totalExpenses}
@@ -220,7 +220,10 @@ export default function DashboardScreen({
             deductibleCount={deductibleTransactions.length}
             estimatedTaxRate={estimatedTaxRate}
             quarterlyTaxes={quarterlyTaxes}
-          />
+          /> : <div role="alert" className="rounded-xl border p-4 text-sm">
+            <p>{taxRateDisplay.reviewMessage}</p>
+            <button className="mt-2 underline" onClick={() => onNavigate('settings')}>Review profile</button>
+          </div>}
 
           {/* Row 2: Action Items + Premium - side-by-side square cards */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
@@ -273,12 +276,12 @@ export default function DashboardScreen({
           </div>
 
           {/* Row 6: AI Advisory */}
-          <AiAdvisoryCard
+          {!taxRateDisplay.reviewMessage && <AiAdvisoryCard
             needsReviewCount={needsReviewCount}
             needsAnalysisCount={needsAnalysisCount}
             taxSavings={taxSavings}
             onNavigate={onNavigate}
-          />
+          />}
         </div>
       </div>
     </>

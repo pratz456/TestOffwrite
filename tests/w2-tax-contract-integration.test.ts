@@ -1,14 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
+import { PDFPage } from 'pdf-lib';
+import { profileWriteData } from '../lib/onboarding/profile';
 
 // Real save and tax route handlers, shared in-memory Firestore transport.
 // Authentication, persistence and subscriptions are mocked; no live records/providers.
-const state = vi.hoisted(() => ({ records: {} as Record<string, Record<string, unknown>[]>, transactions: [] as Record<string, unknown>[], computedInputs: [] as Record<string, unknown>[], computedResults: [] as Record<string, unknown>[] }));
+const state = vi.hoisted(() => ({ filingStatus: 'single' as unknown, records: {} as Record<string, Record<string, unknown>[]>, transactions: [] as Record<string, unknown>[], computedInputs: [] as Record<string, unknown>[], computedResults: [] as Record<string, unknown>[] }));
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({ user: { uid: 'w2-contract-user' }, error: null }) }));
 vi.mock('@/app/api/_lib/auth', () => ({ getUserFromReqOrThrow: async () => ({ uid: 'w2-contract-user' }) }));
 vi.mock('@/lib/subscriptions/feature-access', () => ({ requireFeatureAccess: async () => null }));
 vi.mock('@/lib/firebase/transactions-server', () => ({ getTransactionsServer: async () => ({ data: state.transactions, error: null }) }));
-vi.mock('@/lib/firebase/profiles-server', () => ({ getUserProfileServer: async () => ({ data: { filing_status: 'single', w2_federal_withheld: 99999 }, error: null }) }));
+vi.mock('@/lib/firebase/profiles-server', () => ({ getUserProfileServer: async () => ({ data: { filing_status: state.filingStatus, w2_federal_withheld: 99999 }, error: null }) }));
 vi.mock('@/lib/firebase/settings-server', () => ({ getAssetsSettings: async () => ({ data: [], error: null }) }));
 vi.mock('@/lib/firebase/quarterly-payments-server', () => ({ getRecordedQuarterlyPayments: async () => [], totalRecordedPayments: () => 0 }));
 vi.mock('@/lib/tax-rules/compute-1040', async importOriginal => {
@@ -43,15 +45,73 @@ import { POST as export1040 } from '../app/api/tax/form-1040/route';
 import { GET as scheduleSE } from '../app/api/tax/schedule-se/auto/route';
 import { GET as reminders } from '../app/api/tax/quarterly-reminders/route';
 import { POST as importDocument } from '../app/api/tax/import-document/route';
+import { POST as quarterlyEstimate } from '../app/api/tax/quarterly-estimates/route';
 import { summarizeW2Income } from '../lib/tax-rules/w2-income';
 
 const fixture = { employer: 'Synthetic employer', taxYear: 2026, wages: 200000, federalWithheld: 35000, socialSecurityWages: 184500, medicareWages: 210000, stateWithheld: 5000 };
 const request = (path: string) => new NextRequest(`http://localhost${path}?year=2026`);
 beforeEach(() => {
+  state.filingStatus = 'single';
   state.records = { gross_receipts: [{ userId: 'w2-contract-user', taxYear: 2026, amount: 100000 }] };
   state.computedInputs = [];
   state.computedResults = [];
   state.transactions = [];
+});
+
+describe('onboarding filing-status labels flow into tax calculations and PDF selection', () => {
+  const labels = [
+    ['Single', 'single', 16100],
+    ['Married Filing Jointly', 'married_filing_jointly', 32200],
+    ['Married Filing Separately', 'married_filing_separately', 16100],
+    ['Head of Household', 'head_of_household', 24150],
+  ] as const;
+  const pdfRequest = () => new NextRequest('http://localhost/api/tax/form-1040', { method: 'POST', body: JSON.stringify({ year: 2026 }) });
+  const quarterlyRequest = () => new NextRequest('http://localhost/api/tax/quarterly-estimates', { method: 'POST', body: JSON.stringify({ userProfile: { filing_status: state.filingStatus }, transactions: [] }) });
+
+  it.each(labels)('accepts the actual onboarding save contract for %s and selects its PDF checkbox', async (label, canonical, deduction) => {
+    const storedProfile = profileWriteData({ email: 'synthetic@example.test', name: 'Synthetic Taxpayer', profession: ['Consultant'], businessEntityType: 'Sole Proprietor', primaryWorkLocation: 'Home', workRelatedTravelPattern: '', income: '$100,000', state: 'TX', filingStatus: label }, true);
+    state.filingStatus = storedProfile.filing_status;
+    await save();
+    const preview = await compute1040(request('/api/tax/compute-1040'));
+    expect(preview.status).toBe(200);
+    const body = await preview.json();
+    expect(body.filingStatus).toBe(canonical);
+    expect(body.form1040.standardDeduction).toBe(deduction);
+    const drawText = vi.spyOn(PDFPage.prototype, 'drawText');
+    try {
+      expect((await export1040(pdfRequest())).status).toBe(200);
+      expect(state.computedInputs[0].filingStatus).toBe(canonical);
+      expect(state.computedInputs[1]).toEqual(state.computedInputs[0]);
+      expect(state.computedResults[1]).toEqual(state.computedResults[0]);
+      const statusIndex = labels.findIndex(([, key]) => key === canonical);
+      const selectedCheckbox = drawText.mock.calls.filter(([text, options]) => text === 'X' && options?.size === 5.5);
+      expect(selectedCheckbox).toHaveLength(1);
+      expect(selectedCheckbox[0][1]?.x).toBe(127.5 + statusIndex * 120);
+    } finally { drawText.mockRestore(); }
+    const se = await scheduleSE(request('/api/tax/schedule-se/auto'));
+    expect(se.status).toBe(200);
+    expect((await se.json()).calculation.additionalMedicareTax).toBe(canonical === 'married_filing_jointly' ? 471.15 : 831.15);
+    const reminderResponse = await reminders(request('/api/tax/quarterly-reminders'));
+    expect(reminderResponse.status).toBe(200);
+    expect((await reminderResponse.json()).filingStatus).toBe(canonical);
+    expect((await quarterlyEstimate(quarterlyRequest())).status).toBe(200);
+  });
+
+  it.each(['Qualifying Widower', 'unrecognized status', 42])('returns actionable validation for %s in every tax route, before calculating', async status => {
+    state.filingStatus = status;
+    for (const response of [
+      await compute1040(request('/api/tax/compute-1040')), await export1040(pdfRequest()),
+      await scheduleSE(request('/api/tax/schedule-se/auto')), await reminders(request('/api/tax/quarterly-reminders')),
+      await quarterlyEstimate(quarterlyRequest()),
+    ]) {
+      expect(response.status).toBe(422);
+      const body = await response.json();
+      expect(body.code).toBe('FILING_STATUS_REVIEW_REQUIRED');
+      expect(body.error).toContain('filing status in Profile');
+      expect(body.error).toContain('No tax total has been calculated');
+    }
+    expect(state.computedInputs).toHaveLength(0);
+  });
 });
 
 describe('shared income snapshot across JSON and PDF', () => {

@@ -19,6 +19,7 @@ import {
 import { Lightbulb, Target, Car, Phone, Calendar, PieChart } from 'lucide-react';
 import { getUserProfile } from '@/lib/firebase/profiles';
 import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
+import { FilingStatusReviewRequiredError } from '@/lib/tax-rules/filing-status';
 import { useTransactions } from '@/lib/firebase/hooks';
 import type { Transaction } from '@/lib/firebase/transactions';
 
@@ -64,6 +65,7 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'overview' | 'deductions' | 'planning' | 'patterns'>('overview');
   const [userProfile, setUserProfile] = useState<any>(null);
+  const [taxReviewMessage, setTaxReviewMessage] = useState<string | null>(null);
   
   const { transactions } = useTransactions(user.id);
 
@@ -71,6 +73,8 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
     const loadUserData = async () => {
       try {
         setIsLoading(true);
+        setInsights(null);
+        setTaxReviewMessage(null);
         
         // Load user profile
         const { data: profile } = await getUserProfile(user.id);
@@ -80,6 +84,7 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
         const generatedInsights = await generateAIInsights(profile, transactions || []);
         setInsights(generatedInsights);
       } catch (error) {
+        if (error instanceof FilingStatusReviewRequiredError) setTaxReviewMessage(error.message);
         console.error('Error loading user data for insights:', error);
       } finally {
         setIsLoading(false);
@@ -352,7 +357,8 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
           <AlertCircle className="w-8 h-8 text-amber-500 mx-auto mb-4" />
-          <p className="text-muted-foreground">Unable to generate insights. Please try again.</p>
+          <p role={taxReviewMessage ? 'alert' : undefined} className="text-muted-foreground">{taxReviewMessage || 'Unable to generate insights. Please try again.'}</p>
+          {taxReviewMessage && <Link className="mt-4 block underline" href="/protected/settings">Review profile</Link>}
           <Button onClick={onBack} variant="outline" className="mt-4">Go Back</Button>
         </div>
       </div>

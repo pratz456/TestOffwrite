@@ -4,6 +4,7 @@ import { aggregateQuarterlyEstimatesForYear, getLocalTransactionDate } from '@/l
 import { calculateStateTax, STATE_TAX_CONFIG } from '@/lib/tax/state-tax-data';
 import { getRecordedQuarterlyPayments, totalRecordedPayments } from '@/lib/firebase/quarterly-payments-server';
 import { getEstimatedTaxDeadline } from '@/lib/tax-provider/payment-deadlines';
+import { normalizeFilingStatus, FilingStatusReviewRequiredError } from '@/lib/tax-rules/filing-status';
 
 interface TaxCalculation {
   totalIncome: number;
@@ -67,7 +68,7 @@ export async function POST(request: NextRequest) {
 
     console.log('🧮 [Quarterly Tax] Calculating for user:', user.uid, { taxYear, tz });
 
-    const filingStatus = userProfile.filing_status || 'single';
+    const filingStatus = normalizeFilingStatus(userProfile.filing_status);
     const w2Income = userProfile.w2_income || 0;
     const otherIncome = userProfile.other_income || 0;
 
@@ -168,6 +169,7 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
+    if (error instanceof FilingStatusReviewRequiredError) return NextResponse.json({ error: error.message, code: error.code }, { status: 422 });
     console.error('❌ [Quarterly Tax] Error:', error);
     return NextResponse.json(
       { error: 'Could not load your quarterly estimate and recorded payments. Please retry.' },

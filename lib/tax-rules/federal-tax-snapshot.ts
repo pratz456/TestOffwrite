@@ -1,9 +1,10 @@
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { calc4562, type Asset } from '@/lib/reports/calc4562';
 import { calcScheduleSE } from '@/lib/reports/calcSE';
-import { compute1040, type Form1040Input } from './compute-1040';
+import { compute1040 } from './compute-1040';
 import { reconcileBusinessIncome, type IncomeRecord } from './business-income';
 import { summarizeW2Income } from './w2-income';
+import { normalizeFilingStatus } from './filing-status';
 
 interface FederalTaxSnapshotInput {
   taxYear: number;
@@ -27,7 +28,7 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
     if (typeof parsed !== 'number' || !Number.isFinite(parsed)) throw new RangeError('Invalid tax amount');
     return parsed;
   };
-  const filingStatus = (profile.filing_status || 'single') as Form1040Input['filingStatus'];
+  const filingStatus = normalizeFilingStatus(profile.filing_status);
   const reconciliation = reconcileBusinessIncome(taxYear, transactions, input.grossReceipts, input.forms1099);
   const w2 = summarizeW2Income(input.w2Entries);
   const w2FederalWithheld = input.w2Entries.length ? w2.federalWithheld : amount(profile.w2_federal_withheld);

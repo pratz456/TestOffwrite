@@ -104,8 +104,8 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
       const date = new Date().toISOString().slice(0, 10);
       setDraft({ merchant: '', amount: '', date, category: 'other' });
       setExtractedData({ merchant: '', amount: 0, date, category: 'other', confidence: 0, items: [], matchCandidates: [], suggestedReceiptType: 'expense', suggestedReceiptConfidence: 0 });
+      setAttachmentChoice('create');
     }
-    setAttachmentChoice('create');
     setIsEditing(true);
     setError(null);
   };

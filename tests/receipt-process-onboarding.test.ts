@@ -116,6 +116,7 @@ describe('receipt onboarding without a connected bank', () => {
     expect(mocks.updateTransaction).toHaveBeenCalledWith(owner, 'owned-bank-transaction', expect.objectContaining({ receipt_filename: 'receipt.png' }));
     expect(mocks.runTransaction).not.toHaveBeenCalled();
     expect(mocks.createTransaction).not.toHaveBeenCalled();
+    expect(mocks.processReceipt).not.toHaveBeenCalled();
   });
 
   it('rejects unowned attachment targets before storing a receipt', async () => {
@@ -124,6 +125,7 @@ describe('receipt onboarding without a connected bank', () => {
     expect(mocks.receiptCreate).not.toHaveBeenCalled();
     expect(mocks.storageSave).not.toHaveBeenCalled();
     expect(mocks.runTransaction).not.toHaveBeenCalled();
+    expect(mocks.processReceipt).not.toHaveBeenCalled();
   });
 
   it('fails before receipt writes if manual-account initialization is unavailable', async () => {
@@ -258,6 +260,72 @@ describe('receipt onboarding without a connected bank', () => {
     expect(updates).not.toHaveProperty('merchant_name');
     expect(updates).not.toHaveProperty('date');
     expect(mocks.createTransaction).not.toHaveBeenCalled();
+    expect(mocks.processReceipt).not.toHaveBeenCalled();
+  });
+
+  it('attaches a valid image even if OCR is unavailable or manual amount is invalid', async () => {
+    mocks.processReceipt.mockRejectedValue(new Error('OCR worker unavailable'));
+    const receiptData = JSON.stringify({ merchant: '', amount: -10, date: 'invalid' });
+    const response = await POST(request({ attachTransactionId: 'owned-bank-transaction', receiptData }));
+    expect(response.status).toBe(200);
+    expect(mocks.processReceipt).not.toHaveBeenCalled();
+    expect(mocks.analyze).not.toHaveBeenCalled();
+    expect(mocks.storageSave).toHaveBeenCalledOnce();
+  });
+
+  it('checks transaction ownership before any attachment storage writes', async () => {
+    mocks.getTransaction.mockImplementation(async () => {
+      expect(mocks.storageSave).not.toHaveBeenCalled();
+      expect(mocks.receiptCreate).not.toHaveBeenCalled();
+      expect(mocks.processReceipt).not.toHaveBeenCalled();
+      return { data: null, error: null };
+    });
+    expect((await POST(request({ attachTransactionId: 'unknown-owner' }))).status).toBe(404);
+    expect(mocks.storageSave).not.toHaveBeenCalled();
+  });
+
+  it('returns the successful attachment update without a fallible second transaction read', async () => {
+    mocks.getTransaction.mockResolvedValueOnce({ data: {
+      trans_id: 'owned-bank-transaction', merchant_name: 'Bank merchant', amount: 125, notes: 'Owner note',
+    }, error: null }).mockRejectedValueOnce(new Error('A second read would fail'));
+    mocks.updateTransaction.mockResolvedValue({ data: [{ trans_id: 'owned-bank-transaction', amount: 125, category: 'supplies' }], error: null });
+    const response = await POST(request({ attachTransactionId: 'owned-bank-transaction' }));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.transaction).toMatchObject({ trans_id: 'owned-bank-transaction', merchant_name: 'Bank merchant', amount: 125, category: 'supplies', receipt_url: body.receiptUrl });
+    expect(mocks.getTransaction).toHaveBeenCalledOnce();
+  });
+
+  it('keeps a concrete owner transaction response when a successful update has no returned document', async () => {
+    mocks.getTransaction.mockResolvedValue({ data: { trans_id: 'owned-bank-transaction', merchant_name: 'Known merchant', amount: 125 }, error: null });
+    mocks.updateTransaction.mockResolvedValue({ data: [], error: null });
+    const response = await POST(request({ attachTransactionId: 'owned-bank-transaction' }));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.transaction).toMatchObject({ trans_id: 'owned-bank-transaction', merchant_name: 'Known merchant', amount: 125, receipt_url: body.receiptUrl });
+    expect(mocks.getTransaction).toHaveBeenCalledOnce();
+  });
+
+  it('logs only a fixed staging step and allowlisted error code on storage failure', async () => {
+    vi.stubEnv('WRITEOFF_ENV', 'staging');
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    mocks.storageSave.mockRejectedValue(Object.assign(new Error('private receipt body and provider credentials'), { code: 403 }));
+    expect((await POST(request())).status).toBe(500);
+    expect(stderr).toHaveBeenCalledWith(`${JSON.stringify({ event: 'receipt-processing-failed', step: 'storage-save', code: 403 })}\n`);
+    expect(stderr.mock.calls.flat().join('')).not.toContain('private receipt');
+    expect(stderr.mock.calls.flat().join('')).not.toContain(owner);
+  });
+
+  it('does not emit staging diagnostics in production or echo an unknown error code', async () => {
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    mocks.storageSave.mockRejectedValue({ code: 'private-token-must-not-appear' });
+    vi.stubEnv('WRITEOFF_ENV', 'production');
+    expect((await POST(request())).status).toBe(500);
+    expect(stderr).not.toHaveBeenCalled();
+    vi.stubEnv('WRITEOFF_ENV', 'staging');
+    expect((await POST(request())).status).toBe(500);
+    expect(stderr.mock.calls.flat().join('')).toContain('unclassified');
+    expect(stderr.mock.calls.flat().join('')).not.toContain('private-token');
   });
 });
 

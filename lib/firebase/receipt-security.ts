@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { getStorage } from 'firebase-admin/storage';
 import { adminAuth } from './admin';
+import { isTrustedApplicationRequest } from '@/lib/security/request-origin';
 
 export const MAX_RECEIPT_BYTES = 10 * 1024 * 1024;
 const MAX_MULTIPART_BYTES = MAX_RECEIPT_BYTES + 128 * 1024;
@@ -32,11 +33,7 @@ export async function receiptUser(request: NextRequest): Promise<string | null> 
 export function assertReceiptUploadOrigin(request: NextRequest) {
   // An explicit ID token is not automatically attached by another website.
   if (request.headers.get('authorization')) return;
-  const origin = request.headers.get('origin');
-  if (request.headers.get('sec-fetch-site') === 'cross-site') {
-    throw new ReceiptRequestError('Cross-site uploads are not allowed', 403);
-  }
-  if (origin && origin !== request.nextUrl.origin) {
+  if (!isTrustedApplicationRequest(request)) {
     throw new ReceiptRequestError('Cross-site uploads are not allowed', 403);
   }
 }

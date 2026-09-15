@@ -207,7 +207,7 @@ export function TaxPreviewScreen({ user, onBack, onNavigate }: Props) {
                 <CardContent className="pt-0 space-y-0">
                   {([
                     { section: "INCOME" as string, lines: [
-                      { num: "1a", label: "W-2 wages", value: f1040.totalIncome - data.income.scheduleCNetProfit },
+                      { num: "1a", label: "W-2 wages", value: data.income.w2Wages },
                       { num: "3", label: "Schedule C net profit", value: data.income.scheduleCNetProfit },
                       { num: "9", label: "Total income", value: f1040.totalIncome, bold: true },
                     ]},

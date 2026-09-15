@@ -9,7 +9,8 @@
  *   IRS Publication 505 - Estimated tax / safe harbor
  */
 
-import { calculateFederalIncomeTax, STANDARD_DEDUCTIONS_2025 } from './federal-brackets';
+import { calculateFederalIncomeTax, STANDARD_DEDUCTIONS_2025, FEDERAL_TAX_BRACKETS_2025 } from './federal-brackets';
+import { normalizeFilingStatus } from './filing-status';
 
 // ── Schedule C Net Profit ─────────────────────────────────────────────────────
 /**
@@ -49,6 +50,7 @@ export function calcCombinedSERate(
   incomeTaxDollars: number;
   totalTaxDollars: number;
 } {
+  const status = normalizeFilingStatus(filingStatus);
   if (scheduleCNetProfit <= 0) {
     return { seTaxRate: 0, incomeTaxEffectiveRate: 0, combinedEffectiveRate: 0, combinedMarginalRate: 0, seTaxDollars: 0, incomeTaxDollars: 0, totalTaxDollars: 0 };
   }
@@ -59,10 +61,10 @@ export function calcCombinedSERate(
   const halfSE = seTax / 2;
 
   // Income tax
-  const stdDed = STANDARD_DEDUCTIONS_2025[filingStatus as keyof typeof STANDARD_DEDUCTIONS_2025] ?? 15750;
+  const stdDed = STANDARD_DEDUCTIONS_2025[status];
   const agi = Math.max(0, scheduleCNetProfit - halfSE - aboveLineDeductions);
   const taxableIncome = Math.max(0, agi - stdDed);
-  const incomeTax = calculateFederalIncomeTax(taxableIncome, filingStatus);
+  const incomeTax = calculateFederalIncomeTax(taxableIncome, status);
 
   const totalTax = seTax + incomeTax;
   const seTaxRate = (seTax / scheduleCNetProfit) * 100;
@@ -72,21 +74,7 @@ export function calcCombinedSERate(
   // Marginal: SE tax on next dollar is always 14.13%, plus marginal income bracket
   const seMarginal = 0.9235 * 0.153; // 14.13%
   // Determine income tax marginal bracket
-  const brackets2025: Record<string, { min: number; rate: number }[]> = {
-    single: [
-      { min: 0, rate: 0.10 }, { min: 11925, rate: 0.12 }, { min: 48475, rate: 0.22 },
-      { min: 103350, rate: 0.24 }, { min: 197300, rate: 0.32 }, { min: 250525, rate: 0.35 }, { min: 626350, rate: 0.37 },
-    ],
-    married_filing_jointly: [
-      { min: 0, rate: 0.10 }, { min: 23850, rate: 0.12 }, { min: 96950, rate: 0.22 },
-      { min: 206700, rate: 0.24 }, { min: 394600, rate: 0.32 }, { min: 501050, rate: 0.35 }, { min: 751600, rate: 0.37 },
-    ],
-    head_of_household: [
-      { min: 0, rate: 0.10 }, { min: 17000, rate: 0.12 }, { min: 64850, rate: 0.22 },
-      { min: 103350, rate: 0.24 }, { min: 197300, rate: 0.32 }, { min: 250500, rate: 0.35 }, { min: 626350, rate: 0.37 },
-    ],
-  };
-  const bkts = brackets2025[filingStatus] ?? brackets2025.single;
+  const bkts = FEDERAL_TAX_BRACKETS_2025[status];
   let marginalIncomeBracket = bkts[0].rate;
   for (const b of bkts) {
     if (taxableIncome >= b.min) marginalIncomeBracket = b.rate;

@@ -190,6 +190,7 @@ const api = {
     if (!response.ok) {
       const error = await response.json().catch(() => ({} as any));
       const msg: string = error?.error || 'Failed to fetch monthly deductions';
+      if (response.status === 422) throw new Error(msg);
 
       // Local dev fallback: compute from client-side Firestore transactions.
       try {

@@ -14,6 +14,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { reconcileBusinessIncome, IncomeReconciliationRequiredError } from '@/lib/tax-rules/business-income';
+import { normalizeFilingStatus, FilingStatusReviewRequiredError } from '@/lib/tax-rules/filing-status';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { adminDb } from '@/lib/firebase/admin';
 import { getTransactionsServer } from '@/lib/firebase/transactions-server';
@@ -22,7 +23,7 @@ import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { calcScheduleSE } from '@/lib/reports/calcSE';
 import { summarizeW2Income } from '@/lib/tax-rules/w2-income';
 import { calculateFederalIncomeTax } from '@/lib/tax-rules/federal-brackets';
-import { getFederalTaxRules, SUPPORTED_TAX_YEARS, type FederalFilingStatus } from '@/lib/tax-rules/federal-year-rules';
+import { getFederalTaxRules, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
 import { getRecordedQuarterlyPayments } from '@/lib/firebase/quarterly-payments-server';
 import { getEstimatedTaxDeadline } from '@/lib/tax-provider/payment-deadlines';
 
@@ -82,12 +83,14 @@ export async function GET(request: NextRequest) {
 
   // ── Income ──
   let businessIncome;
+  let filingStatus;
   try {
+    filingStatus = normalizeFilingStatus(profile.filing_status);
     businessIncome = reconcileBusinessIncome(year, transactions,
       grossSnap.docs.map(d => ({ ...d.data(), id: d.id })),
       income1099Snap.docs.map(d => ({ ...d.data(), id: d.id })));
   } catch (error) {
-    if (error instanceof IncomeReconciliationRequiredError) return NextResponse.json({ error: error.message, code: error.code }, { status: 422 });
+    if (error instanceof IncomeReconciliationRequiredError || error instanceof FilingStatusReviewRequiredError) return NextResponse.json({ error: error.message, code: error.code }, { status: 422 });
     throw error;
   }
   const grossReceipts = businessIncome.grossReceipts;
@@ -97,7 +100,6 @@ export async function GET(request: NextRequest) {
 
   const { totalDeductible } = aggregateScheduleC(transactions, String(year), CATEGORY_MAP, { mode: 'confirmed-only' });
   const netProfit = grossReceipts - totalDeductible;
-  const filingStatus = (profile.filing_status || 'single') as any;
   const w2MedicareWages = w2Income.medicareWagesForSE;
   const seCalc = calcScheduleSE({ scheduleCNetProfit: netProfit, taxYear: year }, filingStatus, w2Income.socialSecurityWages, w2MedicareWages);
 
@@ -111,7 +113,7 @@ export async function GET(request: NextRequest) {
     (ded.hsaContribution || profile.hsa_contribution || 0);
 
   const agi = Math.max(0, netProfit + w2Wages - aboveLineDeductions);
-  const stdDeduction = rules.standardDeductions[filingStatus as FederalFilingStatus] ?? rules.standardDeductions.single;
+  const stdDeduction = rules.standardDeductions[filingStatus];
   const taxableIncome = Math.max(0, agi - stdDeduction);
   const incomeTax = calculateFederalIncomeTax(taxableIncome, filingStatus, year);
   const medicareThreshold = filingStatus === 'married_filing_jointly' ? 250000 : filingStatus === 'married_filing_separately' ? 125000 : 200000;

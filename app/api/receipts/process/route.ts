@@ -33,7 +33,51 @@ function receiptResponse(body: unknown, status = 200) {
   return NextResponse.json(body, { status, headers: PRIVATE_RECEIPT_HEADERS });
 }
 
+function stagingReceiptFailure(step: string, error: unknown) {
+  if (process.env.WRITEOFF_ENV !== 'staging') return;
+  const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
+  const allowedCodes = [3, 5, 6, 7, 9, 13, 14, 16, 400, 401, 403, 404, 409, 412, 413, 429, 500, 502, 503, 504,
+    'permission-denied', 'not-found', 'unavailable', 'already-exists', 'unauthenticated', 'invalid-argument',
+    'failed-precondition', 'resource-exhausted', 'internal', 'unknown'];
+  // Production compilation strips console calls. Keep staging diagnostics useful
+  // without logging raw exceptions, receipt text, filenames or account identifiers.
+  process.stderr.write(`${JSON.stringify({ event: 'receipt-processing-failed', step,
+    code: allowedCodes.includes(code as string | number) ? code : 'unclassified' })}\n`);
+}
+
+async function storeReceipt(userId: string, transactionId: string, bytes: Buffer, mimeType: string, originalName: string, setStep: (step: string) => void) {
+  const receiptId = uuidv4();
+  const storagePath = `receipts/${userId}/${transactionId}/${receiptId}`;
+  setStep('storage-configuration');
+  const storedFile = receiptBucket().file(storagePath);
+  const metadataRef = adminDb.collection('receipts').doc(receiptId);
+  setStep('storage-save');
+  await storedFile.save(bytes, {
+    resumable: false,
+    validation: 'crc32c',
+    metadata: { contentType: mimeType, cacheControl: PRIVATE_RECEIPT_HEADERS['Cache-Control'] },
+  });
+  try {
+    setStep('receipt-metadata');
+    await metadataRef.create({
+      transactionId, userId, filename: originalName, originalName,
+      mimeType, size: bytes.length, storagePath, uploadedAt: new Date(),
+    });
+  } catch (error) {
+    await storedFile.delete({ ignoreNotFound: true }).catch(() => undefined);
+    throw error;
+  }
+  return {
+    receiptUrl: `/api/receipts/${receiptId}`,
+    cleanup: async () => {
+      await Promise.allSettled([metadataRef.delete(), storedFile.delete({ ignoreNotFound: true })]);
+    },
+  };
+}
+
 export async function POST(request: NextRequest) {
+  let step = 'authentication';
+  const setStep = (next: string) => { step = next; };
   try {
     // Get the authenticated user
     const { user, error: authError } = await getAuthenticatedUser(request);
@@ -44,6 +88,7 @@ export async function POST(request: NextRequest) {
     }
 
     assertReceiptUploadOrigin(request);
+    setStep('multipart-validation');
     const formData = await receiptFormData(request);
     const files = formData.getAll('file');
     if (files.length !== 1 || !(files[0] instanceof File)) {
@@ -58,6 +103,7 @@ export async function POST(request: NextRequest) {
     if (attachTransactionId !== null && !transactionIdInput.safeParse(attachTransactionId).success) {
       throw new ReceiptRequestError('A valid transaction ID is required', 400);
     }
+    setStep('image-validation');
     const mimeType = receiptMimeType(file.type);
     if (!mimeType || mimeType === 'application/pdf') throw new ReceiptRequestError('Scan a JPG, PNG, GIF or WebP receipt image', 400);
     if (!file.size || file.size > MAX_RECEIPT_BYTES) throw new ReceiptRequestError('Upload a non-empty receipt of at most 10 MB', file.size ? 413 : 400);
@@ -65,7 +111,38 @@ export async function POST(request: NextRequest) {
     if (!receiptSignatureMatches(bytes, mimeType)) throw new ReceiptRequestError('The receipt content does not match its file type', 400);
     const originalName = safeReceiptName(file.name);
 
+    if (mode === 'commit' && typeof attachTransactionId === 'string') {
+      // Existing bank details are authoritative. Attaching documentation needs
+      // ownership and file validation, not OCR or a newly entered amount.
+      setStep('attachment-ownership');
+      const { data: existingTransaction, error: txErr } = await getTransactionServer(user.uid, attachTransactionId);
+      if (txErr) throw new ReceiptRequestError('Unable to verify the transaction. Please retry.', 503);
+      if (!existingTransaction) throw new ReceiptRequestError('Transaction not found for attachment', 404);
+
+      const storedReceipt = await storeReceipt(user.uid, attachTransactionId, bytes, mimeType, originalName, setStep);
+      const receiptUpdates = {
+        receipt_url: storedReceipt.receiptUrl,
+        receipt_filename: originalName,
+        notes: `${existingTransaction.notes || ''}\nReceipt attached: ${originalName}.`.trim(),
+      };
+      let transaction: Transaction;
+      try {
+        setStep('attachment-update');
+        const updated = await updateTransactionServerWithUserId(user.uid, attachTransactionId, receiptUpdates);
+        if (updated.error) throw new ReceiptRequestError('Unable to attach this receipt. Please retry.', 503);
+        const returned = Array.isArray(updated.data) ? updated.data[0] : updated.data;
+        // The helper already verifies its write. Use that record or the known
+        // owner record plus saved fields; another read can fail after success.
+        transaction = { ...existingTransaction, ...returned, ...receiptUpdates, trans_id: attachTransactionId };
+      } catch (error) {
+        await storedReceipt.cleanup();
+        throw error;
+      }
+      return receiptResponse({ success: true, mode: 'commit', transaction, receiptUrl: storedReceipt.receiptUrl });
+    }
+
     let manualReceipt: z.infer<typeof manualReceiptInput> | undefined;
+    setStep('receipt-field-validation');
     const manualData = formData.get('receiptData');
     if (mode === 'commit' && attachTransactionId === null && manualData !== null) {
       if (typeof manualData !== 'string' || manualData.length > 5000) throw new ReceiptRequestError('Provide valid receipt details', 400);
@@ -77,6 +154,7 @@ export async function POST(request: NextRequest) {
       manualReceipt = parsed.data;
     }
     // Manual confirmation must work even when OCR could not read the image.
+    setStep(manualReceipt ? 'manual-confirmation' : 'ocr');
     const ocrResult: OCRResult = manualReceipt
       ? { success: true, data: { ...manualReceipt, confidence: 0, rawText: '', items: [] }, processingTime: 0 }
       : await receiptProcessor.processReceipt(bytes);
@@ -128,82 +206,11 @@ export async function POST(request: NextRequest) {
       items: receiptData.items || []
     };
 
-    const storeReceipt = async (transactionId: string) => {
-      const receiptId = uuidv4();
-      const storagePath = `receipts/${user.uid}/${transactionId}/${receiptId}`;
-      const storedFile = receiptBucket().file(storagePath);
-      const metadataRef = adminDb.collection('receipts').doc(receiptId);
-      await storedFile.save(bytes, {
-        resumable: false,
-        validation: 'crc32c',
-        metadata: { contentType: mimeType, cacheControl: PRIVATE_RECEIPT_HEADERS['Cache-Control'] },
-      });
-      try {
-        await metadataRef.create({
-          transactionId, userId: user.uid, filename: originalName, originalName,
-          mimeType, size: bytes.length, storagePath, uploadedAt: new Date(),
-        });
-      } catch (error) {
-        await storedFile.delete({ ignoreNotFound: true }).catch(() => undefined);
-        throw error;
-      }
-      return {
-        receiptUrl: `/api/receipts/${receiptId}`,
-        cleanup: async () => {
-          await Promise.allSettled([metadataRef.delete(), storedFile.delete({ ignoreNotFound: true })]);
-        },
-      };
-    };
-
-    const appendReceiptToNotes = (existingNotes: string | undefined | null, previousReceiptLabel: string | null) => {
-      const ocrConfidencePct = Math.round(receiptData.confidence * 100);
-      const newChunk =
-        previousReceiptLabel
-          ? `\nReceipt OCR updated (prev: ${previousReceiptLabel}). Merchant: ${receiptData.merchant}. OCR confidence: ${ocrConfidencePct}%.`
-          : `\nReceipt OCR saved. Merchant: ${receiptData.merchant}. OCR confidence: ${ocrConfidencePct}%.`;
-
-      return `${existingNotes || ''}${newChunk}`.trim();
-    };
-
-    if (typeof attachTransactionId === 'string') {
-      const { data: existingTransaction, error: txErr } = await getTransactionServer(user.uid, attachTransactionId);
-
-      if (txErr) throw new ReceiptRequestError('Unable to verify the transaction. Please retry.', 503);
-      if (!existingTransaction) throw new ReceiptRequestError('Transaction not found for attachment', 404);
-
-      const storedReceipt = await storeReceipt(attachTransactionId);
-      const { receiptUrl } = storedReceipt;
-
-      const previousReceiptLabel =
-        existingTransaction.receipt_filename || existingTransaction.receipt_url || null;
-
-      const updatedNotes = appendReceiptToNotes(existingTransaction.notes, previousReceiptLabel);
-
-      try {
-        const receiptUpdates = {
-          receipt_url: receiptUrl, receipt_filename: originalName, ocr_data, notes: updatedNotes,
-        };
-        const updated = await updateTransactionServerWithUserId(user.uid, attachTransactionId, receiptUpdates);
-        if (updated.error || !updated.data) throw new ReceiptRequestError('Unable to attach this receipt. Please retry.', 503);
-      } catch (error) {
-        await storedReceipt.cleanup();
-        throw error;
-      }
-
-      const { data: refreshedTx } = await getTransactionServer(user.uid, attachTransactionId);
-
-      return receiptResponse({
-        success: true,
-        mode: 'commit',
-        transaction: refreshedTx,
-        receiptUrl
-      });
-    }
-
     // A receipt that was not matched to a bank transaction is a manual entry.
     // Use the same owner-scoped account as manual transactions so onboarding
     // never requires a bank connection or assigns receipts to an unrelated bank.
     const accountId = 'manual';
+    setStep('manual-account');
     const accountRef = adminDb
       .collection('user_profiles')
       .doc(user.uid)
@@ -224,7 +231,7 @@ export async function POST(request: NextRequest) {
 
     const newTransId = `receipt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-    const storedReceipt = await storeReceipt(newTransId);
+    const storedReceipt = await storeReceipt(user.uid, newTransId, bytes, mimeType, originalName, setStep);
     const { receiptUrl } = storedReceipt;
 
     const transactionData: Partial<Transaction> = {
@@ -245,6 +252,7 @@ export async function POST(request: NextRequest) {
 
     let savedTransaction: Transaction;
     try {
+      setStep('transaction-save');
       const result = await createTransactionServer(user.uid, accountId, transactionData);
       if (result.error || !result.data) throw new Error('Transaction save failed');
       savedTransaction = result.data;
@@ -286,6 +294,7 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
+    if (!(error instanceof ReceiptRequestError) || error.status >= 500) stagingReceiptFailure(step, error);
     console.error('❌ [Receipt OCR] Unexpected error:', error);
     return receiptResponse({ error: error instanceof ReceiptRequestError ? error.message : 'Failed to process receipt. Please retry.' }, error instanceof ReceiptRequestError ? error.status : 500);
   }

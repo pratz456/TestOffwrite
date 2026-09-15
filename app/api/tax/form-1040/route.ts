@@ -12,6 +12,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { buildFederalTaxSnapshot } from '@/lib/tax-rules/federal-tax-snapshot';
 import { IncomeReconciliationRequiredError } from '@/lib/tax-rules/business-income';
+import { FilingStatusReviewRequiredError } from '@/lib/tax-rules/filing-status';
 import { PDFDocument, StandardFonts, rgb, PDFFont, PDFPage } from 'pdf-lib';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
@@ -326,6 +327,7 @@ export async function POST(request: NextRequest) {
       estimatedPayments: totalRecordedPayments(quarterlySnap),
     });
     const { result } = snapshot;
+    enrichedProfile.filing_status = snapshot.filingStatus;
 
     const pdfDoc = await PDFDocument.create();
     pdfDoc.setTitle(`Form 1040 ${year}`);
@@ -359,7 +361,7 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (err) {
-    if (err instanceof IncomeReconciliationRequiredError) return NextResponse.json({ error: err.message, code: err.code }, { status: 422 });
+    if (err instanceof IncomeReconciliationRequiredError || err instanceof FilingStatusReviewRequiredError) return NextResponse.json({ error: err.message, code: err.code }, { status: 422 });
     if (err && typeof err === 'object' && 'code' in err && err.code === 'DEPRECIATION_REVIEW_REQUIRED') return NextResponse.json({ error: err instanceof Error ? err.message : 'Asset depreciation needs review', code: err.code }, { status: 422 });
     console.error('[1040 Export]', err);
     return NextResponse.json({ error: 'Failed to generate Form 1040' }, { status: 500 });

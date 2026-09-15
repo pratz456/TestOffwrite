@@ -1,4 +1,5 @@
 import { getFederalTaxRules, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
+import { normalizeFilingStatus } from '@/lib/tax-rules/filing-status';
 
 export interface TaxSummarySettings {
   scheduleCNetProfit: number;
@@ -27,8 +28,10 @@ const SE_ADJUSTMENT_FACTOR = 0.9235;
 const roundCents = (value: number) => Math.round(value * 100) / 100;
 
 function additionalMedicareThreshold(filingStatus: string): number {
-  if (filingStatus === 'married' || filingStatus === 'married_filing_jointly') return 250000;
-  if (filingStatus === 'married_filing_separately') return 125000;
+  // This calculator historically accepts "married" as an explicit joint alias.
+  const status = normalizeFilingStatus(filingStatus === 'married' ? 'married_filing_jointly' : filingStatus);
+  if (status === 'married_filing_jointly') return 250000;
+  if (status === 'married_filing_separately') return 125000;
   return 200000;
 }
 

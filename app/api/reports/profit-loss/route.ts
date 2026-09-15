@@ -7,6 +7,7 @@ import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getUserProfileServer } from '@/lib/firebase/profiles-server';
 import { adminDb } from '@/lib/firebase/admin';
 import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
+import { FilingStatusReviewRequiredError } from '@/lib/tax-rules/filing-status';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -219,6 +220,7 @@ export async function POST(request: NextRequest) {
     console.log(`📊 [P&L Report] Returning data: ${filtered.length} transactions, net profit $${current.netProfit.toFixed(2)}`);
     return NextResponse.json(response);
   } catch (err) {
+    if (err instanceof FilingStatusReviewRequiredError) return NextResponse.json({ error: err.message, code: err.code }, { status: 422 });
     console.error('❌ [P&L Report] Error:', err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Failed to generate P&L report' },
@@ -276,6 +278,7 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (err) {
+    if (err instanceof FilingStatusReviewRequiredError) return NextResponse.json({ error: err.message, code: err.code }, { status: 422 });
     console.error('❌ [P&L Report] PDF error:', err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Failed to generate PDF' },

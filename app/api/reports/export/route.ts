@@ -155,7 +155,7 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
-    if (error && typeof error === 'object' && 'code' in error && ['DEPRECIATION_REVIEW_REQUIRED', 'HOME_OFFICE_DETAILS_REQUIRED', 'INVALID_HOME_OFFICE_INPUT'].includes(String(error.code))) return NextResponse.json({ error: error instanceof Error ? error.message : 'Additional tax details required', code: error.code }, { status: 422 });
+    if (error && typeof error === 'object' && 'code' in error && ['DEPRECIATION_REVIEW_REQUIRED', 'HOME_OFFICE_DETAILS_REQUIRED', 'INVALID_HOME_OFFICE_INPUT', 'FILING_STATUS_REVIEW_REQUIRED'].includes(String(error.code))) return NextResponse.json({ error: error instanceof Error ? error.message : 'Additional tax details required', code: error.code }, { status: 422 });
     console.error('❌ [Reports Export API] Unexpected error:', error);
     return NextResponse.json(
       {

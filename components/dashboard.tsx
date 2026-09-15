@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { getUserProfile } from '@/lib/firebase/profiles';
-import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
+import { getUserTaxRateDisplay } from '@/lib/tax-rules/federal-brackets';
 import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 import { 
   CreditCard, 
@@ -98,13 +98,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate = () => {
   const [profile, setProfile] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [taxSavings, setTaxSavings] = useState(0);
+  const [taxSavings, setTaxSavings] = useState<number | null>(0);
   const [newDeductions, setNewDeductions] = useState(0);
   const [needsReview, setNeedsReview] = useState(0);
   const [totalExpenses, setTotalExpenses] = useState(0);
   const [showRevenue, setShowRevenue] = useState(false);
   const [transactions, setTransactions] = useState<any[]>([]);
-  const userTaxRate = getUserTaxRate(profile);
+  const { rate: userTaxRate, reviewMessage: taxReviewMessage } = getUserTaxRateDisplay(profile);
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -163,7 +163,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate = () => {
         const now = new Date();
         const thirtyDaysAgo = new Date(now.setDate(now.getDate() - 30));
 
-        const taxSavingsValue = transactionsData
+        const taxSavingsValue = userTaxRate === null ? null : transactionsData
           .filter((t: any) => t.is_deductible === true)
           .reduce((sum: any, t: any) => sum + Math.abs(t.amount) * userTaxRate, 0);
 
@@ -263,6 +263,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate = () => {
       )}
 
       <div className="max-w-7xl mx-auto p-6">
+        {taxReviewMessage && <div role="alert" className="mb-4 rounded-lg border p-4 text-sm">
+          <p>{taxReviewMessage}</p>
+          <button className="mt-2 underline" onClick={() => onNavigate('settings')}>Review profile</button>
+        </div>}
         {/* Quick Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <Card className="p-6 bg-white border-0 shadow-lg">
@@ -272,7 +276,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate = () => {
               </div>
               <div>
                 <p className="text-sm text-slate-600">Tax Savings</p>
-                <p className="text-2xl font-bold text-slate-900">${taxSavings.toFixed(2)}</p>
+                <p className="text-2xl font-bold text-slate-900">{taxReviewMessage || taxSavings === null ? 'Review needed' : `$${taxSavings.toFixed(2)}`}</p>
               </div>
             </div>
           </Card>

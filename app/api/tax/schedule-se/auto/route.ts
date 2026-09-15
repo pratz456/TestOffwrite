@@ -8,6 +8,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { reconcileBusinessIncome, IncomeReconciliationRequiredError } from '@/lib/tax-rules/business-income';
+import { normalizeFilingStatus, FilingStatusReviewRequiredError } from '@/lib/tax-rules/filing-status';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getTransactionsServer } from '@/lib/firebase/transactions-server';
 import { getUserProfileServer } from '@/lib/firebase/profiles-server';
@@ -43,12 +44,14 @@ export async function GET(request: NextRequest) {
   const profile = profileResult.data as any;
 
   let businessIncome;
+  let filingStatus;
   try {
+    filingStatus = normalizeFilingStatus(profile?.filing_status);
     businessIncome = reconcileBusinessIncome(year, transactions,
       grossSnap.docs.map(d => ({ ...d.data(), id: d.id })),
       income1099Snap.docs.map(d => ({ ...d.data(), id: d.id })));
   } catch (error) {
-    if (error instanceof IncomeReconciliationRequiredError) return NextResponse.json({ error: error.message, code: error.code }, { status: 422 });
+    if (error instanceof IncomeReconciliationRequiredError || error instanceof FilingStatusReviewRequiredError) return NextResponse.json({ error: error.message, code: error.code }, { status: 422 });
     throw error;
   }
   const grossReceiptsTotal = businessIncome.grossReceipts;
@@ -69,7 +72,7 @@ export async function GET(request: NextRequest) {
 
   const { totalDeductible } = aggregateScheduleC(transactions, String(year), CATEGORY_MAP, { mode: 'confirmed-only' });
   const netProfit = grossReceiptsTotal - totalDeductible;
-  const calc = calcScheduleSE({ scheduleCNetProfit: netProfit, taxYear: year }, profile?.filing_status || 'single', w2Income.socialSecurityWages, w2Income.medicareWagesForSE);
+  const calc = calcScheduleSE({ scheduleCNetProfit: netProfit, taxYear: year }, filingStatus, w2Income.socialSecurityWages, w2Income.medicareWagesForSE);
 
   // Above-the-line deductions that reduce AGI
   const aboveTheLineDeductions = calc.halfSEDeduction + healthInsurancePremiums + totalRetirement + hsaContribution + studentLoanInterest;

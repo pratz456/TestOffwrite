@@ -1,4 +1,5 @@
 import { adminAuth } from './admin';
+import { isTrustedApplicationRequest } from '@/lib/security/request-origin';
 
 export interface AuthenticatedUser {
   uid: string;
@@ -8,9 +9,7 @@ export interface AuthenticatedUser {
 
 /** Cookie credentials are automatic, so reject mutations originating at another site. */
 export function isSameOriginRequest(request: Request): boolean {
-  const origin = request.headers.get('origin');
-  return request.headers.get('sec-fetch-site') !== 'cross-site'
-    && (!origin || origin === new URL(request.url).origin);
+  return isTrustedApplicationRequest(request);
 }
 
 function cookieValue(request: Request, name: string): string | undefined {

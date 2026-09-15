@@ -1,5 +1,5 @@
 import { adminDb } from '@/lib/firebase/admin';
-import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
+import { getUserTaxRateDisplay } from '@/lib/tax-rules/federal-brackets';
 
 export interface Notification {
   id: string;
@@ -237,6 +237,7 @@ export class NotificationEngine {
 
         // Calculate estimated tax amount
         const estimatedTax = this.calculateEstimatedTax(userData);
+        if (estimatedTax === null) continue;
         
         let title: string;
         let message: string;
@@ -391,11 +392,13 @@ export class NotificationEngine {
 
         // Send celebration for significant savings
         if (totalDeductions >= 1000) {
+          const { rate } = getUserTaxRateDisplay(userData);
+          if (rate === null) continue;
           await this.sendNotification({
             userId,
             type: 'celebration',
             title: '🎉 Great Job!',
-            message: `You've identified $${totalDeductions.toFixed(0)} in deductions this month. That's potential tax savings of $${(totalDeductions * getUserTaxRate(userData)).toFixed(0)}!`,
+            message: `You've identified $${totalDeductions.toFixed(0)} in deductions this month. That's potential tax savings of $${(totalDeductions * rate).toFixed(0)}!`,
             priority: 'low',
             actionUrl: '/protected?screen=ai-insights',
             actionText: 'View Insights',
@@ -425,14 +428,15 @@ export class NotificationEngine {
     return deadlines[currentQuarter - 1] || null;
   }
 
-  private calculateEstimatedTax(userData: any): number {
+  private calculateEstimatedTax(userData: any): number | null {
     const businessIncome = userData.business_income || 0;
     const w2Income = userData.w2_income || 0;
     const totalIncome = businessIncome + w2Income;
     
     // Use effective tax rate from profile for estimation
-    const profileForRate = { income: totalIncome, filing_status: userData.filing_status || 'single' };
-    return businessIncome * getUserTaxRate(profileForRate);
+    const profileForRate = { income: totalIncome, filing_status: userData.filing_status };
+    const { rate } = getUserTaxRateDisplay(profileForRate);
+    return rate === null ? null : businessIncome * rate;
   }
 
   private async sendPushNotification(notification: Notification): Promise<void> {

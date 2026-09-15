@@ -17,6 +17,8 @@ Published annual parameter sets exist for 2024, 2025 and 2026. The calculator re
 - Standalone business NEC/K amounts can be used. MISC, INT, DIV and B forms, and gross receipts explicitly entered as rental/investment income, require classification review rather than automatic Schedule C treatment.
 - Profile income projections are not added as another income source. Detailed W-2 documents take precedence over legacy profile withholding. Detailed retirement contributions take precedence over the corresponding aggregate profile amount.
 - The JSON 1040 estimate and Form1040 PDF now call the same federal snapshot. Schedule C export, Schedule SE auto and quarterly reminders use the same business-income reconciliation policy. Their remaining formula differences are listed below.
+- The four supported filing-status labels saved by onboarding are normalized to the engine keys before federal calculations; the PDF selects the same status. Unsupported or invalid nonempty labels return actionable HTTP 422 `FILING_STATUS_REVIEW_REQUIRED`. Qualifying widow(er)/surviving spouse is explicitly review-blocked, not treated as Single. Legacy profiles without a status retain the existing Single default and require profile review; this is not an eligibility determination.
+- Profile-based dashboard savings/KPI helpers use the same normalization. Invalid statuses withhold those estimates and show a review message; savings, monthly-deduction and profit/loss endpoints return the same 422. Existing simplified formulas and 2025 default parameters in those helpers are unchanged and remain planning limitations. Call sites without any profile still use their existing generic rate assumption.
 
 There is no payment-matching/reconciliation UI yet. The 422 is an explicit review requirement, not a claim that records have been reconciled. Existing overlapping records need a reviewed matching workflow before broad tax-estimate rollout. Do not advise deleting supporting records merely to bypass this gate.
 
@@ -35,6 +37,9 @@ These are specific cases, not an exhaustive tax-code review. Tests use synthetic
 | One platform import creates $100,000 receipt and linked $100,000 1099 | Gross receipts $100,000, not $200,000 | Actual import route with mocked extraction → calculation regression |
 | Unlinked receipt and 1099 may overlap | Actionable 422; no tax total/PDF | JSON/PDF response equivalence regression |
 | Organizer interest and dependent count supplied | JSON and PDF receive the same federal inputs/results | Consistency test only; does not validate dependent eligibility |
+| Onboarding saves Single, Married Filing Jointly/Separately, or Head of Household | Canonical filing status, corresponding 2026 base deduction, matching JSON/PDF inputs and PDF checkbox | Actual onboarding mapper → tax route/PDF regression; eligibility not certified |
+| Qualifying Widower or invalid persisted filing-status value | Actionable 422 before calculating tax | JSON/PDF, SE auto and both quarterly-route regressions |
+| Profile-based savings/KPI receives an onboarding label or invalid value | Label equals canonical rate; invalid value withholds the estimate and displays review action | Helper/API and real-component handler regressions; mocked transport, not browser layout |
 | Standalone SEP example: $100,000 profit, no W-2, 25% plan rate | Reduced self-employed rate 20%; $18,587.05 maximum using unrounded half-SE in the standalone helper | Existing regression; end-to-end cents rounding can differ by $0.01 |
 | Single, only $20,000 Social Security benefits | Taxable benefits $0 | **Unsupported:** current organizer model incorrectly assumes 85% taxable |
 

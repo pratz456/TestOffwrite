@@ -1,5 +1,6 @@
 /** Federal ordinary-income helpers. Legacy calls without a year use 2025. */
-import { getFederalTaxRules, type TaxBrackets } from './federal-year-rules';
+import { getFederalTaxRules } from './federal-year-rules';
+import { normalizeFilingStatus, FilingStatusReviewRequiredError } from './filing-status';
 export type { TaxBracket, TaxBrackets } from './federal-year-rules';
 
 // Preserve historical exports while making each label match its actual year.
@@ -30,7 +31,7 @@ export interface UserProfile {
  */
 export function calculateFederalIncomeTax(taxableIncome: number, filingStatus: string, taxYear: number = 2025): number {
   const yearBrackets = getFederalTaxRules(taxYear).brackets;
-  const brackets = yearBrackets[filingStatus as keyof TaxBrackets] || yearBrackets.single;
+  const brackets = yearBrackets[normalizeFilingStatus(filingStatus)];
   let tax = 0;
   for (const bracket of brackets) {
     if (taxableIncome <= bracket.min) break;
@@ -45,14 +46,14 @@ export function calculateFederalIncomeTax(taxableIncome: number, filingStatus: s
  * Uses 2025 standard deductions and brackets.
  */
 export function calculateEffectiveTaxRate(userProfile: UserProfile): number {
+  const filingStatus = normalizeFilingStatus(userProfile.filing_status);
   const seIncome = typeof userProfile.income === 'string'
     ? parseFloat(userProfile.income.replace(/[,$]/g, ''))
     : (userProfile.income ?? 0);
 
   if (isNaN(seIncome) || seIncome <= 0) return 25;
 
-  const filingStatus = userProfile.filing_status || 'single';
-  const standardDeduction = STANDARD_DEDUCTIONS_2025[filingStatus as keyof typeof STANDARD_DEDUCTIONS_2025] ?? 15750;
+  const standardDeduction = STANDARD_DEDUCTIONS_2025[filingStatus];
 
   // SE tax deduction (half of SE tax)
   const seTax = seIncome * 0.9235 * 0.153;
@@ -86,14 +87,14 @@ export function calculateEffectiveTaxRate(userProfile: UserProfile): number {
  * Get marginal tax rate for additional self-employment income
  */
 export function getMarginalTaxRate(userProfile: UserProfile): number {
+  const filingStatus = normalizeFilingStatus(userProfile.filing_status);
   const seIncome = typeof userProfile.income === 'string'
     ? parseFloat(userProfile.income.replace(/[,$]/g, ''))
     : (userProfile.income ?? 0);
 
   if (isNaN(seIncome) || seIncome <= 0) return 25;
 
-  const filingStatus = userProfile.filing_status || 'single';
-  const brackets = FEDERAL_TAX_BRACKETS_2025[filingStatus as keyof TaxBrackets] || FEDERAL_TAX_BRACKETS_2025.single;
+  const brackets = FEDERAL_TAX_BRACKETS_2025[filingStatus];
 
   for (const bracket of brackets) {
     if (seIncome >= bracket.min && seIncome < bracket.max) {
@@ -108,7 +109,18 @@ export function getMarginalTaxRate(userProfile: UserProfile): number {
  * Falls back to 0.25 when profile data is missing.
  */
 export function getUserTaxRate(profile?: Partial<UserProfile> | null): number {
+  if (profile) normalizeFilingStatus(profile.filing_status);
   if (!profile || !profile.income) return 0.25;
   const pct = calculateEffectiveTaxRate(profile as UserProfile);
   return pct / 100;
+}
+
+/** Display boundary: unsupported status withholds the estimate without crashing a page. */
+export function getUserTaxRateDisplay(profile?: Partial<UserProfile> | null) {
+  try {
+    return { rate: getUserTaxRate(profile), filingStatus: normalizeFilingStatus(profile?.filing_status), reviewMessage: null };
+  } catch (error) {
+    if (!(error instanceof FilingStatusReviewRequiredError)) throw error;
+    return { rate: null, filingStatus: null, reviewMessage: error.message };
+  }
 }
