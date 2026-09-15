@@ -9,7 +9,8 @@
   "hosting": {
     "predeploy": [
       "node scripts/staging-preflight.mjs --config firebase.staging.json",
-      "node scripts/verify-ocr-build.mjs"
+      "node scripts/verify-ocr-build.mjs",
+      "node scripts/staging-hosting-metadata.mjs --config firebase.staging.json"
     ],
     "source": ".",
     "ignore": [

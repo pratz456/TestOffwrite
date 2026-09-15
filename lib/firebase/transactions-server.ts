@@ -704,6 +704,8 @@ export async function getPaginatedTransactionsServer(
         user_classification_reason: data.user_classification_reason || null,
         description: data.description,
         notes: data.notes,
+        receipt_url: data.receipt_url,
+        receipt_filename: data.receipt_filename,
 
         account_id: data.account_id,
         userId: data.userId || data.user_id,
@@ -826,6 +828,8 @@ export async function createTransactionServer(
           deduction_score: existingData?.deduction_score,
           description: existingData?.description,
           notes: existingData?.notes,
+          receipt_url: existingData?.receipt_url,
+          receipt_filename: existingData?.receipt_filename,
           analyzed: existingData?.analyzed,
           analysis_status: existingData?.analysis_status,
           analysisStatus: existingData?.analysisStatus,
@@ -883,6 +887,8 @@ export async function createTransactionServer(
           deduction_score: data?.deduction_score,
           description: data?.description,
           notes: data?.notes,
+          receipt_url: data?.receipt_url,
+          receipt_filename: data?.receipt_filename,
 
           account_id: data?.account_id,
           userId: data?.userId || data?.user_id,

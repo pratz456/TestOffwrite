@@ -24,6 +24,8 @@ function normalizeDoc(doc: any): any {
     user_classification_reason: data.user_classification_reason || null,
     description: data.description,
     notes: data.notes,
+    receipt_url: data.receipt_url,
+    receipt_filename: data.receipt_filename,
     account_id: data.account_id,
     userId: data.userId || data.user_id,
     analyzed: data.analyzed,

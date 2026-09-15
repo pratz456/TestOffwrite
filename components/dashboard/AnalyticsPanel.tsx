@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
+import { transactionDateParts } from '@/lib/transactions/calendar-date';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { BarChart3 } from 'lucide-react';
 import {
@@ -61,8 +62,8 @@ export function AnalyticsPanel({ transactions }: AnalyticsPanelProps) {
     const years = new Set<number>();
     for (const t of transactions) {
       try {
-        const y = new Date(t.date).getFullYear();
-        if (y >= 2000 && y <= currentYear) years.add(y);
+        const y = transactionDateParts(t.date)?.year;
+        if (y !== undefined && y >= 2000 && y <= currentYear) years.add(y);
       } catch { /* skip malformed dates */ }
     }
     if (years.size === 0) years.add(currentYear);
@@ -71,7 +72,7 @@ export function AnalyticsPanel({ transactions }: AnalyticsPanelProps) {
 
   const chartData = useMemo(() => {
     const yearTx = transactions.filter(t => {
-      try { return new Date(t.date).getFullYear() === selectedYear; } catch { return false; }
+      return transactionDateParts(t.date)?.year === selectedYear;
     });
 
     const labels = viewMode === 'monthly' ? MONTHS : QUARTERS;
@@ -81,8 +82,10 @@ export function AnalyticsPanel({ transactions }: AnalyticsPanelProps) {
       const amt = Number(tx.amount);
       if (isNaN(amt) || amt === 0) continue;
 
-      const d = new Date(tx.date);
-      const idx = viewMode === 'monthly' ? d.getMonth() : Math.floor(d.getMonth() / 3);
+      const date = transactionDateParts(tx.date);
+      if (!date) continue;
+      const monthIndex = date.month - 1;
+      const idx = viewMode === 'monthly' ? monthIndex : Math.floor(monthIndex / 3);
       const isIncome = amt < 0 || tx.type === 'income';
       const abs = Math.abs(amt);
 

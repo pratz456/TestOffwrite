@@ -1,5 +1,6 @@
 'use client';
 
+import { formatTransactionDate } from '@/lib/transactions/calendar-date';
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -72,7 +73,7 @@ export function RecentActivityCard({ transactions, onTransactionClick, onViewAll
                         </span>
                         <span className="hidden sm:inline">&middot;</span>
                         <span className="hidden sm:inline">
-                          {new Date(tx.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          {formatTransactionDate(tx.date, 'en-US', { month: 'short', day: 'numeric' })}
                         </span>
                         <Badge variant={tagVariant} className={tagClass}>
                           {tagLabel}
@@ -85,7 +86,7 @@ export function RecentActivityCard({ transactions, onTransactionClick, onViewAll
                       {isIncome ? '+' : ''}${amount.toFixed(2)}
                     </span>
                     <span className="block text-[10px] text-muted-foreground sm:hidden">
-                      {new Date(tx.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      {formatTransactionDate(tx.date, 'en-US', { month: 'short', day: 'numeric' })}
                     </span>
                   </div>
                 </div>

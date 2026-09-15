@@ -1,35 +1,15 @@
 "use client";
 
-import React, { useState, useMemo, useEffect } from 'react';
-import type { Account } from '@/lib/firebase/accounts';
-// Simple modal component
-type ModalProps = {
-  open: boolean;
-  onClose: () => void;
-  children: React.ReactNode;
-};
-function Modal({ open, onClose, children }: ModalProps) {
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-30">
-      <div className="bg-card text-foreground border border-border rounded-lg shadow-lg p-4 md:p-6 min-w-[320px] relative max-h-[90vh] overflow-y-auto">
-        <button onClick={onClose} className="absolute top-2 right-2 text-muted-foreground hover:text-foreground">
-          <X className="w-5 h-5" />
-        </button>
-        {children}
-      </div>
-    </div>
-  );
-}
+import { formatTransactionDate, transactionCalendarDate } from '@/lib/transactions/calendar-date';
+import React, { useState, useMemo } from 'react';
 import { Search, Calendar, ArrowUpDown, Filter, Camera, Plus, X, FileText, ChevronDown } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { useTransactions } from '@/lib/firebase/hooks';
 import { SyncStatusIndicator } from '@/components/sync-status-indicator';
-import { getAccounts } from '@/lib/firebase/accounts';
-import { createTransaction } from '@/lib/firebase/transactions';
 import { useRouter } from 'next/navigation';
+import { protectedScreenUrl } from '@/lib/navigation/protected-screens';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -45,7 +25,7 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import { formatCategory, consolidateCategory } from '@/lib/utils';
+import { consolidateCategory } from '@/lib/utils';
 import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
 
@@ -66,39 +46,7 @@ interface Transaction {
 }
 
 export default function TransactionsPage() {
-  const { user } = useAuth(); // Already declared at the top
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [showReceiptModal, setShowReceiptModal] = useState(false);
-  const [newTransaction, setNewTransaction] = useState({ merchant_name: '', amount: '', category: '', account_id: '' });
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [accountsLoading, setAccountsLoading] = useState(false);
-  const [accountsError, setAccountsError] = useState(null);
-
-  // Static categories for dropdown (customize as needed)
-  const categoryOptions = [
-    'Food & Drink',
-    'Transportation',
-    'Travel',
-    'Entertainment',
-    'Professional Services',
-    'Office & Equipment',
-    'Loan & Financial',
-    'General Merchandise',
-    'Income',
-    'Other',
-  ];
-  // Fetch accounts for dropdown
-  useEffect(() => {
-    if (!user || !user.id) return;
-    setAccountsLoading(true);
-    getAccounts(user.id)
-      .then(({ data, error }) => {
-        if (error) setAccountsError(error);
-        else setAccounts(data);
-      })
-      .finally(() => setAccountsLoading(false));
-  }, [user]);
-  const [receiptFile, setReceiptFile] = useState<File | null>(null);
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   // Default to "All time" so no filter is active on initial page load.
@@ -163,8 +111,8 @@ export default function TransactionsPage() {
         return { start: yearStart, end: yearEnd };
       case 'custom':
         return {
-          start: customDateStart ? new Date(customDateStart) : null,
-          end: customDateEnd ? new Date(customDateEnd) : null
+          start: customDateStart ? transactionCalendarDate(customDateStart) : null,
+          end: customDateEnd ? transactionCalendarDate(customDateEnd) : null
         };
       default:
         return { start: null, end: null };
@@ -198,8 +146,8 @@ export default function TransactionsPage() {
       const { start, end } = getDateRange(dateRange);
       if (start && end) {
         filtered = filtered.filter(t => {
-          const transactionDate = new Date(t.date);
-          return transactionDate >= start && transactionDate < end;
+          const transactionDate = transactionCalendarDate(t.date);
+          return transactionDate !== null && transactionDate >= start && transactionDate < end;
         });
       }
     }
@@ -228,7 +176,7 @@ export default function TransactionsPage() {
       let comparison = 0;
       switch (sortBy) {
         case 'date':
-          comparison = new Date(a.date).getTime() - new Date(b.date).getTime();
+          comparison = (transactionCalendarDate(a.date)?.getTime() ?? 0) - (transactionCalendarDate(b.date)?.getTime() ?? 0);
           break;
         case 'amount':
           comparison = Math.abs(a.amount) - Math.abs(b.amount);
@@ -654,7 +602,7 @@ export default function TransactionsPage() {
                       </div>
                     </td>
                     <td className="px-5 py-4 text-sm text-foreground">
-                      {new Date(transaction.date).toLocaleDateString('en-US', {
+                      {formatTransactionDate(transaction.date, 'en-US', {
                         month: 'short',
                         day: 'numeric'
                       })}
@@ -714,7 +662,7 @@ export default function TransactionsPage() {
                         {transaction.merchant_name}
                       </div>
                       <div className="text-sm text-muted-foreground mt-0.5">
-                        {new Date(transaction.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        {formatTransactionDate(transaction.date, 'en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                         <span className="mx-1.5">•</span>
                         {consolidateCategory(transaction.category).displayName}
                       </div>
@@ -751,14 +699,16 @@ export default function TransactionsPage() {
         <div className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 flex flex-col sm:flex-row gap-3 z-40">
           <Button
             className="bg-card text-foreground border border-border hover:bg-muted active:bg-muted/80 touch-target min-h-[44px] shadow-lg"
-            onClick={() => setShowReceiptModal(true)}
+            aria-label="Upload receipt"
+            onClick={() => router.push(protectedScreenUrl('receipt-upload'))}
           >
             <Camera className="w-4 h-4 sm:mr-2" />
             <span className="hidden sm:inline">Receipt</span>
           </Button>
           <Button
             className="bg-primary text-primary-foreground hover:bg-primary-hover active:bg-primary/90 touch-target min-h-[44px] shadow-lg"
-            onClick={() => setShowAddModal(true)}
+            aria-label="Add transaction"
+            onClick={() => router.push(protectedScreenUrl('add-manual-transaction'))}
           >
             <Plus className="w-4 h-4 sm:mr-2" />
             <span className="hidden sm:inline">+ Add</span>
@@ -766,89 +716,6 @@ export default function TransactionsPage() {
           </Button>
         </div>
 
-        {/* Add Transaction Modal */}
-        <Modal open={showAddModal} onClose={() => setShowAddModal(false)}>
-          <h2 className="text-lg font-bold mb-4 text-foreground">Add Transaction</h2>
-          <form
-            onSubmit={async e => {
-              e.preventDefault();
-              if (!user?.id || !newTransaction.account_id || !newTransaction.category) return;
-              const txData = {
-                ...newTransaction,
-                amount: parseFloat(newTransaction.amount),
-                date: new Date().toISOString().slice(0, 10), // Default to today
-              };
-              await createTransaction(user.id, newTransaction.account_id, txData);
-              setShowAddModal(false);
-              setNewTransaction({ merchant_name: '', amount: '', category: '', account_id: '' });
-            }}
-          >
-            {/* Account Dropdown */}
-            <select
-              className="w-full border border-border rounded p-2 mb-2 bg-background text-foreground"
-              value={newTransaction.account_id}
-              onChange={e => setNewTransaction({ ...newTransaction, account_id: e.target.value })}
-              required
-              disabled={accountsLoading}
-            >
-              <option value="">Select Account</option>
-              {accounts.map(acc => (
-                <option key={acc.id} value={acc.account_id}>
-                  {acc.name || acc.account_id}
-                </option>
-              ))}
-            </select>
-            {/* Merchant Name */}
-            <input
-              className="w-full border border-border rounded p-2 mb-2 bg-background text-foreground"
-              placeholder="Merchant Name"
-              value={newTransaction.merchant_name}
-              onChange={e => setNewTransaction({ ...newTransaction, merchant_name: e.target.value })}
-              required
-            />
-            {/* Amount */}
-            <input
-              className="w-full border border-border rounded p-2 mb-2 bg-background text-foreground"
-              placeholder="Amount"
-              type="number"
-              value={newTransaction.amount}
-              onChange={e => setNewTransaction({ ...newTransaction, amount: e.target.value })}
-              required
-            />
-            {/* Category Dropdown */}
-            <select
-              className="w-full border border-border rounded p-2 mb-4 bg-background text-foreground"
-              value={newTransaction.category}
-              onChange={e => setNewTransaction({ ...newTransaction, category: e.target.value })}
-              required
-            >
-              <option value="">Select Category</option>
-              {categoryOptions.map(cat => (
-                <option key={cat} value={cat}>{cat}</option>
-              ))}
-            </select>
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setShowAddModal(false)}>Cancel</Button>
-              <Button type="submit" className="bg-primary text-primary-foreground hover:bg-primary-hover">Add</Button>
-            </div>
-          </form>
-        </Modal>
-
-        {/* Receipt Upload Modal */}
-        <Modal open={showReceiptModal} onClose={() => setShowReceiptModal(false)}>
-          <h2 className="text-lg font-bold mb-4 text-foreground">Upload Receipt</h2>
-          <input
-            type="file"
-            accept="image/*,application/pdf"
-            onChange={e => setReceiptFile(e.target.files && e.target.files[0] ? e.target.files[0] : null)}
-            className="mb-4 text-sm text-muted-foreground"
-          />
-          {receiptFile && <div className="mb-2 text-sm">Selected: {receiptFile.name}</div>}
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => setShowReceiptModal(false)}>Cancel</Button>
-            <Button type="button" className="bg-primary text-primary-foreground hover:bg-primary-hover" onClick={() => setShowReceiptModal(false)}>Upload</Button>
-          </div>
-        </Modal>
       </div>
     </div>
   );

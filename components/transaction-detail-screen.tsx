@@ -1,5 +1,6 @@
 "use client";
 
+import { formatTransactionDate } from '@/lib/transactions/calendar-date';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/card';
@@ -776,7 +777,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                   <div className="min-w-0 flex-1">
                     <h2 className="text-lg sm:text-xl font-bold text-foreground truncate">{transaction.merchant_name}</h2>
                     <p className="text-muted-foreground text-sm">
-                      {new Date(transaction.date).toLocaleDateString('en-US', {
+                      {formatTransactionDate(transaction.date, 'en-US', {
                         month: 'numeric',
                         day: 'numeric',
                         year: 'numeric'
@@ -871,7 +872,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                     <h4 className="font-semibold text-foreground">Key Analysis Factors</h4>
                     <div className="p-4 rounded-lg bg-muted/50 dark:bg-muted/30 border border-border">
                       <ul className="text-sm text-muted-foreground space-y-2">
-                        <li>• <strong>Date:</strong> {new Date(transaction.date).toLocaleDateString('en-US', {
+                        <li>• <strong>Date:</strong> {formatTransactionDate(transaction.date, 'en-US', {
                           month: 'short',
                           day: 'numeric',
                           year: 'numeric'
@@ -936,7 +937,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                     <h4 className="font-semibold text-foreground">Key Analysis Factors</h4>
                     <div className="p-4 rounded-lg bg-muted/50 dark:bg-muted/30 border border-border">
                       <ul className="text-sm text-muted-foreground space-y-2">
-                        <li>• <strong className="text-foreground">Date:</strong> {new Date(transaction.date).toLocaleDateString('en-US', {
+                        <li>• <strong className="text-foreground">Date:</strong> {formatTransactionDate(transaction.date, 'en-US', {
                           month: 'short',
                           day: 'numeric',
                           year: 'numeric'
@@ -1484,7 +1485,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                   <div>
                     <span className="font-semibold text-foreground">Date:</span>
                     <span className="ml-1 text-foreground font-medium">
-                      {transaction.date ? new Date(transaction.date).toLocaleDateString('en-US') : '-'}
+                      {transaction.date ? formatTransactionDate(transaction.date, 'en-US') : '-'}
                       {transaction.datetime
                         ? (() => {
                             const dt = transaction.datetime;

@@ -145,7 +145,17 @@ await check('new account can save a receipt with manually confirmed fields', asy
 });
 await check('receipt owner can retrieve private image', async () => {
   assert.ok(receiptUrl); const r = await request(receiptUrl, { token: other.token }); status(r, 200);
-  assert.match(r.response.headers.get('content-type') || '', /image\/png/); assert.match(r.response.headers.get('cache-control') || '', /private.*no-store/);
+  assert.match(r.response.headers.get('content-type') || '', /image\/png/);
+  // Firebase Hosting normalizes the route's private header to the global API
+  // policy. no-store forbids both private and shared caches from storing bytes.
+  assert.match(r.response.headers.get('cache-control') || '', /(?:^|,)\s*no-store(?:,|$)/);
+  const session = await request('/api/auth/session', { method: 'POST', body: { idToken: other.token }, headers: { origin: base } });
+  status(session, 200);
+  const receiptCookie = session.response.headers.get('set-cookie')?.match(/__session=([^;]+)/)?.[0];
+  assert.ok(receiptCookie, 'Receipt owner session must be established');
+  const browserImage = await request(receiptUrl, { cookie: receiptCookie });
+  status(browserImage, 200);
+  assert.ok(browserImage.bytes.equals(r.bytes), 'Cookie-authenticated preview must return the same receipt bytes');
 });
 await check('receipt denied to another user and anonymous visitor', async () => {
   assert.ok(receiptUrl); status(await request(receiptUrl, { token: owner.token }), [403, 404]); status(await request(receiptUrl), 401);
