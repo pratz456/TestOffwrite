@@ -1,40 +1,22 @@
-import React, { useState } from 'react';
+'use client';
+
+import React, { useRef, useState } from 'react';
 import { useBeforeUnload } from '@/lib/hooks/use-before-unload';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/simple-select';
-import { User, Briefcase, MapPin, FileText, Mail, ArrowRight, ArrowLeft, ChevronDown, ChevronUp } from '@/lib/icons';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { User, Briefcase, ArrowRight, ArrowLeft, ChevronDown, ChevronUp } from '@/lib/icons';
 import { upsertUserProfile } from '@/lib/firebase/profiles';
+import type { AuthUser } from '@/lib/firebase/auth';
 import { PlaidLinkScreen } from './plaid-link-screen';
 import { DataSourceScreen } from './data-source-screen';
 
-interface UserProfile {
-  email: string;
-  name: string;
-  yearOfBirth?: string;
-  profession: string[];
-  customProfession?: string;
-  businessEntityType: string;
-  primaryWorkLocation: string;
-  workRelatedTravelPattern: string;
-  income: string;
-  state: string;
-  filingStatus: string;
-  plaidToken?: string;
-  businessStartDate?: string;
-  homeOfficeSqft?: number;
-  totalHomeSqft?: number;
-  vehicleBusinessUsePercentage?: number;
-  businessPurpose?: string;
-  ein?: string;
-  w2Income?: number;
-  businessIncome?: number;
-}
+import { missingProfileFields, profileDetailsError, profileWriteData, PROFILE_COMPLETE_SCREEN, type ProfileSetupData as UserProfile } from '@/lib/onboarding/profile';
 
 interface ProfileSetupScreenProps {
-  user: any;
+  user: AuthUser;
   onBack: () => void;
   onComplete: (profile: UserProfile, redirectTo?: string) => void;
 }
@@ -51,7 +33,7 @@ const incomeRanges = [
 ];
 
 const usStates = [
-  'Alabama', 'Alaska', 'Arizona', 'Arkansas', 'California', 'Colorado', 'Connecticut', 'Delaware',
+  'Alabama', 'Alaska', 'Arizona', 'Arkansas', 'California', 'Colorado', 'Connecticut', 'Delaware', 'District of Columbia',
   'Florida', 'Georgia', 'Hawaii', 'Idaho', 'Illinois', 'Indiana', 'Iowa', 'Kansas', 'Kentucky',
   'Louisiana', 'Maine', 'Maryland', 'Massachusetts', 'Michigan', 'Minnesota', 'Mississippi',
   'Missouri', 'Montana', 'Nebraska', 'Nevada', 'New Hampshire', 'New Jersey', 'New Mexico',
@@ -92,7 +74,6 @@ const workRelatedTravelPatterns = [
 ];
 
 export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, onBack, onComplete }) => {
-  useBeforeUnload(true);
   const [currentStep, setCurrentStep] = useState<'profile' | 'data-source' | 'plaid'>('profile');
   const [currentSlide, setCurrentSlide] = useState<'about' | 'business'>('about');
   const [showMoreDetails, setShowMoreDetails] = useState(false);
@@ -120,29 +101,17 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
     businessIncome: undefined,
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const submittingRef = useRef(false);
+  const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null);
+  const snapshot = JSON.stringify({ formData, skipBusiness });
+  const initialSnapshot = useRef(snapshot);
+  useBeforeUnload(currentStep === 'profile' && savedSnapshot !== snapshot && initialSnapshot.current !== snapshot);
   const [error, setError] = useState<string | null>(null);
 
-  // Step 1 validation: core fields that power AI analysis + tax filing
-  const isAboutYouValid = formData.email && formData.name && formData.state && formData.filingStatus &&
-    formData.profession.length > 0 && formData.businessEntityType && formData.primaryWorkLocation && formData.income &&
-    (!formData.profession.includes('Other') || (formData.profession.includes('Other') && formData.customProfession?.trim()));
-
-  const aboutYouMissing: string[] = [];
-  if (currentSlide === 'about') {
-    if (!formData.name) aboutYouMissing.push('full name');
-    if (!formData.state) aboutYouMissing.push('state');
-    if (!formData.filingStatus) aboutYouMissing.push('filing status');
-    if (formData.profession.length === 0) aboutYouMissing.push('at least one profession');
-    if (!formData.businessEntityType) aboutYouMissing.push('business entity type');
-    if (!formData.primaryWorkLocation) aboutYouMissing.push('work location');
-    if (!formData.income) aboutYouMissing.push('income range');
-    if (formData.profession.includes('Other') && !formData.customProfession?.trim()) aboutYouMissing.push('your profession');
-  }
-
-  // Step 2 is always valid (all fields optional, or skipped entirely)
-  const isBusinessValid = true;
-
-  const isFormValid = isAboutYouValid && isBusinessValid;
+  const aboutYouMissing = missingProfileFields(formData);
+  const isAboutYouValid = aboutYouMissing.length === 0;
+  const detailsError = profileDetailsError(formData, skipBusiness);
+  const isFormValid = isAboutYouValid && !detailsError;
 
   const handleProfessionChange = (profession: string, checked: boolean) => {
     setFormData(prev => ({
@@ -155,70 +124,30 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
   };
 
   const handleSubmit = async () => {
-    if (!isFormValid) return;
+    if (!isFormValid || submittingRef.current) return;
+    if (!user?.id) {
+      setError('Your session has expired. Sign in again to save your profile.');
+      return;
+    }
+    submittingRef.current = true;
     setIsSubmitting(true);
     setError(null);
 
     try {
-      let professionString = formData.profession.join(', ');
-      if (formData.profession.includes('Other') && formData.customProfession?.trim()) {
-        professionString = formData.profession
-          .filter(p => p !== 'Other')
-          .concat(formData.customProfession.trim())
-          .join(', ');
-      }
-
-      const { data, error: profileError } = await upsertUserProfile(user.id, {
-        email: formData.email,
-        name: formData.name,
-        year_of_birth: formData.yearOfBirth || undefined,
-        profession: professionString,
-        business_entity_type: formData.businessEntityType,
-        primary_work_location: formData.primaryWorkLocation,
-        work_related_travel_pattern: formData.workRelatedTravelPattern || undefined,
-        income: formData.income,
-        state: formData.state,
-        filing_status: formData.filingStatus,
-        plaid_token: formData.plaidToken,
-        business_start_date: formData.businessStartDate || undefined,
-        home_office_sqft: formData.homeOfficeSqft,
-        total_home_sqft: formData.totalHomeSqft,
-        vehicle_business_use_percentage: formData.vehicleBusinessUsePercentage,
-        business_purpose: formData.businessPurpose || undefined,
-        ein: formData.ein || undefined,
-        w2_income: formData.w2Income,
-        business_income: formData.businessIncome,
-      });
-
-      if (profileError) {
-        console.error('Profile save error details:', profileError);
-        let errorMessage = 'Failed to save profile';
-        if (typeof profileError === 'string') {
-          errorMessage = profileError;
-        } else if (profileError?.message) {
-          errorMessage = profileError.message;
-        } else if (profileError?.code) {
-          errorMessage = `Error: ${profileError.code}`;
-        }
-        throw new Error(errorMessage);
-      }
-
-      console.log('Profile saved successfully:', data);
+      const { error: profileError } = await upsertUserProfile(user.id, profileWriteData(formData, skipBusiness));
+      if (profileError) throw profileError;
+      setSavedSnapshot(snapshot);
       setCurrentStep('data-source');
-    } catch (error) {
-      console.error('Error saving profile:', error);
-      setError(error instanceof Error ? error.message : 'Failed to save profile');
+    } catch {
+      setError('We could not save your profile. Your answers are still here. Check your connection and try again.');
     } finally {
+      submittingRef.current = false;
       setIsSubmitting(false);
     }
   };
 
   const handlePlaidSuccess = () => {
-    onComplete(formData, '/protected?screen=dashboard');
-  };
-
-  const handlePlaidBack = () => {
-    setCurrentStep('data-source');
+    onComplete(formData, PROFILE_COMPLETE_SCREEN);
   };
 
   if (currentStep === 'data-source') {
@@ -226,7 +155,7 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
       <DataSourceScreen
         user={user}
         onConnectBank={() => setCurrentStep('plaid')}
-        onSkipToApp={() => onComplete(formData, '/protected')}
+        onSkipToApp={() => onComplete(formData, PROFILE_COMPLETE_SCREEN)}
         onBack={() => setCurrentStep('profile')}
       />
     );
@@ -247,11 +176,13 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
   const slideIndex = slides.indexOf(currentSlide);
 
   return (
-    <div className="h-screen flex flex-col bg-background overflow-hidden">
+    <div className="h-dvh flex flex-col bg-background overflow-hidden">
       {/* Header */}
       <div className="bg-background/80 backdrop-blur-sm border-b border-border z-50 shadow-sm flex-shrink-0">
         <div className="flex items-center justify-between px-4 py-3 max-w-3xl mx-auto">
           <button
+            disabled={isSubmitting}
+            aria-label={currentSlide === 'about' ? 'Back' : 'Previous step'}
             onClick={currentSlide === 'about' ? onBack : () => setCurrentSlide('about')}
             className="w-9 h-9 bg-card border border-border rounded-xl flex items-center justify-center text-foreground hover:bg-muted transition-all duration-200 shadow-sm"
           >
@@ -296,13 +227,11 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
       {/* Scrollable card area */}
       <div className="flex-1 overflow-y-auto px-4 pb-2">
         <div className="max-w-3xl mx-auto">
-          <div className="relative overflow-hidden">
-            <div className={`flex transition-transform duration-500 ease-in-out ${
-              currentSlide === 'about' ? 'translate-x-0' : '-translate-x-full'
-            }`}>
+          <fieldset disabled={isSubmitting} className="min-w-0">
+            <div>
 
               {/* ===== STEP 1: About You ===== */}
-              <div className="w-full flex-shrink-0">
+              {currentSlide === 'about' && <div className="w-full">
                 <Card className="p-4 bg-card/70 backdrop-blur-sm border border-border shadow-xl">
                   <div className="flex items-center gap-2.5 mb-4">
                     <div className="w-9 h-9 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg">
@@ -317,11 +246,11 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                   {/* Row 1: Email + Name */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
                     <div>
-                      <label className="block text-xs font-semibold text-foreground mb-1">
+                      <label htmlFor="profile-email" className="block text-xs font-semibold text-foreground mb-1">
                         Email <span className="text-red-500">*</span>
                       </label>
                       <div className="relative">
-                        <Input
+                        <Input id="profile-email"
                           type="email"
                           value={formData.email}
                           onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
@@ -336,10 +265,10 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                       </div>
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-foreground mb-1">
+                      <label htmlFor="profile-name" className="block text-xs font-semibold text-foreground mb-1">
                         Full Name <span className="text-red-500">*</span>
                       </label>
-                      <Input
+                      <Input id="profile-name"
                         type="text"
                         value={formData.name}
                         onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
@@ -352,11 +281,11 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                   {/* Row 2: State + Filing Status */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
                     <div>
-                      <label className="block text-xs font-semibold text-foreground mb-1">
+                      <label htmlFor="profile-state" className="block text-xs font-semibold text-foreground mb-1">
                         State <span className="text-red-500">*</span>
                       </label>
                       <Select value={formData.state} onValueChange={(value: string) => setFormData(prev => ({ ...prev, state: value }))}>
-                        <SelectTrigger className="h-9 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm">
+                        <SelectTrigger id="profile-state" className="h-9 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm">
                           <SelectValue placeholder="Select state" />
                         </SelectTrigger>
                         <SelectContent>
@@ -367,11 +296,11 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                       </Select>
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-foreground mb-1">
+                      <label htmlFor="profile-filingStatus" className="block text-xs font-semibold text-foreground mb-1">
                         Filing Status <span className="text-red-500">*</span>
                       </label>
                       <Select value={formData.filingStatus} onValueChange={(value: string) => setFormData(prev => ({ ...prev, filingStatus: value }))}>
-                        <SelectTrigger className="h-9 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm">
+                        <SelectTrigger id="profile-filingStatus" className="h-9 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm">
                           <SelectValue placeholder="Select filing status" />
                         </SelectTrigger>
                         <SelectContent>
@@ -393,6 +322,7 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                       {professions.map((profession) => (
                         <label key={profession} className="flex items-center space-x-1.5 cursor-pointer hover:bg-muted px-2 py-1.5 rounded-lg transition-colors">
                           <Checkbox
+                            aria-label={profession}
                             checked={formData.profession.includes(profession)}
                             onCheckedChange={(checked) => handleProfessionChange(profession, checked as boolean)}
                             className="text-blue-600"
@@ -407,6 +337,7 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                     {formData.profession.includes('Other') && (
                       <Input
                         type="text"
+                        aria-label="Your profession"
                         value={formData.customProfession || ''}
                         onChange={(e) => setFormData(prev => ({ ...prev, customProfession: e.target.value }))}
                         placeholder="Enter your profession"
@@ -418,11 +349,11 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                   {/* Row 3: Entity + Work Location + Income */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
                     <div>
-                      <label className="block text-xs font-semibold text-foreground mb-1">
+                      <label htmlFor="profile-businessEntityType" className="block text-xs font-semibold text-foreground mb-1">
                         Business Entity <span className="text-red-500">*</span>
                       </label>
                       <Select value={formData.businessEntityType} onValueChange={(value: string) => setFormData(prev => ({ ...prev, businessEntityType: value }))}>
-                        <SelectTrigger className="h-9 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm">
+                        <SelectTrigger id="profile-businessEntityType" className="h-9 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm">
                           <SelectValue placeholder="Select type" />
                         </SelectTrigger>
                         <SelectContent>
@@ -433,11 +364,11 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                       </Select>
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-foreground mb-1">
+                      <label htmlFor="profile-primaryWorkLocation" className="block text-xs font-semibold text-foreground mb-1">
                         Work Location <span className="text-red-500">*</span>
                       </label>
                       <Select value={formData.primaryWorkLocation} onValueChange={(value: string) => setFormData(prev => ({ ...prev, primaryWorkLocation: value }))}>
-                        <SelectTrigger className="h-9 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm">
+                        <SelectTrigger id="profile-primaryWorkLocation" className="h-9 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm">
                           <SelectValue placeholder="Where you work" />
                         </SelectTrigger>
                         <SelectContent>
@@ -448,11 +379,11 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                       </Select>
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-foreground mb-1">
+                      <label htmlFor="profile-income" className="block text-xs font-semibold text-foreground mb-1">
                         Income Range <span className="text-red-500">*</span>
                       </label>
                       <Select value={formData.income} onValueChange={(value: string) => setFormData(prev => ({ ...prev, income: value }))}>
-                        <SelectTrigger className="h-9 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm">
+                        <SelectTrigger id="profile-income" className="h-9 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm">
                           <SelectValue placeholder="Annual income" />
                         </SelectTrigger>
                         <SelectContent>
@@ -467,6 +398,7 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                   {/* Expandable: More Details */}
                   <button
                     type="button"
+                    aria-expanded={showMoreDetails}
                     onClick={() => setShowMoreDetails(!showMoreDetails)}
                     className="flex items-center gap-1.5 text-xs font-medium text-blue-600 hover:text-blue-700 transition-colors mb-2"
                   >
@@ -477,11 +409,12 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                   {showMoreDetails && (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t border-border">
                       <div>
-                        <label className="block text-xs font-semibold text-foreground mb-1">Year of Birth</label>
-                        <Input
+                        <label htmlFor="profile-yearOfBirth" className="block text-xs font-semibold text-foreground mb-1">Year of Birth</label>
+                        <Input id="profile-yearOfBirth"
                           type="number"
-                          min="1920"
-                          max={new Date().getFullYear() - 16}
+                          step="1"
+                          min="1900"
+                          max={new Date().getFullYear()}
                           value={formData.yearOfBirth || ''}
                           onChange={(e) => setFormData(prev => ({ ...prev, yearOfBirth: e.target.value }))}
                           placeholder="e.g., 1990"
@@ -490,9 +423,9 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                         <p className="text-[10px] text-muted-foreground mt-0.5">Age-specific tax advice (retirement limits, etc.)</p>
                       </div>
                       <div>
-                        <label className="block text-xs font-semibold text-foreground mb-1">Travel Pattern</label>
+                        <label htmlFor="profile-workRelatedTravelPattern" className="block text-xs font-semibold text-foreground mb-1">Travel Pattern</label>
                         <Select value={formData.workRelatedTravelPattern} onValueChange={(value: string) => setFormData(prev => ({ ...prev, workRelatedTravelPattern: value }))}>
-                          <SelectTrigger className="h-9 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm">
+                          <SelectTrigger id="profile-workRelatedTravelPattern" className="h-9 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm">
                             <SelectValue placeholder="Work travel frequency" />
                           </SelectTrigger>
                           <SelectContent>
@@ -503,24 +436,26 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                         </Select>
                       </div>
                       <div>
-                        <label className="block text-xs font-semibold text-foreground mb-1">W-2 / Salary Income</label>
-                        <Input
+                        <label htmlFor="profile-w2Income" className="block text-xs font-semibold text-foreground mb-1">W-2 / Salary Income</label>
+                        <Input id="profile-w2Income"
                           type="number"
+                          step="any"
                           min="0"
-                          value={formData.w2Income || ''}
-                          onChange={(e) => setFormData(prev => ({ ...prev, w2Income: parseInt(e.target.value) || undefined }))}
+                          value={formData.w2Income ?? ''}
+                          onChange={(e) => setFormData(prev => ({ ...prev, w2Income: e.target.value === '' ? undefined : Number(e.target.value) }))}
                           placeholder="e.g., 65000"
                           className="h-9 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm"
                         />
                         <p className="text-[10px] text-muted-foreground mt-0.5">From traditional employment, if any</p>
                       </div>
                       <div>
-                        <label className="block text-xs font-semibold text-foreground mb-1">Self-Employment Income</label>
-                        <Input
+                        <label htmlFor="profile-businessIncome" className="block text-xs font-semibold text-foreground mb-1">Self-Employment Income</label>
+                        <Input id="profile-businessIncome"
                           type="number"
+                          step="any"
                           min="0"
-                          value={formData.businessIncome || ''}
-                          onChange={(e) => setFormData(prev => ({ ...prev, businessIncome: parseInt(e.target.value) || undefined }))}
+                          value={formData.businessIncome ?? ''}
+                          onChange={(e) => setFormData(prev => ({ ...prev, businessIncome: e.target.value === '' ? undefined : Number(e.target.value) }))}
                           placeholder="e.g., 40000"
                           className="h-9 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm"
                         />
@@ -529,10 +464,10 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                     </div>
                   )}
                 </Card>
-              </div>
+              </div>}
 
               {/* ===== STEP 2: Your Business ===== */}
-              <div className="w-full flex-shrink-0">
+              {currentSlide === 'business' && <div className="w-full">
                 <Card className="p-4 bg-card/70 backdrop-blur-sm border border-border shadow-xl mx-1">
                   <div className="flex items-center gap-2.5 mb-4">
                     <div className="w-9 h-9 bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl flex items-center justify-center shadow-lg">
@@ -554,7 +489,7 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                       className="w-4 h-4 text-blue-600 border-border rounded focus:ring-blue-500"
                     />
                     <label htmlFor="skipBusiness" className="text-xs font-medium text-blue-600">
-                      Skip -- I'll fill this in later (you can update anytime in Settings)
+                      Skip — I&apos;ll fill this in later (you can update anytime in Settings)
                     </label>
                   </div>
 
@@ -563,8 +498,8 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                       {/* Business Purpose + Start Date */}
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div>
-                          <label className="block text-xs font-semibold text-foreground mb-1">Business Purpose</label>
-                          <Input
+                          <label htmlFor="profile-businessPurpose" className="block text-xs font-semibold text-foreground mb-1">Business Purpose</label>
+                          <Input id="profile-businessPurpose"
                             type="text"
                             value={formData.businessPurpose || ''}
                             onChange={(e) => setFormData(prev => ({ ...prev, businessPurpose: e.target.value }))}
@@ -573,8 +508,8 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                           />
                         </div>
                         <div>
-                          <label className="block text-xs font-semibold text-foreground mb-1">Business Start Date</label>
-                          <Input
+                          <label htmlFor="profile-businessStartDate" className="block text-xs font-semibold text-foreground mb-1">Business Start Date</label>
+                          <Input id="profile-businessStartDate"
                             type="date"
                             value={formData.businessStartDate || ''}
                             onChange={(e) => setFormData(prev => ({ ...prev, businessStartDate: e.target.value }))}
@@ -586,8 +521,8 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                       {/* EIN */}
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div>
-                          <label className="block text-xs font-semibold text-foreground mb-1">EIN (optional)</label>
-                          <Input
+                          <label htmlFor="profile-ein" className="block text-xs font-semibold text-foreground mb-1">EIN (optional)</label>
+                          <Input id="profile-ein"
                             type="text"
                             value={formData.ein || ''}
                             onChange={(e) => setFormData(prev => ({ ...prev, ein: e.target.value }))}
@@ -602,22 +537,24 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Home Office</p>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                           <div>
-                            <label className="block text-xs font-semibold text-foreground mb-1">Office Sq Ft</label>
-                            <Input
+                            <label htmlFor="profile-homeOfficeSqft" className="block text-xs font-semibold text-foreground mb-1">Office Sq Ft</label>
+                            <Input id="profile-homeOfficeSqft"
                               type="number"
-                              value={formData.homeOfficeSqft || ''}
-                              onChange={(e) => setFormData(prev => ({ ...prev, homeOfficeSqft: parseInt(e.target.value) || undefined }))}
+                              step="any"
+                              value={formData.homeOfficeSqft ?? ''}
+                              onChange={(e) => setFormData(prev => ({ ...prev, homeOfficeSqft: e.target.value === '' ? undefined : Number(e.target.value) }))}
                               placeholder="e.g., 150"
                               className="h-9 text-sm rounded-xl border-2 border-border focus:border-orange-500 bg-background shadow-sm"
                             />
                             <p className="text-[10px] text-muted-foreground mt-0.5">Dedicated workspace only</p>
                           </div>
                           <div>
-                            <label className="block text-xs font-semibold text-foreground mb-1">Total Home Sq Ft</label>
-                            <Input
+                            <label htmlFor="profile-totalHomeSqft" className="block text-xs font-semibold text-foreground mb-1">Total Home Sq Ft</label>
+                            <Input id="profile-totalHomeSqft"
                               type="number"
-                              value={formData.totalHomeSqft || ''}
-                              onChange={(e) => setFormData(prev => ({ ...prev, totalHomeSqft: parseInt(e.target.value) || undefined }))}
+                              step="any"
+                              value={formData.totalHomeSqft ?? ''}
+                              onChange={(e) => setFormData(prev => ({ ...prev, totalHomeSqft: e.target.value === '' ? undefined : Number(e.target.value) }))}
                               placeholder="e.g., 1200"
                               className="h-9 text-sm rounded-xl border-2 border-border focus:border-orange-500 bg-background shadow-sm"
                             />
@@ -631,13 +568,14 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Vehicle</p>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                           <div>
-                            <label className="block text-xs font-semibold text-foreground mb-1">Business Use %</label>
-                            <Input
+                            <label htmlFor="profile-vehicleBusinessUsePercentage" className="block text-xs font-semibold text-foreground mb-1">Business Use %</label>
+                            <Input id="profile-vehicleBusinessUsePercentage"
                               type="number"
+                              step="any"
                               min="0"
                               max="100"
-                              value={formData.vehicleBusinessUsePercentage || ''}
-                              onChange={(e) => setFormData(prev => ({ ...prev, vehicleBusinessUsePercentage: parseInt(e.target.value) || undefined }))}
+                              value={formData.vehicleBusinessUsePercentage ?? ''}
+                              onChange={(e) => setFormData(prev => ({ ...prev, vehicleBusinessUsePercentage: e.target.value === '' ? undefined : Number(e.target.value) }))}
                               placeholder="e.g., 75"
                               className="h-9 text-sm rounded-xl border-2 border-border focus:border-orange-500 bg-background shadow-sm"
                             />
@@ -647,10 +585,10 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                     </div>
                   )}
                 </Card>
-              </div>
+              </div>}
 
             </div>
-          </div>
+          </fieldset>
         </div>
       </div>
 
@@ -659,6 +597,7 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
         <div className="max-w-3xl mx-auto flex items-center justify-between">
           <Button
             onClick={currentSlide === 'about' ? onBack : () => setCurrentSlide('about')}
+            disabled={isSubmitting}
             variant="outline"
             className="h-9 px-4 rounded-xl border-2 border-border hover:bg-muted bg-background shadow-sm"
           >
@@ -667,7 +606,7 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
           </Button>
 
           {aboutYouMissing.length > 0 && currentSlide === 'about' && (
-            <p className="text-[10px] text-muted-foreground max-w-[200px] text-center hidden md:block">
+            <p className="text-[10px] text-muted-foreground max-w-[200px] text-center">
               Complete: {aboutYouMissing.slice(0, 3).join(', ')}{aboutYouMissing.length > 3 ? '...' : ''}
             </p>
           )}
@@ -675,7 +614,7 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
           {currentSlide === 'about' ? (
             <Button
               onClick={() => setCurrentSlide('business')}
-              disabled={!isAboutYouValid}
+              disabled={!isAboutYouValid || !!profileDetailsError(formData, true)}
               className="h-9 px-5 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-lg shadow-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Next
@@ -694,16 +633,16 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                 </>
               ) : (
                 <>
-                  Connect Bank
+                  Save and continue
                   <ArrowRight className="w-4 h-4 ml-1.5" />
                 </>
               )}
             </Button>
           )}
         </div>
-        {error && (
+        {(error || detailsError) && (
           <div className="max-w-3xl mx-auto mt-2 p-2 bg-red-500/10 border border-red-500/20 rounded-lg">
-            <p className="text-red-600 text-xs font-medium">{error}</p>
+            <p role="alert" className="text-red-600 text-xs font-medium">{error || detailsError}</p>
           </div>
         )}
       </div>

@@ -4,17 +4,17 @@ service cloud.firestore {
 
     // Allow collection-group reads to any transactions doc, but only for the owner
     // This supports queries like collectionGroup('transactions') with where('user_id','==', uid)
-    // Note: More specific rules below (user_profiles/{uid}/accounts/{accountId}/transactions) take precedence
+    // Matching rules are ORed; each matching rule must enforce its own owner checks.
     match /{path=**}/transactions/{txId} {
       allow read: if request.auth != null
-                  && (resource.data.user_id == request.auth.uid
-                      || resource.data.userId == request.auth.uid);
+                  && (resource.data.get('user_id', '') == request.auth.uid
+                      || resource.data.get('userId', '') == request.auth.uid);
       // Allow updates to specific user-editable fields for transactions in top-level or other collections
       // This is a fallback for transactions not under user_profiles/{uid}/accounts/{accountId}/transactions
       allow update: if request.auth != null
-                    && (resource.data.user_id == request.auth.uid
-                        || resource.data.userId == request.auth.uid)
-                    && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+                    && (resource.data.get('user_id', '') == request.auth.uid
+                        || resource.data.get('userId', '') == request.auth.uid)
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
                          'notes',
                          'user_classification_reason',
                          'receipt_url',
@@ -42,23 +42,29 @@ service cloud.firestore {
     // Uses `get` for single-doc reads (may target a non-existent doc) and
     // `list` for queries (always has resource.data).
     match /analysis_jobs/{jobId} {
-      // Allow authenticated users to read any single job document.
-      // The jobId itself is deterministic (uid_accountId) so it's scoped.
-      // When the doc doesn't exist, resource.data is null and field checks fail,
-      // so we split get vs list.
-      allow get: if request.auth != null;
+      // Existing jobs require an owner field written by the server. Preserve
+      // subscriptions before creation only for the caller's exact UID prefix.
+      allow get: if request.auth != null
+                 && ((resource != null
+                      && (resource.data.get('userId', '') == request.auth.uid
+                          || resource.data.get('user_id', '') == request.auth.uid))
+                     || (resource == null
+                         && jobId.size() > request.auth.uid.size() + 1
+                         && jobId[0:request.auth.uid.size() + 1] == request.auth.uid + '_'));
       allow list: if request.auth != null
-                  && (resource.data.userId == request.auth.uid
-                      || resource.data.user_id == request.auth.uid);
+                  && (resource.data.get('userId', '') == request.auth.uid
+                      || resource.data.get('user_id', '') == request.auth.uid);
       allow write: if false; // only server updates this
     }
 
     // ── Analysis Status (legacy, for migration) ────────────────────────────
     match /analysis_status/{jobId} {
-      allow get: if request.auth != null;
+      allow get: if request.auth != null
+                 && (resource.data.get('userId', '') == request.auth.uid
+                     || resource.data.get('user_id', '') == request.auth.uid);
       allow list: if request.auth != null
-                  && (resource.data.userId == request.auth.uid
-                      || resource.data.user_id == request.auth.uid);
+                  && (resource.data.get('userId', '') == request.auth.uid
+                      || resource.data.get('user_id', '') == request.auth.uid);
       allow write: if false; // clients never write; server uses Admin SDK
     }
 
@@ -66,9 +72,9 @@ service cloud.firestore {
     // Client-side corrections manager writes and reads these.
     match /user_corrections/{correctionId} {
       allow read: if request.auth != null
-                  && resource.data.userId == request.auth.uid;
+                  && resource.data.get('userId', '') == request.auth.uid;
       allow create: if request.auth != null
-                    && request.resource.data.userId == request.auth.uid;
+                    && request.resource.data.get('userId', '') == request.auth.uid;
       allow update, delete: if false; // corrections are immutable
     }
 
@@ -89,7 +95,13 @@ service cloud.firestore {
       // Allow the user to create their own profile doc if id === uid
       allow create: if request.auth != null
                     && request.auth.uid == uid
-                    && request.resource.id == uid;
+                    && request.resource.id == uid
+                    // Trial manager and Stripe webhook own these fields on create too.
+                    && !request.resource.data.keys().hasAny([
+                         'hasHistoricalAccess', 'subscriptionStatus', 'trialStart', 'trialEnd',
+                         'subscriptionEnd', 'stripeCustomerId', 'stripeSubscriptionId',
+                         'stripeSubscriptionStatus'
+                       ]);
 
       // Allow the user to update their own profile doc, but restrict subscription fields
       // Subscription fields can only be updated via Admin SDK (webhooks, API routes)
@@ -128,7 +140,7 @@ service cloud.firestore {
           // Allow user updates to transaction fields
           allow update: if request.auth != null
                         && request.auth.uid == uid
-                        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
                              'notes',
                              'user_classification_reason',
                              'receipt_url',

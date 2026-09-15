@@ -15,6 +15,7 @@ import {
   getRedirectResult,
 } from "firebase/auth";
 import { auth } from "./client";
+import { establishVerifiedSession } from "@/lib/onboarding/verification";
 import { app } from "./client";
 import { createAuthError, logAuthError } from "./auth-errors";
 
@@ -396,40 +397,8 @@ export function waitForAuth(): Promise<string> {
 
 export async function checkAndSignInIfVerified(): Promise<{ verified: boolean; error: any }> {
   try {
-    if (!auth.currentUser) {
-      return { verified: false, error: { message: "No authenticated user" } };
-    }
-
-    // Reload user data to get latest verification status
-    await auth.currentUser.reload();
-
-    if (auth.currentUser.emailVerified) {
-      // User is verified, set up session cookie like in signInUser
-      try {
-        const token = await auth.currentUser.getIdToken();
-
-        if (typeof window !== 'undefined') {
-          // Set up session cookie via API
-          await fetch('/api/auth/session', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ idToken: token }),
-          });
-          console.log('checkAndSignInIfVerified: set up session cookie');
-        }
-
-        return { verified: true, error: null };
-      } catch (sessionError) {
-        console.error('checkAndSignInIfVerified: failed to set up session cookie', sessionError);
-        return { verified: true, error: sessionError }; // Still verified, just session setup failed
-      }
-    }
-
-    return { verified: false, error: null };
-  } catch (error: any) {
-    logAuthError('checkAndSignInIfVerified', error);
-    const authError = createAuthError(error);
-    return { verified: false, error: authError };
+    return { verified: await establishVerifiedSession(auth.currentUser), error: null };
+  } catch (error: unknown) {
+    return { verified: false, error: { message: error instanceof Error ? error.message : 'Could not check verification. Try again.' } };
   }
 }

@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { privacyRuntimeCaching } from './lib/pwa/cache-policy';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const withPWA = require("@ducanh2912/next-pwa").default;
@@ -135,6 +136,12 @@ const nextConfig: NextConfig = {
 export default withPWA({
   dest: "public",
   disable: process.env.NODE_ENV === "development",
+  cacheStartUrl: false,
+  dynamicStartUrl: false,
+  cacheOnFrontEndNav: false,
+  extendDefaultRuntimeCaching: false,
+  customWorkerSrc: 'worker',
+  workboxOptions: { runtimeCaching: privacyRuntimeCaching },
   fallbacks: {
     document: "/~offline",
   },

@@ -2,6 +2,8 @@
 
 Local implementation and research as of **September 15, 2026**, on `codex/prelaunch-readiness`. No push or deployment is part of this change.
 
+A subsequent [pre-launch fix batch](PRELAUNCH_FIXES_2026-09-15.md) corrects several calculator, onboarding, payment-record and security issues described as outstanding below. This document preserves the scope and validation of the original assistant work.
+
 ## What the user can do
 
 The existing assistant screen becomes **“Can I write this off?”**:

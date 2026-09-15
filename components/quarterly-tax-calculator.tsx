@@ -6,11 +6,11 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { 
-  Calculator, 
-  Calendar, 
-  DollarSign, 
-  TrendingUp, 
+import {
+  Calculator,
+  Calendar,
+  DollarSign,
+  TrendingUp,
   AlertCircle,
   CheckCircle,
   Download,
@@ -36,7 +36,7 @@ interface TaxCalculation {
   estimatedTax: number;
   selfEmploymentTax: number;
   incomeTax: number;
-  safeHarborAmount: number;
+  safeHarborAmount: number | null;
   quarterlyAmount: number;
   ytdPayments: number;
   remainingPayments: number;
@@ -236,7 +236,7 @@ export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyT
                 </TabsTrigger>
               ))}
             </TabsList>
-            
+
             {quarterlyData.map((quarter) => (
               <TabsContent key={quarter.quarter} value={quarter.quarter.toString()}>
                 <div className="space-y-4">
@@ -259,8 +259,8 @@ export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyT
                       <span>Payment Progress</span>
                       <span>{formatCurrency(quarter.paidAmount)} / {formatCurrency(quarter.estimatedAmount)}</span>
                     </div>
-                    <Progress 
-                      value={(quarter.paidAmount / quarter.estimatedAmount) * 100} 
+                    <Progress
+                      value={(quarter.paidAmount / quarter.estimatedAmount) * 100}
                       className="h-2"
                     />
                   </div>
@@ -282,7 +282,7 @@ export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyT
                     <div className="flex items-center gap-2 p-3 bg-amber-50 rounded-lg">
                       <Clock className="h-4 w-4 text-amber-600" />
                       <span className="text-sm text-amber-800">
-                        {quarter.daysUntilDeadline > 0 
+                        {quarter.daysUntilDeadline > 0
                           ? `${quarter.daysUntilDeadline} days until deadline`
                           : `${Math.abs(quarter.daysUntilDeadline)} days overdue`
                         }
@@ -292,7 +292,7 @@ export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyT
 
                   {/* Actions */}
                   <div className="flex gap-2">
-                    <Button 
+                    <Button
                       onClick={() => generateForm1040ES(quarter.quarter)}
                       className="flex-1"
                     >
@@ -336,7 +336,7 @@ export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyT
                   <span className="font-semibold">{formatCurrency(taxCalculation.totalIncome)}</span>
                 </div>
               </div>
-              
+
               <div className="space-y-3">
                 <div className="flex justify-between">
                   <span className="text-sm text-muted-foreground">Self-Employment Tax</span>
@@ -360,9 +360,7 @@ export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyT
                 <div>
                   <h4 className="font-medium text-blue-900">Safe Harbor Rule</h4>
                   <p className="text-sm text-blue-800 mt-1">
-                    You can avoid penalties by paying at least {formatCurrency(taxCalculation.safeHarborAmount)} 
-                    (100% of last year's tax) or {formatCurrency(taxCalculation.estimatedTax)} 
-                    (90% of current year's tax), whichever is smaller.
+                    An IRS safe-harbor target requires your prior-year tax, prior-year AGI, withholding and payment timing. This projection alone does not establish penalty protection.
                   </p>
                 </div>
               </div>

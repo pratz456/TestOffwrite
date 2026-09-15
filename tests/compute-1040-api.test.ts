@@ -1,0 +1,68 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { NextRequest } from 'next/server';
+
+const state = vi.hoisted(() => ({ uid: 'owner-a' as string | null, txError: null as string | null, paid: 750, depreciation: 0, reads: [] as string[], collections: {} as Record<string, Record<string, unknown>[]> }));
+vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({ user: state.uid ? { uid: state.uid } : null, error: state.uid ? null : 'unauthenticated' }) }));
+vi.mock('@/lib/firebase/transactions-server', () => ({ getTransactionsServer: async () => ({ data: [], error: state.txError }) }));
+vi.mock('@/lib/firebase/profiles-server', () => ({ getUserProfileServer: async () => ({ data: { filing_status: 'single', w2_federal_withheld: 99999 }, error: null }) }));
+vi.mock('@/lib/firebase/settings-server', () => ({ getAssetsSettings: async () => ({ data: state.depreciation ? [{}] : [], error: null }) }));
+vi.mock('@/lib/reports/calc4562', () => ({ calc4562: () => ({ totalDepreciation: state.depreciation }) }));
+vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collection: (name: string) => {
+  state.reads.push(name);
+  return {
+    where() { return this; }, limit() { return this; },
+    get: async () => ({ empty: !(state.collections[name]?.length), docs: (state.collections[name] || []).map(data => ({ data: () => data })) }),
+    doc: (uid: string) => ({ collection: (sub: string) => ({ doc: (id: string) => ({ get: async () => {
+      state.reads.push(`${name}/${uid}/${sub}/${id}`);
+      return { exists: id === 'Q1_2026', data: () => ({ paidAmount: state.paid }) };
+    } }) }) }),
+  };
+} } }));
+import { GET } from '../app/api/tax/compute-1040/route';
+
+beforeEach(() => {
+  state.uid = 'owner-a'; state.txError = null; state.paid = 750; state.depreciation = 0; state.reads.length = 0;
+  state.collections = { w2_income: [{ box1Wages: 100000, box2FederalWithheld: 5000, box3SocialSecurityWages: 100000, box5MedicareWages: 100000 }] };
+});
+function request(year = '2026') { return new NextRequest(`http://localhost/api/tax/compute-1040?year=${year}`); }
+
+describe('Form1040 API integration', () => {
+  it('uses saved quarterly payments and does not add duplicate profile withholding over W-2 forms', async () => {
+    const response = await GET(request());
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+    const data = await response.json();
+    expect(data.payments).toEqual({ estimatedPayments: 750, w2FederalWithheld: 5000 });
+    expect(data.form1040.standardDeduction).toBe(16100);
+    expect(data.form1040.incomeTax).toBe(13170);
+    expect(state.reads).toContain('user_profiles/owner-a/quarterly_payments/Q1_2026');
+    expect(state.reads).not.toContain('quarterly_payments');
+  });
+
+  it('applies depreciation before Schedule SE and keeps a zero Box3 from falling back to Box1', async () => {
+    state.collections = { gross_receipts: [{ amount: 100000 }], w2_income: [{ box1Wages: 100000, box3SocialSecurityWages: 0, box5MedicareWages: 100000 }] };
+    state.depreciation = 20000;
+    const result = await (await GET(request())).json();
+    expect(result.seCalc.netProfitFromScheduleC).toBe(80000);
+    expect(result.seCalc.socialSecurityTax).toBe(9161.12);
+    expect(result.seCalc.totalSETax).toBe(11303.64);
+  });
+
+  it.each(['2027', '2026garbage', 'NaN', '2026.5'])('rejects unavailable/invalid year %s before reading financial data', async year => {
+    expect((await GET(request(year))).status).toBe(400);
+    expect(state.reads).toEqual([]);
+  });
+
+  it('reports a data-load failure instead of a calculation from silent zeros', async () => {
+    state.txError = 'internal provider details';
+    const response = await GET(request());
+    expect(response.status).toBe(503);
+    expect(await response.text()).not.toContain('internal provider details');
+  });
+
+  it('requires authentication before financial reads', async () => {
+    state.uid = null;
+    expect((await GET(request())).status).toBe(401);
+    expect(state.reads).toEqual([]);
+  });
+});

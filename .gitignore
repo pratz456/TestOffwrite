@@ -55,6 +55,8 @@ next-env.d.ts
 /public/sw.js
 /public/workbox-*.js
 /public/fallback-*.js
+/public/worker-*.js
+/public/worker-*.js.map
 
 # Downloaded primary-source research corpus (provenance is recorded in docs/research)
 /.tax-research/

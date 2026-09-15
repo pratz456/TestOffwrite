@@ -17,6 +17,8 @@ import { getUserProfileServer } from '@/lib/firebase/profiles-server';
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { calcScheduleSE } from '@/lib/reports/calcSE';
 import { compute1040 } from '@/lib/tax-rules/compute-1040';
+import { getRecordedQuarterlyPayments, totalRecordedPayments } from '@/lib/firebase/quarterly-payments-server';
+import { getFederalTaxRules, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
 import { getAssetsSettings } from '@/lib/firebase/settings-server';
 import { calc4562 } from '@/lib/reports/calc4562';
 
@@ -254,7 +256,10 @@ export async function POST(request: NextRequest) {
 
     const { year } = await request.json();
     if (!year) return NextResponse.json({ error: 'Year required' }, { status: 400 });
-    const taxYear = parseInt(String(year), 10);
+    const taxYear = Number(year);
+    try { getFederalTaxRules(taxYear); } catch {
+      return NextResponse.json({ error: `Supported tax years: ${SUPPORTED_TAX_YEARS.join(', ')}` }, { status: 400 });
+    }
 
     const [txResult, profileResult, grossSnap, income1099Snap, w2Snap, deductionsSnap, quarterlySnap, organizerSnap, assetsResult] = await Promise.all([
       getTransactionsServer(uid),
@@ -263,11 +268,14 @@ export async function POST(request: NextRequest) {
       adminDb.collection('income_1099').where('userId', '==', uid).where('taxYear', '==', taxYear).get(),
       adminDb.collection('w2_income').where('userId', '==', uid).where('taxYear', '==', taxYear).get(),
       adminDb.collection('tax_deductions').where('userId', '==', uid).where('taxYear', '==', taxYear).limit(1).get(),
-      adminDb.collection('quarterly_payments').where('userId', '==', uid).where('taxYear', '==', taxYear).get(),
+      getRecordedQuarterlyPayments(uid, taxYear),
       adminDb.collection('tax_organizers').where('userId', '==', uid).where('taxYear', '==', taxYear).limit(1).get(),
       getAssetsSettings(uid),
     ]);
 
+    if (txResult.error || profileResult.error || assetsResult.error) {
+      return NextResponse.json({ error: 'Could not load the information needed for this calculation. Please retry.' }, { status: 503 });
+    }
     const transactions = (txResult.data || []) as any[];
     const profile = (profileResult.data || {}) as Record<string, any>;
     const ded = deductionsSnap.empty ? {} as Record<string, any> : deductionsSnap.docs[0].data();
@@ -310,11 +318,10 @@ export async function POST(request: NextRequest) {
       w2Snap.docs.reduce((s, d) => s + (d.data().box2FederalWithheld || d.data().federalWithheld || 0), 0) +
       (profile.w2_federal_withheld || 0);
     const w2StateWithheld = w2Snap.docs.reduce((s: number, d: any) => s + (d.data().stateWithheld || 0), 0);
-    const estimatedPayments = quarterlySnap.docs.reduce((s, d) => s + (d.data().amount || 0), 0);
+    const estimatedPayments = totalRecordedPayments(quarterlySnap);
     const { totalDeductible } = aggregateScheduleC(transactions, String(taxYear), CATEGORY_MAP, { mode: 'confirmed-only' });
-    const scheduleCNetProfit = Math.max(0, grossReceipts - totalDeductible);
+    const scheduleCNetProfit = grossReceipts - totalDeductible;
     const filingStatus = (profile.filing_status || 'single') as any;
-    const seCalc = calcScheduleSE({ scheduleCNetProfit, taxYear }, filingStatus);
 
     // Depreciation from assets (Section 179 / MACRS / Form 4562)
     const assets = assetsResult.data || [];
@@ -322,8 +329,13 @@ export async function POST(request: NextRequest) {
       ? calc4562(assets, scheduleCNetProfit).totalDepreciation
       : 0;
 
+    const w2MedicareWages = w2Snap.docs.every(d => typeof d.data().box5MedicareWages === 'number')
+      ? w2Snap.docs.reduce((sum, d) => sum + d.data().box5MedicareWages, 0) : undefined;
+    const w2SocialSecurityWages = w2Snap.docs.reduce((sum, d) => sum + (d.data().box3SocialSecurityWages ?? d.data().box1Wages ?? 0), 0);
+    const seCalc = calcScheduleSE({ scheduleCNetProfit: scheduleCNetProfit - depreciationDeduction, taxYear }, filingStatus, w2SocialSecurityWages, w2MedicareWages ?? w2Wages);
+
     const result = compute1040({
-      taxYear, filingStatus, scheduleCNetProfit, w2Wages, w2FederalWithheld, estimatedPayments,
+      taxYear, filingStatus, scheduleCNetProfit, w2Wages, w2MedicareWages, w2FederalWithheld, estimatedPayments,
       selfEmploymentTax: seCalc.totalSETax,
       halfSEDeduction: seCalc.halfSEDeduction,
       healthInsurancePremiums: ded.healthInsurancePremiums || profile.health_insurance_premiums || 0,
@@ -346,7 +358,7 @@ export async function POST(request: NextRequest) {
     const displayData: Record<string, any> = { ...result, w2Wages, scheduleCNetProfit, w2FederalWithheld, w2StateWithheld, estimatedPayments };
 
     // Add completeness warnings to displayData
-    const warnings: string[] = [];
+    const warnings: string[] = [...(result.calculationWarnings || [])];
     if (!result.totalIncome || result.totalIncome === 0) warnings.push('No income entered - add income in WriteOff before using this form');
     if (!enrichedProfile.ssn) warnings.push('SSN not filled in - enter SSN in Tax Organizer');
     if (!enrichedProfile.mailing_address?.street) warnings.push('Mailing address incomplete - update in Tax Organizer');

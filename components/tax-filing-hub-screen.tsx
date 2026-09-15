@@ -12,6 +12,7 @@ import {
   FileText, DollarSign, Home, Car, Calculator, Loader2,
   ChevronRight, TrendingUp, Receipt, Shield, Upload,
 } from "lucide-react";
+import { TaxCalculationNotice } from "@/components/tax-calculation-notice";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 
 interface FilingHubProps {
@@ -39,6 +40,8 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [calculationWarnings, setCalculationWarnings] = useState<unknown>([]);
+  const [hasTaxEstimate, setHasTaxEstimate] = useState(false);
 
   const [summary, setSummary] = useState({
     grossReceipts: 0,
@@ -68,6 +71,8 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
   const loadSummary = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setHasTaxEstimate(false);
+    setCalculationWarnings([]);
     try {
       const [grossRes, incomeRes, txRes, seRes, form1040Res] = await Promise.all([
         makeAuthenticatedRequest(`/api/income/gross-receipts?year=${year}`),
@@ -82,6 +87,10 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
       const txData     = txRes.ok     ? await txRes.json()     : {};
       const seData     = seRes.ok     ? await seRes.json()     : {};
       const tax1040    = form1040Res.ok ? await form1040Res.json() : {};
+      const federalEstimate = tax1040.form1040;
+      setHasTaxEstimate(!!federalEstimate);
+      setCalculationWarnings(federalEstimate?.calculationWarnings);
+      if (!form1040Res.ok) setError("The federal estimate could not be loaded. Open Tax Preview to retry before using these figures.");
 
       const grossReceipts = grossData.totalGrossReceipts || 0;
       const income1099    = (incomeData.forms || []).reduce((s: number, f: any) => s + f.amount, 0);
@@ -95,7 +104,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
         grossReceipts, income1099,
         w2Wages: seData.w2Income || seData.w2Wages || 0,
         w2Withheld: seData.w2Withheld || 0,
-        totalIncome: seData.totalIncome || totalIncome,
+        totalIncome: federalEstimate?.totalIncome ?? seData.totalIncome ?? (totalIncome + (seData.w2Wages ?? seData.w2Income ?? 0)),
         confirmedExpenses: totalExpenses,
         totalExpenses, netProfit, seTax, confirmedCount,
         hasHomeOffice: !!(txData.hasHomeOffice),
@@ -105,9 +114,9 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
         hasW2: (seData.w2Income || 0) > 0,
         aboveLineDeductions: seData.aboveLineDeductions?.total || 0,
         adjustedNetIncome: seData.adjustedNetIncome || netProfit,
-        balanceDue: tax1040?.balanceDue || 0,
-        refund: tax1040?.refund || 0,
-        totalTax: tax1040?.totalTax || 0,
+        balanceDue: federalEstimate?.balanceDue ?? 0,
+        refund: federalEstimate?.refund ?? 0,
+        totalTax: federalEstimate?.totalTax ?? 0,
       });
     } catch (e) {
       setError("Failed to load filing summary. Please try again.");
@@ -303,11 +312,11 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
             {/* Summary cards */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {[
-                { label: "Total Income",    value: fmt(summary.totalIncome + summary.w2Wages), accent: "text-green-600 dark:text-green-400",  icon: TrendingUp },
+                { label: "Total Income",    value: fmt(summary.totalIncome), accent: "text-green-600 dark:text-green-400",  icon: TrendingUp },
                 { label: "Total Expenses",  value: fmt(summary.totalExpenses), accent: "text-red-500 dark:text-red-400", icon: Receipt },
-                { label: "Total Tax",       value: fmt(summary.totalTax), accent: "text-orange-600 dark:text-orange-400", icon: DollarSign },
+                { label: "Total Tax",       value: hasTaxEstimate ? fmt(summary.totalTax) : "Unavailable", accent: "text-orange-600 dark:text-orange-400", icon: DollarSign },
                 { label: summary.refund > 0 ? "Est. Refund" : "Balance Due",
-                  value: fmt(summary.refund > 0 ? summary.refund : summary.balanceDue),
+                  value: hasTaxEstimate ? fmt(summary.refund > 0 ? summary.refund : summary.balanceDue) : "Unavailable",
                   accent: summary.refund > 0 ? "text-green-600 dark:text-green-400" : "text-orange-600 dark:text-orange-400",
                   icon: Calculator },
               ].map(({ label, value, accent, icon: Icon }) => (
@@ -320,6 +329,8 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
                 </Card>
               ))}
             </div>
+
+            {hasTaxEstimate && <TaxCalculationNotice taxYear={year} warnings={calculationWarnings} />}
 
             {/* Progress bar */}
             <Card className="bg-card border-border">

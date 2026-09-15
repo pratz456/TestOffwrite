@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RefreshCw, TrendingUp, TrendingDown, DollarSign, Calculator, ChevronDown, ChevronUp, AlertCircle, CheckCircle2, Loader2, Info } from "lucide-react";
+import { TaxCalculationNotice } from "@/components/tax-calculation-notice";
+import { SUPPORTED_TAX_YEARS } from "@/lib/tax-rules/federal-year-rules";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 
 interface Props {
@@ -31,22 +32,24 @@ const fmtDec = (n: number) => n.toLocaleString("en-US", { style: "currency", cur
 const pct = (n: number) => `${n.toFixed(1)}%`;
 
 export function TaxPreviewScreen({ user, onBack, onNavigate }: Props) {
-  const currentYear = new Date().getFullYear();
-  const [year, setYear] = useState(String(currentYear));
+  const [year, setYear] = useState(String(SUPPORTED_TAX_YEARS[SUPPORTED_TAX_YEARS.length - 1]));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<any>(null);
   const [showDetails, setShowDetails] = useState(false);
+  const requestId = useRef(0);
 
   const load = useCallback(async () => {
-    setLoading(true); setError(null);
+    const currentRequest = ++requestId.current;
+    setLoading(true); setError(null); setData(null);
     try {
       const res = await makeAuthenticatedRequest(`/api/tax/compute-1040?year=${year}`);
-      if (!res.ok) throw new Error("Failed to compute return");
-      setData(await res.json());
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || "Failed to compute estimate");
+      if (currentRequest === requestId.current) setData(result);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load tax preview");
-    } finally { setLoading(false); }
+      if (currentRequest === requestId.current) setError(e instanceof Error ? e.message : "Failed to load tax preview");
+    } finally { if (currentRequest === requestId.current) setLoading(false); }
   }, [year]);
 
   useEffect(() => { load(); }, [load]);
@@ -54,7 +57,6 @@ export function TaxPreviewScreen({ user, onBack, onNavigate }: Props) {
   const f1040 = data?.form1040;
   const hasRefund = f1040?.refund > 0;
   const hasBalance = f1040?.balanceDue > 0;
-  const isEven = !hasRefund && !hasBalance;
 
   return (
     <div className="min-h-screen bg-background">
@@ -63,18 +65,18 @@ export function TaxPreviewScreen({ user, onBack, onNavigate }: Props) {
         <div className="max-w-3xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3">
           <div className="flex-1 min-w-0">
             <h1 className="text-lg sm:text-xl font-semibold text-foreground">Tax Preview</h1>
-            <p className="text-xs sm:text-sm text-muted-foreground">Your estimated federal return, updated in real time</p>
+            <p className="text-xs sm:text-sm text-muted-foreground">Your federal estimate from the information saved in WriteOff</p>
           </div>
           <div className="flex items-center gap-2">
             <Select value={year} onValueChange={setYear}>
-              <SelectTrigger className="w-[90px] h-9"><SelectValue /></SelectTrigger>
+              <SelectTrigger aria-label="Tax year" className="w-[90px] h-9"><SelectValue /></SelectTrigger>
               <SelectContent>
-                {Array.from({ length: 4 }, (_, i) => currentYear - i).map(y => (
+                {[...SUPPORTED_TAX_YEARS].reverse().map(y => (
                   <SelectItem key={y} value={String(y)}>{y}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            <Button onClick={load} variant="ghost" size="icon" className="h-9 w-9" disabled={loading}>
+            <Button onClick={load} aria-label="Refresh tax estimate" variant="ghost" size="icon" className="h-9 w-9" disabled={loading}>
               <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
             </Button>
           </div>
@@ -106,7 +108,7 @@ export function TaxPreviewScreen({ user, onBack, onNavigate }: Props) {
                       <p className="text-sm font-medium text-green-700 dark:text-green-400">Estimated Federal Refund</p>
                     </div>
                     <p className="text-5xl font-bold text-green-600 dark:text-green-400 tabular-nums">{fmt(f1040.refund)}</p>
-                    <p className="mt-2 text-xs text-muted-foreground">You overpaid by this much through withholding and quarterly payments</p>
+                    <p className="mt-2 text-xs text-muted-foreground">Includes recorded payments and estimated refundable credits</p>
                   </>
                 ) : hasBalance ? (
                   <>
@@ -126,12 +128,14 @@ export function TaxPreviewScreen({ user, onBack, onNavigate }: Props) {
                 ) : (
                   <>
                     <CheckCircle2 className="w-10 h-10 text-primary mx-auto mb-2" />
-                    <p className="text-xl font-bold text-foreground">Perfectly balanced</p>
-                    <p className="text-xs text-muted-foreground mt-1">Payments match tax liability</p>
+                    <p className="text-xl font-bold text-foreground">Estimated balance: $0</p>
+                    <p className="text-xs text-muted-foreground mt-1">Recorded payments and estimated credits cover the modeled tax</p>
                   </>
                 )}
               </CardContent>
             </Card>
+
+            <TaxCalculationNotice taxYear={f1040.taxYear ?? year} warnings={f1040.calculationWarnings} />
 
             {/* Key numbers row */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -284,7 +288,7 @@ export function TaxPreviewScreen({ user, onBack, onNavigate }: Props) {
             })()}
 
             <p className="text-xs text-center text-muted-foreground pb-4">
-              This is an estimate based on current data only. Actual tax may differ. Rates: 2025 IRS Rev. Proc. 2024-40 + OBBB P.L. 119-21.
+              This estimate uses published federal rules for {f1040.taxYear ?? year} and the information saved in WriteOff. Actual tax may differ.
               <br />Always verify with a tax professional before filing.
             </p>
           </>

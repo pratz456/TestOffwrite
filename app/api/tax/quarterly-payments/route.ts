@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { adminDb, FieldValue } from '@/lib/firebase/admin';
+import { getEstimatedTaxDeadline } from '@/lib/tax-provider/payment-deadlines';
 
 const QUARTER_DEADLINES: { quarter: number; month: number; day: number; nextYear?: boolean }[] = [
   { quarter: 1, month: 3, day: 15 },   // April 15
@@ -30,10 +31,7 @@ function getDocId(quarter: number, year: number): string {
 }
 
 function getDeadlineForQuarter(quarter: number, year: number): Date {
-  const config = QUARTER_DEADLINES.find((q) => q.quarter === quarter);
-  if (!config) throw new Error(`Invalid quarter: ${quarter}`);
-  const targetYear = config.nextYear ? year + 1 : year;
-  return new Date(targetYear, config.month, config.day);
+  return getEstimatedTaxDeadline(year, quarter);
 }
 
 function createDefaultPayment(quarter: number, year: number): Omit<QuarterlyPaymentRecord, 'penalty'> {
@@ -57,7 +55,8 @@ function computeStatusAndPenalty(
   now: Date
 ): { status: PaymentStatus; penalty?: number } {
   const deadline = new Date(record.deadline);
-  const isPaid = record.paidAmount >= record.estimatedAmount;
+  const isPaid = record.estimatedAmount > 0 && record.paidAmount >= record.estimatedAmount;
+  if (record.estimatedAmount <= 0) return { status: 'unpaid' };
   const daysOverdue = Math.floor((now.getTime() - deadline.getTime()) / (1000 * 60 * 60 * 24));
   const daysUntilDeadline = Math.floor((deadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 
@@ -87,9 +86,9 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const yearParam = searchParams.get('year');
-    const year = yearParam ? parseInt(yearParam, 10) : new Date().getFullYear();
+    const year = yearParam === null ? new Date().getFullYear() : Number(yearParam);
 
-    if (isNaN(year)) {
+    if (!Number.isInteger(year) || year < 2000 || year > 2100) {
       return NextResponse.json({ error: 'Invalid year' }, { status: 400 });
     }
 
@@ -115,7 +114,7 @@ export async function GET(request: NextRequest) {
         record = {
           quarter: data.quarter ?? q,
           year: data.year ?? y,
-          deadline: data.deadline ?? getDeadlineForQuarter(q, y).toISOString(),
+          deadline: getDeadlineForQuarter(q, y).toISOString(),
           estimatedAmount: data.estimatedAmount ?? 0,
           paidAmount: data.paidAmount ?? 0,
           paidDate: data.paidDate ?? null,
@@ -126,11 +125,7 @@ export async function GET(request: NextRequest) {
         };
       } else {
         record = createDefaultPayment(q, y);
-        await collectionRef.doc(docId).set({
-          ...record,
-          updatedAt: FieldValue.serverTimestamp(),
-        });
-        console.log('💰 [Quarterly Payments] Created default record:', docId);
+        // A read must not create records or race a payment being saved.
       }
 
       const { status, penalty } = computeStatusAndPenalty(record, now);
@@ -195,7 +190,7 @@ export async function POST(request: NextRequest) {
     const y = Number(year);
     const amount = Number(paidAmount);
 
-    if (isNaN(q) || isNaN(y) || isNaN(amount) || amount < 0) {
+    if (!Number.isInteger(q) || q < 1 || q > 4 || !Number.isInteger(y) || y < 2000 || y > 2100 || !Number.isFinite(amount) || amount < 0) {
       return NextResponse.json({ error: 'Invalid quarter, year, or paidAmount' }, { status: 400 });
     }
 
@@ -208,52 +203,26 @@ export async function POST(request: NextRequest) {
       .collection('quarterly_payments');
 
     const docRef = collectionRef.doc(docId);
-    const docSnap = await docRef.get();
-
-    let estimatedAmount = 0;
-    let existingPaidAmount = 0;
-
-    if (docSnap.exists) {
-      const data = docSnap.data()!;
-      estimatedAmount = data.estimatedAmount ?? 0;
-      existingPaidAmount = data.paidAmount ?? 0;
-    } else {
-      const defaultRecord = createDefaultPayment(q, y);
-      estimatedAmount = defaultRecord.estimatedAmount;
-      await docRef.set({
-        ...defaultRecord,
-        updatedAt: FieldValue.serverTimestamp(),
-      });
+    if (typeof paidDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(paidDate)
+      || Number.isNaN(Date.parse(paidDate)) || new Date(paidDate).toISOString().slice(0, 10) !== paidDate) {
+      return NextResponse.json({ error: 'Provide a valid payment date (YYYY-MM-DD).' }, { status: 400 });
     }
-
-    const newPaidAmount = existingPaidAmount + amount;
-    const isPaid = newPaidAmount >= estimatedAmount;
-
-    const updateData: Record<string, unknown> = {
-      paidAmount: newPaidAmount,
-      paidDate: paidDate,
-      confirmationNumber: confirmationNumber ?? null,
-      paymentMethod: paymentMethod ?? null,
-      notes: notes ?? '',
-      status: isPaid ? 'paid' : 'unpaid',
-      updatedAt: FieldValue.serverTimestamp(),
-    };
-
-    await docRef.update(updateData);
-
-    const deadline = getDeadlineForQuarter(q, y);
-    const updatedPayment = {
-      quarter: q,
-      year: y,
-      deadline: deadline.toISOString(),
-      estimatedAmount,
-      paidAmount: newPaidAmount,
-      paidDate,
-      confirmationNumber: confirmationNumber ?? null,
-      paymentMethod: paymentMethod ?? null,
-      status: isPaid ? 'paid' : 'unpaid',
-      notes: notes ?? '',
-    };
+    const updatedPayment = await adminDb.runTransaction(async transaction => {
+      const snapshot = await transaction.get(docRef);
+      const prior = snapshot.exists ? snapshot.data()! : createDefaultPayment(q, y);
+      const estimatedAmount = Number(prior.estimatedAmount) || 0;
+      const paidAmount = (Math.round((Number(prior.paidAmount) || 0) * 100) + Math.round(amount * 100)) / 100;
+      const record = {
+        ...createDefaultPayment(q, y),
+        estimatedAmount, paidAmount, paidDate,
+        confirmationNumber: typeof confirmationNumber === 'string' ? confirmationNumber.slice(0, 200) : null,
+        paymentMethod: typeof paymentMethod === 'string' ? paymentMethod.slice(0, 100) : null,
+        notes: typeof notes === 'string' ? notes.slice(0, 2000) : '',
+        status: estimatedAmount > 0 && paidAmount >= estimatedAmount ? 'paid' : 'unpaid',
+      };
+      transaction.set(docRef, { ...record, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      return record;
+    });
 
     return NextResponse.json(updatedPayment);
   } catch (error) {
@@ -286,7 +255,7 @@ export async function PUT(request: NextRequest) {
     const y = Number(year);
     const amount = Number(estimatedAmount);
 
-    if (isNaN(q) || isNaN(y) || isNaN(amount) || amount < 0) {
+    if (!Number.isInteger(q) || q < 1 || q > 4 || !Number.isInteger(y) || y < 2000 || y > 2100 || !Number.isFinite(amount) || amount < 0) {
       return NextResponse.json({ error: 'Invalid quarter, year, or estimatedAmount' }, { status: 400 });
     }
 
@@ -299,45 +268,22 @@ export async function PUT(request: NextRequest) {
       .collection('quarterly_payments');
 
     const docRef = collectionRef.doc(docId);
-    const docSnap = await docRef.get();
-
-    let record: Omit<QuarterlyPaymentRecord, 'penalty'>;
-
-    if (docSnap.exists) {
-      const data = docSnap.data()!;
-      record = {
-        quarter: data.quarter ?? q,
-        year: data.year ?? y,
-        deadline: data.deadline ?? getDeadlineForQuarter(q, y).toISOString(),
-        estimatedAmount: amount,
-        paidAmount: data.paidAmount ?? 0,
-        paidDate: data.paidDate ?? null,
-        confirmationNumber: data.confirmationNumber ?? null,
-        paymentMethod: data.paymentMethod ?? null,
-        status: (data.paidAmount ?? 0) >= amount ? 'paid' : (data.status ?? 'unpaid'),
-        notes: data.notes ?? '',
+    const updatedRecord = await adminDb.runTransaction(async transaction => {
+      const snapshot = await transaction.get(docRef);
+      const prior = snapshot.exists ? snapshot.data()! : createDefaultPayment(q, y);
+      const paidAmount = Number(prior.paidAmount) || 0;
+      const estimatedAmount = Math.round(amount * 100) / 100;
+      const record = {
+        ...createDefaultPayment(q, y), ...prior,
+        quarter: q, year: y, deadline: getDeadlineForQuarter(q, y).toISOString(),
+        estimatedAmount, paidAmount,
+        status: estimatedAmount > 0 && paidAmount >= estimatedAmount ? 'paid' : 'unpaid',
       };
-    } else {
-      record = {
-        ...createDefaultPayment(q, y),
-        estimatedAmount: amount,
-      };
-    }
-
-    const isPaid = record.paidAmount >= amount;
-    await docRef.set(
-      {
-        ...record,
-        status: isPaid ? 'paid' : record.status,
-        updatedAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
-
-    return NextResponse.json({
-      ...record,
-      status: isPaid ? 'paid' : record.status,
+      transaction.set(docRef, { ...record, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      return record;
     });
+    return NextResponse.json(updatedRecord);
+
   } catch (error) {
     console.error('💰 [Quarterly Payments] PUT error:', error);
     return NextResponse.json(

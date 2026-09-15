@@ -13,13 +13,17 @@ import { getUserProfileServer } from '@/lib/firebase/profiles-server';
 import { adminDb } from '@/lib/firebase/admin';
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { calcScheduleSE } from '@/lib/reports/calcSE';
+import { getFederalTaxRules, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
 
 export async function GET(request: NextRequest) {
   const { user, error } = await getAuthenticatedUser(request);
   if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const yearParam = request.nextUrl.searchParams.get('year');
-  const year = yearParam ? parseInt(yearParam, 10) : new Date().getFullYear();
+  const year = yearParam === null ? new Date().getFullYear() : Number(yearParam);
+  try { getFederalTaxRules(year); } catch {
+    return NextResponse.json({ error: `Supported tax years: ${SUPPORTED_TAX_YEARS.join(', ')}` }, { status: 400 });
+  }
 
   const [txResult, profileResult, grossSnap, income1099Snap, w2Snap, deductionsSnap] = await Promise.all([
     getTransactionsServer(user.uid),
@@ -30,7 +34,10 @@ export async function GET(request: NextRequest) {
     adminDb.collection('tax_deductions').where('userId', '==', user.uid).where('taxYear', '==', year).limit(1).get(),
   ]);
 
-  const transactions = (txResult.data || []) as any[];
+  if (txResult.error || profileResult.error) {
+      return NextResponse.json({ error: 'Could not load the information needed for this calculation. Please retry.' }, { status: 503 });
+    }
+    const transactions = (txResult.data || []) as any[];
   const profile = profileResult.data as any;
 
   const grossReceiptsTotal =
@@ -51,8 +58,10 @@ export async function GET(request: NextRequest) {
   const studentLoanInterest = deductionsData?.studentLoanInterest || 0;
 
   const { totalDeductible } = aggregateScheduleC(transactions, String(year), CATEGORY_MAP, { mode: 'confirmed-only' });
-  const netProfit = Math.max(0, grossReceiptsTotal - totalDeductible);
-  const calc = calcScheduleSE({ scheduleCNetProfit: netProfit, taxYear: year }, profile?.filing_status || 'single');
+  const netProfit = grossReceiptsTotal - totalDeductible;
+  const w2SocialSecurityWages = w2Snap.docs.reduce((sum, d) => sum + (d.data().box3SocialSecurityWages ?? d.data().box1Wages ?? 0), 0);
+  const w2MedicareWages = w2Snap.docs.reduce((sum, d) => sum + (d.data().box5MedicareWages ?? d.data().box1Wages ?? 0), 0);
+  const calc = calcScheduleSE({ scheduleCNetProfit: netProfit, taxYear: year }, profile?.filing_status || 'single', w2SocialSecurityWages, w2MedicareWages);
 
   // Above-the-line deductions that reduce AGI
   const aboveTheLineDeductions = calc.halfSEDeduction + healthInsurancePremiums + totalRetirement + hsaContribution + studentLoanInterest;
@@ -76,8 +85,8 @@ export async function GET(request: NextRequest) {
     studentLoanInterest,
     aboveTheLineDeductions,
     // Total picture
-    totalIncome: grossReceiptsTotal + w2Total,
-    estimatedAGI: Math.max(0, grossReceiptsTotal + w2Total - aboveTheLineDeductions),
+    totalIncome: netProfit + w2Total,
+    estimatedAGI: netProfit + w2Total - aboveTheLineDeductions,
     dataSource: 'auto',
   });
 }

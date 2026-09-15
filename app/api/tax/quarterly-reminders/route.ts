@@ -20,7 +20,9 @@ import { getUserProfileServer } from '@/lib/firebase/profiles-server';
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { calcScheduleSE } from '@/lib/reports/calcSE';
 import { calculateFederalIncomeTax } from '@/lib/tax-rules/federal-brackets';
-import { STANDARD_DEDUCTIONS_2025 } from '@/lib/tax-rules/federal-brackets';
+import { getFederalTaxRules, SUPPORTED_TAX_YEARS, type FederalFilingStatus } from '@/lib/tax-rules/federal-year-rules';
+import { getRecordedQuarterlyPayments } from '@/lib/firebase/quarterly-payments-server';
+import { getEstimatedTaxDeadline } from '@/lib/tax-provider/payment-deadlines';
 
 interface QuarterDef {
   quarter: 1 | 2 | 3 | 4;
@@ -31,10 +33,10 @@ interface QuarterDef {
 
 function getQuarters(year: number): QuarterDef[] {
   return [
-    { quarter: 1, label: 'Q1', incomePeriod: 'Jan 1 – Mar 31', dueDate: `${year}-04-15` },
-    { quarter: 2, label: 'Q2', incomePeriod: 'Apr 1 – May 31', dueDate: `${year}-06-16` },
-    { quarter: 3, label: 'Q3', incomePeriod: 'Jun 1 – Aug 31', dueDate: `${year}-09-15` },
-    { quarter: 4, label: 'Q4', incomePeriod: 'Sep 1 – Dec 31', dueDate: `${year + 1}-01-15` },
+    { quarter: 1, label: 'Q1', incomePeriod: 'Jan 1 – Mar 31', dueDate: getEstimatedTaxDeadline(year, 1).toISOString().slice(0, 10) },
+    { quarter: 2, label: 'Q2', incomePeriod: 'Apr 1 – May 31', dueDate: getEstimatedTaxDeadline(year, 2).toISOString().slice(0, 10) },
+    { quarter: 3, label: 'Q3', incomePeriod: 'Jun 1 – Aug 31', dueDate: getEstimatedTaxDeadline(year, 3).toISOString().slice(0, 10) },
+    { quarter: 4, label: 'Q4', incomePeriod: 'Sep 1 – Dec 31', dueDate: getEstimatedTaxDeadline(year, 4).toISOString().slice(0, 10) },
   ];
 }
 
@@ -53,7 +55,11 @@ export async function GET(request: NextRequest) {
   if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const yearParam = request.nextUrl.searchParams.get('year');
-  const year = yearParam ? parseInt(yearParam, 10) : new Date().getFullYear();
+  const year = yearParam === null ? new Date().getFullYear() : Number(yearParam);
+  let rules;
+  try { rules = getFederalTaxRules(year); } catch {
+    return NextResponse.json({ error: `Supported tax years: ${SUPPORTED_TAX_YEARS.join(', ')}` }, { status: 400 });
+  }
 
   const [txResult, profileResult, grossSnap, income1099Snap, w2Snap, deductionsSnap, paymentsSnap] = await Promise.all([
     getTransactionsServer(user.uid),
@@ -62,10 +68,13 @@ export async function GET(request: NextRequest) {
     adminDb.collection('income_1099').where('userId', '==', user.uid).where('taxYear', '==', year).get(),
     adminDb.collection('w2_income').where('userId', '==', user.uid).where('taxYear', '==', year).get(),
     adminDb.collection('tax_deductions').where('userId', '==', user.uid).where('taxYear', '==', year).limit(1).get(),
-    adminDb.collection('quarterly_payments').where('userId', '==', user.uid).where('taxYear', '==', year).get(),
+    getRecordedQuarterlyPayments(user.uid, year),
   ]);
 
-  const transactions = (txResult.data || []) as any[];
+  if (txResult.error || profileResult.error) {
+      return NextResponse.json({ error: 'Could not load the information needed for this calculation. Please retry.' }, { status: 503 });
+    }
+    const transactions = (txResult.data || []) as any[];
   const profile = (profileResult.data || {}) as any;
   const ded = deductionsSnap.empty ? {} : deductionsSnap.docs[0].data();
 
@@ -79,9 +88,11 @@ export async function GET(request: NextRequest) {
     (profile.w2_federal_withheld || 0);
 
   const { totalDeductible } = aggregateScheduleC(transactions, String(year), CATEGORY_MAP, { mode: 'confirmed-only' });
-  const netProfit = Math.max(0, grossReceipts - totalDeductible);
+  const netProfit = grossReceipts - totalDeductible;
   const filingStatus = (profile.filing_status || 'single') as any;
-  const seCalc = calcScheduleSE({ scheduleCNetProfit: netProfit, taxYear: year }, filingStatus);
+  const w2SocialSecurityWages = w2Snap.docs.reduce((sum, d) => sum + (d.data().box3SocialSecurityWages ?? d.data().box1Wages ?? 0), 0);
+  const w2MedicareWages = w2Snap.docs.reduce((sum, d) => sum + (d.data().box5MedicareWages ?? d.data().box1Wages ?? 0), 0);
+  const seCalc = calcScheduleSE({ scheduleCNetProfit: netProfit, taxYear: year }, filingStatus, w2SocialSecurityWages, w2MedicareWages);
 
   // ── Total tax estimate ──
   const aboveLineDeductions =
@@ -93,18 +104,15 @@ export async function GET(request: NextRequest) {
     (ded.hsaContribution || profile.hsa_contribution || 0);
 
   const agi = Math.max(0, netProfit + w2Wages - aboveLineDeductions);
-  type FSKey = keyof typeof STANDARD_DEDUCTIONS_2025;
-  const stdDeduction = STANDARD_DEDUCTIONS_2025[filingStatus as FSKey] ?? 15750;
+  const stdDeduction = rules.standardDeductions[filingStatus as FederalFilingStatus] ?? rules.standardDeductions.single;
   const taxableIncome = Math.max(0, agi - stdDeduction);
-  const incomeTax = calculateFederalIncomeTax(taxableIncome, filingStatus);
-  const totalEstimatedTax = incomeTax + seCalc.totalSETax;
+  const incomeTax = calculateFederalIncomeTax(taxableIncome, filingStatus, year);
+  const medicareThreshold = filingStatus === 'married_filing_jointly' ? 250000 : filingStatus === 'married_filing_separately' ? 125000 : 200000;
+  const totalEstimatedTax = incomeTax + seCalc.totalSETax + seCalc.additionalMedicareTax + Math.max(0, w2MedicareWages - medicareThreshold) * 0.009;
 
   // ── Payments made this year ──
   const paymentsByQuarter: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
-  paymentsSnap.docs.forEach(d => {
-    const q = d.data().quarter;
-    if (q >= 1 && q <= 4) paymentsByQuarter[q] += d.data().amount || 0;
-  });
+  paymentsSnap.forEach(payment => { paymentsByQuarter[payment.quarter] = payment.paidAmount; });
   const totalPaid = Object.values(paymentsByQuarter).reduce((a, b) => a + b, 0) + w2Withheld;
 
   // ── Safe harbor ──
@@ -124,13 +132,13 @@ export async function GET(request: NextRequest) {
 
   const quarterDetails = quarters.map(q => {
     const amountPaid = paymentsByQuarter[q.quarter];
-    const paid = amountPaid > 0;
+    const paid = amountPaid + w2Withheld / 4 >= targetPayment / 4 && targetPayment > 0;
     const dueDate = new Date(q.dueDate);
     const daysUntil = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
     const status = getQuarterStatus(q.dueDate, paid);
 
     // Recommended: equal 1/4 of annual target, minus what's paid
-    const recommended = Math.max(0, Math.ceil(targetPayment / 4) - amountPaid);
+    const recommended = Math.max(0, Math.ceil(targetPayment / 4) - amountPaid - w2Withheld / 4);
 
     return {
       quarter: q.quarter,

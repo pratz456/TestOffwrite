@@ -2,99 +2,68 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { adminAuth } from '@/lib/firebase/admin';
+import { randomUUID } from 'node:crypto';
 import { adminDb } from '@/lib/firebase/admin';
-// Note: Firebase Storage client functions can't be used in server-side API routes
-// For now, we'll use the legacy Firestore storage method
-import { v4 as uuidv4 } from 'uuid';
+import { getTransactionServer } from '@/lib/firebase/transactions-server';
+import {
+  assertReceiptUploadOrigin, MAX_RECEIPT_BYTES, PRIVATE_RECEIPT_HEADERS,
+  receiptBucket, receiptFormData, receiptMimeType, ReceiptRequestError,
+  receiptSignatureMatches, receiptUser, safeReceiptName,
+} from '@/lib/firebase/receipt-security';
 
 export async function POST(request: NextRequest) {
+  const userId = await receiptUser(request);
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: PRIVATE_RECEIPT_HEADERS });
+
   try {
-    // Get the authorization header
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    assertReceiptUploadOrigin(request);
+    const formData = await receiptFormData(request);
+    const files = formData.getAll('file');
+    const transactionId = formData.get('transactionId');
+    if (files.length !== 1 || !(files[0] instanceof File)) {
+      throw new ReceiptRequestError('Provide one receipt file', 400);
+    }
+    if (typeof transactionId !== 'string' || !transactionId.trim() || transactionId.length > 256 || /[\/\\\x00-\x1f\x7f]/.test(transactionId)) {
+      throw new ReceiptRequestError('A valid transaction ID is required', 400);
+    }
+    const file = files[0];
+    const mimeType = receiptMimeType(file.type);
+    if (!mimeType) throw new ReceiptRequestError('Upload a JPG, PNG, GIF, WebP or PDF receipt', 400);
+    if (!file.size || file.size > MAX_RECEIPT_BYTES) {
+      throw new ReceiptRequestError('Upload a non-empty receipt of at most 10 MB', file.size ? 413 : 400);
     }
 
-    const token = authHeader.split('Bearer ')[1];
-    
-    // Verify the Firebase token
-    const decodedToken = await adminAuth.verifyIdToken(token);
-    const userId = decodedToken.uid;
+    // Both supported owner fields are queried by this helper. Client-supplied userId is ignored.
+    const { data: transaction, error } = await getTransactionServer(userId, transactionId);
+    if (error) throw new ReceiptRequestError('Unable to verify the transaction. Please retry.', 503);
+    if (!transaction) throw new ReceiptRequestError('Transaction not found', 404);
 
-    // Parse the form data
-    const formData = await request.formData();
-    const file = formData.get('file') as File;
-    const transactionId = formData.get('transactionId') as string;
-
-    if (!file) {
-      return NextResponse.json({ error: 'No file provided' }, { status: 400 });
-    }
-
-    if (!transactionId) {
-      return NextResponse.json({ error: 'No transaction ID provided' }, { status: 400 });
-    }
-
-    // Validate file type
-    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'application/pdf'];
-    if (!allowedTypes.includes(file.type)) {
-      return NextResponse.json({ 
-        error: 'Invalid file type. Please upload an image (JPG, PNG, GIF) or PDF file.' 
-      }, { status: 400 });
-    }
-
-    // Validate file size (max 10MB)
-    const maxSize = 10 * 1024 * 1024; // 10MB
-    if (file.size > maxSize) {
-      return NextResponse.json({ 
-        error: 'File too large. Please upload a file smaller than 10MB.' 
-      }, { status: 400 });
-    }
-
-    // Generate unique filename
-    const fileExtension = file.name.split('.').pop();
-    const uniqueFilename = `${userId}/${transactionId}/${uuidv4()}.${fileExtension}`;
-
-    // Convert file to buffer
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
-
-    // For now, we'll store the file in a simple way
-    // In production, you'd want to use a proper file storage service like AWS S3, Google Cloud Storage, etc.
-    // For this demo, we'll create a base64 data URL
-    const base64Data = buffer.toString('base64');
-    const dataUrl = `data:${file.type};base64,${base64Data}`;
-
-    // Store receipt info in Firestore
-    const receiptData = {
-      transactionId,
-      userId,
-      filename: file.name,
-      originalName: file.name,
-      mimeType: file.type,
-      size: file.size,
-      dataUrl: dataUrl, // In production, this would be a URL to the stored file
-      uploadedAt: new Date(),
-    };
-
-    // Save to Firestore
-    await adminDb.collection('receipts').doc(uniqueFilename).set(receiptData);
-
-    // Return the receipt URL (in production, this would be the actual file URL)
-    const receiptUrl = `/api/receipts/${uniqueFilename}`;
-
-    return NextResponse.json({
-      success: true,
-      receiptUrl,
-      filename: file.name,
-      size: file.size,
+    const bytes = Buffer.from(await file.arrayBuffer());
+    if (!receiptSignatureMatches(bytes, mimeType)) throw new ReceiptRequestError('The receipt content does not match its file type', 400);
+    const receiptId = randomUUID();
+    const storagePath = `receipts/${userId}/${transactionId}/${receiptId}`;
+    const originalName = safeReceiptName(file.name);
+    const storedFile = receiptBucket().file(storagePath);
+    await storedFile.save(bytes, {
+      resumable: false,
+      validation: 'crc32c',
+      metadata: { contentType: mimeType, cacheControl: PRIVATE_RECEIPT_HEADERS['Cache-Control'] },
     });
-
+    try {
+      // Bytes belong in Storage, not Firestore's 1 MiB documents. IDs stay one URL segment.
+      await adminDb.collection('receipts').doc(receiptId).create({
+        transactionId, userId, filename: originalName, originalName,
+        mimeType, size: bytes.length, storagePath, uploadedAt: new Date(),
+      });
+    } catch (error) {
+      await storedFile.delete({ ignoreNotFound: true }).catch(() => undefined);
+      throw error;
+    }
+    return NextResponse.json({
+      success: true, receiptUrl: `/api/receipts/${receiptId}`, filename: originalName, size: bytes.length,
+    }, { headers: PRIVATE_RECEIPT_HEADERS });
   } catch (error) {
-    console.error('Error uploading receipt:', error);
-    return NextResponse.json(
-      { error: 'Failed to upload receipt' },
-      { status: 500 }
-    );
+    const status = error instanceof ReceiptRequestError ? error.status : 500;
+    return NextResponse.json({ error: error instanceof ReceiptRequestError ? error.message : 'Failed to upload receipt. Please retry.' }, { status, headers: PRIVATE_RECEIPT_HEADERS });
   }
 }

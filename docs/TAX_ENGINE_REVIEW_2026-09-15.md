@@ -1,5 +1,7 @@
 # Tax engine review — September 15, 2026
 
+This document records the pre-fix baseline. The subsequent [pre-launch fix report](PRELAUNCH_FIXES_2026-09-15.md) identifies corrected calculations, new regression coverage and remaining limitations.
+
 ## Conclusion and scope
 
 The site is online and contains substantial product functionality. The inspected tax engine produces incorrect results in reproducible examples and is not ready to be presented as a validated tax-return calculator.

@@ -1,6 +1,6 @@
 /**
  * Form 1040 Computation Engine
- * Calculates the complete federal tax return bottom line for self-employed workers.
+ * Federal planning estimate for modeled inputs, not a complete return specification.
  * Sources:
  *   - IRS Rev. Proc. 2024-40 (2025 brackets and standard deductions)
  *   - IRS Publication 505 (SE tax, quarterly estimates)
@@ -8,24 +8,17 @@
  */
 
 import {
-  FEDERAL_TAX_BRACKETS_2025,
-  STANDARD_DEDUCTIONS_2025,
   calculateFederalIncomeTax,
 } from './federal-brackets';
 import {
   calculateAllCredits,
+  calculateLTCGTax,
   calculateSEPIRAMax,
   type FilingStatus as CreditFilingStatus,
 } from './credits';
 import { calculateStateTax } from './state-tax';
 
-// 2025 QBI thresholds (IRS Rev. Proc. 2024-40)
-const QBI_THRESHOLD_SINGLE = 197300;
-const QBI_THRESHOLD_MFJ = 394600;
-
-// 2025 Additional Medicare Tax threshold
-const NIIT_THRESHOLD_SINGLE = 200000;
-const NIIT_THRESHOLD_MFJ = 250000;
+import { getFederalTaxRules, calculateSALTLimit } from './federal-year-rules';
 
 export interface Form1040Input {
   taxYear: number;
@@ -34,6 +27,7 @@ export interface Form1040Input {
   // Income sources
   scheduleCNetProfit: number;       // From Schedule C Line 31
   w2Wages: number;                  // Total W-2 Box 1 wages
+  w2MedicareWages?: number;         // Total W-2 Box 5; omitted legacy inputs use Box 1 as an approximation
   otherIncome?: number;             // Interest, dividends, capital gains, etc.
 
   // Payments already made
@@ -64,12 +58,15 @@ export interface Form1040Input {
   itemizedDeductions?: number;
 
   charitableDonations?: number;          // Schedule A charitable contributions
-  saltDeduction?: number;                // State and local tax deduction (capped at $10,000)
+  saltDeduction?: number;                // Eligible personal state/local taxes paid; annual cap applied here
+  saltModifiedAGI?: number;              // Includes applicable foreign/territory income exclusions; defaults to AGI
   depreciationDeduction?: number;        // Section 179 / MACRS from Form 4562
   stateCode?: string;                    // State used for state tax calculation
 }
 
 export interface Form1040Result {
+  taxYear: number;
+  calculationWarnings: string[];         // Unmodeled situations / missing facts that limit this estimate
   // Income lines
   totalIncome: number;              // Line 9 (gross income)
   adjustments: number;             // Schedule 1 above-the-line deductions
@@ -146,9 +143,20 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
     itemizedDeductions: itemizedInput,
   } = input;
 
+  const yearRules = getFederalTaxRules(taxYear);
+  const calculationWarnings: string[] = [
+    'Planning estimate: base standard deduction only; age/blindness, dependent status, spouse itemization, and all return adjustments are not fully modeled.',
+  ];
+
   // ── Step 1: Total Income (Form 1040 Line 9) ──
   // Subtract depreciation (Section 179 / MACRS) from Schedule C net profit
   const adjustedScheduleC = Math.max(0, scheduleCNetProfit - (input.depreciationDeduction || 0));
+  if (scheduleCNetProfit - (input.depreciationDeduction || 0) < 0) {
+    calculationWarnings.push('Business losses are not applied by this estimate and require separate review.');
+  }
+  if ((input.numDependents ?? 0) > 0) {
+    calculationWarnings.push('Dependent counts do not establish child-credit eligibility. Confirm each child meets the applicable age, relationship, residency, support and Social Security number requirements.');
+  }
   const totalIncome = adjustedScheduleC + w2Wages + otherIncome;
 
   // ── Step 2: Above-the-line adjustments (Schedule 1) ──
@@ -166,32 +174,38 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
   const agi = Math.max(0, totalIncome - adjustments);
 
   // ── Step 4: Standard vs Itemized ──
-  const standardDeduction = STANDARD_DEDUCTIONS_2025[filingStatus] ?? 15750;
-  // Itemized = base itemized + charitable donations + SALT (capped at $10,000 per IRC §164(b)(6))
+  const standardDeduction = yearRules.standardDeductions[filingStatus];
+  // itemizedInput excludes the separately supplied charitable donations and personal SALT.
+  const saltLimit = calculateSALTLimit(taxYear, filingStatus, input.saltModifiedAGI ?? agi);
   const itemizedDeductions = (itemizedInput ?? 0)
     + (input.charitableDonations || 0)
-    + Math.min(input.saltDeduction || 0, 10000);
+    + Math.min(Math.max(0, input.saltDeduction ?? 0), saltLimit);
   const usingStandardDeduction = standardDeduction >= itemizedDeductions;
   const deductionUsed = Math.max(standardDeduction, itemizedDeductions);
 
   // ── Step 5: QBI Deduction (Section 199A / Form 8995) ──
-  // IRS Rev. Proc. 2024-40: 20% of QBI, capped at 20% of taxable income (minus cap gains)
-  // Phase-out: $197,300-$247,300 single | $394,600-$494,600 MFJ (linear reduction)
-  const qbiThreshold = filingStatus === 'married_filing_jointly' ? QBI_THRESHOLD_MFJ : QBI_THRESHOLD_SINGLE;
-  const qbiPhaseOutEnd = filingStatus === 'married_filing_jointly' ? 494600 : 247300;
-  const qbiPhaseOutRange = filingStatus === 'married_filing_jointly' ? 100000 : 50000;
+  // Annual threshold is separate from the ordinary income-tax brackets.
+  const qbiThreshold = yearRules.qbiThreshold[filingStatus];
+  const qbiPhaseOutRange = yearRules.qbiPhaseInWidth * (filingStatus === 'married_filing_jointly' ? 2 : 1);
+  const qbiPhaseOutEnd = qbiThreshold + qbiPhaseOutRange;
   let qbiDeduction = 0;
   if (adjustedScheduleC > 0) {
     // QBI = Schedule C net profit (after depreciation) reduced by SE tax deduction, health insurance, retirement
     const qualifiedBusinessIncome = Math.max(0,
-      adjustedScheduleC - halfSEDeduction - healthInsurancePremiums - sepIraContribution - solo401kContribution
+      adjustedScheduleC - halfSEDeduction - healthInsurancePremiums - sepIraContribution - solo401kContribution - simpleIraContribution
     );
     // Cap: 20% of (taxable income before QBI, minus net capital gains)
-    // We exclude capital gains from organizer data for the cap (conservative approach)
+    // The caller must separately identify net long-term capital gains.
     const taxableIncomeBeforeQBI = Math.max(0, agi - deductionUsed);
-    const capGains = Math.max(0, otherIncome < 0 ? 0 : 0); // cap gains handled separately
-    const qbiCap = (taxableIncomeBeforeQBI - capGains) * 0.20;
+    const capGains = Math.max(0, input.longTermCapGains ?? 0);
+    const qbiCap = Math.max(0, taxableIncomeBeforeQBI - capGains) * 0.20;
     const fullQBI = Math.min(qualifiedBusinessIncome * 0.20, qbiCap);
+    if (taxableIncomeBeforeQBI > qbiThreshold) {
+      calculationWarnings.push('QBI above the annual threshold requires business type, business W-2 wages and qualified-property data. The simplified phaseout is not a validated Form 8995-A result.');
+    }
+    if (taxYear >= 2026 && qualifiedBusinessIncome >= 1000 && fullQBI < 400) {
+      calculationWarnings.push('The new active-business minimum QBI deduction requires material-participation facts and is not included.');
+    }
 
     if (taxableIncomeBeforeQBI <= qbiThreshold) {
       // Below threshold: full deduction
@@ -212,18 +226,31 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
   const taxableIncome = Math.max(0, agi - deductionUsed - qbiDeduction);
 
   // ── Step 7: Income Tax (Line 16) ──
-  const incomeTax = calculateFederalIncomeTax(taxableIncome, filingStatus);
+  // Ordinary long-term gains stack above ordinary taxable income; do not estimate
+  // their benefit using one marginal rate. Special 25%/28% gains are not modeled.
+  const taxableLongTermGains = Math.min(taxableIncome, Math.max(0, input.longTermCapGains ?? 0));
+  const ordinaryIncomeTax = calculateFederalIncomeTax(taxableIncome, filingStatus, taxYear);
+  const preferentialTax = calculateFederalIncomeTax(taxableIncome - taxableLongTermGains, filingStatus, taxYear)
+    + calculateLTCGTax(taxableLongTermGains, taxableIncome, filingStatus, taxYear);
+  const incomeTax = Math.min(ordinaryIncomeTax, preferentialTax);
 
-  // ── Step 8: Additional Medicare Tax (0.9% above threshold) ──
-  // IRS Form 8959: Applies to EARNED income (W-2 wages + SE income) over threshold
-  // Not to investment income (that uses Net Investment Income Tax / Form 8960)
-  const amtThreshold = filingStatus === 'married_filing_jointly' ? NIIT_THRESHOLD_MFJ : NIIT_THRESHOLD_SINGLE;
-  const earnedIncome = w2Wages + adjustedScheduleC; // Only earned income triggers 0.9% AMT
-  const additionalMedicareTax = earnedIncome > amtThreshold ? (earnedIncome - amtThreshold) * 0.009 : 0;
+  // ── Step 8: Additional Medicare Tax (Form 8959) ──
+  const amtThreshold = filingStatus === 'married_filing_jointly' ? 250000
+    : filingStatus === 'married_filing_separately' ? 125000 : 200000;
+  const medicareWages = Math.max(0, input.w2MedicareWages ?? w2Wages);
+  const netSE = adjustedScheduleC * 0.9235;
+  const medicareSEIncome = netSE >= 400 ? netSE : 0;
+  const additionalMedicareTax = Math.max(0, medicareWages - amtThreshold) * 0.009
+    + Math.max(0, medicareSEIncome - Math.max(0, amtThreshold - medicareWages)) * 0.009;
+  if (input.w2MedicareWages === undefined && w2Wages > 0) {
+    calculationWarnings.push('Additional Medicare Tax uses W-2 Box 1 as an approximation because Box 5 Medicare wages were not provided.');
+  }
 
   // ── Step 9: Credits and preferential capital gains tax ──
   const creditsInput = {
-    earnedIncome: w2Wages + adjustedScheduleC,
+    taxYear,
+    taxLiabilityBeforeCTC: incomeTax,
+    earnedIncome: Math.max(0, w2Wages + adjustedScheduleC - halfSEDeduction),
     agi,
     filingStatus: filingStatus as CreditFilingStatus,
     numDependents: input.numDependents ?? 0,
@@ -236,30 +263,12 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
   };
   const credits = calculateAllCredits(creditsInput);
 
-  // Long-term capital gains: replace the bracket-computed tax on LTCG portion
-  // with preferential rates (0/15/20%). Net effect reduces total tax.
-  const ltcgSavings = input.longTermCapGains && input.longTermCapGains > 0
-    ? Math.max(0, (input.longTermCapGains * (
-        taxableIncome > 197300 ? 0.24 : taxableIncome > 103350 ? 0.22 :
-        taxableIncome > 48475 ? 0.12 : 0.10
-      )) - credits.longTermCapGainsTax)
-    : 0;
+  // Owner-only SEP guidance uses the caller's actual regular-SE deduction.
+  const sepIRAMax = calculateSEPIRAMax(adjustedScheduleC, taxYear, halfSEDeduction);
 
-  // SEP-IRA max for user guidance
-  const sepIRAMax = calculateSEPIRAMax(adjustedScheduleC);
-
-  // ── Step 9b: Total Tax (Line 24) ──
-  const totalTax = Math.max(0, incomeTax + selfEmploymentTax + additionalMedicareTax
-    - ltcgSavings         // preferential LTCG rate benefit
-    - credits.childTaxCredit  // CTC reduces tax (non-refundable)
-  );
-
-  // ── Step 9b: Tax Credits (reduce Line 24 tax) ──
-  // Child Tax Credit: $2,200 per qualifying child under 17 (2025)
-  // Phases out at $400,000 MFJ / $200,000 others (MAGI-based)
-  // Note: we show estimate only — exact amount requires Form 8812
-  // EITC: not calculated here (requires earned income tables + filing status)
-  // These credits are displayed as informational in Tax Preview
+  // CTC reduces available income tax; regular SE / Additional Medicare tax remain.
+  const totalTax = round2(Math.max(0, round2(incomeTax) - credits.childTaxCredit)
+    + round2(selfEmploymentTax) + round2(additionalMedicareTax));
 
   // ── Step 10: Payments and refundable credits (Lines 25-28, 33) ──
   // Refundable credits (EITC + Additional CTC) are added to payments
@@ -275,7 +284,7 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
 
   // ── Effective and marginal rates ──
   const effectiveRate = totalIncome > 0 ? (incomeTax / totalIncome) * 100 : 0;
-  const brackets = FEDERAL_TAX_BRACKETS_2025[filingStatus] ?? FEDERAL_TAX_BRACKETS_2025.single;
+  const brackets = yearRules.brackets[filingStatus];
   let marginalRate = brackets[0].rate * 100;
   for (const bracket of brackets) {
     if (taxableIncome >= bracket.min) marginalRate = bracket.rate * 100;
@@ -293,8 +302,13 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
 
   // State tax (informational — not part of federal return)
   const stateResult = input.stateCode ? calculateStateTax(input.stateCode, agi, filingStatus) : null;
+  if (stateResult?.isSupported && stateResult.stateTax > 0) {
+    calculationWarnings.push('The state estimate uses a separate simplified calculation that has not been validated for the selected tax year.');
+  }
 
   return {
+    taxYear,
+    calculationWarnings,
     totalIncome: round2(totalIncome),
     adjustments: round2(adjustments),
     agi: round2(agi),

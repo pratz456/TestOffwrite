@@ -19,13 +19,20 @@ import { compute1040 } from '@/lib/tax-rules/compute-1040';
 import { calculateStateTax, STATE_TAX_CONFIG } from '@/lib/tax/state-tax-data';
 import { getAssetsSettings } from '@/lib/firebase/settings-server';
 import { calc4562 } from '@/lib/reports/calc4562';
+import { getFederalTaxRules, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
+import { getRecordedQuarterlyPayments, totalRecordedPayments } from '@/lib/firebase/quarterly-payments-server';
 
 export async function GET(request: NextRequest) {
   const { user, error } = await getAuthenticatedUser(request);
   if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const yearParam = request.nextUrl.searchParams.get('year');
-  const year = yearParam ? parseInt(yearParam, 10) : new Date().getFullYear();
+  const year = yearParam === null ? new Date().getFullYear() : Number(yearParam);
+  try { getFederalTaxRules(year); } catch {
+    return NextResponse.json({ error: `Supported tax years: ${SUPPORTED_TAX_YEARS.join(', ')}` }, { status: 400 });
+  }
+
+  try {
 
   // Fetch all data sources in parallel
   const [
@@ -45,11 +52,14 @@ export async function GET(request: NextRequest) {
     adminDb.collection('income_1099').where('userId', '==', user.uid).where('taxYear', '==', year).get(),
     adminDb.collection('w2_income').where('userId', '==', user.uid).where('taxYear', '==', year).get(),
     adminDb.collection('tax_deductions').where('userId', '==', user.uid).where('taxYear', '==', year).limit(1).get(),
-    adminDb.collection('quarterly_payments').where('userId', '==', user.uid).where('taxYear', '==', year).get(),
+    getRecordedQuarterlyPayments(user.uid, year),
     adminDb.collection('tax_organizers').where('userId', '==', user.uid).where('taxYear', '==', year).limit(1).get(),
     getAssetsSettings(user.uid),
   ]);
 
+  if (txResult.error || profileResult.error || assetsResult.error) {
+    return NextResponse.json({ error: 'Could not load the information needed for this calculation. Please retry.' }, { status: 503 });
+  }
   const transactions = (txResult.data || []) as any[];
   const profile = (profileResult.data || {}) as any;
 
@@ -71,13 +81,15 @@ export async function GET(request: NextRequest) {
     grossSnap.docs.reduce((s, d) => s + (d.data().amount || 0), 0) +
     income1099Snap.docs.reduce((s, d) => s + (d.data().amount || 0), 0);
 
-  const w2Wages = w2Snap.docs.reduce((s, d) => s + (d.data().box1Wages || d.data().wages || 0), 0);
-  const w2FederalWithheld = w2Snap.docs.reduce((s, d) => s + (d.data().box2FederalWithheld || d.data().federalWithheld || 0), 0);
+  const w2Wages = w2Snap.docs.reduce((s, d) => s + (d.data().box1Wages ?? d.data().wages ?? 0), 0);
+  const w2FederalWithheld = w2Snap.docs.reduce((s, d) => s + (d.data().box2FederalWithheld ?? d.data().federalWithheld ?? 0), 0);
+  const hasMedicareWages = w2Snap.docs.every(d => typeof d.data().box5MedicareWages === 'number');
+  const w2MedicareWages = hasMedicareWages ? w2Snap.docs.reduce((sum, d) => sum + d.data().box5MedicareWages, 0) : undefined;
   const w2StateWithheld = w2Snap.docs.reduce((s: number, d: any) => s + (d.data().stateWithheld || 0), 0);
 
   // ── Schedule C expenses ──
   const { totalDeductible } = aggregateScheduleC(transactions, String(year), CATEGORY_MAP, { mode: 'confirmed-only' });
-  const scheduleCNetProfit = Math.max(0, grossReceipts - totalDeductible);
+  const scheduleCNetProfit = grossReceipts - totalDeductible;
 
   // ── Depreciation (Form 4562) ──
   const assets = (assetsResult.data || []) as any[];
@@ -88,10 +100,11 @@ export async function GET(request: NextRequest) {
   // ── Schedule SE ──
   const filingStatus = (profile.filing_status || 'single') as any;
   const seCalc = calcScheduleSE(
-      { scheduleCNetProfit, taxYear: year },
+      { scheduleCNetProfit: scheduleCNetProfit - depreciationDeduction, taxYear: year },
       filingStatus,
       // Pass W-2 Box 3 SS wages to reduce SE SS wage base (IRS Schedule SE Line 8a)
-      w2Snap.docs.reduce((sum: number, d: any) => sum + (d.data().box3SocialSecurityWages || d.data().box1Wages || 0), 0)
+      w2Snap.docs.reduce((sum: number, d: any) => sum + (d.data().box3SocialSecurityWages ?? d.data().box1Wages ?? 0), 0),
+      w2MedicareWages ?? w2Wages
     );
 
   // ── Above-the-line deductions ──
@@ -105,15 +118,15 @@ export async function GET(request: NextRequest) {
   const priorYearTotalTax = ded.priorYearTotalTax || profile.prior_year_tax || 0;
 
   // ── Estimated payments already made ──
-  const estimatedPayments = quarterlySnap.docs.reduce((s, d) => s + (d.data().amount || 0), 0);
-  const totalW2Withheld = w2FederalWithheld + (profile.w2_federal_withheld || 0);
+  const estimatedPayments = totalRecordedPayments(quarterlySnap);
+  const totalW2Withheld = w2Snap.docs.length ? w2FederalWithheld : (profile.w2_federal_withheld || 0);
 
   // ── Compute 1040 ──
   // Parse organizer for credits data
   const numDependents = parseInt(org.dependents || '0', 10) || 0;
   const numEITCChildren = numDependents; // Simplified: all dependents assumed to qualify
   const taxPayerAge = org.dateOfBirth
-    ? new Date().getFullYear() - new Date(org.dateOfBirth).getFullYear()
+    ? year - new Date(org.dateOfBirth).getUTCFullYear()
     : undefined;
   const investmentIncome = (orgInterest + orgDividends + Math.max(0, orgCapGains));
   const longTermCapGains = Math.max(0, orgCapGains); // Simplified: treat all cap gains as LT
@@ -124,6 +137,7 @@ export async function GET(request: NextRequest) {
     filingStatus,
     scheduleCNetProfit,
     w2Wages,
+    w2MedicareWages,
     otherIncome,
     numDependents,
     numEITCChildren,
@@ -185,5 +199,8 @@ export async function GET(request: NextRequest) {
         : 'State estimate only — does not include local taxes or state-specific deductions',
     } : null,
     dataSource: 'auto',
-  });
+  }, { headers: { 'Cache-Control': 'private, no-store' } });
+  } catch {
+    return NextResponse.json({ error: 'Could not complete the tax calculation. Please retry.' }, { status: 503 });
+  }
 }

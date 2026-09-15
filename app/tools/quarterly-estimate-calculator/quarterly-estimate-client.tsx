@@ -41,7 +41,8 @@ function calculateQuarterly(annualIncome: number, annualExpenses: number, filing
 
   const se = calcScheduleSE(
     { scheduleCNetProfit: netProfit, taxYear: 2025 },
-    filingStatus === "married_filing_jointly" ? "married" : "single",
+    filingStatus,
+    w2Wages,
     w2Wages
   );
 
@@ -60,7 +61,9 @@ function calculateQuarterly(annualIncome: number, annualExpenses: number, filing
 
   const taxableIncome = Math.max(0, taxableBeforeQBI - qbiDeduction);
   const incomeTax = calculateFederalIncomeTax(taxableIncome, filingStatus);
-  const totalTax = incomeTax + se.totalSETax;
+  const medicareThreshold = filingStatus === "married_filing_jointly" ? 250000 : filingStatus === "married_filing_separately" ? 125000 : 200000;
+  const additionalMedicareTax = se.additionalMedicareTax + Math.max(0, w2Wages - medicareThreshold) * 0.009;
+  const totalTax = incomeTax + se.totalSETax + additionalMedicareTax;
 
   // Safe harbor: 100% of prior year tax (110% if AGI > $150k)
   const safeHarborMultiplier = agi > 150000 ? 1.10 : 1.00;

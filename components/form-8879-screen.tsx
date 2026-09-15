@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,7 @@ import {
   Shield, CheckCircle2, AlertCircle, Loader2,
   FileText, Lock, Eye, EyeOff, Info,
 } from "lucide-react";
+import { TaxCalculationNotice } from "@/components/tax-calculation-notice";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 
 interface Props {
@@ -31,6 +32,14 @@ export function Form8879Screen({ user, onBack, onNavigate }: Props) {
   const [taxData, setTaxData] = useState<any>(null);
   const [showPin, setShowPin] = useState(false);
   const [signed, setSigned] = useState(false);
+  const [loadedScope, setLoadedScope] = useState<string | null>(null);
+  const loadRequest = useRef(0);
+  const savePending = useRef(false);
+  const readyRequest = useRef<number | null>(null);
+  const previousUser = useRef(user.id);
+  const scope = `${user.id}:${year}`;
+  const activeScope = useRef(scope);
+  activeScope.current = scope;
 
   const [form, setForm] = useState({
     taxpayerName: "",
@@ -40,28 +49,67 @@ export function Form8879Screen({ user, onBack, onNavigate }: Props) {
   });
 
   const load = useCallback(async () => {
-    setLoading(true); setError(null);
+    const request = ++loadRequest.current;
+    const requestedScope = `${user.id}:${year}`;
+    const isCurrent = () => request === loadRequest.current && activeScope.current === requestedScope;
+    readyRequest.current = null;
+    setLoading(true); setError(null); setTaxData(null); setLoadedScope(null);
+    setExisting(null); setSigned(false);
     try {
       const [authRes, taxRes] = await Promise.all([
         makeAuthenticatedRequest(`/api/tax/form-8879?year=${year}`),
         makeAuthenticatedRequest(`/api/tax/compute-1040?year=${year}`),
       ]);
-      if (authRes.ok) {
-        const d = await authRes.json();
-        setExisting(d.authorization);
-        if (d.authorization?.taxpayerName) {
-          setForm(p => ({ ...p, taxpayerName: d.authorization.taxpayerName }));
-        }
+      if (!authRes.ok || !taxRes.ok) throw new Error("Could not load this year's authorization and tax estimate. Please retry before signing.");
+      const [authorizationData, computedTax] = await Promise.all([authRes.json(), taxRes.json()]);
+      if (!isCurrent()) return;
+      if (!computedTax.form1040 || Number(computedTax.taxYear) !== Number(year)
+        || Number(computedTax.form1040.taxYear ?? computedTax.taxYear) !== Number(year)) {
+        throw new Error("The tax estimate does not match the selected year. Please reload before signing.");
       }
-      if (taxRes.ok) setTaxData(await taxRes.json());
-    } catch { setError("Failed to load tax data"); }
-    finally { setLoading(false); }
-  }, [year]);
+      setExisting(authorizationData.authorization);
+      if (authorizationData.authorization?.taxpayerName) {
+        setForm(p => ({ ...p, taxpayerName: p.taxpayerName || authorizationData.authorization.taxpayerName }));
+      }
+      readyRequest.current = request;
+      setTaxData(computedTax);
+      setLoadedScope(requestedScope);
+    } catch (err) {
+      if (isCurrent()) setError(err instanceof Error ? err.message : "Failed to load tax data");
+    } finally { if (isCurrent()) setLoading(false); }
+  }, [year, user.id]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    activeScope.current = scope;
+    if (previousUser.current !== user.id) {
+      previousUser.current = user.id;
+      setForm({ taxpayerName: "", pin: "", consentToEFile: false, consentToDisclosure: false });
+    }
+    void load();
+    return () => { activeScope.current = ""; readyRequest.current = null; };
+  }, [load, scope, user.id]);
+
+  const f1040 = taxData?.form1040;
+  const estimateReady = !loading && loadedScope === scope && !!f1040
+    && Number(taxData.taxYear) === Number(year)
+    && [f1040.agi, f1040.totalTax, f1040.w2FederalWithheld, f1040.refund, f1040.balanceDue]
+      .every(value => typeof value === "number" && Number.isFinite(value));
+
+  const changeYear = (nextYear: string) => {
+    if (savePending.current) return;
+    ++loadRequest.current;
+    readyRequest.current = null;
+    activeScope.current = `${user.id}:${nextYear}`;
+    setTaxData(null); setLoadedScope(null); setExisting(null); setSigned(false); setLoading(true);
+    setYear(nextYear);
+  };
 
   const handleSign = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (savePending.current) return;
+    if (!estimateReady || activeScope.current !== scope || readyRequest.current !== loadRequest.current) {
+      setError("Load and review a complete estimate for the selected year before signing."); return;
+    }
     if (!form.pin || form.pin.length !== 5 || !/^\d+$/.test(form.pin)) {
       setError("PIN must be exactly 5 digits"); return;
     }
@@ -71,33 +119,36 @@ export function Form8879Screen({ user, onBack, onNavigate }: Props) {
     }
     if (!form.taxpayerName.trim()) { setError("Your name is required"); return; }
 
+    const submittedScope = scope;
+    const submittedRequest = loadRequest.current;
+    const isCurrent = () => activeScope.current === submittedScope && loadRequest.current === submittedRequest;
+    savePending.current = true;
     setSaving(true); setError(null);
     try {
-      const f1040 = taxData?.form1040 || {};
       const res = await makeAuthenticatedRequest("/api/tax/form-8879", {
         method: "POST",
         body: JSON.stringify({
           taxYear: parseInt(year),
           taxpayerName: form.taxpayerName.trim(),
           selfSelectPin: form.pin,
-          adjustedGrossIncome: f1040.agi || 0,
-          totalTax: f1040.totalTax || 0,
-          federalIncomeTaxWithheld: f1040.w2FederalWithheld || 0,
-          refundAmount: f1040.refund || 0,
-          amountOwed: f1040.balanceDue || 0,
+          adjustedGrossIncome: f1040.agi,
+          totalTax: f1040.totalTax,
+          federalIncomeTaxWithheld: f1040.w2FederalWithheld,
+          refundAmount: f1040.refund,
+          amountOwed: f1040.balanceDue,
           consentToEFile: true,
           consentToDisclosure: true,
         }),
       });
+      if (!isCurrent()) return;
       if (!res.ok) { let m = "Failed to authorize"; try { m = (await res.json()).error || m; } catch {} throw new Error(m); }
+      if (!isCurrent()) return;
       setSigned(true);
-      load(); // Refresh to show signed status
+      void load(); // Refresh to show signed status
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save authorization");
-    } finally { setSaving(false); }
+      if (isCurrent()) setError(err instanceof Error ? err.message : "Failed to save authorization");
+    } finally { savePending.current = false; if (activeScope.current) setSaving(false); }
   };
-
-  const f1040 = taxData?.form1040;
 
   return (
     <div className="min-h-screen bg-background">
@@ -108,7 +159,7 @@ export function Form8879Screen({ user, onBack, onNavigate }: Props) {
             <h1 className="text-lg sm:text-xl font-semibold text-foreground">Form 8879 - E-File Authorization</h1>
             <p className="text-xs sm:text-sm text-muted-foreground">Authorize WriteOff to e-file your federal return</p>
           </div>
-          <Select value={year} onValueChange={setYear}>
+          <Select value={year} onValueChange={changeYear} disabled={saving}>
             <SelectTrigger className="w-[90px] h-9"><SelectValue /></SelectTrigger>
             <SelectContent>
               {Array.from({ length: 4 }, (_, i) => currentYear - i).map(y => (
@@ -193,6 +244,15 @@ export function Form8879Screen({ user, onBack, onNavigate }: Props) {
                   </div>
                 </CardContent>
               </Card>
+            )}
+
+            {f1040 && <TaxCalculationNotice taxYear={f1040.taxYear ?? year} warnings={f1040.calculationWarnings} />}
+
+            {!estimateReady && (
+              <div className="rounded-lg border border-amber-200 p-4 text-sm dark:border-amber-800">
+                <p>A complete estimate for {year} is required before you can authorize filing.</p>
+                <Button type="button" variant="outline" size="sm" onClick={() => void load()} disabled={loading || saving} className="mt-2">Reload tax estimate</Button>
+              </div>
             )}
 
             {/* Signature form */}
@@ -282,7 +342,7 @@ export function Form8879Screen({ user, onBack, onNavigate }: Props) {
 
                   <Button
                     type="submit"
-                    disabled={saving || !form.taxpayerName.trim() || form.pin.length !== 5 || !form.consentToEFile || !form.consentToDisclosure}
+                    disabled={saving || !estimateReady || !form.taxpayerName.trim() || form.pin.length !== 5 || !form.consentToEFile || !form.consentToDisclosure}
                     className="w-full min-h-[48px] gap-2 text-base font-semibold"
                   >
                     {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Shield className="w-5 h-5" />}

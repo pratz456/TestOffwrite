@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { aggregateQuarterlyEstimatesForYear, getLocalTransactionDate } from '@/lib/tax-provider/quarterly-estimates';
 import { calculateStateTax, STATE_TAX_CONFIG } from '@/lib/tax/state-tax-data';
+import { getRecordedQuarterlyPayments, totalRecordedPayments } from '@/lib/firebase/quarterly-payments-server';
+import { getEstimatedTaxDeadline } from '@/lib/tax-provider/payment-deadlines';
 
 interface TaxCalculation {
   totalIncome: number;
@@ -10,7 +12,7 @@ interface TaxCalculation {
   estimatedTax: number;
   selfEmploymentTax: number;
   incomeTax: number;
-  safeHarborAmount: number;
+  safeHarborAmount: number | null;
   quarterlyAmount: number;
   ytdPayments: number;
   remainingPayments: number;
@@ -44,7 +46,7 @@ export async function POST(request: NextRequest) {
   try {
     // Get the authenticated user
     const { user, error: authError } = await getAuthenticatedUser(request);
-    
+
     if (authError || !user) {
       console.error('❌ [Quarterly Tax] Authentication failed:', authError);
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -75,20 +77,14 @@ export async function POST(request: NextRequest) {
       otherIncome,
     });
 
+    const recordedPayments = await getRecordedQuarterlyPayments(user.uid, taxYear);
     const now = new Date();
     const msPerDay = 1000 * 60 * 60 * 24;
 
     const quarterlyData: QuarterlyTaxData[] = quarters.map((q) => {
-      // Deadlines are based on tax-year convention (not timezone-sensitive for local quarter grouping).
-      // Use UTC noon to reduce chance of date rendering drifting by 1 day.
-      let deadline: Date;
-      if (q.quarter === 1) deadline = new Date(Date.UTC(taxYear, 3, 15, 12, 0, 0));
-      else if (q.quarter === 2) deadline = new Date(Date.UTC(taxYear, 5, 15, 12, 0, 0));
-      else if (q.quarter === 3) deadline = new Date(Date.UTC(taxYear, 8, 15, 12, 0, 0));
-      else deadline = new Date(Date.UTC(taxYear + 1, 0, 15, 12, 0, 0)); // Q4 -> next year Jan 15
-
+      const deadline = getEstimatedTaxDeadline(taxYear, q.quarter);
       const estimatedAmount = q.suggested_quarterly_payment;
-      const paidAmount = 0; // Payment tracking is handled elsewhere in-app for now.
+      const paidAmount = recordedPayments.find(payment => payment.quarter === q.quarter)?.paidAmount ?? 0;
       const remainingAmount = Math.max(0, estimatedAmount - paidAmount);
       const daysUntilDeadline = Math.ceil((deadline.getTime() - now.getTime()) / msPerDay);
 
@@ -124,7 +120,6 @@ export async function POST(request: NextRequest) {
     const selfEmploymentTaxCents = quarters.reduce((s, q) => s + cents(q.estimated_self_employment_tax), 0);
     const incomeTaxCents = estimatedTaxCents - selfEmploymentTaxCents;
 
-    const safeHarborAmountCents = Math.round(totalIncomeCents / 4); // 25%
     const quarterlyAmountCents = Math.round(estimatedTaxCents / 4);
 
     const businessIncome = businessIncomeCents / 100;
@@ -132,10 +127,10 @@ export async function POST(request: NextRequest) {
     const estimatedTax = estimatedTaxCents / 100;
     const selfEmploymentTax = selfEmploymentTaxCents / 100;
     const incomeTax = incomeTaxCents / 100;
-    const safeHarborAmount = safeHarborAmountCents / 100;
+    const safeHarborAmount = null; // Income divided by four is not an IRS safe-harbor calculation.
     const quarterlyAmount = quarterlyAmountCents / 100;
 
-    const ytdPayments = calculateYTDPayments(transactions || [], taxYear, tz);
+    const ytdPayments = totalRecordedPayments(recordedPayments);
     const remainingPayments = Math.max(0, estimatedTaxCents - cents(ytdPayments)) / 100;
 
     const calculation: TaxCalculation = {
@@ -175,34 +170,8 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('❌ [Quarterly Tax] Error:', error);
     return NextResponse.json(
-      { error: 'Internal server error', details: error },
+      { error: 'Could not load your quarterly estimate and recorded payments. Please retry.' },
       { status: 500 }
     );
   }
-}
-
-function calculateYTDPayments(transactions: any[], taxYear: number, timezone: string): number {
-  const now = new Date();
-  const localNow = getLocalTransactionDate(
-    { amount: 0, category: '', date: now.toISOString() } as any,
-    timezone
-  );
-  const nowYMD = localNow?.ymd;
-
-  let cents = 0;
-  for (const tx of transactions) {
-    if (tx?.pending === true) continue; // posted only
-    const merchant = tx?.merchant_name;
-    if (!merchant || typeof merchant !== 'string' || !merchant.toLowerCase().includes('irs')) continue;
-    if (!(tx?.amount > 0)) continue;
-
-    const localDate = getLocalTransactionDate(tx, timezone);
-    if (!localDate) continue;
-    if (localDate.year !== taxYear) continue;
-    if (nowYMD && localDate.ymd > nowYMD) continue; // exclude future
-
-    cents += Math.round((tx.amount ?? 0) * 100);
-  }
-
-  return cents / 100;
 }

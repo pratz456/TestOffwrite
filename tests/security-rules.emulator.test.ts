@@ -1,0 +1,136 @@
+/**
+ * Real Firestore + Storage allow/deny tests, using only synthetic demo data.
+ * Start Firebase emulators with this repo's rules, then run:
+ * WRITEOFF_RULES_EMULATOR_TESTS=1 npx vitest run tests/security-rules.emulator.test.ts
+ * Defaults: Firestore 127.0.0.1:8180, Storage 127.0.0.1:9299.
+ */
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { initializeApp, deleteApp, type FirebaseApp } from 'firebase/app';
+import { collection, collectionGroup, connectFirestoreEmulator, deleteDoc, deleteField, doc, getDoc, getDocs, getFirestore, query, setDoc, updateDoc, where, type Firestore } from 'firebase/firestore';
+import { connectStorageEmulator, deleteObject, getBytes, getStorage, ref, uploadBytes, type FirebaseStorage } from 'firebase/storage';
+
+const enabled = process.env.WRITEOFF_RULES_EMULATOR_TESTS === '1';
+const projectId = 'demo-writeoff-security';
+const databaseUrl = `http://127.0.0.1:8180/v1/projects/${projectId}/databases/(default)/documents`;
+const apps: FirebaseApp[] = [];
+let alice: Firestore;
+let bob: Firestore;
+let anonymous: Firestore;
+let aliceStorage: FirebaseStorage;
+let bobStorage: FirebaseStorage;
+const owner = 'alice_uid';
+const png = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
+
+function client(uid?: string) {
+  const app = initializeApp({ projectId, apiKey: 'demo-api-key', storageBucket: `${projectId}.appspot.com` }, `rules-${uid || 'anonymous'}`);
+  apps.push(app);
+  const db = getFirestore(app);
+  const storage = getStorage(app);
+  const options = uid ? { mockUserToken: { sub: uid, user_id: uid } } : undefined;
+  connectFirestoreEmulator(db, '127.0.0.1', 8180, options);
+  connectStorageEmulator(storage, '127.0.0.1', 9299, options);
+  return { db, storage };
+}
+async function seed(path: string, values: Record<string, string | number | boolean>) {
+  const fields = Object.fromEntries(Object.entries(values).map(([key, value]) => [key, typeof value === 'string' ? { stringValue: value } : typeof value === 'number' ? { integerValue: String(value) } : { booleanValue: value }]));
+  const response = await fetch(`${databaseUrl}/${path}`, { method: 'PATCH', headers: { authorization: 'Bearer owner', 'content-type': 'application/json' }, body: JSON.stringify({ fields }) });
+  expect(response.status).toBe(200);
+}
+
+// No network requests, SDK initialization or production configuration when disabled.
+(enabled ? describe : describe.skip)('Firebase security rules with synthetic emulator records', () => {
+  beforeAll(async () => {
+    const response = await fetch(`http://127.0.0.1:8180/emulator/v1/projects/${projectId}/databases/(default)/documents`, { method: 'DELETE' });
+    expect(response.ok).toBe(true);
+    ({ db: alice, storage: aliceStorage } = client(owner));
+    ({ db: bob, storage: bobStorage } = client('bob'));
+    ({ db: anonymous } = client());
+    await seed('analysis_jobs/alice_uid_account', { userId: owner, status: 'running' });
+    await seed('analysis_jobs/bob_account', { user_id: 'bob', status: 'running' });
+    // The ID alone must never grant access to an existing job with another owner.
+    await seed('analysis_jobs/alice_uid_misleading', { userId: 'bob', status: 'done' });
+    await seed('analysis_status/legacy-alice', { userId: owner, status: 'running' });
+    await seed('analysis_status/legacy-bob', { user_id: 'bob', status: 'running' });
+    await seed('user_profiles/alice_uid/accounts/account/transactions/tx', { userId: owner, amount: 100, notes: 'before' });
+    await seed('user_profiles/bob/accounts/account/transactions/tx', { user_id: 'bob', amount: 100, notes: 'before' });
+    await seed('transactions/legacy', { user_id: owner, amount: 100, notes: 'before' });
+    await seed('transactions/top-bob', { userId: 'bob', amount: 100 });
+  });
+  afterAll(async () => { await Promise.all(apps.map(app => deleteApp(app))); });
+
+  it('allows each job owner while denying other authenticated users and anonymous readers', async () => {
+    expect((await getDoc(doc(alice, 'analysis_jobs/alice_uid_account'))).exists()).toBe(true);
+    expect((await getDoc(doc(bob, 'analysis_jobs/bob_account'))).exists()).toBe(true);
+    await expect(getDoc(doc(bob, 'analysis_jobs/alice_uid_account'))).rejects.toMatchObject({ code: 'permission-denied' });
+    await expect(getDoc(doc(anonymous, 'analysis_jobs/alice_uid_account'))).rejects.toMatchObject({ code: 'permission-denied' });
+    await expect(getDoc(doc(alice, 'analysis_jobs/alice_uid_misleading'))).rejects.toMatchObject({ code: 'permission-denied' });
+  });
+  it('preserves pre-create subscriptions only for the full owner UID prefix', async () => {
+    expect((await getDoc(doc(alice, 'analysis_jobs/alice_uid_not-created'))).exists()).toBe(false);
+    await expect(getDoc(doc(bob, 'analysis_jobs/alice_uid_not-created'))).rejects.toMatchObject({ code: 'permission-denied' });
+    await expect(getDoc(doc(alice, 'analysis_jobs/alice_uidvictim_missing'))).rejects.toMatchObject({ code: 'permission-denied' });
+  });
+  it('requires owner filters for job queries and denies client job writes', async () => {
+    expect((await getDocs(query(collection(alice, 'analysis_jobs'), where('userId', '==', owner)))).size).toBe(1);
+    await expect(getDocs(collection(alice, 'analysis_jobs'))).rejects.toMatchObject({ code: 'permission-denied' });
+    await expect(setDoc(doc(alice, 'analysis_jobs/alice_uid_created-by-client'), { userId: owner })).rejects.toMatchObject({ code: 'permission-denied' });
+  });
+  it('protects both legacy owner field spellings', async () => {
+    expect((await getDoc(doc(alice, 'analysis_status/legacy-alice'))).exists()).toBe(true);
+    expect((await getDoc(doc(bob, 'analysis_status/legacy-bob'))).exists()).toBe(true);
+    await expect(getDoc(doc(alice, 'analysis_status/legacy-bob'))).rejects.toMatchObject({ code: 'permission-denied' });
+  });
+  it('permits legitimate transaction field additions/changes/removals but prevents owner or amount changes', async () => {
+    const tx = doc(alice, 'user_profiles/alice_uid/accounts/account/transactions/tx');
+    await updateDoc(tx, { notes: 'updated', business_purpose: 'Client meeting' });
+    await updateDoc(tx, { business_purpose: deleteField() });
+    await expect(updateDoc(tx, { amount: deleteField() })).rejects.toMatchObject({ code: 'permission-denied' });
+    await expect(updateDoc(tx, { user_id: 'bob' })).rejects.toMatchObject({ code: 'permission-denied' });
+    await expect(updateDoc(tx, { userId: 'bob' })).rejects.toMatchObject({ code: 'permission-denied' });
+    await expect(updateDoc(tx, { unrestricted_new_field: true })).rejects.toMatchObject({ code: 'permission-denied' });
+    await expect(updateDoc(doc(bob, tx.path), { notes: 'not mine' })).rejects.toMatchObject({ code: 'permission-denied' });
+  });
+  it('enforces the same update boundary for legacy top-level transactions', async () => {
+    const tx = doc(alice, 'transactions/legacy');
+    await updateDoc(tx, { notes: 'owner update', receipt_url: '/api/receipts/example' });
+    await expect(updateDoc(tx, { userId: 'bob' })).rejects.toMatchObject({ code: 'permission-denied' });
+    await expect(updateDoc(tx, { amount: deleteField() })).rejects.toMatchObject({ code: 'permission-denied' });
+    await expect(deleteDoc(tx)).rejects.toMatchObject({ code: 'permission-denied' });
+  });
+  it('retains owner-filtered collection-group transaction reads', async () => {
+    const documents = await getDocs(query(collectionGroup(alice, 'transactions'), where('userId', '==', owner)));
+    expect(documents.size).toBe(1);
+    await expect(getDoc(doc(alice, 'transactions/top-bob'))).rejects.toMatchObject({ code: 'permission-denied' });
+  });
+  it('allows ordinary profile creation and edits, denies subscription escalation on create/update', async () => {
+    await expect(setDoc(doc(bob, 'user_profiles/bob'), { name: 'Bob', subscriptionStatus: 'active', hasHistoricalAccess: true })).rejects.toMatchObject({ code: 'permission-denied' });
+    await setDoc(doc(bob, 'user_profiles/bob'), { name: 'Bob', onboardingIntroCompleted: false });
+    await updateDoc(doc(bob, 'user_profiles/bob'), { name: 'Bob Updated', profession: 'Designer' });
+    await expect(updateDoc(doc(bob, 'user_profiles/bob'), { subscriptionStatus: 'active' })).rejects.toMatchObject({ code: 'permission-denied' });
+    // Admin/server writers bypass client rules, as do the real trial manager/webhook.
+    await seed('user_profiles/bob', { name: 'Bob', subscriptionStatus: 'trial', hasHistoricalAccess: true });
+    expect((await getDoc(doc(bob, 'user_profiles/bob'))).data()?.subscriptionStatus).toBe('trial');
+    await expect(setDoc(doc(alice, 'user_profiles/somebody-else'), { name: 'Wrong owner' })).rejects.toMatchObject({ code: 'permission-denied' });
+  });
+  it('allows valid owner receipt uploads, reads, replacements and deletes', async () => {
+    const receipt = ref(aliceStorage, `receipts/${owner}/tx/rules-valid.png`);
+    await uploadBytes(receipt, png, { contentType: 'image/png' });
+    expect((await getBytes(receipt)).byteLength).toBe(png.byteLength);
+    await uploadBytes(receipt, png, { contentType: 'image/png' });
+    await expect(getBytes(ref(bobStorage, receipt.fullPath))).rejects.toMatchObject({ code: 'storage/unauthorized' });
+    await expect(deleteObject(ref(bobStorage, receipt.fullPath))).rejects.toMatchObject({ code: 'storage/unauthorized' });
+    await deleteObject(receipt);
+  });
+  it('rejects unauthorized, unsupported, empty and oversized receipt uploads', async () => {
+    await expect(uploadBytes(ref(bobStorage, `receipts/${owner}/tx/foreign.png`), png, { contentType: 'image/png' })).rejects.toMatchObject({ code: 'storage/unauthorized' });
+    await expect(uploadBytes(ref(aliceStorage, `receipts/${owner}/tx/active.svg`), png, { contentType: 'image/svg+xml' })).rejects.toMatchObject({ code: 'storage/unauthorized' });
+    await expect(uploadBytes(ref(aliceStorage, `receipts/${owner}/tx/empty.png`), new Uint8Array(), { contentType: 'image/png' })).rejects.toMatchObject({ code: 'storage/unauthorized' });
+    await expect(uploadBytes(ref(aliceStorage, `receipts/${owner}/tx/large.png`), new Uint8Array(10 * 1024 * 1024 + 1), { contentType: 'image/png' })).rejects.toMatchObject({ code: 'storage/unauthorized' });
+  });
+  it('applies content-type restrictions to replacements too', async () => {
+    const receipt = ref(aliceStorage, `receipts/${owner}/tx/replacement.png`);
+    await uploadBytes(receipt, png, { contentType: 'image/png' });
+    await expect(uploadBytes(receipt, png, { contentType: 'text/html' })).rejects.toMatchObject({ code: 'storage/unauthorized' });
+    await deleteObject(receipt);
+  });
+});
