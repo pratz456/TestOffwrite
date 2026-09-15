@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft, MessageCircle } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
+import writeOffLogo from "@/public/writeofflogo.png";
 import { ContactSupportForm } from "@/components/contact-support-form";
 
 export default function ContactSupportPageClient() {
@@ -14,7 +15,7 @@ export default function ContactSupportPageClient() {
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex items-center justify-between">
             <Link href="/" className="flex items-center gap-3">
-              <Image src="/writeofflogo.png" alt="WriteOff" width={32} height={32} className="rounded-md" />
+              <Image src={writeOffLogo} alt="WriteOff" width={32} height={32} className="rounded-md" />
               <h1 className="text-xl font-bold text-foreground">Contact Support</h1>
             </Link>
             <Link href="/">

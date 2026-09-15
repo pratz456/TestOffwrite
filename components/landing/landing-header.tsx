@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import writeOffLogo from "@/public/writeofflogo.png";
 import Link from "next/link";
 import { useState } from "react";
 import { Menu, X } from "lucide-react";
@@ -24,7 +25,7 @@ export function LandingHeader() {
       <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
         <Link href="/" className="flex items-center gap-2.5 no-tap-highlight">
-          <Image src="/writeofflogo.png" alt="WriteOff" width={32} height={32} className="rounded-md" />
+          <Image src={writeOffLogo} alt="WriteOff" width={32} height={32} className="rounded-md" />
           <span className="text-lg font-bold tracking-tight text-foreground">WriteOff</span>
         </Link>
         <nav className="hidden items-center gap-1 md:flex">
