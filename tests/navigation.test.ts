@@ -1,5 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { buildTransactionDetailUrl } from '../lib/url';
+import { buildTransactionDetailUrl, getSafeAuthRedirect } from '../lib/url';
+
+describe('post-login navigation', () => {
+  it.each([null, '', 'https://example.com', '//example.com', '/\\example.com', 'javascript:alert(1)', '/\n/example.com'])('rejects unsafe redirect %j', (value) => {
+    expect(getSafeAuthRedirect(value)).toBe('/protected');
+  });
+
+  it('preserves a local destination and its query and fragment', () => {
+    expect(getSafeAuthRedirect('/protected?screen=reports#export')).toBe('/protected?screen=reports#export');
+  });
+});
 
 describe('buildTransactionDetailUrl', () => {
   it('uses trans_id when available', () => {

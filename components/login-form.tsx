@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import { getSafeAuthRedirect } from "@/lib/url";
 import { signInUser, signInWithGoogle } from "@/lib/firebase/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,7 +27,7 @@ export function LoginForm({
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
-  const redirect = searchParams.get('redirect') || '/protected';
+  const redirect = getSafeAuthRedirect(searchParams.get('redirect'));
   const { user, loading: authLoading } = useAuth();
   const hasRedirected = useRef(false);
 
@@ -218,6 +219,7 @@ export function LoginForm({
                   <Input
                     id="email"
                     type="email"
+                    autoComplete="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="example@gmail.com"
@@ -242,6 +244,7 @@ export function LoginForm({
                     <Input
                       id="password"
                       type={showPassword ? 'text' : 'password'}
+                      autoComplete="current-password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="Enter your password"
@@ -251,6 +254,7 @@ export function LoginForm({
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
                       className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors p-1.5 no-tap-highlight"
                     >
                       {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
@@ -260,7 +264,7 @@ export function LoginForm({
               </div>
 
               {error && (
-                <div className="text-sm text-destructive bg-destructive/10 p-3 sm:p-3 rounded-lg">
+                <div role="alert" className="text-sm text-destructive bg-destructive/10 p-3 sm:p-3 rounded-lg">
                   <p>{error}</p>
                   {error.includes("verify your email") && (
                     <p className="mt-2">

@@ -75,16 +75,16 @@ function addSecurityHeaders(response: NextResponse): NextResponse {
   // - style-src: self + inline styles (Tailwind)
   // - img-src: self + data URIs + Plaid images + Firebase Storage
   // - connect-src: self + all API endpoints we call
-  // - frame-src: none (no iframes)
+  // - frame-src: Plaid Link, Stripe, and the configured Firebase Auth helper
   // - object-src: none (no Flash/plugins)
   const csp = [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://cdn.plaid.com",
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://cdn.plaid.com https://apis.google.com",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https://firebasestorage.googleapis.com https://storage.googleapis.com",
     "font-src 'self' data:",
     "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://api.stripe.com https://api.plaid.com https://sandbox.plaid.com https://production.plaid.com https://api.openai.com",
-    "frame-src https://js.stripe.com https://hooks.stripe.com",
+    `frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://cdn.plaid.com https://${process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || 'writeoff-23910.firebaseapp.com'}`,
     "frame-ancestors 'none'",
     "object-src 'none'",
     "base-uri 'self'",
