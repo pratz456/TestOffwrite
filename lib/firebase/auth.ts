@@ -13,6 +13,7 @@ import {
   browserLocalPersistence,
   signInWithRedirect,
   getRedirectResult,
+  browserPopupRedirectResolver,
 } from "firebase/auth";
 import { auth } from "./client";
 import { app } from "./client";
@@ -140,7 +141,7 @@ export async function signInWithGoogle(): Promise<{ data: { user: AuthUser } | n
     // Try popup first, fall back to redirect if blocked
     let userCredential;
     try {
-      userCredential = await signInWithPopup(auth, provider);
+      userCredential = await signInWithPopup(auth, provider, browserPopupRedirectResolver);
     } catch (popupErr: any) {
       // User triggered a second popup before the first finished; ignore and don't surface as error
       if (popupErr?.code === 'auth/cancelled-popup-request') {
@@ -150,7 +151,7 @@ export async function signInWithGoogle(): Promise<{ data: { user: AuthUser } | n
       if (popupErr?.code === 'auth/popup-blocked' || popupErr?.code === 'auth/popup-closed-by-user') {
         // Fall back to redirect flow
         console.log('Popup blocked, falling back to redirect flow');
-        await signInWithRedirect(auth, provider);
+        await signInWithRedirect(auth, provider, browserPopupRedirectResolver);
         // Return null to indicate redirect was initiated (will be handled by handleAuthRedirectResult)
         return { data: null, error: null };
       }
@@ -217,7 +218,7 @@ export async function signInWithGoogle(): Promise<{ data: { user: AuthUser } | n
 // Call this once on page load (e.g., in _app.tsx useEffect, or root layout/client entry)
 export async function handleAuthRedirectResult(): Promise<{ data: { user: AuthUser } | null; error: any }> {
   try {
-    const result = await getRedirectResult(auth);
+    const result = await getRedirectResult(auth, browserPopupRedirectResolver);
     if (!result) return { data: null, error: null }; // No redirect to process
 
     const user = result.user;

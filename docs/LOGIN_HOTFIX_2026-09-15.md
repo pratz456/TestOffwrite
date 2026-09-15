@@ -23,3 +23,21 @@ record was changed.
 HTTP verification confirms the corrected single policy on the live login URL.
 A full successful user sign-in requires the user's credentials and was not claimed
 from the negative email login test.
+
+## Authentication startup code
+
+Initialize Firebase Authentication with its normal browser persistence options,
+without eagerly initializing the cross-origin Google popup/redirect helper. Pass
+that helper explicitly to Google popup, redirect and redirect-result operations.
+Email/password startup can then complete independently; Google support remains
+available on demand.
+
+This isolated change is based on the deployed branch. It does not include the
+larger local tax, billing, entitlement or landing-page changes. The error-page
+home link also uses Next.js `Link` to pass the existing production lint check.
+
+Validation: 19 existing tests passed, the production build passed with type and
+lint checks enabled, and an independent review checked all three OAuth call sites.
+The previous deployment's private environment settings are preserved exactly in
+the deployment bundle and excluded from Git. The original Hosting release remains
+available for rollback.

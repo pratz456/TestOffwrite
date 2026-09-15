@@ -1,7 +1,10 @@
 'use client';
 
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
+import {
+  getAuth, initializeAuth, indexedDBLocalPersistence,
+  browserLocalPersistence, browserSessionPersistence,
+} from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
@@ -16,5 +19,16 @@ const firebaseConfig = {
 
 export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 export const firebaseApp = app;
-export const auth = getAuth(app);
+// Keep email/password initialization independent of the cross-origin OAuth helper.
+// OAuth calls supply browserPopupRedirectResolver explicitly when needed.
+export const auth = (() => {
+  try {
+    return initializeAuth(app, {
+      persistence: [indexedDBLocalPersistence, browserLocalPersistence, browserSessionPersistence],
+    });
+  } catch (error) {
+    if ((error as { code?: string }).code === 'auth/already-initialized') return getAuth(app);
+    throw error;
+  }
+})();
 export const db = getFirestore(app);
