@@ -4,6 +4,7 @@
     "dev": "next dev --turbopack --port 3000",
     "build": "next build",
     "start": "next start",
+    "staging:preflight": "node scripts/staging-preflight.mjs --project writeoff-production-testing --config firebase.staging.json",
     "clean": "node scripts/clean-next.js",
     "clean:all": "node scripts/clean-next.js .next node_modules/.cache",
     "lint": "eslint .",

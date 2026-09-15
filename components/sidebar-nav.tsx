@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { LogoutButton } from './logout-button';
+import { useSubscription } from '@/lib/hooks/use-subscription';
+import { premiumFeatureForLocation } from '@/lib/subscriptions/client-status';
 import Link from 'next/link';
 import { usePathname, useSearchParams, useRouter } from 'next/navigation';
 import { Home, CreditCard, BarChart3, Settings, TrendingUp, ClipboardCheck, Eye, Minus, Sparkles, ChevronDown, ChevronUp, Briefcase, PenLine, FolderOpen, Calculator } from 'lucide-react';
@@ -14,6 +16,7 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ user, userProfile }) => 
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { canAccess, isLoading: planLoading, error: planError } = useSubscription();
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const mainItems = [
@@ -124,6 +127,9 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ user, userProfile }) => 
   const renderNavItem = (item: typeof mainItems[0]) => {
     const Icon = item.icon;
     const active = isActive(item.href);
+    const [itemPath, query] = item.href.split('?');
+    const feature = premiumFeatureForLocation(itemPath, new URLSearchParams(query).get('screen'));
+    const locked = feature && !planLoading && !planError && !canAccess(feature);
 
     const baseClasses = 'flex items-center gap-2.5 px-2.5 py-1.5 rounded-md transition-colors duration-150 group w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 text-sm';
     const activeClasses = active
@@ -140,7 +146,7 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ user, userProfile }) => 
           aria-current={active ? 'page' : undefined}
         >
           <Icon className={`w-4 h-4 shrink-0 ${iconClasses}`} />
-          <span className="font-medium truncate">{item.name}</span>
+          <span className="font-medium truncate">{item.name}</span>{locked && <span className="ml-auto text-[10px] text-muted-foreground">Premium</span>}
         </button>
       );
     }
@@ -153,7 +159,7 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ user, userProfile }) => 
         aria-current={active ? 'page' : undefined}
       >
         <Icon className={`w-4 h-4 shrink-0 ${iconClasses}`} />
-        <span className="font-medium truncate">{item.name}</span>
+        <span className="font-medium truncate">{item.name}</span>{locked && <span className="ml-auto text-[10px] text-muted-foreground">Premium</span>}
       </Link>
     );
   };
@@ -205,6 +211,7 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ user, userProfile }) => 
 
         {/* Bottom Items */}
         <div className="pt-2 mt-2 border-t border-border/40">
+          {renderNavItem({ name: 'Billing and plans', href: '/protected/subscriptions', icon: CreditCard, description: 'Manage your plan and billing' })}
           {renderNavItem({
             name: 'Settings',
             href: '/protected/settings',

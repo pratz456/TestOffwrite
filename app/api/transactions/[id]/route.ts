@@ -3,6 +3,7 @@ import { updateTransactionServerWithUserId } from '@/lib/firebase/transactions-s
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { aiLearningEngine } from '@/lib/ai/learning-engine';
 import { adminDb } from '@/lib/firebase/admin';
+import { transactionIdInput, transactionUpdatesInput } from '@/lib/transactions/client-updates';
 
 // Helper function to normalize transaction document
 function normalizeDoc(doc: any): any {
@@ -18,7 +19,7 @@ function normalizeDoc(doc: any): any {
     is_deductible: data.is_deductible,
     expense_type: data.expense_type, // Explicit classification: business or personal
     deductible_reason: data.deductible_reason || null,
-    deduction_score: data.deduction_score || null,
+    deduction_score: data.deduction_score ?? null,
     ai_analysis: data.ai_analysis || null,
     user_classification_reason: data.user_classification_reason || null,
     description: data.description,
@@ -154,7 +155,10 @@ export async function PUT(
     }
 
     const { id: transactionId } = await params;
-    const updates = await request.json();
+    if (!transactionIdInput.safeParse(transactionId).success) return NextResponse.json({ error: 'Invalid transaction ID' }, { status: 400 });
+    const parsed = transactionUpdatesInput.safeParse(await request.json().catch(() => null));
+    if (!parsed.success) return NextResponse.json({ error: 'Provide valid editable transaction fields. Ownership, amounts and AI fields cannot be changed here.' }, { status: 400 });
+    const updates = parsed.data;
 
     console.log('🔄 [API UPDATE→DB] Updating transaction:', transactionId, updates);
 
@@ -192,16 +196,18 @@ export async function PUT(
       );
     }
 
+    const updatedTransaction = Array.isArray(data) ? data[0] : data;
+
     // Record correction for AI learning if this was a user override
-    if (isCorrection && originalAnalysis && data) {
+    if (isCorrection && originalAnalysis && updatedTransaction && updates.is_deductible !== null) {
       try {
         await aiLearningEngine.recordCorrection(
           user.uid,
           transactionId,
-          data,
+          updatedTransaction,
           originalAnalysis,
           {
-            isDeductible: updates.is_deductible !== undefined ? updates.is_deductible : data.is_deductible,
+            isDeductible: updates.is_deductible !== undefined ? updates.is_deductible : updatedTransaction.is_deductible,
             reasoning: updates.deductible_reason || updates.user_classification_reason
           }
         );
@@ -215,7 +221,7 @@ export async function PUT(
 
     return NextResponse.json({
       success: true,
-      transaction: data
+      transaction: updatedTransaction
     });
 
   } catch (error) {

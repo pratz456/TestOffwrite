@@ -1,3 +1,4 @@
+import { transactionHistoryWindow } from '@/lib/subscriptions/history-window';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -14,7 +15,9 @@ export async function DELETE(request: NextRequest) {
   try {
     console.log('🔄 [Plaid Items API] Starting DELETE request (current item)...');
 
-    const { uid } = await getUserFromReqOrThrow(request);
+    let uid: string;
+    try { ({ uid } = await getUserFromReqOrThrow(request)); }
+    catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
 
     console.log(`✅ [Plaid Items API] User authenticated: ${uid}`);
 
@@ -57,7 +60,9 @@ export async function GET(request: NextRequest) {
   try {
     console.log('🔄 [Plaid Items API] Starting GET request...');
 
-    const { uid } = await getUserFromReqOrThrow(request);
+    let uid: string;
+    try { ({ uid } = await getUserFromReqOrThrow(request)); }
+    catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
 
     const { data: userProfile, error: profileError } = await getUserProfileServer(uid);
 
@@ -79,7 +84,7 @@ export async function GET(request: NextRequest) {
       const connectedDate = typeof plaidConnectedAt?.toDate === 'function' ? plaidConnectedAt.toDate() : new Date(plaidConnectedAt);
       const startDate = new Date(plaidRequestedStart + 'T12:00:00');
       const requestedDaysAtConnect = Math.ceil((connectedDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
-      needsReconnectForFullHistory = requestedDaysAtConnect < 730;
+      needsReconnectForFullHistory = requestedDaysAtConnect < transactionHistoryWindow(userProfileData).days;
     }
 
     return NextResponse.json({

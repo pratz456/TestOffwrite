@@ -11,6 +11,7 @@ import "./globals.css";
 
 const defaultUrl = process.env.NEXT_PUBLIC_SITE_URL
   || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+const analyticsEnabled = process.env.NEXT_PUBLIC_APP_ENV !== 'staging';
 
 // Use static OG image so link preview works even when the dynamic route fails in production (e.g. serverless).
 // Add public/og-image.png (e.g. save from http://localhost:3000/opengraph-image when running locally).
@@ -87,12 +88,17 @@ export default function RootLayout({
         className={`${geistSans.className} antialiased bg-background text-foreground min-h-screen`}
         suppressHydrationWarning
       >
+        {process.env.NEXT_PUBLIC_APP_ENV === 'staging' && (
+          <div role="note" className="bg-amber-100 px-4 py-2 text-center text-sm text-amber-950 print:hidden">
+            WriteOff testing site · Use sample information only
+          </div>
+        )}
         <script
           type="application/ld+json"
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
         />
-        <Script
+        {analyticsEnabled && <><Script
           src="https://www.googletagmanager.com/gtag/js?id=G-1P3GNBHB9J"
           strategy="afterInteractive"
         />
@@ -103,7 +109,7 @@ export default function RootLayout({
             gtag('js', new Date());
             gtag('config', 'G-1P3GNBHB9J');
           `}
-        </Script>
+        </Script></>}
         <ThemeProvider attribute="class" defaultTheme="light" forcedTheme="light" disableTransitionOnChange>
           <ReactQueryProvider>
             <AuthProvider>

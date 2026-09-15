@@ -1,5 +1,7 @@
 "use client";
 
+import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
+import { PremiumFeatureGate } from '@/components/premium-feature-gate';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Download, User, AlertCircle, CheckCircle } from 'lucide-react';
@@ -16,7 +18,7 @@ export default function ScheduleSEPage() {
   const { user } = useAuth();
   const { toasts, removeToast, showSuccess, showError } = useToasts();
 
-  const [selectedYear, setSelectedYear] = useState('2024');
+  const [selectedYear, setSelectedYear] = useState(String(SUPPORTED_TAX_YEARS[SUPPORTED_TAX_YEARS.length - 1]));
   const [exportFormat, setExportFormat] = useState('PDF');
   const [isExporting, setIsExporting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -110,11 +112,11 @@ export default function ScheduleSEPage() {
           'Authorization': `Bearer ${token}`,
         },
         credentials: 'include',
-        body: JSON.stringify({ type: 'scheduleSE' }),
+        body: JSON.stringify({ type: 'scheduleSE', year: Number(selectedYear) }),
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
+        const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.error || 'Failed to generate report');
       }
 
@@ -125,7 +127,7 @@ export default function ScheduleSEPage() {
       a.href = url;
 
       const today = new Date().toISOString().split('T')[0];
-      a.download = `scheduleSE_${today}.pdf`;
+      a.download = `scheduleSE_${selectedYear}_${today}.pdf`;
 
       document.body.appendChild(a);
       a.click();
@@ -186,9 +188,7 @@ export default function ScheduleSEPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="2024">2024</SelectItem>
-                  <SelectItem value="2023">2023</SelectItem>
-                  <SelectItem value="2022">2022</SelectItem>
+                  {[...SUPPORTED_TAX_YEARS].reverse().map(year => <SelectItem key={year} value={String(year)}>{year}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -200,12 +200,12 @@ export default function ScheduleSEPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="PDF">PDF Document</SelectItem>
-                  <SelectItem value="CSV">CSV Spreadsheet</SelectItem>
                 </SelectContent>
               </Select>
             </div>
           </div>
 
+          <PremiumFeatureGate feature="exports" featureName="tax form exports" inline>
           <Button
             onClick={handleExport}
             disabled={isExporting || !taxSummary || validationErrors.length > 0}
@@ -214,6 +214,7 @@ export default function ScheduleSEPage() {
             <Download className="w-4 h-4 mr-2" />
             {isExporting ? 'Generating...' : `Export ${selectedYear} Schedule SE`}
           </Button>
+          </PremiumFeatureGate>
         </Card>
 
         {/* Schedule SE Preview */}

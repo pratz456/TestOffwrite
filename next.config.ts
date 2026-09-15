@@ -88,7 +88,7 @@ const nextConfig: NextConfig = {
           { key: 'X-DNS-Prefetch-Control', value: 'on' },
           {
             key: 'Permissions-Policy',
-            value: 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
+            value: 'camera=(self), microphone=(self), geolocation=(), payment=(), usb=()',
           },
           {
             key: 'Strict-Transport-Security',
@@ -97,9 +97,9 @@ const nextConfig: NextConfig = {
         ],
       },
       {
-        // Cache static assets aggressively
+        // Production assets are hashed; development chunks must stay fresh.
         source: '/_next/static/(.*)',
-        headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }],
+        headers: [{ key: 'Cache-Control', value: process.env.NODE_ENV === 'production' ? 'public, max-age=31536000, immutable' : 'no-store' }],
       },
       {
         // No caching for API routes

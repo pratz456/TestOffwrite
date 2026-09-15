@@ -7,6 +7,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     const { data, error } = await getHomeOfficeSettings(user.uid);
+    if (error?.code === 'NOT_FOUND') return NextResponse.json({ success: true, data: null });
     if (error) {
       return NextResponse.json({ error: error.message || 'Failed to load home office settings' }, { status: 500 });
     }

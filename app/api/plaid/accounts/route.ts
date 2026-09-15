@@ -1,14 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Configuration, PlaidApi, PlaidEnvironments } from 'plaid';
-import { getUserProfile } from '@/lib/firebase/profiles';
+import { getUserProfileServer } from '@/lib/firebase/profiles-server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
+import { getPlaidConfig } from '@/lib/plaid/config';
+
+const { plaidClientId, plaidSecret, plaidEnv } = getPlaidConfig(process.env, () => ({}), true);
 
 const configuration = new Configuration({
-  basePath: PlaidEnvironments[process.env.PLAID_ENV as keyof typeof PlaidEnvironments || 'sandbox'],
+  basePath: PlaidEnvironments[plaidEnv as keyof typeof PlaidEnvironments] || PlaidEnvironments.sandbox,
   baseOptions: {
     headers: {
-      'PLAID-CLIENT-ID': process.env.PLAID_CLIENT_ID,
-      'PLAID-SECRET': process.env.PLAID_SECRET,
+      'PLAID-CLIENT-ID': plaidClientId,
+      'PLAID-SECRET': plaidSecret,
     },
   },
 });
@@ -24,7 +27,7 @@ export async function GET(request: NextRequest) {
     const userId = user.uid;
 
     // Get user's Plaid access token from Firebase
-    const { data: userProfile, error: userError } = await getUserProfile(userId);
+    const { data: userProfile, error: userError } = await getUserProfileServer(userId);
 
     if (userError || !userProfile?.plaid_token) {
       return NextResponse.json({ error: 'No Plaid token found for user' }, { status: 404 });

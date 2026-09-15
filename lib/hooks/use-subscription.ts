@@ -1,127 +1,53 @@
 "use client";
 
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
+import {
+  canUseSubscriptionFeature,
+  loadSubscriptionStatus,
+  type PremiumFeature,
+  type SubscriptionStatus,
+} from '@/lib/subscriptions/client-status';
 
-export interface SubscriptionStatus {
-  hasAccess: boolean;
-  isTrial: boolean;
-  isPaid: boolean;
-  trialStart?: Date;
-  trialEnd?: Date;
-  subscriptionEnd?: Date;
-  daysRemaining?: number;
-  subscriptionStatus?: 'trial' | 'active' | 'expired' | 'none';
-  cancelAtPeriodEnd?: boolean;
-  subscription?: {
-    id: string;
-    status: string;
-    currentPeriodStart: Date | null;
-    currentPeriodEnd: Date | null;
-    cancelAtPeriodEnd: boolean;
-    canceledAt: Date | null;
-    planInterval: 'month' | 'year' | null;
-    planAmount: number | null;
-    planCurrency: string | null;
-  } | null;
-}
+export type { SubscriptionStatus } from '@/lib/subscriptions/client-status';
 
-interface UseSubscriptionResult {
-  /** Whether the user has access (trial or paid) */
-  hasAccess: boolean;
-  /** Whether user is on a trial */
-  isTrial: boolean;
-  /** Whether user has an active paid subscription */
-  isPaid: boolean;
-  /** Full subscription status object */
-  status: SubscriptionStatus | null;
-  /** Whether subscription data is loading */
-  isLoading: boolean;
-  /** Error message if fetching failed */
-  error: string | null;
-  /** Refetch subscription status */
-  refetch: () => Promise<void>;
-}
+/** Account-keyed requests are shared by every gate, navigation and billing view. */
+export function useSubscription() {
+  const { user, loading: authLoading } = useAuth();
+  const query = useQuery<SubscriptionStatus>({
+    queryKey: ['subscription-status', user?.id ?? null],
+    queryFn: ({ signal }) => loadSubscriptionStatus(makeAuthenticatedRequest, signal),
+    enabled: Boolean(user?.id) && !authLoading,
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
+    refetchOnWindowFocus: 'always',
+    refetchOnReconnect: 'always',
+    refetchInterval: 60_000,
+  });
 
-/**
- * Hook to check user's subscription status
- * Centralizes subscription checking across the app
- */
-export function useSubscription(): UseSubscriptionResult {
-  const { user } = useAuth();
-  const [status, setStatus] = useState<SubscriptionStatus | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchSubscriptionStatus = useCallback(async () => {
-    if (!user?.id) {
-      setStatus(null);
-      setIsLoading(false);
-      return;
-    }
-
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const response = await makeAuthenticatedRequest('/api/subscriptions/check-access');
-      
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success && data.data) {
-          // Parse dates from the response
-          const accessData = data.data;
-          setStatus({
-            ...accessData,
-            trialStart: accessData.trialStart ? new Date(accessData.trialStart) : undefined,
-            trialEnd: accessData.trialEnd ? new Date(accessData.trialEnd) : undefined,
-            subscriptionEnd: accessData.subscriptionEnd ? new Date(accessData.subscriptionEnd) : undefined,
-            cancelAtPeriodEnd: accessData.subscription?.cancelAtPeriodEnd || false,
-          });
-        } else {
-          setError(data.error || 'Failed to fetch subscription status');
-          setStatus({
-            hasAccess: false,
-            isTrial: false,
-            isPaid: false,
-            subscriptionStatus: 'none',
-          });
-        }
-      } else {
-        setError(`Failed to fetch subscription status: ${response.statusText}`);
-        setStatus({
-          hasAccess: false,
-          isTrial: false,
-          isPaid: false,
-          subscriptionStatus: 'none',
-        });
-      }
-    } catch (err) {
-      console.error('Error fetching subscription status:', err);
-      setError(err instanceof Error ? err.message : 'Unknown error');
-      setStatus({
-        hasAccess: false,
-        isTrial: false,
-        isPaid: false,
-        subscriptionStatus: 'none',
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  }, [user?.id]);
-
-  useEffect(() => {
-    fetchSubscriptionStatus();
-  }, [fetchSubscriptionStatus]);
+  // A failed refresh cannot keep a previously granted entitlement on screen.
+  // Keying by account also prevents a prior user's response from unlocking this user.
+  const status = user?.id && !authLoading && !query.isError ? query.data ?? null : null;
+  const isLoading = authLoading || (Boolean(user?.id) && query.isPending);
+  const error = query.isError && user?.id ? 'We could not verify your plan. Please try again.' : null;
+  const canAccess = useCallback(
+    (feature: PremiumFeature) => canUseSubscriptionFeature(status, feature),
+    [status],
+  );
+  const { refetch: refetchQuery } = query;
+  const refetch = useCallback(async () => { await refetchQuery(); }, [refetchQuery]);
 
   return {
-    hasAccess: status?.hasAccess ?? false,
+    hasAccess: canAccess('reports'),
     isTrial: status?.isTrial ?? false,
     isPaid: status?.isPaid ?? false,
     status,
     isLoading,
     error,
-    refetch: fetchSubscriptionStatus,
+    canAccess,
+    refetch,
   };
 }

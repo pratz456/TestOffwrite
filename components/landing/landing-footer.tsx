@@ -1,4 +1,5 @@
 import Image from "next/image";
+import writeOffLogo from "@/public/writeofflogo.png";
 import Link from "next/link";
 import { AuthButtons } from "./cta-button";
 
@@ -10,7 +11,7 @@ export function LandingFooter() {
         <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
           <div className="lg:col-span-1">
             <Link href="/" className="flex items-center gap-2.5">
-              <Image src="/writeofflogo.png" alt="WriteOff" width={28} height={28} className="rounded-md" />
+              <Image src={writeOffLogo} alt="WriteOff" width={28} height={28} className="rounded-md" />
               <span className="text-lg font-bold text-foreground">WriteOff</span>
             </Link>
             <p className="mt-3 text-sm leading-relaxed text-muted-foreground">We help freelancers and gig workers save on taxes all year, not just in April.</p>

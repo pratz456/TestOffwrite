@@ -12,10 +12,10 @@ export interface Form4562Data {
 export async function generateForm4562PDF(data: Form4562Data): Promise<Uint8Array> {
   const { userProfile, assetsSettings, taxYear } = data;
   
-  // Calculate Form 4562 values
-  // For now, we'll use a default business income - this should come from Schedule C
-  const businessIncome = 100000; // Default business income - should be replaced with actual Schedule C data when available
-  const calculation = calc4562(assetsSettings, businessIncome);
+  // The supported MACRS worksheet does not elect income-limited Section 179.
+  // calc4562 requests review when an election requires income/eligibility details.
+  const businessIncome = 0;
+  const calculation = calc4562(assetsSettings, businessIncome, taxYear);
 
   // Create PDF document
   const pdfDoc = await PDFDocument.create();

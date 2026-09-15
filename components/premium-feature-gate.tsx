@@ -6,8 +6,10 @@ import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Sparkles, Lock, Loader2 } from 'lucide-react';
+import type { PremiumFeature } from '@/lib/subscriptions/client-status';
 
 interface PremiumFeatureGateProps {
+  feature?: PremiumFeature;
   /** Content to show when user has access */
   children: React.ReactNode;
   /** Optional custom fallback content when user doesn't have access */
@@ -33,29 +35,44 @@ export function PremiumFeatureGate({
   featureName = 'this feature',
   featureDescription,
   inline = false,
+  feature = 'reports',
 }: PremiumFeatureGateProps) {
-  const { hasAccess, isLoading } = useSubscription();
+  const { canAccess, isLoading, error, refetch } = useSubscription();
   const router = useRouter();
 
   // Show loading state
   if (isLoading) {
-    if (loadingFallback) {
+    if (loadingFallback !== undefined) {
       return <>{loadingFallback}</>;
     }
     return (
-      <div className="flex items-center justify-center p-8">
-        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      <div role="status" className="flex items-center justify-center gap-3 p-8">
+        <Loader2 aria-hidden="true" className="w-6 h-6 animate-spin text-muted-foreground" />
+        <span className="text-sm text-muted-foreground">Checking your plan…</span>
       </div>
     );
   }
 
   // User has access - show the content
-  if (hasAccess) {
+  if (error) {
+    return (
+      <Card role="alert" className="m-4 p-6 space-y-3">
+        <h2 className="font-semibold">Your plan could not be verified</h2>
+        <p className="text-sm text-muted-foreground">Please retry to check access to {featureName}.</p>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => void refetch()}>Try again</Button>
+          <Button variant="outline" onClick={() => router.push('/protected/subscriptions')}>Billing and plans</Button>
+        </div>
+      </Card>
+    );
+  }
+
+  if (canAccess(feature)) {
     return <>{children}</>;
   }
 
   // User doesn't have access - show fallback or default upgrade prompt
-  if (fallback) {
+  if (fallback !== undefined) {
     return <>{fallback}</>;
   }
 

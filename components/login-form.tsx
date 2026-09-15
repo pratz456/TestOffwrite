@@ -28,12 +28,15 @@ export function LoginForm({
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirect = getSafeAuthRedirect(searchParams.get('redirect'));
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, error: sessionError } = useAuth();
+  const operationRef = useRef(false);
+  const mountedRef = useRef(true);
+  const displayError = error || sessionError;
   const hasRedirected = useRef(false);
 
   // Redirect already-authenticated users away from login page
   useEffect(() => {
-    if (!authLoading && user && !hasRedirected.current) {
+    if (!authLoading && user?.sessionReady && user.emailVerified && !operationRef.current && !hasRedirected.current) {
       hasRedirected.current = true;
       console.log('[LoginForm] User already authenticated, redirecting to:', redirect);
       router.replace(redirect);
@@ -46,6 +49,7 @@ export function LoginForm({
   // Handle OAuth redirect completion (Google redirect flow)
   useEffect(() => {
     let mounted = true;
+    mountedRef.current = true;
     (async () => {
       // If the user was redirected back from the provider, auth.ts will
       // process the redirect result, exchange the ID token for a session
@@ -68,20 +72,21 @@ export function LoginForm({
       }
     })();
 
-    return () => { mounted = false; };
+    return () => { mounted = false; mountedRef.current = false; };
   }, [redirect, router]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (isLoading) return; // Prevent double submission
+    if (operationRef.current || isGoogleLoading || authLoading) return;
+    operationRef.current = true;
 
     setIsLoading(true);
     setError(null);
 
     try {
-      console.log('Attempting to sign in with:', email);
-      const { data, error } = await signInUser(email, password);
+      const { data, error } = await signInUser(email.trim(), password);
+      if (!mountedRef.current) return;
 
       if (error) {
         // Only log errors in development
@@ -99,8 +104,7 @@ export function LoginForm({
 
       if (data && data.user) {
         console.log('Sign in successful, redirecting to:', redirect);
-        // Small delay to ensure cookies are fully set before navigation
-        await new Promise(resolve => setTimeout(resolve, 500));
+        hasRedirected.current = true;
         // Use push to preserve browser history and allow back button to work
         router.push(redirect);
       } else {
@@ -113,12 +117,14 @@ export function LoginForm({
       }
       setError(error instanceof Error ? error.message : "An unexpected error occurred. Please try again.");
     } finally {
-      setIsLoading(false);
+      operationRef.current = false;
+      if (mountedRef.current) setIsLoading(false);
     }
   };
 
   const handleGoogleSignIn = async () => {
-    if (isGoogleLoading) return; // Prevent double submission
+    if (operationRef.current || isLoading || isGoogleLoading || authLoading) return;
+    operationRef.current = true;
 
     setIsGoogleLoading(true);
     setError(null);
@@ -126,6 +132,7 @@ export function LoginForm({
     try {
       console.log('Attempting to sign in with Google');
       const { data, error } = await signInWithGoogle();
+      if (!mountedRef.current) return;
 
       if (error) {
         // Don't show an error for cancelled popup (e.g. user clicked twice or closed and reopened)
@@ -151,8 +158,7 @@ export function LoginForm({
 
       if (data && data.user) {
         console.log('Google sign in successful, redirecting to:', redirect);
-        // Small delay to ensure cookies are fully set before navigation
-        await new Promise(resolve => setTimeout(resolve, 500));
+        hasRedirected.current = true;
         router.push(redirect);
       } else if (data == null && error == null) {
         // No immediate user returned: this indicates the provider flow
@@ -171,12 +177,13 @@ export function LoginForm({
       }
       setError(error instanceof Error ? error.message : "An unexpected error occurred. Please try again.");
     } finally {
-      setIsGoogleLoading(false);
+      operationRef.current = false;
+      if (mountedRef.current) setIsGoogleLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-background safe-area-inset-top safe-area-inset-bottom">
+    <div {...props} className={cn("min-h-screen bg-background safe-area-inset-top safe-area-inset-bottom", className)}>
       {/* Background with subtle gradient */}
       <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-background to-muted/20"></div>
 
@@ -263,10 +270,10 @@ export function LoginForm({
                 </div>
               </div>
 
-              {error && (
+              {displayError && (
                 <div role="alert" className="text-sm text-destructive bg-destructive/10 p-3 sm:p-3 rounded-lg">
-                  <p>{error}</p>
-                  {error.includes("verify your email") && (
+                  <p>{displayError}</p>
+                  {displayError.includes("verify your email") && (
                     <p className="mt-2">
                       <Link
                         href="/auth/sign-up-success"
@@ -281,7 +288,7 @@ export function LoginForm({
 
               <Button
                 type="submit"
-                disabled={!email || !password || isLoading || isGoogleLoading}
+                disabled={!email || !password || isLoading || isGoogleLoading || authLoading}
                 className="w-full h-12 sm:h-11 bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg font-medium text-base sm:text-sm transition-all duration-200 disabled:opacity-50 no-tap-highlight"
               >
                 {isLoading ? (
@@ -309,7 +316,7 @@ export function LoginForm({
             <Button
               type="button"
               onClick={handleGoogleSignIn}
-              disabled={isLoading || isGoogleLoading}
+              disabled={isLoading || isGoogleLoading || authLoading}
               className="w-full h-12 sm:h-11 bg-card hover:bg-muted active:bg-muted/80 text-foreground border border-border rounded-lg font-medium text-base sm:text-sm transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-3 no-tap-highlight"
             >
               {isGoogleLoading ? (
@@ -333,7 +340,7 @@ export function LoginForm({
             {/* Sign up link */}
             <div className="mt-5 sm:mt-6 text-center pb-2">
               <p className="text-base sm:text-sm text-muted-foreground">
-                Don't have an account?{' '}
+                Don&apos;t have an account?{' '}
                 <Link
                   href="/auth/sign-up"
                   className="font-medium text-primary hover:text-primary/80 transition-colors no-tap-highlight"

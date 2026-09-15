@@ -10,11 +10,13 @@ function getStripeOrNull() {
 }
 
 export async function POST(req: Request) {
+  let uid: string;
+  try { ({ uid } = await getUserFromReqOrThrow(req)); }
+  catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
   try {
-    const { uid } = await getUserFromReqOrThrow(req);
     const stripe = getStripeOrNull();
     if (!stripe) {
-      return NextResponse.json({ error: 'Stripe not configured' }, { status: 500 });
+      return NextResponse.json({ error: 'Billing is temporarily unavailable' }, { status: 503 });
     }
 
     // Get user profile to find Stripe customer ID
@@ -27,6 +29,9 @@ export async function POST(req: Request) {
     if (customerId) {
       try {
         const customer = await stripe.customers.retrieve(customerId);
+        if (!customer.deleted && customer.metadata.firebase_uid && customer.metadata.firebase_uid !== uid) {
+          return NextResponse.json({ error: 'Billing account mismatch' }, { status: 403 });
+        }
         // Check if customer was deleted
         if (customer.deleted) {
           console.log(`[Portal Session] Customer ${customerId} was deleted in Stripe, creating new customer`);
@@ -74,7 +79,7 @@ export async function POST(req: Request) {
     // Create billing portal session
     const portalSession = await stripe.billingPortal.sessions.create({
       customer: customerId,
-      return_url: `${process.env.NEXT_PUBLIC_SITE_URL || process.env.VERCEL_URL || 'http://localhost:3000'}/protected?screen=settings&tab=payment`,
+      return_url: `${process.env.NEXT_PUBLIC_SITE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : (process.env.NODE_ENV === 'production' ? 'https://writeoffapp.com' : 'http://localhost:3000'))}/protected?screen=settings&tab=payment`,
     });
 
     return NextResponse.json({

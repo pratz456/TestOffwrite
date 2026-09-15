@@ -1,5 +1,7 @@
 "use client";
 
+import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
+import { PremiumFeatureGate } from '@/components/premium-feature-gate';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Download, Home, Calculator, AlertCircle, CheckCircle } from 'lucide-react';
@@ -16,7 +18,7 @@ export default function Form8829Page() {
   const { user } = useAuth();
   const { toasts, removeToast, showSuccess, showError } = useToasts();
 
-  const [selectedYear, setSelectedYear] = useState('2024');
+  const [selectedYear, setSelectedYear] = useState(String(SUPPORTED_TAX_YEARS[SUPPORTED_TAX_YEARS.length - 1]));
   const [exportFormat, setExportFormat] = useState('PDF');
   const [isExporting, setIsExporting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -52,8 +54,10 @@ export default function Form8829Page() {
         setValidationErrors(['Home office settings not configured']);
       }
     } catch (error) {
-      console.error('Error loading home office settings:', error);
-      showError('Load Failed', 'Failed to load home office settings');
+      const message = error instanceof Error ? error.message : 'Failed to load home office settings';
+      setCalculation(null);
+      setValidationErrors([message]);
+      showError('Home office calculation unavailable', message);
     } finally {
       setIsLoading(false);
     }
@@ -93,11 +97,11 @@ export default function Form8829Page() {
           'Authorization': `Bearer ${token}`,
         },
         credentials: 'include',
-        body: JSON.stringify({ type: 'form8829' }),
+        body: JSON.stringify({ type: 'form8829', year: Number(selectedYear) }),
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
+        const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.error || 'Failed to generate report');
       }
 
@@ -108,7 +112,7 @@ export default function Form8829Page() {
       a.href = url;
 
       const today = new Date().toISOString().split('T')[0];
-      a.download = `form8829_${today}.pdf`;
+      a.download = `form8829_${selectedYear}_${today}.pdf`;
 
       document.body.appendChild(a);
       a.click();
@@ -169,9 +173,7 @@ export default function Form8829Page() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="2024">2024</SelectItem>
-                  <SelectItem value="2023">2023</SelectItem>
-                  <SelectItem value="2022">2022</SelectItem>
+                  {[...SUPPORTED_TAX_YEARS].reverse().map(year => <SelectItem key={year} value={String(year)}>{year}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -183,12 +185,12 @@ export default function Form8829Page() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="PDF">PDF Document</SelectItem>
-                  <SelectItem value="CSV">CSV Spreadsheet</SelectItem>
                 </SelectContent>
               </Select>
             </div>
           </div>
 
+          <PremiumFeatureGate feature="exports" featureName="tax form exports" inline>
           <Button
             onClick={handleExport}
             disabled={isExporting || !homeOfficeSettings || validationErrors.length > 0}
@@ -197,6 +199,7 @@ export default function Form8829Page() {
             <Download className="w-4 h-4 mr-2" />
             {isExporting ? 'Generating...' : `Export ${selectedYear} Form 8829`}
           </Button>
+          </PremiumFeatureGate>
         </Card>
 
         {/* Form 8829 Preview */}

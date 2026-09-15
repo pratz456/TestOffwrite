@@ -1,3 +1,4 @@
+import { assertSubscriptionOwner, refreshSubscriptionForUser } from '@/lib/stripe/subscription-sync';
 import { NextResponse } from 'next/server';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import Stripe from 'stripe';
@@ -10,11 +11,13 @@ function getStripeOrNull() {
 }
 
 export async function POST(req: Request) {
+  let uid: string;
+  try { ({ uid } = await getUserFromReqOrThrow(req)); }
+  catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
   try {
-    const { uid } = await getUserFromReqOrThrow(req);
     const stripe = getStripeOrNull();
     if (!stripe) {
-      return NextResponse.json({ error: 'Stripe not configured' }, { status: 500 });
+      return NextResponse.json({ error: 'Billing is temporarily unavailable' }, { status: 503 });
     }
 
     // Get user profile to find Stripe subscription ID
@@ -32,6 +35,7 @@ export async function POST(req: Request) {
 
     // Retrieve current subscription
     const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+    assertSubscriptionOwner(uid, userData ?? {}, subscription);
 
     // If subscription is already cancelled, return success
     if (subscription.status === 'canceled') {
@@ -45,6 +49,7 @@ export async function POST(req: Request) {
     await stripe.subscriptions.update(subscriptionId, {
       cancel_at_period_end: true,
     });
+    await refreshSubscriptionForUser(uid, stripe, subscriptionId);
 
     return NextResponse.json({
       success: true,
@@ -53,7 +58,7 @@ export async function POST(req: Request) {
   } catch (error: any) {
     console.error('Error cancelling subscription:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to cancel subscription' },
+      { error: 'Failed to cancel subscription. Please try again.' },
       { status: 500 }
     );
   }

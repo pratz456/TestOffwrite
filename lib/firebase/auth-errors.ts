@@ -41,7 +41,12 @@ export function getAuthErrorMessage(errorCode: string): string {
     // App errors
     'auth/app-not-authorized': 'This app is not authorized to use Firebase Authentication.',
     'auth/keychain-error': 'A keychain error occurred. Please try again.',
-    'auth/internal-error': 'An internal error occurred. Please try again later.',
+    'auth/internal-error': 'Sign-in is temporarily unavailable. Please retry, or use your email and password.',
+    'auth/session-unavailable': 'We could not start your secure session. Please try signing in again.',
+    'auth/logout-unavailable': 'Sign-out could not be completed. Check your connection and try again.',
+    'auth/popup-closed-by-user': 'Sign-in was cancelled. You can try again when you are ready.',
+    'auth/popup-blocked': 'Allow popups for this site, then try signing in again.',
+    'auth/unauthorized-domain': 'Sign-in is not available on this address. Please use writeoffapp.com.',
     'auth/invalid-user-token': 'Your session has expired. Please sign in again.',
     'auth/user-token-expired': 'Your session has expired. Please sign in again.',
     

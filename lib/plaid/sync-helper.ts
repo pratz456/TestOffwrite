@@ -1,3 +1,4 @@
+import { getTransactionHistoryWindow, isWithinHistoryWindow } from '@/lib/subscriptions/history-window';
 import { Configuration, PlaidApi, PlaidEnvironments } from 'plaid';
 import { getUserProfileServer, upsertUserProfileServer } from '../firebase/profiles-server';
 import {
@@ -10,33 +11,7 @@ import { fetchAllPlaidTransactions } from './pagination';
 import { debugPlaid } from './debug';
 import { analyzeTransactionWithRetry, convertToEnhancedContext, findMissingUserFields, TransactionInput } from '../ai/analyzeTransaction';
 
-// Helper function to get Plaid config from both environment variables and functions.config()
-function getPlaidConfig() {
-  // Try to read from functions.config() first (for Firebase Functions)
-  let plaidClientId: string | undefined;
-  let plaidSecret: string | undefined;
-  let plaidEnv: string | undefined;
-
-  try {
-
-    const functions = require('firebase-functions');
-    const config = functions.config();
-    if (config.plaid) {
-      plaidClientId = config.plaid.client_id || config.plaid.clientId;
-      plaidSecret = config.plaid.secret;
-      plaidEnv = config.plaid.env;
-    }
-  } catch (e) {
-    // functions.config() not available, continue to process.env
-  }
-
-  // Fall back to process.env (for Next.js/local dev)
-  plaidClientId = plaidClientId || process.env.PLAID_CLIENT_ID;
-  plaidSecret = plaidSecret || process.env.PLAID_SECRET;
-  plaidEnv = plaidEnv || process.env.PLAID_ENV || 'sandbox';
-
-  return { plaidClientId, plaidSecret, plaidEnv };
-}
+import { getPlaidConfig } from './config';
 
 const { plaidClientId, plaidSecret, plaidEnv } = getPlaidConfig();
 
@@ -301,7 +276,8 @@ export async function syncUserTransactionsIncremental(userId: string): Promise<S
     }
 
     // Filter out pending transactions (they'll be picked up when settled)
-    const settledAdded = allAdded.filter(tx => !tx.pending);
+    const historyWindow = await getTransactionHistoryWindow(userId);
+    const settledAdded = allAdded.filter(tx => !tx.pending && isWithinHistoryWindow(tx.date, historyWindow));
     const skippedPending = allAdded.length - settledAdded.length;
     if (skippedPending > 0) {
       console.log(`⏳ [Sync Helper] Skipped ${skippedPending} pending transactions`);
@@ -421,7 +397,7 @@ export async function syncUserTransactionsIncremental(userId: string): Promise<S
 
 /**
  * Syncs transactions for a user from Plaid to Firebase.
- * importTimeframe is display/filter only; fetch length is always 730 days.
+ * importTimeframe is display-only; the server plan controls the allowed history window.
  * @param userId - The user's Firebase UID
  * @param importTimeframe - Logged/stored for display only ('1month', '6months', '2years', etc.)
  * @returns Promise<SyncResult>
@@ -445,9 +421,10 @@ export async function syncUserTransactions(
       };
     }
 
-    // Always use 730 days (2 years) - Plaid maximum
-    const daysToFetch = 730;
-    const actualDays = 730;
+    // New history import follows the current server-verified plan.
+    const historyWindow = await getTransactionHistoryWindow(userId);
+    const daysToFetch = historyWindow.days;
+    const actualDays = daysToFetch;
 
     const endDate = new Date();
     endDate.setHours(23, 59, 59, 999); // End of today
@@ -458,13 +435,13 @@ export async function syncUserTransactions(
     startDate.setTime(startDateMs);
     startDate.setHours(0, 0, 0, 0); // Start of the day
 
-    const startDateStr = startDate.toISOString().split('T')[0];
+    const startDateStr = historyWindow.startDate;
     const endDateStr = endDate.toISOString().split('T')[0];
     const actualDateRange = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
 
     console.log(`📅 [Sync Helper] Transaction sync configuration:`);
     console.log(`   📆 Date range: ${startDateStr} to ${endDateStr}`);
-    console.log(`   📊 Timeframe: 730 days (fixed Plaid maximum)`);
+    console.log(`   📊 Timeframe: ${daysToFetch} days (current plan)`);
     console.log(`   ✅ Calculated: ${actualDays} days (MAXIMUM AVAILABLE)`);
     console.log(`   🔍 Actual date range: ${actualDateRange} days`);
     console.log(`   📅 Start date: ${startDate.toLocaleDateString()} (${startDateStr})`);
@@ -516,7 +493,7 @@ export async function syncUserTransactions(
     console.log(`📊 [Sync Helper] Fetched ${totalTransactions} transactions from Plaid across ${totalPages} page(s)`);
 
     // Filter out pending transactions (they'll be picked up when settled)
-    const settledTransactions = transactions.filter(tx => !tx.pending);
+    const settledTransactions = transactions.filter(tx => !tx.pending && isWithinHistoryWindow(tx.date, historyWindow));
     const skippedPending = transactions.length - settledTransactions.length;
     if (skippedPending > 0) {
       console.log(`⏳ [Sync Helper] Skipped ${skippedPending} pending transactions`);

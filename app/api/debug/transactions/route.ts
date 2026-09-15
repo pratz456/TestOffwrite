@@ -9,29 +9,32 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const accountId = searchParams.get('accountId');
-    
+
     // Always require proper authentication — never accept userId from query params
-    const authResult = await getUserFromReqOrThrow(request);
+    let authResult;
+    try { authResult = await getUserFromReqOrThrow(request); }
+    catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
+    if (process.env.NODE_ENV === 'production') return NextResponse.json({ error: 'Not found' }, { status: 404 });
     const uid = authResult.uid;
-    
+
     console.log(`🔍 [DEBUG] Checking transactions for user: ${uid}`);
-    
+
     // Check accounts
     const accountsSnap = await adminDb
       .collection(`user_profiles/${uid}/accounts`)
       .get();
-      
+
     console.log(`📊 [DEBUG] Found ${accountsSnap.size} accounts`);
-    
+
     // Check transactions for each account
     const results: any = {};
     for (const accDoc of accountsSnap.docs) {
       const txSnap = await adminDb
         .collection(`user_profiles/${uid}/accounts/${accDoc.id}/transactions`)
         .get();
-      
+
       console.log(`📊 [DEBUG] Account ${accDoc.id}: ${txSnap.size} transactions`);
-      
+
       results[accDoc.id] = {
         accountName: accDoc.data().name,
         accountId: accDoc.id,
@@ -43,11 +46,11 @@ export async function GET(request: NextRequest) {
         }))
       };
     }
-    
+
     // If specific account requested, also check collectionGroup query
     if (accountId) {
       console.log(`🔍 [DEBUG] Checking collectionGroup query for account: ${accountId}`);
-      
+
       try {
         const cgSnap = await adminDb
           .collectionGroup('transactions')
@@ -55,9 +58,9 @@ export async function GET(request: NextRequest) {
           .where('account_id', '==', accountId)
           .limit(10)
           .get();
-        
+
         console.log(`📊 [DEBUG] CollectionGroup query found ${cgSnap.size} transactions`);
-        
+
         results.collectionGroupQuery = {
           found: cgSnap.size,
           sample: cgSnap.docs[0]?.data() || null
@@ -70,19 +73,18 @@ export async function GET(request: NextRequest) {
         };
       }
     }
-    
-    return NextResponse.json({ 
+
+    return NextResponse.json({
       success: true,
       userId: uid,
       totalAccounts: accountsSnap.size,
-      details: results 
+      details: results
     });
-    
+
   } catch (error: any) {
     console.error('❌ [DEBUG] Error checking transactions:', error);
-    return NextResponse.json({ 
-      error: error.message,
-      stack: error.stack 
+    return NextResponse.json({
+      error: 'Unable to inspect transaction status'
     }, { status: 500 });
   }
 }

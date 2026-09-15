@@ -80,6 +80,10 @@ export default function SubscriptionsPage() {
         {/* Subscription Status & Pricing Card - Above Features */}
         <div className="max-w-xl mx-auto mb-10 sm:mb-14">
           <HistoricalAccessUpgradeCard />
+          <div className="mt-4 text-center space-y-2">
+            <Button variant="outline" onClick={() => router.push('/protected/settings?tab=account')}>Manage billing and payment methods</Button>
+            <p className="text-xs text-muted-foreground">Billing and your saved records remain accessible when a plan ends.</p>
+          </div>
         </div>
 
         {/* Features Grid */}

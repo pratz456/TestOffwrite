@@ -19,6 +19,8 @@ import {
   MapPin
 } from '@/lib/icons';
 import { getUserProfile, upsertUserProfile, UserProfile } from '@/lib/firebase/profiles';
+import { useSubscription } from '@/lib/hooks/use-subscription';
+import { useSearchParams } from 'next/navigation';
 import { useBeforeUnload } from '@/lib/hooks/use-before-unload';
 import { CreditCard, Calendar, Sparkles, ExternalLink, XCircle, AlertTriangle, Home, Car, Receipt, Info, Building2, Landmark, Download, Trash2, Link2 } from 'lucide-react';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
@@ -29,9 +31,12 @@ import { Badge } from '@/components/ui/badge';
 
 // Payment Settings Tab Component
 const PaymentSettingsTab: React.FC<{ user: any }> = ({ user }) => {
-  const [loading, setLoading] = useState(true);
+  const { status: accessStatus, isLoading: planLoading, error: planError, refetch } = useSubscription();
+  const [syncLoading, setLoading] = useState(false);
+  const loading = planLoading || syncLoading;
   const [cancelLoading, setCancelLoading] = useState(false);
-  const [accessStatus, setAccessStatus] = useState<any>(null);
+  const [portalLoading, setPortalLoading] = useState(false);
+  const billingAction = useRef(false);
   const [confirmDialog, setConfirmDialog] = useState<{
     open: boolean;
     title: string;
@@ -41,34 +46,28 @@ const PaymentSettingsTab: React.FC<{ user: any }> = ({ user }) => {
     onConfirm: () => void;
   }>({ open: false, title: '', description: '', confirmLabel: 'Confirm', variant: 'default', onConfirm: () => {} });
 
-  useEffect(() => {
-    const fetchAccessStatus = async () => {
-      try {
-        const response = await makeAuthenticatedRequest('/api/subscriptions/check-access');
-        if (response.ok) {
-          const data = await response.json();
-          setAccessStatus(data.data);
-        }
-      } catch (error) {
-        console.error('Error fetching access status:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchAccessStatus();
-
-    // Refresh every minute to update countdown
-    const interval = setInterval(fetchAccessStatus, 60000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const handleManageBilling = () => {
-    // Navigate to subscription selection page to choose a plan
-    window.location.href = '/protected/subscriptions';
+  const handleManageBilling = async () => {
+    if (billingAction.current) return;
+    billingAction.current = true;
+    setPortalLoading(true);
+    try {
+      const response = await makeAuthenticatedRequest('/api/stripe/create-portal-session', { method: 'POST' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || typeof data.url !== 'string') throw new Error('Unable to open billing');
+      const destination = new URL(data.url);
+      if (destination.protocol !== 'https:' || destination.hostname !== 'billing.stripe.com') throw new Error('Invalid billing destination');
+      window.location.assign(destination.href);
+    } catch {
+      toast.error('Billing could not be opened. Please try again.');
+    } finally {
+      billingAction.current = false;
+      setPortalLoading(false);
+    }
   };
 
   const doCancelSubscription = async () => {
+    if (billingAction.current) return;
+    billingAction.current = true;
     setCancelLoading(true);
     try {
       const response = await makeAuthenticatedRequest('/api/stripe/cancel-subscription', {
@@ -78,11 +77,7 @@ const PaymentSettingsTab: React.FC<{ user: any }> = ({ user }) => {
       if (response.ok) {
         const data = await response.json();
         toast.success('Subscription cancelled. Access continues until end of billing period.');
-        const statusResponse = await makeAuthenticatedRequest('/api/subscriptions/check-access');
-        if (statusResponse.ok) {
-          const statusData = await statusResponse.json();
-          setAccessStatus(statusData.data);
-        }
+        await refetch();
       } else {
         const errorData = await response.json().catch(() => ({}));
         toast.error(errorData.error || 'Failed to cancel subscription.');
@@ -91,6 +86,7 @@ const PaymentSettingsTab: React.FC<{ user: any }> = ({ user }) => {
       console.error('Error cancelling subscription:', error);
       toast.error('Failed to cancel subscription.');
     } finally {
+      billingAction.current = false;
       setCancelLoading(false);
     }
   };
@@ -124,7 +120,13 @@ const PaymentSettingsTab: React.FC<{ user: any }> = ({ user }) => {
           <h3 className="text-sm font-semibold text-foreground">Historical Transactions Subscription</h3>
         </div>
 
-        {accessStatus?.hasAccess ? (
+        {planError && (
+          <div role="alert" className="rounded-lg border p-4 space-y-2">
+            <p className="text-sm">Your plan could not be verified. You can still open billing below.</p>
+            <Button size="sm" variant="outline" onClick={() => void refetch()}>Retry plan check</Button>
+          </div>
+        )}
+        {accessStatus?.hasAccess || accessStatus?.subscription ? (
           <div className="space-y-4">
             {/* Trial Countdown Timer */}
             {accessStatus.isTrial && accessStatus.trialEnd && (
@@ -141,7 +143,7 @@ const PaymentSettingsTab: React.FC<{ user: any }> = ({ user }) => {
                   <p className="font-medium text-foreground text-sm">Status</p>
                   <div className="flex items-center gap-2 mt-1">
                     <Badge variant={accessStatus.isTrial ? 'default' : 'default'}>
-                      {accessStatus.isTrial ? 'Trial Active' : accessStatus.subscription?.status === 'canceled' ? 'Cancelled' : 'Active'}
+                      {accessStatus.isTrial ? 'Trial Active' : accessStatus.hasAccess ? 'Active' : accessStatus.subscription?.status?.replaceAll('_', ' ') || 'Inactive'}
                     </Badge>
                     {accessStatus.subscription?.cancelAtPeriodEnd && (
                       <Badge variant="secondary" className="bg-yellow-500/20 text-yellow-700 dark:text-yellow-300">
@@ -240,10 +242,10 @@ const PaymentSettingsTab: React.FC<{ user: any }> = ({ user }) => {
               </div>
             </div>
           </div>
-        ) : (
+        ) : planError ? null : (
           <div className="p-4 bg-muted/30 border border-border rounded-lg space-y-4">
             <p className="text-sm text-muted-foreground">
-              You don't have an active subscription. Upgrade to access up to 24 months (depending on your bank).
+              {planError ? 'Your plan status is currently unavailable.' : "You don't have an active subscription."} Upgrade to access up to 24 months (depending on your bank).
             </p>
             <div className="flex gap-3">
               <Button
@@ -323,17 +325,17 @@ const PaymentSettingsTab: React.FC<{ user: any }> = ({ user }) => {
           </p>
           <Button
             onClick={handleManageBilling}
-            disabled={!accessStatus?.hasAccess}
+            disabled={portalLoading || cancelLoading}
             variant="outline"
             size="sm"
             className="w-full"
           >
-            Open Billing Portal
+            {portalLoading ? 'Opening billing…' : 'Open Billing Portal'}
             <ExternalLink className="ml-2 w-4 h-4" />
           </Button>
           {!accessStatus?.hasAccess && (
             <p className="text-xs text-muted-foreground mt-2">
-              Subscribe first to access billing management
+              Billing remains available after a plan expires.
             </p>
           )}
         </div>
@@ -464,7 +466,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState('');
-  const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
+  const settingsSearchParams = useSearchParams();
+  const [activeTab, setActiveTab] = useState<SettingsTab>(() => settingsSearchParams.get('tab') === 'account' || settingsSearchParams.get('tab') === 'payment' ? 'account' : 'profile');
   const [confirmDialog, setConfirmDialog] = useState<{
     open: boolean;
     title: string;

@@ -8,7 +8,9 @@ import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 
 export async function POST(req: Request) {
   try {
-    const { uid } = await getUserFromReqOrThrow(req);
+    let uid: string;
+    try { ({ uid } = await getUserFromReqOrThrow(req)); }
+    catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
     const { public_token } = await req.json();
 
     if (!public_token) {

@@ -1,5 +1,7 @@
 "use client";
 
+import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
+import { PremiumFeatureGate } from '@/components/premium-feature-gate';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Download, Calculator, Plus, Trash2, AlertCircle, CheckCircle } from 'lucide-react';
@@ -19,7 +21,7 @@ export default function Form4562Page() {
   const { user } = useAuth();
   const { toasts, removeToast, showSuccess, showError } = useToasts();
 
-  const [selectedYear, setSelectedYear] = useState('2024');
+  const [selectedYear, setSelectedYear] = useState(String(SUPPORTED_TAX_YEARS[SUPPORTED_TAX_YEARS.length - 1]));
   const [exportFormat, setExportFormat] = useState('PDF');
   const [isExporting, setIsExporting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -44,7 +46,7 @@ export default function Form4562Page() {
       loadAssets();
       fetchBusinessIncome();
     }
-  }, [user]);
+  }, [user, selectedYear]);
 
   const fetchBusinessIncome = async () => {
     try {
@@ -68,7 +70,7 @@ export default function Form4562Page() {
         setAssets(data || []);
 
         if (data && data.length > 0) {
-          const calc = calc4562(data, businessIncome || 0);
+          const calc = calc4562(data, businessIncome || 0, Number(selectedYear));
           setCalculation(calc);
 
           const errors = validateAssets(data);
@@ -83,7 +85,9 @@ export default function Form4562Page() {
       }
     } catch (error) {
       console.error('Error loading assets:', error);
-      showError('Load Failed', 'Failed to load business assets');
+      setCalculation(null);
+      setValidationErrors([error instanceof Error ? error.message : 'Failed to load business assets']);
+      showError('Asset review needed', error instanceof Error ? error.message : 'Failed to load business assets');
     } finally {
       setIsLoading(false);
     }
@@ -123,11 +127,11 @@ export default function Form4562Page() {
           'Authorization': `Bearer ${token}`,
         },
         credentials: 'include',
-        body: JSON.stringify({ type: 'form4562' }),
+        body: JSON.stringify({ type: 'form4562', year: Number(selectedYear) }),
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
+        const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.error || 'Failed to generate report');
       }
 
@@ -138,7 +142,7 @@ export default function Form4562Page() {
       a.href = url;
 
       const today = new Date().toISOString().split('T')[0];
-      a.download = `form4562_${today}.pdf`;
+      a.download = `form4562_${selectedYear}_${today}.pdf`;
 
       document.body.appendChild(a);
       a.click();
@@ -258,9 +262,7 @@ export default function Form4562Page() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="2024">2024</SelectItem>
-                  <SelectItem value="2023">2023</SelectItem>
-                  <SelectItem value="2022">2022</SelectItem>
+                  {[...SUPPORTED_TAX_YEARS].reverse().map(year => <SelectItem key={year} value={String(year)}>{year}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -272,12 +274,12 @@ export default function Form4562Page() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="PDF">PDF Document</SelectItem>
-                  <SelectItem value="CSV">CSV Spreadsheet</SelectItem>
                 </SelectContent>
               </Select>
             </div>
           </div>
 
+          <PremiumFeatureGate feature="exports" featureName="tax form exports" inline>
           <Button
             onClick={handleExport}
             disabled={isExporting || assets.length === 0 || validationErrors.length > 0}
@@ -286,6 +288,7 @@ export default function Form4562Page() {
             <Download className="w-4 h-4 mr-2" />
             {isExporting ? 'Generating...' : `Export ${selectedYear} Form 4562`}
           </Button>
+          </PremiumFeatureGate>
         </Card>
 
         {/* Form 4562 Preview */}

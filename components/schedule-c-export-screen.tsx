@@ -9,6 +9,7 @@ import { Download, FileText, Calendar, Lock, Sparkles } from 'lucide-react';
 import { useSubscription } from '@/lib/hooks/use-subscription';
 import { useRouter } from 'next/navigation';
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
 
 interface Transaction {
   id: string;
@@ -57,7 +58,9 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
   // Check subscription status for feature gating
   const { hasAccess, isTrial, isPaid, isLoading: subscriptionLoading, status: subscriptionStatus } = useSubscription();
 
-  const [selectedYear, setSelectedYear] = useState('2025'); // Default to current year
+  const [selectedYear, setSelectedYear] = useState(() => String(
+    SUPPORTED_TAX_YEARS.find(year => year === new Date().getFullYear()) ?? SUPPORTED_TAX_YEARS[SUPPORTED_TAX_YEARS.length - 1]
+  ));
   const [exportFormat, setExportFormat] = useState('CSV (Spreadsheet)');
   const [categorySummaries, setCategorySummaries] = useState<CategorySummary[]>([]);
   const [totalDeductible, setTotalDeductible] = useState(0);
@@ -442,7 +445,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
 
     } catch (error) {
       console.error('PDF generation error:', error);
-      toast.error('Failed to generate PDF. Please try again.');
+      toast.error(error instanceof Error ? error.message : 'Failed to generate PDF. Please try again.');
     }
   };
 
@@ -491,10 +494,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
                 onChange={(e) => setSelectedYear(e.target.value)}
                 className="w-full min-h-[44px] p-3 border border-input rounded-lg bg-background text-foreground focus:ring-2 focus:ring-primary focus:border-primary focus:outline-none"
               >
-                <option value="2025">2025</option>
-                <option value="2024">2024</option>
-                <option value="2023">2023</option>
-                <option value="2022">2022</option>
+                {[...SUPPORTED_TAX_YEARS].reverse().map(year => <option key={year} value={String(year)}>{year}</option>)}
               </select>
             </div>
 

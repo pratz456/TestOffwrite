@@ -13,12 +13,14 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
+import { reconcileBusinessIncome, IncomeReconciliationRequiredError } from '@/lib/tax-rules/business-income';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { adminDb } from '@/lib/firebase/admin';
 import { getTransactionsServer } from '@/lib/firebase/transactions-server';
 import { getUserProfileServer } from '@/lib/firebase/profiles-server';
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { calcScheduleSE } from '@/lib/reports/calcSE';
+import { summarizeW2Income } from '@/lib/tax-rules/w2-income';
 import { calculateFederalIncomeTax } from '@/lib/tax-rules/federal-brackets';
 import { getFederalTaxRules, SUPPORTED_TAX_YEARS, type FederalFilingStatus } from '@/lib/tax-rules/federal-year-rules';
 import { getRecordedQuarterlyPayments } from '@/lib/firebase/quarterly-payments-server';
@@ -79,20 +81,25 @@ export async function GET(request: NextRequest) {
   const ded = deductionsSnap.empty ? {} : deductionsSnap.docs[0].data();
 
   // ── Income ──
-  const grossReceipts =
-    grossSnap.docs.reduce((s, d) => s + (d.data().amount || 0), 0) +
-    income1099Snap.docs.reduce((s, d) => s + (d.data().amount || 0), 0);
-  const w2Wages = w2Snap.docs.reduce((s, d) => s + (d.data().box1Wages || d.data().wages || 0), 0);
-  const w2Withheld =
-    w2Snap.docs.reduce((s, d) => s + (d.data().box2FederalWithheld || d.data().federalWithheld || 0), 0) +
-    (profile.w2_federal_withheld || 0);
+  let businessIncome;
+  try {
+    businessIncome = reconcileBusinessIncome(year, transactions,
+      grossSnap.docs.map(d => ({ ...d.data(), id: d.id })),
+      income1099Snap.docs.map(d => ({ ...d.data(), id: d.id })));
+  } catch (error) {
+    if (error instanceof IncomeReconciliationRequiredError) return NextResponse.json({ error: error.message, code: error.code }, { status: 422 });
+    throw error;
+  }
+  const grossReceipts = businessIncome.grossReceipts;
+  const w2Income = summarizeW2Income(w2Snap.docs.map(d => d.data()));
+  const w2Wages = w2Income.wages;
+  const w2Withheld = w2Snap.docs.length ? w2Income.federalWithheld : (profile.w2_federal_withheld || 0);
 
   const { totalDeductible } = aggregateScheduleC(transactions, String(year), CATEGORY_MAP, { mode: 'confirmed-only' });
   const netProfit = grossReceipts - totalDeductible;
   const filingStatus = (profile.filing_status || 'single') as any;
-  const w2SocialSecurityWages = w2Snap.docs.reduce((sum, d) => sum + (d.data().box3SocialSecurityWages ?? d.data().box1Wages ?? 0), 0);
-  const w2MedicareWages = w2Snap.docs.reduce((sum, d) => sum + (d.data().box5MedicareWages ?? d.data().box1Wages ?? 0), 0);
-  const seCalc = calcScheduleSE({ scheduleCNetProfit: netProfit, taxYear: year }, filingStatus, w2SocialSecurityWages, w2MedicareWages);
+  const w2MedicareWages = w2Income.medicareWagesForSE;
+  const seCalc = calcScheduleSE({ scheduleCNetProfit: netProfit, taxYear: year }, filingStatus, w2Income.socialSecurityWages, w2MedicareWages);
 
   // ── Total tax estimate ──
   const aboveLineDeductions =

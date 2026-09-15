@@ -1,3 +1,4 @@
+import { requireFeatureAccess } from '@/lib/subscriptions/feature-access';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -100,12 +101,13 @@ function computePL(
   const expensesByCategory: Record<string, number> = {};
 
   for (const t of transactions) {
-    if (t.amount > 0) {
+    // Stored Plaid/manual amounts are positive expenses and negative income.
+    if (t.amount < 0) {
       const source = t.merchant_name || 'Other Income';
-      incomeBySource[source] = (incomeBySource[source] || 0) + t.amount;
-    } else if (t.category === 'cost_of_goods_sold') {
+      incomeBySource[source] = (incomeBySource[source] || 0) + Math.abs(t.amount);
+    } else if (t.amount > 0 && t.category === 'cost_of_goods_sold') {
       costOfGoodsSold += Math.abs(t.amount);
-    } else if (t.amount < 0) {
+    } else if (t.amount > 0) {
       const cat = t.category || 'other';
       expensesByCategory[cat] = (expensesByCategory[cat] || 0) + Math.abs(t.amount);
     }
@@ -150,6 +152,9 @@ export async function POST(request: NextRequest) {
       console.log('❌ [P&L Report] Authentication failed:', authError);
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    const denied = await requireFeatureAccess(user.uid, 'reports');
+    if (denied) return denied;
 
     let body: { year?: number; month?: number } = {};
     try {
@@ -229,16 +234,19 @@ export async function GET(request: NextRequest) {
     const yearParam = searchParams.get('year');
     const monthParam = searchParams.get('month');
 
+    const { user, error: authError } = await getAuthenticatedUser(request);
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     if (format !== 'pdf') {
       return NextResponse.json({ error: 'Use POST for JSON data. GET supports format=pdf only.' }, { status: 400 });
     }
 
     console.log('📊 [P&L Report] GET PDF request');
 
-    const { user, error: authError } = await getAuthenticatedUser(request);
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const denied = await requireFeatureAccess(user.uid, 'exports');
+    if (denied) return denied;
 
     const year = yearParam ? parseInt(yearParam, 10) : new Date().getFullYear();
     const month = monthParam ? parseInt(monthParam, 10) : undefined;

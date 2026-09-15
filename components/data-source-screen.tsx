@@ -73,6 +73,22 @@ const MANUAL_TIPS = [
   { icon: '📤', text: 'You can connect your bank anytime later in Settings' },
 ];
 
+export async function uploadOnboardingDocument(file: File, year: number): Promise<NonNullable<UploadedFile['result']>> {
+  const body = new FormData();
+  body.append('file', file);
+  body.append('docType', 'auto');
+  body.append('year', String(year));
+  const response = await makeAuthenticatedRequest('/api/tax/import-bank-statement', { method: 'POST', body });
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data || data.error) {
+    throw new Error(typeof data?.error === 'string' ? data.error : 'Upload failed. Please try again.');
+  }
+  if (data.redirect) {
+    throw new Error(data.message || 'Use Import Document to upload this tax form.');
+  }
+  return data;
+}
+
 export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: DataSourceScreenProps) {
   const [selected, setSelected] = useState<DataSource>(null);
   const [uploadState, setUploadState] = useState<UploadState>('idle');
@@ -80,33 +96,20 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
   const [dragOver, setDragOver] = useState(false);
   const [currentYear] = useState(new Date().getFullYear());
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pendingUploads = useRef(0);
 
   async function uploadFile(file: File) {
-    const fd = new FormData();
-    fd.append('file', file);
-    fd.append('docType', 'auto');
-    fd.append('year', String(currentYear));
-
+    pendingUploads.current += 1;
     setUploadState('uploading');
     try {
-      const res = await makeAuthenticatedRequest('/api/tax/import-bank-statement', {
-        method: 'POST',
-        body: fd,
-      });
-
-      const data = await res.json();
+      const data = await uploadOnboardingDocument(file, currentYear);
       const uploaded: UploadedFile = { name: file.name, type: file.type, result: data };
-
-      // If GPT detected it's a tax form, redirect to doc import
-      if (data.redirect) {
-        uploaded.error = data.message;
-      }
-
       setUploadedFiles(prev => [...prev, uploaded]);
-      setUploadState('success');
     } catch (err: any) {
       setUploadedFiles(prev => [...prev, { name: file.name, type: file.type, error: err.message || 'Upload failed' }]);
-      setUploadState('error');
+    } finally {
+      pendingUploads.current -= 1;
+      if (pendingUploads.current === 0) setUploadState('idle');
     }
   }
 
@@ -347,7 +350,10 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
                 multiple
                 accept=".pdf,image/*"
                 className="hidden"
-                onChange={e => e.target.files && handleFiles(e.target.files)}
+                onChange={e => {
+                  if (e.target.files) handleFiles(e.target.files);
+                  e.target.value = '';
+                }}
               />
               {uploadState === 'uploading' ? (
                 <div className="flex flex-col items-center gap-2">

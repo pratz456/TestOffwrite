@@ -1,3 +1,5 @@
+import { reconcileBusinessIncome, IncomeReconciliationRequiredError } from '@/lib/tax-rules/business-income';
+import { decryptSensitive, isEncrypted, formatSSNForDisplay } from '@/lib/security/utils';
 /**
  * Schedule C (Form 1040) - IRS-Faithful PDF Export
  *
@@ -15,7 +17,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { PDFDocument, StandardFonts, rgb, PDFFont, PDFPage } from 'pdf-lib';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
-import { checkHistoricalAccess } from '@/lib/subscriptions/historical-access';
+import { requireFeatureAccess } from '@/lib/subscriptions/feature-access';
 import { getTransactionsServer } from '@/lib/firebase/transactions-server';
 import { getUserProfileServer } from '@/lib/firebase/profiles-server';
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
@@ -474,11 +476,8 @@ export async function POST(request: NextRequest) {
       uid = user.uid;
     }
 
-    // Subscription check
-    const access = await checkHistoricalAccess(uid);
-    if (!access.hasAccess) {
-      return NextResponse.json({ error: 'Subscription required', requiresSubscription: true }, { status: 403 });
-    }
+    const denied = await requireFeatureAccess(uid, 'exports');
+    if (denied) return denied;
 
     const { year } = await request.json();
     if (!year) return NextResponse.json({ error: 'Year is required' }, { status: 400 });
@@ -493,10 +492,13 @@ export async function POST(request: NextRequest) {
       .where('taxYear', '==', parseInt(String(year), 10))
       .limit(1).get();
     const orgData = orgSnap.empty ? {} as any : orgSnap.docs[0].data();
+    if (typeof orgData.taxpayerSSN === 'string' && isEncrypted(orgData.taxpayerSSN)) {
+      orgData.taxpayerSSN = decryptSensitive(orgData.taxpayerSSN);
+    }
     const enrichedProfile = {
       ...profile,
       ssn: orgData.taxpayerSSN
-        ? `${String(orgData.taxpayerSSN).slice(0,3)}-${String(orgData.taxpayerSSN).slice(3,5)}-${String(orgData.taxpayerSSN).slice(5,9)}`
+        ? formatSSNForDisplay(String(orgData.taxpayerSSN))
         : '',
     } as any;
 
@@ -506,7 +508,7 @@ export async function POST(request: NextRequest) {
       .where('userId', '==', uid)
       .where('taxYear', '==', parseInt(String(year), 10))
       .get();
-    const grossReceiptsTotal = grossReceiptsSnap.docs.reduce((s, d) => s + (d.data().amount || 0), 0);
+
 
     // Fetch 1099 income forms for this tax year
     const income1099Snap = await adminDb
@@ -514,10 +516,12 @@ export async function POST(request: NextRequest) {
       .where('userId', '==', uid)
       .where('taxYear', '==', parseInt(String(year), 10))
       .get();
-    const income1099Total = income1099Snap.docs.reduce((s, d) => s + (d.data().amount || 0), 0);
+
 
     // Combine all income sources for Line 1 (Gross Receipts)
-    const totalGrossReceipts = grossReceiptsTotal + income1099Total;
+    const totalGrossReceipts = reconcileBusinessIncome(Number(year), transactions.map(transaction => ({ ...transaction })),
+      grossReceiptsSnap.docs.map(d => ({ ...d.data(), id: d.id })),
+      income1099Snap.docs.map(d => ({ ...d.data(), id: d.id }))).grossReceipts;
 
     // Aggregate into Schedule C line totals
     const { totalDeductible, lineItemsArray } = aggregateScheduleC(
@@ -569,6 +573,7 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (err) {
+    if (err instanceof IncomeReconciliationRequiredError) return NextResponse.json({ error: err.message, code: err.code }, { status: 422 });
     console.error('[Schedule C Export] Error:', err);
     return NextResponse.json({ error: 'Failed to generate Schedule C PDF' }, { status: 500 });
   }

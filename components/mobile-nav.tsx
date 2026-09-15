@@ -4,6 +4,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { usePathname, useSearchParams, useRouter } from 'next/navigation';
 import { Menu, X, Home, CreditCard, BarChart3, Settings, TrendingUp, ClipboardCheck, Eye, Minus, Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
 import { LogoutButton } from './logout-button';
+import { useSubscription } from '@/lib/hooks/use-subscription';
+import { premiumFeatureForLocation } from '@/lib/subscriptions/client-status';
 
 interface MobileNavProps {
   user: { id: string; email?: string; user_metadata?: { name?: string } };
@@ -18,6 +20,7 @@ export const MobileNav: React.FC<MobileNavProps> = ({ user, userProfile }) => {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { canAccess, isLoading: planLoading, error: planError } = useSubscription();
   const drawerRef = useRef<HTMLDivElement>(null);
 
   const mainItems = [
@@ -35,6 +38,7 @@ export const MobileNav: React.FC<MobileNavProps> = ({ user, userProfile }) => {
   ];
 
   const bottomItems = [
+    { name: 'Billing and plans', href: '/protected/subscriptions', icon: CreditCard, description: 'Manage your plan and billing' },
     { name: 'Settings',         href: '/protected/settings',                   icon: Settings,      description: 'Account and preferences' },
   ];
 
@@ -124,6 +128,9 @@ export const MobileNav: React.FC<MobileNavProps> = ({ user, userProfile }) => {
   const renderNavItem = (item: typeof mainItems[0]) => {
     const Icon = item.icon;
     const active = isActive(item.href);
+    const [itemPath, query] = item.href.split('?');
+    const feature = premiumFeatureForLocation(itemPath, new URLSearchParams(query).get('screen'));
+    const locked = feature && !planLoading && !planError && !canAccess(feature);
 
     return (
       <button
@@ -140,7 +147,7 @@ export const MobileNav: React.FC<MobileNavProps> = ({ user, userProfile }) => {
           className={`w-5 h-5 flex-shrink-0 ${active ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground'}`}
         />
         <div className="flex-1 min-w-0">
-          <div className="font-medium text-sm">{item.name}</div>
+          <div className="font-medium text-sm">{item.name}{locked && <span className="ml-2 text-[10px] text-muted-foreground">Premium</span>}</div>
           <div className={`text-xs truncate ${active ? 'text-muted-foreground' : 'text-muted-foreground'}`}>
             {item.description}
           </div>

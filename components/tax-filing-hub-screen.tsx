@@ -1,5 +1,6 @@
 "use client";
 
+import { PremiumFeatureGate } from '@/components/premium-feature-gate';
 import React, { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -220,7 +221,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
       let url = "", body: any = { year };
       if (formType === "schedule-c") url = "/api/tax/schedule-c/export";
       else if (formType === "form-1040") url = "/api/tax/form-1040";
-      else { url = "/api/reports/export"; body = { type: formType }; }
+      else { url = "/api/reports/export"; body = { type: formType, year }; }
 
       const res = await fetch(url, {
         method: "POST",
@@ -394,6 +395,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
             </Card>
 
             {/* Export forms */}
+            <PremiumFeatureGate feature="exports" featureName="tax form exports">
             <Card className="bg-card border-border">
               <CardHeader className="pb-2">
                 <CardTitle className="text-base font-semibold">Export Tax Forms</CardTitle>
@@ -435,6 +437,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
                 </p>
               </CardContent>
             </Card>
+            </PremiumFeatureGate>
 
             {/* Quick actions */}
             <Card className="bg-card border-border">

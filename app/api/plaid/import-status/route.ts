@@ -12,7 +12,9 @@ import { adminDb } from '@/lib/firebase/admin';
  */
 export async function GET(req: Request) {
   try {
-    const { uid } = await getUserFromReqOrThrow(req);
+    let uid: string;
+    try { ({ uid } = await getUserFromReqOrThrow(req)); }
+    catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
 
     const profileDoc = await adminDb.doc(`user_profiles/${uid}`).get();
     const data = profileDoc.data();
@@ -32,7 +34,7 @@ export async function GET(req: Request) {
       await adminDb.doc(`user_profiles/${uid}`).update({ plaid_import_in_progress: false, plaid_import_started_at: null });
     }
 
-    const resolvedInProgress = data?.plaid_import_in_progress === true;
+    const resolvedInProgress = inProgress && !(startedAtMs && nowMs - startedAtMs > STUCK_MS);
     if (resolvedInProgress) {
       return NextResponse.json({
         status: 'running',
@@ -56,6 +58,6 @@ export async function GET(req: Request) {
     });
   } catch (err) {
     console.error('[import-status] Error:', err);
-    return NextResponse.json({ status: 'idle' }, { status: 200 });
+    return NextResponse.json({ error: 'Unable to read import status' }, { status: 503 });
   }
 }

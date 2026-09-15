@@ -1,42 +1,42 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
-import { getUserProfile, upsertUserProfile } from '@/lib/firebase/profiles';
+import { adminDb, FieldValue } from '@/lib/firebase/admin';
+import { EDITABLE_PROFILE_FIELDS, publicProfile } from '@/lib/firebase/profile-fields';
 
 export async function GET(request: NextRequest) {
+  const { user } = await getAuthenticatedUser(request);
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
-    const { user, error: authError } = await getAuthenticatedUser(request);
-    if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-    // Users can only fetch their own profile
-    const { data: profile, error } = await getUserProfile(user.uid);
-    if (error) {
-      console.error('Error fetching profile:', error);
-      return NextResponse.json({ error: 'Failed to fetch profile' }, { status: 500 });
-    }
-    return NextResponse.json({ success: true, profile });
-  } catch (error) {
-    console.error('Profile GET error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    const snapshot = await adminDb.doc(`user_profiles/${user.uid}`).get();
+    return NextResponse.json({ success: true, profile: snapshot.exists ? publicProfile(snapshot.data()!, user.uid) : null },
+      { headers: { 'Cache-Control': 'private, no-store' } });
+  } catch {
+    return NextResponse.json({ error: 'Failed to fetch profile' }, { status: 503 });
   }
 }
 
 export async function POST(request: NextRequest) {
+  const { user } = await getAuthenticatedUser(request);
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  let body;
+  try { body = await request.json(); }
+  catch { return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 }); }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return NextResponse.json({ error: 'A profile object is required' }, { status: 400 });
+  }
+  if (Object.keys(body).some(key => !EDITABLE_PROFILE_FIELDS.has(key))) {
+    return NextResponse.json({ error: 'Profile contains fields that cannot be edited' }, { status: 400 });
+  }
+  if (JSON.stringify(body).length > 32_768) return NextResponse.json({ error: 'Profile is too large' }, { status: 413 });
   try {
-    const { user, error: authError } = await getAuthenticatedUser(request);
-    if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-    const body = await request.json();
-    // Strip any attempt to override userId
-    const { userId: _ignored, ...safeFields } = body;
-    
-    const { error } = await upsertUserProfile(user.uid, safeFields);
-    if (error) {
-      console.error('Error upserting profile:', error);
-      return NextResponse.json({ error: 'Failed to save profile' }, { status: 500 });
-    }
+    const ref = adminDb.doc(`user_profiles/${user.uid}`);
+    await adminDb.runTransaction(async transaction => {
+      const snapshot = await transaction.get(ref);
+      transaction.set(ref, { ...body, updated_at: FieldValue.serverTimestamp(),
+        ...(!snapshot.exists ? { created_at: FieldValue.serverTimestamp() } : {}) }, { merge: true });
+    });
     return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error('Profile POST error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  } catch {
+    return NextResponse.json({ error: 'Failed to save profile' }, { status: 503 });
   }
 }

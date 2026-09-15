@@ -7,23 +7,31 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { adminDb } from '@/lib/firebase/admin';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { analyzeTransactionWithRetry, convertToEnhancedContext } from '@/lib/ai/analyzeTransaction';
 import { getUserProfileServer } from '@/lib/firebase/profiles-server';
 
 const MANUAL_ACCOUNT_ID = 'manual';
+const manualInput = z.object({
+  merchant_name: z.string().trim().min(1).max(500),
+  amount: z.union([z.number(), z.string().trim().min(1)]).transform(Number).pipe(z.number().finite().positive()),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value),
+  category: z.string().trim().max(200).optional(),
+  notes: z.string().trim().max(4000).optional(),
+  type: z.enum(['income', 'expense']).default('expense'),
+  is_deductible: z.boolean().nullable().optional(),
+  business_purpose: z.string().trim().max(2000).optional(),
+});
 
 export async function POST(request: NextRequest) {
   const { user, error } = await getAuthenticatedUser(request);
   if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const body = await request.json();
-  const { merchant_name, amount, date, category, notes, type, is_deductible, business_purpose } = body;
-
-  if (!merchant_name?.trim()) return NextResponse.json({ error: 'Merchant / payer name required' }, { status: 400 });
-  if (amount === undefined || isNaN(Number(amount))) return NextResponse.json({ error: 'Amount required' }, { status: 400 });
-  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return NextResponse.json({ error: 'Date must be YYYY-MM-DD' }, { status: 400 });
+  const parsed = manualInput.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) return NextResponse.json({ error: 'Provide a merchant, positive finite amount, valid date (YYYY-MM-DD), and valid transaction fields.' }, { status: 400 });
+  const { merchant_name, amount, date, category, notes, type, is_deductible, business_purpose } = parsed.data;
 
   const numAmount = Math.abs(Number(amount));
   const txType: 'income' | 'expense' = type === 'income' ? 'income' : 'expense';

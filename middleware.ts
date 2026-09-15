@@ -66,7 +66,7 @@ function addSecurityHeaders(response: NextResponse): NextResponse {
   // Restrict browser features
   response.headers.set(
     'Permissions-Policy',
-    'camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=()'
+    'camera=(self), microphone=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=()'
   );
 
   // Content Security Policy

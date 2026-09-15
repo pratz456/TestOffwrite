@@ -3,47 +3,11 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { Configuration, PlaidApi, PlaidEnvironments, LinkTokenCreateRequest, Products, CountryCode } from 'plaid';
+import { getTransactionHistoryWindow } from '@/lib/subscriptions/history-window';
 import { startFreeTrial } from '@/lib/subscriptions/trial-manager';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 
-// Helper function to get Plaid config from both environment variables and functions.config()
-function getPlaidConfig() {
-  // First try process.env (for Next.js/Cloud Run - this is the primary method)
-  let plaidClientId: string | undefined = process.env.PLAID_CLIENT_ID;
-  let plaidSecret: string | undefined = process.env.PLAID_SECRET;
-  let plaidEnv: string | undefined = process.env.PLAID_ENV;
-
-  // If not found in process.env, try functions.config() (for legacy Firebase Functions)
-  if (!plaidClientId || !plaidSecret) {
-    try {
-       
-      const functions = require('firebase-functions');
-      const config = functions.config();
-      if (config.plaid) {
-        plaidClientId = plaidClientId || config.plaid.client_id || config.plaid.clientId;
-        plaidSecret = plaidSecret || config.plaid.secret;
-        plaidEnv = plaidEnv || config.plaid.env;
-      }
-    } catch (e) {
-      // functions.config() not available, that's okay - we'll use process.env
-      console.log('⚠️ [Plaid Config] functions.config() not available, using process.env only');
-    }
-  }
-
-  // Default to sandbox if env not set
-  plaidEnv = plaidEnv || 'sandbox';
-
-  // Log what we found (without exposing secrets)
-  console.log('🔍 [Plaid Config] Configuration check:', {
-    hasClientId: !!plaidClientId,
-    hasSecret: !!plaidSecret,
-    env: plaidEnv,
-    clientIdLength: plaidClientId?.length || 0,
-    secretLength: plaidSecret?.length || 0
-  });
-
-  return { plaidClientId, plaidSecret, plaidEnv };
-}
+import { getPlaidConfig } from '@/lib/plaid/config';
 
 function pickPlaidErrorDetails(error: any): Record<string, any> | undefined {
   const data = error?.response?.data;
@@ -75,7 +39,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Get authenticated user
-    const { uid } = await getUserFromReqOrThrow(request);
+    let uid: string;
+    try { ({ uid } = await getUserFromReqOrThrow(request)); }
+    catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
 
     // Start free trial if user doesn't have one yet (when they first access Plaid)
     try {
@@ -96,7 +62,7 @@ export async function POST(request: NextRequest) {
       console.log('✅ [Plaid Link Token] User ID received:', uid);
     }
 
-    const { plaidClientId, plaidSecret, plaidEnv } = getPlaidConfig();
+    const { plaidClientId, plaidSecret, plaidEnv } = getPlaidConfig(process.env, undefined, true);
     if (!plaidClientId || !plaidSecret) {
       console.error('❌ Plaid credentials not configured:', {
         hasClientId: !!plaidClientId,
@@ -132,7 +98,7 @@ export async function POST(request: NextRequest) {
       country_codes: [CountryCode.Us],
       language: 'en',
       transactions: {
-        days_requested: 730, // Request 730 days (2 years) of transaction history - Plaid maximum
+        days_requested: (await getTransactionHistoryWindow(uid)).days,
       },
       webhook: `${process.env.NEXT_PUBLIC_SITE_URL || process.env.VERCEL_URL || 'http://localhost:3000'}/api/plaid/webhook`,
     };
@@ -140,7 +106,7 @@ export async function POST(request: NextRequest) {
     console.log('🔄 [Plaid Link Token] Calling Plaid API...');
     const createTokenResponse = await client.linkTokenCreate(configs);
 
-    console.log('[Plaid Link Token] Plaid ingestion: linkTokenDaysRequested=730');
+    console.log('[Plaid Link Token] Requested history days:', configs.transactions?.days_requested);
     console.log('✅ [Plaid Link Token] Link token created successfully');
 
     return NextResponse.json({
@@ -149,7 +115,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('❌ [Plaid Link Token] Error creating link token:', error);
 
-    const { plaidClientId, plaidSecret, plaidEnv } = getPlaidConfig();
+    const { plaidClientId, plaidSecret, plaidEnv } = getPlaidConfig(process.env, undefined, true);
     const plaid = pickPlaidErrorDetails(error);
 
     // More detailed error logging

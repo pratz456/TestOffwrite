@@ -229,6 +229,7 @@ async function savePlatformSummary(uid: string, data: Record<string, any>) {
       taxYear,
       payer: data.platform || 'Unknown',
       formType: data.form1099KAmount ? '1099-K' : '1099-NEC',
+      grossReceiptId: ref.id, // Same imported earnings: documentary evidence, not additional receipts.
       amount: data.form1099KAmount || data.form1099NECAmount || 0,
       federalWithheld: data.federalWithheld || 0,
       platform: data.platform,

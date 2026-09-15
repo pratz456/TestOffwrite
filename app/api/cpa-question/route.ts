@@ -1,11 +1,14 @@
+import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { adminAuth, adminDb } from '@/lib/firebase/admin';
+import { adminDb } from '@/lib/firebase/admin';
 
 export async function POST(request: NextRequest) {
   try {
+    const { user } = await getAuthenticatedUser(request);
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const body = await request.json();
     const { userId, transactionId, merchantName, amount, date, category, question } = body;
 
@@ -17,31 +20,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verify user authentication
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
-
-    const token = authHeader.split('Bearer ')[1];
-    let decodedToken;
-    try {
-      decodedToken = await adminAuth.verifyIdToken(token);
-    } catch (error) {
-      return NextResponse.json(
-        { error: 'Invalid token' },
-        { status: 401 }
-      );
-    }
-
-    if (decodedToken.uid !== userId) {
+    if (user.uid !== userId) {
       return NextResponse.json(
         { error: 'User ID mismatch' },
         { status: 403 }
       );
+    }
+
+    if (typeof question !== 'string' || !question.trim() || question.length > 5000 ||
+      !Number.isFinite(Number(amount)) || typeof merchantName !== 'string') {
+      return NextResponse.json({ error: 'Invalid question or transaction details' }, { status: 400 });
     }
 
     // Create CPA question document
@@ -57,8 +45,8 @@ export async function POST(request: NextRequest) {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       // Additional metadata
-      userEmail: decodedToken.email || '',
-      userName: decodedToken.name || '',
+      userEmail: user.email || '',
+      userName: '',
     };
 
     // Save to Firestore
@@ -69,7 +57,7 @@ export async function POST(request: NextRequest) {
       const emailBody = [
         `New CPA Question (ID: ${docRef.id})`,
         ``,
-        `From: ${decodedToken.name || 'Unknown'} (${decodedToken.email || userId})`,
+        `From: Unknown (${user.email || userId})`,
         `Date: ${new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })}`,
         ``,
         `Transaction: ${merchantName}`,
@@ -95,7 +83,7 @@ export async function POST(request: NextRequest) {
           body: JSON.stringify({
             from: 'WriteOff Notifications <notifications@writeoffapp.com>',
             to: ['writeoffapp@gmail.com'],
-            subject: `CPA Question: ${merchantName} ($${parseFloat(amount).toFixed(2)}) - ${decodedToken.name || decodedToken.email || 'User'}`,
+            subject: `CPA Question: ${merchantName} ($${parseFloat(amount).toFixed(2)}) - ${user.email || 'User'}`,
             text: emailBody,
           }),
         });
@@ -130,6 +118,8 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
+    const { user } = await getAuthenticatedUser(request);
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     // Get user's CPA questions
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('userId');
@@ -141,27 +131,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Verify authentication
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
-
-    const token = authHeader.split('Bearer ')[1];
-    let decodedToken;
-    try {
-      decodedToken = await adminAuth.verifyIdToken(token);
-    } catch (error) {
-      return NextResponse.json(
-        { error: 'Invalid token' },
-        { status: 401 }
-      );
-    }
-
-    if (decodedToken.uid !== userId) {
+    if (user.uid !== userId) {
       return NextResponse.json(
         { error: 'User ID mismatch' },
         { status: 403 }

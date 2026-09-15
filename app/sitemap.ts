@@ -12,6 +12,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: baseUrl, lastModified: now, changeFrequency: "weekly", priority: 1 },
     { url: `${baseUrl}/welcome`, lastModified: now, changeFrequency: "weekly", priority: 0.9 },
     { url: `${baseUrl}/blog`, lastModified: now, changeFrequency: "weekly", priority: 0.9 },
+    { url: `${baseUrl}/resources/freelance-expense-reset`, lastModified: now, changeFrequency: "monthly", priority: 0.75 },
     { url: `${baseUrl}/contact`, lastModified: now, changeFrequency: "monthly", priority: 0.7 },
     { url: `${baseUrl}/help`, lastModified: now, changeFrequency: "monthly", priority: 0.7 },
     { url: `${baseUrl}/help-support`, lastModified: now, changeFrequency: "monthly", priority: 0.6 },

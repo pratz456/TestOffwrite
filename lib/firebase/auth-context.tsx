@@ -1,93 +1,71 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState } from 'react';
-import { onAuthStateChanged, User } from 'firebase/auth';
+import { onIdTokenChanged } from 'firebase/auth';
 import { auth } from './client';
-import { AuthUser } from './auth';
+import { signOutUser, type AuthUser } from './auth';
+import { ensureBrowserSession, clearPendingBrowserSession } from './browser-session';
+import { createAuthError } from './auth-errors';
 
-interface AuthContextType {
-  user: AuthUser | null;
-  loading: boolean;
-  signOut: () => Promise<void>;
-}
+type AuthState = { user: AuthUser | null; loading: boolean; error: string | null };
+interface AuthContextType extends AuthState { signOut: () => Promise<void> }
+const initialState: AuthState = { user: null, loading: true, error: null };
+const AuthContext = createContext<AuthContextType>({ ...initialState, signOut: async () => {} });
+export function useAuth() { return useContext(AuthContext); }
 
-const AuthContext = createContext<AuthContextType>({
-  user: null,
-  loading: true,
-  signOut: async () => {},
-});
-
-export function useAuth() {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
+/** Ignore older token exchanges if sign-out, another account, or unmount overtakes them. */
+export function subscribeToBrowserAuth(publish: (state: AuthState) => void) {
+  let generation = 0;
+  let disposed = false;
+  let readyUser: AuthUser | null = null;
+  const unsubscribe = onIdTokenChanged(auth, async (firebaseUser) => {
+    const current = ++generation;
+    if (!firebaseUser) {
+      readyUser = null;
+      clearPendingBrowserSession();
+      publish({ user: null, loading: false, error: null });
+      return;
+    }
+    const user: AuthUser = {
+      id: firebaseUser.uid, email: firebaseUser.email, emailVerified: firebaseUser.emailVerified,
+      sessionReady: false, user_metadata: { name: firebaseUser.displayName || undefined },
+    };
+    // Verification screens need this identity to resend/check email verification.
+    if (!firebaseUser.emailVerified) {
+      readyUser = null;
+      clearPendingBrowserSession();
+      publish({ user, loading: false, error: null });
+      return;
+    }
+    const refreshingSameAccount = readyUser?.id === firebaseUser.uid;
+    if (!refreshingSameAccount) readyUser = null;
+    publish({ user: refreshingSameAccount ? readyUser : null, loading: !refreshingSameAccount, error: null });
+    try {
+      await ensureBrowserSession(firebaseUser);
+      if (!disposed && current === generation) {
+        readyUser = { ...user, sessionReady: true };
+        publish({ user: readyUser, loading: false, error: null });
+      }
+    } catch (error) {
+      if (!disposed && current === generation) {
+        readyUser = null;
+        publish({ user: null, loading: false, error: createAuthError(error).message });
+      }
+    }
+  }, () => {
+    ++generation;
+    readyUser = null;
+    if (!disposed) publish({ user: null, loading: false, error: 'We could not verify your session. Please sign in again.' });
+  });
+  return () => { disposed = true; ++generation; unsubscribe(); };
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser: User | null) => {
-      console.log('[AuthContext] Auth state changed:', {
-        hasUser: !!firebaseUser,
-        userId: firebaseUser?.uid,
-        email: firebaseUser?.email,
-        emailVerified: firebaseUser?.emailVerified,
-        environment: process.env.NODE_ENV
-      });
-      
-      if (firebaseUser) {
-        // Set auth cookie for middleware
-        try {
-          const token = await firebaseUser.getIdToken();
-          const isProduction = process.env.NODE_ENV === 'production';
-          document.cookie = `firebase-auth-token=${token}; path=/; max-age=3600; ${isProduction ? 'secure; samesite=none' : 'samesite=lax'}`;
-          
-          console.log('[AuthContext] User authenticated, setting user state');
-          setUser({
-            id: firebaseUser.uid,
-            email: firebaseUser.email,
-            user_metadata: {
-              name: firebaseUser.displayName || undefined
-            }
-          });
-        } catch (error) {
-          console.error('[AuthContext] Error getting ID token:', error);
-          setUser(null);
-          // Clear auth cookie on error
-          document.cookie = 'firebase-auth-token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
-        }
-      } else {
-        console.log('[AuthContext] No user, clearing state');
-        setUser(null);
-        // Clear auth cookie when user signs out
-        const isProduction = process.env.NODE_ENV === 'production';
-        document.cookie = `firebase-auth-token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; ${isProduction ? 'secure; samesite=none' : 'samesite=lax'}`;
-      }
-      setLoading(false);
-    });
-
-    return unsubscribe;
-  }, []);
-
+  const [state, setState] = useState<AuthState>(initialState);
+  useEffect(() => subscribeToBrowserAuth(setState), []);
   const signOut = async () => {
-    try {
-      await auth.signOut();
-      // Clear auth cookie
-      document.cookie = 'firebase-auth-token=; path=/; max-age=0';
-    } catch (error) {
-      console.error('Error signing out:', error);
-    }
+    const { error } = await signOutUser();
+    if (error) throw new Error(error.message);
   };
-
-  return (
-    <AuthContext.Provider value={{ user, loading, signOut }}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={{ ...state, signOut }}>{children}</AuthContext.Provider>;
 }
-
-

@@ -1,6 +1,9 @@
 import type { MetadataRoute } from "next";
 
 export default function robots(): MetadataRoute.Robots {
+  if (process.env.NEXT_PUBLIC_APP_ENV === 'staging') {
+    return { rules: [{ userAgent: '*', disallow: '/' }] };
+  }
   const baseUrl =
     process.env.NEXT_PUBLIC_SITE_URL ||
     (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");

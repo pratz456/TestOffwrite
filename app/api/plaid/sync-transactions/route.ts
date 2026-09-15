@@ -8,11 +8,13 @@ export async function POST(req: Request) {
     console.log('🔄 [Plaid Sync] Starting transaction sync...');
 
     // Get the authenticated user
-    const { uid } = await getUserFromReqOrThrow(req);
+    let uid: string;
+    try { ({ uid } = await getUserFromReqOrThrow(req)); }
+    catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
     console.log('✅ [Plaid Sync] User authenticated:', uid);
 
     const body = await req.json().catch(() => ({}));
-    // import_timeframe is display/filter only; fetch length is always 730 days.
+    // import_timeframe is display-only; the server plan determines the history window.
     const { userId = uid, import_timeframe = '2years', incremental = false } = body;
 
     if (!userId) {

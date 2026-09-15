@@ -1,11 +1,14 @@
 "use client";
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Upload, FileText, Camera, CheckCircle, AlertCircle } from 'lucide-react';
 import { auth } from '@/lib/firebase/client';
 import type { ReceiptMatchCandidate } from '@/lib/ocr/receipt-processor';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { receiptCommitForm, type ReceiptDraft } from '@/lib/receipts/receipt-review';
 
 interface ReceiptUploadScreenProps {
   user: {
@@ -27,6 +30,10 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [draft, setDraft] = useState<ReceiptDraft>({ merchant: '', amount: '', date: '', category: 'other' });
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const operationRef = useRef(false);
   const [extractedData, setExtractedData] = useState<null | {
     merchant: string;
     amount: number; // positive only (sign decided at commit time)
@@ -46,27 +53,43 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
   const [attachmentChoice, setAttachmentChoice] = useState<'attach' | 'create'>('create');
   const [selectedCandidateTransId, setSelectedCandidateTransId] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!selectedFile) { setPreviewUrl(null); return; }
+    const url = URL.createObjectURL(selectedFile);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [selectedFile]);
+
+  const selectFile = (file: File) => {
+    if (operationRef.current) return;
+    if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(file.type)) {
+      setError('Choose a JPG, PNG, GIF or WebP receipt image.');
+      return;
+    }
+    if (!file.size || file.size > 10 * 1024 * 1024) {
+      setError('Choose a non-empty receipt image of at most 10 MB.');
+      return;
+    }
+    setError(null);
+    setSelectedFile(file);
+    setExtractedData(null);
+    setIsEditing(false);
+    setDraft({ merchant: '', amount: '', date: '', category: 'other' });
+    setReceiptType('expense');
+    setAttachmentChoice('create');
+    setSelectedCandidateTransId(null);
+  };
+
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file) {
-      setSelectedFile(file);
-      setExtractedData(null);
-      setReceiptType('expense');
-      setAttachmentChoice('create');
-      setSelectedCandidateTransId(null);
-    }
+    if (file) selectFile(file);
+    event.target.value = '';
   };
 
   const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     const file = event.dataTransfer.files[0];
-    if (file && file.type.startsWith('image/')) {
-      setSelectedFile(file);
-      setExtractedData(null);
-      setReceiptType('expense');
-      setAttachmentChoice('create');
-      setSelectedCandidateTransId(null);
-    }
+    if (file) selectFile(file);
   };
 
   const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
@@ -75,8 +98,21 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
 
   const [error, setError] = useState<string | null>(null);
 
+  const editManually = () => {
+    if (!selectedFile || operationRef.current) return;
+    if (!extractedData) {
+      const date = new Date().toISOString().slice(0, 10);
+      setDraft({ merchant: '', amount: '', date, category: 'other' });
+      setExtractedData({ merchant: '', amount: 0, date, category: 'other', confidence: 0, items: [], matchCandidates: [], suggestedReceiptType: 'expense', suggestedReceiptConfidence: 0 });
+    }
+    setAttachmentChoice('create');
+    setIsEditing(true);
+    setError(null);
+  };
+
   const processReceipt = async () => {
-    if (!selectedFile) return;
+    if (!selectedFile || operationRef.current) return;
+    operationRef.current = true;
 
     setIsUploading(true);
     setError(null);
@@ -116,6 +152,8 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
       setReceiptType(suggestedReceiptType);
       setAttachmentChoice(shouldAttach ? 'attach' : 'create');
       setSelectedCandidateTransId(shouldAttach && topCandidate ? topCandidate.trans_id : null);
+      setDraft({ merchant: String(ocr.merchant || ''), amount: String(ocr.amount ?? ''), date: String(ocr.date || new Date().toISOString().slice(0, 10)), category: String(ocr.category || 'other') });
+      setIsEditing(false);
 
       setExtractedData({
         merchant: ocr.merchant || 'Unknown Merchant',
@@ -132,12 +170,14 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
       console.error('Error processing receipt:', err);
       setError(err instanceof Error ? err.message : 'Failed to process receipt. Please try again.');
     } finally {
+      operationRef.current = false;
       setIsUploading(false);
     }
   };
 
   const handleConfirmData = async () => {
-    if (!selectedFile || !extractedData) return;
+    if (!selectedFile || !extractedData || operationRef.current) return;
+    operationRef.current = true;
     setIsSaving(true);
     setError(null);
 
@@ -149,14 +189,8 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
 
       const idToken = await currentUser.getIdToken();
 
-      const formData = new FormData();
-      formData.append('file', selectedFile);
-      formData.append('mode', 'commit');
-      formData.append('receiptType', receiptType);
-
-      if (attachmentChoice === 'attach' && selectedCandidateTransId) {
-        formData.append('attachTransactionId', selectedCandidateTransId);
-      }
+      if (attachmentChoice === 'attach' && !selectedCandidateTransId) throw new Error('Choose the transaction to attach this receipt to.');
+      const formData = receiptCommitForm(selectedFile, draft, receiptType, attachmentChoice === 'attach' ? selectedCandidateTransId : null);
 
       const response = await fetch('/api/receipts/process', {
         method: 'POST',
@@ -185,6 +219,7 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
       console.error('Error saving receipt:', err);
       setError(err instanceof Error ? err.message : 'Failed to save receipt. Please try again.');
     } finally {
+      operationRef.current = false;
       setIsSaving(false);
     }
   };
@@ -209,6 +244,7 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
           <Card className="p-8 bg-white border-0 shadow-xl">
             <h3 className="text-lg font-semibold text-slate-900 mb-6">Upload Receipt</h3>
             
+            {error && !selectedFile && <p role="alert" className="mb-4 text-sm text-red-700">{error}</p>}
             {!selectedFile ? (
               <div
                 className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-400 transition-colors cursor-pointer"
@@ -226,7 +262,7 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept="image/*"
+                  accept="image/jpeg,image/png,image/gif,image/webp"
                   onChange={handleFileSelect}
                   className="hidden"
                 />
@@ -248,7 +284,7 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
                 {selectedFile.type.startsWith('image/') && (
                   <div className="rounded-lg overflow-hidden">
                     <img
-                      src={URL.createObjectURL(selectedFile)}
+                      src={previewUrl || undefined}
                       alt="Receipt preview"
                       className="w-full h-64 object-cover"
                     />
@@ -258,14 +294,14 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
                 {error && (
                   <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-start gap-2">
                     <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
-                    <p className="text-sm text-red-700">{error}</p>
+                    <p role="alert" className="text-sm text-red-700">{error}</p>
                   </div>
                 )}
 
                 <div className="flex gap-3">
                   <Button
                     onClick={processReceipt}
-                    disabled={isUploading}
+                    disabled={isUploading || isSaving}
                     className="flex-1 gap-2 bg-blue-600 hover:bg-blue-700"
                   >
                     {isUploading ? (
@@ -289,10 +325,14 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
                       setSelectedCandidateTransId(null);
                     }}
                     variant="outline"
+                    disabled={isUploading || isSaving}
                   >
                     Remove
                   </Button>
                 </div>
+                <Button variant="outline" className="w-full" onClick={editManually} disabled={isUploading || isSaving}>
+                  Enter receipt details manually
+                </Button>
               </div>
             )}
           </Card>
@@ -311,9 +351,9 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-green-600">
                     <CheckCircle className="w-5 h-5" />
-                    <span className="font-medium">Data extracted successfully!</span>
+                    <span className="font-medium">{isEditing ? 'Review receipt details' : 'Data extracted successfully!'}</span>
                   </div>
-                  {typeof extractedData.confidence === 'number' && (
+                  {!isEditing && typeof extractedData.confidence === 'number' && (
                     <span className="text-xs px-2 py-1 bg-blue-50 text-blue-600 rounded-full">
                       {Math.round(extractedData.confidence * 100)}% confidence
                     </span>
@@ -321,26 +361,38 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
                 </div>
 
                 <div className="space-y-4">
-                  <div>
-                    <label className="text-sm font-medium text-slate-700">Merchant <span className="text-red-600 ml-0.5">*</span></label>
-                    <p className="text-slate-900 font-medium">{extractedData.merchant}</p>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-sm font-medium text-slate-700">Amount <span className="text-red-600 ml-0.5">*</span></label>
-                      <p className="text-slate-900 font-medium">${extractedData.amount}</p>
+                  {isEditing ? <fieldset disabled={isSaving || attachmentChoice === 'attach'} className="space-y-4">
+                    <p className="text-sm text-slate-600">Check these details against your receipt before saving.</p>
+                    <div className="space-y-1">
+                      <Label htmlFor="receipt-merchant">Merchant</Label>
+                      <Input id="receipt-merchant" value={draft.merchant} maxLength={500} required
+                        onChange={event => setDraft(value => ({ ...value, merchant: event.target.value }))} />
                     </div>
-                    <div>
-                      <label className="text-sm font-medium text-slate-700">Date <span className="text-red-600 ml-0.5">*</span></label>
-                      <p className="text-slate-900 font-medium">{extractedData.date}</p>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <Label htmlFor="receipt-amount">Amount ($)</Label>
+                        <Input id="receipt-amount" type="number" min="0.01" step="0.01" value={draft.amount} required
+                          onChange={event => setDraft(value => ({ ...value, amount: event.target.value }))} />
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor="receipt-date">Date</Label>
+                        <Input id="receipt-date" type="date" value={draft.date} required
+                          onChange={event => setDraft(value => ({ ...value, date: event.target.value }))} />
+                      </div>
                     </div>
-                  </div>
-
-                  <div>
-                    <label className="text-sm font-medium text-slate-700">Category <span className="text-red-600 ml-0.5">*</span></label>
-                    <p className="text-slate-900 font-medium">{extractedData.category}</p>
-                  </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="receipt-category">Category</Label>
+                      <Input id="receipt-category" value={draft.category} maxLength={200}
+                        onChange={event => setDraft(value => ({ ...value, category: event.target.value }))} />
+                    </div>
+                  </fieldset> : <>
+                    <div><span className="text-sm font-medium text-slate-700">Merchant</span><p className="text-slate-900 font-medium">{draft.merchant || 'Needs review'}</p></div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div><span className="text-sm font-medium text-slate-700">Amount</span><p className="text-slate-900 font-medium">${draft.amount || '0'}</p></div>
+                      <div><span className="text-sm font-medium text-slate-700">Date</span><p className="text-slate-900 font-medium">{draft.date}</p></div>
+                    </div>
+                    <div><span className="text-sm font-medium text-slate-700">Category</span><p className="text-slate-900 font-medium">{draft.category}</p></div>
+                  </>}
 
                   <div className="space-y-3 pt-4 border-t border-slate-100">
                     <div className="flex items-center justify-between gap-3">
@@ -350,6 +402,7 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
                       </div>
                       <select
                         value={receiptType}
+                        disabled={isSaving}
                         onChange={(e) => setReceiptType(e.target.value as 'expense' | 'income')}
                         className="h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white"
                       >
@@ -366,6 +419,7 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
                         <div className="flex gap-3 items-center">
                           <select
                             value={attachmentChoice}
+                            disabled={isSaving}
                             onChange={(e) => {
                               const next = e.target.value as 'attach' | 'create';
                               setAttachmentChoice(next);
@@ -383,6 +437,7 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
                           {attachmentChoice === 'attach' && (
                             <select
                               value={selectedCandidateTransId || ''}
+                              disabled={isSaving}
                               onChange={(e) => setSelectedCandidateTransId(e.target.value)}
                               className="flex-1 h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white"
                             >
@@ -421,14 +476,15 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
                 <div className="flex gap-3 pt-4 border-t border-gray-200">
                   <Button 
                     onClick={handleConfirmData}
-                    disabled={isSaving}
+                    disabled={isSaving || isUploading}
                     className="flex-1 gap-2 bg-gradient-to-r from-emerald-400 to-green-500 dark:from-emerald-500 dark:to-green-600 hover:from-emerald-500 hover:to-green-600 dark:hover:from-emerald-400 dark:hover:to-green-500 text-white font-medium shadow-md shadow-green-500/20 dark:shadow-green-500/30 transition-all duration-200"
                   >
                     <CheckCircle className="w-4 h-4" />
                     {isSaving ? 'Saving...' : 'Confirm & Save'}
                   </Button>
                   <Button 
-                    onClick={() => setExtractedData(null)}
+                    onClick={editManually}
+                    disabled={isSaving || isUploading}
                     variant="outline"
                     className="gap-2"
                   >

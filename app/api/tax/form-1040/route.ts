@@ -1,3 +1,5 @@
+import { decryptSensitive, isEncrypted, formatSSNForDisplay } from '@/lib/security/utils';
+import { requireFeatureAccess } from '@/lib/subscriptions/feature-access';
 /**
  * Form 1040 (U.S. Individual Income Tax Return) PDF Export
  * Generates an IRS-faithful 2-page 1040 pre-filled from WriteOff data.
@@ -8,19 +10,17 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
+import { buildFederalTaxSnapshot } from '@/lib/tax-rules/federal-tax-snapshot';
+import { IncomeReconciliationRequiredError } from '@/lib/tax-rules/business-income';
 import { PDFDocument, StandardFonts, rgb, PDFFont, PDFPage } from 'pdf-lib';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import { adminDb } from '@/lib/firebase/admin';
 import { getTransactionsServer } from '@/lib/firebase/transactions-server';
 import { getUserProfileServer } from '@/lib/firebase/profiles-server';
-import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
-import { calcScheduleSE } from '@/lib/reports/calcSE';
-import { compute1040 } from '@/lib/tax-rules/compute-1040';
 import { getRecordedQuarterlyPayments, totalRecordedPayments } from '@/lib/firebase/quarterly-payments-server';
 import { getFederalTaxRules, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
 import { getAssetsSettings } from '@/lib/firebase/settings-server';
-import { calc4562 } from '@/lib/reports/calc4562';
 
 const PW = 612, PH = 792, ML = 36, MR = 576, MT = 756;
 const BLACK  = rgb(0, 0, 0);
@@ -102,7 +102,7 @@ async function page1(doc: PDFDocument, f: PDFFont, bf: PDFFont, d: Record<string
   p.drawText('1040', { x: ML + 4, y: y - 24, size: 18, font: bf, color: WHITE });
   p.drawText('U.S. Individual Income Tax Return', { x: ML + 70, y: y - 12, size: 10, font: bf, color: WHITE });
   p.drawText('Department of the Treasury—Internal Revenue Service', { x: ML + 70, y: y - 22, size: 7, font: f, color: rgb(0.6, 0.6, 0.6) });
-  p.drawText('For the year Jan. 1-Dec. 31, 2025', { x: ML + 70, y: y - 31, size: 6, font: f, color: rgb(0.55, 0.55, 0.55) });
+  p.drawText(`For the year Jan. 1-Dec. 31, ${yr}`, { x: ML + 70, y: y - 31, size: 6, font: f, color: rgb(0.55, 0.55, 0.55) });
   p.drawText('OMB No. 1545-0074', { x: MR - 80, y: y - 11, size: 7, font: bf, color: WHITE });
   p.drawText(yr, { x: MR - 50, y: y - 26, size: 14, font: bf, color: GOLD });
   y -= 42;
@@ -153,13 +153,13 @@ async function page1(doc: PDFDocument, f: PDFFont, bf: PDFFont, d: Record<string
   y = banner(p, 'Income', y, f, bf);
   y = row(p, '1a', 'Total wages from W-2 forms (Box 1)', y, d.w2Wages, f, bf, false);
   y = row(p, '1z', 'Total wages (add lines 1a-1h)', y, d.w2Wages, f, bf, true, true);
-  y = row(p, '2b', 'Taxable interest', y, 0, f, bf, false);
-  y = row(p, '3b', 'Ordinary dividends', y, 0, f, bf, true);
-  y = row(p, '4b', 'IRA distributions (taxable)', y, 0, f, bf, false);
+  y = row(p, '2b', 'Taxable interest', y, d.interest, f, bf, false);
+  y = row(p, '3b', 'Ordinary dividends', y, d.dividends, f, bf, true);
+  y = row(p, '4b', 'IRA distributions (taxable)', y, d.iraDist, f, bf, false);
   y = row(p, '5b', 'Pensions and annuities (taxable)', y, 0, f, bf, true);
-  y = row(p, '6b', 'Social security benefits (taxable)', y, 0, f, bf, false);
-  y = row(p, '7', 'Capital gain or (loss)  -  attach Schedule D', y, 0, f, bf, true);
-  y = row(p, '8', 'Additional income from Schedule 1 (includes Schedule C net profit)', y, d.scheduleCNetProfit, f, bf, false);
+  y = row(p, '6b', 'Social security benefits (taxable)', y, d.socialSecurity, f, bf, false);
+  y = row(p, '7', 'Capital gain or (loss)  -  attach Schedule D', y, d.capGains, f, bf, true);
+  y = row(p, '8', 'Additional income from Schedule 1 (includes Schedule C net profit)', y, d.schedule1Income, f, bf, false);
   y -= 4;
   y = hrow(p, '9', 'Total income. Add lines 1z, 2b, 3b, 4b, 5b, 6b, 7, 8.', y, d.totalIncome, f, bf, rgb(0.88, 0.92, 1.0), BLUE);
   y -= 4;
@@ -181,8 +181,8 @@ async function page2(doc: PDFDocument, f: PDFFont, bf: PDFFont, d: Record<string
 
   // Deductions
   y = banner(p, 'Standard Deduction or Itemized Deductions', y, f, bf);
-  const stdAmt = d.standardDeduction?.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }) || '$15,750';
-  y = row(p, '12', `${d.usingStandardDeduction ? 'Standard' : 'Itemized'} deduction (standard: ${stdAmt} single, $31,500 MFJ  -  2025)`, y, d.deductionUsed, f, bf, false);
+  const stdAmt = d.standardDeduction?.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 });
+  y = row(p, '12', `${d.usingStandardDeduction ? 'Standard' : 'Itemized'} deduction (${yr} base for selected filing status: ${stdAmt})`, y, d.deductionUsed, f, bf, false);
   y = row(p, '13', 'Qualified business income deduction (Form 8995 / 8995-A)', y, d.qbiDeduction, f, bf, true);
   y = row(p, '14', 'Add lines 12 and 13', y, (d.deductionUsed || 0) + (d.qbiDeduction || 0), f, bf, false, true);
   y -= 4;
@@ -193,7 +193,8 @@ async function page2(doc: PDFDocument, f: PDFFont, bf: PDFFont, d: Record<string
   y = banner(p, 'Tax and Credits', y, f, bf);
   y = row(p, '16', 'Tax (from tax table or rate schedule)', y, d.incomeTax, f, bf, false);
   y = row(p, '17', 'Alternative minimum tax (Form 6251)', y, 0, f, bf, true);
-  y = row(p, '19', 'Tax after credits. Subtract credits from line 16.', y, d.incomeTax, f, bf, false, true);
+  y = row(p, '19', 'Child tax credit and credit for other dependents', y, d.childTaxCredit, f, bf, false);
+  y = row(p, '22', 'Income tax after nonrefundable credits', y, Math.max(0, d.incomeTax - d.totalCredits), f, bf, true, true);
   y -= 4;
 
   // Other taxes
@@ -208,9 +209,9 @@ async function page2(doc: PDFDocument, f: PDFFont, bf: PDFFont, d: Record<string
   y = banner(p, 'Payments', y, f, bf);
   y = row(p, '25a', 'W-2 federal income tax withheld (Box 2  -  all employers)', y, d.w2FederalWithheld, f, bf, false);
   y = row(p, '25d', 'Total withholding (25a-25c)', y, d.w2FederalWithheld, f, bf, true, true);
-  y = row(p, '26', '2025 estimated tax payments and amount applied from 2024', y, d.estimatedPayments, f, bf, false);
-  y = row(p, '27', 'Earned income credit (EIC)', y, 0, f, bf, true);
-  y = row(p, '28', 'Additional child tax credit', y, 0, f, bf, false);
+  y = row(p, '26', `${yr} recorded estimated tax payments`, y, d.estimatedPayments, f, bf, false);
+  y = row(p, '27', 'Earned income credit (EIC)', y, d.eitcCredit, f, bf, true);
+  y = row(p, '28', 'Additional child tax credit', y, d.additionalCTC, f, bf, false);
   y -= 4;
   y = hrow(p, '33', 'Total payments. Add lines 25d, 26, 27, 28.', y, d.totalPayments, f, bf, rgb(0.88, 0.92, 1.0), BLUE);
   y -= 6;
@@ -254,6 +255,9 @@ export async function POST(request: NextRequest) {
       uid = user.uid;
     }
 
+    const denied = await requireFeatureAccess(uid, 'exports');
+    if (denied) return denied;
+
     const { year } = await request.json();
     if (!year) return NextResponse.json({ error: 'Year required' }, { status: 400 });
     const taxYear = Number(year);
@@ -281,17 +285,21 @@ export async function POST(request: NextRequest) {
     const ded = deductionsSnap.empty ? {} as Record<string, any> : deductionsSnap.docs[0].data();
     const org = organizerSnap.empty ? {} as Record<string, any> : organizerSnap.docs[0].data();
 
+    for (const key of ['taxpayerSSN', 'spouseSSN', 'bankAccount']) {
+      if (typeof org[key] === 'string' && isEncrypted(org[key])) org[key] = decryptSensitive(org[key]);
+    }
+
     // Merge organizer data into profile for PDF pre-fill
     const enrichedProfile: Record<string, any> = {
       ...profile,
       // SSN from organizer (formatted as XXX-XX-XXXX)
       ssn: org.taxpayerSSN
-        ? `${org.taxpayerSSN.slice(0,3)}-${org.taxpayerSSN.slice(3,5)}-${org.taxpayerSSN.slice(5,9)}`
+        ? formatSSNForDisplay(org.taxpayerSSN)
         : '',
       // Spouse
       spouseName: org.spouseName || '',
       spouseSSN: org.spouseSSN
-        ? `${org.spouseSSN.slice(0,3)}-${org.spouseSSN.slice(3,5)}-${org.spouseSSN.slice(5,9)}`
+        ? formatSSNForDisplay(org.spouseSSN)
         : '',
       // Address (organizer address takes priority over profile)
       mailing_address: {
@@ -310,44 +318,14 @@ export async function POST(request: NextRequest) {
       ipPin: org.ipPin || '',
     };
 
-    const grossReceipts =
-      grossSnap.docs.reduce((s, d) => s + (d.data().amount || 0), 0) +
-      income1099Snap.docs.reduce((s, d) => s + (d.data().amount || 0), 0);
-    const w2Wages = w2Snap.docs.reduce((s, d) => s + (d.data().box1Wages || d.data().wages || 0), 0);
-    const w2FederalWithheld =
-      w2Snap.docs.reduce((s, d) => s + (d.data().box2FederalWithheld || d.data().federalWithheld || 0), 0) +
-      (profile.w2_federal_withheld || 0);
-    const w2StateWithheld = w2Snap.docs.reduce((s: number, d: any) => s + (d.data().stateWithheld || 0), 0);
-    const estimatedPayments = totalRecordedPayments(quarterlySnap);
-    const { totalDeductible } = aggregateScheduleC(transactions, String(taxYear), CATEGORY_MAP, { mode: 'confirmed-only' });
-    const scheduleCNetProfit = grossReceipts - totalDeductible;
-    const filingStatus = (profile.filing_status || 'single') as any;
-
-    // Depreciation from assets (Section 179 / MACRS / Form 4562)
-    const assets = assetsResult.data || [];
-    const depreciationDeduction = assets.length > 0
-      ? calc4562(assets, scheduleCNetProfit).totalDepreciation
-      : 0;
-
-    const w2MedicareWages = w2Snap.docs.every(d => typeof d.data().box5MedicareWages === 'number')
-      ? w2Snap.docs.reduce((sum, d) => sum + d.data().box5MedicareWages, 0) : undefined;
-    const w2SocialSecurityWages = w2Snap.docs.reduce((sum, d) => sum + (d.data().box3SocialSecurityWages ?? d.data().box1Wages ?? 0), 0);
-    const seCalc = calcScheduleSE({ scheduleCNetProfit: scheduleCNetProfit - depreciationDeduction, taxYear }, filingStatus, w2SocialSecurityWages, w2MedicareWages ?? w2Wages);
-
-    const result = compute1040({
-      taxYear, filingStatus, scheduleCNetProfit, w2Wages, w2MedicareWages, w2FederalWithheld, estimatedPayments,
-      selfEmploymentTax: seCalc.totalSETax,
-      halfSEDeduction: seCalc.halfSEDeduction,
-      healthInsurancePremiums: ded.healthInsurancePremiums || profile.health_insurance_premiums || 0,
-      sepIraContribution: ded.sepIraContribution || profile.sep_ira_contribution || 0,
-      solo401kContribution: (ded.solo401kEmployeeContribution || 0) + (ded.solo401kEmployerContribution || 0) + (profile.solo_401k_contribution || 0),
-      simpleIraContribution: ded.simpleIraContribution || 0,
-      hsaContribution: ded.hsaContribution || profile.hsa_contribution || 0,
-      studentLoanInterest: ded.studentLoanInterest || 0,
-      charitableDonations: (ded?.charitableCashDonations || 0) + (ded?.charitableNonCashDonations || 0),
-      depreciationDeduction,
-      stateCode: profile?.state,
-    }, ded.priorYearTotalTax || profile.prior_year_tax || undefined);
+    const snapshot = buildFederalTaxSnapshot({
+      taxYear, transactions, profile, organizer: org, deductions: ded,
+      grossReceipts: grossSnap.docs.map(d => ({ ...d.data(), id: d.id })),
+      forms1099: income1099Snap.docs.map(d => ({ ...d.data(), id: d.id })),
+      w2Entries: w2Snap.docs.map(d => d.data()), assets: assetsResult.data || [],
+      estimatedPayments: totalRecordedPayments(quarterlySnap),
+    });
+    const { result } = snapshot;
 
     const pdfDoc = await PDFDocument.create();
     pdfDoc.setTitle(`Form 1040 ${year}`);
@@ -355,7 +333,11 @@ export async function POST(request: NextRequest) {
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
-    const displayData: Record<string, any> = { ...result, w2Wages, scheduleCNetProfit, w2FederalWithheld, w2StateWithheld, estimatedPayments };
+    const displayData: Record<string, any> = {
+      ...result, ...snapshot.income,
+      schedule1Income: Math.max(0, snapshot.income.scheduleCNetProfit - snapshot.depreciationDeduction) + snapshot.income.rental + snapshot.income.otherOrdinaryIncome,
+      w2FederalWithheld: snapshot.w2.withheld, w2StateWithheld: snapshot.w2.stateWithheld, estimatedPayments: snapshot.payments.estimatedPayments,
+    };
 
     // Add completeness warnings to displayData
     const warnings: string[] = [...(result.calculationWarnings || [])];
@@ -377,6 +359,8 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (err) {
+    if (err instanceof IncomeReconciliationRequiredError) return NextResponse.json({ error: err.message, code: err.code }, { status: 422 });
+    if (err && typeof err === 'object' && 'code' in err && err.code === 'DEPRECIATION_REVIEW_REQUIRED') return NextResponse.json({ error: err instanceof Error ? err.message : 'Asset depreciation needs review', code: err.code }, { status: 422 });
     console.error('[1040 Export]', err);
     return NextResponse.json({ error: 'Failed to generate Form 1040' }, { status: 500 });
   }

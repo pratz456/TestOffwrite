@@ -3,26 +3,7 @@ import { Configuration, PlaidApi, PlaidEnvironments } from 'plaid';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import { adminDb } from '@/lib/firebase/admin';
 
-function getPlaidConfig() {
-  let plaidClientId: string | undefined;
-  let plaidSecret: string | undefined;
-  let plaidEnv: string | undefined;
-  try {
-    const functions = require('firebase-functions');
-    const config = functions.config();
-    if (config.plaid) {
-      plaidClientId = config.plaid.client_id || config.plaid.clientId;
-      plaidSecret = config.plaid.secret;
-      plaidEnv = config.plaid.env;
-    }
-  } catch {
-    // functions.config() not available
-  }
-  plaidClientId = plaidClientId || process.env.PLAID_CLIENT_ID;
-  plaidSecret = plaidSecret || process.env.PLAID_SECRET;
-  plaidEnv = plaidEnv || process.env.PLAID_ENV || 'sandbox';
-  return { plaidClientId, plaidSecret, plaidEnv };
-}
+import { getPlaidConfig } from '@/lib/plaid/config';
 
 const { plaidClientId, plaidSecret, plaidEnv } = getPlaidConfig();
 
@@ -40,7 +21,9 @@ const client = new PlaidApi(configuration);
 
 export async function POST(req: Request) {
   try {
-    const { uid } = await getUserFromReqOrThrow(req);
+    let uid: string;
+    try { ({ uid } = await getUserFromReqOrThrow(req)); }
+    catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
 
     const profileDoc = await adminDb.doc(`user_profiles/${uid}`).get();
     const profile = profileDoc.data();

@@ -16,7 +16,9 @@ export async function DELETE(
   try {
     console.log('🔄 [Plaid Items API] Starting DELETE request...');
 
-    const { uid } = await getUserFromReqOrThrow(request);
+    let uid: string;
+    try { ({ uid } = await getUserFromReqOrThrow(request)); }
+    catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
     const { itemId } = params;
 
     if (!itemId) {

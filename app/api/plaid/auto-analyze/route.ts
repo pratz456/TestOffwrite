@@ -46,7 +46,9 @@ async function updateProgress(jobRef: any, ok: boolean, ms: number) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { uid } = await getUserFromReqOrThrow(request);
+    let uid: string;
+    try { ({ uid } = await getUserFromReqOrThrow(request)); }
+    catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
     const body = await request.json().catch(() => ({}));
     const { accountId } = body;
 

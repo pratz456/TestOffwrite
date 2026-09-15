@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { syncUserTransactionsIncremental, findUserByPlaidItemId } from '../../../../lib/plaid/sync-helper';
 import { adminDb } from '../../../../lib/firebase/admin';
 import { createHash, createVerify } from 'crypto';
+import { getPlaidConfig } from '@/lib/plaid/config';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -34,7 +35,7 @@ async function fetchPlaidVerificationKey(keyId: string): Promise<string | null> 
     return cached.key;
   }
   try {
-    const { plaidClientId, plaidSecret, plaidEnv } = getPlaidConfig();
+    const { plaidClientId, plaidSecret, plaidEnv } = getPlaidConfig(process.env, () => ({}), true);
     const env = plaidEnv === 'production' ? 'production' : 'sandbox';
     const res = await fetch(`https://${env}.plaid.com/webhook_verification_key/get`, {
       method: 'POST',
@@ -55,14 +56,6 @@ async function fetchPlaidVerificationKey(keyId: string): Promise<string | null> 
     console.error('❌ [Webhook] Failed to fetch Plaid verification key:', err);
     return null;
   }
-}
-
-function getPlaidConfig() {
-  return {
-    plaidClientId: process.env.PLAID_CLIENT_ID || '',
-    plaidSecret: process.env.PLAID_SECRET || '',
-    plaidEnv: process.env.PLAID_ENV || 'sandbox',
-  };
 }
 
 /**

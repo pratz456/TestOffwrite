@@ -1,0 +1,39 @@
+const screens = [
+  'dashboard', 'settings', 'add-expense', 'receipt-upload', 'tax-calendar', 'transactions',
+  'review-transactions', 'schedule-c-export', 'edit-expense', 'deductions-detail',
+  'expenses-detail', 'banks-detail', 'profit-loss-detail', 'categories', 'plaid-link',
+  'plaid', 'transaction-detail', 'reports', 'ai-insights', 'quarterly-taxes',
+  'mileage-tracker', 'income-tracking', 'tax-form-wizard', 'state-tax-calculator',
+  'tax-assistant', 'profit-loss-report', 'quarterly-payments', 'action-items',
+  'add-manual-transaction', 'tax-filing-hub', 'tax-organizer', 'w2-income', 'tax-preview',
+  'deductions-entry', 'form-8879', 'document-import',
+] as const;
+
+export type ProtectedScreen = typeof screens[number];
+
+export function protectedScreen(raw: string | null | undefined): ProtectedScreen {
+  const name = raw?.split('?')[0];
+  if (name === 'categorize') return 'add-expense';
+  return screens.includes(name as ProtectedScreen) ? name as ProtectedScreen : 'dashboard';
+}
+
+/** Screen transitions and Back use the same URL, including entry from a direct link. */
+export function protectedScreenUrl(raw: string): string {
+  const screen = protectedScreen(raw);
+  if (screen === 'dashboard') return '/protected';
+  if (screen === 'settings' || screen === 'transactions' || screen === 'reports') return `/protected/${screen}`;
+  const query = new URLSearchParams(raw.includes('?') ? raw.slice(raw.indexOf('?') + 1) : '');
+  const target = new URLSearchParams({ screen });
+  if (query.has('from')) target.set('from', protectedScreen(query.get('from')));
+  if (screen === 'transaction-detail' && query.get('transactionId')) target.set('transactionId', query.get('transactionId')!);
+  return `/protected?${target.toString()}`;
+}
+
+export function previousProtectedScreen(current: ProtectedScreen, stack: readonly string[], from?: string | null) {
+  const remaining = [...stack];
+  while (remaining.length && remaining[remaining.length - 1] === current) remaining.pop();
+  const previous = current === 'transaction-detail' && from
+    ? protectedScreen(from)
+    : protectedScreen(remaining.pop());
+  return { screen: previous === current ? 'dashboard' as const : previous, stack: remaining };
+}

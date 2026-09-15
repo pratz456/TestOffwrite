@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import { PremiumFeatureGate } from '@/components/premium-feature-gate';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -59,6 +60,9 @@ export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyT
   const [quarterlyData, setQuarterlyData] = useState<QuarterlyTaxData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [activeQuarter, setActiveQuarter] = useState(1);
+  const [error, setError] = useState<string | null>(null);
+  const [exportingQuarter, setExportingQuarter] = useState<number | null>(null);
+  const exportPending = useRef(false);
   const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   useEffect(() => {
@@ -69,6 +73,7 @@ export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyT
 
   const calculateTaxes = async () => {
     setIsLoading(true);
+    setError(null);
     try {
       const response = await fetch('/api/tax/quarterly-estimates', {
         method: 'POST',
@@ -86,9 +91,13 @@ export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyT
         const data = await response.json();
         setTaxCalculation(data.calculation);
         setQuarterlyData(data.quarterlyData);
+      } else {
+        throw new Error('Your quarterly estimates could not be loaded. Please try again.');
       }
-    } catch (error) {
-      console.error('Error calculating taxes:', error);
+    } catch {
+      setError('Your quarterly estimates could not be loaded. Please try again.');
+      setTaxCalculation(null);
+      setQuarterlyData([]);
     } finally {
       setIsLoading(false);
     }
@@ -118,6 +127,10 @@ export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyT
   };
 
   const generateForm1040ES = async (quarter: number) => {
+    if (exportPending.current) return;
+    exportPending.current = true;
+    setExportingQuarter(quarter);
+    setError(null);
     try {
       const response = await fetch('/api/tax/generate-1040es', {
         method: 'POST',
@@ -141,9 +154,15 @@ export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyT
         a.click();
         window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
+      } else {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.requiresSubscription ? 'Premium is required for Form 1040-ES exports. Open Billing and plans to review your access.' : 'Form 1040-ES could not be generated. Please try again.');
       }
     } catch (error) {
-      console.error('Error generating Form 1040-ES:', error);
+      setError(error instanceof Error ? error.message : 'Form 1040-ES could not be generated. Please try again.');
+    } finally {
+      exportPending.current = false;
+      setExportingQuarter(null);
     }
   };
 
@@ -168,9 +187,10 @@ export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyT
             <Calculator className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
             <h3 className="text-lg font-semibold mb-2">Quarterly Tax Calculator</h3>
             <p className="text-muted-foreground mb-4">
-              Complete your profile to get personalized quarterly tax estimates.
+              {error || 'Complete your profile to get personalized quarterly tax estimates.'}
             </p>
-            <Button onClick={() => window.location.href = '/protected?screen=settings'}>
+            {error && <Button variant="outline" className="mr-2" onClick={() => void calculateTaxes()}>Retry estimates</Button>}
+            <Button onClick={() => window.location.href = '/protected/settings'}>
               Complete Profile
             </Button>
           </div>
@@ -181,6 +201,7 @@ export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyT
 
   return (
     <div className="space-y-6">
+      {error && <p role="alert" className="rounded-lg border border-destructive/30 p-3 text-sm text-destructive">{error}</p>}
       {/* Summary Card */}
       <Card>
         <CardHeader>
@@ -291,17 +312,22 @@ export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyT
                   )}
 
                   {/* Actions */}
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
+                    <PremiumFeatureGate feature="exports" featureName="Form 1040-ES exports" inline>
                     <Button
                       onClick={() => generateForm1040ES(quarter.quarter)}
+                      disabled={exportingQuarter !== null}
                       className="flex-1"
                     >
                       <Download className="h-4 w-4 mr-2" />
-                      Generate Form 1040-ES
+                      {exportingQuarter === quarter.quarter ? 'Generating…' : 'Generate Form 1040-ES'}
                     </Button>
-                    <Button variant="outline">
-                      <FileText className="h-4 w-4 mr-2" />
-                      Payment Options
+                    </PremiumFeatureGate>
+                    <Button variant="outline" asChild>
+                      <a href="https://www.irs.gov/payments" target="_blank" rel="noopener noreferrer">
+                        <FileText className="h-4 w-4 mr-2" />
+                        IRS payment options
+                      </a>
                     </Button>
                   </div>
                 </div>

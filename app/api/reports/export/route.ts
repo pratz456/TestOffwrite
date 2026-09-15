@@ -1,3 +1,5 @@
+import { getFederalTaxRules, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
+import { requireFeatureAccess } from '@/lib/subscriptions/feature-access';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -17,11 +19,19 @@ export async function POST(request: NextRequest) {
     console.log('🔄 [Reports Export API] Starting request...');
 
     // Get the authenticated user
-    const { uid } = await getUserFromReqOrThrow(request);
+    let uid: string;
+    try { uid = (await getUserFromReqOrThrow(request)).uid; }
+    catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
+    const denied = await requireFeatureAccess(uid, 'exports');
+    if (denied) return denied;
 
     console.log('✅ [Reports Export API] User authenticated:', uid);
 
-    const { type } = await request.json();
+    const { type, year = new Date().getFullYear() } = await request.json();
+    const taxYear = Number(year);
+    try { getFederalTaxRules(taxYear); } catch {
+      return NextResponse.json({ error: `Supported tax years: ${SUPPORTED_TAX_YEARS.join(', ')}` }, { status: 400 });
+    }
 
     if (!type || !['form8829', 'form4562', 'scheduleSE'].includes(type)) {
       return NextResponse.json(
@@ -55,7 +65,7 @@ export async function POST(request: NextRequest) {
     let pdfBytes: Uint8Array;
     let filename: string;
 
-    const currentYear = new Date().getFullYear();
+    const currentYear = taxYear;
     const today = new Date().toISOString().split('T')[0];
 
     switch (type as FormType) {
@@ -145,6 +155,7 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && ['DEPRECIATION_REVIEW_REQUIRED', 'HOME_OFFICE_DETAILS_REQUIRED', 'INVALID_HOME_OFFICE_INPUT'].includes(String(error.code))) return NextResponse.json({ error: error instanceof Error ? error.message : 'Additional tax details required', code: error.code }, { status: 422 });
     console.error('❌ [Reports Export API] Unexpected error:', error);
     return NextResponse.json(
       {

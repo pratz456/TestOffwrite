@@ -11,17 +11,21 @@ import {
   signInWithPopup,
   setPersistence,
   browserLocalPersistence,
+  browserPopupRedirectResolver,
   signInWithRedirect,
   getRedirectResult,
 } from "firebase/auth";
 import { auth } from "./client";
 import { establishVerifiedSession } from "@/lib/onboarding/verification";
 import { app } from "./client";
+import { ensureBrowserSession, clearPendingBrowserSession } from "./browser-session";
 import { createAuthError, logAuthError } from "./auth-errors";
 
 export interface AuthUser {
   id: string;
   email: string | null;
+  emailVerified?: boolean;
+  sessionReady?: boolean;
   user_metadata?: {
     name?: string;
   };
@@ -45,46 +49,7 @@ export async function signInUser(email: string, password: string): Promise<{ dat
         }
       };
     }
-    // Set a cookie with the user's ID token so server-side middleware can detect the session
-    try {
-      const token = await user.getIdToken();
-      // Debug: show token presence (trimmed) to help verify sign-in ran
-      if (typeof window !== 'undefined') {
-        try {
-          console.log('signInUser: got id token (first 20 chars):', token?.slice?.(0, 20));
-        } catch (_) {
-          // ignore logging errors
-        }
-      }
-
-      // Exchange the ID token for a server-set, httpOnly session cookie.
-      // This is necessary because Next.js Middleware runs on the server/edge and
-      // can only read cookies set by server responses (httpOnly). Client-side
-      // document.cookie is not sufficient for the middleware.
-      try {
-        if (typeof window !== 'undefined') {
-          const sessionResponse = await fetch('/api/auth/session', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ idToken: token }),
-          });
-
-          if (!sessionResponse.ok) {
-            const errorText = await sessionResponse.text();
-            console.error('signInUser: session cookie exchange failed:', errorText);
-            throw new Error('Failed to create session. Please try again.');
-          }
-
-          console.log('signInUser: session cookie set successfully');
-        }
-      } catch (sessionErr) {
-        console.error('signInUser: failed to exchange idToken for session cookie', sessionErr);
-        throw sessionErr; // Propagate error to prevent redirect
-      }
-    } catch (cookieError) {
-      console.error('Failed to get id token or set auth cookie after sign in:', cookieError);
-    }
+    await ensureBrowserSession(user);
     return {
       data: {
         user: {
@@ -141,60 +106,28 @@ export async function signInWithGoogle(): Promise<{ data: { user: AuthUser } | n
     // Try popup first, fall back to redirect if blocked
     let userCredential;
     try {
-      userCredential = await signInWithPopup(auth, provider);
+      userCredential = await signInWithPopup(auth, provider, browserPopupRedirectResolver);
     } catch (popupErr: any) {
       // User triggered a second popup before the first finished; ignore and don't surface as error
       if (popupErr?.code === 'auth/cancelled-popup-request') {
         return { data: null, error: null };
       }
       // Check if popup was blocked
-      if (popupErr?.code === 'auth/popup-blocked' || popupErr?.code === 'auth/popup-closed-by-user') {
+      if (popupErr?.code === 'auth/popup-blocked') {
         // Fall back to redirect flow
         console.log('Popup blocked, falling back to redirect flow');
-        await signInWithRedirect(auth, provider);
+        await signInWithRedirect(auth, provider, browserPopupRedirectResolver);
         // Return null to indicate redirect was initiated (will be handled by handleAuthRedirectResult)
         return { data: null, error: null };
       }
       // For other popup errors, return the error
-      return { data: null, error: popupErr };
+      return { data: null, error: createAuthError(popupErr) };
     }
 
     const user = userCredential.user;
 
-    // Set up session cookie (same as email/password flow)
-    try {
-      const token = await user.getIdToken();
-      if (typeof window !== 'undefined') {
-        try {
-          console.log('signInWithGoogle: got id token (first 20 chars):', token?.slice?.(0, 20));
-        } catch (_) {
-          // ignore logging errors
-        }
-
-        // Exchange the ID token for a server-set, httpOnly session cookie
-        try {
-          const sessionResponse = await fetch('/api/auth/session', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ idToken: token }),
-          });
-
-          if (!sessionResponse.ok) {
-            const errorText = await sessionResponse.text();
-            console.error('signInWithGoogle: session cookie exchange failed:', errorText);
-            throw new Error('Failed to create session. Please try again.');
-          }
-
-          console.log('signInWithGoogle: session cookie set successfully');
-        } catch (sessionErr) {
-          console.error('signInWithGoogle: failed to exchange idToken for session cookie', sessionErr);
-          throw sessionErr; // Propagate error to prevent redirect
-        }
-      }
-    } catch (cookieError) {
-      console.error('Failed to get id token or set auth cookie after Google sign in:', cookieError);
-    }
+    if (!user.emailVerified) throw Object.assign(new Error('Verify your email first.'), { code: 'auth/email-not-verified' });
+    await ensureBrowserSession(user);
 
     return {
       data: {
@@ -218,31 +151,13 @@ export async function signInWithGoogle(): Promise<{ data: { user: AuthUser } | n
 // Call this once on page load (e.g., in _app.tsx useEffect, or root layout/client entry)
 export async function handleAuthRedirectResult(): Promise<{ data: { user: AuthUser } | null; error: any }> {
   try {
-    const result = await getRedirectResult(auth);
+    // Firebase checks its pending-redirect marker before loading the helper.
+    const result = await getRedirectResult(auth, browserPopupRedirectResolver);
     if (!result) return { data: null, error: null }; // No redirect to process
 
     const user = result.user;
 
-    // Same session-cookie exchange as above
-    try {
-      const token = await user.getIdToken();
-      if (typeof window !== 'undefined') {
-        const sessionResponse = await fetch('/api/auth/session', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ idToken: token }),
-        });
-        if (!sessionResponse.ok) {
-          const errorText = await sessionResponse.text();
-          console.error('handleAuthRedirectResult: session cookie exchange failed:', errorText);
-          throw new Error('Failed to create session. Please try again.');
-        }
-      }
-    } catch (sessionErr) {
-      console.error('handleAuthRedirectResult: failed to exchange idToken for session cookie', sessionErr);
-      throw sessionErr;
-    }
+    await ensureBrowserSession(user);
 
     return {
       data: {
@@ -264,12 +179,15 @@ export async function handleAuthRedirectResult(): Promise<{ data: { user: AuthUs
 
 export async function signOutUser(): Promise<{ error: any }> {
     try {
+      clearPendingBrowserSession();
       // Tell the server to clear the session cookie
       try {
-        await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+        const response = await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+        if (!response.ok) throw Object.assign(new Error('Unable to complete sign out.'), { code: 'auth/logout-unavailable' });
         console.log('signOutUser: requested server to clear session cookie');
-      } catch (e) {
-        console.warn('signOutUser: failed to call logout API', e);
+      } catch {
+        await signOut(auth);
+        throw Object.assign(new Error('Unable to complete sign out.'), { code: 'auth/logout-unavailable' });
       }
 
       await signOut(auth);

@@ -1,3 +1,4 @@
+import { requireFeatureAccess } from '@/lib/subscriptions/feature-access';
 /**
  * Transaction CSV Export API
  * Exports confirmed transactions as a CSV file for accountants/CPAs.
@@ -13,7 +14,9 @@ import { getTransactionsServer } from '@/lib/firebase/transactions-server';
 
 function escapeCSV(value: string | number | boolean | null | undefined): string {
   if (value === null || value === undefined) return '';
-  const str = String(value);
+  // Spreadsheet programs execute formula-looking cells, even in quoted CSV.
+  const text = String(value);
+  const str = typeof value === 'string' && /^[\s]*[=+@-]/.test(text) ? `'${text}` : text;
   if (str.includes(',') || str.includes('"') || str.includes('\n')) {
     return `"${str.replace(/"/g, '""')}"`;
   }
@@ -28,6 +31,9 @@ export async function GET(request: NextRequest) {
   try {
     const { user, error: authError } = await getAuthenticatedUser(request);
     if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const denied = await requireFeatureAccess(user.uid, 'exports');
+    if (denied) return denied;
 
     const { searchParams } = new URL(request.url);
     const year = searchParams.get('year') ? parseInt(searchParams.get('year')!) : null;

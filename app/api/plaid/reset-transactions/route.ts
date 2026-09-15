@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireFeatureAccess } from '@/lib/subscriptions/feature-access';
+import { getTransactionHistoryWindow } from '@/lib/subscriptions/history-window';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import { getAccountsServer } from '@/lib/firebase/accounts-server';
 import { adminDb } from '@/lib/firebase/admin';
@@ -16,7 +18,7 @@ import { createTransactionServer } from '@/lib/firebase/transactions-server';
 export async function POST(req: Request) {
   try {
     // Check if transaction reset is enabled (testing only)
-    if (process.env.ENABLE_TRANSACTION_RESET !== 'true') {
+    if (process.env.NODE_ENV === 'production' || process.env.ENABLE_TRANSACTION_RESET !== 'true') {
       console.warn('⚠️ [Reset Transactions] Endpoint disabled - ENABLE_TRANSACTION_RESET not set to true');
       return NextResponse.json({ 
         error: 'Transaction reset is only available in testing mode',
@@ -28,6 +30,9 @@ export async function POST(req: Request) {
 
     // Get the authenticated user
     const { uid } = await getUserFromReqOrThrow(req);
+    const denied = await requireFeatureAccess(uid, 'extended_history');
+    if (denied) return denied;
+    const historyWindow = await getTransactionHistoryWindow(uid);
     console.log('✅ [Reset Transactions] User authenticated:', uid);
 
     // Get userId from request body (optional - defaults to authenticated user)
@@ -141,7 +146,7 @@ export async function POST(req: Request) {
     console.log(`✅ [Reset Transactions] Total transactions deleted: ${totalDeleted}`);
 
     // Step 5: Re-fetch maximum transactions (730 days / 2 years) from Plaid
-    // In test mode, bypass subscription limits and fetch directly from Plaid with 730 days
+    // The same plan limits apply in local test mode.
     console.log(`🔄 [Reset Transactions] Starting sync with maximum timeframe (730 days / 2 years)...`);
     
     // Get user's Plaid token
@@ -159,10 +164,10 @@ export async function POST(req: Request) {
     const endDate = new Date();
     endDate.setHours(23, 59, 59, 999); // End of today
     const startDate = new Date();
-    startDate.setTime(endDate.getTime() - (730 * 24 * 60 * 60 * 1000)); // 730 days ago
+    startDate.setTime(endDate.getTime() - (historyWindow.days * 24 * 60 * 60 * 1000)); // 730 days ago
     startDate.setHours(0, 0, 0, 0); // Start of the day
 
-    const startDateStr = startDate.toISOString().split('T')[0];
+    const startDateStr = historyWindow.startDate;
     const endDateStr = endDate.toISOString().split('T')[0];
 
     console.log(`📅 [Reset Transactions] Fetching transactions from ${startDateStr} to ${endDateStr} (730 days)`);

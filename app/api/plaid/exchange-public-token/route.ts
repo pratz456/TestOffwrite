@@ -2,6 +2,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
+import { getTransactionHistoryWindow, isWithinHistoryWindow } from '@/lib/subscriptions/history-window';
 import { plaidClient } from '@/lib/plaid/client';
 import { adminDb } from '@/lib/firebase/admin';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
@@ -11,7 +12,8 @@ import { logPlaidRequest, debugPlaid } from '@/lib/plaid/debug';
 export async function POST(req: Request) {
   let uid = '';
   try {
-    ({ uid } = await getUserFromReqOrThrow(req));
+    try { ({ uid } = await getUserFromReqOrThrow(req)); }
+    catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
 
     const { public_token, import_timeframe = '2years' } = await req.json();
 
@@ -297,9 +299,10 @@ export async function POST(req: Request) {
     endDate.setHours(23, 59, 59, 999); // End of today
     const startDate = new Date();
 
-    // Always use 730 days (2 years) - Plaid maximum
-    const daysToFetch = 730;
-    const actualDays = 730;
+    // Enforce the authenticated user's plan on the server.
+    const historyWindow = await getTransactionHistoryWindow(uid);
+    const daysToFetch = historyWindow.days;
+    const actualDays = daysToFetch;
 
     // Calculate start date more reliably using milliseconds
     // This avoids issues with month boundaries and leap years
@@ -308,7 +311,7 @@ export async function POST(req: Request) {
     startDate.setHours(0, 0, 0, 0); // Start of the day
 
     // Format dates as YYYY-MM-DD for Plaid API
-    const startDateStr = startDate.toISOString().split('T')[0];
+    const startDateStr = historyWindow.startDate;
     const endDateStr = endDate.toISOString().split('T')[0];
 
     // Calculate and log the actual date range for debugging
@@ -449,6 +452,7 @@ export async function POST(req: Request) {
         console.log(`🔄 [Transaction Import] Starting to save ${accountTransactions.length} transactions to Firebase for account: ${plaidAccount.name}...`);
 
         for (const tx of accountTransactions) {
+          if (!isWithinHistoryWindow(tx.date, historyWindow)) continue;
           const txId = tx.transaction_id;
 
           // Check if transaction already exists before importing

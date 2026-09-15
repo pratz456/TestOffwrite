@@ -1,3 +1,4 @@
+import { requireFeatureAccess } from '@/lib/subscriptions/feature-access';
 import { NextRequest, NextResponse } from 'next/server';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
@@ -15,6 +16,9 @@ export async function POST(request: NextRequest) {
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    const denied = await requireFeatureAccess(user.uid, 'exports');
+    if (denied) return denied;
 
     const { quarter, userProfile, taxCalculation } = await request.json();
 

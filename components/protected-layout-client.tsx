@@ -1,162 +1,124 @@
 "use client";
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { Suspense, useEffect, useState, useRef } from 'react';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { SidebarNav } from './sidebar-nav';
 import { MobileNav } from './mobile-nav';
 import { TutorialManager } from './tutorial/tutorial-manager';
-import { getUserProfile } from '@/lib/firebase/profiles';
-import { useRouter, usePathname } from 'next/navigation';
+import { getUserProfile, type UserProfile } from '@/lib/firebase/profiles';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { ToastContainer, useToasts } from '@/components/ui/toast';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
+import { PremiumFeatureGate } from '@/components/premium-feature-gate';
+import { premiumFeatureForLocation } from '@/lib/subscriptions/client-status';
+import { Button } from '@/components/ui/button';
+import { subscribeToProfileUpdates } from '@/lib/onboarding/profile-events';
 
-interface ProtectedLayoutClientProps {
-  children: React.ReactNode;
-}
+interface ProtectedLayoutClientProps { children: React.ReactNode }
 
-export const ProtectedLayoutClient: React.FC<ProtectedLayoutClientProps> = ({ children }) => {
+const ProtectedLayoutContent: React.FC<ProtectedLayoutClientProps> = ({ children }) => {
   const { user, loading } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
-  const [userProfile, setUserProfile] = useState<any>(null);
-  const [profileLoading, setProfileLoading] = useState(true);
-  const [isProfileSetup, setIsProfileSetup] = useState(false);
+  const searchParams = useSearchParams();
+  const [profile, setProfile] = useState<{
+    userId: string; data: UserProfile | null; setup: boolean; error: boolean;
+  } | null>(null);
+  const [profileVersion, setProfileVersion] = useState(0);
   const { toasts, removeToast } = useToasts();
   const hasRedirected = useRef(false);
+  const currentProfile = profile?.userId === user?.id ? profile : null;
+  const userProfile = currentProfile?.data ?? null;
+  const isProfileSetup = currentProfile?.setup ?? false;
+  const screen = searchParams.get('screen');
+  const feature = premiumFeatureForLocation(pathname, screen);
 
-  // Fetch user profile on mount
   useEffect(() => {
+    if (!user?.id) return;
+    return subscribeToProfileUpdates(user.id, () => setProfileVersion(version => version + 1));
+  }, [user?.id]);
+
+  useEffect(() => {
+    let current = true;
+    if (!user?.id) {
+      setProfile(null);
+      return;
+    }
+    const userId = user.id;
     const fetchProfile = async () => {
-      if (user?.id) {
-        try {
-          console.log('🔍 [ProtectedLayoutClient] Fetching profile for user:', user.id);
-          const { data, error } = await getUserProfile(user.id);
-          
-          if (error) {
-            // Handle specific error cases
-            if (error.code === 'PROFILE_NOT_FOUND' || error.message === 'Profile not found') {
-              console.log('ℹ️ [ProtectedLayoutClient] User profile not found, this is normal for new users');
-              // Set a default profile structure for new users
-              setUserProfile({
-                id: user.id,
-                email: user.email || '',
-                name: '',
-                profession: '',
-                income: '',
-                state: '',
-                filing_status: '',
-                onboardingIntroCompleted: false,
-                onboardingPlaidGuideCompleted: false,
-              });
-              // Mark as profile setup mode
-              setIsProfileSetup(true);
-            } else {
-              console.error('❌ [ProtectedLayoutClient] Error fetching user profile:', {
-                error,
-                errorType: typeof error,
-                errorMessage: error?.message,
-                errorCode: error?.code
-              });
-            }
-          } else if (data) {
-            console.log('✅ [ProtectedLayoutClient] User profile loaded successfully:', data);
-            setUserProfile(data);
-            // Not in profile setup mode
-            setIsProfileSetup(false);
-          } else {
-            console.log('ℹ️ [ProtectedLayoutClient] No profile data returned');
-          }
-        } catch (error) {
-          console.error('❌ [ProtectedLayoutClient] Exception in fetchProfile:', error);
-        } finally {
-          setProfileLoading(false);
-        }
+      try {
+        const { data, error } = await getUserProfile(userId);
+        if (!current) return;
+        const missing = error?.code === 'PROFILE_NOT_FOUND' || error?.message === 'Profile not found';
+        setProfile({ userId, data: data ?? null, setup: missing, error: Boolean(error && !missing) });
+      } catch {
+        if (current) setProfile({ userId, data: null, setup: false, error: true });
       }
     };
+    void fetchProfile();
+    return () => { current = false; };
+    // Layouts survive page navigation. Recheck after setup navigates to the app
+    // so a previously missing profile no longer hides the account navigation.
+    // Keep the current profile displayed while this background read finishes.
+  }, [user?.id, profileVersion, pathname, screen]);
 
-    if (user) {
-      fetchProfile();
-    }
-  }, [user]);
-
-  // Fallback: Client-side redirect if middleware couldn't handle it
-  // (e.g., if cookies aren't accessible in middleware on Firebase Hosting)
   useEffect(() => {
-    // Only redirect if middleware didn't catch it (user reached protected page without auth)
-    // This component only renders for /protected routes, so we know we're on a protected route
     if (!loading && !user && !hasRedirected.current) {
-      const isAuthPage = pathname?.startsWith('/auth/');
-      // Only redirect if we're on a protected route (not already on auth page)
-      if (!isAuthPage) {
-        hasRedirected.current = true;
-        console.log('[ProtectedLayoutClient] Fallback: No user, redirecting to login from:', pathname);
-        router.replace('/auth/login');
-      }
+      hasRedirected.current = true;
+      router.replace('/auth/login');
     }
-    if (user) {
-      hasRedirected.current = false;
-    }
-  }, [user, loading, router, pathname]);
+    if (user?.emailVerified === false) {
+      hasRedirected.current = true;
+      router.replace('/auth/sign-up-success');
+    } else if (user) hasRedirected.current = false;
+  }, [user, loading, router]);
 
-  // If loading, show loading state
-  if (loading || profileLoading) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-2 border-primary border-t-transparent"></div>
-      </div>
-    );
+  if (loading || user?.emailVerified === false || (user && !currentProfile)) {
+    return <div role="status" className="flex h-screen items-center justify-center gap-3">
+      <div aria-hidden="true" className="animate-spin rounded-full h-8 w-8 border-2 border-primary border-t-transparent" />
+      <span>Loading your account…</span>
+    </div>;
   }
-
-  // If no user, show redirecting message (redirect will happen in useEffect)
   if (!user) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="text-lg">Redirecting to login...</div>
-      </div>
-    );
+    return <div role="status" className="flex h-screen items-center justify-center">Redirecting to login…</div>;
   }
 
-  const handleProfileUpdate = () => {
-    // Refresh the profile data
-    if (user?.id) {
-      getUserProfile(user.id).then(({ data, error }) => {
-        if (!error && data) {
-          setUserProfile(data);
-        }
-      });
-    }
-  };
-
+  // Account/billing navigation remains available even when the profile service fails.
+  const showNavigation = !isProfileSetup || pathname === '/protected/settings' || pathname === '/protected/subscriptions';
   return (
     <>
-      {/* Global Toast Container */}
       <ToastContainer toasts={toasts} onClose={removeToast} />
-      
       <ErrorBoundary>
         <div className="flex flex-col lg:flex-row h-screen">
-          {/* Mobile Navigation */}
-          {!isProfileSetup && <MobileNav user={user as any} userProfile={userProfile} />}
-          
-          {/* Desktop Sidebar Navigation - Only show when not in profile setup mode */}
-          {!isProfileSetup && <SidebarNav user={user as any} userProfile={userProfile} />}
-          
-          {/* Main Content */}
-          <main className={`${isProfileSetup ? 'w-full' : 'flex-1'} overflow-auto`}>
+          {showNavigation && <MobileNav user={{ ...user, email: user.email ?? undefined }} userProfile={userProfile ?? undefined} />}
+          {showNavigation && <SidebarNav user={{ ...user, email: user.email ?? undefined }} userProfile={userProfile ?? undefined} />}
+          <main className={`${showNavigation ? 'flex-1' : 'w-full'} overflow-auto`}>
+            {currentProfile?.error && (
+              <div role="alert" className="m-4 rounded-lg border p-4 flex flex-wrap items-center gap-3">
+                <p className="text-sm">Your profile could not be loaded. Account and billing remain available.</p>
+                <Button size="sm" variant="outline" onClick={() => setProfileVersion((version) => version + 1)}>Retry profile</Button>
+              </div>
+            )}
             <ErrorBoundary>
-              {children}
+              {feature ? (
+                <PremiumFeatureGate feature={feature} featureName={feature === 'reports' ? 'reports' : 'report exports'}>
+                  {children}
+                </PremiumFeatureGate>
+              ) : children}
             </ErrorBoundary>
           </main>
-
-          {/* Tutorial Manager - Only show when not in profile setup mode */}
           {userProfile && !isProfileSetup && (
-            <TutorialManager
-              userId={user.id}
-              userProfile={userProfile}
-              onProfileUpdate={handleProfileUpdate}
-              />
-            )}
+            <TutorialManager userId={user.id} userProfile={userProfile} onProfileUpdate={() => setProfileVersion((version) => version + 1)} />
+          )}
         </div>
       </ErrorBoundary>
     </>
   );
 };
+
+
+export function ProtectedLayoutClient({ children }: ProtectedLayoutClientProps) {
+  return <Suspense fallback={<div role="status" className="flex h-screen items-center justify-center">Loading your account…</div>}>
+    <ProtectedLayoutContent>{children}</ProtectedLayoutContent>
+  </Suspense>;
+}

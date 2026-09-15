@@ -13,6 +13,7 @@ import { formatCategory, consolidateCategory } from '@/lib/utils';
 import { getTransactionId } from '@/lib/utils/transaction-id';
 import { calculateEffectiveTaxRate, getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
 import { useUpdateTransaction } from '@/lib/firebase/mutations';
+import { attachCaptureVideo, createMediaCapture } from '@/lib/browser/media-capture';
 // Using API route instead of direct database access
 import {
   ArrowLeft,
@@ -176,6 +177,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [showCamera, setShowCamera] = useState(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const cameraCapture = useRef(createMediaCapture(constraints => navigator.mediaDevices.getUserMedia(constraints)));
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [showCpaModal, setShowCpaModal] = useState(false);
@@ -357,20 +359,20 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
   // Start camera
   const startCamera = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
+      const stream = await cameraCapture.current.start({
         video: {
           facingMode: 'environment', // Use back camera on mobile
           width: { ideal: 1280 },
           height: { ideal: 720 }
         }
       });
+      if (!stream) return;
       setCameraStream(stream);
       setShowCamera(true);
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
     } catch (error) {
+      cameraCapture.current.stop();
+      setCameraStream(null);
+      setShowCamera(false);
       console.error('Error accessing camera:', error);
       showError('Camera Access Denied', 'Please allow camera access to take photos');
     }
@@ -378,10 +380,8 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
 
   // Stop camera
   const stopCamera = () => {
-    if (cameraStream) {
-      cameraStream.getTracks().forEach(track => track.stop());
-      setCameraStream(null);
-    }
+    cameraCapture.current.stop();
+    setCameraStream(null);
     setShowCamera(false);
   };
 
@@ -391,6 +391,11 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
       const video = videoRef.current;
       const canvas = canvasRef.current;
       const context = canvas.getContext('2d');
+
+      if (!video.videoWidth || !video.videoHeight) {
+        showError('Camera Starting', 'Wait for the camera preview before taking a photo.');
+        return;
+      }
 
       if (context) {
         canvas.width = video.videoWidth;
@@ -408,14 +413,15 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
     }
   };
 
-  // Cleanup camera on unmount
+  // The video exists only after showCamera is committed to the DOM.
   useEffect(() => {
-    return () => {
-      if (cameraStream) {
-        cameraStream.getTracks().forEach(track => track.stop());
-      }
-    };
-  }, [cameraStream]);
+    if (showCamera && cameraStream && videoRef.current) return attachCaptureVideo(videoRef.current, cameraStream);
+  }, [showCamera, cameraStream]);
+
+  useEffect(() => {
+    const capture = cameraCapture.current;
+    return () => capture.stop();
+  }, []);
 
   // Handle receipt upload
   const handleReceiptUpload = async () => {
@@ -478,8 +484,8 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
 
     try {
       const updates: { receipt_url?: string; receipt_filename?: string } = {
-        receipt_url: undefined,
-        receipt_filename: undefined
+        receipt_url: '',
+        receipt_filename: ''
       };
 
       await updateTransactionMutation.mutateAsync({
@@ -1035,6 +1041,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                     <video
                       ref={videoRef}
                       autoPlay
+                      muted
                       playsInline
                       className="w-full h-64 object-cover"
                     />

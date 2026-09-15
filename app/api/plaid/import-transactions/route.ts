@@ -2,6 +2,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getTransactionHistoryWindow, isWithinHistoryWindow } from '@/lib/subscriptions/history-window';
 import { plaidClient } from '@/lib/plaid/client';
 import { adminDb } from '@/lib/firebase/admin';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
@@ -11,7 +12,8 @@ import { logPlaidRequest, debugPlaid } from '@/lib/plaid/debug';
 export async function POST(req: Request) {
   let uid = '';
   try {
-    ({ uid } = await getUserFromReqOrThrow(req));
+    try { ({ uid } = await getUserFromReqOrThrow(req)); }
+    catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
     const { account_id, import_timeframe = '2years', access_token } = await req.json();
 
     if (!account_id || !access_token) {
@@ -23,6 +25,10 @@ export async function POST(req: Request) {
     // Re-import lock
     const profileDoc = await adminDb.doc(`user_profiles/${uid}`).get();
     const profileData = profileDoc.data();
+    if (typeof account_id !== 'string' || account_id.includes('/') || !profileDoc.exists ||
+        !profileData?.plaid_token || profileData.plaid_token !== access_token) {
+      return NextResponse.json({ error: 'Bank connection does not belong to this account' }, { status: 403 });
+    }
     const inProgress = profileData?.plaid_import_in_progress === true;
     const startedAt = profileData?.plaid_import_started_at;
     const startedAtMs = startedAt?.toMillis?.() ?? startedAt?.toDate?.()?.getTime?.() ?? (typeof startedAt === 'number' ? startedAt : 0);
@@ -89,16 +95,17 @@ export async function POST(req: Request) {
       endDate.setHours(23, 59, 59, 999); // End of today
       const startDate = new Date();
 
-      // Always use 730 days (2 years) - Plaid maximum
-      const daysToFetch = 730;
-      const actualDays = 730;
+      // Enforce the authenticated user's plan on the server.
+      const historyWindow = await getTransactionHistoryWindow(uid);
+      const daysToFetch = historyWindow.days;
+      const actualDays = daysToFetch;
 
       // Calculate start date more reliably using milliseconds
       const startDateMs = endDate.getTime() - (actualDays * 24 * 60 * 60 * 1000);
       startDate.setTime(startDateMs);
       startDate.setHours(0, 0, 0, 0); // Start of the day
 
-      startDateStr = startDate.toISOString().split('T')[0];
+      startDateStr = historyWindow.startDate;
       endDateStr = endDate.toISOString().split('T')[0];
       const actualDateRange = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
 
@@ -201,6 +208,7 @@ export async function POST(req: Request) {
 
       const transactions = allTransactions;
       for (const tx of transactions) {
+          if (!isWithinHistoryWindow(tx.date, historyWindow)) continue;
         const txId = tx.transaction_id;
 
         // Check if transaction already exists before importing
