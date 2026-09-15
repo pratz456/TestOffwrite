@@ -1,5 +1,7 @@
 # Live login hotfix — 2026-09-15
 
+## Initial header repair
+
 The live login response blocked `https://apis.google.com` in `script-src` and
 `https://writeoff-23910.firebaseapp.com` in `frame-src`. Google sign-in failed with
 `auth/internal-error`. Firebase's Google and email/password providers were enabled,
@@ -41,3 +43,18 @@ lint checks enabled, and an independent review checked all three OAuth call site
 The previous deployment's private environment settings are preserved exactly in
 the deployment bundle and excluded from Git. The original Hosting release remains
 available for rollback.
+
+The code update was deployed successfully to Firebase Hosting and its SSR backend:
+
+- Code commit: `9194145`
+- Hosting version: `954a8bf3450f24de`
+- Released: `2026-09-15T20:41:13.476Z`
+- Release: `sites/writeoff-23910/releases/1789504873476000`
+
+Both `writeoffapp.com` and `www.writeoffapp.com` return HTTP 200 for the login
+page, reference the new bundle and include the corrected policy. The downloaded
+live bundle matches the locally built bundle by SHA-256. The browser now restores
+an authenticated session, reaches `/protected`, loads saved account data and
+retains dashboard access after a full reload. Fresh credential entry through both
+providers was not independently completed; this verifies session restoration and
+dashboard access, not every account or browser.
