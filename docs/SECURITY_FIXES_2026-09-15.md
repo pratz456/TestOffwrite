@@ -22,6 +22,7 @@ Local implementation only. No production rules or application deployment was per
 - 11 real Firestore/Storage emulator tests: owner and other-user access, collection/group queries, job pre-creation, protected-field additions/deletions, profile create/update escalation, server entitlement writes, receipt creation/replacement/deletion, size and content type.
 - Real Admin Storage save, private metadata and bounded-range download were also exercised against the demo Storage emulator.
 - All emulator data was synthetic, under `demo-writeoff-security`, with services bound to `127.0.0.1`. Emulators were stopped afterward. No production customer records or application secrets were read.
+- Isolated production-build verification passed: 187 precache entries contained zero private API/protected/auth URLs; compiled runtime matchers routed private requests to NetworkOnly. The actual imported worker's activation handler removed 14 legacy sensitive caches from synthetic Cache Storage and preserved unrelated/public/precache entries. The built manifest included current, legacy and process receipt routes.
 
 ## Repeating the rule tests
 
@@ -37,7 +38,7 @@ Without this explicit environment flag, the emulator suite skips without initial
 
 ## Checks before release
 
-1. Inspect the generated `public/sw.js` to ensure no `/api`, `/protected` or `/auth` URLs appear in the precache, the runtime policy has no legacy API/page caches, and the generated custom worker is imported.
+1. Repeat the generated-worker inspection for the release build: no `/api`, `/protected` or `/auth` precache URLs, no legacy API/page runtime caches, and an imported custom cleanup worker. This passed for the local batch build.
 2. In a staging production build, sign in as synthetic user A, upload/view a receipt, then sign out and sign in as synthetic user B in the same browser. B must receive no receipt bytes using A's receipt URL.
 3. Seed the browser with the old worker's caches, activate the new worker and inspect Cache Storage. Known legacy sensitive caches must disappear; unrelated caches and current public assets must remain.
 4. Take that browser offline. Protected pages should show only the generic offline screen or a network error, with no previously viewed account balances, transactions, receipts or reports.

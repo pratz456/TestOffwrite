@@ -54,7 +54,11 @@ Automated checks use synthetic data and mocked providers, plus a separate opt-in
 
 Onboarding desktop/mobile checks exercised mocked versions of the actual components: invalid-input blocking, retained draft after save failure, successful retry, resend failure/recovery, cooldown and manual verification. No live account signup, email, bank connection, receipt upload or signing was performed.
 
-Final combined test/build results are recorded in the completion summary for this batch. No Firebase rules, code, hosting configuration or source commits have been published.
+The complete batch passed `npm run ci` in an isolated checkout at code commit `7b8f189`, excluding concurrent landing-page edits: **232 tests passed across 16 files**, the opt-in 11-test emulator suite was skipped in this ordinary run, lint had **zero errors** (1,031 warnings remain), and the production build succeeded. The **11 emulator tests passed separately** against local demo services. TypeScript and the mocked desktop/mobile onboarding and tax-consumer handler checks also passed.
+
+Generated production artifacts were inspected and executed with synthetic cache state: 187 precache entries contained no API, protected or auth routes; compiled private request matchers selected NetworkOnly; the imported custom worker deleted 14 known legacy sensitive cache names while preserving unrelated/public/precache storage. All three current/legacy/process receipt routes appeared in the built route manifest.
+
+No Firebase rules, code, hosting configuration or source commits have been published. These checks establish local code/build behavior, not production end-to-end verification or complete tax-law accuracy.
 
 ## Remaining work and limits
 
