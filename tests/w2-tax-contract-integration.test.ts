@@ -87,6 +87,8 @@ describe('onboarding filing-status labels flow into tax calculations and PDF sel
       const selectedCheckbox = drawText.mock.calls.filter(([text, options]) => text === 'X' && options?.size === 5.5);
       expect(selectedCheckbox).toHaveLength(1);
       expect(selectedCheckbox[0][1]?.x).toBe(127.5 + statusIndex * 120);
+      expect(drawText.mock.calls.some(([text]) => text.startsWith('At any time in 2026,'))).toBe(true);
+      expect(drawText.mock.calls.some(([text]) => text.startsWith('At any time in 2025,'))).toBe(false);
     } finally { drawText.mockRestore(); }
     const se = await scheduleSE(request('/api/tax/schedule-se/auto'));
     expect(se.status).toBe(200);

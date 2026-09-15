@@ -20,7 +20,7 @@ vi.mock('@/lib/firebase/transactions-server', () => ({
   getTransactionsServer: mocks.getTransactions,
   updateTransactionServerWithUserId: mocks.updateTransaction,
 }));
-vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collection: mocks.collection, runTransaction: mocks.runTransaction } }));
+vi.mock('@/lib/firebase/admin', () => ({ adminApp: { name: 'firebase-frameworks' }, adminDb: { collection: mocks.collection, runTransaction: mocks.runTransaction } }));
 vi.mock('@/lib/firebase/profiles-server', () => ({ getUserProfileServer: mocks.profile }));
 vi.mock('@/lib/ai/analyzeTransaction', () => ({ analyzeTransactionWithRetry: mocks.analyze, convertToEnhancedContext: mocks.context }));
 vi.mock('firebase-admin/storage', () => ({ getStorage: () => ({ bucket: mocks.bucket, app: { options: {} } }) }));

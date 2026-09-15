@@ -18,7 +18,7 @@ if (process.env.NODE_ENV === 'development' && !hasEnvCredentials) {
 }
 
 // Initialize the app only if it hasn't been initialized yet
-const app = getApps().length === 0
+export const adminApp = getApps().length === 0
   ? (() => {
       if (hasEnvCredentials) {
         const firebaseAdminConfig = {
@@ -37,11 +37,11 @@ const app = getApps().length === 0
     })()
   : getApps()[0];
 
-assertStagingFirebaseEnvironment(process.env, app.options);
+assertStagingFirebaseEnvironment(process.env, adminApp.options);
 
 // Export Firebase Admin services
-export const adminAuth = getAuth(app);
-export const adminDb = getFirestore(app);
+export const adminAuth = getAuth(adminApp);
+export const adminDb = getFirestore(adminApp);
 export const admin = { firestore: { FieldValue, Timestamp } };
 export { FieldValue, Timestamp };
 
@@ -77,4 +77,3 @@ export async function updateEmailVerified(uid: string, emailVerified: boolean) {
     return { success: false, error };
   }
 }
-

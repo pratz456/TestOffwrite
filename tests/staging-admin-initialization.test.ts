@@ -43,4 +43,13 @@ describe('staging Admin client construction', () => {
     expect(mocks.initialize).not.toHaveBeenCalled();
     expect(mocks.firestore).toHaveBeenCalledOnce();
   });
+  it('exports the same named app used by Auth and Firestore when no default app exists', async () => {
+    const namedApp = { name: 'firebase-frameworks', options: { projectId: project, storageBucket: bucket } };
+    mocks.apps.mockReturnValue([namedApp]);
+    const { adminApp } = await import('../lib/firebase/admin');
+    expect(adminApp).toBe(namedApp);
+    expect(mocks.initialize).not.toHaveBeenCalled();
+    expect(mocks.auth).toHaveBeenCalledWith(namedApp);
+    expect(mocks.firestore).toHaveBeenCalledWith(namedApp);
+  });
 });

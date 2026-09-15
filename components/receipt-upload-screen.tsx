@@ -416,7 +416,7 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
                         <div className="text-sm font-medium text-slate-700">Save receipt to</div>
                         <div className="text-xs text-slate-500">If attached, we only update the receipt photo (no amount/category changes).</div>
 
-                        <div className="flex gap-3 items-center">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                           <select
                             value={attachmentChoice}
                             disabled={isSaving}
@@ -428,7 +428,7 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
                                 setSelectedCandidateTransId(selectedCandidateTransId || fallback);
                               }
                             }}
-                            className="h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white"
+                            className="h-9 w-full min-w-0 max-w-full px-3 text-sm border border-slate-200 rounded-lg bg-white sm:w-auto"
                           >
                             <option value="attach">Existing transaction</option>
                             <option value="create">New transaction</option>
@@ -439,7 +439,7 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
                               value={selectedCandidateTransId || ''}
                               disabled={isSaving}
                               onChange={(e) => setSelectedCandidateTransId(e.target.value)}
-                              className="flex-1 h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white"
+                              className="h-9 w-full min-w-0 max-w-full flex-1 px-3 text-sm border border-slate-200 rounded-lg bg-white"
                             >
                               {extractedData.matchCandidates.slice(0, 3).map((c) => (
                                 <option key={c.trans_id} value={c.trans_id}>

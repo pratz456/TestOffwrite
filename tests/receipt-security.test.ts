@@ -6,13 +6,15 @@ const mocks = vi.hoisted(() => ({
   collection: vi.fn(), doc: vi.fn(), create: vi.fn(), get: vi.fn(),
   bucket: vi.fn(), file: vi.fn(), save: vi.fn(), deleteFile: vi.fn(), metadata: vi.fn(), download: vi.fn(),
   storageOptions: {} as { storageBucket?: string },
+  adminApp: { name: 'firebase-frameworks' }, getStorage: vi.fn(),
 }));
 vi.mock('@/lib/firebase/admin', () => ({
+  adminApp: mocks.adminApp,
   adminAuth: { verifyIdToken: mocks.verifyIdToken, verifySessionCookie: mocks.verifySessionCookie },
   adminDb: { collection: mocks.collection },
 }));
 vi.mock('@/lib/firebase/transactions-server', () => ({ getTransactionServer: mocks.transaction }));
-vi.mock('firebase-admin/storage', () => ({ getStorage: () => ({ bucket: mocks.bucket, app: { options: mocks.storageOptions } }) }));
+vi.mock('firebase-admin/storage', () => ({ getStorage: mocks.getStorage }));
 import { POST } from '../app/api/upload-receipt/route';
 import { GET } from '../app/api/receipts/[filename]/route';
 import { GET as getLegacyReceipt } from '../app/api/receipts/[...legacyPath]/route';
@@ -42,6 +44,10 @@ beforeEach(() => {
   vi.stubEnv('FIREBASE_CONFIG', '');
   vi.stubEnv('NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET', 'demo-receipts.appspot.com');
   delete mocks.storageOptions.storageBucket;
+  mocks.getStorage.mockImplementation(app => {
+    if (app !== mocks.adminApp) throw new Error('The default Firebase app does not exist');
+    return { bucket: mocks.bucket, app: { options: mocks.storageOptions } };
+  });
   mocks.verifyIdToken.mockResolvedValue({ uid: userId });
   mocks.verifySessionCookie.mockResolvedValue({ uid: userId });
   mocks.transaction.mockResolvedValue({ data: { trans_id: transactionId, userId }, error: null });
@@ -59,6 +65,11 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe('receipt authentication and upload boundaries', () => {
+  it('uses the shared named Admin app when no default app exists', () => {
+    receiptBucket();
+    expect(mocks.getStorage).toHaveBeenCalledWith(mocks.adminApp);
+    expect(mocks.bucket).toHaveBeenCalledWith('demo-receipts.appspot.com');
+  });
   it('requires authentication before parsing or touching private data', async () => {
     expect((await POST(upload({ headers: {} }))).status).toBe(401);
     expect((await getReceipt('receipt-id', {})).status).toBe(401);

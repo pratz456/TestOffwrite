@@ -37,7 +37,15 @@ const nextConfig: NextConfig = {
   },
 
   // External packages for server components
-  serverExternalPackages: ["firebase-admin"],
+  // Tesseract resolves its Node worker relative to the installed package.
+  // Bundling it moves __dirname into the route and crashes the worker.
+  serverExternalPackages: ["firebase-admin", "tesseract.js"],
+  outputFileTracingIncludes: {
+    '/api/receipts/process': [
+      './node_modules/tesseract.js/src/**/*',
+      './node_modules/tesseract.js-core/*',
+    ],
+  },
 
   // Compiler optimizations
   compiler: {

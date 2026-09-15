@@ -91,7 +91,7 @@ export class ReceiptProcessor {
         data: {
           merchant: receiptData.merchant || 'Unknown Merchant',
           amount: receiptData.amount || 0,
-          date: receiptData.date || new Date().toISOString().split('T')[0],
+          date: this.normalizeDateToISO(receiptData.date) || new Date().toISOString().split('T')[0],
           category: receiptData.category,
           items: receiptData.items,
           confidence: confidence / 100,
@@ -189,9 +189,9 @@ export class ReceiptProcessor {
   private extractDate(text: string): string {
     // Look for various date patterns
     const datePatterns = [
+      /\b(\d{4}-\d{1,2}-\d{1,2})\b/g, // YYYY-MM-DD before short hyphenated dates
       /(\d{1,2}\/\d{1,2}\/\d{2,4})/g, // MM/DD/YYYY or MM/DD/YY
       /(\d{1,2}-\d{1,2}-\d{2,4})/g, // MM-DD-YYYY
-      /(\d{4}-\d{1,2}-\d{1,2})/g, // YYYY-MM-DD
       /(\w{3,9}\s+\d{1,2},?\s+\d{2,4})/g, // Month DD, YYYY
     ];
     

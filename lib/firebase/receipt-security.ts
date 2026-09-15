@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { getStorage } from 'firebase-admin/storage';
-import { adminAuth } from './admin';
+import { adminApp, adminAuth } from './admin';
 import { isTrustedApplicationRequest } from '@/lib/security/request-origin';
 
 export const MAX_RECEIPT_BYTES = 10 * 1024 * 1024;
@@ -95,7 +95,8 @@ export function safeReceiptName(name: unknown): string {
 }
 
 export function receiptBucket() {
-  const storage = getStorage();
+  // Firebase Hosting may initialize only its named "firebase-frameworks" app.
+  const storage = getStorage(adminApp);
   let firebaseConfigBucket: unknown;
   try {
     firebaseConfigBucket = JSON.parse(process.env.FIREBASE_CONFIG || '{}').storageBucket;

@@ -143,7 +143,7 @@ async function page1(doc: PDFDocument, f: PDFFont, bf: PDFFont, d: Record<string
   hl(p, y - 18, ML, MR, 0.5, BLACK); y -= 22;
 
   // Digital assets
-  p.drawText('At any time in 2025, did you receive, sell, or dispose of any digital asset (cryptocurrency)?', { x: ML, y: y - 8, size: 7, font: f, color: BLACK });
+  p.drawText(`At any time in ${yr}, did you receive, sell, or dispose of any digital asset (cryptocurrency)?`, { x: ML, y: y - 8, size: 7, font: f, color: BLACK });
   p.drawRectangle({ x: MR - 60, y: y - 12, width: 7, height: 7, borderColor: BLACK, borderWidth: 0.5, color: WHITE });
   p.drawText('Yes', { x: MR - 51, y: y - 11, size: 7, font: f, color: BLACK });
   p.drawRectangle({ x: MR - 28, y: y - 12, width: 7, height: 7, borderColor: BLACK, borderWidth: 0.5, color: WHITE });
