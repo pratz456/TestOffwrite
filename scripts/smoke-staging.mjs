@@ -123,6 +123,7 @@ await check('trial account can export CSV', async () => {
   const r = await request('/api/transactions/export-csv', { token: owner.token }); status(r, 200); assert.match(r.response.headers.get('content-type') || '', /csv/); assert.match(r.bytes.toString(), /Synthetic client/);
 });
 let receiptUrl;
+let receiptTransactionId;
 await check('new account can save a receipt with manually confirmed fields', async () => {
   assert.equal((await firestore(`/user_profiles/${other.uid}/accounts`)).documents?.length ?? 0, 0, 'Receipt fixture must start without an account');
   const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=', 'base64');
@@ -142,8 +143,14 @@ await check('new account can save a receipt with manually confirmed fields', asy
   assert.ok(!receipt.fields.image && !receipt.fields.base64 && !receipt.fields.dataUrl, 'Firestore receipt metadata must not contain embedded image bytes');
   assert.equal(r.data.receiptUrl, `/api/receipts/${receipt.name.split('/').at(-1)}`);
   receiptUrl = r.data.receiptUrl;
+  receiptTransactionId = r.data.transaction.trans_id;
 });
 await check('receipt owner can retrieve private image', async () => {
+  assert.ok(receiptTransactionId);
+  const detail = await request(`/api/transactions/${receiptTransactionId}`, { token: other.token });
+  status(detail, 200);
+  assert.equal(detail.data.transaction.receipt_url, receiptUrl, 'Detail refresh must preserve the receipt link');
+  assert.equal(detail.data.transaction.receipt_filename, 'synthetic-receipt.png');
   assert.ok(receiptUrl); const r = await request(receiptUrl, { token: other.token }); status(r, 200);
   assert.match(r.response.headers.get('content-type') || '', /image\/png/);
   // Firebase Hosting normalizes the route's private header to the global API
@@ -171,7 +178,7 @@ await check('robots prevents staging indexing', async () => {
   const r = await request('/robots.txt'); status(r, 200); assert.match(r.bytes.toString(), /Disallow: \/(?:\s|$)/);
 });
 const report = { checkedAt: new Date().toISOString(), projectId, base, passed: results.filter(x => x.passed).length,
-  failed: results.filter(x => !x.passed).length, results, pending: ['Stripe test-mode checkout/webhooks', 'Plaid Sandbox linking/import', 'Fresh Google OAuth login', 'Browser onboarding and receipt editing', 'Broad tax-scope validation'] };
+  failed: results.filter(x => !x.passed).length, results, excludedFromScript: ['Stripe test-mode checkout/webhooks', 'Plaid Sandbox linking/import', 'Fresh Google OAuth login', 'Email action delivery', 'Browser onboarding and receipt editing', 'Broad tax-scope validation'] };
 await fs.writeFile('/tmp/writeoff-staging-smoke-results.json', JSON.stringify(report, null, 2));
 console.log(JSON.stringify({ passed: report.passed, failed: report.failed, report: '/tmp/writeoff-staging-smoke-results.json' }));
 process.exitCode = report.failed ? 1 : 0;
