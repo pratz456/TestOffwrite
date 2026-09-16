@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,7 +13,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Plus, Trash2, Loader2, DollarSign, FileText,
-  TrendingUp, Building2, Receipt, CheckCircle2,
+  TrendingUp, Building2, Receipt,
 } from "lucide-react";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 
@@ -97,8 +98,8 @@ export function IncomeTrackingScreen({ user, onBack }: IncomeTrackingScreenProps
   /* totals */
   const total1099    = forms.reduce((s, f) => s + f.amount, 0);
   const totalReceipts = receipts.reduce((s, r) => s + r.amount, 0);
-  const totalIncome  = total1099 + totalReceipts;
-  const estimatedSE  = totalIncome * 0.153;
+  // Record totals can overlap; they are not reconciled taxable income.
+  const totalRecordedAmount = total1099 + totalReceipts;
 
   /* 1099 handlers */
   const handleAddForm = async (e: React.FormEvent) => {
@@ -165,7 +166,7 @@ export function IncomeTrackingScreen({ user, onBack }: IncomeTrackingScreenProps
         <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3">
           <div className="min-w-0 flex-1">
             <h1 className="text-lg sm:text-xl font-semibold text-foreground truncate">Income Tracking</h1>
-            <p className="text-xs sm:text-sm text-muted-foreground">All income flows to Schedule C Line 1</p>
+            <p className="text-xs sm:text-sm text-muted-foreground">Keep income records together for tax review</p>
           </div>
           <Select value={String(taxYear)} onValueChange={v => setTaxYear(parseInt(v, 10))}>
             <SelectTrigger className="w-[100px] h-9"><SelectValue /></SelectTrigger>
@@ -182,10 +183,10 @@ export function IncomeTrackingScreen({ user, onBack }: IncomeTrackingScreenProps
         {/* Summary */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
-            { label: "Total Income", value: `$${fmt(totalIncome)}`, accent: "text-green-600 dark:text-green-400" },
+            { label: "Recorded Amounts", value: `$${fmt(totalRecordedAmount)}`, accent: "text-green-600 dark:text-green-400" },
             { label: "1099 Forms", value: `$${fmt(total1099)}`, accent: "text-foreground" },
             { label: "Direct Receipts", value: `$${fmt(totalReceipts)}`, accent: "text-foreground" },
-            { label: "Est. SE Tax (15.3%)", value: `$${fmt(estimatedSE)}`, accent: "text-orange-600 dark:text-orange-400" },
+            { label: "Saved Records", value: String(forms.length + receipts.length), accent: "text-foreground" },
           ].map(({ label, value, accent }) => (
             <Card key={label} className="bg-card border-border">
               <CardContent className="p-3 sm:p-4">
@@ -196,10 +197,14 @@ export function IncomeTrackingScreen({ user, onBack }: IncomeTrackingScreenProps
           ))}
         </div>
 
-        {/* Schedule C callout */}
+        {/* Reconciliation and authoritative estimate */}
         <div className="flex items-start gap-3 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 px-4 py-3 text-sm text-blue-800 dark:text-blue-300">
-          <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
-          <p>All income you enter here is automatically included on <strong>Schedule C Line 1</strong> when you export your tax return.</p>
+          <FileText className="w-4 h-4 mt-0.5 shrink-0" />
+          <div className="space-y-2">
+            <p>These totals add your saved income entries before tax review. Income recorded in Transactions is reviewed in Tax Preview and is not included in these entry totals. A 1099 and a direct receipt may describe the same payment. Review overlapping records and income types before using a tax estimate or export.</p>
+            <p>Tax Preview calculates your federal estimate from saved income, expenses and tax details, and flags information that needs review. Select the same tax year there. Saving income here does not prepare or file a return.</p>
+            <Link href="/protected?screen=tax-preview" className="inline-block font-medium underline underline-offset-4">Review tax estimate in Tax Preview</Link>
+          </div>
         </div>
 
         {error && (
@@ -413,7 +418,7 @@ export function IncomeTrackingScreen({ user, onBack }: IncomeTrackingScreenProps
             <Card className="bg-card border-border">
               <CardHeader>
                 <CardTitle className="text-base font-semibold flex items-center gap-2">
-                  <Building2 className="w-4 h-4 text-primary" />All Income by Source
+                  <Building2 className="w-4 h-4 text-primary" />Saved Records by Source
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -437,8 +442,8 @@ export function IncomeTrackingScreen({ user, onBack }: IncomeTrackingScreenProps
                         </li>
                       ))}
                       <li className="flex justify-between px-3 py-2.5 rounded-lg bg-primary/10 border border-primary/20">
-                        <span className="text-sm font-semibold text-foreground">Total</span>
-                        <span className="text-sm font-bold tabular-nums text-primary">${fmt(totalIncome)}</span>
+                        <span className="text-sm font-semibold text-foreground">Recorded subtotal</span>
+                        <span className="text-sm font-bold tabular-nums text-primary">${fmt(totalRecordedAmount)}</span>
                       </li>
                     </ul>
                   );

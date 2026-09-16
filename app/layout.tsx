@@ -13,19 +13,18 @@ const defaultUrl = process.env.NEXT_PUBLIC_SITE_URL
   || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
 const analyticsEnabled = process.env.NEXT_PUBLIC_APP_ENV !== 'staging';
 
-// Use static OG image so link preview works even when the dynamic route fails in production (e.g. serverless).
-// Add public/og-image.png (e.g. save from http://localhost:3000/opengraph-image when running locally).
-const ogImageUrl = `${defaultUrl.replace(/\/$/, "")}/og-image.png`;
-const twitterImageUrl = `${defaultUrl.replace(/\/$/, "")}/og-image.png`;
+// Use the brand mark until a rendered static card reflects the current product scope.
+const ogImageUrl = `${defaultUrl.replace(/\/$/, "")}/writeofflogo.png`;
+const twitterImageUrl = ogImageUrl;
 
 export const metadata: Metadata = {
   metadataBase: new URL(defaultUrl),
   title: {
-    default: "WriteOff - AI Tax Deduction Tracker for Freelancers",
+    default: "WriteOff - Expense and Receipt Tracking for Freelancers",
     template: "%s | WriteOff",
   },
   description:
-    "AI powered tax autopilot that finds, categorizes, and tracks every business expense in real-time. Stop overpaying taxes.",
+    "Organize business expenses, review receipts, and export records for your tax preparer. Start with manual entry, with no bank connection required.",
   icons: {
     icon: [{ url: "/writeofflogo.png", type: "image/png" }],
     shortcut: "/writeofflogo.png",
@@ -34,15 +33,15 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     siteName: "WriteOff",
-    title: "WriteOff - AI Tax Deduction Tracker for Freelancers",
+    title: "WriteOff - Expense and Receipt Tracking for Freelancers",
     description:
-      "AI powered tax autopilot that finds, categorizes, and tracks every business expense in real-time. Stop overpaying taxes.",
-    images: [{ url: ogImageUrl, width: 1200, height: 630, alt: "WriteOff - AI Tax Deduction Tracker for Freelancers" }],
+      "Keep expenses, receipts, and business notes together. Review your records and prepare exports for your accountant.",
+    images: [{ url: ogImageUrl, alt: "WriteOff" }],
   },
   twitter: {
-    card: "summary_large_image",
-    title: "WriteOff - AI Tax Deduction Tracker",
-    description: "Stop overpaying taxes. WriteOff finds every deduction automatically.",
+    card: "summary",
+    title: "WriteOff - Expense and Receipt Tracking",
+    description: "Save expenses, review receipts, and prepare records for your accountant.",
     images: [twitterImageUrl],
   },
   alternates: { canonical: "/" },
@@ -71,7 +70,7 @@ export default function RootLayout({
     url: defaultUrl,
     logo: `${defaultUrl.replace(/\/$/, "")}/writeofflogo.png`,
     description:
-      "AI-powered tax deduction tracker that helps freelancers and small business owners automatically find, categorize, and maximize tax savings.",
+      "Expense and receipt organization for freelancers and small business owners, with record exports and supported federal planning estimates.",
     email: "writeoffapp@gmail.com",
     contactPoint: {
       "@type": "ContactPoint",

@@ -287,7 +287,7 @@ export function AnalyticsPanel({ transactions }: AnalyticsPanelProps) {
           <div className="h-[160px] sm:h-[190px] flex flex-col items-center justify-center text-muted-foreground">
             <BarChart3 className="h-8 w-8 mb-2 opacity-40" />
             <p className="text-sm">No {cfg.label.toLowerCase()} data for {selectedYear}</p>
-            <p className="text-xs mt-1">Connect your bank to see trends</p>
+            <p className="text-xs mt-1">Add transactions manually or connect a bank to see recorded trends.</p>
           </div>
         )}
       </CardContent>

@@ -3,11 +3,11 @@
 import React from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { CheckCircle, AlertCircle, ChevronRight, TrendingUp } from 'lucide-react';
+import { CheckCircle, AlertCircle, ChevronRight } from 'lucide-react';
 
 interface OptimizationCardProps {
   needsReviewCount: number;
-  needsAnalysisCount: number;
+  pendingCount: number;
   totalTransactions: number;
   deductibleCount: number;
   onNavigate: (screen: string) => void;
@@ -15,14 +15,11 @@ interface OptimizationCardProps {
 
 export function OptimizationCard({
   needsReviewCount,
-  needsAnalysisCount,
+  pendingCount,
   totalTransactions,
   deductibleCount,
   onNavigate,
 }: OptimizationCardProps) {
-  const analyzedCount = totalTransactions - needsAnalysisCount;
-  const progressPercent = totalTransactions > 0 ? Math.round((analyzedCount / totalTransactions) * 100) : 0;
-
   return (
     <Card className="h-full">
       <CardContent className="p-5 space-y-4">
@@ -31,36 +28,24 @@ export function OptimizationCard({
           <span className="text-xs text-muted-foreground">{totalTransactions} total</span>
         </div>
 
-        {/* Progress bar */}
-        <div>
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-xs text-muted-foreground">Expenses verified</span>
-            <span className="text-xs font-medium tabular-nums">{progressPercent}%</span>
-          </div>
-          <div className="h-2 rounded-full bg-muted overflow-hidden">
-            <div
-              className="h-full rounded-full bg-primary transition-all duration-500"
-              style={{ width: `${progressPercent}%` }}
-            />
-          </div>
-        </div>
+        <p className="text-xs text-muted-foreground">All dates. Saved classifications are not a tax eligibility check.</p>
 
         {/* Status items */}
         <div className="space-y-2">
-          {needsAnalysisCount > 0 && (
+          {pendingCount > 0 && (
             <div className="flex items-center justify-between py-1.5 px-2.5 rounded-lg bg-warning/5 border border-warning/20">
               <div className="flex items-center gap-2">
                 <AlertCircle className="h-3.5 w-3.5 text-warning shrink-0" />
-                <span className="text-xs font-medium text-foreground">Uncategorized</span>
+                <span className="text-xs font-medium text-foreground">Pending transactions</span>
               </div>
-              <span className="text-xs font-semibold tabular-nums text-warning">{needsAnalysisCount}</span>
+              <span className="text-xs font-semibold tabular-nums text-warning">{pendingCount}</span>
             </div>
           )}
           {needsReviewCount > 0 && (
             <div className="flex items-center justify-between py-1.5 px-2.5 rounded-lg bg-primary/5 border border-primary/20">
               <div className="flex items-center gap-2">
                 <AlertCircle className="h-3.5 w-3.5 text-primary shrink-0" />
-                <span className="text-xs font-medium text-foreground">Pending review</span>
+                <span className="text-xs font-medium text-foreground">Posted records needing review</span>
               </div>
               <span className="text-xs font-semibold tabular-nums text-primary">{needsReviewCount}</span>
             </div>
@@ -69,7 +54,7 @@ export function OptimizationCard({
             <div className="flex items-center justify-between py-1.5 px-2.5 rounded-lg bg-emerald-500/5 border border-emerald-500/20">
               <div className="flex items-center gap-2">
                 <CheckCircle className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-                <span className="text-xs font-medium text-foreground">Confirmed deductions</span>
+                <span className="text-xs font-medium text-foreground">Posted records marked deductible</span>
               </div>
               <span className="text-xs font-semibold tabular-nums text-emerald-600">{deductibleCount}</span>
             </div>
@@ -83,7 +68,7 @@ export function OptimizationCard({
           onClick={() => onNavigate('review-transactions')}
           className="w-full text-xs gap-1"
         >
-          Review recommendations
+          Review records
           <ChevronRight className="h-3.5 w-3.5" />
         </Button>
       </CardContent>

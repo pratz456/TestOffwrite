@@ -3,7 +3,7 @@ import { Button } from '../ui/button';
 import writeOffLogo from '@/public/writeofflogo.png';
 import Image from 'next/image';
 import Link from 'next/link';
-import { HelpCircle, Shield, Info, MessageCircle } from 'lucide-react';
+import { HelpCircle, Shield, Info } from 'lucide-react';
 
 export function HomeContent() {
   return (
@@ -24,7 +24,7 @@ export function HomeContent() {
                 Welcome to WriteOff
               </h1>
               <p className="text-base sm:text-lg text-muted-foreground max-w-sm mx-auto leading-relaxed px-2">
-                AI-powered tax optimization for modern professionals
+                Keep business expenses, receipts, and notes together
               </p>
             </div>
           </div>
@@ -63,7 +63,7 @@ export function HomeContent() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
                   </svg>
                 </div>
-                <p className="text-xs sm:text-xs font-medium text-muted-foreground">AI Analysis</p>
+                <p className="text-xs sm:text-xs font-medium text-muted-foreground">Manual Records</p>
               </div>
               <div className="text-center space-y-2 p-3 rounded-lg hover:bg-muted/50 transition-colors">
                 <div className="w-10 h-10 sm:w-8 sm:h-8 bg-primary/10 rounded-lg flex items-center justify-center mx-auto">
@@ -71,7 +71,7 @@ export function HomeContent() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                   </svg>
                 </div>
-                <p className="text-xs sm:text-xs font-medium text-muted-foreground">Bank Sync</p>
+                <p className="text-xs sm:text-xs font-medium text-muted-foreground">Receipt Uploads</p>
               </div>
               <div className="text-center space-y-2 p-3 rounded-lg hover:bg-muted/50 transition-colors">
                 <div className="w-10 h-10 sm:w-8 sm:h-8 bg-primary/10 rounded-lg flex items-center justify-center mx-auto">
@@ -79,9 +79,13 @@ export function HomeContent() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
                   </svg>
                 </div>
-                <p className="text-xs sm:text-xs font-medium text-muted-foreground">Auto-Detect</p>
+                <p className="text-xs sm:text-xs font-medium text-muted-foreground">Review Details</p>
               </div>
             </div>
+
+            <p className="text-center text-xs leading-relaxed text-muted-foreground">
+              This preview supports manual records and receipt review. AI analysis, bank connections, and in-app filing are unavailable.
+            </p>
 
             {/* Help & Support Section */}
             <div className="mt-8 pt-6 border-t border-border">
@@ -155,4 +159,4 @@ export function HomeContent() {
       </div>
     </div>
   );
-} 
+}

@@ -8,13 +8,12 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
-import { useTransactions, useUserStats } from '@/lib/firebase/hooks';
+import { useTransactions } from '@/lib/firebase/hooks';
 import { getUserTaxRateDisplay } from '@/lib/tax-rules/federal-brackets';
 import { ToastContainer, useToasts } from '@/components/ui/toast';
 import { auth } from '@/lib/firebase/client';
 import { HistoricalAccessUpgradeCard } from '@/components/historical-access-upgrade-card';
-import { consolidateCategory } from '@/lib/utils';
-import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
+import { dashboardRecordStatus, summarizeDashboardRecords } from '@/lib/dashboard/record-summary';
 import { toast } from 'sonner';
 import { loadDashboardTaxSnapshot, type DashboardTaxState } from '@/lib/tax/dashboard-snapshot';
 
@@ -53,11 +52,9 @@ export default function DashboardScreen({
   const currentUser = auth.currentUser;
   const userId = currentUser?.uid;
   const { transactions: realtimeTransactions, isLoading: transactionsLoading } = useTransactions(userId || '');
-  const { stats: realtimeStats, isLoading: statsLoading } = useUserStats(userId || '');
   const { toasts, removeToast } = useToasts();
 
   const transactions = realtimeTransactions.length > 0 ? realtimeTransactions : propTransactions;
-  const stats = realtimeStats;
 
   // --- Tax savings state (unchanged) ---
   const [taxSavingsData, setTaxSavingsData] = useState<any>(null);
@@ -166,24 +163,9 @@ export default function DashboardScreen({
   const projectedAnnual = taxSavingsData?.taxSavings?.projectedAnnual ?? fallbackProjectedAnnual;
   const taxRateDisplay = getUserTaxRateDisplay(profile);
 
-  const needsReviewCount =
-    stats?.needsReviewTransactions ??
-    transactions.filter((t) => transactionNeedsTaxReview(t)).length;
-  const needsAnalysisCount = transactions.filter(t => t.deduction_score === undefined || t.deduction_score === null).length;
-
-  const deductibleTransactions = transactions.filter(t => t.is_deductible === true);
-  const totalDeductions = stats?.totalDeductibleAmount ?? deductibleTransactions.reduce((sum, t) => sum + Math.abs(t.amount || 0), 0);
-
-  // Category breakdown (unchanged)
-  const categoryBreakdown: Record<string, number> = {};
-  for (const transaction of transactions) {
-    if (transaction?.is_deductible === true && transaction.category && transaction.amount) {
-      const deductibleAmount = Math.abs(transaction.amount);
-      const { consolidatedName } = consolidateCategory(transaction.category);
-      categoryBreakdown[consolidatedName] = (categoryBreakdown[consolidatedName] || 0) + deductibleAmount;
-    }
-  }
-  const categoryEntries = Object.entries(categoryBreakdown).sort((a, b) => b[1] - a[1]);
+  const recordSummary = summarizeDashboardRecords(transactions);
+  const needsReviewCount = recordSummary.needsReviewCount;
+  const needsAnalysisCount = transactions.filter(t => (t.deduction_score === undefined || t.deduction_score === null) && dashboardRecordStatus(t) === 'review').length;
 
   // Recalculate tax independently of any optional bank-balance refresh.
   const handleRefresh = async () => {
@@ -256,9 +238,9 @@ export default function DashboardScreen({
               <div className="absolute inset-0 rounded-xl bg-[radial-gradient(ellipse_80%_60%_at_50%_0%,hsl(var(--chart-4)/0.06),transparent)] pointer-events-none" aria-hidden />
               <OptimizationCard
                 needsReviewCount={needsReviewCount}
-                needsAnalysisCount={needsAnalysisCount}
                 totalTransactions={transactions.length}
-                deductibleCount={deductibleTransactions.length}
+                deductibleCount={recordSummary.deductibleCount}
+                pendingCount={recordSummary.pendingCount}
                 onNavigate={onNavigate}
               />
             </div>
@@ -267,10 +249,10 @@ export default function DashboardScreen({
           {/* Row 5: Categories + Activity */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <TopCategoriesCard
-              categories={categoryEntries}
-              totalDeductions={totalDeductions}
+              categories={recordSummary.categoryEntries}
+              totalMagnitude={recordSummary.categoryMagnitude}
+              reviewMessage={recordSummary.categoryIssue}
               onViewAll={() => onNavigate('categories')}
-              profile={profile}
             />
             <RecentActivityCard
               transactions={transactions}

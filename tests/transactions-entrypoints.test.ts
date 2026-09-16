@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { isValidElement, type ReactElement } from 'react';
+import type { Transaction } from '../lib/firebase/transactions';
 
 // Run the real page/form handlers with controlled hook state and network calls.
-const harness = vi.hoisted(() => ({ slots: [] as unknown[], cursor: 0, push: vi.fn(), request: vi.fn() }));
+const harness = vi.hoisted(() => ({ slots: [] as unknown[], cursor: 0, push: vi.fn(), request: vi.fn(), transactions: [] as Transaction[], mutate: vi.fn(), save: vi.fn(), success: vi.fn(), error: vi.fn(), fetch: vi.fn() }));
 vi.mock('react', async importOriginal => {
   const actual = await importOriginal<typeof import('react')>();
   const hooks = {
@@ -12,20 +13,32 @@ vi.mock('react', async importOriginal => {
       return [harness.slots[index], (next: unknown) => { harness.slots[index] = typeof next === 'function' ? next(harness.slots[index]) : next; }];
     },
     useMemo<T>(factory: () => T) { return factory(); },
+    useRef(initial: unknown) {
+      const index = harness.cursor++;
+      if (!(index in harness.slots)) harness.slots[index] = { current: initial };
+      return harness.slots[index];
+    },
+    useEffect() {}, // These assertions exercise explicit detail handlers, not mount lifecycle.
+    useCallback<T>(callback: T) { return callback; },
   };
   return { ...actual, ...hooks, default: { ...actual.default, ...hooks } };
 });
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: harness.push }) }));
 vi.mock('@/lib/firebase/auth-context', () => ({ useAuth: () => ({ user: { id: 'new-accountless-user' } }) }));
-vi.mock('@/lib/firebase/hooks', () => ({ useTransactions: () => ({ transactions: [], isLoading: false, error: null }) }));
+vi.mock('@/lib/firebase/hooks', () => ({ useTransactions: () => ({ transactions: harness.transactions, isLoading: false, error: null }) }));
 vi.mock('@/components/sync-status-indicator', () => ({ SyncStatusIndicator: () => null }));
 vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: harness.request }));
+vi.mock('@/lib/firebase/client', () => ({ auth: { currentUser: { uid: 'new-accountless-user', getIdToken: async () => 'synthetic-token' } } }));
+vi.mock('@/lib/firebase/mutations', () => ({ useUpdateTransaction: () => ({ mutateAsync: harness.mutate, isPending: false }) }));
+vi.mock('@/components/ui/toast', () => ({ useToasts: () => ({ showSuccess: harness.success, showError: harness.error }) }));
 import TransactionsPage from '../app/protected/transactions/page';
 import { AddManualTransactionScreen } from '../components/add-manual-transaction-screen';
+import { SyncStatusIndicator } from '../components/sync-status-indicator';
+import { TransactionDetailScreen } from '../components/transaction-detail-screen';
 
 type Props = {
-  children?: unknown; type?: string; placeholder?: string; value?: unknown; 'aria-label'?: string;
-  onClick?: () => void;
+  children?: unknown; type?: string; placeholder?: string; value?: unknown; 'aria-label'?: string; disabled?: boolean;
+  onClick?: () => void | Promise<void>;
   onChange?: (event: { target: { value: string } }) => void;
   onSubmit?: (event: { preventDefault(): void }) => Promise<void>;
 };
@@ -38,7 +51,7 @@ function walk(node: unknown): Element[] {
 function text(node: unknown): string {
   if (Array.isArray(node)) return node.map(text).join('');
   if (isValidElement<Props>(node)) return text(node.props.children);
-  return typeof node === 'string' ? node : '';
+  return typeof node === 'string' || typeof node === 'number' ? String(node) : '';
 }
 function manualForm() { return AddManualTransactionScreen({ user: { id: 'new-accountless-user' }, onBack() {} }); }
 function enterExpense() {
@@ -46,8 +59,8 @@ function enterExpense() {
   walk(render(manualForm)).find(node => node.props?.type === 'number')!.props.onChange!({ target: { value: '42.50' } });
   return walk(render(manualForm)).find(node => node.type === 'form')!;
 }
-beforeEach(() => { harness.slots = []; harness.cursor = 0; vi.resetAllMocks(); vi.useFakeTimers(); });
-afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); });
+beforeEach(() => { harness.slots = []; harness.cursor = 0; harness.transactions = []; vi.resetAllMocks(); vi.useFakeTimers(); harness.mutate.mockResolvedValue({}); vi.stubGlobal('fetch', harness.fetch); });
+afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('transaction page actions reach working accountless flows', () => {
   it.each([
@@ -81,5 +94,160 @@ describe('transaction page actions reach working accountless flows', () => {
     expect(text(form)).toContain('Unable to save this expense. Please retry.');
     expect(text(form)).not.toContain('Expense saved');
     expect(walk(form).find(node => node.props?.placeholder === 'e.g. Adobe, Staples, AWS')!.props.value).toBe('Synthetic office supplies');
+  });
+});
+
+describe('transaction list shows record status without inventing tax savings', () => {
+  const fixture = (id: string, amount: number, changes: Partial<Transaction> = {}): Transaction => ({
+    id, trans_id: id, merchant_name: id, amount, date: '2026-09-16', category: 'Office expenses', ...changes,
+  });
+  const rows = (page: ReactElement) => walk(page).filter(node => node.type === 'tr' && walk(node).some(child => child.type === 'td'));
+  const clickTab = (label: string) => {
+    const node = walk(render(TransactionsPage)).find(node => node.type === 'button' && text(node).startsWith(label));
+    expect(node).toBeDefined(); node!.props.onClick!(); return render(TransactionsPage);
+  };
+
+  beforeEach(() => {
+    harness.transactions = [
+      fixture('Business income', -1000, { category: 'income', type: 'income', is_deductible: false }),
+      fixture('Pending purchase', 25, { pending: true, is_deductible: true }),
+      fixture('Pending income', -20, { pending: true, category: 'revenue', type: 'income', is_deductible: false }),
+      fixture('Posted expense', 100, { is_deductible: true }),
+      fixture('Expense refund', -20, { type: 'income', is_deductible: true }),
+      fixture('Personal purchase', 42.5, { is_deductible: false }),
+      fixture('Unreviewed purchase', 300, { is_deductible: null }),
+    ];
+  });
+
+  it('uses record counts and opens the authoritative Tax Preview instead of calculating tax dollars', () => {
+    const page = render(TransactionsPage);
+    expect(text(page)).toContain('2Posted records marked deductible');
+    expect(text(page)).toContain('3Pending or needs review');
+    expect(text(page)).not.toContain('Potential savings');
+    const action = walk(page).find(node => node.type === 'button' && text(node).startsWith('Tax Preview'))!;
+    action.props.onClick!();
+    expect(harness.push).toHaveBeenCalledExactlyOnceWith('/protected?screen=tax-preview');
+  });
+
+  it('labels pending expense and income as pending on desktop and mobile, preserving incoming signs', () => {
+    const page = render(TransactionsPage);
+    for (const merchant of ['Pending purchase', 'Pending income']) {
+      const desktop = rows(page).find(node => text(node).includes(merchant))!;
+      const mobile = walk(page).find(node => node.type === 'div' && (node.props as { role?: string }).role === 'button' && text(node).includes(merchant))!;
+      for (const node of [desktop, mobile]) {
+        expect(text(node)).toContain('Pending');
+        expect(text(node)).not.toMatch(/Paid|Received|Personal|Marked deductible/);
+      }
+      expect(text(mobile)).toContain(merchant === 'Pending income' ? '+$20.00' : '-$25.00');
+    }
+  });
+
+  it.each(['income', 'revenue', 'INCOME'])('classifies explicit %s as Income but never promotes an expense refund to business income', category => {
+    harness.transactions[0].category = category;
+    const page = render(TransactionsPage);
+    const income = rows(page).find(node => text(node).includes('Business income'))!;
+    expect(text(income)).toContain('Income'); expect(text(income)).not.toContain('Personal');
+    const refund = rows(page).find(node => text(node).includes('Expense refund'))!;
+    expect(text(refund)).toContain('Marked deductible'); expect(text(refund)).not.toContain('Income');
+    expect(text(refund)).toContain('Received');
+  });
+
+  it('keeps personal, posted-classification and pending/review filters aligned with the displayed status', () => {
+    expect(rows(clickTab('Personal (')).map(text)).toEqual([expect.stringContaining('Personal purchase')]);
+    expect(rows(clickTab('Marked deductible (')).map(text)).toEqual(expect.arrayContaining([
+      expect.stringContaining('Posted expense'), expect.stringContaining('Expense refund'),
+    ]));
+    expect(rows(render(TransactionsPage))).toHaveLength(2);
+    const review = rows(clickTab('Pending / review ('));
+    expect(review).toHaveLength(3);
+    expect(review.map(text)).toEqual(expect.arrayContaining([
+      expect.stringContaining('Pending purchase'), expect.stringContaining('Pending income'), expect.stringContaining('Unreviewed purchase'),
+    ]));
+  });
+
+  it('does not mount a bank-sync poller on entry and leaves source records intact when sorting', () => {
+    harness.transactions[0].date = '2026-01-01';
+    const originalIds = harness.transactions.map(t => t.id);
+    const page = render(TransactionsPage);
+    expect(walk(page).some(node => node.type === SyncStatusIndicator)).toBe(false);
+    expect(harness.request).not.toHaveBeenCalled();
+    expect(harness.transactions.map(t => t.id)).toEqual(originalIds);
+  });
+});
+
+describe('transaction detail preserves manual work without guessed tax impact or automatic AI', () => {
+  const base = { id: 'detail-id', trans_id: 'detail-id', merchant_name: 'Synthetic meal', amount: 100,
+    date: '2026-09-16', category: 'FOOD_AND_DRINK_RESTAURANT', is_deductible: true, notes: '' };
+  function detail(changes: Partial<typeof base> & { receipt_url?: string; receipt_filename?: string } = {}) {
+    harness.cursor = 0;
+    return TransactionDetailScreen({ transaction: { ...base, ...changes }, onBack() {}, onSave: harness.save }) as Element;
+  }
+  const action = (page: Element, label: string) => walk(page).find(node => typeof node.props.onClick === 'function' && text(node).trim() === label)!;
+
+  it('opens shared Tax Preview and leaves a recorded business classification without a rate, savings calculation or CPA submission', async () => {
+    const page = detail();
+    expect(text(page)).toContain('Marked business');
+    expect(text(page)).not.toMatch(/Estimated Tax Rate|Estimated Tax Savings|100% deductible|25%|our CPA team|within 24 hours/);
+    expect(action(page, 'Ask a CPA')).toBeUndefined();
+    await action(page, 'Open Tax Preview').props.onClick!();
+    expect(harness.push).toHaveBeenCalledExactlyOnceWith('/protected?screen=tax-preview');
+    expect(harness.fetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [503, { error: 'Temporary unavailable' }],
+    [503, null],
+    [500, { error: 'Analysis failed', details: 'OpenAI is not configured (missing OPENAI_API_KEY)' }],
+    [500, { error: 'Analysis failed', details: { code: 'insufficient_quota' } }],
+    [500, { code: 'AI_SERVICE_UNAVAILABLE' }],
+  ])('handles unavailable status %s with manual review guidance and no repeated request in this view', async (status, body) => {
+    harness.fetch.mockResolvedValue(Response.json(body, { status }));
+    await action(detail(), 'Run AI Analysis').props.onClick!();
+    const page = detail();
+    expect(text(page)).toContain('AI analysis is unavailable');
+    expect(text(page)).toContain('edit notes, attach receipts and record your classification manually');
+    const buttons = walk(page).filter(node => typeof node.props.onClick === 'function' && text(node).trim() === 'AI unavailable');
+    expect(buttons).toHaveLength(2); expect(buttons.every(node => node.props.disabled)).toBe(true);
+    await buttons[0].props.onClick!();
+    expect(harness.fetch).toHaveBeenCalledOnce(); expect(harness.save).not.toHaveBeenCalled();
+    expect(harness.success).not.toHaveBeenCalled(); expect(harness.error).toHaveBeenCalledWith('AI unavailable', expect.any(String));
+  });
+
+  it('notes and business classification save without scheduling an AI/provider request', async () => {
+    const notes = walk(detail({ is_deductible: false })).find(node => node.props.placeholder === 'Tell us more about this purchase...')!;
+    notes.props.onChange!({ target: { value: 'Client meeting; itemized receipt retained' } });
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(harness.mutate).toHaveBeenCalledWith(expect.objectContaining({ updates: { notes: 'Client meeting; itemized receipt retained' } }));
+    const business = walk(detail({ is_deductible: false })).find(node => node.props['aria-label'] === 'Mark as business expense')!;
+    await business.props.onClick!();
+    await action(detail({ is_deductible: false }), 'Save Changes').props.onClick!();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(harness.mutate).toHaveBeenLastCalledWith(expect.objectContaining({
+      transactionId: 'detail-id', userId: 'new-accountless-user',
+      updates: expect.objectContaining({ is_deductible: true, expense_type: 'business', notes: 'Client meeting; itemized receipt retained' }),
+    }));
+    expect(harness.save).toHaveBeenCalledWith(expect.objectContaining({ is_deductible: true, notes: 'Client meeting; itemized receipt retained' }));
+    expect(harness.fetch).not.toHaveBeenCalled();
+  });
+
+  it('preserves receipt unlink through the authenticated mutation', async () => {
+    await action(detail({ receipt_url: '/api/receipts/synthetic', receipt_filename: 'receipt.png' }), 'Delete').props.onClick!();
+    expect(harness.mutate).toHaveBeenCalledExactlyOnceWith({ transactionId: 'detail-id', userId: 'new-accountless-user', updates: { receipt_url: '', receipt_filename: '' } });
+    expect(harness.save).toHaveBeenCalledWith(expect.objectContaining({ receipt_url: undefined, receipt_filename: undefined }));
+    expect(harness.fetch).not.toHaveBeenCalled();
+  });
+
+  it('keeps explicit configured AI available and suppresses duplicate in-flight clicks', async () => {
+    let complete!: (response: Response) => void;
+    harness.fetch.mockReturnValue(new Promise<Response>(resolve => { complete = resolve; }));
+    const button = action(detail(), 'Run AI Analysis');
+    const pending = button.props.onClick!();
+    await button.props.onClick!(); await Promise.resolve();
+    expect(harness.fetch).toHaveBeenCalledOnce();
+    complete(Response.json({ success: true, analysis: { deductionStatus: 'Possibly Deductible', reasoning: 'Review the meal business purpose.', confidence: 0.7, irsReference: { publication: '463' }, updatedAt: '2026-09-16T12:00:00Z' } }));
+    await pending;
+    expect(harness.save).toHaveBeenCalledWith(expect.objectContaining({ reasoning: 'Review the meal business purpose.', is_deductible: true }));
+    expect(harness.error).not.toHaveBeenCalled();
+    expect(action(detail(), 'Run AI Analysis').props.disabled).toBe(false);
   });
 });

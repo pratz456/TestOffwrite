@@ -92,13 +92,21 @@ export function generateActionItems(
     !!profile?.plaidToken ||
     (Array.isArray(profile?.plaid_accounts) && profile.plaid_accounts.length > 0);
 
+  if (transactions.length === 0) {
+    items.push({
+      id: 'add-first-transaction', title: 'Add your first expense',
+      description: 'Start with a manual expense and its business purpose. You can also add income from the dashboard; no bank connection is required.',
+      priority: 'high', category: 'setup', screen: 'add-manual-transaction', icon: 'Receipt',
+    });
+  }
+
   if (!hasPlaidConnected) {
     items.push({
       id: 'connect-bank',
-      title: 'Connect your bank account',
+      title: 'Connect a bank account (optional)',
       description:
-        'Link a bank or credit card so transactions import automatically. This is the foundation for tracking deductions.',
-      priority: 'critical',
+        'You can keep entering records manually, or connect a supported account to request transaction sync.',
+      priority: 'low',
       category: 'setup',
       screen: 'plaid-link',
       icon: 'Landmark',
@@ -110,7 +118,7 @@ export function generateActionItems(
       id: 'set-profession',
       title: 'Add your profession',
       description:
-        'Tell us what you do so the AI can give profession-specific deduction advice.',
+        'Add your profession to give context to your business records and expense review.',
       priority: 'critical',
       category: 'setup',
       screen: 'settings',
@@ -157,25 +165,25 @@ export function generateActionItems(
   if (!hasIncome) {
     items.push({
       id: 'set-income',
-      title: 'Enter your income estimate',
+      title: 'Review your income records',
       description:
-        'An income estimate helps calculate quarterly tax payments and effective tax rates accurately.',
+        'Add or check your income records, including any 1099 forms. Reconcile records that describe the same payment before using a tax estimate.',
       priority: 'high',
       category: 'setup',
-      screen: 'settings',
+      screen: 'income-tracking',
       icon: 'DollarSign',
     });
   }
 
   // ── Transaction Review ──────────────────────────────────────
 
-  const pendingAnalysis = transactions.filter((t) => t.deduction_score === undefined || t.deduction_score === null);
+  const pendingAnalysis = transactions.filter((t) => (t.deduction_score === undefined || t.deduction_score === null) && transactionNeedsTaxReview(t));
   if (pendingAnalysis.length > 0) {
     items.push({
       id: 'analyze-transactions',
-      title: `${pendingAnalysis.length} transactions need AI analysis`,
+      title: `${pendingAnalysis.length} transactions need classification`,
       description:
-        'These transactions haven\'t been classified yet. Analyze them to identify deductions.',
+        'Review the category and business purpose of these transactions, then confirm their treatment.',
       priority: pendingAnalysis.length > 20 ? 'critical' : 'high',
       category: 'review',
       screen: 'review-transactions',
@@ -195,7 +203,7 @@ export function generateActionItems(
       id: 'review-analyzed',
       title: `${analyzedNotReviewed.length} transactions to review`,
       description:
-        'AI provided suggestions. Confirm or correct them to keep your deductions accurate.',
+        'Review the saved suggestions against your records and confirm or correct their treatment.',
       priority: analyzedNotReviewed.length > 10 ? 'high' : 'medium',
       category: 'review',
       screen: 'review-transactions',

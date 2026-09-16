@@ -11,9 +11,9 @@ import { useToasts } from '@/components/ui/toast';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { ReceiptPreview } from '@/components/receipt-preview';
 import { auth } from '@/lib/firebase/client';
-import { formatCategory, consolidateCategory } from '@/lib/utils';
+import { consolidateCategory } from '@/lib/utils';
 import { getTransactionId } from '@/lib/utils/transaction-id';
-import { calculateEffectiveTaxRate, getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
+import { protectedScreenUrl } from '@/lib/navigation/protected-screens';
 import { useUpdateTransaction } from '@/lib/firebase/mutations';
 import { attachCaptureVideo, createMediaCapture } from '@/lib/browser/media-capture';
 // Using API route instead of direct database access
@@ -23,19 +23,12 @@ import {
   XCircle,
   Bot,
   AlertTriangle,
-  DollarSign,
-  Calendar,
-  Tag,
-  MessageSquare,
   Building2,
   User,
   Upload,
   FileText,
   Trash2,
-  Camera,
-  HelpCircle,
-  Send,
-  X
+  Camera
 } from 'lucide-react';
 
 interface TransactionDetailScreenProps {
@@ -158,7 +151,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
       return transaction.expense_type;
     }
     // Fall back to is_deductible if expense_type not available
-    if (transaction.is_deductible === null) {
+    if (typeof transaction.is_deductible !== 'boolean') {
       return null; // No default for needs review items - user must choose
     }
     return transaction.is_deductible ? 'business' : 'personal';
@@ -181,12 +174,8 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
   const cameraCapture = useRef(createMediaCapture(constraints => navigator.mediaDevices.getUserMedia(constraints)));
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [showCpaModal, setShowCpaModal] = useState(false);
-  const [cpaQuestion, setCpaQuestion] = useState('');
-  const [isSubmittingCpaQuestion, setIsSubmittingCpaQuestion] = useState(false);
 
   // Debounced save for context fields
-  const [pendingUpdates, setPendingUpdates] = useState<Record<string, any>>({});
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // AI Analysis state
@@ -197,33 +186,14 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
   const currentUser = auth.currentUser;
   const userId = currentUser?.uid;
 
-  // Track whether analysis is running (safe to read inside setTimeout callbacks).
+  // AI runs only after an explicit click, independently of record saves.
   const isAnalyzingRef = useRef(false);
-  const reanalysisTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const handleAnalyzeTransactionRef = useRef<null | (() => Promise<void>)>(null);
+  const [analysisUnavailable, setAnalysisUnavailable] = useState(false);
 
   useEffect(() => {
-    isAnalyzingRef.current = isAnalyzing;
-  }, [isAnalyzing]);
-
-  const scheduleReanalysis = useCallback(() => {
-    if (!userId || !currentUser) return;
-    if (isAnalyzingRef.current) return;
-    if (reanalysisTimeoutRef.current) {
-      clearTimeout(reanalysisTimeoutRef.current);
-    }
-
-    // Debounce so multiple context saves batch into one re-run.
-    reanalysisTimeoutRef.current = setTimeout(async () => {
-      if (isAnalyzingRef.current) return;
-      try {
-        await handleAnalyzeTransactionRef.current?.();
-      } catch (e) {
-        // handleAnalyzeTransaction has its own error handling, but keep this safe anyway.
-        console.error('Error running scheduled reanalysis:', e);
-      }
-    }, 700);
-  }, [userId, currentUser]);
+    setAnalysisError(null);
+    setAnalysisUnavailable(false);
+  }, [userId, transaction.id]);
 
   // Use React Query mutation with optimistic updates for instant UI feedback
   const updateTransactionMutation = useUpdateTransaction();
@@ -257,22 +227,17 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
           userId,
           updates
         });
-        // After context fields are saved, re-run AI for this specific transaction.
-        scheduleReanalysis();
       } catch (error) {
         console.error('Error saving context field:', error);
       }
     }, 500);
-  }, [userId, transaction.trans_id, transaction.id, updateTransactionMutation, scheduleReanalysis]);
+  }, [userId, transaction.trans_id, transaction.id, updateTransactionMutation]);
 
   // Cleanup timeout on unmount
   useEffect(() => {
     return () => {
       if (debounceTimeoutRef.current) {
         clearTimeout(debounceTimeoutRef.current);
-      }
-      if (reanalysisTimeoutRef.current) {
-        clearTimeout(reanalysisTimeoutRef.current);
       }
     };
   }, []);
@@ -303,8 +268,6 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
       notes: additionalContext || undefined
     };
 
-    const notesChanged = (additionalContext || '') !== (transaction.notes || '');
-
     const transactionId = getTransactionId(transaction);
 
     try {
@@ -327,10 +290,6 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
 
       await onSave(updatedTransaction);
 
-      // If the user added/edited their notes context, re-run AI to improve the recommendation.
-      if (notesChanged) {
-        scheduleReanalysis();
-      }
     } catch (error) {
       console.error('Error updating transaction:', error);
       showError('Update Failed', 'Failed to save changes. Please try again.');
@@ -512,79 +471,24 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
     }
   };
 
-  // Handle CPA question submission
-  const handleCpaQuestionSubmit = async () => {
-    if (!cpaQuestion.trim() || !userId || !currentUser) {
-      showError('Invalid Input', 'Please enter a question');
-      return;
-    }
-
-    setIsSubmittingCpaQuestion(true);
-
-    try {
-      // Get the current user's ID token for authentication
-      const token = await currentUser.getIdToken();
-
-      const response = await fetch('/api/cpa-question', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          userId,
-          transactionId: getTransactionId(transaction),
-          merchantName: transaction.merchant_name,
-          amount: transaction.amount,
-          date: transaction.date,
-          category: transaction.category,
-          question: cpaQuestion.trim(),
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to submit question');
-      }
-
-      showSuccess('Question Submitted', 'Your question has been sent to our CPA team. You will receive a response within 24 hours.');
-      setCpaQuestion('');
-      setShowCpaModal(false);
-
-    } catch (error) {
-      console.error('Error submitting CPA question:', error);
-      showError('Submission Failed', 'Failed to submit your question. Please try again.');
-    } finally {
-      setIsSubmittingCpaQuestion(false);
-    }
-  };
-
   // Handle AI Analysis
   const handleAnalyzeTransaction = async () => {
+    if (isAnalyzingRef.current || analysisUnavailable) return;
     if (!userId || !currentUser) {
       showError('Authentication Error', 'Please log in to analyze transactions');
       return;
     }
 
+    isAnalyzingRef.current = true;
     setIsAnalyzing(true);
     setAnalysisError(null);
+    let unavailable = false;
 
     try {
       // Get the current user's ID token for authentication
       const token = await currentUser.getIdToken();
 
       const transactionId = getTransactionId(transaction);
-      console.log(`🔍 [Frontend] Sending re-run analysis request:`, {
-        transactionId,
-        hasTransId: !!transaction.trans_id,
-        hasId: !!transaction.id,
-        transIdValue: transaction.trans_id,
-        idValue: transaction.id,
-        merchant_name: transaction.merchant_name,
-        amount: transaction.amount,
-        fullTransaction: transaction
-      });
-
       const trimmedAdditionalContext = (additionalContext || '').trim();
       const trimmedBusinessPurpose = (businessPurpose || '').trim();
       const trimmedClientProject = (clientProject || '').trim();
@@ -628,14 +532,24 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to analyze transaction');
+        const errorBody = await response.json().catch(() => null);
+        const errorData = errorBody && typeof errorBody === 'object' ? errorBody : {};
+        const providerMessage = [errorData.error, errorData.code, errorData.details, errorData.details?.code]
+          .filter(value => typeof value === 'string').join(' ');
+        unavailable = response.status === 503 || /AI_(?:SERVICE_)?UNAVAILABLE|insufficient_quota|credit_balance_exhausted|OpenAI.*not configured|exceeded.*quota/i.test(providerMessage);
+        throw new Error(unavailable
+          ? 'AI analysis is unavailable. You can still edit notes, attach receipts and record your classification manually. No new AI assessment is available here.'
+          : response.status === 429
+            ? 'The AI request limit was reached. Continue reviewing manually; no new AI assessment is available here.'
+            : response.status >= 500
+              ? 'AI analysis could not complete. Continue reviewing this transaction manually.'
+              : errorData.error || 'AI analysis could not complete. Continue reviewing this transaction manually.');
       }
 
       const result = await response.json();
 
       if (result.success) {
-        showSuccess('Analysis Complete', 'Transaction has been analyzed successfully');
+        showSuccess('Analysis Saved', 'An AI suggestion is available for your review; it does not establish tax eligibility.');
 
         // Update the transaction with new analysis data (flat fields are authoritative after re-run).
         const newReasoning = result.analysis.reasoning;
@@ -675,37 +589,21 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
       }
 
     } catch (error) {
-      console.error('Error analyzing transaction:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Failed to analyze transaction';
+      const errorMessage = error instanceof Error ? error.message : 'AI analysis could not complete. Continue reviewing manually.';
       setAnalysisError(errorMessage);
-      showError('Analysis Failed', errorMessage);
+      setAnalysisUnavailable(unavailable);
+      showError(unavailable ? 'AI unavailable' : 'Analysis incomplete', errorMessage);
     } finally {
+      isAnalyzingRef.current = false;
       setIsAnalyzing(false);
     }
   };
 
-  // Keep a ref to the latest callback so scheduleReanalysis() always calls the most recent version.
-  useEffect(() => {
-    handleAnalyzeTransactionRef.current = handleAnalyzeTransaction;
-  }, [handleAnalyzeTransaction]);
-
   // Check if there are unsaved changes
   const hasUnsavedChanges =
-    classification !== (transaction.is_deductible === null
-      ? null
-      : transaction.is_deductible
-        ? 'business'
-        : 'personal') ||
+    classification !== getInitialClassification() ||
     additionalContext !== (transaction.notes || '') ||
     receiptFile !== null;
-
-  // Simplified logic - no partial deductions
-  const deductiblePercent = 100; // All deductible transactions are 100% deductible
-  const estimatedTaxRatePercent = Math.round(getUserTaxRate() * 100);
-  // Tax savings amount = deductible amount × tax rate
-  const deductibleSavingsAmount = classification === 'business'
-    ? Math.abs(transaction.amount) * (estimatedTaxRatePercent / 100)
-    : 0;
 
   // Legible category badge colors (matches transactions list)
   const getCategoryBadgeClass = (category: string) => {
@@ -799,7 +697,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                     ${Math.abs(transaction.amount).toFixed(2)}
                   </div>
                   <div className={`text-sm font-medium ${classification === 'business' ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}`}>
-                    {classification === 'business' ? `${deductiblePercent}% deductible` : '0% deductible'}
+                    {classification === 'business' ? 'Marked business' : classification === 'personal' ? 'Marked personal' : 'Needs classification'}
                   </div>
                 </div>
               </div>
@@ -825,7 +723,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                 </div>
                 <Button
                   onClick={handleAnalyzeTransaction}
-                  disabled={isAnalyzing}
+                  disabled={isAnalyzing || analysisUnavailable}
                   variant="outline"
                   size="sm"
                   className="text-green-700 dark:text-green-300 border-green-600/50 dark:border-green-500/50 hover:bg-green-600/10 dark:hover:bg-green-500/10"
@@ -838,7 +736,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                   ) : (
                     <>
                       <Bot className="w-3 h-3 mr-2" />
-                      Re-run Analysis
+                      {analysisUnavailable ? 'AI unavailable' : 'Run AI Analysis'}
                     </>
                   )}
                 </Button>
@@ -848,7 +746,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                 <div className="mb-4 p-3 rounded-lg bg-red-500/10 dark:bg-red-900/20 border border-red-300 dark:border-red-700">
                   <div className="flex items-center gap-2 text-red-700 dark:text-red-300">
                     <AlertTriangle className="w-4 h-4" />
-                    <span className="text-sm font-medium">Analysis Error</span>
+                    <span className="text-sm font-medium">{analysisUnavailable ? 'AI unavailable' : 'Analysis incomplete'}</span>
                   </div>
                   <p className="text-sm text-red-600 dark:text-red-400 mt-1">{analysisError}</p>
                 </div>
@@ -888,7 +786,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                         )}
                         </li>
                         <li>• <strong>Deduction Status:</strong> {transaction.deductionStatus || transaction.ai?.key_analysis_factors?.deduction_status || transaction.ai?.status_label || 'Not Analyzed'}</li>
-                        <li>• <strong>Reasoning:</strong> {transaction.reasoning || transaction.ai?.key_analysis_factors?.reasoning_summary || transaction.ai?.reasoning || transaction.deductible_reason || 'Professional analysis pending'}</li>
+                        <li>• <strong>Reasoning:</strong> {transaction.reasoning || transaction.ai?.key_analysis_factors?.reasoning_summary || transaction.ai?.reasoning || transaction.deductible_reason || 'No saved reasoning'}</li>
                         {(transaction.ai?.key_analysis_factors?.irs_reference || (transaction.irsPublication || transaction.irsSection) || (transaction.ai?.irs?.publication || transaction.ai?.irs?.section)) && (
                           <li>• <strong>IRS Reference:</strong> {transaction.ai?.key_analysis_factors?.irs_reference ||
                             `${transaction.irsPublication || transaction.ai?.irs?.publication ? `Publication ${transaction.irsPublication || transaction.ai?.irs?.publication}` : ''}${(transaction.irsPublication || transaction.ai?.irs?.publication) && (transaction.irsSection || transaction.ai?.irs?.section) ? ', ' : ''}${transaction.irsSection || transaction.ai?.irs?.section ? `Section ${transaction.irsSection || transaction.ai?.irs?.section}` : ''}`
@@ -931,7 +829,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
               ) : (
                 <div className="space-y-4">
                   <p className="text-foreground/90">
-                    {transaction.ai_analysis || transaction.deductible_reason || 'This transaction hasn\'t been analyzed yet. Tap "Analyze" to get a deduction assessment based on your profile and business.'}
+                    {transaction.ai_analysis || transaction.deductible_reason || 'No AI assessment is saved. Review the business purpose and supporting receipt yourself. Optional AI suggestions depend on service availability and do not establish deductibility.'}
                   </p>
                   <div className="space-y-3">
                     <h4 className="font-semibold text-foreground">Key Analysis Factors</h4>
@@ -953,7 +851,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                         )}
                         </li>
                         <li>• <strong className="text-foreground">Deduction Status:</strong> Not yet analyzed</li>
-                        <li>• <strong className="text-foreground">Reasoning:</strong> Tap &quot;Analyze&quot; to check if this is deductible for your business.</li>
+                        <li>• <strong className="text-foreground">Review:</strong> Record the business purpose and discuss uncertain treatment with your tax preparer.</li>
                       </ul>
                     </div>
                   </div>
@@ -961,7 +859,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                     <p className="text-sm text-muted-foreground mb-3">No AI analysis available</p>
                     <Button
                       onClick={handleAnalyzeTransaction}
-                      disabled={isAnalyzing}
+                      disabled={isAnalyzing || analysisUnavailable}
                       className="bg-green-600 hover:bg-green-700 dark:bg-green-700 dark:hover:bg-green-600 text-white"
                     >
                       {isAnalyzing ? (
@@ -972,7 +870,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                       ) : (
                         <>
                           <Bot className="w-4 h-4 mr-2" />
-                          Analyze Transaction
+                          {analysisUnavailable ? 'AI unavailable' : 'Analyze Transaction'}
                         </>
                       )}
                     </Button>
@@ -1141,18 +1039,13 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                     {classification === null
                       ? 'Needs Review'
                       : classification === 'business'
-                        ? 'Deductible'
+                        ? 'Marked business'
                         : 'Personal'
                     }
                   </Badge>
                 </div>
 
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-muted-foreground">Deductible %</span>
-                  <span className="font-semibold text-emerald-600 dark:text-emerald-400">
-                    {classification === 'business' ? `${deductiblePercent}%` : classification === 'personal' ? '0%' : '-'}
-                  </span>
-                </div>
+                <p className="text-xs text-muted-foreground">A business classification records your choice. Eligibility, business use and deduction limits require separate review.</p>
 
                 {isSaving && (
                   <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
@@ -1173,7 +1066,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                 <button
                   onClick={() => handleClassificationChange('business')}
                   disabled={isSaving}
-                  aria-label="Mark as business expense - tax deductible"
+                  aria-label="Mark as business expense"
                   aria-describedby="business-expense-description"
                   className={`w-full p-3 rounded-lg border-2 transition-all duration-200 ${classification === 'business'
                       ? 'bg-emerald-50 border-emerald-300 text-emerald-800 dark:bg-emerald-900/30 dark:border-emerald-600/50 dark:text-emerald-200'
@@ -1192,7 +1085,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                     <div className="text-left">
                       <p className="font-medium text-foreground">Business Expense</p>
                       <p className="text-sm text-muted-foreground" id="business-expense-description">
-                        Tax deductible
+                        Record business use; tax limits still apply
                       </p>
                     </div>
                     {classification === 'business' && classification !== (transaction.is_deductible === null
@@ -1250,46 +1143,22 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
               </div>
             </Card>
 
-            {/* Ask a CPA Card */}
+            {/* Preparer review and authoritative tax planning */}
             <Card className="p-4 sm:p-5 bg-card border border-border rounded-xl shadow-sm">
-              <h3 className="font-semibold text-foreground mb-3">Need Help?</h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                Get expert tax advice on this transaction from our CPA team.
+              <h3 className="font-semibold text-foreground mb-3">Review with your preparer</h3>
+              <p className="text-sm text-muted-foreground">
+                Keep the receipt and business-purpose notes for your own tax preparer. WriteOff does not provide a CPA review service or a promised response time.
               </p>
-              <Button
-                onClick={() => setShowCpaModal(true)}
-                variant="outline"
-                className="w-full h-10 rounded-lg border-purple-500/50 bg-purple-500/10 text-purple-700 dark:text-purple-300 hover:bg-purple-500/20 dark:hover:bg-purple-500/20"
-              >
-                <HelpCircle className="w-4 h-4 mr-2" />
-                Ask a CPA
-              </Button>
             </Card>
 
-            {/* Tax Information Card */}
             <Card className="p-4 sm:p-5 bg-card border border-border rounded-xl shadow-sm">
-              <h3 className="font-semibold text-foreground mb-3">Tax Information</h3>
-              <div className="space-y-3">
-                <div className="rounded-lg p-3 bg-emerald-500/10 dark:bg-emerald-600/20 border border-emerald-600/30 dark:border-emerald-500/30">
-                  <div className="text-sm text-muted-foreground mb-1">Estimated Tax Rate</div>
-                  <div className="font-medium text-emerald-700 dark:text-emerald-300">{estimatedTaxRatePercent}%</div>
-                </div>
-                <div className="rounded-lg p-3 bg-blue-500/10 dark:bg-blue-600/20 border border-blue-600/30 dark:border-blue-500/30">
-                  <div className="text-sm text-muted-foreground mb-1">Estimated Tax Savings</div>
-                  <div className="font-medium text-blue-700 dark:text-blue-300">
-                    {classification === null ? '-' : `$${deductibleSavingsAmount.toFixed(2)} ${classification === 'business' ? `(${estimatedTaxRatePercent}% of $${Math.abs(transaction.amount).toFixed(2)})` : '(0%)'}`}
-                  </div>
-                </div>
-
-                {classification && (
-                  <div className="rounded-lg p-3 bg-muted/50 dark:bg-muted/30 border border-border">
-                    <div className="text-sm text-muted-foreground mb-1">Last Updated</div>
-                    <div className="font-medium text-foreground">
-                      {isSaving ? 'Saving...' : 'Just now'}
-                    </div>
-                  </div>
-                )}
-              </div>
+              <h3 className="font-semibold text-foreground mb-3">Federal tax planning</h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                Tax impact depends on your full-year income and supported tax facts. Review the shared annual estimate in Tax Preview; this record does not establish a tax rate or savings amount.
+              </p>
+              <Button variant="outline" className="w-full" onClick={() => router.push(protectedScreenUrl('tax-preview'))}>
+                Open Tax Preview
+              </Button>
             </Card>
 
             {/* Transaction Context Card */}
@@ -1440,134 +1309,6 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
         onCancel={() => setShowUnsavedDialog(false)}
       />
 
-      {/* CPA Question Modal */}
-      {showCpaModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-card border border-border rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full flex items-center justify-center bg-purple-500/20 dark:bg-purple-600/30">
-                    <HelpCircle className="w-5 h-5 text-purple-600 dark:text-purple-400" />
-                  </div>
-                  <div>
-                    <h2 className="text-xl font-semibold text-foreground">Ask a CPA</h2>
-                    <p className="text-sm text-muted-foreground">Get expert tax advice on this transaction</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setShowCpaModal(false)}
-                  className="w-8 h-8 rounded-full flex items-center justify-center bg-muted hover:bg-muted/80 transition-colors text-muted-foreground hover:text-foreground"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div className="rounded-lg p-4 mb-6 bg-muted/50 dark:bg-muted/30 border border-border">
-                <h3 className="font-medium text-foreground mb-2">Transaction Details</h3>
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <span className="font-semibold text-foreground">Merchant:</span>
-                    <span className="ml-1 text-foreground font-medium">{transaction.merchant_name || '-'}</span>
-                  </div>
-                  <div>
-                    <span className="font-semibold text-foreground">Amount:</span>
-                    <span className="ml-1 text-foreground font-medium">${typeof transaction.amount === 'number' ? Math.abs(transaction.amount).toFixed(2) : '-'}</span>
-                  </div>
-                  <div>
-                    <span className="font-semibold text-foreground">Date:</span>
-                    <span className="ml-1 text-foreground font-medium">
-                      {transaction.date ? formatTransactionDate(transaction.date, 'en-US') : '-'}
-                      {transaction.datetime
-                        ? (() => {
-                            const dt = transaction.datetime;
-                            return dt ? (
-                              <span className="ml-2 text-xs text-muted-foreground">
-                                {new Date(dt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
-                              </span>
-                            ) : null;
-                          })()
-                        : null}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="font-semibold text-foreground">Category:</span>
-                    <span className="ml-1 text-foreground font-medium break-words max-w-[180px] inline-block align-top">{consolidateCategory(transaction.category).displayName || '-'}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <div>
-                  <label htmlFor="cpa-question" className="block text-sm font-medium text-foreground mb-2">
-                    Your Question
-                  </label>
-                  <Textarea
-                    id="cpa-question"
-                    placeholder="Ask about deductibility, documentation requirements, or any other tax-related questions about this transaction..."
-                    value={cpaQuestion}
-                    onChange={(e) => setCpaQuestion(e.target.value)}
-                    className="min-h-[120px] rounded-lg border-border bg-background text-foreground placeholder:text-muted-foreground"
-                    maxLength={1000}
-                  />
-                  <div className="flex justify-between items-center mt-1">
-                    <p className="text-xs text-muted-foreground">
-                      Be specific about your business use case and any concerns you have
-                    </p>
-                    <span className="text-xs text-muted-foreground">
-                      {cpaQuestion.length}/1000
-                    </span>
-                  </div>
-                </div>
-
-                <div className="rounded-lg p-4 bg-blue-500/10 dark:bg-blue-600/20 border border-blue-600/30 dark:border-blue-500/30">
-                  <div className="flex items-start gap-3">
-                    <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 bg-blue-600 dark:bg-blue-500">
-                      <span className="text-white text-xs font-bold">i</span>
-                    </div>
-                    <div>
-                      <h4 className="font-medium text-blue-900 dark:text-blue-200 mb-1">What to expect</h4>
-                      <ul className="text-sm text-blue-800 dark:text-blue-200/90 space-y-1">
-                        <li>• Our CPA team will review your question within 24 hours</li>
-                        <li>• You'll receive a detailed response via email</li>
-                        <li>• The response will include specific guidance for your situation</li>
-                        <li>• Follow-up questions are welcome</li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex gap-3 mt-6">
-                <Button
-                  onClick={() => setShowCpaModal(false)}
-                  variant="outline"
-                  className="flex-1 h-12 rounded-lg border-border bg-card text-foreground hover:bg-muted"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleCpaQuestionSubmit}
-                  disabled={!cpaQuestion.trim() || isSubmittingCpaQuestion}
-                  className="flex-1 h-12 rounded-lg bg-purple-600 hover:bg-purple-700 dark:bg-purple-700 dark:hover:bg-purple-600 text-white font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isSubmittingCpaQuestion ? (
-                    <div className="flex items-center gap-2">
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                      <span>Submitting...</span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2">
-                      <Send className="w-4 h-4" />
-                      <span>Send Question</span>
-                    </div>
-                  )}
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

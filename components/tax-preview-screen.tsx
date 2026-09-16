@@ -152,7 +152,7 @@ export function TaxPreviewScreen({ user, onBack, onNavigate }: Props) {
                 { label: "Total Income", value: fmt(f1040.totalIncome), icon: DollarSign, accent: "text-green-600 dark:text-green-400" },
                 { label: "AGI", value: fmt(f1040.agi), icon: Calculator, accent: "text-blue-600 dark:text-blue-400" },
                 { label: "Total Tax", value: fmt(f1040.totalTax), icon: TrendingDown, accent: "text-red-500 dark:text-red-400" },
-                { label: "Eff. Rate", value: pct(f1040.effectiveRate), icon: TrendingUp, accent: "text-foreground" },
+                { label: "Income tax rate", value: pct(f1040.effectiveRate), icon: TrendingUp, accent: "text-foreground" },
               ].map(({ label, value, icon: Icon, accent }) => (
                 <Card key={label} className="bg-card border-border">
                   <CardContent className="p-3 sm:p-4">
@@ -163,6 +163,7 @@ export function TaxPreviewScreen({ user, onBack, onNavigate }: Props) {
                 </Card>
               ))}
             </div>
+            <p className="text-xs text-muted-foreground">The rate is federal income tax divided by total income. Total Tax also includes modeled self-employment and other federal taxes.</p>
 
             {/* State tax estimate */}
             {data?.stateTax && (

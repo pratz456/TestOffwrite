@@ -7,7 +7,6 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { useTransactions } from '@/lib/firebase/hooks';
-import { SyncStatusIndicator } from '@/components/sync-status-indicator';
 import { useRouter } from 'next/navigation';
 import { protectedScreenUrl } from '@/lib/navigation/protected-screens';
 import {
@@ -27,7 +26,6 @@ import {
 } from '@/components/ui/select';
 import { consolidateCategory } from '@/lib/utils';
 import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
-import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
 
 interface Transaction {
   id: string;
@@ -43,6 +41,22 @@ interface Transaction {
   notes?: string;
   receipt_url?: string;
   receipt_filename?: string;
+  pending?: boolean;
+  user_classification_reason?: string;
+}
+
+// Display saved classifications, not a tax calculation. A credit/refund alone is not business income.
+function transactionStatus(transaction: Transaction) {
+  if (transaction.pending === true) return 'pending';
+  if (['income', 'revenue'].includes(transaction.category.toLowerCase())) return 'income';
+  if (transaction.is_deductible === true) return 'deductible';
+  if (transaction.is_deductible === false) return 'personal';
+  return transactionNeedsTaxReview(transaction) ? 'review' : 'skipped';
+}
+
+function transactionDirection(transaction: Transaction) {
+  if (transaction.pending === true) return 'Pending';
+  return (transaction.type ?? (transaction.amount < 0 ? 'income' : 'expense')) === 'income' ? 'Received' : 'Paid';
 }
 
 export default function TransactionsPage() {
@@ -69,14 +83,10 @@ export default function TransactionsPage() {
     console.error('Error loading transactions:', error);
   }
 
-  // Calculate summary statistics
-  const deductibleTransactions = transactions.filter(t => t.is_deductible === true);
-  const personalTransactions = transactions.filter(t => t.is_deductible === false);
-  const pendingTransactions = transactions.filter((t) => transactionNeedsTaxReview(t));
-
-  const deductibleTotal = deductibleTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
-  const pendingTotal = pendingTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
-  const potentialSavings = deductibleTotal * getUserTaxRate();
+  // Record counts only: tax totals belong to the shared federal Tax Preview.
+  const deductibleTransactions = transactions.filter(t => transactionStatus(t) === 'deductible');
+  const personalTransactions = transactions.filter(t => transactionStatus(t) === 'personal');
+  const pendingTransactions = transactions.filter(t => ['pending', 'review'].includes(transactionStatus(t)));
 
   // Get unique consolidated categories for filter dropdown
   const uniqueCategories = useMemo(() => {
@@ -121,15 +131,15 @@ export default function TransactionsPage() {
 
   // Filter transactions based on all filters
   const getFilteredTransactions = useMemo(() => {
-    let filtered = transactions;
+    let filtered = [...transactions];
 
     // Tab filter (deductible/personal/pending)
     if (activeTab === 'deductible') {
-      filtered = filtered.filter(t => t.is_deductible === true);
+      filtered = filtered.filter(t => transactionStatus(t) === 'deductible');
     } else if (activeTab === 'personal') {
-      filtered = filtered.filter(t => t.is_deductible === false);
+      filtered = filtered.filter(t => transactionStatus(t) === 'personal');
     } else if (activeTab === 'pending') {
-      filtered = filtered.filter((t) => transactionNeedsTaxReview(t));
+      filtered = filtered.filter(t => ['pending', 'review'].includes(transactionStatus(t)));
     }
 
     // Search filter
@@ -212,25 +222,9 @@ export default function TransactionsPage() {
   };
 
   const getStatusBadge = (transaction: Transaction) => {
-    if (transaction.is_deductible === true) {
-      return (
-        <div className="flex items-center gap-2">
-          <Badge variant="success">Deductible</Badge>
-        </div>
-      );
-    } else if (transaction.is_deductible === false) {
-      return (
-        <div className="flex items-center gap-2">
-          <Badge variant="secondary">Personal</Badge>
-        </div>
-      );
-    } else {
-      return (
-        <div className="flex items-center gap-2">
-          <Badge variant="outline">Pending</Badge>
-        </div>
-      );
-    }
+    const status = transactionStatus(transaction);
+    const labels = { pending: 'Pending', income: 'Income', deductible: 'Marked deductible', personal: 'Personal', review: 'Needs review', skipped: 'Skipped' };
+    return <Badge variant={status === 'deductible' ? 'success' : ['income', 'personal'].includes(status) ? 'secondary' : 'outline'}>{labels[status]}</Badge>;
   };
 
   const getCategoryBadge = (category: string) => {
@@ -273,8 +267,6 @@ export default function TransactionsPage() {
               <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-foreground mb-1">Transactions</h1>
               <p className="text-sm sm:text-base text-muted-foreground">Your transaction management and categorization overview</p>
             </div>
-            {/* Sync Status Indicator */}
-            <SyncStatusIndicator compact={false} showCountdown={true} />
           </div>
         </div>
       </div>
@@ -286,23 +278,24 @@ export default function TransactionsPage() {
             className="bg-card rounded-xl p-4 sm:p-5 border border-border border-l-[3px] border-l-[hsl(var(--success)/0.8)] shadow-[0_0_0_1px_hsl(var(--success)/0.06),0_2px_8px_-2px_hsl(var(--success)/0.12)] cursor-pointer hover:shadow-[0_0_0_1px_hsl(var(--success)/0.1),0_4px_12px_-2px_hsl(var(--success)/0.15)] active:scale-[0.99] transition-all duration-150 min-h-[44px] flex flex-col justify-center"
             onClick={() => setActiveTab('deductible')}
           >
-            <div className="text-xl sm:text-2xl font-semibold text-foreground tabular-nums">${deductibleTotal.toFixed(2)}</div>
-            <div className="text-xs sm:text-sm text-muted-foreground/90 mt-0.5">{deductibleTransactions.length} deductible</div>
+            <div className="text-xl sm:text-2xl font-semibold text-foreground tabular-nums">{deductibleTransactions.length}</div>
+            <div className="text-xs sm:text-sm text-muted-foreground/90 mt-0.5">Posted records marked deductible</div>
           </div>
           <div
             className="bg-card rounded-xl p-4 sm:p-5 border border-border border-l-[3px] border-l-[hsl(var(--warning)/0.75)] shadow-[0_0_0_1px_hsl(var(--warning)/0.06),0_2px_8px_-2px_hsl(var(--warning)/0.1)] cursor-pointer hover:shadow-[0_0_0_1px_hsl(var(--warning)/0.1),0_4px_12px_-2px_hsl(var(--warning)/0.14)] active:scale-[0.99] transition-all duration-150 min-h-[44px] flex flex-col justify-center"
             onClick={() => setActiveTab('pending')}
           >
-            <div className="text-xl sm:text-2xl font-semibold text-foreground tabular-nums">${pendingTotal.toFixed(2)}</div>
-            <div className="text-xs sm:text-sm text-muted-foreground/90 mt-0.5">{pendingTransactions.length} needs review</div>
+            <div className="text-xl sm:text-2xl font-semibold text-foreground tabular-nums">{pendingTransactions.length}</div>
+            <div className="text-xs sm:text-sm text-muted-foreground/90 mt-0.5">Pending or needs review</div>
           </div>
-          <div
-            className="bg-card rounded-xl p-4 sm:p-5 border border-border border-l-[3px] border-l-primary/70 shadow-[0_0_0_1px_hsl(var(--primary)/0.06),0_2px_8px_-2px_hsl(var(--primary)/0.1)] cursor-pointer hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.1),0_4px_12px_-2px_hsl(var(--primary)/0.14)] active:scale-[0.99] transition-all duration-150 min-h-[44px] flex flex-col justify-center"
-            onClick={() => {}}
+          <button
+            type="button"
+            className="bg-card rounded-xl p-4 sm:p-5 text-left border border-border border-l-[3px] border-l-primary/70 shadow-[0_0_0_1px_hsl(var(--primary)/0.06),0_2px_8px_-2px_hsl(var(--primary)/0.1)] cursor-pointer hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.1),0_4px_12px_-2px_hsl(var(--primary)/0.14)] active:scale-[0.99] transition-all duration-150 min-h-[44px] flex flex-col justify-center"
+            onClick={() => router.push(protectedScreenUrl('tax-preview'))}
           >
-            <div className="text-xl sm:text-2xl font-semibold text-foreground tabular-nums">${potentialSavings.toFixed(2)}</div>
-            <div className="text-xs sm:text-sm text-muted-foreground/90 mt-0.5">Potential savings</div>
-          </div>
+            <div className="text-xl sm:text-2xl font-semibold text-foreground">Tax Preview</div>
+            <div className="text-xs sm:text-sm text-muted-foreground/90 mt-0.5">Review supported federal estimates</div>
+          </button>
           <div
             className="bg-card rounded-xl p-4 sm:p-5 border border-border border-l-[3px] border-l-muted-foreground/50 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.08)] cursor-pointer hover:bg-muted/30 hover:shadow-[0_4px_12px_-2px_rgba(0,0,0,0.1)] active:scale-[0.99] transition-all duration-150 min-h-[44px] flex flex-col justify-center"
             onClick={() => setActiveTab('all')}
@@ -528,7 +521,7 @@ export default function TransactionsPage() {
               : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.06)] active:bg-muted'
               }`}
           >
-            Deductible ({deductibleTransactions.length})
+            Marked deductible ({deductibleTransactions.length})
           </button>
           <button
             type="button"
@@ -548,7 +541,7 @@ export default function TransactionsPage() {
               : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.06)] active:bg-muted'
               }`}
           >
-            Pending ({pendingTransactions.length})
+            Pending / review ({pendingTransactions.length})
           </button>
         </div>
 
@@ -614,7 +607,7 @@ export default function TransactionsPage() {
                       {getStatusBadge(transaction)}
                     </td>
                     <td className="px-5 py-4 text-sm text-foreground">
-                      {(transaction.type ?? (transaction.amount < 0 ? 'income' : 'expense')) === 'income' ? 'Received' : 'Paid'}
+                      {transactionDirection(transaction)}
                     </td>
                     <td className="px-5 py-4 text-center">
                       {transaction.receipt_url ? (
@@ -645,8 +638,8 @@ export default function TransactionsPage() {
           {/* Mobile Card View - card layout, no horizontal scroll, 44px tap */}
           <div className="md:hidden divide-y divide-border">
             {filteredTransactions.map((transaction) => {
-              const direction = (transaction.type ?? (transaction.amount < 0 ? 'income' : 'expense')) === 'income' ? 'Received' : 'Paid';
-              const isReceived = direction === 'Received';
+              const direction = transactionDirection(transaction);
+              const isReceived = (transaction.type ?? (transaction.amount < 0 ? 'income' : 'expense')) === 'income';
               return (
                 <div
                   key={transaction.id}

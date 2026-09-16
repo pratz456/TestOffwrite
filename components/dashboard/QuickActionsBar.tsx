@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { ClipboardList, FileText, Lightbulb, Calculator, ChevronRight } from 'lucide-react';
+import { ClipboardList, FileText, Lightbulb, Calculator, Plus } from 'lucide-react';
 
 interface QuickActionsBarProps {
   onNavigate: (screen: string) => void;
@@ -19,6 +19,8 @@ interface ActionItem {
 
 export function QuickActionsBar({ onNavigate, needsReviewCount, needsAnalysisCount }: QuickActionsBarProps) {
   const actions: ActionItem[] = [
+    { label: 'Add Income', screen: 'income-tracking', icon: Plus, show: true },
+    { label: 'Add Expense', screen: 'add-manual-transaction', icon: Plus, show: true },
     {
       label: `Review (${needsReviewCount})`,
       screen: 'review-transactions',

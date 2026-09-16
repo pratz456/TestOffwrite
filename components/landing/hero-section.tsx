@@ -10,17 +10,17 @@ export function HeroSection() {
       <div className="relative mx-auto max-w-4xl px-4 text-center sm:px-6 lg:px-8">
         <div className="animate-hero-enter mb-6 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-4 py-1.5 text-sm font-medium text-primary">
           <Sparkles className="h-4 w-4" />
-          AI-Powered Tax Automation
+          Expenses, receipts, and tax records
         </div>
 
         <h1 className="animate-hero-enter-delay-1 text-4xl font-extrabold tracking-tight sm:text-5xl lg:text-6xl">
-          <span className="text-foreground">Stop overpaying taxes.</span><br />
+          <span className="text-foreground">Keep your expenses organized.</span><br />
           <span className="bg-gradient-to-r from-primary via-blue-500 to-cyan-500 bg-clip-text text-transparent">WriteOff</span>{" "}
-          <span className="text-foreground">finds every deduction.</span>
+          <span className="text-foreground">keeps the details together.</span>
         </h1>
 
         <p className="animate-hero-enter-delay-2 mx-auto mt-5 max-w-2xl text-lg leading-relaxed text-muted-foreground sm:text-xl">
-          Our <span className="font-semibold text-primary">AI</span> finds, categorizes, and tracks your business expenses as you go. Your phone becomes your tax-saving sidekick.
+          Save expenses and receipts, review their business purpose, and prepare records for your accountant. Start with manual entry—no bank connection required.
         </p>
 
         <div className="animate-hero-enter-delay-3 mt-8 flex flex-col items-center gap-4">

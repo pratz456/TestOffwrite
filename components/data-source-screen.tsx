@@ -67,9 +67,9 @@ const SUPPORTED_PDF_TYPES = [
 ];
 
 const MANUAL_TIPS = [
-  { icon: '📅', text: 'Enter transactions one at a time or in bulk' },
-  { icon: '📸', text: 'Upload receipt photos to auto-fill details' },
-  { icon: '🤖', text: 'AI will suggest which expenses are deductible' },
+  { icon: '📅', text: 'Add income and expenses manually without connecting a bank' },
+  { icon: '📸', text: 'Attach receipt photos and review or enter the details yourself' },
+  { icon: '✅', text: 'Review each expense and record its business purpose' },
   { icon: '📤', text: 'You can connect your bank anytime later in Settings' },
 ];
 
@@ -196,9 +196,9 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-0.5">
                     <span className="text-sm font-semibold text-foreground">Connect Bank Account</span>
-                    <span className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded-full font-medium">Recommended</span>
+                    <span className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded-full font-medium">Optional</span>
                   </div>
-                  <p className="text-xs text-muted-foreground">Automatically imports all transactions. AI categorizes them and flags deductibles.</p>
+                  <p className="text-xs text-muted-foreground">Optional: request transaction sync from a supported bank, then review the imported records.</p>
                   <div className="flex flex-wrap gap-1 mt-2">
                     {['Chase', 'Bank of America', 'Wells Fargo', 'Citi', '12,000+ banks'].map(bank => (
                       <span key={bank} className="text-xs bg-background/80 border border-border px-1.5 py-0.5 rounded text-muted-foreground">{bank}</span>
@@ -221,7 +221,7 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
                 </div>
                 <div className="flex-1 min-w-0">
                   <span className="text-sm font-semibold text-foreground block mb-0.5">Upload Bank Statements or Receipts</span>
-                  <p className="text-xs text-muted-foreground">Upload PDF statements, receipt photos, or expense reports. AI reads and imports all transactions.</p>
+                  <p className="text-xs text-muted-foreground">Upload supported documents and review the extracted records. Manual entry is available if import cannot complete.</p>
                   <div className="flex flex-wrap gap-1 mt-2">
                     {['Bank statements', 'Credit card PDFs', 'Receipt photos', 'Expense reports'].map(t => (
                       <span key={t} className="text-xs bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 px-1.5 py-0.5 rounded text-emerald-700 dark:text-emerald-400">{t}</span>
@@ -246,7 +246,7 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
                   <span className="text-sm font-semibold text-foreground block mb-0.5">Enter Manually</span>
                   <p className="text-xs text-muted-foreground">Type in your income and expenses one by one. Best for people with fewer transactions.</p>
                   <div className="flex flex-wrap gap-1 mt-2">
-                    {['Add income', 'Log expenses', 'Full privacy', 'No bank required'].map(t => (
+                    {['Add income', 'Log expenses', 'No bank login', 'No bank required'].map(t => (
                       <span key={t} className="text-xs bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-800 px-1.5 py-0.5 rounded text-violet-700 dark:text-violet-400">{t}</span>
                     ))}
                   </div>
@@ -273,13 +273,13 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
                 <Building2 className="w-7 h-7 text-white" />
               </div>
               <h2 className="text-lg font-bold text-foreground">Connect Your Bank</h2>
-              <p className="text-sm text-muted-foreground mt-1">Securely import up to 2 years of transactions in minutes</p>
+              <p className="text-sm text-muted-foreground mt-1">Available transaction history depends on your bank and plan</p>
             </div>
 
             <div className="rounded-xl border border-border bg-card p-4 space-y-3">
               {[
-                { icon: '⚡', label: 'Instant import', desc: 'All transactions pulled automatically' },
-                { icon: '🤖', label: 'AI categorization', desc: 'Every expense analyzed for deductibility' },
+                { icon: '📥', label: 'Transaction sync', desc: 'Request available records from a supported account' },
+                { icon: '✅', label: 'Your review', desc: 'Check categories and business purpose before confirming expenses' },
                 { icon: '🔒', label: 'Bank-level security', desc: 'Read-only access via Plaid  -  WriteOff cannot move money' },
                 { icon: '🔌', label: 'Disconnect anytime', desc: 'Revoke access in Settings at any time' },
               ].map(item => (
@@ -319,7 +319,7 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
                 <Upload className="w-7 h-7 text-white" />
               </div>
               <h2 className="text-lg font-bold text-foreground">Upload Your Documents</h2>
-              <p className="text-sm text-muted-foreground mt-1">AI reads your statements and imports all transactions</p>
+              <p className="text-sm text-muted-foreground mt-1">Review extracted records before using them. If document import is unavailable, you can enter records manually.</p>
             </div>
 
             {/* What works */}
@@ -358,7 +358,7 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
               {uploadState === 'uploading' ? (
                 <div className="flex flex-col items-center gap-2">
                   <Loader2 className="w-8 h-8 text-primary animate-spin" />
-                  <p className="text-sm text-muted-foreground">Reading document with AI...</p>
+                  <p className="text-sm text-muted-foreground">Processing document...</p>
                 </div>
               ) : (
                 <div className="flex flex-col items-center gap-2">

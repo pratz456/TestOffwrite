@@ -70,7 +70,8 @@ function requests(url: string) {
   if (url.includes('gross-receipts')) return Promise.resolve(response({ totalGrossReceipts: 20000 }));
   if (url.includes('/1099')) return Promise.resolve(response({ forms: [{ amount: 20000 }] }));
   if (url.includes('schedule-se')) return Promise.resolve(response({ netProfit: 40000, totalIncome: 90000, calculation: { totalSETax: 9999 } }));
-  return Promise.resolve(response({ confirmedCount: 35, totalDeductible: 5000 }));
+  return Promise.resolve(response({ data: { year: taxYear, netProfit: 15000, totalIncome: 20000,
+    totalExpenses: 5000, confirmedExpenses: 5000, depreciationDeduction: 0 } }));
 }
 beforeEach(() => {
   harness.slots = []; harness.cursor = 0; harness.effects = []; harness.request.mockReset(); harness.navigate.mockReset();
@@ -78,6 +79,46 @@ beforeEach(() => {
 });
 
 describe('filing hub uses the successful shared tax snapshot', () => {
+  it('shows the confirmed expense amount when the Schedule C response has no count', async () => {
+    harness.request.mockImplementation((url: string) => {
+      const taxYear = Number(new URL(url, 'http://localhost').searchParams.get('year'));
+      if (url.includes('compute-1040')) {
+        const data = snapshot(taxYear);
+        data.income.totalDeductible = 350;
+        data.income.scheduleCNetProfit = 19650;
+        return Promise.resolve(response(data));
+      }
+      return Promise.resolve(response({ data: { year: taxYear, netProfit: 19650, totalIncome: 20000,
+        totalExpenses: 350, confirmedExpenses: 350, depreciationDeduction: 0 } }));
+    });
+    render(); await flush(); const tree = render();
+    const expenseRow = walk(tree).find(node => node.key === 'expenses')!;
+    expect(text(expenseRow)).toContain('$350 net confirmed expense amount');
+    expect(text(expenseRow)).toContain('Recorded');
+    expect(text(tree)).not.toContain('No confirmed expenses yet');
+    expect(text(tree)).toContain('They do not establish that your return is complete or ready to file.');
+  });
+
+  it.each([0, -50])('keeps a net expense amount of %s reviewable instead of inferring a record count', async amount => {
+    harness.request.mockImplementation((url: string) => {
+      const taxYear = Number(new URL(url, 'http://localhost').searchParams.get('year'));
+      if (!url.includes('compute-1040')) return requests(url);
+      const data = snapshot(taxYear);
+      Object.assign(data.income, { grossReceipts: 0, totalDeductible: amount, scheduleCNetProfit: -amount });
+      data.form1040.totalIncome = 50000 - amount;
+      return Promise.resolve(response(data));
+    });
+    render(); await flush(); const tree = render();
+    const expenseRow = walk(tree).find(node => node.key === 'expenses')!;
+    expect(text(expenseRow)).toContain(`${amount === 0 ? '$0' : '-$50'} net confirmed expense amount`);
+    expect(text(expenseRow)).toContain('Review expenses and refunds');
+    expect(text(expenseRow)).not.toContain('Recorded');
+    expect(text(tree)).not.toContain('No confirmed expenses yet');
+    // W-2 wages alone do not establish recorded business income/expenses.
+    const businessRow = walk(tree).find(node => node.key === 'schedule-c')!;
+    expect(text(businessRow)).not.toContain('Recorded');
+  });
+
   it('surfaces income reconciliation 422 and marks readiness unavailable instead of summing overlapping income', async () => {
     const error = 'Review income sources before calculating tax: Transactions, gross receipts or 1099 forms may describe the same payments.';
     harness.request.mockImplementation((url: string) => url.includes('compute-1040')

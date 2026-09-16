@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ChevronRight, FileText } from 'lucide-react';
 import { consolidateCategory } from '@/lib/utils';
-import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
+import { dashboardRecordStatus } from '@/lib/dashboard/record-summary';
 
 interface RecentActivityCardProps {
   transactions: any[];
@@ -38,12 +38,14 @@ export function RecentActivityCard({ transactions, onTransactionClick, onViewAll
         {recent.length > 0 ? (
           <div className="space-y-0.5">
             {recent.map((tx) => {
-              const isIncome = tx.amount < 0;
+              const isCredit = tx.amount < 0;
               const amount = Math.abs(tx.amount);
-              const needsReview = transactionNeedsTaxReview(tx);
-              const tagLabel = needsReview ? 'Pending' : tx.is_deductible === true ? 'Ded.' : 'Personal';
-              const tagVariant = needsReview ? 'outline' : tx.is_deductible === true ? 'default' : 'secondary';
-              const tagClass = tx.is_deductible === true
+              const status = dashboardRecordStatus(tx);
+              const needsReview = status === 'pending' || status === 'review';
+              const isMarkedExpense = status === 'deductible';
+              const tagLabel = { pending: 'Pending', income: 'Income', deductible: 'Marked deductible', personal: 'Personal', review: 'Needs review', skipped: 'Skipped' }[status];
+              const tagVariant = needsReview ? 'outline' : isMarkedExpense ? 'default' : 'secondary';
+              const tagClass = isMarkedExpense
                 ? 'text-[10px] px-1.5 py-0 ml-0.5 bg-primary/15 text-primary border border-primary/25'
                 : needsReview
                   ? 'text-[10px] px-1.5 py-0 ml-0.5'
@@ -59,7 +61,7 @@ export function RecentActivityCard({ transactions, onTransactionClick, onViewAll
                 >
                   <div className="flex items-center gap-2.5 flex-1 min-w-0">
                     <div className={`w-2 h-2 rounded-full shrink-0 ${
-                      tx.is_deductible === true ? 'bg-success' :
+                      isMarkedExpense ? 'bg-success' :
                       needsReview ? 'bg-warning' :
                       'bg-muted-foreground/40'
                     }`} />
@@ -69,7 +71,8 @@ export function RecentActivityCard({ transactions, onTransactionClick, onViewAll
                       </p>
                       <div className="flex items-center gap-1.5 text-xs text-muted-foreground flex-wrap">
                         <span className="truncate max-w-[80px] sm:max-w-none">
-                          {isIncome ? 'Income' : consolidateCategory(tx.category).displayName}
+                          {consolidateCategory(tx.category).displayName}
+                          {isCredit && !['income', 'revenue'].includes(String(tx.category).toLowerCase()) ? ' · Credit / refund' : ''}
                         </span>
                         <span className="hidden sm:inline">&middot;</span>
                         <span className="hidden sm:inline">
@@ -82,8 +85,8 @@ export function RecentActivityCard({ transactions, onTransactionClick, onViewAll
                     </div>
                   </div>
                   <div className="text-right shrink-0 ml-2">
-                    <span className={`text-sm font-semibold tabular-nums ${isIncome ? 'text-success' : 'text-destructive/90'}`}>
-                      {isIncome ? '+' : ''}${amount.toFixed(2)}
+                    <span className={`text-sm font-semibold tabular-nums ${isCredit ? 'text-success' : 'text-destructive/90'}`}>
+                      {isCredit ? '+' : '-'}${amount.toFixed(2)}
                     </span>
                     <span className="block text-[10px] text-muted-foreground sm:hidden">
                       {formatTransactionDate(tx.date, 'en-US', { month: 'short', day: 'numeric' })}
@@ -97,7 +100,7 @@ export function RecentActivityCard({ transactions, onTransactionClick, onViewAll
           <div className="text-center py-8 text-muted-foreground">
             <FileText className="h-8 w-8 mx-auto mb-2 opacity-40" />
             <p className="text-sm">No transactions yet</p>
-            <p className="text-xs mt-1">Connect your bank to get started</p>
+            <p className="text-xs mt-1">Add an expense manually to get started. Bank connection is optional.</p>
           </div>
         )}
       </CardContent>

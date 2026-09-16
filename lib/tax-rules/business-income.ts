@@ -27,9 +27,10 @@ export function reconcileBusinessIncome(taxYear: number, transactions: ReadonlyA
   for (const tx of transactions) {
     if (tx.pending === true || typeof tx.date !== 'string' || Number(tx.date.slice(0, 4)) !== taxYear) continue;
     const category = typeof tx.category === 'string' ? tx.category.toLowerCase() : '';
-    // normalizeDoc derives `type` from amount sign, so it alone proves nothing.
-    const explicitIncome = category === 'income' || category === 'revenue'
-      || (tx.account_id === 'manual' && tx.type === 'income');
+    // Both transaction readers derive `type` from the amount sign, including
+    // manual-account refunds. Require a recorded income category for every
+    // account; otherwise an expense refund becomes receipts and nets expenses.
+    const explicitIncome = category === 'income' || category === 'revenue';
     if (!explicitIncome) {
       if (typeof tx.amount === 'number' && tx.amount < 0) unclassifiedCreditCount++;
       continue;

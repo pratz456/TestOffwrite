@@ -8,7 +8,6 @@ import { ProblemSection } from "./problem-section";
 import { FeaturesSection } from "./features-section";
 import { ComparisonSection } from "./comparison-section";
 import { HowItWorksSection } from "./how-it-works-section";
-import { TestimonialsSection } from "./testimonials-section";
 import { LandingFooter } from "./landing-footer";
 
 export function LandingPage() {
@@ -23,7 +22,6 @@ export function LandingPage() {
         <FeaturesSection />
         <ComparisonSection />
         <HowItWorksSection />
-        <TestimonialsSection />
       </main>
       <LandingFooter />
     </div>

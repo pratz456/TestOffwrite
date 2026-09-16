@@ -169,7 +169,7 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
               <CardTitle className="text-base font-semibold flex items-center gap-2">
                 <TrendingDown className="w-4 h-4 text-red-500" /> Business Expense
               </CardTitle>
-              <p className="text-xs text-muted-foreground">Saved expenses are auto-analyzed by AI and flow to Schedule C Part II.</p>
+              <p className="text-xs text-muted-foreground">Record the business purpose and review the category before confirming a deduction.</p>
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSaveExpense} className="space-y-4">
@@ -296,7 +296,7 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
           <p className="font-medium text-foreground text-sm">How this works</p>
           {mode === "expense" ? (
             <>
-              <p>• Expenses are stored and AI-analyzed automatically.</p>
+              <p>• Your saved amount, date, category and notes stay available for review.</p>
               <p>• Confirmed deductible expenses flow to the correct Schedule C line based on category.</p>
               <p>• You can review and edit these under Transactions at any time.</p>
             </>

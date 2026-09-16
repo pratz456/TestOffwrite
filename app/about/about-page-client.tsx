@@ -36,47 +36,44 @@ export default function AboutUsPageClient() {
               About WriteOff
             </CardTitle>
             <CardDescription>
-              AI-powered tax optimization for modern professionals
+              Expense and receipt organization for freelancers and small businesses
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6 text-sm text-muted-foreground">
             <div>
               <h3 className="text-lg font-semibold text-foreground mb-3">Our Mission</h3>
               <p>
-                At WriteOff, we believe that tax optimization shouldn't be complicated or time-consuming.
-                Our mission is to empower professionals and small business owners with intelligent tools
-                that automatically identify tax-saving opportunities and streamline expense management.
+                Keeping business records should fit into your working day. WriteOff brings expenses,
+                receipts and business notes together so you can review the details while they are fresh
+                and prepare for a conversation with your tax preparer.
               </p>
             </div>
 
             <div>
               <h3 className="text-lg font-semibold text-foreground mb-3">What We Do</h3>
               <p className="mb-3">
-                WriteOff is an AI-powered platform that helps you:
+                In the current preview, you can:
               </p>
               <ul className="list-disc list-inside space-y-1 ml-4">
-                <li>Automatically categorize and analyze business expenses</li>
-                <li>Identify tax-deductible items using advanced AI</li>
-                <li>Scan and process receipts automatically with AI</li>
-                <li>Calculate quarterly tax estimates in real-time</li>
-                <li>Provide personalized AI insights and recommendations</li>
-                <li>Learn from your corrections to improve accuracy</li>
-                <li>Deliver tax education through IRS-backed content</li>
-                <li>Generate comprehensive tax reports and analytics</li>
-                <li>Streamline receipt management and organization</li>
-                <li>Maximize your tax savings with intelligent insights</li>
-                <li>Access everything through our mobile app (PWA)</li>
+                <li>Enter income and expenses manually</li>
+                <li>Upload receipts and check the extracted merchant, date and amount</li>
+                <li>Edit categories and add business-purpose notes</li>
+                <li>Keep receipt attachments linked privately to your account</li>
+                <li>Download your records archive on any plan</li>
+                <li>Export supported PDF and CSV reports with a trial or Premium plan</li>
+                <li>Review federal planning estimates for supported tax situations</li>
+                <li>Use the web app on your phone or computer</li>
               </ul>
             </div>
 
             <div>
-              <h3 className="text-lg font-semibold text-foreground mb-3">Our Technology</h3>
+              <h3 className="text-lg font-semibold text-foreground mb-3">What to Expect</h3>
               <p>
-                We leverage cutting-edge artificial intelligence and machine learning to analyze your
-                financial data and provide intelligent recommendations. Our platform features advanced 
-                OCR for receipt processing, machine learning that adapts to user preferences, real-time 
-                tax calculations, and IRS publication integration for education. We integrate securely
-                with major banks and financial institutions, ensuring your data is always protected.
+                Receipt text extraction helps reduce retyping, but you need to check the results.
+                A saved purchase is not automatically a tax deduction. Federal estimates depend on
+                reviewed facts and supported situations; missing information can require further review.
+                AI analysis, bank connections and in-app filing are unavailable in this preview.
+                WriteOff does not prepare a complete federal or state return or guarantee tax savings.
               </p>
             </div>
 
@@ -93,22 +90,22 @@ export default function AboutUsPageClient() {
                 <div className="flex items-start gap-3">
                   <Shield className="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" />
                   <div>
-                    <h4 className="font-medium text-foreground">Bank-Level Security</h4>
-                    <p className="text-xs">Enterprise-grade security to protect your financial data</p>
+                    <h4 className="font-medium text-foreground">Private Attachments</h4>
+                    <p className="text-xs">Receipt viewing requires your authenticated account</p>
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
                   <HelpCircle className="w-5 h-5 text-green-500 mt-0.5 flex-shrink-0" />
                   <div>
-                    <h4 className="font-medium text-foreground">Smart Learning</h4>
-                    <p className="text-xs">AI that improves over time based on your corrections</p>
+                    <h4 className="font-medium text-foreground">Reviewable Details</h4>
+                    <p className="text-xs">Check and correct receipt information before saving</p>
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
                   <GraduationCap className="w-5 h-5 text-purple-500 mt-0.5 flex-shrink-0" />
                   <div>
-                    <h4 className="font-medium text-foreground">Tax Education</h4>
-                    <p className="text-xs">Comprehensive tax education built-in with IRS content</p>
+                    <h4 className="font-medium text-foreground">Planning Context</h4>
+                    <p className="text-xs">Supported estimates include scope and review guidance</p>
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
@@ -121,8 +118,8 @@ export default function AboutUsPageClient() {
                 <div className="flex items-start gap-3">
                   <Users className="w-5 h-5 text-purple-500 mt-0.5 flex-shrink-0" />
                   <div>
-                    <h4 className="font-medium text-foreground">Expert Support</h4>
-                    <p className="text-xs">Dedicated support team to help you succeed</p>
+                    <h4 className="font-medium text-foreground">Preparer Handoff</h4>
+                    <p className="text-xs">Export saved records for review with your accountant</p>
                   </div>
                 </div>
               </div>
@@ -131,8 +128,8 @@ export default function AboutUsPageClient() {
             <div>
               <h3 className="text-lg font-semibold text-foreground mb-3">Get in Touch</h3>
               <p>
-                Have questions or want to learn more? We'd love to hear from you.
-                Contact us at writeoffapp@gmail.com or visit our website at writeoff.com
+                Have questions or want to learn more? Get in touch.
+                Contact us at writeoffapp@gmail.com or visit our website at writeoffapp.com
               </p>
             </div>
           </CardContent>

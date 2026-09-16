@@ -48,6 +48,10 @@ vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collection: (name: string) =
 }) } }));
 import DashboardScreen from '../components/dashboard-screen';
 import { KpiGrid } from '../components/dashboard/KpiGrid';
+import { OptimizationCard } from '../components/dashboard/OptimizationCard';
+import { TopCategoriesCard } from '../components/dashboard/TopCategoriesCard';
+import { RecentActivityCard } from '../components/dashboard/RecentActivityCard';
+import { summarizeDashboardRecords } from '../lib/dashboard/record-summary';
 import { GET } from '../app/api/tax/compute-1040/route';
 import { loadDashboardTaxSnapshot } from '../lib/tax/dashboard-snapshot';
 
@@ -60,7 +64,11 @@ function render() {
   const tree = DashboardScreen({ profile: h.profile, transactions: h.tx, onNavigate() {}, onTransactionClick() {} });
   const props = walk(tree).find(n => n.type === ('KpiGrid' as any))!.props;
   h.effects.splice(0).forEach(effect => effect());
-  return { ...props, header: walk(tree).find(n => n.type === ('DashboardHeader' as any))!.props };
+  return { ...props, header: walk(tree).find(n => n.type === ('DashboardHeader' as any))!.props,
+    quickActions: walk(tree).find(n => n.type === ('QuickActionsBar' as any))!.props,
+    advisory: walk(tree).find(n => n.type === ('AiAdvisoryCard' as any))?.props,
+    recordStatus: walk(tree).find(n => n.type === ('OptimizationCard' as any))!.props,
+    categories: walk(tree).find(n => n.type === ('TopCategoriesCard' as any))!.props };
 }
 function cards(props: Record<string, any>) { return walk(KpiGrid(props as any)).filter(n => typeof n.props.title === 'string' && 'value' in n.props).map(n => n.props); }
 async function transport(url: string) {
@@ -80,6 +88,75 @@ beforeEach(() => {
 afterEach(() => { for (const slot of h.slots) slot?.cleanup?.(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('dashboard tax cards share the federal server calculation', () => {
+  it('secondary cards count posted marked records and net expense refunds, without an analysis-based verification percentage', async () => {
+    h.tx = [
+      expense(100), expense(-20, { type: 'income' }), expense(200, { category: 'FOOD_AND_DRINK_RESTAURANT' }),
+      expense(30, { category: 'travel', date: '2025-12-31' }), expense(500, { pending: true }),
+      expense(-100000, { category: 'income', is_deductible: false }),
+      expense(42.5, { is_deductible: false }), expense(25, { is_deductible: null }),
+    ].map((record, index) => ({ ...record, id: String(index), iso_currency_code: 'USD' }));
+    const props = render(); await flush();
+    expect(props.recordStatus).toMatchObject({ totalTransactions: 8, deductibleCount: 4, pendingCount: 1, needsReviewCount: 1 });
+    expect(props.categories.categories).toContainEqual(['OFFICE_AND_EQUIPMENT', 80]);
+    expect(props.categories.categories).toContainEqual(['TRAVEL', 30]); // Clearly all-date record summary, separate from current-year tax.
+    expect(props.categories.categories.some(([name]: [string, number]) => name === 'INCOME')).toBe(false);
+    const status = text(OptimizationCard(props.recordStatus as any));
+    expect(status).toContain('Posted records marked deductible4');
+    expect(status).toContain('Pending transactions1');
+    expect(status).not.toMatch(/Expenses verified|Confirmed deductions|88%/);
+    const categories = text(TopCategoriesCard(props.categories as any));
+    expect(categories).toContain('$80.00'); expect(categories).not.toContain('$120.00');
+    expect(categories).toContain('Refunds reduce totals; tax limits are not applied');
+  });
+
+  it('recent activity keeps refund category/direction, explicit income, pending and skipped statuses distinct', () => {
+    const tx = [
+      expense(-20, { id: 'refund', merchant_name: 'Office refund', type: 'income' }),
+      expense(-1000, { id: 'income', merchant_name: 'Client receipt', category: 'revenue', is_deductible: false }),
+      expense(500, { id: 'pending', merchant_name: 'Pending equipment', pending: true }),
+      expense(25, { id: 'review', merchant_name: 'Review expense', is_deductible: null }),
+      expense(10, { id: 'skipped', merchant_name: 'Skipped expense', is_deductible: null, user_classification_reason: 'Skipped by user' }),
+    ];
+    const click = vi.fn();
+    const tree = RecentActivityCard({ transactions: tx, onTransactionClick: click, onViewAll() {} });
+    const row = (merchant: string) => walk(tree).find(n => n.props?.role === 'button' && text(n).includes(merchant))!;
+    expect(text(row('Office refund'))).toContain('Office & Equipment · Credit / refund');
+    expect(text(row('Office refund'))).toContain('+$20.00');
+    expect(text(row('Office refund'))).not.toContain('Income');
+    expect(text(row('Client receipt'))).toContain('Income'); expect(text(row('Client receipt'))).not.toContain('Personal');
+    expect(text(row('Pending equipment'))).toContain('Pending'); expect(text(row('Pending equipment'))).not.toContain('Marked deductible');
+    expect(text(row('Review expense'))).toContain('Needs review');
+    expect(text(row('Skipped expense'))).toContain('Skipped'); expect(text(row('Skipped expense'))).not.toContain('Personal');
+    row('Office refund').props.onClick(); expect(click).toHaveBeenCalledWith({ ...tx[0], _source: 'dashboard' });
+  });
+
+  it.each([{}, { iso_currency_code: 'CAD' }, { iso_currency_code: 'USD', amount: NaN }, { iso_currency_code: 'USD', amount: Infinity }])('withholds category money totals for ambiguous currency/amount %j while retaining record counts', bad => {
+    const summary = summarizeDashboardRecords([expense(100, { iso_currency_code: 'USD' }), expense(-20, bad)]);
+    expect(summary.deductibleCount).toBe(2);
+    expect(summary.categoryEntries).toEqual([]); expect(summary.categoryIssue).toBeTruthy();
+    const tree = TopCategoriesCard({ categories: summary.categoryEntries, totalMagnitude: summary.categoryMagnitude, reviewMessage: summary.categoryIssue, onViewAll() {} });
+    expect(text(tree)).toContain(summary.categoryIssue!); expect(text(tree)).not.toContain('$');
+  });
+
+  it('keeps a net-credit category signed and its chart width nonnegative', () => {
+    const summary = summarizeDashboardRecords([expense(10, { iso_currency_code: 'USD' }), expense(-30, { iso_currency_code: 'USD' })]);
+    expect(summary.categoryEntries).toEqual([['OFFICE_AND_EQUIPMENT', -20]]);
+    const tree = TopCategoriesCard({ categories: summary.categoryEntries, totalMagnitude: summary.categoryMagnitude, onViewAll() {} });
+    expect(text(tree)).toContain('-$20.00');
+    expect(walk(tree).filter(n => typeof n.props?.style?.width === 'string').map(n => n.props.style.width)).not.toContain('-100%');
+  });
+
+  it('removes manually confirmed and skipped records from review and analysis prompts', async () => {
+    h.tx = [expense(20), expense(30, { is_deductible: false }),
+      expense(40, { is_deductible: null, user_classification_reason: 'Skipped by user' })];
+    const reviewed = render(); await flush();
+    expect(reviewed.quickActions).toMatchObject({ needsReviewCount: 0, needsAnalysisCount: 0 });
+    expect(reviewed.advisory).toMatchObject({ needsReviewCount: 0, needsAnalysisCount: 0 });
+    h.tx = [...h.tx, expense(50, { is_deductible: null })];
+    const pending = render(); await flush();
+    expect(pending.quickActions).toMatchObject({ needsReviewCount: 1, needsAnalysisCount: 1 });
+    expect(pending.advisory).toMatchObject({ needsReviewCount: 1, needsAnalysisCount: 1 });
+  });
   it('excludes the reported personal/unreviewed debits instead of showing a -$68 tax profit', async () => {
     h.tx = [expense(42.5, { is_deductible: false }), expense(25, { is_deductible: null })];
     const pending = render(); expect(pending.state).toEqual({ status: 'loading' }); expect(cards(pending)).toEqual([]);

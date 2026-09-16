@@ -3,6 +3,10 @@ import { makeAuthenticatedRequest } from '../lib/firebase/api-client';
 import { uploadOnboardingDocument } from '../components/data-source-screen';
 import { protectedScreen, protectedScreenUrl, previousProtectedScreen } from '../lib/navigation/protected-screens';
 import { profileLookupState } from '../lib/onboarding/profile';
+import { Children, isValidElement, type ReactElement, type ReactNode } from 'react';
+import { generateActionItems } from '../lib/guidance/action-engine';
+import { QuickActionsBar } from '../components/dashboard/QuickActionsBar';
+import { AiAdvisoryCard } from '../components/dashboard/AiAdvisoryCard';
 
 const firebase = vi.hoisted(() => ({ currentUser: { getIdToken: vi.fn() } as { getIdToken: ReturnType<typeof vi.fn> } | null }));
 vi.mock('@/lib/firebase/client', () => ({ auth: firebase }));
@@ -121,5 +125,71 @@ describe('returning-customer profile decisions', () => {
   it('allows onboarding only for a confirmed missing profile and restores the existing customer after retry', () => {
     expect(profileLookupState(null, { code: 'PROFILE_NOT_FOUND' })).toBe('missing');
     expect(profileLookupState({ name: 'Existing customer' }, null)).toBe('existing');
+  });
+});
+
+type ClickableElement = ReactElement<{ children?: ReactNode; onClick?: () => void }>;
+function elements(node: ReactNode): ClickableElement[] {
+  return Children.toArray(node).flatMap(child => isValidElement<ClickableElement['props']>(child)
+    ? [child, ...elements(child.props.children)] : []);
+}
+function nodeText(node: ReactNode): string {
+  return Children.toArray(node).map(child => isValidElement<ClickableElement['props']>(child)
+    ? nodeText(child.props.children) : String(child)).join('');
+}
+
+describe('manual dashboard entry and review actions', () => {
+  const profile = { profession: 'Consultant', state: 'CA', filing_status: 'Single', business_income: 100000 };
+
+  it('prioritizes manual entry for an empty account while retaining an optional bank route', () => {
+    const actions = generateActionItems(profile, []);
+    const manual = actions.findIndex(action => action.id === 'add-first-transaction');
+    const bank = actions.findIndex(action => action.id === 'connect-bank');
+    expect(actions[manual]).toMatchObject({ priority: 'high', screen: 'add-manual-transaction' });
+    expect(actions[bank]).toMatchObject({ priority: 'low', screen: 'plaid-link' });
+    expect(manual).toBeLessThan(bank);
+    expect(generateActionItems({ ...profile, plaid_accounts: [{}] }, []).some(action => action.id === 'connect-bank')).toBe(false);
+  });
+
+  it('does not send manually confirmed or skipped records back for AI analysis', () => {
+    const records = [
+      { amount: 100, is_deductible: true },
+      { amount: 50, is_deductible: false },
+      { amount: 20, is_deductible: null, user_classification_reason: 'Skipped by user' },
+    ];
+    const actions = generateActionItems(profile, records);
+    expect(actions.some(action => action.id === 'analyze-transactions' || action.id === 'review-analyzed' || action.id === 'add-first-transaction')).toBe(false);
+    expect(generateActionItems(profile, [...records, { amount: 25, is_deductible: null }])
+      .find(action => action.id === 'analyze-transactions')).toMatchObject({ screen: 'review-transactions' });
+  });
+
+  it('routes a missing-income prompt to the saved income records', () => {
+    expect(generateActionItems({ ...profile, business_income: 0 }, [])
+      .find(action => action.id === 'set-income')).toMatchObject({ screen: 'income-tracking' });
+  });
+
+  it.each([
+    ['Add Income', 'income-tracking'],
+    ['Add Expense', 'add-manual-transaction'],
+  ])('opens the existing manual destination from %s', (label, screen) => {
+    const onNavigate = vi.fn();
+    const tree = QuickActionsBar({ onNavigate, needsReviewCount: 0, needsAnalysisCount: 0 });
+    const button = elements(tree).find(element => element.type === 'button' && nodeText(element.props.children) === label);
+    expect(button).toBeDefined();
+    button!.props.onClick!();
+    expect(onNavigate).toHaveBeenCalledExactlyOnceWith(screen);
+  });
+
+  it.each([
+    [{ needsReviewCount: 0, needsAnalysisCount: 0, taxSavings: 0 }, 'add-manual-transaction'],
+    [{ needsReviewCount: 1, needsAnalysisCount: 1, taxSavings: 0 }, 'review-transactions'],
+    [{ needsReviewCount: 0, needsAnalysisCount: 0, taxSavings: 10 }, 'tax-preview'],
+  ])('keeps the advisory action within manual review or the shared estimate: %j', (counts, screen) => {
+    const onNavigate = vi.fn();
+    const request = vi.fn(); vi.stubGlobal('fetch', request);
+    const tree = AiAdvisoryCard({ ...counts, onNavigate });
+    elements(tree).find(element => typeof element.props.onClick === 'function')!.props.onClick!();
+    expect(onNavigate).toHaveBeenCalledExactlyOnceWith(screen);
+    expect(request).not.toHaveBeenCalled();
   });
 });

@@ -1,13 +1,13 @@
 "use client";
 
-import { Link2, Brain, Send } from "lucide-react";
+import { Receipt, FolderCheck, FileText } from "lucide-react";
 import { AuthButtons } from "./cta-button";
 import { useScrollReveal } from "./use-scroll-reveal";
 
 const STEPS = [
-  { num: "01", icon: Link2, numBg: "bg-gradient-to-br from-blue-500 to-blue-600", title: "Connect your accounts", body: "Link your bank and cards in under 2 minutes. We use Plaid and MX with read-only access so your data stays safe and under your control.", checks: ["Quick setup", "256-bit encryption", "Plaid and MX"] },
-  { num: "02", icon: Brain, numBg: "bg-gradient-to-br from-violet-500 to-violet-600", title: "AI learns your patterns", body: "Our AI scans your transactions and learns what's business vs personal. It categorizes as you spend so you don't have to guess.", checks: ["Smart categorization", "Merchant recognition", "Location-aware"] },
-  { num: "03", icon: Send, numBg: "bg-gradient-to-br from-emerald-500 to-emerald-600", title: "Approve and go", body: "Get a nudge when we spot a write-off. Your tax savings update live. Export a Schedule C or file through our tax partner when you're ready.", checks: ["One-tap approvals", "Live savings tracker", "Ready for filing"] },
+  { num: "01", icon: Receipt, numBg: "bg-gradient-to-br from-blue-500 to-blue-600", title: "Add an expense", body: "Set up your work profile, then enter an expense or upload a receipt. You can get started without linking a bank.", checks: ["Manual entry", "Receipt uploads", "No bank required"] },
+  { num: "02", icon: FolderCheck, numBg: "bg-gradient-to-br from-violet-500 to-violet-600", title: "Review the details", body: "Check the amount, date and category. Add business context and separate personal spending before using records in a tax summary.", checks: ["Editable details", "Business-purpose notes", "Your review matters"] },
+  { num: "03", icon: FileText, numBg: "bg-gradient-to-br from-emerald-500 to-emerald-600", title: "Prepare for tax time", body: "Download your records archive on any plan, or use trial and Premium report exports to organize a review with your preparer.", checks: ["Records archive", "PDF and CSV reports", "Preparer review"] },
 ];
 
 export function HowItWorksSection() {
@@ -20,7 +20,7 @@ export function HowItWorksSection() {
         <div className="animate-on-scroll text-center">
           <span className="mb-3 inline-block rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-primary">How It Works</span>
           <h2 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">How it works</h2>
-          <p className="mx-auto mt-4 max-w-xl text-muted-foreground">Three steps. Less stress. More savings.</p>
+          <p className="mx-auto mt-4 max-w-xl text-muted-foreground">From a receipt to an organized record in three steps.</p>
         </div>
 
         <div className="mt-10 grid gap-8 lg:grid-cols-3 stagger-children">

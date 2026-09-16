@@ -60,7 +60,6 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
     totalExpenses: 0,
     netProfit: 0,
     seTax: 0,
-    confirmedCount: 0,
     hasHomeOffice: false,
     hasVehicle: false,
     quarterlyPaid: 0,
@@ -107,7 +106,6 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
       const totalExpenses = income.totalDeductible;
       const netProfit = income.scheduleCNetProfit;
       const seTax = tax1040.seCalc.totalSETax;
-      const confirmedCount = txData.confirmedCount || 0;
 
       setSummary({
         grossReceipts: income.grossReceipts, income1099: 0,
@@ -115,7 +113,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
         w2Withheld: tax1040.w2.withheld,
         totalIncome: federalEstimate.totalIncome,
         confirmedExpenses: totalExpenses,
-        totalExpenses, netProfit, seTax, confirmedCount,
+        totalExpenses, netProfit, seTax,
         hasHomeOffice: !!(txData.hasHomeOffice),
         hasVehicle: !!(txData.hasVehicle),
         quarterlyPaid: 0,
@@ -154,10 +152,12 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
       id: "expenses",
       label: "Expenses confirmed",
       description: "Transactions reviewed and marked deductible",
-      status: summary.confirmedCount > 0 ? "complete" : "missing",
-      detail: summary.confirmedCount > 0
-        ? `${summary.confirmedCount} confirmed · ${fmt(summary.totalExpenses)} deductible`
-        : "No confirmed expenses yet",
+      status: summary.confirmedExpenses > 0 ? "complete" : "partial",
+      // The calculation APIs return a net amount, not a confirmed record count.
+      // A zero subtotal can include expenses offset by refunds.
+      detail: summary.confirmedExpenses > 0
+        ? `${fmt(summary.confirmedExpenses)} net confirmed expense amount`
+        : `${fmt(summary.confirmedExpenses)} net confirmed expense amount · Review expenses and refunds if applicable`,
       action: "Review Transactions",
       actionScreen: "transactions",
     },
@@ -165,12 +165,12 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
       id: "schedule-c",
       label: "Business profit estimate",
       description: "Profit or Loss from Business",
-      status: summary.totalIncome > 0 && summary.confirmedCount > 0 ? "complete"
-            : summary.totalIncome > 0 || summary.confirmedCount > 0 ? "partial"
+      status: summary.grossReceipts > 0 && summary.confirmedExpenses > 0 ? "complete"
+            : summary.grossReceipts !== 0 || summary.confirmedExpenses !== 0 ? "partial"
             : "missing",
-      detail: summary.totalIncome > 0 || summary.totalExpenses > 0
+      detail: summary.grossReceipts !== 0 || summary.confirmedExpenses !== 0
         ? `Net profit: ${fmt(summary.netProfit)}`
-        : "Add income and confirm expenses first",
+        : "Review business income, expenses and refunds if applicable",
       action: "Export Schedule C",
       actionScreen: "schedule-c-export",
     },

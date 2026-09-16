@@ -14,7 +14,7 @@ export function LandingFooter() {
               <Image src={writeOffLogo} alt="WriteOff" width={28} height={28} className="rounded-md" />
               <span className="text-lg font-bold text-foreground">WriteOff</span>
             </Link>
-            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">We help freelancers and gig workers save on taxes all year, not just in April.</p>
+            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">Keep business expenses and receipts organized throughout the year, ready to review with your preparer.</p>
           </div>
           <div>
             <h4 className="text-sm font-semibold text-foreground">Product</h4>
@@ -34,7 +34,7 @@ export function LandingFooter() {
           </div>
           <div>
             <h4 className="text-sm font-semibold text-foreground">Get Started</h4>
-            <p className="mt-4 text-sm text-muted-foreground">Ready to stop overpaying? Try free for 30 days. No credit card required.</p>
+            <p className="mt-4 text-sm text-muted-foreground">Start with your first expense. Try free for 30 days. No credit card required.</p>
             <div className="mt-4"><AuthButtons size="default" /></div>
           </div>
         </div>

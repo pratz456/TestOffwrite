@@ -14,8 +14,8 @@ describe('conservative business-income reconciliation', () => {
     expect(result.unclassifiedCreditCount).toBe(2);
     expect(result.warnings[0]).toContain('excluded');
   });
-  it('supports the manual account’s explicitly entered income with a custom category', () => {
-    expect(reconcileBusinessIncome(2026, [{ ...income, account_id: 'manual', category: 'consulting' }], [], []).grossReceipts).toBe(100000);
+  it('supports a manual account’s explicitly recorded income category', () => {
+    expect(reconcileBusinessIncome(2026, [{ ...income, account_id: 'manual', category: 'INCOME' }], [], []).grossReceipts).toBe(100000);
   });
   it('counts an explicitly linked imported receipt and information return only once', () => {
     expect(reconcileBusinessIncome(2026, [], [receipt], [linkedForm])).toMatchObject({ grossReceipts: 100000, linkedDocumentCount: 1 });

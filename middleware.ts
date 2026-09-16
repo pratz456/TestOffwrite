@@ -14,6 +14,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { resolveLocalEmulatorConfig } from './lib/firebase/local-emulator-config';
 
 // ── In-memory rate limit store (resets on cold start) ──────────────────────
 // For production at scale, swap for Upstash Redis using @upstash/ratelimit
@@ -50,7 +51,7 @@ function getClientIP(request: NextRequest): string {
 }
 
 // ── Security headers applied to every response ────────────────────────────
-function addSecurityHeaders(response: NextResponse): NextResponse {
+function addSecurityHeaders(response: NextResponse, hostname: string): NextResponse {
   // Prevent clickjacking
   response.headers.set('X-Frame-Options', 'DENY');
 
@@ -80,19 +81,30 @@ function addSecurityHeaders(response: NextResponse): NextResponse {
   const filingSandbox = process.env.COLUMN_TAX_MODE === 'sandbox' && process.env.COLUMN_TAX_SANDBOX_APPROVED === 'true'
     && process.env.WRITEOFF_ENV === 'staging' && process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID === 'writeoff-production-testing';
   const filingOrigin = filingSandbox ? ' https://app-sandbox.columnapi.com' : '';
+  // Failed local configuration receives the normal restrictive policy. The
+  // client rejects it before initializing Firebase; never expand production CSP.
+  let localEmulators = null;
+  try {
+    localEmulators = resolveLocalEmulatorConfig({ enabled: process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATORS,
+      nodeEnv: process.env.NODE_ENV, appEnv: process.env.NEXT_PUBLIC_APP_ENV,
+      projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID, apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+      appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID, authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+      storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET }, hostname);
+  } catch { /* Keep the default CSP when an emulator guard fails. */ }
+  const localConnections = localEmulators ? ` ${localEmulators.authOrigin} ${localEmulators.firestoreOrigin} ${localEmulators.storageOrigin}` : '';
   const csp = [
     "default-src 'self'",
     `script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://cdn.plaid.com https://apis.google.com${filingOrigin}`,
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob: https://firebasestorage.googleapis.com https://storage.googleapis.com",
+    `img-src 'self' data: blob: https://firebasestorage.googleapis.com https://storage.googleapis.com${localEmulators ? ` ${localEmulators.storageOrigin}` : ''}`,
     "font-src 'self' data:",
-    "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://api.stripe.com https://api.plaid.com https://sandbox.plaid.com https://production.plaid.com https://api.openai.com",
-    `frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://cdn.plaid.com https://${process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || 'writeoff-23910.firebaseapp.com'}${filingOrigin}`,
+    `connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://api.stripe.com https://api.plaid.com https://sandbox.plaid.com https://production.plaid.com https://api.openai.com${localConnections}`,
+    `frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://cdn.plaid.com https://${process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || 'writeoff-23910.firebaseapp.com'}${filingOrigin}${localEmulators ? ` ${localEmulators.authOrigin}` : ''}`,
     "frame-ancestors 'none'",
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
-    "upgrade-insecure-requests",
+    ...(!localEmulators ? ["upgrade-insecure-requests"] : []),
   ].join('; ');
 
   response.headers.set('Content-Security-Policy', csp);
@@ -182,7 +194,7 @@ export function middleware(request: NextRequest) {
     pathname === '/api/plaid/sync-transactions-internal'
   ) {
     const response = NextResponse.next();
-    return addSecurityHeaders(response);
+    return addSecurityHeaders(response, request.nextUrl.hostname);
   }
 
   // ── Enforce HTTPS in production ────────────────────────────────────────
@@ -196,7 +208,7 @@ export function middleware(request: NextRequest) {
 
   // ── Apply security headers to all responses ───────────────────────────
   const response = NextResponse.next();
-  return addSecurityHeaders(response);
+  return addSecurityHeaders(response, request.nextUrl.hostname);
 }
 
 export const config = {

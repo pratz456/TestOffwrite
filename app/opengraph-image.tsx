@@ -2,7 +2,7 @@ import { ImageResponse } from "next/og";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-export const alt = "WriteOff - AI Tax Deduction Tracker for Freelancers";
+export const alt = "WriteOff - Expense and Receipt Tracking for Freelancers";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 export const dynamic = "force-dynamic";
@@ -190,7 +190,7 @@ export default async function Image() {
                     letterSpacing: "0.01em",
                   }}
                 >
-                  AI deductions • Auto-categorization • Export-ready
+                  Expense records • Receipt review • Preparer exports
                 </span>
               </div>
             </div>
@@ -210,7 +210,7 @@ export default async function Image() {
                 letterSpacing: "-0.03em",
               }}
             >
-              Stop overpaying taxes.
+              Expenses organized.
               <span style={{ paddingLeft: 12 }}>
                 <span
                   style={{
@@ -223,7 +223,7 @@ export default async function Image() {
                   WriteOff
                 </span>
               </span>{" "}
-              finds every deduction.
+              keeps the details together.
             </div>
 
             <div
@@ -235,13 +235,13 @@ export default async function Image() {
                 maxWidth: 860,
               }}
             >
-              Connect your accounts and let AI detect deductible expenses, categorize transactions,
-              and generate clean, exportable reports for tax time.
+              Save expenses, review receipt details, and export records for your accountant.
+              Start manually, with no bank connection required.
             </div>
 
             {/* Feature chips */}
             <div style={{ display: "flex", gap: 10, marginTop: 4, flexWrap: "wrap" }}>
-              {["Auto-categorize", "Deduction detection", "CPA-ready exports"].map((t) => (
+              {["Manual entry", "Receipt review", "Records exports"].map((t) => (
                 <div
                   key={t}
                   style={{

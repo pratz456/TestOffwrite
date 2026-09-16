@@ -14,52 +14,52 @@ interface FAQItem {
 const faqData: FAQItem[] = [
   {
     question: "What is WriteOff?",
-    answer: "WriteOff is an AI-powered tax optimization platform that helps professionals and small business owners automatically categorize expenses, identify tax-deductible items, and generate comprehensive tax reports to maximize their tax savings.",
+    answer: "WriteOff helps freelancers and small business owners organize expenses, review receipts, and export records for a tax preparer. Federal planning estimates are available for supported situations; the app does not prepare or file a complete tax return.",
     category: "general"
   },
   {
     question: "How does WriteOff work?",
-    answer: "WriteOff connects to your bank accounts securely through Plaid, automatically categorizes your transactions using AI, identifies potential tax deductions, and generates detailed reports for tax filing. You can also manually review and adjust categorizations.",
+    answer: "Set up your work profile, enter an expense or upload a receipt, then review the amount, date, category and business purpose. You can download your records archive on any plan or use report exports with a trial or Premium plan. No bank connection is required to get started.",
     category: "general"
   },
   {
-    question: "Is my financial data secure?",
-    answer: "Yes, absolutely. We use bank-level security with end-to-end encryption, secure connections through Plaid, and never store your banking credentials. All data is encrypted and protected by industry-standard security measures.",
+    question: "Who can access my receipts and records?",
+    answer: "Your saved records and receipt attachments require your authenticated account. Receipt links are private account links, not sharing links for an accountant. Downloaded exports contain your information, so choose carefully where you store or share them. See the Privacy Policy for data-handling details.",
     category: "security"
   },
   {
-    question: "Which banks does WriteOff support?",
-    answer: "WriteOff supports thousands of banks and credit unions through our Plaid integration, including major banks like Chase, Bank of America, Wells Fargo, and many regional and online banks.",
+    question: "Can I connect a bank account?",
+    answer: "Bank connections are not available in this preview. You can enter income and expenses manually and upload receipts.",
     category: "banking"
   },
   {
-    question: "How accurate is the AI categorization?",
-    answer: "Our AI achieves over 90% accuracy in expense categorization. The system learns from your corrections and improves over time. You can always manually review and adjust any categorizations.",
+    question: "Is AI categorization available?",
+    answer: "AI analysis is not available in this preview. You can review and edit categories yourself. Receipt text extraction can make mistakes, so check the merchant, date and amount before saving; it does not determine whether an expense is deductible.",
     category: "ai"
   },
   {
     question: "What types of expenses can I track?",
-    answer: "You can track all types of business expenses including office supplies, travel, meals, equipment, software subscriptions, professional development, and more. The system automatically identifies which expenses are tax-deductible.",
+    answer: "You can record expenses such as supplies, travel, meals, equipment and software. Recording a purchase or selecting a category does not establish that it is deductible. Keep its business purpose and supporting receipt for review.",
     category: "expenses"
   },
   {
     question: "Can I upload receipts?",
-    answer: "Yes! You can upload receipts and invoices directly to WriteOff. Our AI will extract key information like amounts, dates, and merchants to help with expense tracking and categorization.",
+    answer: "Yes. Upload a receipt, review the extracted merchant, date and amount, and correct any mistakes before saving. Receipt files stay linked privately to your account and are not bundled in the records archive.",
     category: "features"
   },
   {
     question: "What tax reports does WriteOff generate?",
-    answer: "WriteOff generates comprehensive reports including Schedule C summaries, expense breakdowns by category, monthly and yearly summaries, and detailed analytics to help you maximize your tax deductions.",
+    answer: "Trial and Premium plans include supported Schedule C summaries, transaction CSVs, cash-flow reports and planning worksheets. Missing or unsupported tax facts can require review before an estimate or worksheet is available. These exports are records for review, not official filed returns; in-app filing is unavailable.",
     category: "reports"
   },
   {
     question: "Is WriteOff suitable for my business type?",
-    answer: "WriteOff is designed for freelancers, consultants, small business owners, and professionals who want to optimize their tax situation. It works with various business structures and filing statuses.",
+    answer: "Expense and receipt organization can help freelancers and small business owners. Federal estimates cover only supported individual tax situations, including certain simple Schedule C cases. Complex businesses, credits and other special facts need separate professional review. The app does not prepare state or business-entity returns.",
     category: "general"
   },
   {
     question: "How much does WriteOff cost?",
-    answer: "We offer flexible pricing plans starting with a free tier for basic expense tracking. Premium plans include advanced features like unlimited transactions, priority support, and advanced analytics.",
+    answer: "The Free plan keeps basic records and the records archive accessible. The 30-day trial and Premium plans unlock reports and exports. Listed Premium pricing is $14.99 monthly or $150 yearly. AI analysis, bank connections and filing are unavailable in the current preview; do not choose a plan expecting those features.",
     category: "pricing"
   }
 ];
@@ -214,7 +214,7 @@ export function FAQSection() {
             <HelpCircle className="w-8 h-8 text-primary mx-auto" />
             <h3 className="text-lg font-semibold text-foreground">Still Need Help?</h3>
             <p className="text-sm text-muted-foreground">
-              Can't find the answer you're looking for? Our support team is here to help.
+              Have another question? Contact us or browse the Help Center.
             </p>
             <div className="flex gap-3 justify-center flex-wrap">
               <Button
