@@ -1,9 +1,9 @@
 # Staging validation — September 15–16, 2026
 
-## Current staging release (v8)
+## Current staging release (v9)
 
-- Final application commit: `49cc7551d494f05456349bd742fd70508ecd639a` on `codex/staging-readiness`, including the prior dashboard, receipt and session fixes.
-- Final build: `k8rMRLkl0UPdv9rQVgkfB`. The isolated HTTP/rules suite passed against this exact compiled artifact; all 1,110 non-cache build files matched by SHA-256 across source, tested copy and packaged Firebase function.
+- Final application commit: `f2ae741583420aaad9dc8d3ae332cb3dcc83dec6` on `codex/staging-readiness`, including the prior dashboard, receipt and session fixes.
+- Final build: `pQwYV6tBKEjS7JFQTeTgL`. The isolated HTTP/rules suite passed against this exact compiled artifact; all 1,116 non-cache build files matched by SHA-256 across source, tested copy and packaged Firebase function.
 - Firebase project: `writeoff-production-testing`.
 - Testing site: https://writeoff-production-testing.web.app
 - This batch has not been promoted to `writeoffapp.com`. The earlier production login and logo repairs remain separate.
@@ -12,15 +12,17 @@
 
 | Check | Result | What it establishes |
 |---|---:|---|
-| Application tests | 1,233 passed | Regression coverage of the final candidate; provider transport is mocked where applicable |
-| Compiled HTTP smoke suite | 259 passed | Authentication boundaries for 126 discovered API operations, plus selected authenticated ownership, workflow and subscription cases |
+| Application tests | 1,532 passed | Regression coverage of the final candidate; provider transport is mocked where applicable |
+| Compiled HTTP smoke suite | 264 passed | Authentication boundaries for 128 discovered API operations, plus selected authenticated ownership, workflow and subscription cases |
 | Firestore/Storage rules | 11 passed | Direct client access against real local Firebase emulators |
+| Additional compiled export checks (v9) | 18 passed | PDF/CSV signatures and totals, signed refunds, meal rounding, formula escaping, strict date/mixed-use/duplicate review and expired-plan gates |
 | Production build | Passed | Compilation, type checking and configured lint checks; existing lint warnings remain |
 | OCR artifact check | Passed | Native worker/core files included and Tesseract remains external to the route bundle |
 | Native OCR sample | Passed | Synthetic receipt read with 95% OCR confidence; this is one sample, not an accuracy benchmark |
 | Resource mobile layout | Passed | Checklist and footer inspected at 390 × 844; checking items updates progress |
-| Deployed Firebase smoke suite (v8) | 17 passed | Real synthetic users, sessions, profile/record persistence, receipt ownership, export gating and staging metadata |
-| Deployed plan transitions (v4) | 5 passed | One persisted income record remains unchanged/readable through free, trial, expired, paid and past-due states; CSV gates correctly; backend retained through v8 |
+| Deployed Firebase smoke suite (v9) | 17 passed | Real synthetic users, sessions, profile/record persistence, receipt ownership, export gating and staging metadata; passed after adding the missing owner-query index |
+| Deployed export/filing checks (v9) | 9 groups passed | Real CSV/PDF contribution parity, live SE inputs, owner archive datasets/privacy, mixed-use review, access controls and disabled filing/status/PIN writes |
+| Deployed plan transitions (v4) | 5 passed | Historical evidence: one persisted income record remains unchanged/readable through free, trial, expired, paid and past-due states; current v9 plan gates are covered separately |
 | Deployed tax follow-up (v8) | 15 passed | Personal/senior deductions, SSA withholding and JSON/PDF/quarterly parity, invalid facts/years/credits review, and Free export gates |
 | Real Auth action SDK/API integration | 11 passed | Verification, signed-out reset, old/new password behavior and reused-code rejection |
 | Google/browser and actual mail delivery | Verified | Google session reload; fresh verification/reset messages in approved Inbox; delivered links valid; verification completes |
@@ -57,6 +59,7 @@ A separate deployed probe preserved the same existing synthetic income record th
 
 ## External services and remaining release gates
 
+- **In-app filing:** a disabled, synthetic-only Column sandbox adapter is implemented. Partner credentials, coverage/role confirmation, actual provider QA, security/consent integration and a separately reviewed production launch remain required. See [export and filing status](EXPORT_FILING_STATUS_2026-09-16.md).
 - **Stripe:** test keys, prices and webhook configuration pending; real billing lifecycle remains untested.
 - **Plaid:** Sandbox credentials pending; real linking, import, reconnect and sync remain untested.
 - **OpenAI:** actual completion returns HTTP 429, `credit_balance_exhausted` / `insufficient_quota`. The deployed assistant returns a safe 503 retry message. The user chose to keep AI unavailable; paid response-quality tests are deferred.
@@ -169,3 +172,20 @@ The initial unpaced tax run reached 6 passing cases and then hit HTTP 429 rate l
 Final local evidence: `/tmp/writeoff-staging-deployment-v8.json`, `/tmp/writeoff-staging-validation-v8.json`, `/tmp/writeoff-staging-tests-v8.log`, `/tmp/writeoff-staging-smoke-results-v8.json`, `/tmp/writeoff-staging-tax-v8-evidence.json`, `/tmp/writeoff-staging-tax-v8-rate-limited-attempt.json`, `/tmp/writeoff-staging-auth-delivery-v8.json`, and `/tmp/writeoff-staging-browser-v8.json`. These reports contain selected synthetic evidence, not provider secrets or production taxpayer records.
 
 All current v8 temporary fixtures were cleaned: the real-tax probe removed its 12 tracked document paths and Auth owner; the general smoke removed its 3 exact synthetic Auth accounts, 6 owned Firestore documents and 1 receipt object. The approved mail account was also deleted. Current smoke/mail credential files were removed. Older fixtures and the real Google/production accounts were not changed. Cleanup evidence: `/tmp/writeoff-staging-smoke-cleanup-v8.json` and `/tmp/writeoff-staging-mail-cleanup-v8.json`.
+
+## Export and filing preparation follow-up (v9)
+
+Application commit `f2ae741583420aaad9dc8d3ae332cb3dcc83dec6` passed **1,532 application tests**, standalone type checking, its production build, **264 compiled HTTP checks**, **11 security-rule checks** and **18 additional compiled export checks**. The ordinary unit run skipped only the 11 emulator-only checks, which passed separately. Build `pQwYV6tBKEjS7JFQTeTgL` has 1,116 identical non-cache files across source, isolated tests and Firebase packaging, including 511 JavaScript files and 147 tracing manifests. Test services were stopped and emulator fixtures removed. No GitHub Actions run exists for this branch; these are local/compiled and deployed checks, not a claim of hosted CI execution.
+
+- Released `2026-09-16T18:35:42.243Z`: Hosting release `sites/writeoff-production-testing/releases/1789583742243000`, version `ba514658306bfe26`; function revision `ssrwriteoffproductionte-00021-tug`, ACTIVE, 1024 MiB. Public login returns the exact build and `noindex, nofollow`.
+- The first deployed general smoke passed 16/17: the new complete-owner CSV reader returned 503 because staging lacked the `transactions.userId` ascending collection-group index. Its current-owner query returned `FAILED_PRECONDITION`; the legacy `user_id` query already worked. The failure was preserved as evidence.
+- A targeted update added only the missing staging group index and preserved existing collection indexes. Both exact owner queries subsequently returned 200; the same-account CSV returned the expected signed income. A fresh complete smoke run then passed **17/17**. No app rebuild or production index change was needed. A hosting-only deployment does not apply Firestore index definitions; deployed query readiness is a release check.
+- The separate paced export probe passed **9/9 groups**. Its $100,000 synthetic receipts, $100 supply expense, $20 refund and $200 meal yielded $180 confirmed expense contributions consistently across Schedule C PDF/CSV. The SE loader included the separate supported depreciation and recorded W2 wage cap, producing the same live JSON/PDF results rather than stale settings. These examples establish implementation consistency, not universal tax-law accuracy.
+- Raw CSV retained declared mixed-use facts; affected tax totals returned review requirements. The owner archive included all tested dataset counts, excluded credential/PIN/SSN ciphertexts and other-owner data, and remained available on a Free plan. Receipt metadata is included; receipt binaries are not.
+- Disabled filing returned unavailable/503. Legacy PIN and client-supplied filing-status writes returned 409, and no verified filing status or provider session was fabricated. No bank, payment, AI, mail or filing-provider calls occurred in the export probe.
+- The three downloaded Schedule C/SE pages were rendered and inspected. Financial content is legible and complete; the Schedule C reference footnote has a cosmetic final-word overflow onto an otherwise empty second page. Prior synthetic layout checks cover the other worksheet examples; actual provider-browser filing has not been tested.
+- Initial and repeated general-smoke fixtures were both cleaned: each removed three exact Auth accounts, six owned documents and one receipt object. The export probe separately removed 22 tracked documents and two Auth accounts. Current credential/ownership manifests were removed. Existing Google and production accounts were untouched.
+
+The application now offers more reliable preparer records and bounded worksheets, not a complete fileable federal/state return. The Column integration is disabled and limited to approved synthetic staging fixtures; actual provider credentials/QA, coverage/roles, consent/security instrumentation, first-prefill design and a separate production launch remain outstanding. AI remains unavailable by user choice, and Stripe/Plaid test access is still pending. See [release scope](EXPORT_FILING_STATUS_2026-09-16.md), [data-export details](CPA_EXPORTS_2026-09-16.md) and [filing integration research](EMBEDDED_FILING_RESEARCH_2026-09-16.md).
+
+Sanitized local evidence: `/tmp/writeoff-staging-validation-v9.json`, `/tmp/writeoff-staging-deployment-v9.json`, `/tmp/writeoff-staging-tests-v9.log`, `/tmp/writeoff-staging-smoke-results-v9.json`, `/tmp/writeoff-staging-smoke-results-v9-index-missing-attempt.json`, `/tmp/writeoff-staging-index-repair-v9.json`, `/tmp/writeoff-staging-index-check-v9.json`, `/tmp/writeoff-staging-csv-recheck-v9.json`, `/tmp/writeoff-staging-exports-v9-evidence.json`, `/tmp/writeoff-staging-smoke-cleanup-v9.json`, `/tmp/writeoff-staging-smoke-cleanup-v9-index-missing-attempt.json`, and `/tmp/writeoff-staging-http-v9-_101log5/prepared.json`.

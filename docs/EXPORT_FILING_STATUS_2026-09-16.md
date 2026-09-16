@@ -8,7 +8,8 @@ WriteOff exports saved records and bounded planning worksheets for review by a p
 | --- | --- |
 | Transaction CSV | Preserves signed cash amounts, year, currency, review/pending state, business-use fields, notes and private receipt metadata. Does not certify tax classification. |
 | Owner records archive | Includes saved income, W2/1099, organizer, deductions, assets/settings, mileage, payments and transaction datasets, with a manifest and embedded CSV/README. Available on every plan. |
-| Schedule C PDF/CSV | Reconciled receipts and confirmed expense records, full appendices and year-specific reference labels. Missing business/COGS/election facts remain explicit. |
+| Schedule C PDF | Reconciled receipts and confirmed expense records, full appendices and year-specific reference labels. Missing business/COGS/election facts remain explicit. |
+| Schedule C CSV | Confirmed expense/contribution detail with signed deductible amounts. Gross-receipt totals and business identity sections are in the PDF, not this CSV. |
 | Schedule SE worksheet | Uses current income, expenses, supported depreciation and recorded W2 wage amounts. Additional Medicare planning is separate from regular SE tax. |
 | Form 1040 planning PDF | Shares the federal snapshot and strict transaction inputs with the annual JSON estimate. Identity and scope notes are included; it is not an IRS form or complete return. |
 | Home office / depreciation | Missing eligibility, elections or asset details require review. These are not offered as filing-ready forms. Existing setup records must load successfully before changes can be saved. |
@@ -46,4 +47,18 @@ AI remains unavailable by the user's choice. Stripe test-mode and Plaid Sandbox 
 
 ## Validation
 
-Combined application/build, deployed staging and artifact checks are recorded below after completion. Mocked provider tests validate our adapter's behavior; they do not establish an operational provider connection or IRS/state acceptance.
+Application commit `f2ae741583420aaad9dc8d3ae332cb3dcc83dec6` is deployed to [staging](https://writeoff-production-testing.web.app), build `pQwYV6tBKEjS7JFQTeTgL`. Production was not changed.
+
+- **1,532 application tests**, production build and standalone type checking passed. The 11 emulator-only rules tests skipped in the ordinary run passed separately.
+- The exact packaged build passed **264 HTTP checks**, **11 Firestore/Storage rule checks**, and **18 additional export checks**. All 1,116 non-cache files matched source, isolated tests and Firebase packaging by SHA-256.
+- A fresh deployed Firebase smoke run passed **17/17** after the database-index repair below. Synthetic accounts, documents and receipt objects were removed afterward.
+- The separate deployed export probe passed **9/9 groups**: transaction CSV, Schedule C PDF/CSV contribution parity, live Schedule SE/W2 cap, mixed-use review, complete archive datasets, plan/owner isolation and disabled filing/PIN/status routes. Its 22 exact documents and two synthetic accounts were removed; no provider was contacted.
+- Synthetic PDF samples were rendered and visually inspected. Mocked provider tests validate our adapter's behavior; they do not establish an operational provider connection, actual SDK compatibility or IRS/state acceptance.
+
+The first deployed run returned 503 for the trial CSV because staging lacked the `transactions.userId` ascending collection-group index. The application correctly refused an incomplete export. A targeted staging-only update added the index while preserving existing collection indexes. Both current and legacy owner queries now pass, the same-account CSV retry returned 200 with the expected signed income, and the fresh smoke run passed. A hosting-only deploy does not deploy Firestore indexes; their readiness must be verified before release. No application rebuild or production database change was needed.
+
+Exact release: `sites/writeoff-production-testing/releases/1789583742243000`, released `2026-09-16T18:35:42.243Z`; server revision `ssrwriteoffproductionte-00021-tug`, ACTIVE, 1 GiB. Public login returns the matching build and `noindex, nofollow`.
+
+The final downloaded Schedule C and SE examples were also rendered and inspected: all amounts and records are legible. The Schedule C reference note spills its final word onto an otherwise empty second page in the small fixture; this is a remaining cosmetic pagination issue, not missing financial content.
+
+Local evidence: `/tmp/writeoff-staging-validation-v9.json`, `/tmp/writeoff-staging-deployment-v9.json`, `/tmp/writeoff-staging-smoke-results-v9.json`, `/tmp/writeoff-staging-exports-v9-evidence.json`, and `/tmp/writeoff-staging-http-v9-_101log5/prepared.json`. [Full staging history](STAGING_VALIDATION_2026-09-15.md) distinguishes this release from earlier authentication and tax checks.
