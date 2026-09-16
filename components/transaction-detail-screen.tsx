@@ -752,7 +752,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                     ${Math.abs(transaction.amount).toFixed(2)}
                   </div>
                   <div className={`text-sm font-medium ${classification === 'business' ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}`}>
-                    {classification === 'business' ? 'Marked business' : classification === 'personal' ? 'Marked personal' : 'Needs classification'}
+                    {classification === 'business' ? 'Marked business' : classification === 'personal' ? 'Marked personal' : 'Tax review needed'}
                   </div>
                 </div>
               </div>
@@ -1103,7 +1103,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
 
               <div className="space-y-3 mb-4">
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-muted-foreground">Classification</span>
+                  <span className="text-sm text-muted-foreground">Tax classification</span>
                   <Badge className={`border-0 rounded-full ${classification === null
                       ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200'
                       : classification === 'business'
