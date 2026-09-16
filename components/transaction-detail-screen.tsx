@@ -9,6 +9,7 @@ import { Textarea } from '@/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { useToasts } from '@/components/ui/toast';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
+import { ReceiptPreview } from '@/components/receipt-preview';
 import { auth } from '@/lib/firebase/client';
 import { formatCategory, consolidateCategory } from '@/lib/utils';
 import { getTransactionId } from '@/lib/utils/transaction-id';
@@ -30,7 +31,6 @@ import {
   User,
   Upload,
   FileText,
-  Eye,
   Trash2,
   Camera,
   HelpCircle,
@@ -1014,15 +1014,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                       <p className="text-sm text-muted-foreground">Receipt attached to this transaction</p>
                     </div>
                     <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => window.open(transaction.receipt_url, '_blank')}
-                        className="border-green-600/50 text-green-700 dark:text-green-300 hover:bg-green-600/10"
-                      >
-                        <Eye className="w-4 h-4 mr-1" />
-                        View
-                      </Button>
+                      <ReceiptPreview key={transaction.receipt_url} url={transaction.receipt_url} filename={transaction.receipt_filename} />
                       <Button
                         variant="outline"
                         size="sm"

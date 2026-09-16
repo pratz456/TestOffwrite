@@ -12,6 +12,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ArrowLeft, Plus, Loader2, DollarSign, TrendingDown, TrendingUp, CheckCircle2 } from "lucide-react";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
+import { localCalendarYMD } from "@/lib/transactions/calendar-date";
 
 interface AddManualEntryScreenProps {
   user: { id: string; email?: string };
@@ -43,19 +44,18 @@ export function AddManualEntryScreen({ user, onBack, onSaved, defaultType = "exp
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const today = new Date().toISOString().slice(0, 10);
-  const [form, setForm] = useState({
+  const [form, setForm] = useState(() => ({
     merchant_name: "",
     amount: "",
-    date: today,
+    date: localCalendarYMD(),
     category: "other",
     notes: "",
     business_purpose: "",
     is_deductible: null as boolean | null,
-  });
+  }));
 
   const reset = () => {
-    setForm({ merchant_name: "", amount: "", date: today, category: "other", notes: "", business_purpose: "", is_deductible: null });
+    setForm({ merchant_name: "", amount: "", date: localCalendarYMD(), category: "other", notes: "", business_purpose: "", is_deductible: null });
     setSaved(false);
     setError(null);
   };

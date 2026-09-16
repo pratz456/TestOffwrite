@@ -9,13 +9,14 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import { useTransactions, useUserStats } from '@/lib/firebase/hooks';
-import { getUserTaxRateDisplay, STANDARD_DEDUCTIONS_2025 } from '@/lib/tax-rules/federal-brackets';
+import { getUserTaxRateDisplay } from '@/lib/tax-rules/federal-brackets';
 import { ToastContainer, useToasts } from '@/components/ui/toast';
 import { auth } from '@/lib/firebase/client';
 import { HistoricalAccessUpgradeCard } from '@/components/historical-access-upgrade-card';
 import { consolidateCategory } from '@/lib/utils';
 import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 import { toast } from 'sonner';
+import { loadDashboardTaxSnapshot, type DashboardTaxState } from '@/lib/tax/dashboard-snapshot';
 
 import {
   DashboardHeader,
@@ -63,6 +64,7 @@ export default function DashboardScreen({
   const [isLoadingTaxSavings, setIsLoadingTaxSavings] = useState(false);
   const [isRefreshingBalances, setIsRefreshingBalances] = useState(false);
   const [lastSync, setLastSync] = useState<number | null>(null);
+  const [bankConnection, setBankConnection] = useState<{ uid: string; connected: boolean } | null>(null);
   const [analysisInProgress, setAnalysisInProgress] = useState(false);
 
   useEffect(() => {
@@ -77,6 +79,7 @@ export default function DashboardScreen({
         ]);
         if (itemsRes.ok) {
           const items = await itemsRes.json();
+          setBankConnection({ uid: userId, connected: items.hasConnection === true });
           const ls = items.last_sync;
           if (typeof ls === 'number') setLastSync(ls);
           else if (ls?.seconds) setLastSync(ls.seconds * 1000);
@@ -110,6 +113,36 @@ export default function DashboardScreen({
     fetchTaxSavings();
   }, [profile?.id, profile?.filing_status]);
 
+  // The current-year tax cards use the same authenticated calculation as Tax Preview.
+  // Include source data in the key so even the first render after an edit cannot
+  // display a result computed from the previous user's or previous records' data.
+  const taxYear = new Date().getFullYear();
+  const [taxRetry, setTaxRetry] = useState(0);
+  const taxInputKey = JSON.stringify({ userId, taxYear, profile, transactions, taxRetry });
+  const [taxResult, setTaxResult] = useState<{ key: string; state: DashboardTaxState } | null>(null);
+  const taxState: DashboardTaxState = taxResult?.key === taxInputKey ? taxResult.state : { status: 'loading' };
+
+  useEffect(() => {
+    let current = true;
+    const controller = new AbortController();
+    setTaxResult({ key: taxInputKey, state: { status: 'loading' } });
+    if (!userId) {
+      setTaxResult({ key: taxInputKey, state: { status: 'error', message: 'Sign in to load your federal estimate.' } });
+      return () => { current = false; controller.abort(); };
+    }
+    void loadDashboardTaxSnapshot(taxYear, controller.signal).then(state => {
+      if (current && auth.currentUser?.uid === userId) setTaxResult({ key: taxInputKey, state });
+    });
+    return () => { current = false; controller.abort(); };
+  }, [taxInputKey, userId, taxYear]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const refresh = () => setTaxRetry(value => value + 1);
+    window.addEventListener('focus', refresh);
+    return () => window.removeEventListener('focus', refresh);
+  }, []);
+
   // --- Early return for no data ---
   if (!transactions) {
     return (
@@ -132,7 +165,6 @@ export default function DashboardScreen({
   const taxSavings = taxSavingsData?.taxSavings?.yearToDate ?? 0;
   const projectedAnnual = taxSavingsData?.taxSavings?.projectedAnnual ?? fallbackProjectedAnnual;
   const taxRateDisplay = getUserTaxRateDisplay(profile);
-  const estimatedTaxRate = taxRateDisplay.rate === null ? null : taxRateDisplay.rate * 100;
 
   const needsReviewCount =
     stats?.needsReviewTransactions ??
@@ -141,30 +173,6 @@ export default function DashboardScreen({
 
   const deductibleTransactions = transactions.filter(t => t.is_deductible === true);
   const totalDeductions = stats?.totalDeductibleAmount ?? deductibleTransactions.reduce((sum, t) => sum + Math.abs(t.amount || 0), 0);
-
-  // Plaid convention: positive = expense/debit, negative = income/credit
-  const grossIncome = transactions.reduce((sum, t) => {
-    if (t.amount < 0) return sum + Math.abs(t.amount);
-    return sum;
-  }, 0);
-
-  const totalExpenses = transactions.reduce((sum, t) => {
-    if (t.amount > 0) return sum + t.amount;
-    return sum;
-  }, 0);
-
-  const scheduleCProfit = grossIncome - totalExpenses;
-
-  // Compute actual SE tax + income tax for accurate combined rate
-  const seBase = scheduleCProfit * 0.9235;
-  const seTax = Math.max(0, seBase * 0.153);
-  const halfSE = seTax / 2;
-  const standardDeduction = taxRateDisplay.filingStatus ? STANDARD_DEDUCTIONS_2025[taxRateDisplay.filingStatus] : null;
-  const agi = Math.max(0, scheduleCProfit - halfSE);
-  const taxableIncome = standardDeduction === null ? null : Math.max(0, agi - standardDeduction);
-  const incomeTax = taxableIncome === null || estimatedTaxRate === null ? null : taxableIncome * (estimatedTaxRate / 100);
-  const totalTax = incomeTax === null ? null : seTax + incomeTax;
-  const quarterlyTaxes = totalTax === null ? null : Math.max(0, totalTax / 4);
 
   // Category breakdown (unchanged)
   const categoryBreakdown: Record<string, number> = {};
@@ -177,9 +185,11 @@ export default function DashboardScreen({
   }
   const categoryEntries = Object.entries(categoryBreakdown).sort((a, b) => b[1] - a[1]);
 
-  // --- Refresh handler (unchanged) ---
+  // Recalculate tax independently of any optional bank-balance refresh.
   const handleRefresh = async () => {
     if (isRefreshingBalances) return;
+    setTaxRetry(value => value + 1);
+    if (!bankConnection || bankConnection.uid !== userId || !bankConnection.connected) return;
     try {
       setIsRefreshingBalances(true);
       const response = await makeAuthenticatedRequest('/api/plaid/refresh-balances', { method: 'POST' });
@@ -204,7 +214,7 @@ export default function DashboardScreen({
         {/* Header */}
         <DashboardHeader
           userName={profile?.name?.split(' ')[0] || 'there'}
-          isRefreshing={isRefreshingBalances}
+          isRefreshing={isRefreshingBalances || taxState.status === 'loading'}
           onRefresh={handleRefresh}
           lastSync={lastSync}
           analysisInProgress={analysisInProgress}
@@ -212,18 +222,12 @@ export default function DashboardScreen({
 
         <div className="max-w-7xl mx-auto px-4 md:px-6 py-3 sm:py-4 space-y-3 sm:space-y-4">
           {/* Row 1: KPI Cards */}
-          {estimatedTaxRate !== null && quarterlyTaxes !== null ? <KpiGrid
-            scheduleCProfit={scheduleCProfit}
-            grossIncome={grossIncome}
-            totalExpenses={totalExpenses}
-            totalDeductions={totalDeductions}
-            deductibleCount={deductibleTransactions.length}
-            estimatedTaxRate={estimatedTaxRate}
-            quarterlyTaxes={quarterlyTaxes}
-          /> : <div role="alert" className="rounded-xl border p-4 text-sm">
-            <p>{taxRateDisplay.reviewMessage}</p>
-            <button className="mt-2 underline" onClick={() => onNavigate('settings')}>Review profile</button>
-          </div>}
+          <KpiGrid
+            state={taxState}
+            taxYear={taxYear}
+            onRetry={() => setTaxRetry(value => value + 1)}
+            onReview={onNavigate}
+          />
 
           {/* Row 2: Action Items + Premium - side-by-side square cards */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">

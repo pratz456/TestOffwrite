@@ -11,6 +11,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ArrowLeft, Plus, Loader2, TrendingUp, TrendingDown, CheckCircle2 } from "lucide-react";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
+import { localCalendarYMD } from "@/lib/transactions/calendar-date";
 
 const EXPENSE_CATEGORIES = [
   { value: "SERVICE_ADVERTISING",                      label: "Advertising & Marketing" },
@@ -47,7 +48,6 @@ interface AddManualTransactionScreenProps {
   onSaved?: () => void;
 }
 
-const today = () => new Date().toISOString().slice(0, 10);
 const fmt = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualTransactionScreenProps) {
@@ -57,17 +57,17 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
   const [saving, setSaving] = useState(false);
 
   // Expense fields
-  const [exp, setExp] = useState({
-    merchant_name: "", amount: "", date: today(),
+  const [exp, setExp] = useState(() => ({
+    merchant_name: "", amount: "", date: localCalendarYMD(),
     category: "other", notes: "", business_purpose: "",
     is_deductible: true as boolean,
-  });
+  }));
 
   // Income fields
-  const [inc, setInc] = useState({
-    source: "", amount: "", date: today(),
+  const [inc, setInc] = useState(() => ({
+    source: "", amount: "", date: localCalendarYMD(),
     type: "freelance", description: "",
-  });
+  }));
 
   const handleSaveExpense = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -90,7 +90,7 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
       });
       if (!res.ok) { let m = "Failed to save"; try { m = (await res.json()).error || m; } catch {} throw new Error(m); }
       setSaved(true);
-      setExp({ merchant_name: "", amount: "", date: today(), category: "other", notes: "", business_purpose: "", is_deductible: true });
+      setExp({ merchant_name: "", amount: "", date: localCalendarYMD(), category: "other", notes: "", business_purpose: "", is_deductible: true });
       setTimeout(() => { setSaved(false); onSaved?.(); }, 1800);
     } catch (err) { setError(err instanceof Error ? err.message : "Failed to save"); }
     finally { setSaving(false); }
@@ -116,7 +116,7 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
       });
       if (!res.ok) { let m = "Failed to save"; try { m = (await res.json()).error || m; } catch {} throw new Error(m); }
       setSaved(true);
-      setInc({ source: "", amount: "", date: today(), type: "freelance", description: "" });
+      setInc({ source: "", amount: "", date: localCalendarYMD(), type: "freelance", description: "" });
       setTimeout(() => { setSaved(false); onSaved?.(); }, 1800);
     } catch (err) { setError(err instanceof Error ? err.message : "Failed to save"); }
     finally { setSaving(false); }

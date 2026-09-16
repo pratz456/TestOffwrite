@@ -33,20 +33,20 @@ const GRAD_NET_NEG = 'netNegGradient';
 
 const DATA_MODE_CONFIG: Record<DataMode, { label: string; tooltipLabel: string; gradient: string; color: string }> = {
   expenses: {
-    label: 'Expenses',
-    tooltipLabel: 'Expenses',
+    label: 'Outflows',
+    tooltipLabel: 'Cash outflows',
     gradient: GRAD_EXPENSE,
     color: 'hsl(var(--primary))',
   },
   income: {
-    label: 'Income',
-    tooltipLabel: 'Income',
+    label: 'Inflows',
+    tooltipLabel: 'Cash inflows',
     gradient: GRAD_INCOME,
     color: 'hsl(var(--success))',
   },
   net: {
-    label: 'Net',
-    tooltipLabel: 'Net',
+    label: 'Net cash flow',
+    tooltipLabel: 'Net cash flow',
     gradient: GRAD_NET_POS,
     color: 'hsl(var(--success))',
   },
@@ -105,10 +105,10 @@ export function AnalyticsPanel({ transactions }: AnalyticsPanelProps) {
   const cfg = DATA_MODE_CONFIG[dataMode];
 
   const titleText = dataMode === 'expenses'
-    ? 'Expense Trends'
+    ? 'Cash Outflow Trends'
     : dataMode === 'income'
-      ? 'Income Trends'
-      : 'Net Income Trends';
+      ? 'Cash Inflow Trends'
+      : 'Net Cash Flow Trends';
 
   return (
     <Card className="h-full">
@@ -155,7 +155,9 @@ export function AnalyticsPanel({ transactions }: AnalyticsPanelProps) {
             </div>
           </div>
 
-          {/* Row 2: Expenses / Income / Net toggle */}
+          <p className="text-xs text-muted-foreground">All recorded inflows and outflows, including personal and pending transactions.</p>
+
+          {/* Row 2: Cash-flow toggle */}
           <div className="flex rounded-lg border border-border overflow-hidden self-start">
             {(['net', 'income', 'expenses'] as DataMode[]).map((mode) => (
               <button

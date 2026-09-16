@@ -1,5 +1,10 @@
 import { safeYMD } from '@/lib/schedule-c/taxDate';
 
+/** Today's date for a new entry follows the user's local calendar, not UTC. */
+export function localCalendarYMD(date: Date = new Date()): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
 /** Transaction.date is a calendar date; datetime/created_at remain timestamps. */
 export function transactionDateParts(value: unknown): { year: number; month: number; day: number } | null {
   const ymd = safeYMD(value);

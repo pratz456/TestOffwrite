@@ -72,23 +72,23 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('dashboard filing-status review display', () => {
-  it('shows review action without presenting a fallback KPI or savings estimate', () => {
+  it('shows server review state without presenting a fallback KPI or savings estimate', async () => {
+    render(dashboard); await flush();
     const tree = render(dashboard);
-    expect(text(tree)).toContain('filing status in Profile');
-    expect(walk(tree).some(node => node.type === ('KpiGrid' as any) || node.type === ('AiAdvisoryCard' as any))).toBe(false);
-    const review = walk(tree).find(node => node.props?.onClick && text(node) === 'Review profile')!;
-    review.props.onClick(); expect(harness.navigate).toHaveBeenCalledWith('settings');
+    const kpi = walk(tree).find(node => node.type === ('KpiGrid' as any))!;
+    expect(kpi.props.state).toMatchObject({ status: 'review', message: 'Review filing status' });
+    expect(kpi.props.state).not.toHaveProperty('snapshot');
+    expect(walk(tree).some(node => node.type === ('AiAdvisoryCard' as any))).toBe(false);
   });
-  it('uses the same KPI estimate for the Married Filing Jointly label and canonical key', () => {
+  it('waits for server tax results when the filing-status label changes', async () => {
     harness.profile.filing_status = 'Married Filing Jointly';
-    const label = walk(render(dashboard)).find(node => node.type === ('KpiGrid' as any))!;
-    harness.profile.filing_status = 'married_filing_jointly';
-    const canonical = walk(render(dashboard)).find(node => node.type === ('KpiGrid' as any))!;
-    expect(label.props.estimatedTaxRate).toBe(canonical.props.estimatedTaxRate);
-    expect(label.props.quarterlyTaxes).toBe(canonical.props.quarterlyTaxes);
+    expect(walk(render(dashboard)).find(node => node.type === ('KpiGrid' as any))!.props.state.status).toBe('loading');
+    await flush(); render(dashboard);
     harness.profile.filing_status = 'Single';
-    const single = walk(render(dashboard)).find(node => node.type === ('KpiGrid' as any))!;
-    expect(label.props.estimatedTaxRate).toBeLessThan(single.props.estimatedTaxRate);
+    const kpi = walk(render(dashboard)).find(node => node.type === ('KpiGrid' as any))!;
+    expect(kpi.props.state).toEqual({ status: 'loading' });
+    expect(kpi.props).not.toHaveProperty('estimatedTaxRate');
+    expect(kpi.props).not.toHaveProperty('quarterlyTaxes');
   });
   it.each([
     ['legacy dashboard', () => Dashboard({ user: { id: 'synthetic' }, onNavigate: harness.navigate }) as Element],

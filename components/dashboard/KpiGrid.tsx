@@ -1,110 +1,57 @@
 'use client';
 
 import React from 'react';
+import { DollarSign, TrendingUp, Receipt, Wallet } from 'lucide-react';
 import { KpiCard } from './KpiCard';
-import {
-  DollarSign,
-  TrendingUp,
-  Receipt,
-  AlertTriangle,
-  Info,
-  CalendarClock,
-} from 'lucide-react';
+import { TaxCalculationNotice } from '@/components/tax-calculation-notice';
+import type { DashboardTaxState } from '@/lib/tax/dashboard-snapshot';
 
 interface KpiGridProps {
-  scheduleCProfit: number;
-  grossIncome: number;
-  totalExpenses: number;
-  totalDeductions: number;
-  deductibleCount: number;
-  estimatedTaxRate: number;
-  quarterlyTaxes: number;
+  state: DashboardTaxState;
+  taxYear: number;
+  onRetry: () => void;
+  onReview: (screen: string) => void;
 }
 
-function formatUSD(n: number): string {
-  const abs = Math.abs(n);
-  const formatted = abs.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-  return n < 0 ? `-$${formatted}` : `$${formatted}`;
-}
+const formatUSD = (value: number) => value.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-/** SE tax effective rate: 15.3% on 92.35% of net earnings */
-const SE_TAX_EFFECTIVE_RATE = 15.3 * 0.9235; // ~14.13%
-
-/**
- * Determine if the user is behind on quarterly estimated tax payments.
- * Q1: Jan-Mar (due Apr 15), Q2: Apr-May (due Jun 15),
- * Q3: Jun-Aug (due Sep 15), Q4: Sep-Dec (due Jan 15 next year).
- */
-function getQuarterlyTaxInfo(): { currentQuarter: number; dueDate: string; isBehind: boolean } {
-  const now = new Date();
-  const month = now.getMonth(); // 0-indexed
-
-  // Determine which quarter we're in and when payment is due
-  if (month <= 2) {
-    return { currentQuarter: 1, dueDate: 'Apr 15', isBehind: false };
-  } else if (month <= 4) {
-    return { currentQuarter: 2, dueDate: 'Jun 15', isBehind: month >= 3 }; // Behind if past Q1 due date
-  } else if (month <= 7) {
-    return { currentQuarter: 3, dueDate: 'Sep 15', isBehind: month >= 5 };
-  } else {
-    return { currentQuarter: 4, dueDate: 'Jan 15', isBehind: month >= 8 };
+export function KpiGrid({ state, taxYear, onRetry, onReview }: KpiGridProps) {
+  if (state.status === 'loading') {
+    return <div role="status" aria-live="polite" className="rounded-xl border p-4 text-sm">Loading your {taxYear} federal estimate…</div>;
   }
-}
-
-export function KpiGrid({
-  scheduleCProfit,
-  grossIncome,
-  totalExpenses,
-  totalDeductions,
-  deductibleCount,
-  estimatedTaxRate,
-  quarterlyTaxes,
-}: KpiGridProps) {
-  const combinedTaxRate = SE_TAX_EFFECTIVE_RATE + estimatedTaxRate;
-  const seRateDisplay = SE_TAX_EFFECTIVE_RATE.toFixed(1);
-  const incomeRateDisplay = estimatedTaxRate.toFixed(1);
-  const { currentQuarter, dueDate, isBehind } = getQuarterlyTaxInfo();
-
-  return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
-      <KpiCard
-        title="Schedule C Profit"
-        value={formatUSD(scheduleCProfit)}
-        subtitle={`${formatUSD(grossIncome)} gross - ${formatUSD(totalExpenses)} expenses`}
-        accent="blue"
-        icon={
-          <div className="relative">
-            <DollarSign className="h-5 w-5" />
-          </div>
-        }
-      />
-      <KpiCard
-        title="Total Deductions"
-        value={formatUSD(totalDeductions)}
-        subtitle={`${deductibleCount} deductible`}
-        accent="emerald"
-        icon={<TrendingUp className="h-5 w-5" />}
-      />
-      <KpiCard
-        title="Combined Tax Rate"
-        value={combinedTaxRate > 0 ? `${combinedTaxRate.toFixed(1)}%` : '--'}
-        subtitle={combinedTaxRate > 0 ? `${seRateDisplay}% SE + ${incomeRateDisplay}% income tax` : 'Connect data to estimate'}
-        accent="amber"
-        icon={<Receipt className="h-5 w-5" />}
-      />
-      <KpiCard
-        title="Quarterly Taxes"
-        value={formatUSD(quarterlyTaxes)}
-        subtitle={`Q${currentQuarter} due ${dueDate} - ${formatUSD(quarterlyTaxes)}/qtr`}
-        accent="amber"
-        icon={
-          isBehind ? (
-            <AlertTriangle className="h-5 w-5" />
-          ) : (
-            <CalendarClock className="h-5 w-5" />
-          )
-        }
-      />
+  if (state.status !== 'ready') {
+    const target = state.code === 'FILING_STATUS_REVIEW_REQUIRED' ? 'settings'
+      : state.code === 'INCOME_RECONCILIATION_REQUIRED' ? 'income-tracking' : 'tax-preview';
+    return <div role="alert" className="rounded-xl border p-4 text-sm">
+      <h2 className="font-medium">{taxYear} federal estimate {state.status === 'review' ? 'needs review' : 'unavailable'}</h2>
+      <p className="mt-1">{state.message}</p>
+      <div className="mt-2 flex flex-wrap gap-4">
+        {state.status === 'review' && <button className="underline" onClick={() => onReview(target)}>{target === 'settings' ? 'Review profile' : target === 'income-tracking' ? 'Review income sources' : 'Review tax inputs'}</button>}
+        <button className="underline" onClick={onRetry}>Retry estimate</button>
+      </div>
+    </div>;
+  }
+  const { income, form1040 } = state.snapshot;
+  return <section className="space-y-3" aria-label={`${taxYear} preliminary federal estimate`}>
+    <div className="flex items-center justify-between gap-3 text-sm">
+      <h2 className="font-medium">{taxYear} · Preliminary federal estimate</h2>
+      <button className="shrink-0 text-xs underline" onClick={() => onReview('tax-preview')}>Review estimate</button>
     </div>
-  );
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
+      <KpiCard title="Schedule C Profit" value={formatUSD(income.scheduleCNetProfit)}
+        subtitle={`${formatUSD(income.grossReceipts)} receipts − ${formatUSD(income.totalDeductible)} expenses; before depreciation`}
+        accent="blue" icon={<DollarSign className="h-5 w-5" />} />
+      <KpiCard title="Confirmed Business Expenses" value={formatUSD(income.totalDeductible)}
+        subtitle="Posted, confirmed deductions for this tax year; includes category limits and refunds, excludes depreciation"
+        accent="emerald" icon={<TrendingUp className="h-5 w-5" />} />
+      <KpiCard title="Federal Tax Estimate" value={formatUSD(form1040.totalTax)}
+        subtitle="Annual federal estimate from saved records; excludes state tax"
+        accent="amber" icon={<Receipt className="h-5 w-5" />} />
+      <KpiCard title={form1040.refund > 0 ? 'Estimated Federal Refund' : 'Estimated Federal Balance'}
+        value={formatUSD(form1040.refund > 0 ? form1040.refund : form1040.balanceDue)}
+        subtitle="After recorded withholding and payments; not a quarterly payment schedule"
+        accent="amber" icon={<Wallet className="h-5 w-5" />} />
+    </div>
+    <TaxCalculationNotice warnings={form1040.calculationWarnings} taxYear={taxYear} />
+  </section>;
 }
