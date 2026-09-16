@@ -41,12 +41,14 @@ service cloud.firestore {
     // For tracking analysis progress (new system).
     // Uses `get` for single-doc reads (may target a non-existent doc) and
     // `list` for queries (always has resource.data).
+    // Owner-scoped get: jobId is `{uid}_{accountId}`. Path prefix works when
+    // the doc does not exist yet (client onSnapshot). userId / user_id on an
+    // existing doc is a fallback. Writes stay Admin-only.
     match /analysis_jobs/{jobId} {
-      // Allow authenticated users to read any single job document.
-      // The jobId itself is deterministic (uid_accountId) so it's scoped.
-      // When the doc doesn't exist, resource.data is null and field checks fail,
-      // so we split get vs list.
-      allow get: if request.auth != null;
+      allow get: if request.auth != null
+                 && (jobId.matches(request.auth.uid + '_.*')
+                     || resource.data.userId == request.auth.uid
+                     || resource.data.user_id == request.auth.uid);
       allow list: if request.auth != null
                   && (resource.data.userId == request.auth.uid
                       || resource.data.user_id == request.auth.uid);
