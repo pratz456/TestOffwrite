@@ -5,6 +5,7 @@ import { compute1040 } from './compute-1040';
 import { reconcileBusinessIncome, type IncomeRecord } from './business-income';
 import { summarizeW2Income } from './w2-income';
 import { normalizeFilingStatus } from './filing-status';
+import { assertSocialSecurityBenefitsSupported } from './social-security';
 
 interface FederalTaxSnapshotInput {
   taxYear: number;
@@ -22,6 +23,7 @@ interface FederalTaxSnapshotInput {
 /** One federal input snapshot for the preview and PDF; not a complete return engine. */
 export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
   const { taxYear, transactions, profile, organizer: org, deductions: ded } = input;
+  assertSocialSecurityBenefitsSupported(org);
   const amount = (value: unknown): number => {
     if (value === undefined || value === null || value === '') return 0;
     const parsed = typeof value === 'string' ? Number(value) : value;
@@ -40,7 +42,8 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
   const interest = amount(org.amount1099INT);
   const dividends = amount(org.amount1099DIV);
   const capGains = amount(org.amountCapGains);
-  const socialSecurity = amount(org.amountSocialSecurity) * .85;
+  // The guard above blocks benefits until the organizer collects the IRS facts.
+  const socialSecurity = 0;
   const iraDist = amount(org.amountIRADistributions);
   const rental = amount(org.amountRentalIncome);
   const otherOrdinaryIncome = amount(org.amountOtherIncome);
@@ -66,8 +69,8 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
     charitableDonations: amount(ded.charitableCashDonations) + amount(ded.charitableNonCashDonations), depreciationDeduction,
   }, priorYearTotalTax > 0 ? priorYearTotalTax : undefined);
   result.calculationWarnings.push(...reconciliation.warnings);
-  if (socialSecurity || dividends || capGains || iraDist || rental || numDependents) {
-    result.calculationWarnings.push('Organizer income and dependent amounts require tax review: benefit taxability, dividend/gain character, retirement basis, rental treatment and credit eligibility are not fully modeled.');
+  if (dividends || capGains || iraDist || rental || numDependents) {
+    result.calculationWarnings.push('Organizer income and dependent amounts require tax review: dividend/gain character, retirement basis, rental treatment and credit eligibility are not fully modeled.');
   }
   return {
     filingStatus, result, seCalc, depreciationDeduction, reconciliation,

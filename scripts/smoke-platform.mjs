@@ -150,7 +150,9 @@ if (mode !== 'public') {
     const own = await request('/api/tax/quarterly-payments?year=2026', { token: owner.token }); status(own, 200);
     const records = Array.isArray(own.data) ? own.data : own.data.payments;
     assert.equal(records.find(payment => payment.quarter === 3).paidAmount, 123.45);
-    assert.equal(records.find(payment => payment.quarter === 3).status, 'paid');
+    assert.equal(records.find(payment => payment.quarter === 3).status, 'recorded');
+    assert.equal(own.data.summary.totalPenalty, null);
+    assert.equal(own.data.summary.reviewRequired, true);
     const foreign = await request('/api/tax/quarterly-payments?year=2026', { token: other.token }); status(foreign, 200);
     assert.equal((Array.isArray(foreign.data) ? foreign.data : foreign.data.payments).find(payment => payment.quarter === 3).paidAmount, 0);
   });
@@ -163,6 +165,17 @@ if (mode !== 'public') {
     const calculated = await request('/api/tax/compute-1040?year=2026', { token: owner.token }); status(calculated, 200); assert.equal(calculated.data.taxYear, 2026);
     status(await request(`/api/income/w2?id=${saved.data.id}`, { method: 'DELETE', token: owner.token }), 200);
     assert.equal((await request('/api/income/w2?year=2026', { token: owner.token })).data.totalWages, 0);
+  });
+  await check('quarterly summary matches annual estimate and withholds unsupported payment/penalty verdicts', async () => {
+    const annual = await request('/api/tax/compute-1040?year=2026', { token: owner.token }); status(annual, 200);
+    const quarterly = await request('/api/tax/quarterly-reminders?year=2026', { token: owner.token }); status(quarterly, 200);
+    assert.equal(quarterly.data.totalEstimatedTax, annual.data.form1040.totalTax);
+    assert.equal(quarterly.data.paymentReview.code, 'QUARTERLY_REVIEW_REQUIRED');
+    for (const field of ['perQuarterRecommended', 'safeHarborTotal', 'onTrack', 'estimatedPenaltyRisk']) assert.equal(quarterly.data[field], null);
+    assert.ok(quarterly.data.quarters.every(quarter => quarter.recommended === null));
+    const voucher = await request('/api/tax/generate-1040es', { method: 'POST', token: owner.token, body: { quarter: 3, taxYear: 2026, taxCalculation: { quarterlyAmount: 1 } } });
+    status(voucher, 422); assert.equal(voucher.data.code, 'QUARTERLY_REVIEW_REQUIRED'); assert.ok(voucher.data.error);
+    assert.ok(!voucher.response.headers.get('content-type').includes('application/pdf'));
   });
   await check('unverified tax year is rejected explicitly', async () => status(await request('/api/tax/compute-1040?year=2027', { token: owner.token }), 400));
   await check('mileage save/read/delete round trip', async () => {

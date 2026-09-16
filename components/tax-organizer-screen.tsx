@@ -403,10 +403,10 @@ export function TaxOrganizerScreen({ user, onBack, onNavigate }: Props) {
               {yesno("hasSocialSecurity", "Social Security benefits (SSA-1099)")}
               {answers.hasSocialSecurity === "yes" && (
                 <div className="ml-4 border-l-2 border-primary/30 pl-4 space-y-1.5">
-                  <Label className="text-sm font-medium">Total SS benefits received (Box 3 of SSA-1099)</Label>
+                  <Label className="text-sm font-medium">Benefits paid (SSA-1099 Box 3, for your records)</Label>
                   <div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
                     <Input type="number" min={0} value={answers.amountSocialSecurity} onChange={e => set("amountSocialSecurity", e.target.value)} placeholder="0.00" className="pl-7 bg-background" /></div>
-                  <p className="text-xs text-muted-foreground">Up to 85% may be taxable depending on combined income. Flows to Form 1040 Line 6a.</p>
+                  <p role="note" className="text-xs text-muted-foreground">This is not the taxable amount. Your records remain saved, but the federal estimate and Form 1040 export need tax review. The organizer does not yet collect net benefits (Box 5), tax-exempt income, repayment/lump-sum details or all spouse-living facts needed to calculate taxable benefits. Keep your SSA-1099/RRB-1099 records and review <a href="https://www.irs.gov/publications/p915" target="_blank" rel="noopener noreferrer" className="underline">IRS Publication 915</a>.</p>
                 </div>
               )}
 

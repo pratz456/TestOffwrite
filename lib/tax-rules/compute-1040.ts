@@ -290,14 +290,12 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
     if (taxableIncome >= bracket.min) marginalRate = bracket.rate * 100;
   }
 
-  // ── Safe harbor ──
-  let safeHarborAmount: number | undefined;
-  let quarterlyRecommended: number | undefined;
-  if (priorYearTax !== undefined && priorYearTax > 0) {
-    const multiplier = agi > 150000 ? 1.10 : 1.00;
-    safeHarborAmount = priorYearTax * multiplier;
-    const remaining = Math.max(0, safeHarborAmount - totalPayments);
-    quarterlyRecommended = remaining / 4;
+  // Prior-year tax alone does not establish safe-harbor eligibility, the AGI
+  // multiplier or payment timing. Leave recommendations absent until reviewed.
+  const safeHarborAmount = undefined;
+  const quarterlyRecommended = undefined;
+  if (priorYearTax !== undefined) {
+    calculationWarnings.push('Quarterly payments require prior-year AGI and return eligibility, a full-year tax/withholding forecast and dated payments. No safe-harbor or quarterly recommendation has been calculated from prior-year tax alone.');
   }
 
   // State tax (informational — not part of federal return)

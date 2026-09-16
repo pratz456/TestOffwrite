@@ -54,6 +54,10 @@ describe('verification email action', () => {
     expect(backend.check).toHaveBeenCalledTimes(2);
     expect(backend.apply).toHaveBeenCalledOnce();
   });
+  it('never displays an unexpected provider diagnostic from link verification', async () => {
+    const backend = api(); backend.check.mockRejectedValue(new Error('private provider diagnostic'));
+    await expect(createEmailConfirmation(backend)('valid', 'verifyEmail')).rejects.toThrow('Request a new verification email');
+  });
   it.each(['javascript:alert(1)', '//attacker.example', '/\\attacker.example', '/\nattacker.example', 'https://attacker.example'])('rejects unsafe next %s', next => {
     expect(getSafeAuthRedirect(next)).toBe('/protected');
   });

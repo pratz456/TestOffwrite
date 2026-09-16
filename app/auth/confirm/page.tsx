@@ -7,12 +7,9 @@ import { AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getSafeAuthRedirect } from '@/lib/url';
 import { confirmEmailAction } from '@/lib/onboarding/email-confirmation';
+import { UpdatePasswordForm } from '@/components/update-password-form';
 
-function ConfirmPageContent() {
-  const params = useSearchParams();
-  const code = params.get('oobCode');
-  const mode = params.get('mode');
-  const next = getSafeAuthRedirect(params.get('next'));
+function VerifyEmailContent({ code, mode, next }: { code: string | null; mode: string | null; next: string }) {
   const [result, setResult] = useState<{ code: string | null; mode: string | null; error?: string } | null>(null);
   const [attempt, setAttempt] = useState(0);
   const currentResult = result?.code === code && result.mode === mode ? result : null;
@@ -50,9 +47,17 @@ function ConfirmPageContent() {
   </main>;
 }
 
+function ConfirmPageContent() {
+  const params = useSearchParams();
+  const code = params.get('oobCode');
+  const mode = params.get('mode');
+  if (mode === 'resetPassword') return <main className="flex min-h-svh items-center justify-center p-6"><UpdatePasswordForm className="w-full max-w-sm" code={code} mode={mode} /></main>;
+  return <VerifyEmailContent code={code} mode={mode} next={getSafeAuthRedirect(params.get('next'))} />;
+}
+
 export default function ConfirmPage() {
   return (
-    <Suspense fallback={<p role="status">Loading verification…</p>}>
+    <Suspense fallback={<p role="status">Loading email link…</p>}>
       <ConfirmPageContent />
     </Suspense>
   );

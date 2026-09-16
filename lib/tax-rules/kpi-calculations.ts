@@ -148,59 +148,13 @@ export function calcUncapturedDeductions(
   };
 }
 
-// ── Quarterly Payment Status ──────────────────────────────────────────────────
-/**
- * Which quarter are we in, how much is due, and are we on track?
- * Source: IRS Publication 505, Form 1040-ES instructions
- */
-export function calcQuarterlyStatus(
-  estimatedAnnualTax: number,
-  totalPaidYTD: number,
-  priorYearTax?: number,
-): {
-  quarterLabel: string;        // "Q2 (Jun 16)"
-  quarterDueDate: string;
-  quarterAmount: number;       // recommended payment this quarter
-  totalOwedYTD: number;        // how much should have been paid by now
-  onTrack: boolean;
-  behindBy: number;            // 0 if on track
-  safeHarborAmount: number;    // 100% or 110% of prior year / 4
-} {
-  const now = new Date();
-  const month = now.getMonth() + 1; // 1-12
-
-  // IRS quarterly due dates and cumulative % of annual tax due
-  const quarters = [
-    { label: 'Q1', dueDate: 'Apr 15', dueDateFull: `Apr 15, ${now.getFullYear()}`, cumPct: 0.25, month: 4 },
-    { label: 'Q2', dueDate: 'Jun 16', dueDateFull: `Jun 16, ${now.getFullYear()}`, cumPct: 0.50, month: 6 },
-    { label: 'Q3', dueDate: 'Sep 15', dueDateFull: `Sep 15, ${now.getFullYear()}`, cumPct: 0.75, month: 9 },
-    { label: 'Q4', dueDate: 'Jan 15', dueDateFull: `Jan 15, ${now.getFullYear() + 1}`, cumPct: 1.00, month: 1 },
-  ];
-
-  // Determine current quarter
-  let currentQ = quarters[0];
-  if (month > 9 || month === 1) currentQ = quarters[3];
-  else if (month > 6) currentQ = quarters[2];
-  else if (month > 4) currentQ = quarters[1];
-
-  // Safe harbor: 100% of prior year tax (or 110% if prior AGI > $150k)
-  // We use estimated annual tax if no prior year available
-  const safeHarborBase = priorYearTax ?? estimatedAnnualTax;
-  const safeHarborAmount = safeHarborBase / 4;
-  const quarterAmount = estimatedAnnualTax / 4;
-
-  const totalOwedYTD = estimatedAnnualTax * currentQ.cumPct;
-  const behindBy = Math.max(0, totalOwedYTD - totalPaidYTD);
-  const onTrack = behindBy < 100; // $100 buffer for rounding
-
+// ── Legacy quarterly status boundary ──────────────────────────────────────────
+// Annual tax / total paid alone cannot determine timing or safe-harbor eligibility.
+export function calcQuarterlyStatus(_estimatedAnnualTax: number, _totalPaidYTD: number, _priorYearTax?: number) {
   return {
-    quarterLabel: currentQ.label,
-    quarterDueDate: currentQ.dueDateFull,
-    quarterAmount: Math.round(quarterAmount),
-    totalOwedYTD: Math.round(totalOwedYTD),
-    onTrack,
-    behindBy: Math.round(behindBy),
-    safeHarborAmount: Math.round(safeHarborAmount),
+    status: 'review_required' as const,
+    message: 'Review prior-year AGI, full-year withholding and dated payments before choosing an installment.',
+    quarterAmount: null, totalOwedYTD: null, onTrack: null, behindBy: null, safeHarborAmount: null,
   };
 }
 

@@ -18,20 +18,22 @@ export function createEmailConfirmation(api: EmailActionApi) {
       try {
         const action = await api.check(code);
         if (action.operation !== ActionCodeOperation.VERIFY_EMAIL) {
-          throw new Error('This link is not an email verification link. Open the latest verification email.');
+          throw Object.assign(new Error(), { code: 'writeoff/wrong-email-action' });
         }
         await api.apply(code);
       } catch (error) {
         if (latest?.code === code) latest = undefined;
         const errorCode = (error as { code?: string })?.code;
+        if (errorCode === 'writeoff/wrong-email-action') {
+          throw new Error('This link is not an email verification link. Open the latest verification email.');
+        }
         if (errorCode === 'auth/expired-action-code' || errorCode === 'auth/invalid-action-code') {
           throw new Error('This verification link has expired or was already used. Request a new verification email, or sign in if you already verified.');
         }
         if (errorCode === 'auth/network-request-failed') {
           throw new Error('We could not verify your email. Check your connection and try again.');
         }
-        if (errorCode) throw new Error('We could not verify this email link. Request a new verification email and try again.');
-        throw error;
+        throw new Error('We could not verify this email link. Request a new verification email and try again.');
       }
     })();
     latest = { code, promise };

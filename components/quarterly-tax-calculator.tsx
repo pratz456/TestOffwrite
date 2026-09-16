@@ -1,401 +1,59 @@
 'use client';
 
-import { PremiumFeatureGate } from '@/components/premium-feature-gate';
-import React, { useState, useEffect, useRef } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import React, { useEffect, useState } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/progress';
-import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import {
-  Calculator,
-  Calendar,
-  DollarSign,
-  TrendingUp,
-  AlertCircle,
-  CheckCircle,
-  Download,
-  Clock,
-  Target,
-  FileText
-} from 'lucide-react';
+import { TaxCalculationNotice } from '@/components/tax-calculation-notice';
+import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 
-interface QuarterlyTaxData {
-  quarter: number;
-  deadline: Date;
-  estimatedAmount: number;
-  paidAmount: number;
-  remainingAmount: number;
-  status: 'upcoming' | 'due' | 'overdue' | 'paid';
-  daysUntilDeadline: number;
+interface QuarterlyTaxCalculatorProps { userProfile?: Record<string, unknown>; transactions?: unknown[] }
+interface Summary {
+  taxYear: number; totalEstimatedTax: number; recordedEstimatedPayments: number; w2Withheld: number;
+  calculationWarnings: string[]; paymentReview: { message: string };
+  quarters: { quarter: number; dueDate: string; amountPaid: number }[];
 }
-
-interface TaxCalculation {
-  totalIncome: number;
-  businessIncome: number;
-  w2Income: number;
-  estimatedTax: number;
-  selfEmploymentTax: number;
-  incomeTax: number;
-  safeHarborAmount: number | null;
-  quarterlyAmount: number;
-  ytdPayments: number;
-  remainingPayments: number;
-}
-
-interface QuarterlyTaxCalculatorProps {
-  userProfile?: {
-    business_income?: number;
-    w2_income?: number;
-    other_income?: number;
-    tax_bracket?: number;
-    filing_status?: string;
-    state?: string;
-  };
-  transactions?: any[];
-}
-
+const money = (value: number) => value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyTaxCalculatorProps) {
-  const [taxCalculation, setTaxCalculation] = useState<TaxCalculation | null>(null);
-  const [quarterlyData, setQuarterlyData] = useState<QuarterlyTaxData[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [activeQuarter, setActiveQuarter] = useState(1);
-  const [error, setError] = useState<string | null>(null);
-  const [exportingQuarter, setExportingQuarter] = useState<number | null>(null);
-  const exportPending = useRef(false);
-  const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-
+  const year = new Date().getFullYear();
+  const [retry, setRetry] = useState(0);
+  const key = JSON.stringify({ year, userProfile, transactions, retry });
+  const [result, setResult] = useState<{ key: string; data?: Summary; error?: string } | null>(null);
   useEffect(() => {
-    if (userProfile) {
-      calculateTaxes();
-    }
-  }, [userProfile, transactions]);
-
-  const calculateTaxes = async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await fetch('/api/tax/quarterly-estimates', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          userProfile,
-          transactions: transactions || [],
-          userTimezone,
-        }),
-      });
-
-      if (response.ok) {
+    let current = true;
+    const controller = new AbortController();
+    setResult(null);
+    void (async () => {
+      try {
+        const response = await makeAuthenticatedRequest(`/api/tax/quarterly-reminders?year=${year}`, { signal: controller.signal, cache: 'no-store' });
         const data = await response.json();
-        setTaxCalculation(data.calculation);
-        setQuarterlyData(data.quarterlyData);
-      } else {
-        throw new Error('Your quarterly estimates could not be loaded. Please try again.');
+        if (!response.ok) throw new Error(data.error || 'Could not load your quarterly planning records. Please retry.');
+        if (data.taxYear !== year || ![data.totalEstimatedTax, data.recordedEstimatedPayments, data.w2Withheld].every(value => typeof value === 'number' && Number.isFinite(value)) || !Array.isArray(data.quarters) || !data.paymentReview?.message) throw new Error('The quarterly summary is incomplete. Please retry.');
+        if (current) setResult({ key, data });
+      } catch (error) {
+        if (current) setResult({ key, error: error instanceof Error ? error.message : 'Could not load your quarterly planning records.' });
       }
-    } catch {
-      setError('Your quarterly estimates could not be loaded. Please try again.');
-      setTaxCalculation(null);
-      setQuarterlyData([]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const getQuarterStatus = (quarter: QuarterlyTaxData) => {
-    if (quarter.status === 'paid') return 'success';
-    if (quarter.status === 'overdue') return 'destructive';
-    if (quarter.status === 'due') return 'warning';
-    return 'secondary';
-  };
-
-  const getQuarterStatusText = (quarter: QuarterlyTaxData) => {
-    if (quarter.status === 'paid') return 'Paid';
-    if (quarter.status === 'overdue') return 'Overdue';
-    if (quarter.status === 'due') return 'Due Soon';
-    return 'Upcoming';
-  };
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(amount);
-  };
-
-  const generateForm1040ES = async (quarter: number) => {
-    if (exportPending.current) return;
-    exportPending.current = true;
-    setExportingQuarter(quarter);
-    setError(null);
-    try {
-      const response = await fetch('/api/tax/generate-1040es', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          quarter,
-          userProfile,
-          taxCalculation
-        }),
-      });
-
-      if (response.ok) {
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `Form-1040-ES-Q${quarter}-${new Date().getFullYear()}.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
-      } else {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.requiresSubscription ? 'Premium is required for Form 1040-ES exports. Open Billing and plans to review your access.' : 'Form 1040-ES could not be generated. Please try again.');
-      }
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'Form 1040-ES could not be generated. Please try again.');
-    } finally {
-      exportPending.current = false;
-      setExportingQuarter(null);
-    }
-  };
-
-  if (isLoading) {
-    return (
-      <Card>
-        <CardContent className="p-6">
-          <div className="flex items-center justify-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600"></div>
-            <span className="ml-2">Calculating your quarterly taxes...</span>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (!taxCalculation) {
-    return (
-      <Card>
-        <CardContent className="p-6">
-          <div className="text-center">
-            <Calculator className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-            <h3 className="text-lg font-semibold mb-2">Quarterly Tax Calculator</h3>
-            <p className="text-muted-foreground mb-4">
-              {error || 'Complete your profile to get personalized quarterly tax estimates.'}
-            </p>
-            {error && <Button variant="outline" className="mr-2" onClick={() => void calculateTaxes()}>Retry estimates</Button>}
-            <Button onClick={() => window.location.href = '/protected/settings'}>
-              Complete Profile
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  return (
-    <div className="space-y-6">
-      {error && <p role="alert" className="rounded-lg border border-destructive/30 p-3 text-sm text-destructive">{error}</p>}
-      {/* Summary Card */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Calculator className="h-5 w-5 text-teal-600" />
-            Quarterly Tax Summary
-          </CardTitle>
-          <CardDescription>
-            Your estimated quarterly tax payments for {new Date().getFullYear()}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="text-center p-4 bg-blue-50 rounded-lg">
-              <DollarSign className="h-8 w-8 text-blue-600 mx-auto mb-2" />
-              <div className="text-2xl font-bold text-blue-900">
-                {formatCurrency(taxCalculation.quarterlyAmount)}
-              </div>
-              <div className="text-sm text-blue-700">Per Quarter</div>
-            </div>
-            <div className="text-center p-4 bg-green-50 rounded-lg">
-              <CheckCircle className="h-8 w-8 text-green-600 mx-auto mb-2" />
-              <div className="text-2xl font-bold text-green-900">
-                {formatCurrency(taxCalculation.ytdPayments)}
-              </div>
-              <div className="text-sm text-green-700">Paid YTD</div>
-            </div>
-            <div className="text-center p-4 bg-orange-50 rounded-lg">
-              <Target className="h-8 w-8 text-orange-600 mx-auto mb-2" />
-              <div className="text-2xl font-bold text-orange-900">
-                {formatCurrency(taxCalculation.remainingPayments)}
-              </div>
-              <div className="text-sm text-orange-700">Remaining</div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Quarterly Breakdown */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Calendar className="h-5 w-5 text-teal-600" />
-            Quarterly Breakdown
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Tabs value={activeQuarter.toString()} onValueChange={(value) => setActiveQuarter(parseInt(value))}>
-            <TabsList className="grid w-full grid-cols-4">
-              {quarterlyData.map((quarter) => (
-                <TabsTrigger key={quarter.quarter} value={quarter.quarter.toString()}>
-                  Q{quarter.quarter}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-
-            {quarterlyData.map((quarter) => (
-              <TabsContent key={quarter.quarter} value={quarter.quarter.toString()}>
-                <div className="space-y-4">
-                  {/* Quarter Status */}
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-lg font-semibold">Q{quarter.quarter} {new Date().getFullYear()}</h3>
-                      <p className="text-sm text-muted-foreground">
-                        Due: {new Date(quarter.deadline).toLocaleDateString()}
-                      </p>
-                    </div>
-                    <Badge variant={getQuarterStatus(quarter)}>
-                      {getQuarterStatusText(quarter)}
-                    </Badge>
-                  </div>
-
-                  {/* Progress Bar */}
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span>Payment Progress</span>
-                      <span>{formatCurrency(quarter.paidAmount)} / {formatCurrency(quarter.estimatedAmount)}</span>
-                    </div>
-                    <Progress
-                      value={(quarter.paidAmount / quarter.estimatedAmount) * 100}
-                      className="h-2"
-                    />
-                  </div>
-
-                  {/* Amount Details */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="p-3 bg-gray-50 rounded-lg">
-                      <div className="text-sm text-muted-foreground">Estimated Amount</div>
-                      <div className="text-lg font-semibold">{formatCurrency(quarter.estimatedAmount)}</div>
-                    </div>
-                    <div className="p-3 bg-gray-50 rounded-lg">
-                      <div className="text-sm text-muted-foreground">Remaining</div>
-                      <div className="text-lg font-semibold">{formatCurrency(quarter.remainingAmount)}</div>
-                    </div>
-                  </div>
-
-                  {/* Days Until Deadline */}
-                  {quarter.status !== 'paid' && (
-                    <div className="flex items-center gap-2 p-3 bg-amber-50 rounded-lg">
-                      <Clock className="h-4 w-4 text-amber-600" />
-                      <span className="text-sm text-amber-800">
-                        {quarter.daysUntilDeadline > 0
-                          ? `${quarter.daysUntilDeadline} days until deadline`
-                          : `${Math.abs(quarter.daysUntilDeadline)} days overdue`
-                        }
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Actions */}
-                  <div className="flex flex-wrap gap-2">
-                    <PremiumFeatureGate feature="exports" featureName="Form 1040-ES exports" inline>
-                    <Button
-                      onClick={() => generateForm1040ES(quarter.quarter)}
-                      disabled={exportingQuarter !== null}
-                      className="flex-1"
-                    >
-                      <Download className="h-4 w-4 mr-2" />
-                      {exportingQuarter === quarter.quarter ? 'Generating…' : 'Generate Form 1040-ES'}
-                    </Button>
-                    </PremiumFeatureGate>
-                    <Button variant="outline" asChild>
-                      <a href="https://www.irs.gov/payments" target="_blank" rel="noopener noreferrer">
-                        <FileText className="h-4 w-4 mr-2" />
-                        IRS payment options
-                      </a>
-                    </Button>
-                  </div>
-                </div>
-              </TabsContent>
-            ))}
-          </Tabs>
-        </CardContent>
-      </Card>
-
-      {/* Tax Calculation Details */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <TrendingUp className="h-5 w-5 text-teal-600" />
-            Calculation Details
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-3">
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Business Income</span>
-                  <span className="font-medium">{formatCurrency(taxCalculation.businessIncome)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">W-2 Income</span>
-                  <span className="font-medium">{formatCurrency(taxCalculation.w2Income)}</span>
-                </div>
-                <div className="flex justify-between border-t pt-2">
-                  <span className="font-medium">Total Income</span>
-                  <span className="font-semibold">{formatCurrency(taxCalculation.totalIncome)}</span>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Self-Employment Tax</span>
-                  <span className="font-medium">{formatCurrency(taxCalculation.selfEmploymentTax)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Income Tax</span>
-                  <span className="font-medium">{formatCurrency(taxCalculation.incomeTax)}</span>
-                </div>
-                <div className="flex justify-between border-t pt-2">
-                  <span className="font-medium">Total Estimated Tax</span>
-                  <span className="font-semibold">{formatCurrency(taxCalculation.estimatedTax)}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Safe Harbor Information */}
-            <div className="p-4 bg-blue-50 rounded-lg">
-              <div className="flex items-start gap-2">
-                <AlertCircle className="h-5 w-5 text-blue-600 mt-0.5" />
-                <div>
-                  <h4 className="font-medium text-blue-900">Safe Harbor Rule</h4>
-                  <p className="text-sm text-blue-800 mt-1">
-                    An IRS safe-harbor target requires your prior-year tax, prior-year AGI, withholding and payment timing. This projection alone does not establish penalty protection.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
+    })();
+    return () => { current = false; controller.abort(); };
+  }, [key, year]);
+  if (result?.key !== key) return <p role="status">Loading your {year} tax and payment records…</p>;
+  if (!result.data) return <div role="alert"><p>{result.error}</p><Button onClick={() => setRetry(value => value + 1)}>Retry summary</Button></div>;
+  const data = result.data;
+  return <div className="space-y-4">
+    <Card><CardHeader><CardTitle>{year} Quarterly Payment Planning</CardTitle></CardHeader><CardContent className="space-y-3">
+      <div role="note" className="rounded-lg border p-3"><h2 className="font-semibold">Payment amount needs review</h2><p className="mt-1 text-sm">{data.paymentReview.message}</p></div>
+      <dl className="grid gap-3 sm:grid-cols-3">
+        <div><dt>Federal estimate from saved annual records</dt><dd className="font-semibold">{money(data.totalEstimatedTax)}</dd></div>
+        <div><dt>Recorded estimated payments</dt><dd className="font-semibold">{money(data.recordedEstimatedPayments)}</dd></div>
+        <div><dt>Recorded federal withholding</dt><dd className="font-semibold">{money(data.w2Withheld)}</dd></div>
+      </dl>
+      <p className="text-sm text-muted-foreground">Saved records may cover only part of the year. These figures are not a full-year forecast or an installment amount due.</p>
+      <div className="flex flex-wrap gap-3 text-sm underline"><a href="/tools/quarterly-estimate-calculator">Open payment-planning tool</a><a href="https://www.irs.gov/pub/irs-pdf/f1040es.pdf" target="_blank" rel="noopener noreferrer">Official IRS 1040-ES worksheet and vouchers</a><a href="https://www.irs.gov/payments" target="_blank" rel="noopener noreferrer">IRS payment options</a></div>
+    </CardContent></Card>
+    <Card><CardHeader><CardTitle>Standard payment calendar and recorded payments</CardTitle></CardHeader><CardContent>
+      {data.quarters.map(quarter => <div key={quarter.quarter} className="flex flex-wrap justify-between gap-2 border-b py-3"><span>Q{quarter.quarter} · {quarter.dueDate}</span><span>{money(quarter.amountPaid)} recorded</span></div>)}
+      <p className="mt-3 text-sm text-muted-foreground">Dates do not establish whether a payment is required, timely or sufficient. Special relief and annualized-income calculations require separate review.</p>
+    </CardContent></Card>
+    <TaxCalculationNotice warnings={data.calculationWarnings} taxYear={year} />
+  </div>;
 }
-
 export default QuarterlyTaxCalculator;

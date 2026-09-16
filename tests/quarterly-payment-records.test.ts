@@ -55,7 +55,7 @@ describe('recorded quarterly payments', () => {
     expect(response.status).toBe(200);
     const data = await response.json();
     expect(data.payments).toHaveLength(4);
-    expect(data.payments.every((p: { paidAmount: number; status: string }) => p.paidAmount === 0 && p.status === 'unpaid')).toBe(true);
+    expect(data.payments.every((p: { paidAmount: number; status: string }) => p.paidAmount === 0 && p.status === 'no_record')).toBe(true);
     expect(state.docs.size).toBe(0);
     expect(state.writes).toEqual([]);
   });
@@ -74,6 +74,18 @@ describe('recorded quarterly payments', () => {
     expect(state.docs.get(key)?.paidAmount).toBe(310.06);
     expect(state.docs.get(key)?.estimatedAmount).toBe(300);
     expect(state.transactions).toBe(3);
+    const result = await (await GET(request('GET'))).json();
+    expect(result.payments[0].status).toBe('recorded');
+    expect(result.payments[0]).not.toHaveProperty('penalty');
+    expect(result.summary.totalPenalty).toBeNull();
+  });
+
+  it('does not fabricate an8% penalty or paid-in-full verdict from an expired manual target', async () => {
+    state.docs.set(key, { quarter: 1, year: 2026, estimatedAmount: 99999, paidAmount: 1, status: 'overdue', penalty: 888 });
+    const result = await (await GET(request('GET'))).json();
+    expect(result.payments[0]).toMatchObject({ status: 'recorded', paidAmount: 1 });
+    expect(result.payments[0]).not.toHaveProperty('penalty');
+    expect(result.summary).toMatchObject({ totalPenalty: null, reviewRequired: true, basis: 'user_entered_targets' });
   });
 
   it.each([

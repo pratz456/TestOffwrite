@@ -21,12 +21,13 @@ export function KpiGrid({ state, taxYear, onRetry, onReview }: KpiGridProps) {
   }
   if (state.status !== 'ready') {
     const target = state.code === 'FILING_STATUS_REVIEW_REQUIRED' ? 'settings'
+      : state.code === 'SOCIAL_SECURITY_REVIEW_REQUIRED' ? 'tax-organizer'
       : state.code === 'INCOME_RECONCILIATION_REQUIRED' ? 'income-tracking' : 'tax-preview';
     return <div role="alert" className="rounded-xl border p-4 text-sm">
       <h2 className="font-medium">{taxYear} federal estimate {state.status === 'review' ? 'needs review' : 'unavailable'}</h2>
       <p className="mt-1">{state.message}</p>
       <div className="mt-2 flex flex-wrap gap-4">
-        {state.status === 'review' && <button className="underline" onClick={() => onReview(target)}>{target === 'settings' ? 'Review profile' : target === 'income-tracking' ? 'Review income sources' : 'Review tax inputs'}</button>}
+        {state.status === 'review' && <button className="underline" onClick={() => onReview(target)}>{target === 'settings' ? 'Review profile' : target === 'income-tracking' ? 'Review income sources' : target === 'tax-organizer' ? 'Review Social Security records' : 'Review tax inputs'}</button>}
         <button className="underline" onClick={onRetry}>Retry estimate</button>
       </div>
     </div>;

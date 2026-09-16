@@ -39,16 +39,16 @@ interface Payment {
   paidDate: string | null;
   confirmationNumber: string | null;
   paymentMethod: string | null;
-  status: "paid" | "overdue" | "due" | "upcoming" | "unpaid";
+  status: "recorded" | "no_record";
   notes: string;
-  penalty?: number;
+  penalty?: null;
 }
 
 interface Summary {
   totalEstimated: number;
   totalPaid: number;
   totalRemaining: number;
-  totalPenalty: number;
+  totalPenalty: null;
 }
 
 const PAYMENT_METHODS = [
@@ -67,22 +67,7 @@ function formatDate(iso: string): string {
 }
 
 function StatusBadge({ status }: { status: Payment["status"] }) {
-  const config = {
-    paid: { label: "Paid", variant: "default" as const, className: "bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border-emerald-500/30" },
-    due: { label: "Due Soon", variant: "secondary" as const, className: "bg-amber-500/20 text-amber-600 dark:text-amber-400 border-amber-500/30" },
-    overdue: { label: "Overdue", variant: "destructive" as const, className: "bg-red-500/20 text-red-600 dark:text-red-400 border-red-500/30" },
-    upcoming: { label: "Upcoming", variant: "outline" as const, className: "bg-muted text-muted-foreground border-border" },
-    unpaid: { label: "Unpaid", variant: "outline" as const, className: "bg-muted text-muted-foreground border-border" },
-  };
-  const { label, className } = config[status] ?? config.unpaid;
-  return (
-    <Badge variant="outline" className={className}>
-      {status === "paid" && <CheckCircle className="w-3 h-3 mr-1" />}
-      {status === "due" && <Clock className="w-3 h-3 mr-1" />}
-      {status === "overdue" && <AlertCircle className="w-3 h-3 mr-1" />}
-      {label}
-    </Badge>
-  );
+  return <Badge variant="outline">{status === 'recorded' ? 'Payment recorded' : 'No payment recorded'}</Badge>;
 }
 
 export function QuarterlyPaymentTrackingScreen({
@@ -262,6 +247,7 @@ export function QuarterlyPaymentTrackingScreen({
           </div>
         ) : (
           <>
+            <p className="text-sm text-muted-foreground">Targets are amounts you entered. Recording a payment does not prove it was timely or sufficient. This screen does not calculate tax penalties.</p>
             {/* Summary bar */}
             {summary && (
               <Card className="bg-card border border-border">
@@ -269,7 +255,7 @@ export function QuarterlyPaymentTrackingScreen({
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                     <div className="rounded-lg bg-muted/50 p-3 sm:p-4">
                       <p className="text-xs text-muted-foreground mb-0.5">
-                        Total Estimated
+                        Your Payment Targets
                       </p>
                       <p className="text-lg font-semibold text-foreground flex items-center gap-1">
                         <DollarSign className="w-4 h-4" />
@@ -281,7 +267,7 @@ export function QuarterlyPaymentTrackingScreen({
                     </div>
                     <div className="rounded-lg bg-muted/50 p-3 sm:p-4">
                       <p className="text-xs text-muted-foreground mb-0.5">
-                        Total Paid
+                        Payments Recorded
                       </p>
                       <p className="text-lg font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
                         <DollarSign className="w-4 h-4" />
@@ -293,7 +279,7 @@ export function QuarterlyPaymentTrackingScreen({
                     </div>
                     <div className="rounded-lg bg-muted/50 p-3 sm:p-4">
                       <p className="text-xs text-muted-foreground mb-0.5">
-                        Remaining
+                        Remaining Against Targets
                       </p>
                       <p className="text-lg font-semibold text-foreground flex items-center gap-1">
                         <DollarSign className="w-4 h-4" />
@@ -303,24 +289,7 @@ export function QuarterlyPaymentTrackingScreen({
                         })}
                       </p>
                     </div>
-                    <div className="rounded-lg bg-muted/50 p-3 sm:p-4">
-                      <p className="text-xs text-muted-foreground mb-0.5">
-                        Est. Penalty
-                      </p>
-                      <p
-                        className={`text-lg font-semibold flex items-center gap-1 ${
-                          summary.totalPenalty > 0
-                            ? "text-red-600 dark:text-red-400"
-                            : "text-muted-foreground"
-                        }`}
-                      >
-                        <DollarSign className="w-4 h-4" />
-                        {summary.totalPenalty.toLocaleString("en-US", {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}
-                      </p>
-                    </div>
+                    <div className="rounded-lg bg-muted/50 p-3 sm:p-4"><p className="text-xs text-muted-foreground">Penalty / payment sufficiency</p><p className="mt-1 text-sm">Requires review of tax liability and dated payments.</p></div>
                   </div>
                 </CardContent>
               </Card>
@@ -366,7 +335,7 @@ export function QuarterlyPaymentTrackingScreen({
                       <div className="flex flex-wrap gap-4 text-sm">
                         <div>
                           <span className="text-muted-foreground">
-                            Estimated:{" "}
+                            Your target:{" "}
                           </span>
                           <span className="font-medium text-foreground">
                             $
@@ -377,7 +346,7 @@ export function QuarterlyPaymentTrackingScreen({
                           </span>
                         </div>
                         <div>
-                          <span className="text-muted-foreground">Paid: </span>
+                          <span className="text-muted-foreground">Recorded: </span>
                           <span className="font-medium text-foreground">
                             $
                             {payment.paidAmount.toLocaleString("en-US", {
@@ -390,20 +359,7 @@ export function QuarterlyPaymentTrackingScreen({
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    {payment.status === "overdue" && payment.penalty != null && payment.penalty > 0 && (
-                      <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400">
-                        <AlertCircle className="w-4 h-4 shrink-0" />
-                        <span className="text-sm">
-                          Est. underpayment penalty: $
-                          {payment.penalty.toLocaleString("en-US", {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })}
-                        </span>
-                      </div>
-                    )}
-
-                    {payment.status === "paid" && payment.paidDate && (
+                    {payment.status === "recorded" && payment.paidDate && (
                       <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
                         <span className="flex items-center gap-1">
                           <Calendar className="w-4 h-4" />
@@ -415,7 +371,7 @@ export function QuarterlyPaymentTrackingScreen({
                       </div>
                     )}
 
-                    {payment.status !== "paid" && (
+                    {(
                       <>
                         {expandedQuarter === payment.quarter ? (
                           <div className="space-y-4 p-4 rounded-lg border border-border bg-muted/30">
@@ -524,7 +480,7 @@ export function QuarterlyPaymentTrackingScreen({
                     {/* Quick edit estimated amount */}
                     <div className="flex items-center gap-2 pt-2 border-t border-border">
                       <Label className="text-xs text-muted-foreground">
-                        Update estimated amount:
+                        Your payment target:
                       </Label>
                       <Input
                         type="number"

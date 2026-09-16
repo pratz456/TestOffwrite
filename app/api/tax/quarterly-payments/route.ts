@@ -10,7 +10,7 @@ const QUARTER_DEADLINES: { quarter: number; month: number; day: number; nextYear
   { quarter: 4, month: 0, day: 15, nextYear: true }, // January 15 (next year)
 ];
 
-type PaymentStatus = 'paid' | 'overdue' | 'due' | 'upcoming' | 'unpaid';
+type PaymentStatus = 'recorded' | 'no_record';
 
 interface QuarterlyPaymentRecord {
   quarter: number;
@@ -23,7 +23,7 @@ interface QuarterlyPaymentRecord {
   paymentMethod: string | null;
   status: PaymentStatus;
   notes: string;
-  penalty?: number;
+  penalty?: null;
 }
 
 function getDocId(quarter: number, year: number): string {
@@ -45,36 +45,9 @@ function createDefaultPayment(quarter: number, year: number): Omit<QuarterlyPaym
     paidDate: null,
     confirmationNumber: null,
     paymentMethod: null,
-    status: 'unpaid',
+    status: 'no_record',
     notes: '',
   };
-}
-
-function computeStatusAndPenalty(
-  record: Omit<QuarterlyPaymentRecord, 'penalty'>,
-  now: Date
-): { status: PaymentStatus; penalty?: number } {
-  const deadline = new Date(record.deadline);
-  const isPaid = record.estimatedAmount > 0 && record.paidAmount >= record.estimatedAmount;
-  if (record.estimatedAmount <= 0) return { status: 'unpaid' };
-  const daysOverdue = Math.floor((now.getTime() - deadline.getTime()) / (1000 * 60 * 60 * 24));
-  const daysUntilDeadline = Math.floor((deadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-
-  if (isPaid) {
-    return { status: 'paid' };
-  }
-
-  if (daysOverdue > 0) {
-    const unpaidAmount = Math.max(0, record.estimatedAmount - record.paidAmount);
-    const penalty = unpaidAmount * 0.08 * (daysOverdue / 365);
-    return { status: 'overdue', penalty };
-  }
-
-  if (daysUntilDeadline <= 14) {
-    return { status: 'due' };
-  }
-
-  return { status: 'upcoming' };
 }
 
 export async function GET(request: NextRequest) {
@@ -101,7 +74,6 @@ export async function GET(request: NextRequest) {
 
     const docIds = QUARTER_DEADLINES.map((q) => getDocId(q.quarter, year));
     const payments: QuarterlyPaymentRecord[] = [];
-    const now = new Date();
 
     for (const docId of docIds) {
       const [q, y] = docId.replace('Q', '').split('_').map(Number);
@@ -120,7 +92,7 @@ export async function GET(request: NextRequest) {
           paidDate: data.paidDate ?? null,
           confirmationNumber: data.confirmationNumber ?? null,
           paymentMethod: data.paymentMethod ?? null,
-          status: data.status ?? 'unpaid',
+          status: data.paidAmount > 0 ? 'recorded' : 'no_record',
           notes: data.notes ?? '',
         };
       } else {
@@ -128,12 +100,7 @@ export async function GET(request: NextRequest) {
         // A read must not create records or race a payment being saved.
       }
 
-      const { status, penalty } = computeStatusAndPenalty(record, now);
-      payments.push({
-        ...record,
-        status,
-        ...(penalty !== undefined && { penalty }),
-      });
+      payments.push({ ...record, status: record.paidAmount > 0 ? 'recorded' : 'no_record' });
     }
 
     payments.sort((a, b) => a.quarter - b.quarter);
@@ -141,7 +108,7 @@ export async function GET(request: NextRequest) {
     const totalEstimated = payments.reduce((s, p) => s + p.estimatedAmount, 0);
     const totalPaid = payments.reduce((s, p) => s + p.paidAmount, 0);
     const totalRemaining = Math.max(0, totalEstimated - totalPaid);
-    const totalPenalty = payments.reduce((s, p) => s + (p.penalty ?? 0), 0);
+    // User-entered targets and payment records do not establish tax penalties.
 
     return NextResponse.json({
       payments,
@@ -149,7 +116,9 @@ export async function GET(request: NextRequest) {
         totalEstimated,
         totalPaid,
         totalRemaining,
-        totalPenalty,
+        totalPenalty: null,
+        basis: 'user_entered_targets',
+        reviewRequired: true,
       },
     });
   } catch (error) {
@@ -218,7 +187,8 @@ export async function POST(request: NextRequest) {
         confirmationNumber: typeof confirmationNumber === 'string' ? confirmationNumber.slice(0, 200) : null,
         paymentMethod: typeof paymentMethod === 'string' ? paymentMethod.slice(0, 100) : null,
         notes: typeof notes === 'string' ? notes.slice(0, 2000) : '',
-        status: estimatedAmount > 0 && paidAmount >= estimatedAmount ? 'paid' : 'unpaid',
+        status: paidAmount > 0 ? 'recorded' : 'no_record',
+        penalty: null,
       };
       transaction.set(docRef, { ...record, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
       return record;
@@ -277,7 +247,8 @@ export async function PUT(request: NextRequest) {
         ...createDefaultPayment(q, y), ...prior,
         quarter: q, year: y, deadline: getDeadlineForQuarter(q, y).toISOString(),
         estimatedAmount, paidAmount,
-        status: estimatedAmount > 0 && paidAmount >= estimatedAmount ? 'paid' : 'unpaid',
+        status: paidAmount > 0 ? 'recorded' : 'no_record',
+        penalty: null,
       };
       transaction.set(docRef, { ...record, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
       return record;
