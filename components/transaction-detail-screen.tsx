@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { useToasts } from '@/components/ui/toast';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { ReceiptPreview } from '@/components/receipt-preview';
-import { auth } from '@/lib/firebase/client';
+import { auth, localEmulatorConfig } from '@/lib/firebase/client';
 import { consolidateCategory } from '@/lib/utils';
 import { getTransactionId } from '@/lib/utils/transaction-id';
 import { protectedScreenUrl } from '@/lib/navigation/protected-screens';
@@ -187,13 +187,15 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
   const userId = currentUser?.uid;
 
   // AI runs only after an explicit click, independently of record saves.
+  // The isolated demo deliberately has no external provider credentials.
+  const isLocalPreview = Boolean(localEmulatorConfig);
   const isAnalyzingRef = useRef(false);
-  const [analysisUnavailable, setAnalysisUnavailable] = useState(false);
+  const [analysisUnavailable, setAnalysisUnavailable] = useState(isLocalPreview);
 
   useEffect(() => {
     setAnalysisError(null);
-    setAnalysisUnavailable(false);
-  }, [userId, transaction.id]);
+    setAnalysisUnavailable(isLocalPreview);
+  }, [userId, transaction.id, isLocalPreview]);
 
   // Use React Query mutation with optimistic updates for instant UI feedback
   const updateTransactionMutation = useUpdateTransaction();
@@ -473,7 +475,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
 
   // Handle AI Analysis
   const handleAnalyzeTransaction = async () => {
-    if (isAnalyzingRef.current || analysisUnavailable) return;
+    if (isLocalPreview || isAnalyzingRef.current || analysisUnavailable) return;
     if (!userId || !currentUser) {
       showError('Authentication Error', 'Please log in to analyze transactions');
       return;
@@ -741,6 +743,12 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                   )}
                 </Button>
               </div>
+
+              {isLocalPreview && (
+                <p className="mb-4 rounded-lg border border-border bg-muted/50 p-3 text-sm text-muted-foreground" role="status">
+                  AI analysis is off in this local preview. You can still edit notes, attach receipts and record your classification manually.
+                </p>
+              )}
 
               {analysisError && (
                 <div className="mb-4 p-3 rounded-lg bg-red-500/10 dark:bg-red-900/20 border border-red-300 dark:border-red-700">

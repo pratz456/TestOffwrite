@@ -3,7 +3,7 @@ import { isValidElement, type ReactElement } from 'react';
 import type { Transaction } from '../lib/firebase/transactions';
 
 // Run the real page/form handlers with controlled hook state and network calls.
-const harness = vi.hoisted(() => ({ slots: [] as unknown[], cursor: 0, push: vi.fn(), request: vi.fn(), transactions: [] as Transaction[], mutate: vi.fn(), save: vi.fn(), success: vi.fn(), error: vi.fn(), fetch: vi.fn() }));
+const harness = vi.hoisted(() => ({ slots: [] as unknown[], cursor: 0, push: vi.fn(), request: vi.fn(), transactions: [] as Transaction[], mutate: vi.fn(), save: vi.fn(), success: vi.fn(), error: vi.fn(), fetch: vi.fn(), localPreview: false }));
 vi.mock('react', async importOriginal => {
   const actual = await importOriginal<typeof import('react')>();
   const hooks = {
@@ -28,7 +28,7 @@ vi.mock('@/lib/firebase/auth-context', () => ({ useAuth: () => ({ user: { id: 'n
 vi.mock('@/lib/firebase/hooks', () => ({ useTransactions: () => ({ transactions: harness.transactions, isLoading: false, error: null }) }));
 vi.mock('@/components/sync-status-indicator', () => ({ SyncStatusIndicator: () => null }));
 vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: harness.request }));
-vi.mock('@/lib/firebase/client', () => ({ auth: { currentUser: { uid: 'new-accountless-user', getIdToken: async () => 'synthetic-token' } } }));
+vi.mock('@/lib/firebase/client', () => ({ auth: { currentUser: { uid: 'new-accountless-user', getIdToken: async () => 'synthetic-token' } }, get localEmulatorConfig() { return harness.localPreview ? {} : null; } }));
 vi.mock('@/lib/firebase/mutations', () => ({ useUpdateTransaction: () => ({ mutateAsync: harness.mutate, isPending: false }) }));
 vi.mock('@/components/ui/toast', () => ({ useToasts: () => ({ showSuccess: harness.success, showError: harness.error }) }));
 import TransactionsPage from '../app/protected/transactions/page';
@@ -59,7 +59,7 @@ function enterExpense() {
   walk(render(manualForm)).find(node => node.props?.type === 'number')!.props.onChange!({ target: { value: '42.50' } });
   return walk(render(manualForm)).find(node => node.type === 'form')!;
 }
-beforeEach(() => { harness.slots = []; harness.cursor = 0; harness.transactions = []; vi.resetAllMocks(); vi.useFakeTimers(); harness.mutate.mockResolvedValue({}); vi.stubGlobal('fetch', harness.fetch); });
+beforeEach(() => { harness.slots = []; harness.cursor = 0; harness.transactions = []; harness.localPreview = false; vi.resetAllMocks(); vi.useFakeTimers(); harness.mutate.mockResolvedValue({}); vi.stubGlobal('fetch', harness.fetch); });
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('transaction page actions reach working accountless flows', () => {
@@ -192,6 +192,21 @@ describe('transaction detail preserves manual work without guessed tax impact or
     await action(page, 'Open Tax Preview').props.onClick!();
     expect(harness.push).toHaveBeenCalledExactlyOnceWith('/protected?screen=tax-preview');
     expect(harness.fetch).not.toHaveBeenCalled();
+  });
+
+  it('shows AI as off before any request in the isolated local preview while manual notes still save', async () => {
+    harness.localPreview = true;
+    const page = detail();
+    expect(text(page)).toContain('AI analysis is off in this local preview');
+    const buttons = walk(page).filter(node => typeof node.props.onClick === 'function' && text(node).trim() === 'AI unavailable');
+    expect(buttons).toHaveLength(2);
+    expect(buttons.every(node => node.props.disabled)).toBe(true);
+    await buttons[0].props.onClick!();
+    walk(page).find(node => node.props.placeholder === 'Tell us more about this purchase...')!.props.onChange!({ target: { value: 'Manual review remains available' } });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(harness.mutate).toHaveBeenCalledWith(expect.objectContaining({ updates: { notes: 'Manual review remains available' } }));
+    expect(harness.fetch).not.toHaveBeenCalled();
+    expect(harness.error).not.toHaveBeenCalled();
   });
 
   it.each([

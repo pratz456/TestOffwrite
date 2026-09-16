@@ -74,6 +74,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    if (!process.env.OPENAI_API_KEY?.trim()) {
+      return NextResponse.json({
+        code: 'AI_UNAVAILABLE',
+        error: 'AI analysis is currently unavailable. You can review and classify this transaction manually.',
+      }, { status: 503 });
+    }
+
     // Rate limit: 60 AI calls per user per hour
     if (!checkRateLimit(user.uid)) {
       return NextResponse.json({ error: 'Rate limit exceeded. Max 60 AI analyses per hour.' }, { status: 429 });

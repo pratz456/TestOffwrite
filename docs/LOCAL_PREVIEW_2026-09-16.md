@@ -55,6 +55,12 @@ The final ordinary test run passed **1,624 tests across 81 files**. The 11 emula
 
 Test logs: `/tmp/writeoff-local-preview-final-tests.log`, `/tmp/writeoff-local-preview-final-types.log`, `/tmp/writeoff-local-preview-final-lint.log`.
 
+### Follow-up: analysis console error
+
+The reported stack referenced the older detail handler attempting AI without a configured key. The isolated local preview now disables transaction analysis on initial render and after reload, explains that AI is off, and keeps manual editing available. The server authenticates first, then returns `503 AI_UNAVAILABLE` for absent or blank keys before reading transaction input, consuming analysis quota or calling profile/database/provider services. Configured nonlocal AI behavior is unchanged.
+
+Fresh-browser verification showed both analysis buttons disabled and notes editable. Direct local HTTP checks returned 401 without authentication and the expected structured 503 for the demo user. The first probe during a development-route rebuild briefly returned 404; it passed after compilation settled. The final suite passed **1,634 tests**, with the same 11 emulator-only tests skipped; TypeScript passed. Evidence: `/tmp/writeoff-ai-unavailable-tests.log` and `/tmp/writeoff-local-ai-unavailable-evidence.json`. This follow-up is also local only.
+
 The prior staging release is application commit `f2ae741583420aaad9dc8d3ae332cb3dcc83dec6`. **The additional changes described here are local source changes; they have not been deployed to staging or production.** Production readiness is not established by a passing local test suite.
 
 ## Run it again
