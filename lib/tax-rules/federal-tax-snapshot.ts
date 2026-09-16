@@ -5,7 +5,8 @@ import { compute1040 } from './compute-1040';
 import { reconcileBusinessIncome, type IncomeRecord } from './business-income';
 import { summarizeW2Income } from './w2-income';
 import { normalizeFilingStatus } from './filing-status';
-import { assertSocialSecurityBenefitsSupported } from './social-security';
+import { assertGenericDependentCreditScope } from './credit-scope';
+import { readSocialSecurityFacts, calculateSocialSecurityWorksheet, assertSocialSecurityAdjustmentRecords, SocialSecurityReviewRequiredError } from './social-security';
 
 interface FederalTaxSnapshotInput {
   taxYear: number;
@@ -23,7 +24,8 @@ interface FederalTaxSnapshotInput {
 /** One federal input snapshot for the preview and PDF; not a complete return engine. */
 export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
   const { taxYear, transactions, profile, organizer: org, deductions: ded } = input;
-  assertSocialSecurityBenefitsSupported(org);
+  assertGenericDependentCreditScope(org.dependents);
+  const benefitFacts = readSocialSecurityFacts(org);
   const amount = (value: unknown): number => {
     if (value === undefined || value === null || value === '') return 0;
     const parsed = typeof value === 'string' ? Number(value) : value;
@@ -42,14 +44,10 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
   const interest = amount(org.amount1099INT);
   const dividends = amount(org.amount1099DIV);
   const capGains = amount(org.amountCapGains);
-  // The guard above blocks benefits until the organizer collects the IRS facts.
-  const socialSecurity = 0;
   const iraDist = amount(org.amountIRADistributions);
   const rental = amount(org.amountRentalIncome);
   const otherOrdinaryIncome = amount(org.amountOtherIncome);
-  const otherIncome = interest + dividends + capGains + socialSecurity + iraDist + rental + otherOrdinaryIncome;
-  const numDependents = amount(org.dependents);
-  const taxPayerAge = org.dateOfBirth ? taxYear - new Date(String(org.dateOfBirth)).getUTCFullYear() : undefined;
+  const nonBenefitOtherIncome = interest + dividends + capGains + iraDist + rental + otherOrdinaryIncome;
   const healthInsurancePremiums = amount(ded.healthInsurancePremiums ?? profile.health_insurance_premiums);
   const sepIraContribution = amount(ded.sepIraContribution ?? profile.sep_ira_contribution);
   const solo401kContribution = ded.solo401kEmployeeContribution !== undefined || ded.solo401kEmployerContribution !== undefined
@@ -58,25 +56,58 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
   const simpleIraContribution = amount(ded.simpleIraContribution);
   const hsaContribution = amount(ded.hsaContribution ?? profile.hsa_contribution);
   const studentLoanInterest = amount(ded.studentLoanInterest);
+  let socialSecurityWorksheet: ReturnType<typeof calculateSocialSecurityWorksheet> | null = null;
+  if (benefitFacts) {
+    if (iraDist !== 0 && org.socialSecurityRetirementReviewed !== 'yes') {
+      throw new SocialSecurityReviewRequiredError('Confirm the retirement amount is the reviewed taxable Box2a amount, with no unresolved basis, rollover or additional early-distribution tax. Otherwise complete the retirement review before this estimate.');
+    }
+    if (capGains !== 0 || rental !== 0) {
+      throw new SocialSecurityReviewRequiredError('Capital gain/loss character and allowed rental income/loss must be reviewed before including them in this supported Social Security estimate. These return calculations are not yet fully modeled.');
+    }
+    assertSocialSecurityAdjustmentRecords(org, { healthInsurancePremiums, sepIraContribution, solo401kContribution, simpleIraContribution, hsaContribution, studentLoanInterest });
+    if (!profile.filing_status || !org.filingStatus || normalizeFilingStatus(org.filingStatus) !== filingStatus) {
+      throw new SocialSecurityReviewRequiredError('Confirm matching filing status in Profile and Tax Organizer before applying the benefit thresholds.');
+    }
+    if (scheduleCNetProfit - depreciationDeduction < 0) {
+      throw new SocialSecurityReviewRequiredError('Business-loss treatment needs review before including it in the Social Security income test.');
+    }
+    const livedApart = org.socialSecurityLivedApartAllYear;
+    if (filingStatus === 'married_filing_separately' && livedApart !== 'yes' && livedApart !== 'no') {
+      throw new SocialSecurityReviewRequiredError('Answer whether you lived apart from your spouse for the entire tax year.');
+    }
+    socialSecurityWorksheet = calculateSocialSecurityWorksheet({
+      taxYear, filingStatus, ...benefitFacts,
+      otherIncome: scheduleCNetProfit - depreciationDeduction + w2.wages + nonBenefitOtherIncome,
+      // Pub915 line7 excludes student-loan interest (Schedule1 line21).
+      allowedAdjustments: seCalc.halfSEDeduction + healthInsurancePremiums + sepIraContribution
+        + solo401kContribution + simpleIraContribution + hsaContribution,
+      livedApartAllYear: livedApart === 'yes',
+    });
+  }
+  const socialSecurity = socialSecurityWorksheet?.taxableBenefits ?? 0;
+  const socialSecurityNetBenefits = benefitFacts?.netBenefits ?? 0;
+  const socialSecurityFederalWithheld = benefitFacts?.federalWithheld ?? 0;
+  const taxExemptInterest = benefitFacts?.taxExemptInterest ?? 0;
+  const otherIncome = nonBenefitOtherIncome + socialSecurity;
   const priorYearTotalTax = amount(ded.priorYearTotalTax ?? profile.prior_year_tax);
   const result = compute1040({
-    taxYear, filingStatus, scheduleCNetProfit, w2Wages: w2.wages, w2MedicareWages: w2.medicareWages,
-    w2FederalWithheld, estimatedPayments: input.estimatedPayments,
+    taxYear, filingStatus, personalDeductionOrganizer: org, scheduleCNetProfit, w2Wages: w2.wages, w2MedicareWages: w2.medicareWages,
+    w2FederalWithheld, socialSecurityFederalWithheld, estimatedPayments: input.estimatedPayments,
     selfEmploymentTax: seCalc.totalSETax, halfSEDeduction: seCalc.halfSEDeduction,
-    otherIncome, numDependents, numEITCChildren: numDependents, taxPayerAge,
+    otherIncome, numDependents: 0, numEITCChildren: 0,
     investmentIncome: interest + dividends + Math.max(0, capGains), longTermCapGains: Math.max(0, capGains), shortTermCapGains: 0,
     healthInsurancePremiums, sepIraContribution, solo401kContribution, simpleIraContribution, hsaContribution, studentLoanInterest,
     charitableDonations: amount(ded.charitableCashDonations) + amount(ded.charitableNonCashDonations), depreciationDeduction,
   }, priorYearTotalTax > 0 ? priorYearTotalTax : undefined);
   result.calculationWarnings.push(...reconciliation.warnings);
-  if (dividends || capGains || iraDist || rental || numDependents) {
-    result.calculationWarnings.push('Organizer income and dependent amounts require tax review: dividend/gain character, retirement basis, rental treatment and credit eligibility are not fully modeled.');
+  if (dividends || capGains || iraDist || rental) {
+    result.calculationWarnings.push('Organizer income amounts require tax review: dividend/gain character, retirement basis and rental treatment are not fully modeled.');
   }
   return {
-    filingStatus, result, seCalc, depreciationDeduction, reconciliation,
-    income: { grossReceipts: reconciliation.grossReceipts, w2Wages: w2.wages, scheduleCNetProfit, totalDeductible, otherIncome, otherOrdinaryIncome, interest, dividends, capGains, socialSecurity, iraDist, rental },
+    filingStatus, result, seCalc, depreciationDeduction, reconciliation, socialSecurityWorksheet, personalDeductions: result.personalDeductions,
+    income: { grossReceipts: reconciliation.grossReceipts, w2Wages: w2.wages, scheduleCNetProfit, totalDeductible, otherIncome, otherOrdinaryIncome, interest, dividends, capGains, socialSecurity, socialSecurityNetBenefits, taxExemptInterest, iraDist, rental },
     w2: { wages: w2.wages, withheld: w2FederalWithheld, count: input.w2Entries.length, stateWithheld: w2.stateWithheld },
     deductions: { healthInsurancePremiums, sepIraContribution, solo401kContribution, hsaContribution, studentLoanInterest },
-    payments: { estimatedPayments: input.estimatedPayments, w2FederalWithheld },
+    payments: { estimatedPayments: input.estimatedPayments, w2FederalWithheld, socialSecurityFederalWithheld, totalFederalWithheld: w2FederalWithheld + socialSecurityFederalWithheld },
   };
 }

@@ -20,6 +20,7 @@ export async function GET(request: NextRequest) {
     const annual = await annualResponse.json();
     const payments = await getRecordedQuarterlyPayments(user.uid, annual.taxYear);
     const recordedEstimatedPayments = totalRecordedPayments(payments);
+    const totalFederalWithheld = annual.payments.totalFederalWithheld ?? annual.payments.w2FederalWithheld;
     const quarters = ([1, 2, 3, 4] as const).map(quarter => ({
       quarter, label: `Q${quarter}`,
       dueDate: getEstimatedTaxDeadline(annual.taxYear, quarter).toISOString().slice(0, 10),
@@ -34,9 +35,11 @@ export async function GET(request: NextRequest) {
       agi: annual.form1040.agi, taxableIncome: annual.form1040.taxableIncome,
       incomeTax: annual.form1040.incomeTax, totalEstimatedTax: annual.form1040.totalTax,
       calculationWarnings: annual.form1040.calculationWarnings,
-      totalPaid: recordedEstimatedPayments + annual.payments.w2FederalWithheld,
+      totalPaid: recordedEstimatedPayments + totalFederalWithheld,
       recordedEstimatedPayments,
       w2Withheld: annual.payments.w2FederalWithheld,
+      socialSecurityWithheld: annual.payments.socialSecurityFederalWithheld ?? 0,
+      totalFederalWithheld,
       paymentReview: { code: 'QUARTERLY_REVIEW_REQUIRED', message: QUARTERLY_REVIEW_MESSAGE },
       perQuarterRecommended: null, remainingTarget: null,
       safeHarborTotal: null, safeHarborPerQuarter: null, usingPriorYearSafeHarbor: false,

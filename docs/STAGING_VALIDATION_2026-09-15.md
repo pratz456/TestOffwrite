@@ -1,6 +1,6 @@
 # Staging validation — September 15–16, 2026
 
-## Release candidate
+## Previous release candidate (v7)
 
 - Final application commit: `e15e7c81320204104942b535b37bf425858ceaeb` on `codex/staging-readiness`, including the prior dashboard, receipt and session fixes.
 - Final build: `3fYR2wdW7qSOn4hnwI2Pu`. The isolated HTTP/rules suite passed against this exact compiled artifact; all 1,110 non-cache build files matched by SHA-256 across source, tested copy and packaged Firebase function.
@@ -8,7 +8,7 @@
 - Testing site: https://writeoff-production-testing.web.app
 - This batch has not been promoted to `writeoffapp.com`. The earlier production login and logo repairs remain separate.
 
-## Completed checks
+## Previous completed checks (v7)
 
 | Check | Result | What it establishes |
 |---|---:|---|
@@ -59,8 +59,8 @@ A separate deployed probe preserved the same existing synthetic income record th
 - **Stripe:** test keys, prices and webhook configuration pending; real billing lifecycle remains untested.
 - **Plaid:** Sandbox credentials pending; real linking, import, reconnect and sync remain untested.
 - **OpenAI:** actual completion returns HTTP 429, `credit_balance_exhausted` / `insufficient_quota`. The deployed assistant returns a safe 503 retry message. The user chose to keep AI unavailable; paid response-quality tests are deferred.
-- **Google OAuth:** enabled in the testing Firebase project on September 16; provider read-back and OAuth URL generation passed. A completed user login remains unverified because the in-app browser did not expose the popup. A normal-browser user check is pending.
-- **Email actions:** the user-approved verification/reset emails were accepted by Firebase, but were not found in the target Inbox/Spam. Delivery remains unverified. Separate real staging SDK/API action-code checks passed 11/11, including signed-out reset and old/new password behavior; this does not establish inbox delivery.
+- **Google OAuth:** completed staging Google login is now verified. Admin confirms the Google provider and verified email; the protected browser session survived a full reload. The previous popup-observation limitation is resolved by the resulting account/session evidence. See [auth validation](AUTH_PROVIDER_VALIDATION_2026-09-16.md).
+- **Email actions:** original messages were found in Spam after correcting the Gmail search. Fresh approved verification and reset messages reached Inbox; the delivered verification link completed and the delivered reset link opened the correct form. Separate real SDK/API checks establish reset completion, old/new password behavior and reused-code rejection. Browser password submission and universal inbox placement are not claimed.
 - **Browser journeys:** email sign-in, onboarding without a bank, session/profile reload, receipt OCR/edit/save, and manual expense entry passed against deployed staging. Final transaction-button navigation, attachment refresh and stored calendar-display checks passed as recorded below. Physical camera/microphone permissions and devices remain separate checks.
 - **Tax coverage:** matching JSON/PDF results is consistency evidence, not tax-law certification. See [the coverage matrix](TAX_COVERAGE_REFERENCE_MATRIX_2026-09-15.md) for unsupported cases and release exclusions. The calculator rejects 2027.
 - **Remaining estimates:** the corrected dashboard inherits the shared engine's documented limitations. The September 16 quarterly batch shares annual totals and requires reviewed payment facts; legacy savings helpers and broader annual eligibility gaps remain as described in the tax coverage matrix.
@@ -119,7 +119,7 @@ The fresh browser pass closes the immediate post-deployment sign-in check. It do
 
 Final evidence: `/tmp/writeoff-staging-deployment-v6.json`, `/tmp/writeoff-staging-tests-v6.log`, `/tmp/writeoff-final-auth-smoke-v6-evidence.json`, `/tmp/writeoff-final-auth-smoke-v6-http-results.json`, `/tmp/writeoff-staging-real-smoke-v6.log`, `/tmp/writeoff-staging-smoke-results-v6.json`, and `/tmp/writeoff-staging-browser-v6.json`.
 
-The broader release remains in staging pending provider, email/OAuth, device and tax-coverage gates above. Production was not changed by this batch.
+The broader release remains in staging pending the remaining provider, device and tax-coverage gates above. Email/OAuth follow-up results supersede the earlier pending status. Production was not changed by this batch.
 
 ## Email actions and quarterly tax follow-up (v7)
 
@@ -133,8 +133,21 @@ Released to staging at `2026-09-16T12:14:56.612Z`:
 - Real staging smoke: **17 passed, 0 failed**. New live tax probe: **7 passed, 0 failed**. Free accounts could not export protected PDFs/vouchers; trial normal PDF worked. Shared annual/quarterly figures matched. An unsupported voucher returned actionable 422 instead of a fabricated form. Saving Social Security benefits yielded matching review responses across annual/PDF/quarterly routes, with no tax total; clearing only the synthetic declaration restored its original result.
 - Auth action SDK/API checks: **11 passed** using the new helpers against actual Firebase. The synthetic account was deleted afterward. Deployed browser verification succeeded, a reused link showed recovery guidance, and the reset form validated the correct separate synthetic account. No new password was entered through browser automation. The browser fixture’s emailVerified flag was independently confirmed, then that exact synthetic account was deleted. The approved mail-delivery fixture remains available for later delivery checks.
 - The browser payment illustration returned $5,200 annually and four $1,300 original installments for reviewed synthetic $8,000 tax, $2,000 withholding, $10,000 prior tax and $100,000 prior AGI. Selecting unavailable prior return without ruling out the no-prior-tax exception cleared figures and required review. Desktop inspection at 1280 × 720 showed no horizontal overflow; no new phone-width claim is made.
-- Google provider configuration and OAuth URL generation passed; a completed Google login remains pending. Firebase accepted the authorized test emails, but a final Inbox/Spam search found no matches. Generated action links establish handler behavior, not mail delivery. AI remains unavailable at the user’s request.
+- At the time of the v7 report, Google login and inbox delivery had not been observed. The v8 follow-up verified the completed Google account/session and found the delivered messages; see the current auth validation above. AI remains unavailable at the user’s request.
 
 The changes repair signed-out password resets, replace the 85% Social Security shortcut with review requirements, and remove conflicting quarterly formulas and unsupported penalty/payment conclusions. The public payment tool requires reviewed annual figures and explicit regular-method/prior-year facts; it is not a complete tax return engine. See [auth evidence](AUTH_PROVIDER_VALIDATION_2026-09-16.md), [quarterly scope](TAX_QUARTERLY_VALIDATION_2026-09-16.md), and [Social Security scope](TAX_SOCIAL_SECURITY_VALIDATION_2026-09-16.md).
 
 Local sanitized evidence: `/tmp/writeoff-staging-deployment-v7.json`, `/tmp/writeoff-staging-validation-v7.json`, `/tmp/writeoff-staging-tests-v7.log`, `/tmp/writeoff-staging-smoke-results-v7.json`, `/tmp/writeoff-staging-tax-v7-evidence.json`, `/tmp/writeoff-staging-action-api-v7.json`, and `/tmp/writeoff-staging-browser-v7.json`. Temporary test services were stopped. Production was not changed by this batch.
+
+
+## Google, mail and personal deduction follow-up (v8)
+
+Application fixes are complete and the final source suite passes **1,233 tests**. Eleven emulator-only tests are intentionally skipped in the ordinary run and are run separately with the compiled HTTP suite. Deployment identifiers and post-deployment evidence are recorded below once verified.
+
+- Completed Google login and session reload verified in staging. The blank onboarding email now recovers from the same signed-in Firebase identity without resetting typed answers; failed recovery offers a retry. Google sign-in preserves the supported persistence selected by Firebase initialization.
+- Original approved verification/reset messages were found in Spam. Fresh messages reached Inbox after marking the expected verification conversation not spam. The actual delivered verification link completed and Admin confirmed verification; the actual delivered reset link opened the correct fixture form. No browser password submission is claimed. Mailbox-specific delivery does not guarantee inbox placement for all recipients.
+- Added reviewed ordinary Social Security worksheet calculations and SSA/RRB withholding, standard-deduction age/blindness/dependency facts, MFS spouse itemization, and the enhanced 2025–2026 senior deduction including per-person MAGI phaseout. The senior deduction stays below AGI and is applied before the QBI income cap.
+- Annual JSON, PDF, dashboard and quarterly consumers share these results. The organizer keeps separate 2024–2026 records and preserves edits on failed year-change saves/loads. Unsupported or unanswered facts return explicit review guidance instead of guessed totals.
+- A generic dependent count no longer awards child credits. Any positive potential EITC requires review until the missing eligibility facts are collected. Existing pure arithmetic helper tests do not establish eligibility.
+- Removed unsupported filing/refund guarantees. The planning PDF is not an official or e-file-ready return; its 2026 export identifies the published 2025 layout it uses.
+- AI remains unavailable at the user’s request. Stripe/Plaid test access and the remaining documented tax scenarios are still outside this completed batch. Production has not been changed.

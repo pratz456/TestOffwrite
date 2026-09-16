@@ -1,3 +1,4 @@
+import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductions';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { PDFPage } from 'pdf-lib';
@@ -48,11 +49,12 @@ import { POST as importDocument } from '../app/api/tax/import-document/route';
 import { POST as quarterlyEstimate } from '../app/api/tax/quarterly-estimates/route';
 import { summarizeW2Income } from '../lib/tax-rules/w2-income';
 
+const organizerFixture = (overrides: Record<string, unknown> = {}) => reviewedPersonalDeductionOrganizer(2026, {}, { userId: 'w2-contract-user', ...overrides });
 const fixture = { employer: 'Synthetic employer', taxYear: 2026, wages: 200000, federalWithheld: 35000, socialSecurityWages: 184500, medicareWages: 210000, stateWithheld: 5000 };
 const request = (path: string) => new NextRequest(`http://localhost${path}?year=2026`);
 beforeEach(() => {
   state.filingStatus = 'single';
-  state.records = { gross_receipts: [{ userId: 'w2-contract-user', taxYear: 2026, amount: 100000 }] };
+  state.records = { tax_organizers: [organizerFixture()], gross_receipts: [{ userId: 'w2-contract-user', taxYear: 2026, amount: 100000 }] };
   state.computedInputs = [];
   state.computedResults = [];
   state.transactions = [];
@@ -121,20 +123,31 @@ describe('shared income snapshot across JSON and PDF', () => {
   const pdfRequest = () => new NextRequest('http://localhost/api/tax/form-1040', { method: 'POST', body: JSON.stringify({ year: 2026 }) });
 
   it('counts transaction-only business income and uses identical federal inputs/results in JSON and PDF', async () => {
-    state.records = { tax_organizers: [{ userId: 'w2-contract-user', taxYear: 2026, amount1099INT: '1200', dependents: '1', dateOfBirth: '1990-01-01' }] };
+    state.records = { tax_organizers: [organizerFixture({ amount1099INT: '1200', dependents: '0' })] };
     state.transactions = [transaction];
     const json = await (await compute1040(request('/api/tax/compute-1040'))).json();
     expect(json.income.grossReceipts).toBe(100000);
     expect(json.form1040.totalIncome).toBe(101200);
-    expect(json.form1040.childTaxCredit).toBeGreaterThan(0);
+    expect(json.form1040.childTaxCredit).toBe(0);
     expect((await export1040(pdfRequest())).status).toBe(200);
     expect(state.computedInputs[1]).toEqual(state.computedInputs[0]);
     expect(state.computedResults[1]).toEqual(state.computedResults[0]);
     expect(state.computedResults[1]).toMatchObject(json.form1040);
   });
 
+  it('preserves the generic-dependent review gate in both JSON and PDF', async () => {
+    state.records.tax_organizers = [organizerFixture({ dependents: '1' })];
+    for (const response of [await compute1040(request('/api/tax/compute-1040')), await export1040(pdfRequest())]) {
+      expect(response.status).toBe(422);
+      const body = await response.json();
+      expect(body.code).toBe('DEPENDENT_CREDIT_REVIEW_REQUIRED');
+      expect(body).not.toHaveProperty('form1040');
+    }
+    expect(state.computedInputs).toHaveLength(0);
+  });
+
   it('links the actual platform importer’s paired 1099 and receipt and counts that income once', async () => {
-    state.records = {};
+    state.records = { tax_organizers: [organizerFixture()] };
     const form = new FormData();
     form.set('file', new Blob(['synthetic-image'], { type: 'image/png' }), 'synthetic.png');
     form.set('docType', 'platform_summary'); form.set('taxYear', '2026'); form.set('commit', 'true');
@@ -160,7 +173,7 @@ describe('shared income snapshot across JSON and PDF', () => {
   });
 
   it.each([scheduleSE, reminders])('uses transaction-only business receipts in the ancillary tax route', async route => {
-    state.records = {}; state.transactions = [transaction];
+    state.records = { tax_organizers: [organizerFixture()] }; state.transactions = [transaction];
     const response = await route(request('/api/tax/fixture'));
     expect(response.status).toBe(200);
     expect((await response.json()).grossReceipts).toBe(100000);

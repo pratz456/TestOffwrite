@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, PDFPage } from 'pdf-lib';
+import { writeFileSync } from 'node:fs';
 import type { ReactElement } from 'react';
 
 // Real organizer persistence handler, federal snapshot, calculation and PDF
@@ -10,6 +11,7 @@ const state = vi.hoisted(() => ({
   profile: { filing_status: 'single' } as Record<string, unknown>,
   calculations: [] as Record<string, unknown>[],
 }));
+vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: vi.fn() }));
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({ user: { uid: 'benefits-owner' } }) }));
 vi.mock('@/lib/subscriptions/feature-access', () => ({ requireFeatureAccess: async () => null }));
 vi.mock('@/lib/firebase/transactions-server', () => ({ getTransactionsServer: async () => ({ data: [], error: null }) }));
@@ -44,15 +46,18 @@ vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collection: (name: string) =
 } } }));
 
 import { POST as saveOrganizer, GET as getOrganizer } from '../app/api/tax/organizer/route';
+import { GET as getQuarterlySummary } from '../app/api/tax/quarterly-reminders/route';
 import { GET as getEstimate } from '../app/api/tax/compute-1040/route';
 import { POST as exportPdf } from '../app/api/tax/form-1040/route';
 import { assertSocialSecurityBenefitsSupported, SocialSecurityReviewRequiredError } from '../lib/tax-rules/social-security';
+import { EMPTY_ORGANIZER_ANSWERS } from '../components/tax-organizer-screen';
+import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductions';
 import { KpiGrid } from '../components/dashboard/KpiGrid';
 
 const jsonRequest = (year = 2026) => new NextRequest(`http://localhost/api/tax/compute-1040?year=${year}`);
 const pdfRequest = (year = 2026) => new NextRequest('http://localhost/api/tax/form-1040', { method: 'POST', body: JSON.stringify({ year }) });
 async function save(answers: Record<string, string>, taxYear = 2026) {
-  const response = await saveOrganizer(new NextRequest('http://localhost/api/tax/organizer', { method: 'POST', body: JSON.stringify({ ...answers, taxYear }) }));
+  const response = await saveOrganizer(new NextRequest('http://localhost/api/tax/organizer', { method: 'POST', body: JSON.stringify({ ...reviewedPersonalDeductionOrganizer(taxYear), ...answers, taxYear }) }));
   expect(response.status).toBe(201);
 }
 beforeEach(() => { vi.restoreAllMocks(); state.records = {}; state.profile = { filing_status: 'single' }; state.calculations = []; });
@@ -124,6 +129,7 @@ describe('Social Security requires the missing IRS facts', () => {
 
   it('does not block the current owner/year for someone else’s or prior-year benefits', async () => {
     state.records.tax_organizers = [
+      { ...reviewedPersonalDeductionOrganizer(), userId: 'benefits-owner', taxYear: 2026 },
       { userId: 'other-owner', taxYear: 2026, hasSocialSecurity: 'yes', amountSocialSecurity: '20000' },
       { userId: 'benefits-owner', taxYear: 2025, hasSocialSecurity: 'yes', amountSocialSecurity: '20000' },
     ];
@@ -145,5 +151,143 @@ describe('Social Security requires the missing IRS facts', () => {
     expect(nodes.some(node => typeof node.props.value === 'string' && node.props.value.startsWith('$'))).toBe(false);
     nodes.find(node => node.type === 'button' && node.props.children === 'Review Social Security records')!.props.onClick!();
     expect(onReview).toHaveBeenCalledWith('tax-organizer');
+  });
+});
+
+
+const supportedBenefits = () => ({
+  hasSocialSecurity: 'yes', amountSocialSecurity: '6200', filingStatus: 'single',
+  socialSecurityNetBenefits: '5980', socialSecurityFederalWithheld: '250',
+  socialSecurityTaxExemptInterest: '0', socialSecurityExcludedSavingsBondInterest: '0', socialSecurityAdoptionExclusion: '0',
+  socialSecurityResident: 'yes', socialSecurityLumpSum: 'no', socialSecuritySpecialIRA: 'no', socialSecurityForeignExclusion: 'no',
+  socialSecurityIncomeComplete: 'yes', socialSecurityAdjustmentsComplete: 'yes', socialSecurityLivedApartAllYear: '', socialSecurityRetirementReviewed: 'yes',
+});
+
+describe('complete Social Security facts reach real JSON and PDF', () => {
+  it('saves the full real organizer defaults with one reserved personal-deduction JSON field', async () => {
+    const answers = { ...EMPTY_ORGANIZER_ANSWERS, personalDeductionFacts: '{}' };
+    expect(Object.keys(answers).length).toBeLessThanOrEqual(80);
+    await save(answers);
+    const response = await getOrganizer(new NextRequest('http://localhost/api/tax/organizer?year=2026'));
+    expect(response.status).toBe(200); expect((await response.json()).organizer).toMatchObject(answers);
+  });
+
+  it.each([2024, 2025, 2026])('persists the IRS Example1 facts and matches JSON/PDF in%s', async year => {
+    await save({ ...supportedBenefits(), amount1099INT: '990', amountIRADistributions: '18600' }, year);
+    state.records.w2_income = [{ userId: 'benefits-owner', taxYear: year, wages: 9400, federalWithheld: 1000 }];
+    const loaded = await (await getOrganizer(new NextRequest(`http://localhost/api/tax/organizer?year=${year}`))).json();
+    expect(loaded.organizer).toMatchObject(supportedBenefits());
+    const response = await getEstimate(jsonRequest(year)); expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.income).toMatchObject({ socialSecurity: 2990, socialSecurityNetBenefits: 5980 });
+    expect(body.socialSecurityWorksheet).toMatchObject({ combinedIncome: 31980, taxableBenefits: 2990 });
+    expect(body.form1040.totalIncome).toBe(31980);
+    expect(body.payments).toMatchObject({ w2FederalWithheld: 1000, socialSecurityFederalWithheld: 250, totalFederalWithheld: 1250 });
+    expect(body.form1040.totalPayments).toBe(1250);
+    const drawText = vi.spyOn(PDFPage.prototype, 'drawText');
+    const pdf = await exportPdf(pdfRequest(year)); expect(pdf.status).toBe(200);
+    const bytes = Buffer.from(await pdf.arrayBuffer());
+    expect(bytes.subarray(0, 5).toString()).toBe('%PDF-');
+    expect(state.calculations[0]).toEqual(state.calculations[1]);
+    const text = drawText.mock.calls.map(call => call[0]).join(' ');
+    expect(text).toContain('Box5 net benefits'); expect(text).toContain('SSA/RRB federal income tax withheld');
+    expect(text).toContain('5,980'); expect(text).toContain('2,990');
+    if (year === 2026 && process.env.SOCIAL_SECURITY_PDF_ARTIFACT) writeFileSync(process.env.SOCIAL_SECURITY_PDF_ARTIFACT, bytes);
+  });
+  it('supports the joint IRS Example3 bond exclusion without adding excluded interest to taxable income', async () => {
+    state.profile.filing_status = 'married_filing_jointly';
+    await save({ ...supportedBenefits(), filingStatus: 'married_filing_jointly', socialSecurityNetBenefits: '10000', socialSecurityExcludedSavingsBondInterest: '200', amount1099INT: '2300', amountIRADistributions: '38000' });
+    const body = await (await getEstimate(jsonRequest())).json();
+    expect(body.income.socialSecurity).toBe(6275); expect(body.form1040.totalIncome).toBe(46575);
+  });
+  it('uses allowed adjustments once while excluding student-loan interest from the benefit worksheet', async () => {
+    await save({ ...supportedBenefits(), socialSecurityNetBenefits: '20000', amountOtherIncome: '17000' });
+    state.records.tax_deductions = [{ userId: 'benefits-owner', taxYear: 2026, hsaContribution: 1000, studentLoanInterest: 1000 }];
+    const body = await (await getEstimate(jsonRequest())).json();
+    expect(body.socialSecurityWorksheet).toMatchObject({ allowedAdjustments: 1000, combinedIncome: 26000, taxableBenefits: 500 });
+    expect(body.form1040.adjustments).toBe(2000); expect(body.form1040.totalIncome).toBe(17500);
+  });
+  it.each([['yes', 0], ['no', 3400]])('uses MFS lived-apart answer%s consistently in JSON/PDF', async (livedApart, expected) => {
+    state.profile.filing_status = 'married_filing_separately';
+    await save({ ...supportedBenefits(), filingStatus: 'married_filing_separately', socialSecurityNetBenefits: '4000', socialSecurityLivedApartAllYear: livedApart, amountOtherIncome: '8000' });
+    const response = await getEstimate(jsonRequest()); expect(response.status).toBe(200); expect((await response.json()).income.socialSecurity).toBe(expected);
+    expect((await exportPdf(pdfRequest())).status).toBe(200); expect(state.calculations[0]).toEqual(state.calculations[1]);
+  });
+  it.each([
+    { socialSecurityLumpSum: 'yes' }, { socialSecuritySpecialIRA: 'yes' }, { socialSecurityForeignExclusion: 'yes' },
+    { socialSecurityNetBenefits: '-500' }, { socialSecurityIncomeComplete: '' }, { filingStatus: 'married_filing_jointly' },
+    { amountIRADistributions: '18600', socialSecurityRetirementReviewed: '' }, { amountIRADistributions: '18600', socialSecurityRetirementReviewed: 'no' },
+    { amountCapGains: '-3000' }, { amountCapGains: '1000' }, { amountRentalIncome: '1000' },
+  ])('keeps unsupported/incomplete facts%j review-blocked in both routes', async overrides => {
+    await save({ ...supportedBenefits(), ...overrides });
+    for (const response of [await getEstimate(jsonRequest()), await exportPdf(pdfRequest())]) {
+      expect(response.status).toBe(422); expect((await response.json()).code).toBe('SOCIAL_SECURITY_REVIEW_REQUIRED');
+    }
+    expect(state.calculations).toHaveLength(0);
+  });
+  it('does not silently omit an HSA entered only in the organizer, then succeeds after reconciliation', async () => {
+    await save({ ...supportedBenefits(), socialSecurityNetBenefits: '20000', amountOtherIncome: '17000', paidHSA: 'yes', hsaAmount: '1000' });
+    const missing = await getEstimate(jsonRequest()); expect(missing.status).toBe(422);
+    expect((await missing.json()).error).toContain('Tax Deductions');
+    state.records.tax_deductions = [{ userId: 'benefits-owner', taxYear: 2026, hsaContribution: 1000 }];
+    const fixed = await getEstimate(jsonRequest()); expect(fixed.status).toBe(200);
+    expect((await fixed.json()).socialSecurityWorksheet).toMatchObject({ allowedAdjustments: 1000, taxableBenefits: 500 });
+  });
+  it('quarterly records include benefit withholding once and retain the separate W2 field', async () => {
+    await save(supportedBenefits());
+    state.records.w2_income = [{ userId: 'benefits-owner', taxYear: 2026, wages: 40000, federalWithheld: 1000 }];
+    const response = await getQuarterlySummary(new NextRequest('http://localhost/api/tax/quarterly-reminders?year=2026'));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ w2Withheld: 1000, socialSecurityWithheld: 250, totalFederalWithheld: 1250, totalPaid: 1250 });
+  });
+  it('still rejects2027 even when all benefit facts are supplied', async () => {
+    await save(supportedBenefits(), 2027);
+    expect((await getEstimate(jsonRequest(2027))).status).toBe(400);
+    expect((await exportPdf(pdfRequest(2027))).status).toBe(400);
+  });
+});
+
+
+describe('personal deductions use the same saved facts in JSON and PDF', () => {
+  it.each([[2024, 16550, 0], [2025, 17750, 6000], [2026, 18150, 6000]])('prints the supported senior deductions and total for%s', async (year, standard, senior) => {
+    await save({ dateOfBirth: '1955-05-20' }, year);
+    state.records.w2_income = [{ userId: 'benefits-owner', taxYear: year, wages: 60000 }];
+    const json = await getEstimate(jsonRequest(year)); expect(json.status).toBe(200);
+    const body = await json.json();
+    expect(body.form1040).toMatchObject({ agi: 60000, deductionUsed: standard, enhancedSeniorDeduction: senior, taxableIncome: 60000 - standard - senior });
+    const drawText = vi.spyOn(PDFPage.prototype, 'drawText');
+    const pdf = await exportPdf(pdfRequest(year)); expect(pdf.status).toBe(200);
+    const calls = drawText.mock.calls; const text = calls.map(call => call[0]).join(' ');
+    expect(state.calculations[0]).toEqual(state.calculations[1]);
+    const totalLabel = calls.find(call => call[0] === (year === 2024 ? 'Add lines 12 and 13' : 'Add lines 12e, 13a and 13b'))!;
+    expect(totalLabel).toBeDefined();
+    expect(calls.some(call => call[0] === `$${(standard + senior).toLocaleString('en-US', { minimumFractionDigits: 2 })}` && Math.abs(call[1]!.y! - totalLabel[1]!.y!) < 3)).toBe(true);
+    if (year === 2024) { expect(text).not.toContain('13b'); expect(text).not.toContain('Enhanced senior deduction'); }
+    else { expect(text).toContain('13b'); expect(text).toContain('Enhanced senior deduction'); expect(text).toContain('$6,000.00'); }
+    if (year === 2026 && process.env.PERSONAL_DEDUCTIONS_PDF_ARTIFACT) writeFileSync(process.env.PERSONAL_DEDUCTIONS_PDF_ARTIFACT, Buffer.from(await pdf.arrayBuffer()));
+  });
+
+  it('preserves QBI and senior deduction parity in the PDF total', async () => {
+    await save({ dateOfBirth: '1955-05-20' });
+    state.records.gross_receipts = [{ userId: 'benefits-owner', taxYear: 2026, amount: 30000 }];
+    const json = await getEstimate(jsonRequest()); expect(json.status).toBe(200);
+    const body = await json.json();
+    // 30,000 profit - 2,119.43 half-SE - 18,150 standard - 6,000 senior
+    // leaves 3,730.57 before QBI, so its 20% income cap is 746.114.
+    expect(body.form1040.qbiDeduction).toBeCloseTo(746.114, 2);
+    const drawText = vi.spyOn(PDFPage.prototype, 'drawText');
+    expect((await exportPdf(pdfRequest())).status).toBe(200);
+    expect(state.calculations[0]).toEqual(state.calculations[1]);
+    const total = body.form1040.deductionUsed + body.form1040.enhancedSeniorDeduction + body.form1040.qbiDeduction;
+    expect(drawText.mock.calls.some(call => call[0] === `$${total.toLocaleString('en-US', { minimumFractionDigits: 2 })}`)).toBe(true);
+  });
+
+  it('returns the actionable personal-deduction review response before creating a PDF', async () => {
+    await save({ personalDeductionFacts: '' });
+    const create = vi.spyOn(PDFDocument, 'create');
+    const json = await getEstimate(jsonRequest()), pdf = await exportPdf(pdfRequest());
+    expect(json.status).toBe(422); expect(pdf.status).toBe(422);
+    expect(await pdf.json()).toEqual(await json.json());
+    expect(create).not.toHaveBeenCalled();
   });
 });

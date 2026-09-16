@@ -57,6 +57,16 @@ describe('sign-in session handoff', () => {
     const result = await signInWithGoogle();
     expect(result.error.message).toContain('cancelled'); expect(sdk.redirect).not.toHaveBeenCalled();
   });
+  it('preserves initialized storage fallback for Google sign-in instead of requiring localStorage', async () => {
+    sdk.persistence.mockRejectedValue({ code: 'auth/web-storage-unsupported' });
+    sdk.popup.mockResolvedValue({ user: user('google-user') });
+    const result = await signInWithGoogle();
+    expect(sdk.persistence).not.toHaveBeenCalled();
+    expect(sdk.popup).toHaveBeenCalledOnce();
+    expect(result.error).toBeNull();
+    expect(result.data?.user.id).toBe('google-user');
+    expect(request).toHaveBeenCalledWith('/api/auth/session', expect.objectContaining({ method: 'POST', credentials: 'include' }));
+  });
   it('falls back to Google redirect only when the popup is blocked', async () => {
     sdk.popup.mockRejectedValue({ code: 'auth/popup-blocked' });
     expect(await signInWithGoogle()).toEqual({ data: null, error: null }); expect(sdk.redirect).toHaveBeenCalledOnce();

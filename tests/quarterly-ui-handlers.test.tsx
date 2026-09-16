@@ -54,6 +54,12 @@ describe('authenticated quarterly summary handles review and stale data', () => 
     expect(text(render(component))).toContain('Loading'); await flush(); const content = text(render(component));
     expect(content).toContain('$12,000.00'); expect(content).toContain('Payment amount needs review'); expect(content).not.toContain('$3,000'); expect(content).not.toContain('Overdue');
   });
+  it('shows total federal withholding including benefit withholding instead of the W2-only amount', async () => {
+    h.request.mockResolvedValue(Response.json({ ...(await response().json()), w2Withheld: 1000, totalFederalWithheld: 1250 }));
+    const component = () => QuarterlyTaxCalculator({ userProfile: { id: 'synthetic' }, transactions: [] });
+    render(component); await flush(); const content = text(render(component));
+    expect(content).toContain('$1,250.00'); expect(content).not.toContain('$1,000.00');
+  });
   it('preserves422 guidance and removes earlier amounts immediately after inputs change', async () => {
     h.request.mockImplementation(response); let transactions: unknown[] = [];
     const component = () => QuarterlyTaxCalculator({ userProfile: { id: 'synthetic' }, transactions });

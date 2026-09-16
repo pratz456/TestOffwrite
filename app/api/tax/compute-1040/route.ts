@@ -13,6 +13,8 @@ import { buildFederalTaxSnapshot } from '@/lib/tax-rules/federal-tax-snapshot';
 import { IncomeReconciliationRequiredError } from '@/lib/tax-rules/business-income';
 import { FilingStatusReviewRequiredError } from '@/lib/tax-rules/filing-status';
 import { SocialSecurityReviewRequiredError } from '@/lib/tax-rules/social-security';
+import { PersonalDeductionReviewRequiredError } from '@/lib/tax-rules/personal-deductions';
+import { DependentCreditReviewRequiredError } from '@/lib/tax-rules/credit-scope';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getTransactionsServer } from '@/lib/firebase/transactions-server';
 import { getUserProfileServer } from '@/lib/firebase/profiles-server';
@@ -89,6 +91,8 @@ export async function GET(request: NextRequest) {
     deductions: snapshot.deductions,
     payments: snapshot.payments,
     incomeReconciliation: snapshot.reconciliation,
+    socialSecurityWorksheet: snapshot.socialSecurityWorksheet,
+    personalDeductions: snapshot.personalDeductions,
     seCalc: snapshot.seCalc,
     // Full 1040 computation
     form1040: result,
@@ -114,7 +118,7 @@ export async function GET(request: NextRequest) {
     dataSource: 'auto',
   }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (error) {
-    if (error instanceof IncomeReconciliationRequiredError || error instanceof FilingStatusReviewRequiredError || error instanceof SocialSecurityReviewRequiredError) return NextResponse.json({ error: error.message, code: error.code }, { status: 422 });
+    if (error instanceof IncomeReconciliationRequiredError || error instanceof FilingStatusReviewRequiredError || error instanceof SocialSecurityReviewRequiredError || error instanceof PersonalDeductionReviewRequiredError || error instanceof DependentCreditReviewRequiredError) return NextResponse.json({ error: error.message, code: error.code }, { status: 422 });
     if (error && typeof error === 'object' && 'code' in error && error.code === 'DEPRECIATION_REVIEW_REQUIRED') {
       return NextResponse.json({ error: error instanceof Error ? error.message : 'Asset depreciation needs review', code: error.code }, { status: 422 });
     }

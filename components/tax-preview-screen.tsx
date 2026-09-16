@@ -35,24 +35,28 @@ export function TaxPreviewScreen({ user, onBack, onNavigate }: Props) {
   const [year, setYear] = useState(String(SUPPORTED_TAX_YEARS[SUPPORTED_TAX_YEARS.length - 1]));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [reviewCode, setReviewCode] = useState<string | null>(null);
   const [data, setData] = useState<any>(null);
   const [showDetails, setShowDetails] = useState(false);
   const requestId = useRef(0);
 
   const load = useCallback(async () => {
     const currentRequest = ++requestId.current;
-    setLoading(true); setError(null); setData(null);
+    setLoading(true); setError(null); setReviewCode(null); setData(null);
     try {
       const res = await makeAuthenticatedRequest(`/api/tax/compute-1040?year=${year}`);
       const result = await res.json();
-      if (!res.ok) throw new Error(result.error || "Failed to compute estimate");
+      if (!res.ok) {
+        if (currentRequest === requestId.current && res.status === 422 && typeof result.code === 'string') setReviewCode(result.code);
+        throw new Error(result.error || "Failed to compute estimate");
+      }
       if (currentRequest === requestId.current) setData(result);
     } catch (e) {
       if (currentRequest === requestId.current) setError(e instanceof Error ? e.message : "Failed to load tax preview");
     } finally { if (currentRequest === requestId.current) setLoading(false); }
-  }, [year]);
+  }, [year, user.id]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); return () => { requestId.current += 1; }; }, [load]);
 
   const f1040 = data?.form1040;
   const hasRefund = f1040?.refund > 0;
@@ -85,16 +89,21 @@ export function TaxPreviewScreen({ user, onBack, onNavigate }: Props) {
 
       <div className="max-w-3xl mx-auto px-4 sm:px-6 py-5 space-y-4">
         {error && (
-          <div className="flex items-center gap-2 rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            {error}
+          <div role="alert" className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            <div className="flex items-center gap-2"><AlertCircle className="w-4 h-4 shrink-0" />{error}</div>
+            {onNavigate && ['PERSONAL_DEDUCTION_REVIEW_REQUIRED', 'SOCIAL_SECURITY_REVIEW_REQUIRED', 'DEPENDENT_CREDIT_REVIEW_REQUIRED'].includes(reviewCode ?? '') &&
+              <Button className="mt-3" variant="outline" onClick={() => onNavigate('tax-organizer')}>Review Tax Organizer</Button>}
+            {onNavigate && reviewCode === 'FILING_STATUS_REVIEW_REQUIRED' &&
+              <Button className="mt-3" variant="outline" onClick={() => onNavigate('settings')}>Review profile</Button>}
+            {onNavigate && reviewCode === 'INCOME_RECONCILIATION_REQUIRED' &&
+              <Button className="mt-3" variant="outline" onClick={() => onNavigate('income-tracking')}>Review income sources</Button>}
           </div>
         )}
 
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20 gap-3">
             <Loader2 className="w-8 h-8 animate-spin text-primary" />
-            <p className="text-sm text-muted-foreground">Computing your return…</p>
+            <p className="text-sm text-muted-foreground">Calculating your estimate…</p>
           </div>
         ) : f1040 ? (
           <>
@@ -208,7 +217,9 @@ export function TaxPreviewScreen({ user, onBack, onNavigate }: Props) {
                   {([
                     { section: "INCOME" as string, lines: [
                       { num: "1a", label: "W-2 wages", value: data.income.w2Wages },
-                      { num: "3", label: "Schedule C net profit", value: data.income.scheduleCNetProfit },
+                      { num: "6a", label: "Net Social Security benefits", value: data.income.socialSecurityNetBenefits },
+                      { num: "6b", label: "Taxable Social Security benefits", value: data.income.socialSecurity },
+                      { num: "8", label: "Schedule C net profit", value: data.income.scheduleCNetProfit },
                       { num: "9", label: "Total income", value: f1040.totalIncome, bold: true },
                     ]},
                     { section: "ADJUSTMENTS (Schedule 1)", lines: [
@@ -222,7 +233,8 @@ export function TaxPreviewScreen({ user, onBack, onNavigate }: Props) {
                     { section: "AGI & DEDUCTIONS", lines: [
                       { num: "11", label: "Adjusted Gross Income", value: f1040.agi, bold: true },
                       { num: "12", label: `${f1040.usingStandardDeduction ? "Standard" : "Itemized"} deduction`, value: f1040.deductionUsed, negative: true },
-                      { num: "13", label: "QBI deduction (§199A)", value: f1040.qbiDeduction, negative: true },
+                      { num: Number(year) >= 2025 ? "13a" : "13", label: "QBI deduction (§199A)", value: f1040.qbiDeduction, negative: true },
+                      { num: "1-A", label: "Enhanced senior deduction", value: Number(year) >= 2025 ? f1040.enhancedSeniorDeduction : undefined, negative: true },
                       { num: "15", label: "Taxable income", value: f1040.taxableIncome, bold: true },
                     ]},
                     { section: "TAX", lines: [
@@ -232,6 +244,7 @@ export function TaxPreviewScreen({ user, onBack, onNavigate }: Props) {
                     ]},
                     { section: "PAYMENTS", lines: [
                       { num: "25a", label: "W-2 federal withholding", value: f1040.w2FederalWithheld, negative: true },
+                      { num: "25b", label: "Social Security / RRB withholding", value: f1040.socialSecurityFederalWithheld, negative: true },
                       { num: "26", label: "Estimated tax payments", value: f1040.estimatedPayments, negative: true },
                       { num: "33", label: "Total payments", value: f1040.totalPayments, bold: true, negative: true },
                     ]},
@@ -292,7 +305,7 @@ export function TaxPreviewScreen({ user, onBack, onNavigate }: Props) {
               <br />Always verify with a tax professional before filing.
             </p>
           </>
-        ) : !loading && (
+        ) : !loading && !error && (
           <div className="text-center py-20">
             <DollarSign className="w-12 h-12 text-muted-foreground/40 mx-auto mb-3" />
             <p className="font-medium text-foreground">No data yet</p>

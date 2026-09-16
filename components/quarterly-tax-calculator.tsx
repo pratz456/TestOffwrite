@@ -8,7 +8,7 @@ import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 
 interface QuarterlyTaxCalculatorProps { userProfile?: Record<string, unknown>; transactions?: unknown[] }
 interface Summary {
-  taxYear: number; totalEstimatedTax: number; recordedEstimatedPayments: number; w2Withheld: number;
+  taxYear: number; totalEstimatedTax: number; recordedEstimatedPayments: number; w2Withheld: number; totalFederalWithheld?: number;
   calculationWarnings: string[]; paymentReview: { message: string };
   quarters: { quarter: number; dueDate: string; amountPaid: number }[];
 }
@@ -27,7 +27,7 @@ export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyT
         const response = await makeAuthenticatedRequest(`/api/tax/quarterly-reminders?year=${year}`, { signal: controller.signal, cache: 'no-store' });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'Could not load your quarterly planning records. Please retry.');
-        if (data.taxYear !== year || ![data.totalEstimatedTax, data.recordedEstimatedPayments, data.w2Withheld].every(value => typeof value === 'number' && Number.isFinite(value)) || !Array.isArray(data.quarters) || !data.paymentReview?.message) throw new Error('The quarterly summary is incomplete. Please retry.');
+        if (data.taxYear !== year || ![data.totalEstimatedTax, data.recordedEstimatedPayments, data.w2Withheld].every(value => typeof value === 'number' && Number.isFinite(value)) || (data.totalFederalWithheld !== undefined && (typeof data.totalFederalWithheld !== 'number' || !Number.isFinite(data.totalFederalWithheld))) || !Array.isArray(data.quarters) || !data.paymentReview?.message) throw new Error('The quarterly summary is incomplete. Please retry.');
         if (current) setResult({ key, data });
       } catch (error) {
         if (current) setResult({ key, error: error instanceof Error ? error.message : 'Could not load your quarterly planning records.' });
@@ -44,7 +44,7 @@ export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyT
       <dl className="grid gap-3 sm:grid-cols-3">
         <div><dt>Federal estimate from saved annual records</dt><dd className="font-semibold">{money(data.totalEstimatedTax)}</dd></div>
         <div><dt>Recorded estimated payments</dt><dd className="font-semibold">{money(data.recordedEstimatedPayments)}</dd></div>
-        <div><dt>Recorded federal withholding</dt><dd className="font-semibold">{money(data.w2Withheld)}</dd></div>
+        <div><dt>Recorded federal withholding</dt><dd className="font-semibold">{money(data.totalFederalWithheld ?? data.w2Withheld)}</dd></div>
       </dl>
       <p className="text-sm text-muted-foreground">Saved records may cover only part of the year. These figures are not a full-year forecast or an installment amount due.</p>
       <div className="flex flex-wrap gap-3 text-sm underline"><a href="/tools/quarterly-estimate-calculator">Open payment-planning tool</a><a href="https://www.irs.gov/pub/irs-pdf/f1040es.pdf" target="_blank" rel="noopener noreferrer">Official IRS 1040-ES worksheet and vouchers</a><a href="https://www.irs.gov/payments" target="_blank" rel="noopener noreferrer">IRS payment options</a></div>

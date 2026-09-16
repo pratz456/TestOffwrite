@@ -2,7 +2,8 @@ import { decryptSensitive, isEncrypted, formatSSNForDisplay } from '@/lib/securi
 import { requireFeatureAccess } from '@/lib/subscriptions/feature-access';
 /**
  * Form 1040 (U.S. Individual Income Tax Return) PDF Export
- * Generates an IRS-faithful 2-page 1040 pre-filled from WriteOff data.
+ * Generates a 2-page federal planning summary using reviewed WriteOff data.
+ * Uses the published 2025 form layout for 2026 planning, not a final 2026 IRS form.
  * POST body: { year: number }
  * Sources: IRS Rev. Proc. 2024-40, OBBB P.L. 119-21, IRS Form 1040 instructions
  */
@@ -14,6 +15,8 @@ import { buildFederalTaxSnapshot } from '@/lib/tax-rules/federal-tax-snapshot';
 import { IncomeReconciliationRequiredError } from '@/lib/tax-rules/business-income';
 import { FilingStatusReviewRequiredError } from '@/lib/tax-rules/filing-status';
 import { SocialSecurityReviewRequiredError } from '@/lib/tax-rules/social-security';
+import { PersonalDeductionReviewRequiredError } from '@/lib/tax-rules/personal-deductions';
+import { DependentCreditReviewRequiredError } from '@/lib/tax-rules/credit-scope';
 import { PDFDocument, StandardFonts, rgb, PDFFont, PDFPage } from 'pdf-lib';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
@@ -95,7 +98,7 @@ async function page1(doc: PDFDocument, f: PDFFont, bf: PDFFont, d: Record<string
 
   // Banner
   p.drawRectangle({ x: ML, y: y - 13, width: MR - ML, height: 13, color: BLUE });
-  p.drawText(`WRITEOFF PRE-FILL  |  Tax Year ${yr}  |  Review all entries before filing`, { x: ML + 4, y: y - 9.5, size: 6.5, font: bf, color: WHITE });
+  p.drawText(`WRITEOFF PLANNING SUMMARY  |  Tax Year ${yr}  |  ${Number(yr) >= 2026 ? '2025 form layout; review before filing' : 'Review all entries before filing'}`, { x: ML + 4, y: y - 9.5, size: 6.5, font: bf, color: WHITE });
   y -= 17;
 
   // IRS Header
@@ -155,11 +158,14 @@ async function page1(doc: PDFDocument, f: PDFFont, bf: PDFFont, d: Record<string
   y = banner(p, 'Income', y, f, bf);
   y = row(p, '1a', 'Total wages from W-2 forms (Box 1)', y, d.w2Wages, f, bf, false);
   y = row(p, '1z', 'Total wages (add lines 1a-1h)', y, d.w2Wages, f, bf, true, true);
+  y = row(p, '2a', 'Tax-exempt interest reported for the benefit worksheet', y, d.taxExemptInterest || 0, f, bf, false);
   y = row(p, '2b', 'Taxable interest', y, d.interest, f, bf, false);
   y = row(p, '3b', 'Ordinary dividends', y, d.dividends, f, bf, true);
   y = row(p, '4b', 'IRA distributions (taxable)', y, d.iraDist, f, bf, false);
   y = row(p, '5b', 'Pensions and annuities (taxable)', y, 0, f, bf, true);
+  y = row(p, '6a', 'Social security benefits (Box5 net benefits)', y, d.socialSecurityNetBenefits || 0, f, bf, true);
   y = row(p, '6b', 'Social security benefits (taxable)', y, d.socialSecurity, f, bf, false);
+  if (d.socialSecurityLivedApartAllYear === true) y = row(p, '6d', 'Married filing separately: lived apart from spouse all year [X]', y, undefined, f, bf, false);
   y = row(p, '7', 'Capital gain or (loss)  -  attach Schedule D', y, d.capGains, f, bf, true);
   y = row(p, '8', 'Additional income from Schedule 1 (includes Schedule C net profit)', y, d.schedule1Income, f, bf, false);
   y -= 4;
@@ -183,12 +189,13 @@ async function page2(doc: PDFDocument, f: PDFFont, bf: PDFFont, d: Record<string
 
   // Deductions
   y = banner(p, 'Standard Deduction or Itemized Deductions', y, f, bf);
-  const stdAmt = d.standardDeduction?.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 });
-  y = row(p, '12', `${d.usingStandardDeduction ? 'Standard' : 'Itemized'} deduction (${yr} base for selected filing status: ${stdAmt})`, y, d.deductionUsed, f, bf, false);
-  y = row(p, '13', 'Qualified business income deduction (Form 8995 / 8995-A)', y, d.qbiDeduction, f, bf, true);
-  y = row(p, '14', 'Add lines 12 and 13', y, (d.deductionUsed || 0) + (d.qbiDeduction || 0), f, bf, false, true);
+  const hasSchedule1A = Number(yr) >= 2025;
+  y = row(p, hasSchedule1A ? '12e' : '12', `${d.usingStandardDeduction ? 'Standard deduction (reviewed age, blindness and dependency)' : 'Itemized deductions (Schedule A)'}`, y, d.deductionUsed, f, bf, false);
+  y = row(p, hasSchedule1A ? '13a' : '13', 'Qualified business income deduction (Form 8995 / 8995-A)', y, d.qbiDeduction, f, bf, true);
+  if (hasSchedule1A) y = row(p, '13b', 'Enhanced senior deduction (supported Schedule 1-A amount)', y, d.enhancedSeniorDeduction, f, bf, false);
+  y = row(p, '14', hasSchedule1A ? 'Add lines 12e, 13a and 13b' : 'Add lines 12 and 13', y, d.deductionUsed + d.qbiDeduction + d.enhancedSeniorDeduction, f, bf, false, true);
   y -= 4;
-  y = hrow(p, '15', 'Taxable income. Subtract line 14 from line 11. If zero or less, enter -0-.', y, d.taxableIncome, f, bf, rgb(0.88, 0.92, 1.0), BLUE);
+  y = hrow(p, '15', 'Taxable income after deductions (not less than zero)', y, d.taxableIncome, f, bf, rgb(0.88, 0.92, 1.0), BLUE);
   y -= 6;
 
   // Tax
@@ -210,7 +217,8 @@ async function page2(doc: PDFDocument, f: PDFFont, bf: PDFFont, d: Record<string
   // Payments
   y = banner(p, 'Payments', y, f, bf);
   y = row(p, '25a', 'W-2 federal income tax withheld (Box 2  -  all employers)', y, d.w2FederalWithheld, f, bf, false);
-  y = row(p, '25d', 'Total withholding (25a-25c)', y, d.w2FederalWithheld, f, bf, true, true);
+  y = row(p, '25b', 'SSA/RRB federal income tax withheld', y, d.socialSecurityFederalWithheld || 0, f, bf, false);
+  y = row(p, '25d', 'Total withholding (25a-25c)', y, d.w2FederalWithheld + (d.socialSecurityFederalWithheld || 0), f, bf, true, true);
   y = row(p, '26', `${yr} recorded estimated tax payments`, y, d.estimatedPayments, f, bf, false);
   y = row(p, '27', 'Earned income credit (EIC)', y, d.eitcCredit, f, bf, true);
   y = row(p, '28', 'Additional child tax credit', y, d.additionalCTC, f, bf, false);
@@ -338,6 +346,7 @@ export async function POST(request: NextRequest) {
 
     const displayData: Record<string, any> = {
       ...result, ...snapshot.income,
+      socialSecurityLivedApartAllYear: snapshot.socialSecurityWorksheet?.livedApartAllYear,
       schedule1Income: Math.max(0, snapshot.income.scheduleCNetProfit - snapshot.depreciationDeduction) + snapshot.income.rental + snapshot.income.otherOrdinaryIncome,
       w2FederalWithheld: snapshot.w2.withheld, w2StateWithheld: snapshot.w2.stateWithheld, estimatedPayments: snapshot.payments.estimatedPayments,
     };
@@ -362,7 +371,7 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (err) {
-    if (err instanceof IncomeReconciliationRequiredError || err instanceof FilingStatusReviewRequiredError || err instanceof SocialSecurityReviewRequiredError) return NextResponse.json({ error: err.message, code: err.code }, { status: 422 });
+    if (err instanceof IncomeReconciliationRequiredError || err instanceof FilingStatusReviewRequiredError || err instanceof SocialSecurityReviewRequiredError || err instanceof PersonalDeductionReviewRequiredError || err instanceof DependentCreditReviewRequiredError) return NextResponse.json({ error: err.message, code: err.code }, { status: 422 });
     if (err && typeof err === 'object' && 'code' in err && err.code === 'DEPRECIATION_REVIEW_REQUIRED') return NextResponse.json({ error: err instanceof Error ? err.message : 'Asset depreciation needs review', code: err.code }, { status: 422 });
     console.error('[1040 Export]', err);
     return NextResponse.json({ error: 'Failed to generate Form 1040' }, { status: 500 });

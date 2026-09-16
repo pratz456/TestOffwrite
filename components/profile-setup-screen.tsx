@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useBeforeUnload } from '@/lib/hooks/use-before-unload';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -12,6 +12,7 @@ import { upsertUserProfile } from '@/lib/firebase/profiles';
 import type { AuthUser } from '@/lib/firebase/auth';
 import { PlaidLinkScreen } from './plaid-link-screen';
 import { DataSourceScreen } from './data-source-screen';
+import { reloadProfileEmail } from '@/lib/onboarding/profile-identity';
 
 import { missingProfileFields, profileDetailsError, profileWriteData, PROFILE_COMPLETE_SCREEN, type ProfileSetupData as UserProfile } from '@/lib/onboarding/profile';
 
@@ -78,7 +79,20 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
   const [currentSlide, setCurrentSlide] = useState<'about' | 'business'>('about');
   const [showMoreDetails, setShowMoreDetails] = useState(false);
   const [skipBusiness, setSkipBusiness] = useState(false);
-  const [formData, setFormData] = useState<UserProfile>({
+  const [identity, setIdentity] = useState<{ userId: string; loading: boolean; email?: string; error?: string } | null>(null);
+  const [identityAttempt, setIdentityAttempt] = useState(0);
+  useEffect(() => {
+    if (user.email?.trim()) { setIdentity(null); return; }
+    let cancelled = false;
+    setIdentity({ userId: user.id, loading: true });
+    void reloadProfileEmail(user.id).then(
+      email => { if (!cancelled) setIdentity({ userId: user.id, loading: false, email }); },
+      failure => { if (!cancelled) setIdentity({ userId: user.id, loading: false, error: failure instanceof Error ? failure.message : 'We could not load your account email. Please try again.' }); },
+    );
+    return () => { cancelled = true; };
+  }, [user.id, user.email, identityAttempt]);
+  const currentIdentity = identity?.userId === user.id ? identity : null;
+  const [profileDetails, setFormData] = useState<UserProfile>({
     email: user?.email || '',
     name: user?.user_metadata?.name || '',
     yearOfBirth: '',
@@ -100,10 +114,14 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
     w2Income: undefined,
     businessIncome: undefined,
   });
+  // This read-only field belongs to the authenticated identity. Keep it current
+  // when provider data hydrates without resetting any answers the user has typed.
+  const formData: UserProfile = { ...profileDetails, email: user.email?.trim() ? user.email : currentIdentity?.email || '' };
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submittingRef = useRef(false);
   const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null);
-  const snapshot = JSON.stringify({ formData, skipBusiness });
+  // Loading a read-only account email is not an unsaved edit to the user's answers.
+  const snapshot = JSON.stringify({ formData: profileDetails, skipBusiness });
   const initialSnapshot = useRef(snapshot);
   useBeforeUnload(currentStep === 'profile' && savedSnapshot !== snapshot && initialSnapshot.current !== snapshot);
   const [error, setError] = useState<string | null>(null);
@@ -253,16 +271,21 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                         <Input id="profile-email"
                           type="email"
                           value={formData.email}
-                          onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
                           className="h-9 text-sm rounded-xl border-2 border-border bg-background pr-10 shadow-sm"
                           disabled
                         />
-                        <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                        {formData.email && <div className="absolute right-3 top-1/2 -translate-y-1/2">
                           <div className="w-5 h-5 bg-green-500 rounded-full flex items-center justify-center">
                             <span className="text-white text-[10px] font-bold">✓</span>
                           </div>
-                        </div>
+                        </div>}
                       </div>
+                      {!formData.email && <div className="mt-2 space-y-1">
+                        {currentIdentity?.error ? <>
+                          <p role="alert" className="text-xs text-destructive">{currentIdentity.error}</p>
+                          <Button type="button" size="sm" variant="outline" onClick={() => setIdentityAttempt(value => value + 1)}>Refresh account email</Button>
+                        </> : <p role="status" className="text-xs text-muted-foreground">Loading your account email…</p>}
+                      </div>}
                     </div>
                     <div>
                       <label htmlFor="profile-name" className="block text-xs font-semibold text-foreground mb-1">

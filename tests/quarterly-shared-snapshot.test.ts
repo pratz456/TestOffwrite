@@ -1,3 +1,4 @@
+import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductions';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 const state = vi.hoisted(() => ({ uid: 'quarterly-owner' as string | null, error: null as string | null, records: {} as Record<string, Record<string, unknown>[]>, tx: [] as Record<string, unknown>[] }));
@@ -14,7 +15,7 @@ import { POST as legacy } from '../app/api/tax/quarterly-estimates/route';
 import { POST as voucher } from '../app/api/tax/generate-1040es/route';
 const req = (year = 2026) => new NextRequest(`http://localhost/api/tax/quarterly-reminders?year=${year}`);
 const post = (body: unknown) => new NextRequest('http://localhost/api/tax/quarterly-estimates', { method: 'POST', body: JSON.stringify(body) });
-beforeEach(() => { state.uid = 'quarterly-owner'; state.error = null; state.records = {}; state.tx = [{ amount: -100000, date: '2026-02-01', category: 'income' }, { amount: 1000, date: '2026-02-01', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', is_deductible: true }]; });
+beforeEach(() => { state.uid = 'quarterly-owner'; state.error = null; state.records = { tax_organizers: [reviewedPersonalDeductionOrganizer()] }; state.tx = [{ amount: -100000, date: '2026-02-01', category: 'income' }, { amount: 1000, date: '2026-02-01', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', is_deductible: true }]; });
 
 describe('quarterly summary uses the shared saved-record annual engine', () => {
   it('matches annual JSON tax including QBI and records payments without claiming an installment is paid', async () => {
@@ -32,9 +33,20 @@ describe('quarterly summary uses the shared saved-record annual engine', () => {
     expect(response.status).toBe(200); expect((await response.json()).grossReceipts).toBe(100000);
   });
   it('propagates Social Security review and does not leak an annual/quarterly amount', async () => {
-    state.records.tax_organizers = [{ hasSocialSecurity: 'yes', amountSocialSecurity: '20000' }];
+    state.records.tax_organizers = [reviewedPersonalDeductionOrganizer(2026, {}, { hasSocialSecurity: 'yes', amountSocialSecurity: '20000' })];
     for (const response of [await quarterly(req()), await legacy(post({ taxYear: 2026 }))]) {
       expect(response.status).toBe(422); const body = await response.json(); expect(body.code).toBe('SOCIAL_SECURITY_REVIEW_REQUIRED'); expect(body).not.toHaveProperty('totalEstimatedTax');
+    }
+  });
+  it.each([undefined, reviewedPersonalDeductionOrganizer(2025)])('preserves missing/stale personal deduction review across quarterly entrypoints', async organizer => {
+    state.records.tax_organizers = organizer ? [organizer] : [];
+    for (const response of [await quarterly(req()), await legacy(post({ taxYear: 2026 }))]) {
+      expect(response.status).toBe(422);
+      const body = await response.json();
+      expect(body.code).toBe('PERSONAL_DEDUCTION_REVIEW_REQUIRED');
+      expect(body.error).toContain('Tax Organizer');
+      expect(body).not.toHaveProperty('totalEstimatedTax');
+      expect(body).not.toHaveProperty('perQuarterRecommended');
     }
   });
   it('preserves overlapping income review rather than dropping unsupported source data', async () => {

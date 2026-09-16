@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactElement } from 'react';
 
 // Runs the real UI request/state handlers. This is not a browser rendering test.
-const harness = vi.hoisted(() => ({ slots: [] as any[], cursor: 0, effects: [] as (() => void)[], request: vi.fn() }));
+const harness = vi.hoisted(() => ({ slots: [] as any[], cursor: 0, effects: [] as (() => void)[], request: vi.fn(), navigate: vi.fn() }));
 vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: harness.request }));
 vi.mock('react', async importOriginal => {
   const actual = await importOriginal<typeof import('react')>();
@@ -39,7 +39,7 @@ import { TaxPreviewScreen } from '../components/tax-preview-screen';
 type Element = ReactElement<Record<string, any>>;
 function render(component = TaxFilingHubScreen): Element {
   harness.cursor = 0;
-  const tree = component({ user: { id: 'snapshot-owner' }, onBack() {} }) as Element;
+  const tree = component({ user: { id: 'snapshot-owner' }, onBack() {}, onNavigate: harness.navigate }) as Element;
   harness.effects.splice(0).forEach(effect => effect());
   return tree;
 }
@@ -58,10 +58,10 @@ const response = (body: unknown, status = 200) => Response.json(body, { status }
 function snapshot(taxYear = year) {
   return {
     taxYear,
-    income: { grossReceipts: 20000, scheduleCNetProfit: 15000, totalDeductible: 5000, w2Wages: 50000 },
+    income: { grossReceipts: 20000, scheduleCNetProfit: 15000, totalDeductible: 5000, w2Wages: 50000, socialSecurityNetBenefits: 0, socialSecurity: 0 },
     w2: { count: 1, withheld: 0 }, seCalc: { totalSETax: 2000, halfSEDeduction: 1000 },
     deductions: { healthInsurancePremiums: 2000 }, payments: { estimatedPayments: 0 },
-    form1040: { taxYear, totalIncome: 65000, totalTax: 0, balanceDue: 0, refund: 0, agi: 62000, effectiveRate: 0, marginalRate: 0, calculationWarnings: [] },
+    form1040: { taxYear, totalIncome: 65000, totalTax: 0, balanceDue: 0, refund: 0, agi: 62000, effectiveRate: 0, marginalRate: 0, enhancedSeniorDeduction: 0, socialSecurityFederalWithheld: 0, calculationWarnings: [] },
   };
 }
 function requests(url: string) {
@@ -73,7 +73,7 @@ function requests(url: string) {
   return Promise.resolve(response({ confirmedCount: 35, totalDeductible: 5000 }));
 }
 beforeEach(() => {
-  harness.slots = []; harness.cursor = 0; harness.effects = []; harness.request.mockReset();
+  harness.slots = []; harness.cursor = 0; harness.effects = []; harness.request.mockReset(); harness.navigate.mockReset();
   harness.request.mockImplementation(requests);
 });
 
@@ -129,5 +129,37 @@ describe('tax preview wage display', () => {
     const row = walk(render(TaxPreviewScreen)).find(node => node.type === 'div' && node.props?.className?.includes('justify-between px-4 py-2') && text(node).includes('W-2 wages'))!;
     expect(text(row)).toContain(wages === 0 ? '$0' : '$40,000');
     expect(text(row)).not.toContain(wages === 0 ? '-$500' : '$39,500');
+  });
+});
+
+
+describe('tax preview personal deduction and benefit contract', () => {
+  it.each(['PERSONAL_DEDUCTION_REVIEW_REQUIRED', 'DEPENDENT_CREDIT_REVIEW_REQUIRED'])('routes %s to Tax Organizer without fake totals or the add-income empty state', async code => {
+    render(TaxPreviewScreen); await flush(); const previous = render(TaxPreviewScreen);
+    expect(text(previous)).toContain('$65,000');
+    harness.request.mockResolvedValue(response({ code, error: 'Review the saved eligibility answers in Tax Organizer.' }, 422));
+    await walk(previous).find(node => node.props?.['aria-label'] === 'Refresh tax estimate')!.props.onClick();
+    const tree = render(TaxPreviewScreen), content = text(tree);
+    expect(content).toContain('Review the saved eligibility answers in Tax Organizer.');
+    expect(content).not.toContain('No data yet'); expect(content).not.toContain('Add Income');
+    expect(content).not.toContain('$65,000'); expect(content).not.toContain('$0');
+    walk(tree).find(node => node.props?.onClick && text(node) === 'Review Tax Organizer')!.props.onClick();
+    expect(harness.navigate).toHaveBeenCalledWith('tax-organizer');
+  });
+
+  it('shows server-provided net and taxable benefits, benefit withholding, and the separate senior deduction', async () => {
+    const data = snapshot(2026);
+    Object.assign(data.income, { socialSecurityNetBenefits: 20000, socialSecurity: 17000 });
+    Object.assign(data.form1040, { enhancedSeniorDeduction: 6000, socialSecurityFederalWithheld: 1200 });
+    harness.request.mockResolvedValue(response(data));
+    render(TaxPreviewScreen); await flush();
+    walk(render(TaxPreviewScreen)).find(node => node.props?.onClick && text(node) === 'Show')!.props.onClick();
+    const rows = walk(render(TaxPreviewScreen)).filter(node => node.type === 'div' && node.props?.className?.includes('justify-between px-4 py-2')).map(text);
+    expect(rows).toEqual(expect.arrayContaining([
+      expect.stringContaining('Net Social Security benefits$20,000'),
+      expect.stringContaining('Taxable Social Security benefits$17,000'),
+      expect.stringContaining('Social Security / RRB withholding($1,200)'),
+      expect.stringContaining('Enhanced senior deduction($6,000)'),
+    ]));
   });
 });

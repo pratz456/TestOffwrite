@@ -1,3 +1,4 @@
+import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductions';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
@@ -22,7 +23,7 @@ import { GET } from '../app/api/tax/compute-1040/route';
 
 beforeEach(() => {
   state.uid = 'owner-a'; state.txError = null; state.paid = 750; state.depreciation = 0; state.reads.length = 0;
-  state.collections = { w2_income: [{ box1Wages: 100000, box2FederalWithheld: 5000, box3SocialSecurityWages: 100000, box5MedicareWages: 100000 }] };
+  state.collections = { tax_organizers: [reviewedPersonalDeductionOrganizer()], w2_income: [{ box1Wages: 100000, box2FederalWithheld: 5000, box3SocialSecurityWages: 100000, box5MedicareWages: 100000 }] };
 });
 function request(year = '2026') { return new NextRequest(`http://localhost/api/tax/compute-1040?year=${year}`); }
 
@@ -32,7 +33,7 @@ describe('Form1040 API integration', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('cache-control')).toBe('private, no-store');
     const data = await response.json();
-    expect(data.payments).toEqual({ estimatedPayments: 750, w2FederalWithheld: 5000 });
+    expect(data.payments).toEqual({ estimatedPayments: 750, w2FederalWithheld: 5000, socialSecurityFederalWithheld: 0, totalFederalWithheld: 5000 });
     expect(data.form1040.standardDeduction).toBe(16100);
     expect(data.form1040.incomeTax).toBe(13170);
     expect(state.reads).toContain('user_profiles/owner-a/quarterly_payments/Q1_2026');
@@ -40,7 +41,7 @@ describe('Form1040 API integration', () => {
   });
 
   it('applies depreciation before Schedule SE and keeps a zero Box3 from falling back to Box1', async () => {
-    state.collections = { gross_receipts: [{ amount: 100000 }], w2_income: [{ box1Wages: 100000, box3SocialSecurityWages: 0, box5MedicareWages: 100000 }] };
+    state.collections = { tax_organizers: [reviewedPersonalDeductionOrganizer()], gross_receipts: [{ amount: 100000 }], w2_income: [{ box1Wages: 100000, box3SocialSecurityWages: 0, box5MedicareWages: 100000 }] };
     state.depreciation = 20000;
     const result = await (await GET(request())).json();
     expect(result.seCalc.netProfitFromScheduleC).toBe(80000);
@@ -51,6 +52,16 @@ describe('Form1040 API integration', () => {
   it.each(['2027', '2026garbage', 'NaN', '2026.5'])('rejects unavailable/invalid year %s before reading financial data', async year => {
     expect((await GET(request(year))).status).toBe(400);
     expect(state.reads).toEqual([]);
+  });
+
+  it.each([undefined, reviewedPersonalDeductionOrganizer(2025)])('requires current-year personal deduction facts before exposing an annual amount', async organizer => {
+    state.collections.tax_organizers = organizer ? [organizer] : [];
+    const response = await GET(request());
+    expect(response.status).toBe(422);
+    const body = await response.json();
+    expect(body.code).toBe('PERSONAL_DEDUCTION_REVIEW_REQUIRED');
+    expect(body.error).toContain('Tax Organizer');
+    expect(body).not.toHaveProperty('form1040');
   });
 
   it('reports a data-load failure instead of a calculation from silent zeros', async () => {

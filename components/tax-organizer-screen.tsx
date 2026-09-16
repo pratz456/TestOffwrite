@@ -1,11 +1,13 @@
 "use client";
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChevronRight, ChevronLeft, CheckCircle2, Circle, Loader2, Save, Info } from "lucide-react";
+import { ChevronRight, ChevronLeft, CheckCircle2, Loader2, Save, Info } from "lucide-react";
+import { PersonalDeductionFields } from "@/components/personal-deduction-fields";
+import { SocialSecurityFields, EMPTY_SOCIAL_SECURITY_ANSWERS, type SocialSecurityAnswers } from "@/components/tax-organizer-social-security";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 
 interface Props { user: { id: string; email?: string }; onBack: () => void; onNavigate?: (screen: string) => void; }
@@ -17,7 +19,8 @@ const FILING_STATUSES = [
   { value: "head_of_household", label: "Head of Household" },
 ];
 
-interface OrgAnswers {
+interface OrgAnswers extends SocialSecurityAnswers {
+  personalDeductionFacts: string;
   // Personal
   filingStatus: string;
   dateOfBirth: string;
@@ -79,7 +82,9 @@ interface OrgAnswers {
   quarterlyTotal: string;
 }
 
-const EMPTY: OrgAnswers = {
+export const EMPTY_ORGANIZER_ANSWERS: OrgAnswers = {
+  ...EMPTY_SOCIAL_SECURITY_ANSWERS,
+  personalDeductionFacts: "",
   filingStatus:"",dateOfBirth:"",taxpayerSSN:"",spouseName:"",spouseDoB:"",spouseSSN:"",dependents:"0",dependentDetails:"",streetAddress:"",city:"",stateAddr:"",zipCode:"",priorYearAGI:"",bankRouting:"",bankAccount:"",bankAccountType:"checking",ipPin:"",
   hasW2:"",hasSEIncome:"yes",has1099K:"",has1099INT:"",amount1099INT:"",has1099DIV:"",amount1099DIV:"",hasCapGains:"",amountCapGains:"",hasSocialSecurity:"",amountSocialSecurity:"",hasIRADistributions:"",amountIRADistributions:"",hasRentalIncome:"",amountRentalIncome:"",hasOtherIncome:"",amountOtherIncome:"",
   paidHealthInsurance:"",healthInsurancePremium:"",madeRetirementContrib:"",retirementAmount:"",retirementType:"sep_ira",
@@ -88,42 +93,96 @@ const EMPTY: OrgAnswers = {
   priorYearTax:"",madeQuarterlyPayments:"",quarterlyTotal:"",
 };
 
+const EMPTY = EMPTY_ORGANIZER_ANSWERS;
+
+const readOrganizerYear = async (targetYear: number): Promise<OrgAnswers> => {
+    const res = await makeAuthenticatedRequest(`/api/tax/organizer?year=${targetYear}`, { cache: 'no-store' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Could not load the organizer. Please retry.');
+    if (data.taxYear !== targetYear || (data.organizer !== null && (!data.organizer || typeof data.organizer !== 'object' || Array.isArray(data.organizer)))) {
+      throw new Error('The organizer response did not match the selected year. Please retry.');
+    }
+    return { ...EMPTY, ...(data.organizer || {}) };
+  };
+
 const STEPS = ["Personal Info","Income Sources","Deductions","Life Events","Prior Year"];
 
-export function TaxOrganizerScreen({ user, onBack, onNavigate }: Props) {
-  const currentYear = new Date().getFullYear();
-  const [year] = useState(currentYear);
+export function TaxOrganizerScreen({ user }: Props) {
+  const [year, setYear] = useState(Math.min(2026, Math.max(2024, new Date().getFullYear())));
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState<OrgAnswers>(EMPTY);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [switchingYear, setSwitchingYear] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const revision = useRef(0);
+  const loadedKey = useRef<string | null>(null);
+  const baseline = useRef('');
+  const savePending = useRef(false);
+  const switchPending = useRef(false);
+  const currentOwner = useRef(user.id);
+  currentOwner.current = user.id;
 
-  const set = (k: keyof OrgAnswers, v: string) => setAnswers(p => ({ ...p, [k]: v }));
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await makeAuthenticatedRequest(`/api/tax/organizer?year=${year}`);
-      const data = await res.json();
-      if (data.organizer) setAnswers({ ...EMPTY, ...data.organizer });
-    } catch { } finally { setLoading(false); }
-  }, [year]);
-
-  useEffect(() => { load(); }, [load]);
-
-  const save = async () => {
-    setSaving(true); setError(null);
-    try {
-      const res = await makeAuthenticatedRequest("/api/tax/organizer", { method: "POST", body: JSON.stringify({ ...answers, taxYear: year }) });
-      if (!res.ok) { let m = "Failed"; try { m = (await res.json()).error || m; } catch {} throw new Error(m); }
-      setSaved(true); setTimeout(() => setSaved(false), 2500);
-    } catch (err) { setError(err instanceof Error ? err.message : "Failed to save"); }
-    finally { setSaving(false); }
+  const set = (k: keyof OrgAnswers, v: string) => {
+    if (savePending.current || switchPending.current) return;
+    setAnswers(p => ({ ...p, [k]: v })); setSaved(false);
   };
+  const load = useCallback(async () => {
+    const key = `${user.id}:${year}`;
+    if (loadedKey.current === key) return;
+    const operation = ++revision.current;
+    setLoading(true); setError(null);
+    try {
+      const nextAnswers = await readOrganizerYear(year);
+      if (revision.current !== operation || currentOwner.current !== user.id) return;
+      setAnswers(nextAnswers); baseline.current = JSON.stringify(nextAnswers);
+      loadedKey.current = key; setLoadFailed(false); setSaved(false);
+    } catch (err) {
+      if (revision.current !== operation) return;
+      setLoadFailed(true); setError(err instanceof Error ? err.message : 'Could not load the organizer. Please retry.');
+    } finally { if (revision.current === operation) setLoading(false); }
+  }, [year, user.id]);
 
-  const next = async () => { await save(); if (step < STEPS.length - 1) setStep(s => s + 1); };
+  useEffect(() => {
+    void load();
+    // This is an operation counter, not a DOM ref: cleanup must invalidate the
+    // latest retry as well as the first request started by this effect.
+    const operationCounter = revision;
+    return () => { operationCounter.current++; };
+  }, [load]);
+
+  const save = async (): Promise<boolean> => {
+    if (savePending.current || loading || loadFailed || loadedKey.current !== `${user.id}:${year}`) return false;
+    savePending.current = true; setSaving(true); setError(null);
+    const operation = revision.current;
+    const savedAnswers = JSON.stringify(answers);
+    try {
+      const res = await makeAuthenticatedRequest('/api/tax/organizer', { method: 'POST', body: JSON.stringify({ ...answers, taxYear: year }) });
+      if (!res.ok) { const data = await res.json().catch(() => ({})); throw new Error(data.error || 'Could not save the organizer. Your edits remain on this page.'); }
+      if (revision.current !== operation || currentOwner.current !== user.id) return false;
+      baseline.current = savedAnswers; setSaved(true); return true;
+    } catch (err) {
+      if (revision.current === operation) setError(err instanceof Error ? err.message : 'Could not save the organizer. Your edits remain on this page.');
+      return false;
+    } finally { savePending.current = false; setSaving(false); }
+  };
+  const changeYear = async (nextYear: number) => {
+    if (![2024, 2025, 2026].includes(nextYear) || nextYear === year || switchPending.current || savePending.current) return;
+    switchPending.current = true; setSwitchingYear(true); setError(null);
+    const operation = revision.current;
+    try {
+      if (JSON.stringify(answers) !== baseline.current && !await save()) return;
+      const nextAnswers = await readOrganizerYear(nextYear);
+      if (revision.current !== operation || currentOwner.current !== user.id) return;
+      loadedKey.current = `${user.id}:${nextYear}`; baseline.current = JSON.stringify(nextAnswers);
+      setAnswers(nextAnswers); setYear(nextYear); setStep(0); setSaved(false);
+    } catch (err) {
+      if (revision.current === operation) setError(`Still showing ${year}. ${err instanceof Error ? err.message : 'Could not open the other year. Please retry.'}`);
+    } finally { switchPending.current = false; setSwitchingYear(false); }
+  };
+  const next = async () => { if (await save() && step < STEPS.length - 1) setStep(s => s + 1); };
   const prev = () => setStep(s => s - 1);
 
   const yesno = (key: keyof OrgAnswers, label: string) => (
@@ -146,17 +205,20 @@ export function TaxOrganizerScreen({ user, onBack, onNavigate }: Props) {
     return false;
   }).length;
 
-  if (loading) return <div className="min-h-screen bg-background flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-muted-foreground" /></div>;
+  if (loading || (!loadFailed && loadedKey.current !== `${user.id}:${year}`)) return <div className="min-h-screen bg-background flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-muted-foreground" /></div>;
+
+  if (loadFailed) return <div role="alert" className="mx-auto max-w-2xl space-y-3 p-6"><p>{error}</p><Button onClick={() => void load()}>Retry organizer</Button></div>;
 
   return (
     <div className="min-h-screen bg-background">
       <div className="sticky top-0 z-50 bg-background border-b border-border">
-        <div className="max-w-2xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3">
+        <div className="max-w-2xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex flex-wrap items-center gap-3">
           <div className="flex-1">
             <h1 className="text-lg sm:text-xl font-semibold">Tax Organizer {year}</h1>
             <p className="text-xs text-muted-foreground">{completedSteps} of {STEPS.length} sections complete</p>
           </div>
-          <Button onClick={save} disabled={saving} variant="outline" size="sm" className="gap-1.5 min-h-[36px]">
+          <label className="text-xs">Tax year<select aria-label="Organizer tax year" value={year} disabled={saving || switchingYear} onChange={event => void changeYear(Number(event.target.value))} className="ml-2 rounded border bg-background p-2">{[2026, 2025, 2024].map(value => <option key={value} value={value}>{value}</option>)}</select></label>
+          <Button onClick={save} disabled={saving || switchingYear} variant="outline" size="sm" className="gap-1.5 min-h-[36px]">
             {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : saved ? <CheckCircle2 className="w-3.5 h-3.5 text-green-500" /> : <Save className="w-3.5 h-3.5" />}
             {saved ? "Saved" : "Save"}
           </Button>
@@ -165,7 +227,7 @@ export function TaxOrganizerScreen({ user, onBack, onNavigate }: Props) {
         {/* Progress steps */}
         <div className="max-w-2xl mx-auto px-4 sm:px-6 pb-3 flex gap-1">
           {STEPS.map((s, i) => (
-            <button key={s} onClick={() => setStep(i)} className={`flex-1 h-1.5 rounded-full transition-colors ${i === step ? "bg-primary" : i < step ? "bg-primary/50" : "bg-muted"}`} />
+            <button key={s} disabled={saving || switchingYear} onClick={() => setStep(i)} className={`flex-1 h-1.5 rounded-full transition-colors ${i === step ? "bg-primary" : i < step ? "bg-primary/50" : "bg-muted"}`} />
           ))}
         </div>
       </div>
@@ -178,13 +240,15 @@ export function TaxOrganizerScreen({ user, onBack, onNavigate }: Props) {
           <span className="text-sm text-muted-foreground">({step + 1} of {STEPS.length})</span>
         </div>
 
+        {switchingYear && <p role="status" className="text-sm">Saving changes and opening the selected year…</p>}
+        <fieldset disabled={saving || switchingYear} className="space-y-5">
         {/* STEP 0: Personal Info */}
         {step === 0 && (
           <div className="space-y-4">
             {/* SSN notice */}
             <div className="flex items-start gap-2 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/30 px-4 py-3 text-xs text-blue-800 dark:text-blue-300">
               <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-              <p>Your SSN is required on Form 1040, Schedule C, and all supporting schedules. WriteOff stores it encrypted and only uses it to pre-fill your PDF exports. We never transmit it anywhere without your explicit authorization via Form 8879.</p>
+              <p>These optional identity and account records can help prepare an accountant handoff. WriteOff does not submit tax returns or arrange refunds. Review every export before sharing it.</p>
             </div>
 
             <Card className="bg-card border-border">
@@ -198,12 +262,9 @@ export function TaxOrganizerScreen({ user, onBack, onNavigate }: Props) {
                   </Select>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
                   <div className="space-y-1.5">
-                    <Label className="text-sm font-medium">Your Date of Birth *</Label>
-                    <Input type="date" value={answers.dateOfBirth} onChange={e => set("dateOfBirth", e.target.value)} className="bg-background" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-sm font-medium">Your Social Security Number *</Label>
+                    <Label className="text-sm font-medium">Your Social Security Number (optional)</Label>
                     <Input
                       type="password"
                       value={answers.taxpayerSSN}
@@ -212,22 +273,19 @@ export function TaxOrganizerScreen({ user, onBack, onNavigate }: Props) {
                       className="bg-background font-mono"
                       maxLength={9}
                     />
-                    <p className="text-xs text-muted-foreground">Required on Form 1040, Line 1. Format: XXX-XX-XXXX on the form.</p>
+                    <p className="text-xs text-muted-foreground">Optional for the planning estimate. Included in your exported identity information when provided.</p>
                   </div>
                 </div>
 
                 {answers.filingStatus === "married_filing_jointly" && (
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 border-t border-border">
                     <div className="space-y-1.5">
-                      <Label className="text-sm font-medium">Spouse Full Name *</Label>
+                      <Label className="text-sm font-medium">Spouse Full Name (optional)</Label>
                       <Input value={answers.spouseName} onChange={e => set("spouseName", e.target.value)} placeholder="Legal name" className="bg-background" />
                     </div>
+
                     <div className="space-y-1.5">
-                      <Label className="text-sm font-medium">Spouse Date of Birth *</Label>
-                      <Input type="date" value={answers.spouseDoB} onChange={e => set("spouseDoB", e.target.value)} className="bg-background" />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-sm font-medium">Spouse SSN *</Label>
+                      <Label className="text-sm font-medium">Spouse SSN (optional)</Label>
                       <Input
                         type="password"
                         value={answers.spouseSSN}
@@ -255,12 +313,14 @@ export function TaxOrganizerScreen({ user, onBack, onNavigate }: Props) {
                         placeholder={"List each dependent on a new line:\nFirst Last, SSN, Date of Birth, Relationship\nExample: Emma Shah, 123-45-6789, 2018-03-15, Daughter"}
                         className="w-full min-h-[96px] text-xs rounded-lg border border-border bg-background px-3 py-2 font-mono resize-none focus:outline-none focus:ring-1 focus:ring-primary"
                       />
-                      <p className="text-xs text-muted-foreground">Required for child tax credit (Line 19), dependent care credit, and EIC. SSN required for each dependent claimed.</p>
+                      <p className="text-xs text-muted-foreground">Keep these optional records for your tax preparer. A dependent count or this text does not establish credit eligibility; dependent credits require review before WriteOff can show an annual total or refund.</p>
                     </div>
                   )}
                 </div>
               </CardContent>
             </Card>
+
+            <PersonalDeductionFields taxYear={year} filingStatus={answers.filingStatus} answers={answers} onChange={set} />
 
             <Card className="bg-card border-border">
               <CardHeader className="pb-3"><CardTitle className="text-sm font-semibold">Mailing Address</CardTitle></CardHeader>
@@ -285,23 +345,23 @@ export function TaxOrganizerScreen({ user, onBack, onNavigate }: Props) {
 
             <Card className="bg-card border-border">
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold">E-File Identity Verification</CardTitle>
-                <p className="text-xs text-muted-foreground">Required by the IRS to submit your return electronically</p>
+                <CardTitle className="text-sm font-semibold">Optional Accountant Handoff</CardTitle>
+                <p className="text-xs text-muted-foreground">Reference records for your tax preparer; WriteOff does not e-file returns.</p>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-1.5">
-                  <Label className="text-sm font-medium">Prior Year AGI (Form 1040, Line 11) *</Label>
+                  <Label className="text-sm font-medium">Prior Year AGI (Form 1040)</Label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
                     <Input
-                      type="number" min={0}
+                      type="number"
                       value={answers.priorYearAGI}
                       onChange={e => set("priorYearAGI", e.target.value)}
                       placeholder="From last year's return"
                       className="pl-7 bg-background"
                     />
                   </div>
-                  <p className="text-xs text-muted-foreground">Found on last year's Form 1040, Line 11. Required by the IRS to verify your identity when e-filing. If you filed for the first time last year, enter $0.</p>
+                  <p className="text-xs text-muted-foreground">Use the actual adjusted gross income from your prior-year return (line 11 on 2024; line 11a on 2025). Do not replace it with zero because that was your first return. If you did not file, ask your preparer how to complete their filing verification.</p>
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-sm font-medium">IRS Identity Protection PIN (IP PIN)</Label>
@@ -312,15 +372,15 @@ export function TaxOrganizerScreen({ user, onBack, onNavigate }: Props) {
                     className="bg-background font-mono"
                     maxLength={6}
                   />
-                  <p className="text-xs text-muted-foreground">Only if the IRS has sent you an IP PIN letter. If you have one and don't enter it, your return will be rejected. Get yours at irs.gov/identity-theft-central.</p>
+                  <p className="text-xs text-muted-foreground">If the IRS assigned you an IP PIN, confirm the current PIN with your tax preparer. This optional record does not authorize WriteOff to file a return.</p>
                 </div>
               </CardContent>
             </Card>
 
             <Card className="bg-card border-border">
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold">Refund Direct Deposit</CardTitle>
-                <p className="text-xs text-muted-foreground">Optional - only needed if you expect a refund</p>
+                <CardTitle className="text-sm font-semibold">Optional Refund Account Record</CardTitle>
+                <p className="text-xs text-muted-foreground">Optional information to review with your tax preparer.</p>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -355,7 +415,7 @@ export function TaxOrganizerScreen({ user, onBack, onNavigate }: Props) {
                     </Select>
                   </div>
                 </div>
-                <p className="text-xs text-muted-foreground">Pre-fills Form 1040 Lines 35b-35d for direct deposit. The IRS deposits refunds in 10-21 days for e-filed returns.</p>
+                <p className="text-xs text-muted-foreground">These details may appear in your PDF export. Verify them with your preparer; WriteOff does not submit refund instructions or predict IRS refund timing.</p>
               </CardContent>
             </Card>
           </div>
@@ -373,7 +433,7 @@ export function TaxOrganizerScreen({ user, onBack, onNavigate }: Props) {
               {yesno("has1099INT", "Bank interest income (1099-INT)")}
               {answers.has1099INT === "yes" && (
                 <div className="ml-4 border-l-2 border-primary/30 pl-4 space-y-1.5">
-                  <Label className="text-sm font-medium">Total interest income (all 1099-INT forms, Box 1)</Label>
+                  <Label className="text-sm font-medium">Taxable interest (Form1040 line2b, after any savings-bond exclusion)</Label>
                   <div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
                     <Input type="number" min={0} value={answers.amount1099INT} onChange={e => set("amount1099INT", e.target.value)} placeholder="0.00" className="pl-7 bg-background" /></div>
                   <p className="text-xs text-muted-foreground">Flows to Form 1040 Line 2b.</p>
@@ -406,7 +466,7 @@ export function TaxOrganizerScreen({ user, onBack, onNavigate }: Props) {
                   <Label className="text-sm font-medium">Benefits paid (SSA-1099 Box 3, for your records)</Label>
                   <div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
                     <Input type="number" min={0} value={answers.amountSocialSecurity} onChange={e => set("amountSocialSecurity", e.target.value)} placeholder="0.00" className="pl-7 bg-background" /></div>
-                  <p role="note" className="text-xs text-muted-foreground">This is not the taxable amount. Your records remain saved, but the federal estimate and Form 1040 export need tax review. The organizer does not yet collect net benefits (Box 5), tax-exempt income, repayment/lump-sum details or all spouse-living facts needed to calculate taxable benefits. Keep your SSA-1099/RRB-1099 records and review <a href="https://www.irs.gov/publications/p915" target="_blank" rel="noopener noreferrer" className="underline">IRS Publication 915</a>.</p>
+                  <SocialSecurityFields answers={answers} set={set} filingStatus={answers.filingStatus} hasRetirementIncome={answers.hasIRADistributions === "yes" || !!Number(answers.amountIRADistributions)} />
                 </div>
               )}
 
@@ -520,11 +580,11 @@ export function TaxOrganizerScreen({ user, onBack, onNavigate }: Props) {
         {step === 4 && (
           <Card className="bg-card border-border">
             <CardContent className="p-5 space-y-5">
-              <p className="text-sm text-muted-foreground">Prior year information is used to calculate safe harbor quarterly payments and verify your identity when e-filing.</p>
+              <p className="text-sm text-muted-foreground">Keep prior-year records for your preparer. Quarterly payment planning separately requires review of prior-year tax, AGI and eligibility facts.</p>
               <div className="space-y-1.5">
                 <Label className="text-sm font-medium">Prior year total tax ({year - 1} Form 1040, Line 24)</Label>
                 <Input type="number" min="0" step="0.01" value={answers.priorYearTax} onChange={e => set("priorYearTax", e.target.value)} placeholder="e.g. 8500" className="bg-background" />
-                <p className="text-xs text-muted-foreground">Used to calculate your safe harbor quarterly payment amount</p>
+                <p className="text-xs text-muted-foreground">A prior-year tax amount alone does not establish a safe-harbor payment amount.</p>
               </div>
               {yesno("madeQuarterlyPayments", `Did you make estimated tax payments in ${year}?`)}
               {answers.madeQuarterlyPayments === "yes" && (
@@ -534,24 +594,25 @@ export function TaxOrganizerScreen({ user, onBack, onNavigate }: Props) {
                 </div>
               )}
               <div className="rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/40 px-4 py-3 text-sm text-green-800 dark:text-green-300">
-                <p className="font-medium mb-1">You're all set!</p>
-                <p>Your organizer answers help us generate accurate tax forms and identify every deduction. Your data is saved securely and used only for your tax preparation.</p>
+                <p className="font-medium mb-1">Review and save your records</p>
+                <p>Your answers support the deductions and estimates currently available in WriteOff. Some situations still require tax review. Save your changes, then review the calculation and any messages before using an export.</p>
               </div>
             </CardContent>
           </Card>
         )}
 
+        </fieldset>
         {/* Navigation */}
         <div className="flex gap-3">
           {step > 0 && (
-            <Button variant="outline" onClick={prev} className="flex-1 gap-2 min-h-[44px]"><ChevronLeft className="w-4 h-4" />Back</Button>
+            <Button variant="outline" disabled={saving || switchingYear} onClick={prev} className="flex-1 gap-2 min-h-[44px]"><ChevronLeft className="w-4 h-4" />Back</Button>
           )}
           {step < STEPS.length - 1 ? (
-            <Button onClick={next} disabled={saving} className="flex-1 gap-2 min-h-[44px]">
+            <Button onClick={next} disabled={saving || switchingYear} className="flex-1 gap-2 min-h-[44px]">
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}Next<ChevronRight className="w-4 h-4" />
             </Button>
           ) : (
-            <Button onClick={save} disabled={saving} className="flex-1 gap-2 min-h-[44px]">
+            <Button onClick={save} disabled={saving || switchingYear} className="flex-1 gap-2 min-h-[44px]">
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
               {saved ? "Saved!" : "Save & Finish"}
             </Button>

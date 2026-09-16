@@ -106,6 +106,25 @@ async function makeUser(name, profile = {}) {
   await seed(`user_profiles/${data.localId}`, { userId: data.localId, name: `Smoke ${name}`, email, profession: 'Designer', business_entity_type: 'sole_proprietor', income: '100000', state: 'TX', filing_status: 'single', onboardingIntroCompleted: true, onboardingPlaidGuideCompleted: true, subscriptionStatus: 'trial', trialStart: new Date(Date.now() - 86400000), trialEnd: new Date(Date.now() + 7 * 86400000), hasHistoricalAccess: true, ...profile });
   return { uid: data.localId, token: signedInData.idToken };
 }
+// Explicit declarations for synthetic adults only; never application defaults.
+function reviewedPersonalDeductionAnswers(taxYear = 2026) {
+  return {
+    taxYear, filingStatus: 'single', dateOfBirth: '1990-05-20', dependents: '0',
+    personalDeductionFacts: JSON.stringify({
+      version: 1, taxYear, ordinaryScope: 'yes', taxpayerBlind: 'no', taxpayerDependent: 'no',
+      spouseBlind: 'no', spouseDependent: 'no', mfsSpouseItemizes: 'no', mfsSpouseAdditionalEligible: 'no',
+      taxpayerSeniorSSN: 'yes', spouseSeniorSSN: 'yes', seniorHasAddbacks: 'no',
+    }),
+  };
+}
+function reviewRequired(result, code) {
+  status(result, 422);
+  assert.equal(result.data?.code, code);
+  assert.equal(typeof result.data?.error, 'string');
+  assert.match(result.data.error, /Tax Organizer/);
+  assert.deepEqual(Object.keys(result.data).sort(), ['code', 'error']);
+  assert.match(result.response.headers.get('content-type') || '', /application\/json/);
+}
 if (mode !== 'public') {
   // The Auth emulator's config endpoint is a hard precondition, not a production fallback.
   const emulator = await fetch(`${authBase}/emulator/v1/projects/${project}/config`, { signal: AbortSignal.timeout(5000) });
@@ -123,6 +142,41 @@ if (mode !== 'public') {
   for (const route of readOnlyRoutes) {
     await check(`signed-in initial state GET ${route}`, async () => {
       const result = await request(route, { token: owner.token }); status(result, 200); assert.ok(result.data !== null);
+    });
+  }
+  const annualTaxRoutes = [
+    { route: '/api/tax/compute-1040?year=2026' },
+    { route: '/api/tax/quarterly-reminders?year=2026' },
+    { route: '/api/tax/form-1040', method: 'POST', body: { year: 2026 } },
+  ];
+  for (const { route, ...options } of annualTaxRoutes) {
+    await check(`missing personal facts withhold totals/PDF: ${route}`, async () => {
+      reviewRequired(await request(route, { ...options, token: owner.token }), 'PERSONAL_DEDUCTION_REVIEW_REQUIRED');
+    });
+  }
+  await check('explicit synthetic personal facts save/read and unlock the supported annual estimate', async () => {
+    const answers = reviewedPersonalDeductionAnswers();
+    const saved = await request('/api/tax/organizer', { method: 'POST', token: owner.token, body: answers }); status(saved, [200, 201]);
+    const loaded = await request('/api/tax/organizer?year=2026', { token: owner.token }); status(loaded, 200);
+    assert.equal(loaded.data.organizer.personalDeductionFacts, answers.personalDeductionFacts);
+    const annual = await request('/api/tax/compute-1040?year=2026', { token: owner.token }); status(annual, 200);
+    assert.equal(annual.data.form1040.standardDeduction, 16100);
+    assert.equal(annual.data.form1040.enhancedSeniorDeduction, 0);
+  });
+  const dependentOwner = await makeUser('dependent-review');
+  await seed(`tax_organizers/credit-review-${dependentOwner.uid}`, { ...reviewedPersonalDeductionAnswers(), userId: dependentOwner.uid, dependents: '1', dependentDetails: 'Synthetic dependent parent, age78; qualifying-child facts unavailable' });
+  await seed(`gross_receipts/credit-review-${dependentOwner.uid}`, { userId: dependentOwner.uid, taxYear: 2026, date: '2026-01-15', amount: 20000 });
+  for (const { route, ...options } of annualTaxRoutes) {
+    await check(`dependent parent withholds unsupported credits/totals/PDF: ${route}`, async () => {
+      reviewRequired(await request(route, { ...options, token: dependentOwner.token }), 'DEPENDENT_CREDIT_REVIEW_REQUIRED');
+    });
+  }
+  // A zero dependent count still does not establish the remaining EITC facts.
+  // Reuse the same synthetic20k income fixture; never affect the normal owner.
+  await seed(`tax_organizers/credit-review-${dependentOwner.uid}`, { ...reviewedPersonalDeductionAnswers(), userId: dependentOwner.uid });
+  for (const { route, ...options } of annualTaxRoutes) {
+    await check(`positive no-child EITC requires eligibility review: ${route}`, async () => {
+      reviewRequired(await request(route, { ...options, token: dependentOwner.token }), 'DEPENDENT_CREDIT_REVIEW_REQUIRED');
     });
   }
   let sessionCookie;

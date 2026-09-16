@@ -1,3 +1,4 @@
+import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductions';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import type { ReactElement } from 'react';
@@ -70,7 +71,7 @@ async function transport(url: string) {
 function expense(amount: number, extra = {}) { return { amount, date: '2026-09-02', category: 'office_expense', is_deductible: true, ...extra }; }
 beforeEach(() => {
   h.slots = []; h.cursor = 0; h.effects = []; h.uid = 'dashboard-owner';
-  h.profile = { id: h.uid, filing_status: 'Single' }; h.tx = []; h.records = {}; h.paid = 0; h.apiError = null; h.lastJson = null;
+  h.profile = { id: h.uid, filing_status: 'Single' }; h.tx = []; h.records = { tax_organizers: [reviewedPersonalDeductionOrganizer()] }; h.paid = 0; h.apiError = null; h.lastJson = null;
   h.request.mockReset().mockImplementation(transport);
   vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-09-15T12:00:00Z'));
   vi.stubGlobal('fetch', vi.fn(async () => Response.json({})));
@@ -110,16 +111,20 @@ describe('dashboard tax cards share the federal server calculation', () => {
     expect(cards(props)[3].title).toBe('Estimated Federal Refund');
     expect(cards(props)[3].value).toBe(h.lastJson.form1040.refund.toLocaleString('en-US', { style: 'currency', currency: 'USD' }));
   });
-  it.each(['income', 'status'])('422 %s review cannot become zero tax or stale previous totals', async kind => {
+  it.each(['income', 'status', 'personal', 'dependent'])('422 %s review cannot become zero tax or stale previous totals', async kind => {
     render(); await flush(); render();
     if (kind === 'income') { h.tx = [{ amount: -100, category: 'income', date: '2026-01-01' }]; h.records.gross_receipts = [{ amount: 100 }]; }
+    else if (kind === 'personal' || kind === 'dependent') {
+      h.records.tax_organizers = kind === 'personal' ? [] : [reviewedPersonalDeductionOrganizer(2026, {}, { dependents: '1' })];
+      h.profile = { ...h.profile, updated_at: 'synthetic-review-refresh' }; // A saved-data refresh invalidates the cached snapshot.
+    }
     else h.profile = { ...h.profile, filing_status: 'Qualifying Widower' };
     expect(render().state.status).toBe('loading'); await flush(); const props = render();
     expect(props.state.status).toBe('review'); expect(props.state).not.toHaveProperty('snapshot'); expect(cards(props)).toEqual([]);
     const nav = vi.fn(); const tree = KpiGrid({ ...props, onReview: nav } as any);
     expect(text(tree)).toContain('needs review');
     walk(tree).find(n => n.type === 'button' && text(n).startsWith('Review'))!.props.onClick();
-    expect(nav).toHaveBeenCalledWith(kind === 'income' ? 'income-tracking' : 'settings');
+    expect(nav).toHaveBeenCalledWith(kind === 'income' ? 'income-tracking' : kind === 'status' ? 'settings' : 'tax-organizer');
   });
   it('clears prior values while transaction changes refresh and preserves an actionable 503', async () => {
     render(); await flush(); const ready = render(); expect(ready.state.status).toBe('ready');

@@ -98,8 +98,8 @@ export async function signUpUser(email: string, password: string): Promise<{ dat
 
 export async function signInWithGoogle(): Promise<{ data: { user: AuthUser } | null; error: any }> {
   try {
-    // Set persistence to local so session persists across tabs and reloads
-    await setPersistence(auth, browserLocalPersistence);
+    // initializeAuth selects the first supported persistence (IndexedDB, local,
+    // then session). Do not override that choice with possibly blocked localStorage.
 
     const provider = new GoogleAuthProvider();
 

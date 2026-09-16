@@ -19,10 +19,14 @@ import {
 import { calculateStateTax } from './state-tax';
 
 import { getFederalTaxRules, calculateSALTLimit } from './federal-year-rules';
+import { calculateStandardDeduction, calculateEnhancedSeniorDeduction } from './personal-deductions';
+import { assertEITCDependencyScope, readNoChildEITCAge } from './credit-scope';
 
 export interface Form1040Input {
   taxYear: number;
   filingStatus: 'single' | 'married_filing_jointly' | 'married_filing_separately' | 'head_of_household';
+  /** Saved taxpayer declarations; annual routes always supply this, even when empty. */
+  personalDeductionOrganizer?: Record<string, unknown>;
 
   // Income sources
   scheduleCNetProfit: number;       // From Schedule C Line 31
@@ -32,6 +36,7 @@ export interface Form1040Input {
 
   // Payments already made
   w2FederalWithheld: number;        // Total W-2 Box 2 withheld
+  socialSecurityFederalWithheld?: number; // SSA-1099 Box6 / RRB-1099 Box10 (Line25b)
   estimatedPayments: number;        // Quarterly payments made (Form 1040-ES)
 
   // SE tax (from Schedule SE)
@@ -77,6 +82,11 @@ export interface Form1040Result {
   itemizedDeductions: number;
   deductionUsed: number;           // Larger of standard vs itemized
   usingStandardDeduction: boolean;
+  enhancedSeniorDeduction: number;
+  personalDeductions?: {
+    standard: ReturnType<typeof calculateStandardDeduction>;
+    senior: ReturnType<typeof calculateEnhancedSeniorDeduction>;
+  };
 
   // QBI
   qbiDeduction: number;            // Line 13 (Form 8995)
@@ -91,6 +101,7 @@ export interface Form1040Result {
   totalTax: number;                // Line 24
 
   // Payments
+  socialSecurityFederalWithheld: number; // Line25b from SSA/RRB forms
   w2FederalWithheld: number;       // Line 25a
   estimatedPayments: number;       // Line 26
   totalPayments: number;           // Line 33
@@ -131,6 +142,7 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
     w2Wages,
     otherIncome = 0,
     w2FederalWithheld,
+    socialSecurityFederalWithheld = 0,
     estimatedPayments,
     selfEmploymentTax,
     halfSEDeduction,
@@ -144,9 +156,9 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
   } = input;
 
   const yearRules = getFederalTaxRules(taxYear);
-  const calculationWarnings: string[] = [
-    'Planning estimate: base standard deduction only; age/blindness, dependent status, spouse itemization, and all return adjustments are not fully modeled.',
-  ];
+  const calculationWarnings: string[] = input.personalDeductionOrganizer === undefined
+    ? ['Planning estimate: base standard deduction only. Complete Personal Deductions in Tax Organizer before relying on age, blindness, dependency or senior deductions.']
+    : ['Planning estimate based on saved eligibility declarations and modeled income. Other deductions, credits and special return rules may require review.'];
 
   // ── Step 1: Total Income (Form 1040 Line 9) ──
   // Subtract depreciation (Section 179 / MACRS) from Schedule C net profit
@@ -174,14 +186,20 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
   const agi = Math.max(0, totalIncome - adjustments);
 
   // ── Step 4: Standard vs Itemized ──
-  const standardDeduction = yearRules.standardDeductions[filingStatus];
+  const personalDeductions = input.personalDeductionOrganizer === undefined ? undefined : {
+    standard: calculateStandardDeduction({ taxYear, filingStatus, organizer: input.personalDeductionOrganizer }),
+    senior: calculateEnhancedSeniorDeduction({ taxYear, filingStatus, agi, organizer: input.personalDeductionOrganizer }),
+  };
+  const standardDeduction = personalDeductions?.standard.standardDeduction ?? yearRules.standardDeductions[filingStatus];
+  const enhancedSeniorDeduction = personalDeductions?.senior.deduction ?? 0;
   // itemizedInput excludes the separately supplied charitable donations and personal SALT.
   const saltLimit = calculateSALTLimit(taxYear, filingStatus, input.saltModifiedAGI ?? agi);
   const itemizedDeductions = (itemizedInput ?? 0)
     + (input.charitableDonations || 0)
     + Math.min(Math.max(0, input.saltDeduction ?? 0), saltLimit);
-  const usingStandardDeduction = standardDeduction >= itemizedDeductions;
+  const usingStandardDeduction = personalDeductions?.standard.standardDeductionAllowed !== false && standardDeduction >= itemizedDeductions;
   const deductionUsed = Math.max(standardDeduction, itemizedDeductions);
+  if (personalDeductions?.standard.reason) calculationWarnings.push(personalDeductions.standard.reason);
 
   // ── Step 5: QBI Deduction (Section 199A / Form 8995) ──
   // Annual threshold is separate from the ordinary income-tax brackets.
@@ -196,7 +214,8 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
     );
     // Cap: 20% of (taxable income before QBI, minus net capital gains)
     // The caller must separately identify net long-term capital gains.
-    const taxableIncomeBeforeQBI = Math.max(0, agi - deductionUsed);
+    // Form8995 line11 includes the separate Schedule1-A deduction before its cap.
+    const taxableIncomeBeforeQBI = Math.max(0, agi - deductionUsed - enhancedSeniorDeduction);
     const capGains = Math.max(0, input.longTermCapGains ?? 0);
     const qbiCap = Math.max(0, taxableIncomeBeforeQBI - capGains) * 0.20;
     const fullQBI = Math.min(qualifiedBusinessIncome * 0.20, qbiCap);
@@ -223,7 +242,7 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
   }
 
   // ── Step 6: Taxable Income (Line 15) ──
-  const taxableIncome = Math.max(0, agi - deductionUsed - qbiDeduction);
+  const taxableIncome = Math.max(0, agi - deductionUsed - enhancedSeniorDeduction - qbiDeduction);
 
   // ── Step 7: Income Tax (Line 16) ──
   // Ordinary long-term gains stack above ordinary taxable income; do not estimate
@@ -255,13 +274,20 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
     filingStatus: filingStatus as CreditFilingStatus,
     numDependents: input.numDependents ?? 0,
     numEITCChildren: input.numEITCChildren ?? 0,
-    taxPayerAge: input.taxPayerAge,
+    taxPayerAge: input.personalDeductionOrganizer !== undefined && (input.numEITCChildren ?? 0) === 0 && filingStatus !== 'married_filing_separately'
+      ? readNoChildEITCAge(input.personalDeductionOrganizer, taxYear, filingStatus)
+      : input.taxPayerAge,
     investmentIncome: input.investmentIncome ?? 0,
     taxableIncome,
     longTermCapGains: input.longTermCapGains ?? 0,
     shortTermCapGains: input.shortTermCapGains ?? 0,
   };
   const credits = calculateAllCredits(creditsInput);
+  // The annual snapshot always supplies organizer facts and requires an
+  // eligibility review. Legacy pure callers retain their stated assumptions.
+  if (input.personalDeductionOrganizer !== undefined) {
+    assertEITCDependencyScope(credits.eitc, personalDeductions?.standard.dependentLimitationApplied ?? false);
+  }
 
   // Owner-only SEP guidance uses the caller's actual regular-SE deduction.
   const sepIRAMax = calculateSEPIRAMax(adjustedScheduleC, taxYear, halfSEDeduction);
@@ -273,7 +299,7 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
   // ── Step 10: Payments and refundable credits (Lines 25-28, 33) ──
   // Refundable credits (EITC + Additional CTC) are added to payments
   // because they can create a refund even if tax owed is $0
-  const totalPayments = w2FederalWithheld + estimatedPayments
+  const totalPayments = w2FederalWithheld + socialSecurityFederalWithheld + estimatedPayments
     + credits.eitc           // Line 27 - EITC is refundable
     + credits.additionalCTC; // Line 28 - Additional CTC is refundable
 
@@ -314,6 +340,8 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
     itemizedDeductions,
     deductionUsed,
     usingStandardDeduction,
+    enhancedSeniorDeduction: round2(enhancedSeniorDeduction),
+    personalDeductions,
     qbiDeduction: round2(qbiDeduction),
     taxableIncome: round2(taxableIncome),
     incomeTax: round2(incomeTax),
@@ -331,6 +359,7 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
     sepIRAMaxContribution: round2(sepIRAMax),
     // Payments
     w2FederalWithheld: round2(w2FederalWithheld),
+    socialSecurityFederalWithheld: round2(socialSecurityFederalWithheld),
     estimatedPayments: round2(estimatedPayments),
     totalPayments: round2(totalPayments),
     balanceDue: round2(balanceDue),
