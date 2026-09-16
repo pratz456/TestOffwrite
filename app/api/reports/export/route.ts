@@ -1,168 +1,58 @@
-import { getFederalTaxRules, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
-import { requireFeatureAccess } from '@/lib/subscriptions/feature-access';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
 import { NextRequest, NextResponse } from 'next/server';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
+import { requireFeatureAccess } from '@/lib/subscriptions/feature-access';
 import { getUserProfileServer } from '@/lib/firebase/profiles-server';
-import { getTransactionsServer } from '@/lib/firebase/transactions-server';
+import { readTaxExportTransactions } from '@/lib/reports/tax-export-transactions';
+import { getHomeOfficeSettings, getAssetsSettings } from '@/lib/firebase/settings-server';
 import { generateForm8829PDF } from '@/lib/reports/form8829';
 import { generateForm4562PDF } from '@/lib/reports/form4562';
 import { generateScheduleSEPDF } from '@/lib/reports/scheduleSE';
-import { getHomeOfficeSettings, getAssetsSettings, getTaxSummarySettings } from '@/lib/firebase/settings-server';
-
-type FormType = 'form8829' | 'form4562' | 'scheduleSE';
+import { loadScheduleSEData } from '@/lib/reports/load-schedule-se';
+import { getFederalTaxRules, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
+import { exportYear } from '@/lib/reports/transaction-export';
 
 export async function POST(request: NextRequest) {
+  let uid: string;
+  try { uid = (await getUserFromReqOrThrow(request)).uid; }
+  catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
+  const denied = await requireFeatureAccess(uid, 'exports');
+  if (denied) return denied;
+  let type: string, year: number;
   try {
-    console.log('🔄 [Reports Export API] Starting request...');
-
-    // Get the authenticated user
-    let uid: string;
-    try { uid = (await getUserFromReqOrThrow(request)).uid; }
-    catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
-    const denied = await requireFeatureAccess(uid, 'exports');
-    if (denied) return denied;
-
-    console.log('✅ [Reports Export API] User authenticated:', uid);
-
-    const { type, year = new Date().getFullYear() } = await request.json();
-    const taxYear = Number(year);
-    try { getFederalTaxRules(taxYear); } catch {
-      return NextResponse.json({ error: `Supported tax years: ${SUPPORTED_TAX_YEARS.join(', ')}` }, { status: 400 });
-    }
-
-    if (!type || !['form8829', 'form4562', 'scheduleSE'].includes(type)) {
-      return NextResponse.json(
-        { error: 'Invalid form type. Must be form8829, form4562, or scheduleSE' },
-        { status: 400 }
-      );
-    }
-
-    console.log(`📋 [Reports Export API] Generating ${type} for user ${uid}`);
-
-    // Fetch user profile
-    const { data: userProfile, error: profileError } = await getUserProfileServer(uid);
-    if (profileError || !userProfile) {
-      console.error('❌ [Reports Export API] Failed to fetch user profile:', profileError);
-      return NextResponse.json(
-        { error: 'Failed to fetch user profile' },
-        { status: 500 }
-      );
-    }
-
-    // Fetch transactions for calculations
-    const { data: transactions, error: transactionsError } = await getTransactionsServer(uid);
-    if (transactionsError) {
-      console.error('❌ [Reports Export API] Failed to fetch transactions:', transactionsError);
-      return NextResponse.json(
-        { error: 'Failed to fetch transactions' },
-        { status: 500 }
-      );
-    }
-
-    let pdfBytes: Uint8Array;
-    let filename: string;
-
-    const currentYear = taxYear;
-    const today = new Date().toISOString().split('T')[0];
-
-    switch (type as FormType) {
-      case 'form8829':
-        // Fetch home office settings
-        const { data: homeOfficeSettings, error: homeOfficeError } = await getHomeOfficeSettings(uid);
-        if (homeOfficeError || !homeOfficeSettings) {
-          return NextResponse.json(
-            { error: 'Home office settings not found. Please complete your home office setup in Settings.' },
-            { status: 400 }
-          );
-        }
-
-        // Validate required fields
-        if (!homeOfficeSettings.totalHomeSqFt || !homeOfficeSettings.officeSqFt) {
-          return NextResponse.json(
-            { error: 'Missing home office square footage. Please complete your home office setup in Settings.' },
-            { status: 400 }
-          );
-        }
-
-        pdfBytes = await generateForm8829PDF({
-          userProfile,
-          homeOfficeSettings,
-          transactions: transactions || [],
-          taxYear: currentYear
-        });
-        filename = `form8829_${today}.pdf`;
-        break;
-
-      case 'form4562':
-        // Fetch assets settings
-        const { data: assetsSettings, error: assetsError } = await getAssetsSettings(uid);
-        if (assetsError || !assetsSettings || assetsSettings.length === 0) {
-          return NextResponse.json(
-            { error: 'No assets found. Please add your business assets in Settings.' },
-            { status: 400 }
-          );
-        }
-
-        pdfBytes = await generateForm4562PDF({
-          userProfile,
-          assetsSettings,
-          transactions: transactions || [],
-          taxYear: currentYear
-        });
-        filename = `form4562_${today}.pdf`;
-        break;
-
-      case 'scheduleSE':
-        // Fetch tax summary settings
-        const { data: taxSummarySettings, error: taxSummaryError } = await getTaxSummarySettings(uid);
-        if (taxSummaryError || !taxSummarySettings) {
-          return NextResponse.json(
-            { error: 'Tax summary not found. Please ensure your Schedule C data is complete.' },
-            { status: 400 }
-          );
-        }
-
-        pdfBytes = await generateScheduleSEPDF({
-          userProfile,
-          taxSummarySettings,
-          transactions: transactions || [],
-          taxYear: currentYear
-        });
-        filename = `scheduleSE_${today}.pdf`;
-        break;
-
-      default:
-        return NextResponse.json(
-          { error: 'Invalid form type' },
-          { status: 400 }
-        );
-    }
-
-    console.log(`✅ [Reports Export API] Successfully generated ${type} PDF`);
-
-    // Return PDF as response
-    return new NextResponse(pdfBytes as any, {
-      headers: {
-        'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="${filename}"`,
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0'
+    const body = await request.json();
+    if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => !['type', 'year'].includes(key))) throw new Error();
+    if (!['form8829', 'form4562', 'scheduleSE'].includes(body.type)) throw new Error();
+    type = body.type; year = exportYear(body.year) ?? new Date().getFullYear();
+    getFederalTaxRules(year);
+  } catch { return NextResponse.json({ error: `Provide form8829, form4562 or scheduleSE and a supported year (${SUPPORTED_TAX_YEARS.join(', ')}).` }, { status: 400 }); }
+  try {
+    let bytes: Uint8Array;
+    if (type === 'scheduleSE') {
+      bytes = await generateScheduleSEPDF(await loadScheduleSEData(uid, year));
+    } else {
+      const [profile, transactions] = await Promise.all([getUserProfileServer(uid), readTaxExportTransactions(uid, year)]);
+      if (profile.error || !profile.data) throw new Error('Data unavailable');
+      if (type === 'form8829') {
+        const settings = await getHomeOfficeSettings(uid);
+        if (settings.error) throw new Error('Data unavailable');
+        if (!settings.data) return NextResponse.json({ error: 'Complete your home office settings before preparing this worksheet.' }, { status: 400 });
+        bytes = await generateForm8829PDF({ userProfile: profile.data, homeOfficeSettings: settings.data, transactions, taxYear: year });
+      } else {
+        const assets = await getAssetsSettings(uid);
+        if (assets.error) throw new Error('Data unavailable');
+        if (!assets.data?.length) return NextResponse.json({ error: 'Add your business assets before preparing this worksheet.' }, { status: 400 });
+        bytes = await generateForm4562PDF({ userProfile: profile.data, assetsSettings: assets.data, transactions, taxYear: year });
       }
-    });
-
+    }
+    return new NextResponse(Buffer.from(bytes), { headers: { 'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="writeoff-${type}-preparer-${year}.pdf"`, 'Cache-Control': 'private, no-store' } });
   } catch (error) {
-    if (error && typeof error === 'object' && 'code' in error && ['DEPRECIATION_REVIEW_REQUIRED', 'HOME_OFFICE_DETAILS_REQUIRED', 'INVALID_HOME_OFFICE_INPUT', 'FILING_STATUS_REVIEW_REQUIRED'].includes(String(error.code))) return NextResponse.json({ error: error instanceof Error ? error.message : 'Additional tax details required', code: error.code }, { status: 422 });
-    console.error('❌ [Reports Export API] Unexpected error:', error);
-    return NextResponse.json(
-      {
-        error: 'Failed to generate report',
-        details: error instanceof Error ? error.message : 'Unknown error'
-      },
-      { status: 500 }
-    );
+    const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
+    if (['EXPORT_REVIEW_REQUIRED', 'DEPRECIATION_REVIEW_REQUIRED', 'HOME_OFFICE_DETAILS_REQUIRED', 'INVALID_HOME_OFFICE_INPUT', 'FILING_STATUS_REVIEW_REQUIRED', 'INCOME_RECONCILIATION_REQUIRED'].includes(code)) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : 'Additional tax details required', code }, { status: 422 });
+    }
+    return NextResponse.json({ error: 'Could not load a complete report. Please retry.' }, { status: 503 });
   }
 }

@@ -1,5 +1,7 @@
 "use client";
 
+import { EmbeddedFilingCard } from '@/components/embedded-filing-card';
+import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
 import { PremiumFeatureGate } from '@/components/premium-feature-gate';
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
@@ -10,7 +12,7 @@ import {
 } from "@/components/ui/select";
 import {
   Download, CheckCircle2, Circle, AlertCircle,
-  FileText, DollarSign, Home, Car, Calculator, Loader2,
+  FileText, DollarSign, Calculator, Loader2,
   ChevronRight, TrendingUp, Receipt, Shield, Upload,
 } from "lucide-react";
 import { TaxCalculationNotice } from "@/components/tax-calculation-notice";
@@ -36,7 +38,7 @@ const fmt = (n: number) =>
   n.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
 export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps) {
-  const currentYear = new Date().getFullYear();
+  const currentYear = SUPPORTED_TAX_YEARS.at(-1)!;
   const [year, setYear] = useState(String(currentYear));
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState<string | null>(null);
@@ -44,6 +46,9 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
   const [calculationWarnings, setCalculationWarnings] = useState<unknown>([]);
   const [hasTaxEstimate, setHasTaxEstimate] = useState(false);
   const loadRequest = useRef(0);
+  const exportBusy = useRef(false);
+  const context = `${user.id}:${year}`;
+  const active = useRef(context); active.current = context;
 
   const [summary, setSummary] = useState({
     grossReceipts: 0,
@@ -85,7 +90,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
       const tax1040 = await form1040Res.json().catch(() => ({}));
       if (!form1040Res.ok) throw new Error(tax1040.error || "The federal estimate could not be loaded. Open Tax Preview to retry before using these figures.");
       const txData = await txRes.json().catch(() => ({}));
-      if (!txRes.ok) throw new Error(txData.error || "Expense review could not be loaded. Please retry before checking filing readiness.");
+      if (!txRes.ok) throw new Error(txData.error || "Expense review could not be loaded. Please retry before reviewing these figures.");
       const federalEstimate = tax1040.form1040;
       const income = tax1040.income;
       if (Number(tax1040.taxYear) !== Number(year) || ![
@@ -138,8 +143,8 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
   const checklist: ChecklistItem[] = ([
     {
       id: "income",
-      label: "Income entered",
-      description: "Gross receipts and 1099 forms for the year",
+      label: "Income recorded",
+      description: "Income reconciled in the federal planning estimate",
       status: summary.totalIncome > 0 ? "complete" : "missing",
       detail: summary.totalIncome > 0 ? `${fmt(summary.totalIncome)} total income` : "No income recorded yet",
       action: "Add Income",
@@ -149,7 +154,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
       id: "expenses",
       label: "Expenses confirmed",
       description: "Transactions reviewed and marked deductible",
-      status: summary.confirmedCount > 30 ? "complete" : summary.confirmedCount > 0 ? "partial" : "missing",
+      status: summary.confirmedCount > 0 ? "complete" : "missing",
       detail: summary.confirmedCount > 0
         ? `${summary.confirmedCount} confirmed · ${fmt(summary.totalExpenses)} deductible`
         : "No confirmed expenses yet",
@@ -158,7 +163,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
     },
     {
       id: "schedule-c",
-      label: "Schedule C ready",
+      label: "Business profit estimate",
       description: "Profit or Loss from Business",
       status: summary.totalIncome > 0 && summary.confirmedCount > 0 ? "complete"
             : summary.totalIncome > 0 || summary.confirmedCount > 0 ? "partial"
@@ -188,15 +193,6 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
       actionScreen: "quarterly-payments",
     },
     {
-      id: "form8879",
-      label: "Form 8879 - E-File Authorization",
-      description: "Required IRS signature before anyone can e-file on your behalf",
-      status: "missing",
-      detail: "Sign Form 8879 to authorize WriteOff to transmit your return",
-      action: "Sign Form 8879",
-      actionScreen: "form-8879",
-    },
-    {
       id: "w2",
       label: "W-2 income entered",
       description: "Wages from employer jobs this year",
@@ -217,56 +213,30 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
   ] satisfies ChecklistItem[]).map(item => hasTaxEstimate ? item : {
     ...item,
     status: "unavailable" as const,
-    detail: "Resolve the calculation issue before checking filing readiness.",
+    detail: "Resolve the calculation issue before reviewing these figures.",
   });
 
   const handleExport = async (formType: string) => {
-    setExporting(formType);
-    setError(null);
+    if (exportBusy.current || active.current !== context) return;
+    exportBusy.current = true; setExporting(formType); setError(null);
     try {
-      const { auth } = await import("@/lib/firebase/client");
-      const cu = auth.currentUser;
-      if (!cu) throw new Error("Not authenticated");
-      const token = await cu.getIdToken();
-
-      let url = "", body: any = { year };
-      if (formType === "schedule-c") url = "/api/tax/schedule-c/export";
-      else if (formType === "form-1040") url = "/api/tax/form-1040";
-      else { url = "/api/reports/export"; body = { type: formType, year }; }
-
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        credentials: "include",
-        body: JSON.stringify(body),
-      });
-
+      const routes: Record<string, string> = { 'schedule-c': '/api/tax/schedule-c/export', 'form-1040': '/api/tax/form-1040', archive: '/api/user/export' };
+      const url = routes[formType] || '/api/reports/export';
+      const res = await makeAuthenticatedRequest(url, { method: 'POST',
+        body: JSON.stringify(routes[formType] ? { year: Number(year) } : { type: formType, year: Number(year) }) });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        if (data.requiresSubscription) { setError("Subscription required to export forms."); return; }
-        throw new Error(data.error || "Export failed");
+        throw new Error(data.error || 'Export failed. Please retry.');
       }
-
       const blob = await res.blob();
-      const dl = document.createElement("a");
-      dl.href = URL.createObjectURL(blob);
-      const names: Record<string, string> = {
-        "form-1040":  `Form_1040_${year}_WriteOff.pdf`,
-        "schedule-c": `Schedule_C_${year}_WriteOff.pdf`,
-        "scheduleSE": `Schedule_SE_${year}_WriteOff.pdf`,
-        "form8829":   `Form_8829_${year}_WriteOff.pdf`,
-        "form4562":   `Form_4562_${year}_WriteOff.pdf`,
-      };
-      dl.download = names[formType] || `${formType}_${year}.pdf`;
-      document.body.appendChild(dl);
-      dl.click();
-      document.body.removeChild(dl);
-      URL.revokeObjectURL(dl.href);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Export failed");
-    } finally {
-      setExporting(null);
-    }
+      if (active.current !== context) return;
+      const objectUrl = URL.createObjectURL(blob);
+      const dl = document.createElement('a'); dl.href = objectUrl;
+      dl.download = formType === 'archive' ? `WriteOff_records_${year}.json` : `WriteOff_${formType}_preparer_${year}.pdf`;
+      document.body.appendChild(dl); dl.click(); dl.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (e) { if (active.current === context) setError(e instanceof Error ? e.message : 'Export failed'); }
+    finally { exportBusy.current = false; if (active.current === context) setExporting(null); }
   };
 
   const statusIcon = (s: ChecklistItem["status"]) => {
@@ -278,20 +248,15 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
 
   const statusBadge = (s: ChecklistItem["status"]) => {
     if (s === "unavailable") return <Badge variant="outline" className="text-xs text-muted-foreground">Unavailable</Badge>;
-    if (s === "complete") return <Badge className="bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 border-0 text-xs">Done</Badge>;
-    if (s === "partial")  return <Badge className="bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 border-0 text-xs">Partial</Badge>;
-    return <Badge variant="outline" className="text-xs text-muted-foreground">Needed</Badge>;
+    if (s === "complete") return <Badge className="bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 border-0 text-xs">Recorded</Badge>;
+    if (s === "partial")  return <Badge className="bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 border-0 text-xs">Review</Badge>;
+    return <Badge variant="outline" className="text-xs text-muted-foreground">Review if applicable</Badge>;
   };
 
-  const completeCount = checklist.filter(c => c.status === "complete").length;
-  const pct = Math.round((completeCount / checklist.length) * 100);
-
   const forms = [
-    { id: "form-1040",  label: "Form 1040",   sub: "U.S. Individual Income Tax Return",     icon: DollarSign,   always: true },
-    { id: "schedule-c", label: "Schedule C",  sub: "Profit or Loss from Business",          icon: FileText,     always: true },
-    { id: "scheduleSE", label: "Schedule SE", sub: "Self-Employment Tax",                   icon: Calculator,   always: true },
-    { id: "form8829",   label: "Form 8829",   sub: "Home Office Deduction",                 icon: Home,         always: false },
-    { id: "form4562",   label: "Form 4562",   sub: "Depreciation & Section 179",            icon: Car,          always: false },
+    { id: "form-1040", label: "Form 1040 planning summary", sub: "Federal estimate and its documented limitations", icon: DollarSign },
+    { id: "schedule-c", label: "Schedule C preparer summary", sub: "Reconciled receipts and confirmed business expenses", icon: FileText },
+    { id: "scheduleSE", label: "Schedule SE worksheet", sub: "Self-employment tax with recorded W-2 wages", icon: Calculator },
   ];
 
   return (
@@ -299,14 +264,15 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
       {/* Header */}
       <div className="sticky top-0 z-50 bg-background border-b border-border">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3">
+          <Button variant="ghost" size="sm" onClick={onBack}>Back</Button>
           <div className="flex-1 min-w-0">
             <h1 className="text-lg sm:text-xl font-semibold text-foreground">Tax Filing Hub</h1>
-            <p className="text-xs sm:text-sm text-muted-foreground">Everything you need to file your self-employment taxes</p>
+            <p className="text-xs sm:text-sm text-muted-foreground">Prepare records, review estimates and check filing availability</p>
           </div>
-          <Select value={year} onValueChange={setYear}>
+          <Select value={year} onValueChange={value => { active.current = `${user.id}:${value}`; setExporting(null); setYear(value); }}>
             <SelectTrigger className="w-[100px] h-9"><SelectValue /></SelectTrigger>
             <SelectContent>
-              {Array.from({ length: 4 }, (_, i) => currentYear - i).map(y => (
+              {[...SUPPORTED_TAX_YEARS].reverse().map(y => (
                 <SelectItem key={y} value={String(y)}>{y}</SelectItem>
               ))}
             </SelectContent>
@@ -315,6 +281,12 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
       </div>
 
       <div className="max-w-3xl mx-auto px-4 sm:px-6 py-5 space-y-5">
+        <EmbeddedFilingCard userId={user.id} taxYear={Number(year)} />
+        <section className="rounded-xl border p-4 space-y-2">
+          <h2 className="font-semibold">Tax records handoff</h2>
+          <p className="text-sm text-muted-foreground">Download your saved records for this year, including income forms, transactions, organizer answers and receipt metadata. This JSON archive includes a manifest and transaction CSV; it does not include receipt images or a filed return. Available on every plan, once per hour.</p>
+          <Button variant="outline" onClick={() => handleExport('archive')} disabled={!!exporting}>{exporting === 'archive' ? 'Preparing archive…' : 'Download records archive (JSON)'}</Button>
+        </section>
         {error && (
           <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive" role="alert">
             <p>{error}</p>
@@ -349,34 +321,12 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
 
             {hasTaxEstimate && <TaxCalculationNotice taxYear={year} warnings={calculationWarnings} />}
 
-            {/* Progress bar */}
-            <Card className="bg-card border-border">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-sm font-medium text-foreground">Filing readiness</p>
-                  <span className="text-sm font-semibold text-primary">{hasTaxEstimate ? `${pct}%` : "Unavailable"}</span>
-                </div>
-                {hasTaxEstimate && <div className="w-full bg-muted rounded-full h-2.5">
-                  <div
-                    className="h-2.5 rounded-full transition-all duration-700"
-                    style={{
-                      width: `${pct}%`,
-                      background: pct === 100 ? "#22c55e" : pct >= 60 ? "#3b82f6" : "#f59e0b"
-                    }}
-                  />
-                </div>}
-                <p className="text-xs text-muted-foreground mt-2">
-                  {hasTaxEstimate
-                    ? `${completeCount} of ${checklist.length} steps complete${pct === 100 ? " - ready to export your forms!" : " - complete the steps below to prepare your return."}`
-                    : "Resolve the calculation issue above, then retry to check filing readiness."}
-                </p>
-              </CardContent>
-            </Card>
+            <p className="text-sm text-muted-foreground">These are recorded inputs and planning estimates. They do not establish that your return is complete or ready to file. Review missing income, adjustments, credits and state requirements with your filing provider.</p>
 
             {/* Checklist */}
             <Card className="bg-card border-border">
               <CardHeader className="pb-2">
-                <CardTitle className="text-base font-semibold">Filing Checklist</CardTitle>
+                <CardTitle className="text-base font-semibold">Records and estimates</CardTitle>
               </CardHeader>
               <CardContent className="space-y-1 p-4 pt-0">
                 {checklist.map((item, i) => (
@@ -415,18 +365,14 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
             <PremiumFeatureGate feature="exports" featureName="tax form exports">
             <Card className="bg-card border-border">
               <CardHeader className="pb-2">
-                <CardTitle className="text-base font-semibold">Export Tax Forms</CardTitle>
-                <p className="text-xs text-muted-foreground">IRS-faithful PDFs pre-filled with your data</p>
+                <CardTitle className="text-base font-semibold">Export preparer worksheets</CardTitle>
+                <p className="text-xs text-muted-foreground">Preparer summaries, not IRS-fileable forms or tax software import files</p>
               </CardHeader>
               <CardContent className="space-y-2 p-4 pt-0">
                 {forms.map(form => {
                   const Icon = form.icon;
                   const isLoading = exporting === form.id;
-                  const isReady = form.id === "schedule-c"
-                    ? summary.totalIncome > 0 || summary.confirmedCount > 0
-                    : form.id === "scheduleSE"
-                    ? summary.netProfit > 0
-                    : true;
+                  const isReady = form.id !== 'form-1040' || hasTaxEstimate;
                   return (
                     <div key={form.id} className="flex items-center gap-3 p-3 rounded-lg border border-border bg-muted/20 hover:bg-muted/40 transition-colors">
                       <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
@@ -440,7 +386,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
                         size="sm"
                         variant={isReady ? "default" : "outline"}
                         onClick={() => handleExport(form.id)}
-                        disabled={!!exporting || !hasTaxEstimate}
+                        disabled={!!exporting || !isReady}
                         className="shrink-0 gap-1.5 min-h-[36px] text-xs"
                       >
                         {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
@@ -450,7 +396,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
                   );
                 })}
                 <p className="text-xs text-muted-foreground pt-1 px-1">
-                  Forms are pre-filled from your confirmed transactions and income. Review all lines before filing with a tax professional or uploading to tax software.
+                  Each export validates its own required data. Home-office and depreciation forms need additional review and are not offered as filing-ready downloads. The federal summary includes only supported tax scenarios; no state return or TXF import is generated.
                 </p>
               </CardContent>
             </Card>
@@ -469,7 +415,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
                   { label: "Deductions",        screen: "deductions-entry",       icon: Receipt },
                   { label: "Review Expenses",   screen: "transactions",           icon: FileText },
                   { label: "Schedule C Export", screen: "schedule-c-export",      icon: Download },
-                  { label: "Sign Form 8879",   screen: "form-8879",              icon: Shield },
+                  { label: "Filing Authorization",   screen: "form-8879",              icon: Shield },
                   { label: "Import Document",  screen: "document-import",        icon: Upload },
                 ].map(({ label, screen, icon: Icon }) => (
                   <Button

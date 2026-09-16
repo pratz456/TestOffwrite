@@ -1,0 +1,36 @@
+import { createHash } from 'node:crypto';
+import { adminDb } from '@/lib/firebase/admin';
+import type { ExportRecord } from './transaction-export';
+
+export class ExportDataUnavailableError extends Error {
+  readonly code = 'EXPORT_DATA_UNAVAILABLE';
+  constructor() { super('Could not load a complete, owner-verified export. Please retry.'); }
+}
+type Doc = { id: string; ref: { path: string }; data(): FirebaseFirestore.DocumentData | undefined };
+export function ownedExportRecord(doc: Doc, uid: string, inheritedOwner = false): ExportRecord {
+  const data = doc.data() ?? {};
+  const owners = [data.userId, data.user_id].filter(value => value !== undefined && value !== null);
+  if (owners.some(value => value !== uid) || (!inheritedOwner && !owners.includes(uid))) throw new ExportDataUnavailableError();
+  if (/^(user_profiles|users)\//.test(doc.ref.path) && doc.ref.path.split('/')[1] !== uid) throw new ExportDataUnavailableError();
+  return { ...data, id: doc.id, recordPath: doc.ref.path };
+}
+export function exportReference(kind: string, value: string): string {
+  return `${kind}-${createHash('sha256').update(value).digest('hex').slice(0, 16)}`;
+}
+export async function readOwnedTransactions(uid: string): Promise<ExportRecord[]> {
+  try {
+    const accounts = await adminDb.collection('user_profiles').doc(uid).collection('accounts').get();
+    const queried = await Promise.all(['userId', 'user_id'].map(field => adminDb.collectionGroup('transactions').where(field, '==', uid).get()));
+    const nested = await Promise.all(accounts.docs.map(async account => {
+      ownedExportRecord(account, uid, true);
+      return adminDb.collection('user_profiles').doc(uid).collection('accounts').doc(account.id).collection('transactions').get();
+    }));
+    const records = new Map<string, ExportRecord>();
+    queried.forEach(snapshot => snapshot.docs.forEach(doc => records.set(doc.ref.path, ownedExportRecord(doc, uid))));
+    nested.forEach(snapshot => snapshot.docs.forEach(doc => records.set(doc.ref.path, ownedExportRecord(doc, uid, true))));
+    return [...records.values()].sort((a, b) => String(a.recordPath).localeCompare(String(b.recordPath))).map(record => ({
+      ...record, exportReference: exportReference('transaction', `${uid}/${record.recordPath}`),
+      accountReference: exportReference('account', `${uid}/${record.account_id ?? record.accountId ?? String(record.recordPath).split('/')[3] ?? 'unknown'}`),
+    }));
+  } catch { throw new ExportDataUnavailableError(); }
+}

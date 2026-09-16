@@ -11,6 +11,8 @@ vi.mock('@/lib/firebase/admin', () => ({ adminDb: {
   collection: mock.collection,
 } }));
 vi.mock('@/lib/firebase/transactions-server', () => ({ getTransactionsServer: mock.transactions }));
+vi.mock('@/lib/reports/export-records', async importOriginal => ({ ...await importOriginal<typeof import('@/lib/reports/export-records')>(),
+  readOwnedTransactions: async () => { const result = await mock.transactions(); if (result.error) throw new Error('Data unavailable'); return result.data; } }));
 vi.mock('@/lib/firebase/profiles-server', () => ({ getUserProfileServer: mock.taxpayer }));
 import { POST as exportForms } from '@/app/api/reports/export/route';
 import { POST as reportPDF } from '@/app/api/reports/generate-pdf/route';

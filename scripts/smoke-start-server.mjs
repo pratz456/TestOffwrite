@@ -11,7 +11,7 @@ if ((await fs.readdir(cwd)).some(file => /^\.env(?:\.|$)/.test(file) && !/exampl
   throw new Error('Use an isolated build directory without .env files. See PLATFORM_SMOKE_REPORT.');
 }
 const env = { ...process.env };
-for (const key of ['GOOGLE_APPLICATION_CREDENTIALS', 'FIREBASE_ADMIN_CLIENT_EMAIL', 'FIREBASE_ADMIN_PRIVATE_KEY', 'FIREBASE_ADMIN_PROJECT_ID', 'OPENAI_API_KEY', 'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'PLAID_CLIENT_ID', 'PLAID_SECRET', 'RESEND_API_KEY']) env[key] = '';
+for (const key of ['GOOGLE_APPLICATION_CREDENTIALS', 'FIREBASE_ADMIN_CLIENT_EMAIL', 'FIREBASE_ADMIN_PRIVATE_KEY', 'FIREBASE_ADMIN_PROJECT_ID', 'OPENAI_API_KEY', 'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'PLAID_CLIENT_ID', 'PLAID_SECRET', 'RESEND_API_KEY', 'COLUMN_TAX_CLIENT_ID', 'COLUMN_TAX_CLIENT_SECRET', 'COLUMN_TAX_MODE', 'COLUMN_TAX_SANDBOX_APPROVED']) env[key] = '';
 Object.assign(env, {
   NODE_ENV: 'production', GCLOUD_PROJECT: 'demo-writeoff-security',
   FIREBASE_CONFIG: JSON.stringify({ projectId: 'demo-writeoff-security', storageBucket: 'demo-writeoff-security.appspot.com' }),

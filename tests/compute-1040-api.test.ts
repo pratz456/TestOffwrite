@@ -2,8 +2,9 @@ import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductio
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
-const state = vi.hoisted(() => ({ uid: 'owner-a' as string | null, txError: null as string | null, paid: 750, depreciation: 0, reads: [] as string[], collections: {} as Record<string, Record<string, unknown>[]> }));
+const state = vi.hoisted(() => ({ uid: 'owner-a' as string | null, txError: null as string | null, transactions: [] as Record<string, unknown>[], paid: 750, depreciation: 0, reads: [] as string[], collections: {} as Record<string, Record<string, unknown>[]> }));
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({ user: state.uid ? { uid: state.uid } : null, error: state.uid ? null : 'unauthenticated' }) }));
+vi.mock('@/lib/reports/export-records', async importOriginal => ({ ...await importOriginal<typeof import('@/lib/reports/export-records')>(), readOwnedTransactions: async () => { if (state.txError) throw new Error(state.txError); return state.transactions; } }));
 vi.mock('@/lib/firebase/transactions-server', () => ({ getTransactionsServer: async () => ({ data: [], error: state.txError }) }));
 vi.mock('@/lib/firebase/profiles-server', () => ({ getUserProfileServer: async () => ({ data: { filing_status: 'single', w2_federal_withheld: 99999 }, error: null }) }));
 vi.mock('@/lib/firebase/settings-server', () => ({ getAssetsSettings: async () => ({ data: state.depreciation ? [{}] : [], error: null }) }));
@@ -22,7 +23,7 @@ vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collection: (name: string) =
 import { GET } from '../app/api/tax/compute-1040/route';
 
 beforeEach(() => {
-  state.uid = 'owner-a'; state.txError = null; state.paid = 750; state.depreciation = 0; state.reads.length = 0;
+  state.uid = 'owner-a'; state.txError = null; state.transactions = []; state.paid = 750; state.depreciation = 0; state.reads.length = 0;
   state.collections = { tax_organizers: [reviewedPersonalDeductionOrganizer()], w2_income: [{ box1Wages: 100000, box2FederalWithheld: 5000, box3SocialSecurityWages: 100000, box5MedicareWages: 100000 }] };
 });
 function request(year = '2026') { return new NextRequest(`http://localhost/api/tax/compute-1040?year=${year}`); }
@@ -49,7 +50,7 @@ describe('Form1040 API integration', () => {
     expect(result.seCalc.totalSETax).toBe(11303.64);
   });
 
-  it.each(['2027', '2026garbage', 'NaN', '2026.5'])('rejects unavailable/invalid year %s before reading financial data', async year => {
+  it.each(['2027', '2026garbage', 'NaN', '2026.5', '0x7ea', '2.026e3', '2026%20'])('rejects unavailable/invalid year %s before reading financial data', async year => {
     expect((await GET(request(year))).status).toBe(400);
     expect(state.reads).toEqual([]);
   });
@@ -69,6 +70,16 @@ describe('Form1040 API integration', () => {
     const response = await GET(request());
     expect(response.status).toBe(503);
     expect(await response.text()).not.toContain('internal provider details');
+  });
+
+  it.each([
+    { date: 'invalid', amount: 100, category: 'SERVICE_SUBSCRIPTION', is_deductible: true },
+    { date: '2026-01-15', amount: 'invalid', category: 'SERVICE_SUBSCRIPTION', is_deductible: true },
+    { date: '2026-01-15', amount: 100, iso_currency_code: 'EUR', category: 'SERVICE_SUBSCRIPTION', is_deductible: true },
+  ])('withholds the annual estimate when export inputs require review: %j', async transaction => {
+    state.transactions = [transaction];
+    const result = await GET(request()); expect(result.status).toBe(422);
+    expect(await result.json()).toMatchObject({ code: 'EXPORT_REVIEW_REQUIRED' });
   });
 
   it('requires authentication before financial reads', async () => {

@@ -1,9 +1,8 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -43,13 +42,16 @@ interface PLData {
   month: number | null;
   periodLabel: string;
   income: IncomeSource[];
-  costOfGoodsSold: number;
-  grossProfit: number;
+  costOfGoodsSold: null;
+  grossProfit: null;
   operatingExpenses: ExpenseCategory[];
   totalIncome: number;
   totalExpenses: number;
   netProfit: number;
-  effectiveTaxRate: number | null;
+  effectiveTaxRate: null;
+  scope: string;
+  excludedPendingCount: number;
+  priorPeriodReviewRequired: boolean;
   priorPeriod: {
     totalIncome: number;
     totalExpenses: number;
@@ -59,7 +61,8 @@ interface PLData {
 }
 
 export function ProfitLossReportScreen({ user, onBack }: ProfitLossReportScreenProps) {
-  const [data, setData] = useState<PLData | null>(null);
+  const [report, setData] = useState<PLData | null>(null);
+  const [loadedContext, setLoadedContext] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
@@ -71,10 +74,16 @@ export function ProfitLossReportScreen({ user, onBack }: ProfitLossReportScreenP
   const years = [currentYear, currentYear - 1];
 
   const effectiveMonth = viewMode === "monthly" ? (month ?? new Date().getMonth() + 1) : undefined;
+  const context = `${user.id}:${year}:${effectiveMonth ?? 'annual'}`;
+  const activeContext = useRef(context); activeContext.current = context;
+  const requestVersion = useRef(0);
+  const data = loadedContext === context ? report : null;
 
   const fetchReport = useCallback(async () => {
+    const version = ++requestVersion.current;
     setLoading(true);
     setError(null);
+    setData(null);
     try {
       const res = await makeAuthenticatedRequest("/api/reports/profit-loss", {
         method: "POST",
@@ -88,20 +97,28 @@ export function ProfitLossReportScreen({ user, onBack }: ProfitLossReportScreenP
         throw new Error(err.error || "Failed to load report");
       }
       const json = await res.json();
+      if (version !== requestVersion.current || activeContext.current !== context) return;
+      if (json.year !== year || json.month !== (effectiveMonth ?? null) || json.reportType !== 'recorded_cash_flow') throw new Error('The report period could not be verified. Please retry.');
       setData(json);
+      setLoadedContext(context);
     } catch (err) {
+      if (version !== requestVersion.current || activeContext.current !== context) return;
       setError(err instanceof Error ? err.message : "Failed to load report");
       setData(null);
     } finally {
-      setLoading(false);
+      if (version === requestVersion.current && activeContext.current === context) setLoading(false);
     }
-  }, [year, effectiveMonth]);
+  }, [year, effectiveMonth, context]);
 
   useEffect(() => {
-    fetchReport();
-  }, [fetchReport]);
+    activeContext.current = context;
+    setExporting(false);
+    void fetchReport();
+    return () => { requestVersion.current += 1; activeContext.current = ''; };
+  }, [fetchReport, context]);
 
   const handleExportPDF = async () => {
+    const version = requestVersion.current;
     setExporting(true);
     try {
       const params = new URLSearchParams();
@@ -112,18 +129,19 @@ export function ProfitLossReportScreen({ user, onBack }: ProfitLossReportScreenP
       }
       const url = `/api/reports/profit-loss?${params.toString()}`;
       const res = await makeAuthenticatedRequest(url, { method: "GET" });
-      if (!res.ok) throw new Error("Export failed");
+      if (!res.ok) { const issue = await res.json().catch(() => ({})); throw new Error(issue.error || "Export failed"); }
       const blob = await res.blob();
+      if (version !== requestVersion.current || activeContext.current !== context) return;
       const downloadUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = downloadUrl;
-      a.download = `profit-loss-${data?.periodLabel ?? year}.pdf`;
+      a.download = `recorded-cash-flow-${data?.periodLabel ?? year}.pdf`;
       a.click();
       URL.revokeObjectURL(downloadUrl);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Export failed");
+      if (version === requestVersion.current && activeContext.current === context) setError(err instanceof Error ? err.message : "Export failed");
     } finally {
-      setExporting(false);
+      if (activeContext.current === context) setExporting(false);
     }
   };
 
@@ -139,12 +157,13 @@ export function ProfitLossReportScreen({ user, onBack }: ProfitLossReportScreenP
       <div className="sticky top-0 z-50 bg-background border-b border-border">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
           <div className="flex items-center gap-3 sm:gap-4">
+            <Button variant="ghost" onClick={onBack}>Back</Button>
             <div className="min-w-0 flex-1">
               <h1 className="text-lg sm:text-xl font-semibold text-foreground truncate">
-                Profit & Loss Report
+                Recorded Cash Flow
               </h1>
               <p className="text-xs sm:text-sm text-muted-foreground truncate">
-                Income and expense breakdown
+                Recorded USD inflows and outflows; not taxable profit
               </p>
             </div>
           </div>
@@ -260,20 +279,22 @@ export function ProfitLossReportScreen({ user, onBack }: ProfitLossReportScreenP
                 <FileText className="w-12 h-12 text-muted-foreground mb-4" />
                 <p className="text-muted-foreground">No transactions found for this period.</p>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Connect your bank or add transactions to see your P&L report.
+                  Connect your bank or add transactions to see your recorded cash flow.
                 </p>
               </div>
             </CardContent>
           </Card>
         ) : (
           <>
+            <p className="rounded-lg border p-3 text-sm text-muted-foreground">{data.scope} Pending records excluded: {data.excludedPendingCount}.</p>
+            {data.priorPeriodReviewRequired && <p className="text-sm text-muted-foreground">Prior-period comparison is unavailable until earlier currency or amount records are reviewed.</p>}
             {/* Summary cards */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <Card className="bg-card border-border">
                 <CardContent className="pt-4">
                   <div className="flex items-center gap-2 text-muted-foreground mb-1">
                     <TrendingUp className="w-4 h-4 text-green-600 dark:text-green-500" />
-                    <span className="text-xs sm:text-sm">Total Income</span>
+                    <span className="text-xs sm:text-sm">Total Inflows</span>
                   </div>
                   <p className="text-lg sm:text-xl font-semibold text-foreground tabular-nums">
                     ${fmt(data.totalIncome)}
@@ -284,7 +305,7 @@ export function ProfitLossReportScreen({ user, onBack }: ProfitLossReportScreenP
                 <CardContent className="pt-4">
                   <div className="flex items-center gap-2 text-muted-foreground mb-1">
                     <TrendingDown className="w-4 h-4 text-red-600 dark:text-red-500" />
-                    <span className="text-xs sm:text-sm">Total Expenses</span>
+                    <span className="text-xs sm:text-sm">Total Outflows</span>
                   </div>
                   <p className="text-lg sm:text-xl font-semibold text-foreground tabular-nums">
                     ${fmt(data.totalExpenses)}
@@ -301,7 +322,7 @@ export function ProfitLossReportScreen({ user, onBack }: ProfitLossReportScreenP
                           : "text-red-600 dark:text-red-500"
                       }`}
                     />
-                    <span className="text-xs sm:text-sm">Net Profit/Loss</span>
+                    <span className="text-xs sm:text-sm">Net Cash Movement</span>
                   </div>
                   <p
                     className={`text-lg sm:text-xl font-semibold tabular-nums ${
@@ -317,12 +338,10 @@ export function ProfitLossReportScreen({ user, onBack }: ProfitLossReportScreenP
                 <CardContent className="pt-4">
                   <div className="flex items-center gap-2 text-muted-foreground mb-1">
                     <BarChart3 className="w-4 h-4" />
-                    <span className="text-xs sm:text-sm">Effective Tax Rate</span>
+                    <span className="text-xs sm:text-sm">Posted Records</span>
                   </div>
                   <p className="text-lg sm:text-xl font-semibold text-foreground tabular-nums">
-                    {data.effectiveTaxRate != null
-                      ? `${data.effectiveTaxRate.toFixed(1)}%`
-                      : "-"}
+                    {data.transactionCount}
                   </p>
                 </CardContent>
               </Card>
@@ -339,11 +358,11 @@ export function ProfitLossReportScreen({ user, onBack }: ProfitLossReportScreenP
                 <CardContent>
                   <div className="grid grid-cols-3 gap-4 text-sm">
                     <div>
-                      <p className="text-muted-foreground">Income</p>
+                      <p className="text-muted-foreground">Inflows</p>
                       <p className="font-medium">${fmt(data.priorPeriod.totalIncome)}</p>
                     </div>
                     <div>
-                      <p className="text-muted-foreground">Expenses</p>
+                      <p className="text-muted-foreground">Outflows</p>
                       <p className="font-medium">${fmt(data.priorPeriod.totalExpenses)}</p>
                     </div>
                     <div>
@@ -368,12 +387,12 @@ export function ProfitLossReportScreen({ user, onBack }: ProfitLossReportScreenP
               <CardHeader className="pb-2">
                 <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
                   <TrendingUp className="w-5 h-5 text-green-600 dark:text-green-500" />
-                  Income by Source
+                  Inflows by Recorded Source
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 {data.income.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No income transactions</p>
+                  <p className="text-sm text-muted-foreground">No recorded inflows</p>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
@@ -393,7 +412,7 @@ export function ProfitLossReportScreen({ user, onBack }: ProfitLossReportScreenP
                           </tr>
                         ))}
                         <tr className="font-medium">
-                          <td className="py-2 text-foreground">Total Income</td>
+                          <td className="py-2 text-foreground">Total Inflows</td>
                           <td className="py-2 text-right tabular-nums">
                             ${fmt(data.totalIncome)}
                           </td>
@@ -410,12 +429,12 @@ export function ProfitLossReportScreen({ user, onBack }: ProfitLossReportScreenP
               <CardHeader className="pb-2">
                 <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
                   <TrendingDown className="w-5 h-5 text-red-600 dark:text-red-500" />
-                  Expense Breakdown
+                  Outflows by Recorded Category
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 {data.operatingExpenses.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No expense transactions</p>
+                  <p className="text-sm text-muted-foreground">No recorded outflows</p>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
@@ -442,7 +461,7 @@ export function ProfitLossReportScreen({ user, onBack }: ProfitLossReportScreenP
                           </tr>
                         ))}
                         <tr className="font-medium">
-                          <td className="py-2 text-foreground">Total Expenses</td>
+                          <td className="py-2 text-foreground">Total Outflows</td>
                           <td className="py-2 text-right tabular-nums">
                             ${fmt(data.totalExpenses)}
                           </td>
@@ -461,7 +480,7 @@ export function ProfitLossReportScreen({ user, onBack }: ProfitLossReportScreenP
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
                     <BarChart3 className="w-5 h-5" />
-                    Top Expense Categories
+                    Largest Recorded Outflow Categories
                   </CardTitle>
                 </CardHeader>
                 <CardContent>

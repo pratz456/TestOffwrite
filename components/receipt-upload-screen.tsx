@@ -370,7 +370,7 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-1">
-                        <Label htmlFor="receipt-amount">Amount ($)</Label>
+                        <Label htmlFor="receipt-amount">Amount (USD)</Label>
                         <Input id="receipt-amount" type="number" min="0.01" step="0.01" value={draft.amount} required
                           onChange={event => setDraft(value => ({ ...value, amount: event.target.value }))} />
                       </div>
@@ -388,7 +388,7 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
                   </fieldset> : <>
                     <div><span className="text-sm font-medium text-slate-700">Merchant</span><p className="text-slate-900 font-medium">{draft.merchant || 'Needs review'}</p></div>
                     <div className="grid grid-cols-2 gap-4">
-                      <div><span className="text-sm font-medium text-slate-700">Amount</span><p className="text-slate-900 font-medium">${draft.amount || '0'}</p></div>
+                      <div><span className="text-sm font-medium text-slate-700">Amount (USD)</span><p className="text-slate-900 font-medium">${draft.amount || '0'}</p></div>
                       <div><span className="text-sm font-medium text-slate-700">Date</span><p className="text-slate-900 font-medium">{draft.date}</p></div>
                     </div>
                     <div><span className="text-sm font-medium text-slate-700">Category</span><p className="text-slate-900 font-medium">{draft.category}</p></div>

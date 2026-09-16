@@ -14,6 +14,7 @@ const state = vi.hoisted(() => ({
 vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: vi.fn() }));
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({ user: { uid: 'benefits-owner' } }) }));
 vi.mock('@/lib/subscriptions/feature-access', () => ({ requireFeatureAccess: async () => null }));
+vi.mock('@/lib/reports/export-records', async importOriginal => ({ ...await importOriginal<typeof import('@/lib/reports/export-records')>(), readOwnedTransactions: async () => [] }));
 vi.mock('@/lib/firebase/transactions-server', () => ({ getTransactionsServer: async () => ({ data: [], error: null }) }));
 vi.mock('@/lib/firebase/profiles-server', () => ({ getUserProfileServer: async () => ({ data: state.profile, error: null }) }));
 vi.mock('@/lib/firebase/settings-server', () => ({ getAssetsSettings: async () => ({ data: [], error: null }) }));
@@ -289,5 +290,24 @@ describe('personal deductions use the same saved facts in JSON and PDF', () => {
     expect(json.status).toBe(422); expect(pdf.status).toBe(422);
     expect(await pdf.json()).toEqual(await json.json());
     expect(create).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('Form1040 preparer export completeness disclosures', () => {
+  it('preserves full saved taxpayer/spouse identities and prints missing-record warnings without filing authorization', async () => {
+    state.profile = { filing_status: 'married_filing_jointly', name: 'Synthetic Maria Long Family Name 漢' };
+    await save({ filingStatus: 'married_filing_jointly', spouseName: 'Synthetic Spouse Full Name' });
+    state.records.tax_organizers[0].spouseSSN = '111223333';
+    const draw = vi.spyOn(PDFPage.prototype, 'drawText');
+    const response = await exportPdf(pdfRequest()); expect(response.status).toBe(200);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    expect((await PDFDocument.load(bytes)).getPageCount()).toBeGreaterThan(2);
+    const text = draw.mock.calls.map(call => call[0]).join(' ');
+    expect(text).toContain('Synthetic Spouse Full Name'); expect(text).toContain('111-22-3333');
+    expect(text).toContain('Synthetic Maria Long Family Name [U+6F22]');
+    expect(text).toContain('SSN not filled in'); expect(text).toContain('Mailing address incomplete');
+    expect(text).toContain('Do not file this export with the IRS'); expect(text).not.toContain('Under penalties of perjury'); expect(text).not.toContain('Sign Here');
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
   });
 });

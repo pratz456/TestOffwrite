@@ -16,7 +16,8 @@ import { SocialSecurityReviewRequiredError } from '@/lib/tax-rules/social-securi
 import { PersonalDeductionReviewRequiredError } from '@/lib/tax-rules/personal-deductions';
 import { DependentCreditReviewRequiredError } from '@/lib/tax-rules/credit-scope';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
-import { getTransactionsServer } from '@/lib/firebase/transactions-server';
+import { readTaxExportTransactions } from '@/lib/reports/tax-export-transactions';
+import { ExportReviewRequiredError } from '@/lib/reports/transaction-export';
 import { getUserProfileServer } from '@/lib/firebase/profiles-server';
 import { adminDb } from '@/lib/firebase/admin';
 import { calculateStateTax, STATE_TAX_CONFIG } from '@/lib/tax/state-tax-data';
@@ -29,7 +30,7 @@ export async function GET(request: NextRequest) {
   if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const yearParam = request.nextUrl.searchParams.get('year');
-  const year = yearParam === null ? new Date().getFullYear() : Number(yearParam);
+  const year = yearParam === null ? new Date().getFullYear() : /^\d{4}$/.test(yearParam) ? Number(yearParam) : NaN;
   try { getFederalTaxRules(year); } catch {
     return NextResponse.json({ error: `Supported tax years: ${SUPPORTED_TAX_YEARS.join(', ')}` }, { status: 400 });
   }
@@ -38,7 +39,7 @@ export async function GET(request: NextRequest) {
 
   // Fetch all data sources in parallel
   const [
-    txResult,
+    transactions,
     profileResult,
     grossSnap,
     income1099Snap,
@@ -48,7 +49,7 @@ export async function GET(request: NextRequest) {
     organizerSnap,
     assetsResult,
   ] = await Promise.all([
-    getTransactionsServer(user.uid),
+    readTaxExportTransactions(user.uid, year),
     getUserProfileServer(user.uid),
     adminDb.collection('gross_receipts').where('userId', '==', user.uid).where('taxYear', '==', year).get(),
     adminDb.collection('income_1099').where('userId', '==', user.uid).where('taxYear', '==', year).get(),
@@ -59,10 +60,9 @@ export async function GET(request: NextRequest) {
     getAssetsSettings(user.uid),
   ]);
 
-  if (txResult.error || profileResult.error || assetsResult.error) {
+  if (profileResult.error || assetsResult.error) {
     return NextResponse.json({ error: 'Could not load the information needed for this calculation. Please retry.' }, { status: 503 });
   }
-  const transactions = (txResult.data || []) as any[];
   const profile = (profileResult.data || {}) as any;
 
   const snapshot = buildFederalTaxSnapshot({
@@ -118,7 +118,7 @@ export async function GET(request: NextRequest) {
     dataSource: 'auto',
   }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (error) {
-    if (error instanceof IncomeReconciliationRequiredError || error instanceof FilingStatusReviewRequiredError || error instanceof SocialSecurityReviewRequiredError || error instanceof PersonalDeductionReviewRequiredError || error instanceof DependentCreditReviewRequiredError) return NextResponse.json({ error: error.message, code: error.code }, { status: 422 });
+    if (error instanceof ExportReviewRequiredError || error instanceof IncomeReconciliationRequiredError || error instanceof FilingStatusReviewRequiredError || error instanceof SocialSecurityReviewRequiredError || error instanceof PersonalDeductionReviewRequiredError || error instanceof DependentCreditReviewRequiredError) return NextResponse.json({ error: error.message, code: error.code }, { status: 422 });
     if (error && typeof error === 'object' && 'code' in error && error.code === 'DEPRECIATION_REVIEW_REQUIRED') {
       return NextResponse.json({ error: error instanceof Error ? error.message : 'Asset depreciation needs review', code: error.code }, { status: 422 });
     }

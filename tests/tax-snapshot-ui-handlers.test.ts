@@ -84,10 +84,13 @@ describe('filing hub uses the successful shared tax snapshot', () => {
       ? Promise.resolve(response({ error, code: 'INCOME_RECONCILIATION_REQUIRED' }, 422)) : requests(url));
     render(); await flush(); const tree = render(); const content = text(tree);
     expect(content).toContain(error);
-    expect(content).toContain('Filing readinessUnavailable');
+    expect(content).toContain('Records and estimates');
+    expect(content).not.toContain('Filing readiness');
     expect(content).not.toContain('$40,000');
     expect(content).not.toContain('steps complete');
-    expect(walk(tree).filter(node => text(node).trim() === 'Export PDF' && node.props?.onClick).every(node => node.props.disabled)).toBe(true);
+    const exports = walk(tree).filter(node => text(node).trim() === 'Export PDF' && node.props?.onClick);
+    expect(exports.map(node => node.props.disabled)).toEqual([true, false, false]);
+    expect(walk(tree).find(node => text(node) === 'Download records archive (JSON)' && node.props?.onClick)!.props.disabled).toBe(false);
     expect(harness.request.mock.calls.map(([url]) => url)).not.toEqual(expect.arrayContaining([expect.stringContaining('/income/')]));
   });
 
@@ -109,7 +112,7 @@ describe('filing hub uses the successful shared tax snapshot', () => {
     render(); await flush(); const tree = render();
     expect(text(tree)).not.toContain('$65,000');
     expect(text(tree)).toContain('Saved tax inputs could not be loaded. Please retry.');
-    expect(text(tree)).toContain('Filing readinessUnavailable');
+    expect(text(tree)).toContain('Records and estimates');
     harness.request.mockImplementation(requests);
     await walk(tree).find(node => node.props?.onClick && text(node) === 'Retry filing summary')!.props.onClick();
     expect(text(render())).toContain('$65,000');

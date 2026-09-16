@@ -54,6 +54,12 @@ export function validateStagingConfiguration(env, { project, hosting, firebaseCo
   if (!env.STRIPE_SECRET_KEY || !(env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || env.STRIPE_PUBLISHABLE_KEY) || !monthly || !yearly || !env.STRIPE_WEBHOOK_SECRET) {
     pending.push('Stripe test credentials/prices/webhook configuration pending; billing journeys are unavailable');
   } else pending.push('Stripe price and webhook test-mode ownership still requires provider verification');
+  if (env.COLUMN_TAX_MODE && !['disabled', 'sandbox'].includes(env.COLUMN_TAX_MODE)) errors.push('COLUMN_TAX_MODE must be disabled or sandbox in staging');
+  if (Object.keys(env).some(name => /^NEXT_PUBLIC_COLUMN_TAX_/.test(name))) errors.push('Column Tax configuration must remain server-only');
+  if (env.COLUMN_TAX_MODE === 'sandbox') {
+    if (env.COLUMN_TAX_SANDBOX_APPROVED !== 'true' || !env.COLUMN_TAX_CLIENT_ID || !env.COLUMN_TAX_CLIENT_SECRET || !['2024', '2025', '2026'].includes(env.COLUMN_TAX_FILING_YEAR || '')) errors.push('Column sandbox requires explicit approval, credentials and a provider-confirmed filing year');
+    pending.push('Column sandbox enrollment and provider QA must be verified before live filing can be enabled');
+  } else pending.push('In-app tax filing remains disabled pending provider onboarding');
   if (!env.OPENAI_API_KEY) pending.push('AI provider key pending; AI journeys are unavailable');
   if (!/^[a-fA-F0-9]{64}$/.test(env.SSN_ENCRYPTION_KEY || '')) errors.push('SSN_ENCRYPTION_KEY must be configured for staging encryption');
   return { errors: [...new Set(errors)], pending };

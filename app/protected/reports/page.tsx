@@ -321,72 +321,27 @@ export default function ReportsPage() {
 
     setIsGeneratingReport(true);
     try {
-      const reportData = {
-        user: user?.email,
-        generatedAt: new Date().toISOString(),
-        summary: reportsData.summary,
-        monthlyData: reportsData.monthlyData,
-        format: exportFormat
-      };
-
-      if (exportFormat === 'PDF') {
-        // Generate PDF report
-        console.log('🔄 [Reports Page] Generating PDF report...');
-        const response = await fetch('/api/reports/generate-pdf', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          credentials: 'include',
-          body: JSON.stringify(reportData)
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-          console.error('❌ [Reports Page] PDF generation failed:', errorData);
-
-          // Check if it's a subscription required error
-          if (errorData.requiresSubscription) {
-            toast.warning('An active subscription is required to export reports. Please subscribe to access this feature.');
-            router.push('/protected/subscriptions');
-            setShowExportModal(false);
-            return;
-          }
-
-          throw new Error(errorData.error || `Failed to generate PDF: ${response.status} ${response.statusText}`);
+      const response = await fetch(exportFormat === 'PDF' ? '/api/reports/generate-pdf' : `/api/transactions/export-csv?year=${chartYear}`, {
+        ...(exportFormat === 'PDF' ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ year: chartYear }) } : {}),
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        if (errorData.code === 'SUBSCRIPTION_REQUIRED') {
+          toast.warning('An active subscription is required to export reports.');
+          router.push('/protected/subscriptions');
+          return;
         }
-
-        const blob = await response.blob();
-        if (!blob || blob.size === 0) {
-          throw new Error('PDF generation returned empty file');
-        }
-
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `tax-report-${new Date().toISOString().split('T')[0]}.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
-
-        console.log('✅ [Reports Page] PDF generated and downloaded successfully');
-      } else {
-        // Generate CSV report
-        console.log('🔄 [Reports Page] Generating CSV report...');
-        const csvContent = generateCSVReport(reportData);
-        const blob = new Blob([csvContent], { type: 'text/csv' });
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `tax-report-${new Date().toISOString().split('T')[0]}.csv`;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
-
-        console.log('✅ [Reports Page] CSV generated and downloaded successfully');
+        throw new Error(errorData.error || 'Could not prepare the export. Please retry.');
       }
+      const blob = await response.blob();
+      if (!blob.size) throw new Error('The export was empty. Please retry.');
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `writeoff-preparer-${chartYear}.${exportFormat.toLowerCase()}`;
+      document.body.appendChild(link); link.click(); link.remove();
+      window.URL.revokeObjectURL(url);
 
       setShowExportModal(false);
     } catch (error) {
@@ -396,20 +351,6 @@ export default function ReportsPage() {
     } finally {
       setIsGeneratingReport(false);
     }
-  };
-
-  // Function to generate CSV content
-  const generateCSVReport = (data: any): string => {
-    const headers = ['Month', 'Tax Savings', 'Transaction Count', 'Year to Date Total', 'Estimated Refund'];
-    const rows = data.monthlyData.map((month: MonthlyData) => [
-      month.monthName,
-      month.total.toFixed(2),
-      month.count,
-      data.summary.yearToDateTotal.toFixed(2),
-      data.summary.estimatedRefund.toFixed(2)
-    ]);
-
-    return [headers, ...rows].map(row => row.join(',')).join('\n');
   };
 
   // Show loading state while auth is loading or data is fetching
@@ -567,10 +508,10 @@ export default function ReportsPage() {
             <span className="ml-2 text-sm font-medium">Schedule C</span>
           </Button>
           <a
-            href={`/api/transactions/export-csv?year=${currentYear}&filter=deductible`}
+            href={`/api/transactions/export-csv?year=${chartYear}`}
             download
             className="inline-flex items-center gap-2 min-h-[44px] h-11 px-4 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors"
-            title="Export deductible transactions as CSV for your accountant"
+            title="Export all saved transactions for the selected year for preparer review"
           >
             <Download className="w-4 h-4" />
             <span className="ml-2 text-sm font-medium">Export CSV</span>
@@ -1245,8 +1186,8 @@ export default function ReportsPage() {
                       disabled={!hasAccess}
                     />
                     <div>
-                      <div className="font-medium text-card-foreground">PDF Report</div>
-                      <div className="text-xs text-muted-foreground">Formatted document with charts and summaries</div>
+                      <div className="font-medium text-card-foreground">Preparer Summary PDF</div>
+                      <div className="text-xs text-muted-foreground">Monthly cash amounts by currency, with review notes</div>
                     </div>
                   </label>
                   <label className={`flex items-center p-3 border-2 border-border rounded-lg transition-colors ${hasAccess ? 'cursor-pointer hover:bg-muted/50 dark:hover:bg-muted/30' : 'opacity-50 cursor-not-allowed'}`}>
@@ -1259,7 +1200,7 @@ export default function ReportsPage() {
                       disabled={!hasAccess}
                     />
                     <div>
-                      <div className="font-medium text-card-foreground">CSV Spreadsheet</div>
+                      <div className="font-medium text-card-foreground">Transaction CSV</div>
                       <div className="text-xs text-muted-foreground">Raw data for Excel or Google Sheets</div>
                     </div>
                   </label>

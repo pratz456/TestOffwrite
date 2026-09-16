@@ -4,6 +4,7 @@ import { NextRequest } from 'next/server';
 const state = vi.hoisted(() => ({ uid: 'quarterly-owner' as string | null, error: null as string | null, records: {} as Record<string, Record<string, unknown>[]>, tx: [] as Record<string, unknown>[] }));
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({ user: state.uid ? { uid: state.uid } : null }) }));
 vi.mock('@/lib/subscriptions/feature-access', () => ({ requireFeatureAccess: async () => null }));
+vi.mock('@/lib/reports/export-records', async importOriginal => ({ ...await importOriginal<typeof import('@/lib/reports/export-records')>(), readOwnedTransactions: async () => { if (state.error) throw new Error(state.error); return state.tx; } }));
 vi.mock('@/lib/firebase/transactions-server', () => ({ getTransactionsServer: async () => ({ data: state.tx, error: state.error }) }));
 vi.mock('@/lib/firebase/profiles-server', () => ({ getUserProfileServer: async () => ({ data: { filing_status: 'Single', prior_year_tax: 10000 }, error: null }) }));
 vi.mock('@/lib/firebase/settings-server', () => ({ getAssetsSettings: async () => ({ data: [], error: null }) }));

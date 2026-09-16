@@ -10,7 +10,7 @@ describe('receipt review and manual recovery', () => {
     const decoded = await new Request('https://staging.example/api/receipts/process', { method: 'POST', body: form }).formData();
     expect(decoded.get('mode')).toBe('commit');
     expect(decoded.get('receiptType')).toBe('expense');
-    expect(JSON.parse(String(decoded.get('receiptData')))).toEqual({ merchant: 'Corrected merchant', amount: 123.45, date: '2026-09-15', category: 'office supplies' });
+    expect(JSON.parse(String(decoded.get('receiptData')))).toEqual({ merchant: 'Corrected merchant', amount: 123.45, date: '2026-09-15', category: 'office supplies', iso_currency_code: 'USD' });
     expect(decoded.has('attachTransactionId')).toBe(false);
     expect(await (decoded.get('file') as File).text()).toBe('receipt image bytes');
   });

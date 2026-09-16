@@ -478,6 +478,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   }>({ open: false, title: '', description: '', confirmLabel: 'Confirm', variant: 'default', onConfirm: () => {} });
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const saveTimeoutRef = useRef<NodeJS.Timeout>();
+  const exportInFlight = useRef(false);
+  const exportOwner = useRef<string | null>(user.id); exportOwner.current = user.id;
+  const exportGeneration = useRef(0);
+  useEffect(() => {
+    exportOwner.current = user.id; exportGeneration.current += 1;
+    return () => { exportOwner.current = null; exportGeneration.current += 1; };
+  }, [user.id]);
+  const [exportLoading, setExportLoading] = useState(false);
 
   useBeforeUnload(hasUnsavedChanges);
 
@@ -1351,10 +1359,17 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               <div className="space-y-3">
                 <Button
                   onClick={async () => {
+                    if (exportInFlight.current) return;
+                    const owner = user.id, generation = exportGeneration.current;
+                    const currentExport = () => exportOwner.current === owner && exportGeneration.current === generation;
+                    exportInFlight.current = true;
+                    setExportLoading(true);
                     try {
                       // Check if user can export (rate limiting)
-                      const statusRes = await fetch('/api/user/export');
+                      const statusRes = await makeAuthenticatedRequest('/api/user/export');
+                      if (!statusRes.ok) throw new Error('Could not check export availability. Please retry.');
                       const statusData = await statusRes.json();
+                      if (!currentExport()) return;
 
                       if (!statusData.canExport) {
                         toast.warning(`Export limit reached. Please wait ${statusData.timeRemaining} minutes.`);
@@ -1362,7 +1377,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                       }
 
                       // Request the export
-                      const res = await fetch('/api/user/export', {
+                      const res = await makeAuthenticatedRequest('/api/user/export', {
                         method: 'POST',
                         headers: {
                           'Content-Type': 'application/json',
@@ -1371,13 +1386,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
                       if (res.ok) {
                         const exportData = await res.json();
+                        if (!currentExport()) return;
+                        if (!exportData.success || !exportData.data?.json || !exportData.data?.summary || typeof exportData.data.csv !== 'string' || typeof exportData.data.readme !== 'string') throw new Error('The export response was incomplete. Please retry.');
 
                         // Create downloadable files
                         const timestamp = new Date().toISOString().split('T')[0];
                         const exportId = exportData.exportId;
 
                         // Download JSON data
-                        const jsonBlob = new Blob([JSON.stringify(exportData.data.json, null, 2)], { type: 'application/json' });
+                        const jsonBlob = new Blob([JSON.stringify(exportData.data, null, 2)], { type: 'application/json' });
                         const jsonUrl = window.URL.createObjectURL(jsonBlob);
                         const jsonLink = document.createElement('a');
                         jsonLink.href = jsonUrl;
@@ -1409,21 +1426,25 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                         readmeLink.remove();
                         window.URL.revokeObjectURL(readmeUrl);
 
-                        toast.success(`Exported ${exportData.summary.transactions} transactions, ${exportData.summary.accounts} accounts, and ${exportData.summary.receipts} receipts.`);
+                        toast.success(`Exported ${exportData.summary.transactions} transactions, ${exportData.summary.accounts} accounts, and ${exportData.summary.receipts} receipt metadata records. Receipt images are not attached.`);
                       } else {
                         const errorData = await res.json();
-                        toast.error(errorData.message || 'Failed to export data.');
+                        if (currentExport()) toast.error(errorData.message || 'Failed to export data.');
                       }
                     } catch (err) {
                       console.error('Export error:', err);
-                      toast.error('Failed to export data.');
+                      if (currentExport()) toast.error('Failed to export data.');
+                    } finally {
+                      exportInFlight.current = false;
+                      setExportLoading(false);
                     }
                   }}
+                  disabled={exportLoading}
                   variant="outline"
                   className="w-full h-10 justify-center gap-2 rounded-lg"
                 >
                   <Download className="w-4 h-4" />
-                  Export Data
+                  {exportLoading ? 'Preparing export...' : 'Export Data'}
                 </Button>
 
                 <Button

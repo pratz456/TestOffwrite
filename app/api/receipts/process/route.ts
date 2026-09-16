@@ -27,6 +27,7 @@ const manualReceiptInput = z.object({
   amount: z.number().finite().positive(),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value),
   category: z.string().trim().max(200).default('other'),
+  iso_currency_code: z.literal('USD').optional(),
 }).strict();
 
 function receiptResponse(body: unknown, status = 200) {
@@ -238,6 +239,7 @@ export async function POST(request: NextRequest) {
       trans_id: newTransId,
       merchant_name: receiptData.merchant,
       amount: signedAmount,
+      ...(manualReceipt?.iso_currency_code ? { iso_currency_code: manualReceipt.iso_currency_code } : {}),
       category: receiptType === 'income' ? 'income' : receiptData.category || 'other',
       date: receiptData.date,
       description: `Receipt: ${receiptData.merchant}`,

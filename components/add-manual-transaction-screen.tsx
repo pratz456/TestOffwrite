@@ -80,6 +80,7 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
         body: JSON.stringify({
           merchant_name: exp.merchant_name.trim(),
           amount: amt,
+          iso_currency_code: 'USD',
           date: exp.date,
           category: exp.category,
           notes: exp.notes,
@@ -179,7 +180,7 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
                       placeholder="e.g. Adobe, Staples, AWS" className="bg-background" required />
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">Amount ($) *</Label>
+                    <Label className="text-xs text-muted-foreground">Amount (USD) *</Label>
                     <Input type="number" min="0.01" step="0.01" value={exp.amount}
                       onChange={e => setExp(p => ({ ...p, amount: e.target.value }))}
                       placeholder="0.00" className="bg-background" required />
@@ -251,7 +252,7 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
                       placeholder="e.g. Acme Corp, Client Name" className="bg-background" required />
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">Amount ($) *</Label>
+                    <Label className="text-xs text-muted-foreground">Amount (USD) *</Label>
                     <Input type="number" min="0.01" step="0.01" value={inc.amount}
                       onChange={e => setInc(p => ({ ...p, amount: e.target.value }))}
                       placeholder="0.00" className="bg-background" required />

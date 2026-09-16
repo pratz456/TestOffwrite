@@ -71,6 +71,7 @@ export function AddManualEntryScreen({ user, onBack, onSaved, defaultType = "exp
         body: JSON.stringify({
           ...form,
           amount,
+          iso_currency_code: 'USD',
           type: entryType,
           is_deductible: entryType === "expense" ? form.is_deductible : null,
         }),
@@ -146,7 +147,7 @@ export function AddManualEntryScreen({ user, onBack, onSaved, defaultType = "exp
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">Amount ($) *</Label>
+                    <Label className="text-xs text-muted-foreground">Amount (USD) *</Label>
                     <Input
                       type="number" min="0.01" step="0.01" value={form.amount}
                       onChange={e => setForm(p => ({ ...p, amount: e.target.value }))}

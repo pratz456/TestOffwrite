@@ -17,11 +17,14 @@ import { FilingStatusReviewRequiredError } from '@/lib/tax-rules/filing-status';
 import { SocialSecurityReviewRequiredError } from '@/lib/tax-rules/social-security';
 import { PersonalDeductionReviewRequiredError } from '@/lib/tax-rules/personal-deductions';
 import { DependentCreditReviewRequiredError } from '@/lib/tax-rules/credit-scope';
+import { createPlanningPDF } from '@/lib/reports/planning-pdf';
 import { PDFDocument, StandardFonts, rgb, PDFFont, PDFPage } from 'pdf-lib';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import { adminDb } from '@/lib/firebase/admin';
-import { getTransactionsServer } from '@/lib/firebase/transactions-server';
+import { readTaxExportTransactions } from '@/lib/reports/tax-export-transactions';
+import { ExportReviewRequiredError } from '@/lib/reports/transaction-export';
+import { ExportDataUnavailableError } from '@/lib/reports/export-records';
 import { getUserProfileServer } from '@/lib/firebase/profiles-server';
 import { getRecordedQuarterlyPayments, totalRecordedPayments } from '@/lib/firebase/quarterly-payments-server';
 import { getFederalTaxRules, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
@@ -56,7 +59,15 @@ function box(p: PDFPage, x: number, y: number, w: number, h: number, val: string
 function field(p: PDFPage, lbl: string, x: number, y: number, w: number, val: string, f: PDFFont, bf: PDFFont) {
   p.drawText(lbl, { x, y: y + 1, size: 5.5, font: f, color: GRAY });
   hl(p, y - 10, x, x + w, 0.6, BLACK);
-  if (val) p.drawText(val, { x: x + 2, y: y - 9, size: 8, font: bf, color: BLACK });
+  if (val) {
+    let visible = String(val);
+    try { bf.encodeText(visible); } catch { visible = '[See identity appendix]'; }
+    if (tw(bf, visible, 8) > w - 4) {
+      while (visible.length && tw(bf, visible + '...', 8) > w - 4) visible = visible.slice(0, -1);
+      visible += '...';
+    }
+    p.drawText(visible, { x: x + 2, y: y - 9, size: 8, font: bf, color: BLACK });
+  }
 }
 function fmtN(n: number | undefined): string {
   if (!n) return '';
@@ -105,24 +116,26 @@ async function page1(doc: PDFDocument, f: PDFFont, bf: PDFFont, d: Record<string
   p.drawRectangle({ x: ML, y: y - 38, width: MR - ML, height: 38, color: HDRBLK });
   p.drawText('Form', { x: ML + 4, y: y - 11, size: 7, font: f, color: rgb(0.7, 0.7, 0.7) });
   p.drawText('1040', { x: ML + 4, y: y - 24, size: 18, font: bf, color: WHITE });
-  p.drawText('U.S. Individual Income Tax Return', { x: ML + 70, y: y - 12, size: 10, font: bf, color: WHITE });
-  p.drawText('Department of the Treasury—Internal Revenue Service', { x: ML + 70, y: y - 22, size: 7, font: f, color: rgb(0.6, 0.6, 0.6) });
+  p.drawText('Federal estimate - preparer summary', { x: ML + 70, y: y - 12, size: 10, font: bf, color: WHITE });
+  p.drawText('NOT FOR FILING - incomplete tax-return information', { x: ML + 70, y: y - 22, size: 7, font: f, color: rgb(0.6, 0.6, 0.6) });
   p.drawText(`For the year Jan. 1-Dec. 31, ${yr}`, { x: ML + 70, y: y - 31, size: 6, font: f, color: rgb(0.55, 0.55, 0.55) });
-  p.drawText('OMB No. 1545-0074', { x: MR - 80, y: y - 11, size: 7, font: bf, color: WHITE });
+  p.drawText('WriteOff draft', { x: MR - 80, y: y - 11, size: 7, font: bf, color: WHITE });
   p.drawText(yr, { x: MR - 50, y: y - 26, size: 14, font: bf, color: GOLD });
   y -= 42;
 
   // Name/SSN
   hl(p, y, ML, MR, 0.5, BLACK); y -= 1;
-  const parts = (profile.name || '').split(' ');
-  field(p, 'First name and middle initial', ML, y - 2, 200, parts[0] || '', f, bf);
-  vl(p, ML + 205, y, y - 16);
-  field(p, 'Last name', ML + 208, y - 2, 162, parts.slice(1).join(' '), f, bf);
+  field(p, 'Full name as saved (verify legal return name)', ML, y - 2, 370, profile.name || '', f, bf);
   vl(p, ML + 374, y, y - 16);
   field(p, 'Social security number', ML + 377, y - 2, 159, profile.ssn || '___-__-____', f, bf);
   hl(p, y - 16, ML, MR, 0.5, BLACK); y -= 20;
 
-  field(p, 'Home address', ML, y - 2, 430, profile.mailing_address?.street || profile.primary_work_location || '', f, bf);
+  if (profile.filing_status === 'married_filing_jointly' || profile.filing_status === 'married_filing_separately') {
+    field(p, 'Spouse full name as saved', ML, y - 2, 370, profile.spouseName || '', f, bf);
+    field(p, 'Spouse SSN', ML + 377, y - 2, 159, profile.spouseSSN || '', f, bf);
+    hl(p, y - 16, ML, MR, 0.5, BLACK); y -= 20;
+  }
+  field(p, 'Home address', ML, y - 2, 430, profile.mailing_address?.street || '', f, bf);
   vl(p, ML + 435, y, y - 16);
   field(p, 'Apt. no.', ML + 438, y - 2, 98, '', f, bf);
   hl(p, y - 16, ML, MR, 0.5, BLACK); y -= 20;
@@ -166,14 +179,14 @@ async function page1(doc: PDFDocument, f: PDFFont, bf: PDFFont, d: Record<string
   y = row(p, '6a', 'Social security benefits (Box5 net benefits)', y, d.socialSecurityNetBenefits || 0, f, bf, true);
   y = row(p, '6b', 'Social security benefits (taxable)', y, d.socialSecurity, f, bf, false);
   if (d.socialSecurityLivedApartAllYear === true) y = row(p, '6d', 'Married filing separately: lived apart from spouse all year [X]', y, undefined, f, bf, false);
-  y = row(p, '7', 'Capital gain or (loss)  -  attach Schedule D', y, d.capGains, f, bf, true);
+  y = row(p, Number(yr) >= 2025 ? '7a' : '7', 'Capital gain or (loss)  -  attach Schedule D', y, d.capGains, f, bf, true);
   y = row(p, '8', 'Additional income from Schedule 1 (includes Schedule C net profit)', y, d.schedule1Income, f, bf, false);
   y -= 4;
   y = hrow(p, '9', 'Total income. Add lines 1z, 2b, 3b, 4b, 5b, 6b, 7, 8.', y, d.totalIncome, f, bf, rgb(0.88, 0.92, 1.0), BLUE);
   y -= 4;
   y = row(p, '10', 'Adjustments to income from Schedule 1, Part II', y, d.adjustments, f, bf, false);
   y -= 4;
-  y = hrow(p, '11', 'Adjusted gross income. Subtract line 10 from line 9.', y, d.agi, f, bf, rgb(0.88, 0.92, 1.0), BLUE);
+  y = hrow(p, Number(yr) >= 2025 ? '11a' : '11', 'Adjusted gross income. Subtract line 10 from line 9.', y, d.agi, f, bf, rgb(0.88, 0.92, 1.0), BLUE);
 
   return p;
 }
@@ -218,7 +231,7 @@ async function page2(doc: PDFDocument, f: PDFFont, bf: PDFFont, d: Record<string
   y = banner(p, 'Payments', y, f, bf);
   y = row(p, '25a', 'W-2 federal income tax withheld (Box 2  -  all employers)', y, d.w2FederalWithheld, f, bf, false);
   y = row(p, '25b', 'SSA/RRB federal income tax withheld', y, d.socialSecurityFederalWithheld || 0, f, bf, false);
-  y = row(p, '25d', 'Total withholding (25a-25c)', y, d.w2FederalWithheld + (d.socialSecurityFederalWithheld || 0), f, bf, true, true);
+  y = row(p, '25d', 'Recorded withholding only (W-2 and SSA/RRB)', y, d.w2FederalWithheld + (d.socialSecurityFederalWithheld || 0), f, bf, true, true);
   y = row(p, '26', `${yr} recorded estimated tax payments`, y, d.estimatedPayments, f, bf, false);
   y = row(p, '27', 'Earned income credit (EIC)', y, d.eitcCredit, f, bf, true);
   y = row(p, '28', 'Additional child tax credit', y, d.additionalCTC, f, bf, false);
@@ -231,26 +244,17 @@ async function page2(doc: PDFDocument, f: PDFFont, bf: PDFFont, d: Record<string
   y = banner(p, hasRefund ? 'Refund' : 'Amount You Owe', y, f, bf);
   if (hasRefund) {
     y = row(p, '34', 'Amount you overpaid (line 33 minus line 24)', y, d.refund, f, bf, false);
-    y = hrow(p, '35a', 'Amount to be refunded to you (direct deposit).', y, d.refund, f, bf, rgb(0.88, 1.0, 0.88), rgb(0, 0.6, 0));
-    y = row(p, '35b', 'Routing number for direct deposit', y, undefined, f, bf, false);
-    y = row(p, '35d', 'Account number for direct deposit', y, undefined, f, bf, true);
+    y = hrow(p, '35a', 'Estimated overpayment - refund election not collected', y, d.refund, f, bf, rgb(0.88, 1.0, 0.88), rgb(0, 0.6, 0));
+    y = row(p, '35b', 'Refund instructions require review; see optional account record', y, undefined, f, bf, false);
+    y = row(p, '35d', 'This summary does not request a refund or direct deposit', y, undefined, f, bf, true);
   } else {
     y = hrow(p, '37', 'Amount you owe (line 24 minus line 33).', y, d.balanceDue, f, bf, rgb(1.0, 0.92, 0.88), rgb(0.8, 0.3, 0));
-    y = row(p, '38', 'Estimated tax penalty (see instructions)', y, 0, f, bf, false);
+    y = row(p, '38', 'Estimated tax penalty - not calculated', y, 0, f, bf, false);
   }
   y -= 10;
 
-  // Sign here
-  p.drawRectangle({ x: ML, y: y - 13, width: MR - ML, height: 13, color: HDRBLK });
-  p.drawText('Sign Here', { x: ML + 4, y: y - 9.5, size: 8, font: bf, color: WHITE });
-  p.drawText('Under penalties of perjury, I declare that to the best of my knowledge and belief, this return is true, correct, and complete.', { x: ML + 75, y: y - 6, size: 5.5, font: f, color: rgb(0.6, 0.6, 0.6) });
-  y -= 16;
-  hl(p, y - 20, ML, MR - 200, 0.5, BLACK);
-  p.drawText('Your signature', { x: ML, y: y - 22, size: 6, font: f, color: GRAY });
-  hl(p, y - 20, MR - 195, MR - 100, 0.5, BLACK);
-  p.drawText('Date', { x: MR - 195, y: y - 22, size: 6, font: f, color: GRAY });
-  hl(p, y - 20, MR - 95, MR, 0.5, BLACK);
-  p.drawText('Your occupation', { x: MR - 95, y: y - 22, size: 6, font: f, color: GRAY });
+  y = banner(p, 'Preparer review required - do not sign or file this summary', y, f, bf);
+  p.drawText('This is not a complete return, an IRS form, or an e-file authorization. See the review appendix.', { x: ML, y: y - 8, size: 7.5, font: f, color: BLACK });
 
   return p;
 }
@@ -276,7 +280,7 @@ export async function POST(request: NextRequest) {
     }
 
     const [txResult, profileResult, grossSnap, income1099Snap, w2Snap, deductionsSnap, quarterlySnap, organizerSnap, assetsResult] = await Promise.all([
-      getTransactionsServer(uid),
+      readTaxExportTransactions(uid, taxYear),
       getUserProfileServer(uid),
       adminDb.collection('gross_receipts').where('userId', '==', uid).where('taxYear', '==', taxYear).get(),
       adminDb.collection('income_1099').where('userId', '==', uid).where('taxYear', '==', taxYear).get(),
@@ -287,10 +291,10 @@ export async function POST(request: NextRequest) {
       getAssetsSettings(uid),
     ]);
 
-    if (txResult.error || profileResult.error || assetsResult.error) {
+    if (profileResult.error || assetsResult.error) {
       return NextResponse.json({ error: 'Could not load the information needed for this calculation. Please retry.' }, { status: 503 });
     }
-    const transactions = (txResult.data || []) as any[];
+    const transactions = txResult;
     const profile = (profileResult.data || {}) as Record<string, any>;
     const ded = deductionsSnap.empty ? {} as Record<string, any> : deductionsSnap.docs[0].data();
     const org = organizerSnap.empty ? {} as Record<string, any> : organizerSnap.docs[0].data();
@@ -360,19 +364,37 @@ export async function POST(request: NextRequest) {
 
     const p1 = await page1(pdfDoc, font, boldFont, displayData, enrichedProfile, String(year));
     const p2 = await page2(pdfDoc, font, boldFont, displayData, String(year));
-    footer(p1, 1, 2, String(year), font);
-    footer(p2, 2, 2, String(year), font);
+    const notes = await createPlanningPDF('Form 1040 - identity records and review notes', taxYear);
+    notes.paragraph('Do not file this export with the IRS. It is an incomplete planning summary. WriteOff has not prepared all required schedules, signatures, elections or state returns.', true);
+    notes.paragraph('Missing or blank fields are not findings that the item is zero or inapplicable. The numeric estimate covers the saved inputs and supported rules only.');
+    notes.section('Complete saved identity and optional handoff records');
+    notes.table(['Record', 'Saved value'], [
+      ['Full name', enrichedProfile.name || 'Not provided'], ['SSN', enrichedProfile.ssn || 'Not provided'],
+      ['Spouse name', enrichedProfile.spouseName || 'Not provided'], ['Spouse SSN', enrichedProfile.spouseSSN || 'Not provided'],
+      ['Address', [enrichedProfile.mailing_address.street, enrichedProfile.mailing_address.city, enrichedProfile.mailing_address.state, enrichedProfile.mailing_address.zip].filter(Boolean).join(', ') || 'Not provided'],
+      ['Optional refund routing / account', enrichedProfile.bankRouting || enrichedProfile.bankAccount ? `${enrichedProfile.bankRouting || 'Not provided'} / ${enrichedProfile.bankAccount || 'Not provided'} (${enrichedProfile.bankAccountType})` : 'Not provided'],
+    ], [195, 333]);
+    notes.section('Outstanding review');
+    for (const warning of warnings) notes.paragraph(warning);
+    notes.paragraph('Verify all income sources; IRA versus pension classification and basis; qualified dividends and capital gains; depreciation and home-office adjustments; credits; AMT and other taxes; all non-W-2/non-SSA withholding; prior-year payments applied; Form8959 withholding; refund elections; and penalties. Supporting Schedules1,1-A,2,3,A,D and other required forms are not produced by this summary.');
+    notes.paragraph('Review legal names, taxpayer/spouse identity, digital-asset answers, residency and all signatures with the preparer. Optional bank details are records only and do not authorize any payment, refund or electronic filing.');
+    const appendix = await PDFDocument.load(await notes.save(2));
+    for (const page of await pdfDoc.copyPages(appendix, appendix.getPageIndices())) pdfDoc.addPage(page);
+    footer(p1, 1, pdfDoc.getPageCount(), String(year), font);
+    footer(p2, 2, pdfDoc.getPageCount(), String(year), font);
 
     const pdfBytes = await pdfDoc.save();
     return new NextResponse(pdfBytes as any, {
       headers: {
         'Content-Type': 'application/pdf',
         'Content-Disposition': `attachment; filename="Form_1040_${year}_WriteOff.pdf"`,
+        'Cache-Control': 'private, no-store',
       },
     });
   } catch (err) {
-    if (err instanceof IncomeReconciliationRequiredError || err instanceof FilingStatusReviewRequiredError || err instanceof SocialSecurityReviewRequiredError || err instanceof PersonalDeductionReviewRequiredError || err instanceof DependentCreditReviewRequiredError) return NextResponse.json({ error: err.message, code: err.code }, { status: 422 });
+    if (err instanceof ExportReviewRequiredError || err instanceof IncomeReconciliationRequiredError || err instanceof FilingStatusReviewRequiredError || err instanceof SocialSecurityReviewRequiredError || err instanceof PersonalDeductionReviewRequiredError || err instanceof DependentCreditReviewRequiredError) return NextResponse.json({ error: err.message, code: err.code }, { status: 422 });
     if (err && typeof err === 'object' && 'code' in err && err.code === 'DEPRECIATION_REVIEW_REQUIRED') return NextResponse.json({ error: err instanceof Error ? err.message : 'Asset depreciation needs review', code: err.code }, { status: 422 });
+    if (err instanceof ExportDataUnavailableError) return NextResponse.json({ error: err.message, code: err.code }, { status: 503 });
     console.error('[1040 Export]', err);
     return NextResponse.json({ error: 'Failed to generate Form 1040' }, { status: 500 });
   }

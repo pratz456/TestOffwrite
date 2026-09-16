@@ -42,6 +42,17 @@ describe('platform input smoke regressions', () => {
     expect(state.write).toHaveBeenCalledWith(expect.objectContaining({ amount: -125.25, userId: 'smoke-owner', type: 'income' }));
     expect(state.analyze).not.toHaveBeenCalled();
   });
+  it('persists explicitly declared USD for new manual records and rejects another currency', async () => {
+    expect((await manual(request({ ...manualBase, iso_currency_code: 'USD' }))).status).toBe(201);
+    expect(state.write).toHaveBeenCalledWith(expect.objectContaining({ iso_currency_code: 'USD' }));
+    state.write.mockClear();
+    expect((await manual(request({ ...manualBase, iso_currency_code: 'EUR' }))).status).toBe(400);
+    expect(state.write).not.toHaveBeenCalled();
+  });
+  it('does not backfill unknown currency from an older manual client', async () => {
+    expect((await manual(request(manualBase))).status).toBe(201);
+    expect(state.write.mock.calls[0][0]).not.toHaveProperty('iso_currency_code');
+  });
   it.each([{ wages: 'Infinity' }, { federalWithheld: 'NaN' }, { stateWithheld: -1 }, { medicareWages: true }, { wages: null }, { taxYear: '2026abc' }, { employer: 42 }])('W-2 invalid input %s is rejected before a write', async fields => {
     expect((await w2(request({ employer: 'Synthetic employer', wages: 1000, taxYear: 2026, ...fields }))).status).toBe(400);
     expect(state.add).not.toHaveBeenCalled();

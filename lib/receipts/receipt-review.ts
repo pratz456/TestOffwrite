@@ -10,7 +10,7 @@ export function reviewedReceiptData(draft: ReceiptDraft) {
     throw new Error('Enter a valid receipt date.');
   }
   if (category.length > 200) throw new Error('Keep the category under 200 characters.');
-  return { merchant, amount, date: draft.date, category };
+  return { merchant, amount, date: draft.date, category, iso_currency_code: 'USD' as const };
 }
 
 export function receiptCommitForm(file: File, draft: ReceiptDraft, receiptType: 'expense' | 'income', attachTransactionId?: string | null) {

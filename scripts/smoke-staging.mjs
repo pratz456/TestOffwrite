@@ -104,7 +104,7 @@ await check('cross-site cookie mutation rejected', async () => {
 });
 let incomeId;
 await check('manual income saves without a linked bank', async () => {
-  const r = await request('/api/transactions/manual', { method: 'POST', token: owner.token, body: { merchant_name: 'Synthetic client', amount: 100000, date: '2026-09-01', type: 'income' } });
+  const r = await request('/api/transactions/manual', { method: 'POST', token: owner.token, body: { merchant_name: 'Synthetic client', amount: 100000, date: '2026-09-01', type: 'income', iso_currency_code: 'USD' } });
   status(r, 201); incomeId = r.data.id; assert.ok(incomeId);
 });
 await check('another account cannot read the transaction', async () => {
@@ -129,7 +129,7 @@ await check('new account can save a receipt with manually confirmed fields', asy
   const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=', 'base64');
   const form = new FormData(); form.set('file', new Blob([image], { type: 'image/png' }), 'synthetic-receipt.png');
   form.set('mode', 'commit'); form.set('receiptType', 'expense');
-  form.set('receiptData', JSON.stringify({ merchant: 'Synthetic supplies', amount: 25, date: '2026-09-02', category: 'office_expense' }));
+  form.set('receiptData', JSON.stringify({ merchant: 'Synthetic supplies', amount: 25, date: '2026-09-02', category: 'office_expense', iso_currency_code: 'USD' }));
   const r = await request('/api/receipts/process', { method: 'POST', token: other.token, body: form }); status(r, 200);
   assert.equal(r.data.transaction.account_id, 'manual');
   assert.equal(r.data.transaction.userId, other.uid);

@@ -253,10 +253,16 @@ describe('receipt onboarding without a connected bank', () => {
     expect(mocks.createTransaction).not.toHaveBeenCalled();
   });
 
+  it('preserves reviewed USD for a new receipt without assigning a currency to OCR-only records', async () => {
+    const receiptData = JSON.stringify({ merchant: 'Synthetic merchant', amount: 25, date: '2026-09-14', category: 'supplies', iso_currency_code: 'USD' });
+    expect((await POST(request({ receiptData }))).status).toBe(200);
+    expect(mocks.createTransaction).toHaveBeenCalledWith(owner, 'manual', expect.objectContaining({ iso_currency_code: 'USD' }));
+  });
   it('ignores manual field overrides when attaching to an existing bank transaction', async () => {
     expect((await POST(request({ attachTransactionId: 'owned-bank-transaction', receiptData: '{invalid ignored override}' }))).status).toBe(200);
     const updates = mocks.updateTransaction.mock.calls[0][2];
     expect(updates).not.toHaveProperty('amount');
+    expect(updates).not.toHaveProperty('iso_currency_code');
     expect(updates).not.toHaveProperty('merchant_name');
     expect(updates).not.toHaveProperty('date');
     expect(mocks.createTransaction).not.toHaveBeenCalled();

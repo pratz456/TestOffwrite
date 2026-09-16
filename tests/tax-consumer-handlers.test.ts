@@ -52,13 +52,8 @@ function walk(node: any): Element[] {
   if (!node || typeof node !== 'object') return [];
   return [node, ...walk(node.props?.children)];
 }
-function form(tree: Element) { return walk(tree).find(node => node.type === 'form')!; }
-function changeYear(tree: Element, year: number) { walk(tree).find(node => typeof node.props?.onValueChange === 'function')!.props.onValueChange(String(year)); }
-function fill(tree: Element) {
-  walk(tree).find(node => node.props?.placeholder === 'As it appears on your Social Security card')!.props.onChange({ target: { value: 'Synthetic Taxpayer' } });
-  walk(tree).find(node => node.props?.placeholder === 'Choose any 5 digits (not 00000)')!.props.onChange({ target: { value: '12345' } });
-  walk(tree).filter(node => node.props?.type === 'checkbox').forEach(node => node.props.onChange({ target: { checked: true } }));
-}
+function changeYear(tree: Element, year: number) { walk(tree).find(node => node.type === 'select')!.props.onChange({ target: { value: String(year) } }); }
+function text(node: any): string { return Array.isArray(node) ? node.map(text).join('') : node && typeof node === 'object' ? text(node.props?.children) : String(node ?? ''); }
 async function flush() { await new Promise<void>(resolve => setImmediate(resolve)); }
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 const taxResult = (year: number, overrides = {}) => ({ taxYear: year, form1040: { taxYear: year, agi: 70000, totalIncome: 70000, totalTax: 8100, w2FederalWithheld: 5000, refund: 0, balanceDue: 3100, ...overrides } });
@@ -75,62 +70,38 @@ beforeEach(() => {
   harness.request.mockImplementation(defaultRequests); userId = 'synthetic-user';
 });
 
-describe('authorization requires the current successful tax calculation', () => {
-  it('blocks the submit handler after the calculation fails even with valid signature inputs', async () => {
-    harness.request.mockImplementation((url: string) => Promise.resolve(url.includes('compute-1040') ? response({ error: 'unavailable' }, 503) : response({ authorization: null })));
-    render(); await flush(); fill(render());
-    await form(render()).props.onSubmit({ preventDefault() {} });
+describe('legacy authorization is reference only', () => {
+  it('does not collect a PIN, signature or transmit authorization', async () => {
+    harness.request.mockResolvedValue(response({ taxYear: year, legacyRecordExists: true, authorization: null }));
+    render(); await flush(); const tree = render();
+    expect(text(tree)).toContain('An older WriteOff authorization record exists');
+    expect(text(tree)).toContain('It is not confirmation that a provider signed, submitted or filed your return.');
+    expect(walk(tree).some(node => node.type === 'form' || node.props?.type === 'password')).toBe(false);
+    expect(walk(tree).filter(node => node.type === 'input')).toHaveLength(0);
     expect(posts()).toHaveLength(0);
+    expect(harness.request.mock.calls.every(([url]) => url.includes('/form-8879?year='))).toBe(true);
   });
-
-  it.each([taxResult(year - 1), taxResult(year, { totalTax: undefined })])('blocks a mismatched-year or incomplete result instead of sending fallback zeros', async computedTax => {
-    harness.request.mockImplementation((url: string) => Promise.resolve(url.includes('compute-1040') ? response(computedTax) : response({ authorization: null })));
-    render(); await flush(); fill(render());
-    await form(render()).props.onSubmit({ preventDefault() {} });
-    expect(posts()).toHaveLength(0);
+  it('shows a retry on read failure without implying no historical record exists', async () => {
+    harness.request.mockResolvedValue(response({ error: 'unavailable' }, 503));
+    render(); await flush(); const tree = render();
+    expect(text(tree)).toContain('Unable to load the historical record. Please retry.');
+    harness.request.mockResolvedValue(response({ legacyRecordExists: true }));
+    walk(tree).find(node => node.props?.onClick && text(node) === 'Retry historical record')!.props.onClick();
+    render(); await flush(); expect(text(render())).toContain('An older WriteOff authorization record exists');
   });
-
-  it('posts the reviewed amounts once and preserves an explicitly calculated zero refund', async () => {
-    let finishPost!: (value: Response) => void;
-    harness.request.mockImplementation((url: string, options?: RequestInit) => options?.method === 'POST'
-      ? new Promise<Response>(resolve => { finishPost = resolve; }) : defaultRequests(url, options));
-    render(); await flush(); fill(render()); const currentForm = form(render());
-    const firstSubmit = currentForm.props.onSubmit({ preventDefault() {} });
-    await currentForm.props.onSubmit({ preventDefault() {} });
-    expect(posts()).toHaveLength(1);
-    expect(JSON.parse(posts()[0][1].body)).toMatchObject({ taxYear: year, adjustedGrossIncome: 70000, totalTax: 8100, federalIncomeTaxWithheld: 5000, amountOwed: 3100, refundAmount: 0 });
-    finishPost(response({ status: 'signed' })); await firstSubmit;
+  it('discards an old-year response after year change', async () => {
+    let finish!: (value: Response) => void;
+    harness.request.mockImplementation((url: string) => url.includes(`year=${year}`) ? new Promise<Response>(resolve => { finish = resolve; }) : Promise.resolve(response({ legacyRecordExists: false })));
+    const tree = render(); changeYear(tree, year - 1); render(); await flush();
+    finish(response({ legacyRecordExists: true })); await flush();
+    expect(text(render())).not.toContain('An older WriteOff authorization record exists');
   });
-
-  it('rejects an old submit handler immediately after year change and ignores a late prior-year response', async () => {
-    render(); await flush(); fill(render()); const oldTree = render(); const oldSubmit = form(oldTree).props.onSubmit;
-    let finishOldYear!: (value: Response) => void;
-    harness.request.mockImplementation((url: string) => url.includes('compute-1040') && url.includes(`year=${year - 1}`)
-      ? new Promise<Response>(resolve => { finishOldYear = resolve; }) : defaultRequests(url));
-    changeYear(oldTree, year - 1);
-    await oldSubmit({ preventDefault() {} });
-    expect(posts()).toHaveLength(0);
-    const pendingTree = render();
-    changeYear(pendingTree, year - 2); render(); await flush();
-    finishOldYear(response(taxResult(year - 1))); await flush();
-    const current = render();
-    await form(current).props.onSubmit({ preventDefault() {} });
-    expect(JSON.parse(posts()[0][1].body).taxYear).toBe(year - 2);
-  });
-
-  it('does not accept a completed save as the newly signed year after the active user changes', async () => {
-    let finishPost!: (value: Response) => void;
-    harness.request.mockImplementation((url: string, options?: RequestInit) => options?.method === 'POST'
-      ? new Promise<Response>(resolve => { finishPost = resolve; }) : defaultRequests(url, options));
-    render(); await flush(); fill(render());
-    const saving = form(render()).props.onSubmit({ preventDefault() {} });
-    userId = 'different-synthetic-user'; render(); await flush();
-    finishPost(response({ status: 'signed' })); await saving;
-    const tree = render();
-    const textContent = (node: any): string => Array.isArray(node) ? node.map(textContent).join('') : typeof node === 'object' && node ? textContent(node.props?.children) : String(node ?? '');
-    expect(textContent(tree).replace(/\s+/g, ' ')).not.toContain(`Form 8879 signed for ${year}`);
-    expect(walk(tree).find(node => node.props?.placeholder === 'As it appears on your Social Security card')!.props.value).toBe('');
-    expect(posts()).toHaveLength(1);
+  it('discards prior-account records when the signed-in user changes', async () => {
+    let finish!: (value: Response) => void;
+    harness.request.mockImplementationOnce(() => new Promise<Response>(resolve => { finish = resolve; }));
+    render(); userId = 'another-synthetic-user'; render(); await flush();
+    finish(response({ legacyRecordExists: true })); await flush();
+    expect(text(render())).not.toContain('An older WriteOff authorization record exists');
   });
 });
 

@@ -77,14 +77,17 @@ function addSecurityHeaders(response: NextResponse): NextResponse {
   // - connect-src: self + all API endpoints we call
   // - frame-src: Plaid Link, Stripe, and the configured Firebase Auth helper
   // - object-src: none (no Flash/plugins)
+  const filingSandbox = process.env.COLUMN_TAX_MODE === 'sandbox' && process.env.COLUMN_TAX_SANDBOX_APPROVED === 'true'
+    && process.env.WRITEOFF_ENV === 'staging' && process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID === 'writeoff-production-testing';
+  const filingOrigin = filingSandbox ? ' https://app-sandbox.columnapi.com' : '';
   const csp = [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://cdn.plaid.com https://apis.google.com",
+    `script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://cdn.plaid.com https://apis.google.com${filingOrigin}`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https://firebasestorage.googleapis.com https://storage.googleapis.com",
     "font-src 'self' data:",
     "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://api.stripe.com https://api.plaid.com https://sandbox.plaid.com https://production.plaid.com https://api.openai.com",
-    `frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://cdn.plaid.com https://${process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || 'writeoff-23910.firebaseapp.com'}`,
+    `frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://cdn.plaid.com https://${process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || 'writeoff-23910.firebaseapp.com'}${filingOrigin}`,
     "frame-ancestors 'none'",
     "object-src 'none'",
     "base-uri 'self'",

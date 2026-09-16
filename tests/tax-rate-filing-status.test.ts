@@ -8,6 +8,7 @@ const fixture = vi.hoisted(() => ({ status: 'Single', income: 100000 }));
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({ user: { uid: 'synthetic' }, error: null }) }));
 vi.mock('@/lib/firebase/profiles-server', () => ({ getUserProfileServer: async () => ({ data: { income: fixture.income, filing_status: fixture.status }, error: null }) }));
 vi.mock('@/lib/firebase/transactions-server', () => ({ getTransactionsServer: async () => ({ data: [{ id: 'expense', amount: 1000, date: '2026-09-01', is_deductible: true }], error: null }) }));
+vi.mock('@/lib/reports/export-records', () => ({ readOwnedTransactions: async () => [{ amount: -100000, date: '2026-09-01', iso_currency_code: 'USD' }] }));
 vi.mock('@/lib/subscriptions/feature-access', () => ({ requireFeatureAccess: async () => null }));
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collection: (path: string) => ({ get: async () => ({ docs: path.endsWith('/accounts') ? [{ id: 'manual' }] : [{ data: () => ({ amount: -100000, category: 'income', date: '2026-09-01' }) }] }) }) } }));
 import { GET as savings } from '../app/api/tax-savings/route';
@@ -55,7 +56,7 @@ const requests = () => [
   profitLoss(new NextRequest('http://localhost/api/reports/profit-loss', { method: 'POST', body: JSON.stringify({ year: 2026 }) })),
   profitLossPDF(new NextRequest('http://localhost/api/reports/profit-loss?format=pdf&year=2026')),
 ];
-describe('savings and P&L APIs use the same filing-status contract', () => {
+describe('savings use filing-status rates while recorded cash-flow does not invent tax estimates', () => {
   it.each(labels)('calculates %s with the same rate as its engine key', async (label, key) => {
     fixture.status = label;
     const responses = await Promise.all(requests());
@@ -63,15 +64,18 @@ describe('savings and P&L APIs use the same filing-status contract', () => {
     const rate = getUserTaxRate({ income: 100000, filing_status: key });
     expect((await responses[0].json()).data.taxSavings.yearToDate).toBe(1000 * rate);
     expect((await responses[1].json()).data.summary.yearToDateTotal).toBe(1000 * rate);
-    expect((await responses[2].json()).incomeTax).toBe((100000 - 100000 * .153 * .5) * rate);
+    expect(await responses[2].json()).toMatchObject({ reportType: 'recorded_cash_flow', incomeTax: null, selfEmploymentTax: null, effectiveTaxRate: null, totalIncome: 100000 });
     expect(responses[3].headers.get('content-type')).toContain('application/pdf');
   });
   it.each(['Qualifying Widower', 'unknown'])('returns actionable422 for %s without returning savings or a PDF', async status => {
     fixture.status = status;
     const responses = await Promise.all(requests());
-    for (const response of responses) {
+    for (const response of responses.slice(0, 2)) {
       expect(response.status).toBe(422);
       expect(await response.json()).toMatchObject({ code: 'FILING_STATUS_REVIEW_REQUIRED', error: expect.stringContaining('filing status in Profile') });
     }
+    expect(responses[2].status).toBe(200);
+    expect(await responses[2].json()).toMatchObject({ incomeTax: null, effectiveTaxRate: null });
+    expect(responses[3].status).toBe(200);
   });
 });

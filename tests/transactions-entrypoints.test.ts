@@ -69,7 +69,7 @@ describe('transaction page actions reach working accountless flows', () => {
     const [url, options] = harness.request.mock.calls[0];
     expect(url).toBe('/api/transactions/manual');
     expect(options.method).toBe('POST');
-    expect(JSON.parse(options.body)).toMatchObject({ merchant_name: 'Synthetic office supplies', amount: 42.5, type: 'expense' });
+    expect(JSON.parse(options.body)).toMatchObject({ merchant_name: 'Synthetic office supplies', amount: 42.5, type: 'expense', iso_currency_code: 'USD' });
     expect(JSON.parse(options.body)).not.toHaveProperty('account_id');
     expect(text(render(manualForm))).toContain('Expense saved');
   });

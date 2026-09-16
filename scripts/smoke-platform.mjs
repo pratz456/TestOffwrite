@@ -144,6 +144,18 @@ if (mode !== 'public') {
       const result = await request(route, { token: owner.token }); status(result, 200); assert.ok(result.data !== null);
     });
   }
+  await check('in-app filing stays unavailable without sandbox enrollment', async () => {
+    const r = await request('/api/tax/filing?year=2026', { token: owner.token }); status(r, 200);
+    assert.equal(r.data.available, false); assert.equal(r.data.status, 'unavailable'); assert.ok(!('userUrl' in r.data));
+  });
+  await check('local legacy PIN cannot authorize or submit a return', async () => {
+    const r = await request('/api/tax/form-8879', { method: 'POST', token: owner.token, body: { taxYear: 2026, taxpayerPin: '12345', consent: true } });
+    status(r, 409); assert.equal(r.data.code, 'FILING_PROVIDER_REQUIRED');
+  });
+  await check('disabled filing launch rejects an otherwise consented paid account', async () => {
+    const r = await request('/api/tax/filing', { method: 'POST', token: owner.token, body: { taxYear: 2026, consent: true } });
+    status(r, 503); assert.equal(r.data.code, 'FILING_NOT_AVAILABLE'); assert.ok(!('userUrl' in r.data));
+  });
   const annualTaxRoutes = [
     { route: '/api/tax/compute-1040?year=2026' },
     { route: '/api/tax/quarterly-reminders?year=2026' },
@@ -267,7 +279,7 @@ if (mode !== 'public') {
   });
   let transactionId;
   await check('manual income saves and is isolated across users', async () => {
-    const created = await request('/api/transactions/manual', { method: 'POST', token: owner.token, body: { merchant_name: 'Synthetic customer', amount: 125, date: '2026-09-15', type: 'income', notes: 'Local smoke fixture only' } });
+    const created = await request('/api/transactions/manual', { method: 'POST', token: owner.token, body: { merchant_name: 'Synthetic customer', amount: 125, date: '2026-09-15', type: 'income', iso_currency_code: 'USD', notes: 'Local smoke fixture only' } });
     status(created, 201); transactionId = created.data.id; assert.ok(transactionId);
     const own = await request('/api/transactions?year=2026', { token: owner.token }); status(own, 200);
     assert.ok(own.data.transactions.some(transaction => transaction.trans_id === transactionId && transaction.amount === -125));
@@ -294,7 +306,7 @@ if (mode !== 'public') {
   });
   await check('saved manual income and business expense reach the profit/loss report with correct signs', async () => {
     assert.ok(transactionId, 'Manual income creation failed');
-    await seed(`user_profiles/${owner.uid}/accounts/manual/transactions/synthetic-expense`, { userId: owner.uid, trans_id: 'synthetic-expense', account_id: 'manual', amount: 25, date: '2026-09-15', merchant_name: 'Synthetic supplies', category: 'supplies_small_tools', is_deductible: true });
+    await seed(`user_profiles/${owner.uid}/accounts/manual/transactions/synthetic-expense`, { userId: owner.uid, trans_id: 'synthetic-expense', account_id: 'manual', amount: 25, date: '2026-09-15', merchant_name: 'Synthetic supplies', iso_currency_code: 'USD', category: 'supplies_small_tools', is_deductible: true });
     const report = await request('/api/reports/profit-loss', { method: 'POST', token: owner.token, body: { year: 2026 } }); status(report, 200);
     assert.equal(report.data.totalIncome, 125); assert.equal(report.data.totalExpenses, 25); assert.equal(report.data.netProfit, 100);
   });
@@ -326,7 +338,7 @@ if (mode !== 'public') {
   await check('cross-site session creation and cookie-authenticated mutation are rejected', async () => {
     status(await request('/api/auth/session', { method: 'POST', body: { idToken: owner.token }, headers: { origin: 'https://other.example.invalid', 'sec-fetch-site': 'cross-site' } }), 403);
     assert.ok(sessionCookie);
-    status(await request('/api/transactions/manual', { method: 'POST', cookie: sessionCookie, body: { merchant_name: 'Cross-site', amount: 10, date: '2026-09-15', type: 'income' }, headers: { origin: 'https://other.example.invalid', 'sec-fetch-site': 'cross-site' } }), 401);
+    status(await request('/api/transactions/manual', { method: 'POST', cookie: sessionCookie, body: { merchant_name: 'Cross-site', amount: 10, date: '2026-09-15', type: 'income', iso_currency_code: 'USD' }, headers: { origin: 'https://other.example.invalid', 'sec-fetch-site': 'cross-site' } }), 401);
   });
   await check('organizer caller cannot replace document owner', async () => {
     const result = await request('/api/tax/organizer', { method: 'POST', token: owner.token, body: { taxYear: 2026, userId: other.uid, dependentDetails: 'SYNTHETIC OWNER CHECK' } });

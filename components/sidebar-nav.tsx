@@ -73,10 +73,10 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ user, userProfile }) => 
       description: 'Enter W-2 wages from employers'
     },
     {
-      name: 'Sign Form 8879',
+      name: 'Filing Authorization',
       href: '/protected?screen=form-8879',
       icon: PenLine,
-      description: 'E-file authorization'
+      description: 'Provider signatures and historical records'
     },
     {
       name: 'Reports',

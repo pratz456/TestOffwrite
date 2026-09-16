@@ -111,7 +111,17 @@ describe('staging deployment preflight', () => {
       STRIPE_PRICE_ID_MONTHLY: 'price_monthly', STRIPE_PRICE_ID_YEARLY: 'price_yearly', STRIPE_WEBHOOK_SECRET: 'whsec_synthetic',
       PLAID_CLIENT_ID: 'synthetic', PLAID_SECRET: 'synthetic', OPENAI_API_KEY: 'synthetic' }, deploy);
     expect(result.errors).toEqual([]);
-    expect(result.pending).toEqual(['Stripe price and webhook test-mode ownership still requires provider verification']);
+    expect(result.pending).toEqual(['Stripe price and webhook test-mode ownership still requires provider verification', 'In-app tax filing remains disabled pending provider onboarding']);
+  });
+  it('rejects live filing and any browser-exposed filing configuration', () => {
+    const result = validateStagingConfiguration({ ...safeEnv, COLUMN_TAX_MODE: 'production', NEXT_PUBLIC_COLUMN_TAX_CLIENT_SECRET: 'must-not-print' }, deploy);
+    expect(result.errors).toContain('COLUMN_TAX_MODE must be disabled or sandbox in staging');
+    expect(result.errors).toContain('Column Tax configuration must remain server-only');
+    expect(JSON.stringify(result)).not.toContain('must-not-print');
+  });
+  it.each(['2027', '2026junk', ''])('rejects an unsupported or malformed provider-confirmed season: %s', year => {
+    const result = validateStagingConfiguration({ ...safeEnv, COLUMN_TAX_MODE: 'sandbox', COLUMN_TAX_SANDBOX_APPROVED: 'true', COLUMN_TAX_CLIENT_ID: 'synthetic', COLUMN_TAX_CLIENT_SECRET: 'synthetic', COLUMN_TAX_FILING_YEAR: year }, deploy);
+    expect(result.errors).toContain('Column sandbox requires explicit approval, credentials and a provider-confirmed filing year');
   });
   it('uses the actual Firebase hook project and Next production env precedence', () => {
     writeFileSync(path.join(temp, 'firebase.staging.json'), JSON.stringify({ hosting: deploy.hosting }));
