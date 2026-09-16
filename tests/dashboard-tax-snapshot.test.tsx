@@ -146,16 +146,16 @@ describe('dashboard tax cards share the federal server calculation', () => {
     expect(walk(tree).filter(n => typeof n.props?.style?.width === 'string').map(n => n.props.style.width)).not.toContain('-100%');
   });
 
-  it('removes manually confirmed and skipped records from review and analysis prompts', async () => {
+  it('removes confirmed records while keeping skipped records unresolved', async () => {
     h.tx = [expense(20), expense(30, { is_deductible: false }),
       expense(40, { is_deductible: null, user_classification_reason: 'Skipped by user' })];
     const reviewed = render(); await flush();
-    expect(reviewed.quickActions).toMatchObject({ needsReviewCount: 0, needsAnalysisCount: 0 });
-    expect(reviewed.advisory).toMatchObject({ needsReviewCount: 0, needsAnalysisCount: 0 });
+    expect(reviewed.quickActions).toMatchObject({ needsReviewCount: 1, needsAnalysisCount: 1 });
+    expect(reviewed.advisory).toMatchObject({ needsReviewCount: 1, needsAnalysisCount: 1 });
     h.tx = [...h.tx, expense(50, { is_deductible: null })];
     const pending = render(); await flush();
-    expect(pending.quickActions).toMatchObject({ needsReviewCount: 1, needsAnalysisCount: 1 });
-    expect(pending.advisory).toMatchObject({ needsReviewCount: 1, needsAnalysisCount: 1 });
+    expect(pending.quickActions).toMatchObject({ needsReviewCount: 2, needsAnalysisCount: 2 });
+    expect(pending.advisory).toMatchObject({ needsReviewCount: 2, needsAnalysisCount: 2 });
   });
   it('excludes the reported personal/unreviewed debits instead of showing a -$68 tax profit', async () => {
     h.tx = [expense(42.5, { is_deductible: false }), expense(25, { is_deductible: null })];

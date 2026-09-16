@@ -1,3 +1,4 @@
+import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { QuarterlyReviewRequiredError, QUARTERLY_REVIEW_MESSAGE } from './regular-estimated-payments';
 
@@ -26,6 +27,7 @@ export type QuarterlyTransactionLike = {
   date?: string; // date-only or ISO
   datetime?: string; // ISO with time (preferred)
   pending?: boolean | null; // pending/unsettled
+  tax_review_required?: boolean;
   is_deductible?: boolean | null; // confirmed true, or null/undefined for needs review, false for non-deductible
 };
 
@@ -229,8 +231,8 @@ function sumExpensesLikeForQuarter(
     if (getTaxYear(localDate) !== year) continue;
     if (getTaxQuarter(localDate) !== quarter) continue;
 
-    const isConfirmed = tx.is_deductible === true;
-    const isPotential = tx.is_deductible === null || tx.is_deductible === undefined;
+    const isConfirmed = tx.is_deductible === true && !transactionNeedsTaxReview(tx);
+    const isPotential = transactionNeedsTaxReview(tx);
 
     if (mode === 'confirmed' && !isConfirmed) continue;
     if (mode === 'potential' && !isPotential) continue;

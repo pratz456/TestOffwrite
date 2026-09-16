@@ -1,198 +1,15 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
-import { useState as useReactState, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { ArrowLeft, Check, CheckCircle, ChevronRight, Edit3, ExternalLink, FileText, Loader2, RefreshCw, SkipForward, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
-
-// Modal for Ask a CPA (matches Transaction Details page)
-const AskCpaModal: React.FC<{
-  open: boolean;
-  onClose: () => void;
-  transaction: Transaction;
-  userEmail?: string;
-}> = ({ open, onClose, transaction, userEmail }) => {
-  const [question, setQuestion] = useReactState('');
-  const [isSubmitting, setIsSubmitting] = useReactState(false);
-  const [success, setSuccess] = useReactState(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  if (!open) return null;
-
-  const handleSubmit = async () => {
-    if (!question.trim()) return;
-    setIsSubmitting(true);
-    try {
-      // Simulate API call (replace with real endpoint if needed)
-      await fetch('/api/cpa-question', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          transactionId: transaction.trans_id || transaction.id,
-          merchantName: transaction.merchant_name,
-          amount: transaction.amount,
-          date: transaction.date,
-          category: transaction.category,
-          question: question.trim(),
-          userEmail,
-        }),
-      });
-      setSuccess(true);
-      setTimeout(() => {
-        setSuccess(false);
-        setQuestion('');
-        onClose();
-      }, 1800);
-    } catch (e) {
-      toast.error('Failed to submit your question. Please try again.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-30 p-4">
-      <div className="bg-card rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-        <div className="p-4 md:p-6">
-          {/* Modal Header */}
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-3">
-              <HelpCircle className="w-6 h-6 md:w-7 md:h-7 text-primary" />
-              <div>
-                <h2 className="text-lg md:text-xl font-semibold text-foreground">Ask a CPA</h2>
-                <p className="text-xs md:text-sm text-muted-foreground">Get expert tax advice on this transaction</p>
-              </div>
-            </div>
-            <button
-              onClick={onClose}
-              className="w-10 h-10 md:w-8 md:h-8 bg-muted rounded-full flex items-center justify-center hover:bg-muted/80 transition-colors min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0"
-              aria-label="Close"
-            >
-              <svg width="20" height="20" fill="none" viewBox="0 0 24 24"><path stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" d="M18 6L6 18M6 6l12 12" /></svg>
-            </button>
-          </div>
-
-          {/* Transaction Context */}
-          <div className="bg-muted border border-border rounded-lg p-4 mb-6">
-            <h3 className="font-medium text-foreground mb-2 text-sm md:text-base">Transaction Details</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4 text-sm">
-              <div>
-                <span className="font-semibold text-foreground">Merchant:</span>
-                <span className="ml-1 text-foreground font-medium">{transaction.merchant_name || '-'}</span>
-              </div>
-              <div>
-                <span className="font-semibold text-foreground">Amount:</span>
-                <span className="ml-1 text-foreground font-medium">${typeof transaction.amount === 'number' ? Math.abs(transaction.amount).toFixed(2) : '-'}</span>
-              </div>
-              <div>
-                <span className="font-semibold text-foreground">Date:</span>
-                <span className="ml-1 text-foreground font-medium">{transaction.date ? new Date(transaction.date).toLocaleDateString('en-US') : '-'}</span>
-              </div>
-              <div>
-                <span className="font-semibold text-foreground">Category:</span>
-                <span className="ml-1 text-foreground font-medium break-words">{transaction.category || '-'}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Question Form */}
-          <div className="space-y-4">
-            <div>
-              <label htmlFor="cpa-question" className="block font-medium text-foreground mb-1 text-sm md:text-base">Your Question</label>
-              <textarea
-                id="cpa-question"
-                ref={textareaRef}
-                placeholder="Ask about deductibility, documentation requirements, or any other tax-related questions about this transaction..."
-                value={question}
-                onChange={e => setQuestion(e.target.value)}
-                className="w-full min-h-[120px] rounded-lg border border-border bg-card p-3 text-sm md:text-base min-h-[100px]"
-                maxLength={1000}
-                disabled={isSubmitting || success}
-              />
-              <div className="text-xs text-muted-foreground mt-1 flex justify-between">
-                <span>Be specific about your business use case and any concerns you have</span>
-                <span>{question.length}/1000</span>
-              </div>
-            </div>
-            <div className="bg-primary/10 border border-primary/20 rounded-lg p-4">
-              <div className="flex items-start gap-2">
-                <svg className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
-                <div className="text-xs text-foreground">
-                  <div className="font-semibold mb-1">What to expect</div>
-                  <ul className="list-disc pl-5">
-                    <li>Our CPA team will review your question within 24 hours</li>
-                    <li>You'll receive a detailed response via email</li>
-                    <li>The response will include specific guidance for your situation</li>
-                    <li>Follow-up questions are welcome</li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Modal Actions */}
-          <div className="flex flex-col sm:flex-row gap-3 mt-6">
-            <Button
-              onClick={onClose}
-              variant="outline"
-              className="flex-1 min-h-[44px] rounded-lg"
-              disabled={isSubmitting || success}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleSubmit}
-              disabled={!question.trim() || isSubmitting || success}
-              className="flex-1 min-h-[44px] rounded-lg bg-primary hover:bg-primary-hover text-white font-semibold"
-            >
-              {success ? 'Sent!' : isSubmitting ? 'Sending...' : 'Send Question'}
-            </Button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, CheckCircle, XCircle, AlertTriangle, HelpCircle, Info, ChevronRight, Tag, SkipForward } from 'lucide-react';
-import { updateProgress, setTotalPages } from '@/lib/firebase/progress';
-import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
-
-interface Transaction {
-  id: string;
-  trans_id: string;
-  merchant_name: string;
-  amount: number;
-  category: string;
-  date: string;
-  type?: 'expense' | 'income';
-  is_deductible?: boolean | null;
-  deductible_reason?: string;
-  deduction_score?: number;
-  ai_analysis?: string; // Original AI analysis text - never overwritten
-  user_classification_reason?: string; // User's reason for classification
-  description?: string;
-  notes?: string;
-
-  // AI analysis data
-  ai?: {
-    status_label?: string | null;
-    score_pct?: number | null;
-    reasoning?: string | null;
-    irs?: { publication?: string | null; section?: string | null } | null;
-    required_docs?: string[];
-    category_hint?: string | null;
-    risk_flags?: string[];
-    model?: string;
-    last_analyzed_at?: number | null;
-  } | null;
-
-  // Analysis status
-  analyzed?: boolean;
-  analysisStatus?: 'pending' | 'running' | 'completed' | 'failed';
-  _source?: string;
-  expense_type?: 'business' | 'personal';
-}
+import type { Transaction } from '@/lib/firebase/transactions';
+import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
+import { useAiAvailability } from '@/lib/hooks/use-ai-availability';
+import { transactionNeedsCategoryReview, transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
+import { REVIEW_CATEGORIES, canConfirmSuggestion, type TransactionKind } from '@/lib/transactions/ai-review-contract';
+import { reviewPresentation, transactionReviewKey } from '@/lib/transactions/review-presentation';
 
 interface ReviewTransactionsScreenProps {
   user: { id: string; email?: string; user_metadata?: { name?: string } };
@@ -202,787 +19,270 @@ interface ReviewTransactionsScreenProps {
   onTransactionClick?: (transaction: Transaction) => void;
 }
 
+const kindLabels: Record<Exclude<TransactionKind, 'unknown'>, string> = {
+  expense: 'Business expense', personal: 'Personal purchase', income: 'Business income',
+  transfer: 'Transfer / card payment', refund: 'Expense refund',
+};
+
 export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> = ({
-  user,
-  onBack,
-  transactions,
-  onTransactionUpdate,
-  onTransactionClick
+  user, onBack, transactions, onTransactionUpdate, onTransactionClick,
 }) => {
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [swipeDirection, setSwipeDirection] = useState<'left' | 'right' | null>(null);
-  const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
+  const availability = useAiAvailability(user.id);
+  const [reviewed, setReviewed] = useState<Set<string>>(new Set());
+  const [deferred, setDeferred] = useState<Set<string>>(new Set());
+  const [snapshots, setSnapshots] = useState<Record<string, { transaction: Transaction; baseline: Transaction | undefined }>>({});
+  const incomingRecords = useRef(transactions); incomingRecords.current = transactions;
+  const [operation, setOperation] = useState<'saving' | 'analyzing' | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [kind, setKind] = useState<Exclude<TransactionKind, 'unknown'>>('expense');
+  const [category, setCategory] = useState('');
+  const [deductible, setDeductible] = useState<boolean | null>(null);
+  const [reason, setReason] = useState('');
+  const [message, setMessage] = useState<string | null>(null);
+  const [providerFailed, setProviderFailed] = useState(false);
   const [touchOffset, setTouchOffset] = useState(0);
-  // Analysis status variables removed - analysis is handled by account usage page
-  const [showSuccessMessage, setShowSuccessMessage] = useState(false);
-  const [successMessage, setSuccessMessage] = useState('');
-  const [originalTotal, setOriginalTotal] = useState(0);
-  const [askCpaOpen, setAskCpaOpen] = useState(false);
+  const touchStart = useRef<{ x: number; y: number } | null>(null);
+  const operationLock = useRef(false);
+  const activeUser = useRef(user.id);
+  activeUser.current = user.id;
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const correctionHeading = useRef<HTMLHeadingElement>(null);
 
-  // Local state to track classified transactions for immediate UI feedback
-  const [classifiedTransactionIds, setClassifiedTransactionIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    setReviewed(new Set()); setDeferred(new Set()); setSnapshots({}); setEditing(false);
+    setMessage(null); setProviderFailed(false);
+  }, [user.id]);
 
-  // Same rule as Transactions → Pending: needs tax classification until user confirms (or skips).
-  const needsReviewTransactions = transactions.filter((t) => {
-    const transId = (t as any).trans_id || t.id;
-    if (classifiedTransactionIds.has(transId)) {
-      console.log('🚫 [Optimistic] Excluding classified transaction:', transId);
-      return false;
-    }
-    const needs = transactionNeedsTaxReview(t);
-    if (needs) {
-      console.log('✅ [Filter] Transaction needs review:', transId, t.merchant_name);
-    }
-    return needs;
+  const resolved = transactions.map(transaction => {
+    const saved = snapshots[transactionReviewKey(transaction)];
+    if (!saved) return transaction;
+    // A new Firestore snapshot is authoritative, including invalidated or removed AI results.
+    return saved.baseline === transaction ? saved.transaction : transaction;
   });
+  const remaining = resolved.filter(transaction => transactionNeedsCategoryReview(transaction));
+  const taxQuestions = resolved.filter(transaction => !transactionNeedsCategoryReview(transaction) && transactionNeedsTaxReview(transaction));
+  const current = remaining.find(transaction => !deferred.has(transactionReviewKey(transaction)));
+  const currentKey = current ? transactionReviewKey(current) : '';
+  const activeKey = useRef(currentKey);
+  activeKey.current = currentKey;
+  const presentation = current ? reviewPresentation(current) : null;
+  const suggestion = current?.ai_suggestion;
+  const analysisRunning = current?.analysisStatus === 'running' || current?.analysis_status === 'running';
+  const analysisQueued = !!current?.analysisJobId && (current.analysisStatus === 'pending' || current.analysis_status === 'pending');
+  const mayConfirm = !!current && current.pending !== true && !analysisRunning && !analysisQueued && canConfirmSuggestion(suggestion);
+  const busy = operation !== null;
 
-  // Debug logging
-  console.log('🔍 [Review Screen] Total transactions:', transactions.length);
-  console.log('🔍 [Review Screen] Transactions needing review:', needsReviewTransactions.length);
-  console.log('🔍 [Review Screen] Classified transaction IDs:', Array.from(classifiedTransactionIds));
-  console.log('🔍 [Review Screen] Sample transaction:', transactions[0]);
-  console.log('🔍 [Review Screen] Sample needs review:', needsReviewTransactions[0]);
-
-  const currentTransaction = needsReviewTransactions[currentIndex];
-
-  // No auto-analysis needed - analysis is triggered from account usage page
-  // Review screen just displays the results
-
-  // Set original total when component first loads
   useEffect(() => {
-    if (needsReviewTransactions.length > 0 && originalTotal === 0) {
-      setOriginalTotal(needsReviewTransactions.length);
-      console.log('📊 [Progress] Set original total to:', needsReviewTransactions.length);
-    }
-  }, [needsReviewTransactions.length, originalTotal]);
+    setEditing(false); setMessage(null); setTouchOffset(0); touchStart.current = null;
+  }, [currentKey]);
+  useEffect(() => { if (editing) correctionHeading.current?.focus(); }, [editing]);
 
-  // Set total pages for progress tracking when component mounts
-  useEffect(() => {
-    if (needsReviewTransactions.length > 0 && user.id) {
-      setTotalPages(user.id, needsReviewTransactions.length).catch(console.error);
-    }
-  }, [needsReviewTransactions.length, user.id]);
-
-  // Handle transaction array changes and adjust currentIndex
-  useEffect(() => {
-    // If currentIndex is out of bounds after array changes, reset to 0
-    if (needsReviewTransactions.length > 0 && currentIndex >= needsReviewTransactions.length) {
-      console.log('🔄 [Index Reset] Array length changed, resetting index from', currentIndex, 'to 0');
-      setCurrentIndex(0);
-    }
-  }, [needsReviewTransactions.length, currentIndex]);
-
-  // Auto-analysis functions removed - analysis is handled by account usage page
-
-  const handleSwipe = (direction: 'left' | 'right') => {
-    if (!currentTransaction || isProcessing) return;
-
-    setSwipeDirection(direction);
-    const isDeductible = direction === 'right';
-    handleClassification(currentTransaction, isDeductible);
+  const remember = (transaction: Transaction) => {
+    const key = transactionReviewKey(transaction);
+    const baseline = incomingRecords.current.find(record => transactionReviewKey(record) === key);
+    setSnapshots(previous => ({ ...previous, [key]: { transaction, baseline } }));
+    onTransactionUpdate(transaction);
   };
 
-  const handleSkip = async () => {
-    if (!currentTransaction || isProcessing) return;
+  const readCurrent = async (transaction: Transaction): Promise<Transaction> => {
+    const response = await makeAuthenticatedRequest(`/api/transactions/${encodeURIComponent(transaction.trans_id || transaction.id)}`, { cache: 'no-store' });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload?.transaction) throw new Error('Could not refresh the saved transaction. Try again.');
+    return payload.transaction as Transaction;
+  };
 
-    setIsProcessing(true);
-    console.log('⏭️ [Skip] Skipping transaction:', currentTransaction.id);
-
-    try {
-      // Try to update the transaction in the database
-      const updateData = {
-        user_classification_reason: 'Skipped by user - keeping AI analysis'
-      };
-
-      const transactionId = (currentTransaction as any).trans_id || currentTransaction.id;
-
+  // Only refresh saved work here. Viewing or swiping never starts a provider request.
+  useEffect(() => {
+    if (!current || (!analysisRunning && !analysisQueued)) return;
+    let canceled = false;
+    let pending = false;
+    const owner = user.id;
+    const timer = setInterval(async () => {
+      if (pending || document.hidden) return;
+      pending = true;
       try {
-        const { makeAuthenticatedRequest } = await import('@/lib/firebase/api-client');
-        const response = await makeAuthenticatedRequest(`/api/transactions/${transactionId}`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(updateData),
-        });
+        const transaction = await readCurrent(current);
+        if (!canceled && activeUser.current === owner) remember(transaction);
+      } catch { /* Keep the last saved state; the user can refresh explicitly. */ }
+      finally { pending = false; }
+    }, 5000);
+    return () => { canceled = true; clearInterval(timer); };
+    // Stable identity/status starts a bounded poll for the card being viewed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentKey, analysisRunning, analysisQueued, user.id]);
 
-        if (response.ok) {
-          console.log('✅ [Skip] Transaction updated in database');
-
-          // Immediately add transaction to classified set for instant UI feedback
-          const transId = (currentTransaction as any).trans_id || currentTransaction.id;
-          setClassifiedTransactionIds(prev => {
-            const newSet = new Set([...prev, transId]);
-            console.log('✅ [Optimistic Update] Added skipped transaction to classified set:', transId, 'New set:', Array.from(newSet));
-            return newSet;
-          });
-        } else {
-          console.warn('⚠️ [Skip] Failed to update database, but continuing with skip');
-        }
-      } catch (dbError) {
-        console.warn('⚠️ [Skip] Database update failed, but continuing with skip:', dbError);
-      }
-
-      // Always move to next transaction regardless of database update success
-      if (currentIndex < needsReviewTransactions.length - 1) {
-        setCurrentIndex(currentIndex + 1);
-        console.log('✅ [Skip] Moved to next transaction');
-      } else {
-        console.log('✅ [Skip] Reached end of transactions');
-      }
-
-      // Update progress - pass the current transaction with skip status
-      if (onTransactionUpdate && currentTransaction) {
-        const updatedTransaction = {
-          ...currentTransaction,
-          user_classification_reason: 'Skipped by user - keeping AI analysis'
-        };
-        onTransactionUpdate(updatedTransaction);
-      }
-
-    } catch (error) {
-      console.error('❌ [Skip] Error in skip process:', error);
-      // Still try to move to next transaction even if there's an error
-      if (currentIndex < needsReviewTransactions.length - 1) {
-        setCurrentIndex(currentIndex + 1);
-      }
-    } finally {
-      setIsProcessing(false);
-    }
+  const openCorrection = () => {
+    if (!current || operationLock.current || current.pending) return;
+    setKind(suggestion?.transactionKind && suggestion.transactionKind !== 'unknown' ? suggestion.transactionKind : 'expense');
+    setCategory(suggestion?.category ?? (suggestion?.transactionKind && ['personal', 'income', 'transfer'].includes(suggestion.transactionKind) ? suggestion.transactionKind : ''));
+    setDeductible(null);
+    setReason(''); setMessage(null); setEditing(true);
   };
 
-  const handleTouchStart = (e: React.TouchEvent) => {
-    const touch = e.touches[0];
-    setTouchStart({ x: touch.clientX, y: touch.clientY });
-    setTouchOffset(0);
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (!touchStart) return;
-
-    const touch = e.touches[0];
-    const deltaX = touch.clientX - touchStart.x;
-    const deltaY = Math.abs(touch.clientY - touchStart.y);
-
-    // Only track horizontal swipes
-    if (deltaY < 50) {
-      setTouchOffset(deltaX);
-    }
-  };
-
-  const handleTouchEnd = () => {
-    if (!touchStart || !currentTransaction) {
-      setTouchStart(null);
-      setTouchOffset(0);
-      return;
-    }
-
-    const threshold = 100; // Minimum distance for a swipe
-
-    if (Math.abs(touchOffset) > threshold) {
-      if (touchOffset < 0) {
-        handleSwipe('left'); // Swipe left = Personal
-      } else {
-        handleSwipe('right'); // Swipe right = Deductible
-      }
-    }
-
-    setTouchStart(null);
-    setTouchOffset(0);
-  };
-
-  const handleClassification = async (transaction: Transaction, isDeductible: boolean) => {
-    if (isProcessing) return;
-    setIsProcessing(true);
-
-    console.log('🎯 [UI RERENDER] Starting classification for transaction:', transaction.trans_id || transaction.id, 'isDeductible:', isDeductible);
-    console.log('🎯 [UI RERENDER] Full transaction object:', transaction);
-
+  const saveReview = async (action: 'confirm' | 'correct') => {
+    if (!current || operationLock.current || current.pending || (action === 'confirm' && !mayConfirm)) return;
+    const accountId = current.account_id || current.accountId;
+    if (!accountId) { setMessage('This transaction is missing its account. Open its details or refresh before reviewing.'); return; }
+    if (action === 'correct' && !category) { setMessage('Choose a category before saving.'); return; }
+    operationLock.current = true; setOperation('saving'); setMessage(null);
+    const owner = user.id;
+    const key = currentKey;
     try {
-      const updateData = {
-        is_deductible: isDeductible,
-        expense_type: isDeductible ? 'business' : 'personal', // Explicit classification
-        user_classification_reason: isDeductible
-          ? 'Classified as business expense by user'
-          : 'Classified as personal expense by user',
-        deduction_score: isDeductible ? 1.0 : 0.0
-      };
-
-      console.log('📝 [UI RERENDER] Calling API to update transaction with:', updateData);
-      console.log('📝 [UI RERENDER] Using transaction ID:', transaction.trans_id || transaction.id, 'trans_id:', transaction.trans_id);
-
-      // Use trans_id if available, otherwise fall back to id
-      const transactionId = (transaction as any).trans_id || transaction.id;
-      console.log('📝 [UI RERENDER] Final transaction ID for API:', transactionId);
-
-      // Use the authenticated request helper
-      const { makeAuthenticatedRequest } = await import('@/lib/firebase/api-client');
-      const response = await makeAuthenticatedRequest(`/api/transactions/${transactionId}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(updateData),
+      const response = await makeAuthenticatedRequest(`/api/transactions/${encodeURIComponent(current.trans_id || current.id)}/review`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(action === 'confirm'
+          ? { action, accountId, suggestionId: suggestion!.id }
+          : { action, accountId, category, transactionKind: kind, isDeductible: kind === 'expense' ? deductible : kind === 'refund' ? null : false, reason: reason.trim() || undefined }),
       });
-
-      const result = await response.json();
-
-      if (!response.ok || !result.success) {
-        console.error('❌ [UI RERENDER] API update failed:', {
-          status: response.status,
-          statusText: response.statusText,
-          result: result,
-          response: response,
-          transactionId: transactionId,
-          updateData: updateData
-        });
-
-        // Show detailed user-friendly error message
-        let errorMessage = `Failed to update transaction: ${result.error || 'Unknown error'}`;
-        if (response.status === 401) {
-          errorMessage = 'Authentication failed. Please sign in again.';
-        } else if (response.status === 403) {
-          errorMessage = 'Permission denied. You may not have access to update this transaction.';
-        } else if (response.status === 404) {
-          errorMessage = 'Transaction not found. It may have been deleted or moved.';
-        } else if (response.status >= 500) {
-          errorMessage = 'Server error. Please try again later or contact support if the problem persists.';
-        }
-
-        toast.error(errorMessage);
+      const result = await response.json().catch(() => null);
+      if (!mounted.current || activeUser.current !== owner || activeKey.current !== key) return;
+      if (!response.ok || !result?.success || !result.transaction) {
+        if (response.status === 409) {
+          try { remember(await readCurrent(current)); } catch { /* Keep the error actionable without hiding the card. */ }
+          setMessage('This transaction or its AI suggestion changed. Review the latest details before confirming.');
+        } else setMessage(response.status === 401 ? 'Your session expired. Sign in again to save your review.' : result?.error || 'Your review was not saved. Please try again.');
         return;
       }
-
-      console.log('✅ [UI RERENDER] API update successful:', result.transaction);
-
-      // Immediately add transaction to classified set for instant UI feedback
-      const transId = (transaction as any).trans_id || transaction.id;
-      setClassifiedTransactionIds(prev => {
-        const newSet = new Set([...prev, transId]);
-        console.log('✅ [Optimistic Update] Added transaction to classified set:', transId, 'New set:', Array.from(newSet));
-        return newSet;
-      });
-
-      // Update progress tracking
-      try {
-        await updateProgress(user.id, transaction.trans_id || transaction.id, isDeductible ? 'deductible' : 'personal');
-        console.log('✅ [Progress] Progress updated for transaction:', transaction.trans_id || transaction.id);
-      } catch (progressError) {
-        console.error('❌ [Progress] Failed to update progress:', progressError);
-        // Don't fail the transaction update if progress update fails
-      }
-
-      // Update the transaction in the parent state
-      const updated: Transaction = {
-        ...transaction,
-        is_deductible: isDeductible,
-        user_classification_reason: updateData.user_classification_reason,
-        deduction_score: updateData.deduction_score
-      };
-
-      console.log('🔄 [Classification] Updating parent state with:', updated.trans_id || updated.id, updated.is_deductible);
-      onTransactionUpdate(updated);
-
-      // Show success message
-      const message = isDeductible ? 'Marked as business expense' : 'Marked as personal expense';
-      setSuccessMessage(message);
-      setShowSuccessMessage(true);
-
-      // Hide success message after 1.5 seconds
-      setTimeout(() => {
-        setShowSuccessMessage(false);
-      }, 1500);
-
-      // Clear swipe direction immediately for better UX
-      setSwipeDirection(null);
-
-      // Increment the currentIndex to show progress
-      // This ensures the progress bar increases and shows "2 of 19", "3 of 18", etc.
-      const newIndex = currentIndex < needsReviewTransactions.length - 1 ? currentIndex + 1 : 0;
-      console.log('📊 [Progress] Updating index:', {
-        currentIndex,
-        newIndex,
-        arrayLength: needsReviewTransactions.length,
-        originalTotal,
-        progress: `${newIndex + 1} of ${originalTotal}`
-      });
-
-      if (currentIndex < needsReviewTransactions.length - 1) {
-        setCurrentIndex(prev => prev + 1);
-      } else {
-        // If this was the last transaction, reset to 0
-        // The empty state will be shown on next render
-        setCurrentIndex(0);
-      }
-
-    } catch (e: any) {
-      console.error('❌ [UI RERENDER] Unexpected update error:', {
-        error: e,
-        message: e.message,
-        stack: e.stack,
-        transactionId: transaction.trans_id || transaction.id,
-      });
-
-      // Show detailed user-friendly error message
-      let errorMessage = `Unexpected error updating transaction: ${e.message || 'Unknown error'}`;
-      if (e.name === 'TypeError' && e.message.includes('fetch')) {
-        errorMessage = 'Network error. Please check your internet connection and try again.';
-      } else if (e.message && e.message.includes('auth')) {
-        errorMessage = 'Authentication error. Please sign in again.';
-      } else if (e.message && e.message.includes('permission')) {
-        errorMessage = 'Permission error. You may not have access to update this transaction.';
-      }
-
-      toast.error(errorMessage);
-    } finally {
-      setIsProcessing(false);
-    }
+      remember(result.transaction);
+      setReviewed(previous => new Set([...previous, key]));
+      setEditing(false);
+      toast.success(result.transaction.tax_review_required ? 'Category saved · tax details still need review' : action === 'confirm' ? 'AI categorization confirmed' : 'Your correction was saved');
+    } catch {
+      if (mounted.current && activeUser.current === owner && activeKey.current === key) setMessage('Your review was not saved. Check your connection and try again.');
+    } finally { operationLock.current = false; if (mounted.current) { setOperation(null); setTouchOffset(0); } }
   };
 
-  const formatCategory = (category: string): string => {
-    if (!category) return 'Uncategorized';
-    return category
-      .split('_')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-      .join(' ');
+  const runAnalysis = async () => {
+    if (!current || operationLock.current || current.pending || analysisRunning || availability.status !== 'configured' || providerFailed) return;
+    operationLock.current = true; setOperation('analyzing'); setMessage(null);
+    const owner = user.id;
+    const key = currentKey;
+    try {
+      const response = await makeAuthenticatedRequest('/api/ai/analyze-transaction', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transactionId: current.trans_id || current.id,
+          transaction: { merchant_name: current.merchant_name, amount: current.amount, category: current.category, date: current.date } }),
+      });
+      const result = await response.json().catch(() => null);
+      if (!mounted.current || activeUser.current !== owner || activeKey.current !== key) return;
+      if (!response.ok) {
+        if (response.status === 503 || result?.code === 'AI_UNAVAILABLE') setProviderFailed(true);
+        setMessage(response.status === 503 ? 'AI is temporarily unavailable. You can categorize this transaction yourself or retry when service is restored.' : result?.error || 'AI analysis could not finish. Your transaction has not changed.');
+        return;
+      }
+      const transaction = await readCurrent(current);
+      if (!mounted.current || activeUser.current !== owner || activeKey.current !== key) return;
+      remember(transaction);
+      if (!transaction.ai_suggestion) setMessage('Analysis finished, but the saved suggestion could not be loaded. Refresh before confirming.');
+    } catch {
+      if (mounted.current && activeUser.current === owner && activeKey.current === key) setMessage('Could not complete or refresh analysis. Your existing classification has not changed.');
+    } finally { operationLock.current = false; if (mounted.current) setOperation(null); }
   };
 
-  if (needsReviewTransactions.length === 0) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <div className="max-w-md w-full">
-          {/* Main Card */}
-          <div className="bg-card rounded-3xl shadow-xl border border-border p-8 text-center">
-            {/* Main Icon */}
-            <div className="mb-6">
-              {transactions.length === 0 ? (
-                <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center mx-auto shadow-lg">
-                  <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
-                </div>
-              ) : (
-                <div className="relative">
-                  <div className="w-20 h-20 bg-gradient-to-br from-emerald-400 to-emerald-600 rounded-full flex items-center justify-center mx-auto shadow-lg">
-                    <CheckCircle className="w-10 h-10 text-white" />
-                  </div>
-                  <div className="absolute -top-1 -right-1 w-6 h-6 bg-emerald-500 rounded-full flex items-center justify-center">
-                    <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
-                  </div>
-                </div>
-              )}
-            </div>
+  const swipe = (direction: 'left' | 'right') => {
+    if (editing || operationLock.current) return;
+    if (direction === 'left') openCorrection();
+    else void saveReview('confirm');
+  };
+  const later = () => {
+    if (!current || operationLock.current) return;
+    setDeferred(previous => new Set([...previous, currentKey]));
+  };
 
-            {/* Content */}
-            <h2 className="text-2xl font-bold text-foreground mb-3">
-              {transactions.length === 0 ? 'Ready to Get Started!' : 'All Caught Up!'}
-            </h2>
-
-            <p className="text-muted-foreground mb-8 leading-relaxed">
-              {transactions.length === 0
-                ? 'Connect your bank account to start analyzing transactions and maximizing your tax deductions.'
-                : `Great job! You've reviewed all transactions. You have ${transactions.length} total transactions in your account.`
-              }
-            </p>
-
-            {/* Action Buttons */}
-            <div className="space-y-4">
-              {transactions.length === 0 ? (
-                <>
-                  <Button
-                    onClick={() => window.location.href = '/protected?screen=plaid'}
-                    className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold py-3 px-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 flex items-center justify-center gap-2"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                    </svg>
-                    Connect Bank Account
-                  </Button>
-                  <Button
-                    onClick={onBack}
-                    variant="outline"
-                    className="w-full border-2 border-border hover:border-border text-foreground font-medium py-3 px-6 rounded-xl transition-all duration-200 flex items-center justify-center gap-2"
-                  >
-                    <ArrowLeft className="w-4 h-4" />
-                    Back to Dashboard
-                  </Button>
-                </>
-              ) : (
-                <Button
-                  onClick={onBack}
-                  className="w-full bg-gradient-to-r from-emerald-400 to-green-500 dark:from-emerald-500 dark:to-green-600 hover:from-emerald-500 hover:to-green-600 dark:hover:from-emerald-400 dark:hover:to-green-500 text-white font-semibold py-3 px-6 rounded-xl shadow-md shadow-green-500/20 dark:shadow-green-500/30 hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2"
-                >
-                  <ArrowLeft className="w-4 h-4" />
-                  Back to Dashboard
-                </Button>
-              )}
-            </div>
-
-            {/* Additional Info */}
-            {transactions.length > 0 && (
-              <div className="mt-6 p-4 bg-blue-500/10 rounded-xl border border-blue-500/20">
-                <div className="flex items-center justify-center gap-2 text-blue-600 dark:text-blue-400">
-                  <Info className="w-4 h-4" />
-                  <span className="text-sm font-medium">
-                    New transactions will appear here for review
-                  </span>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+  if (!current) return (
+    <div className="min-h-screen bg-background px-4 py-12 flex items-center justify-center">
+      <div className="max-w-md w-full rounded-3xl border border-border bg-card p-8 text-center space-y-5">
+        <CheckCircle className="h-12 w-12 mx-auto text-primary" />
+        <h1 className="text-2xl font-semibold">{remaining.length ? 'Saved for later' : transactions.length ? 'Categories reviewed' : 'Your review queue starts here'}</h1>
+        <p className="text-muted-foreground">{remaining.length
+          ? `${remaining.length} transaction${remaining.length === 1 ? ' still needs' : 's still need'} review. Nothing was confirmed when you chose Later.`
+          : transactions.length ? 'Your categorization decisions are saved. New transactions will appear here for review.'
+          : 'Add a transaction or connect a bank to start building your tax records.'}</p>
+        {taxQuestions.length > 0 && <p className="text-sm text-amber-700 dark:text-amber-400">{taxQuestions.length} categorized transaction{taxQuestions.length === 1 ? ' still needs' : 's still need'} tax details. Deductions remain unresolved.</p>}
+        {taxQuestions.length > 0 && onTransactionClick && <Button className="w-full" onClick={() => onTransactionClick({ ...taxQuestions[0], _source: 'review-transactions' })}>Resolve missing tax details</Button>}
+        {remaining.length > 0 && <Button className="w-full" onClick={() => setDeferred(new Set())}>Review remaining transactions</Button>}
+        <Button variant="outline" className="w-full" onClick={onBack}>Back to dashboard</Button>
       </div>
-    );
-  }
-
-  if (currentIndex >= needsReviewTransactions.length) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <div className="max-w-md w-full">
-          {/* Main Card */}
-          <div className="bg-card rounded-3xl shadow-xl border border-border p-8 text-center">
-            {/* Success Icon */}
-            <div className="relative mb-6">
-              <div className="w-20 h-20 bg-gradient-to-br from-emerald-400 to-emerald-600 rounded-full flex items-center justify-center mx-auto shadow-lg">
-                <CheckCircle className="w-10 h-10 text-white" />
-              </div>
-              <div className="absolute -top-1 -right-1 w-6 h-6 bg-emerald-500 rounded-full flex items-center justify-center">
-                <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
-              </div>
-            </div>
-
-            {/* Content */}
-            <h2 className="text-2xl font-bold text-foreground mb-3">Review Complete!</h2>
-
-            <p className="text-muted-foreground mb-8 leading-relaxed">
-              Excellent work! You've successfully reviewed all transactions that needed attention.
-              Your tax deductions are now properly categorized and ready for filing.
-            </p>
-
-            {/* Action Button */}
-            <Button
-              onClick={onBack}
-              className="w-full bg-gradient-to-r from-emerald-400 to-green-500 dark:from-emerald-500 dark:to-green-600 hover:from-emerald-500 hover:to-green-600 dark:hover:from-emerald-400 dark:hover:to-green-500 text-white font-semibold py-3 px-6 rounded-xl shadow-md shadow-green-500/20 dark:shadow-green-500/30 hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              Back to Dashboard
-            </Button>
-
-            {/* Success Stats */}
-            <div className="mt-6 p-4 bg-emerald-500/10 rounded-xl border border-emerald-500/20">
-              <div className="flex items-center justify-center gap-2 text-emerald-600 dark:text-emerald-400">
-                <CheckCircle className="w-4 h-4" />
-                <span className="text-sm font-medium">
-                  All transactions reviewed and categorized
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+    </div>
+  );
 
   return (
-    <div className="min-h-screen bg-background safe-area-inset-top safe-area-inset-bottom">
-      <div className="max-w-5xl mx-auto px-3 sm:px-4">
-        {/* Sticky Header */}
-        <div className="sticky top-0 bg-background/95 backdrop-blur-sm z-10 py-3 sm:py-4 border-b border-border/50">
-          <div className="flex items-center justify-between mb-2 sm:mb-4">
-            <button
-              onClick={onBack}
-              className="p-2.5 sm:p-2 hover:bg-muted active:bg-muted/80 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary no-tap-highlight min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 flex items-center justify-center"
-              aria-label="Go back"
-            >
-              <ArrowLeft className="w-5 h-5 text-muted-foreground" />
-            </button>
-
-            <div className="text-center flex-1 px-2">
-              <h1 className="text-base sm:text-lg font-semibold text-foreground">Review Transactions</h1>
-              <div className="flex flex-col items-center gap-1">
-                <p className="text-xs text-muted-foreground">
-                  {currentIndex + 1} of {originalTotal || needsReviewTransactions.length}
-                </p>
-                <div className="w-28 sm:w-24 h-2 sm:h-1.5 bg-muted rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-primary transition-all duration-300 ease-out"
-                    style={{
-                      width: `${originalTotal > 0 ? ((currentIndex + 1) / originalTotal) * 100 : 0}%`
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="w-11 h-11 sm:w-9 sm:h-9" /> {/* Spacer for alignment */}
+    <div className="min-h-screen bg-background px-4 pb-12">
+      <div className="mx-auto max-w-2xl">
+        <header className="sticky top-0 z-10 bg-background/95 backdrop-blur py-4 border-b border-border mb-5">
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" size="icon" aria-label="Back to dashboard" onClick={onBack}><ArrowLeft className="h-5 w-5" /></Button>
+            <div className="flex-1"><h1 className="text-xl font-semibold">Review transactions</h1><p className="text-sm text-muted-foreground">{remaining.length} {remaining.length === 1 ? 'needs' : 'need'} review{reviewed.size > 0 ? ` · ${reviewed.size} confirmed this session` : ''}</p></div>
+            <Sparkles className="h-5 w-5 text-primary" />
           </div>
+          <p className="text-xs text-muted-foreground text-center mt-3">Swipe right to confirm AI’s suggestion · Swipe left to change it</p>
+        </header>
 
-          <p className="text-center text-xs text-muted-foreground px-2 hidden sm:block">
-            Swipe right to deduct • Swipe left for personal • Use Skip to keep AI analysis
-          </p>
-          <p className="text-center text-xs text-muted-foreground px-2 sm:hidden">
-            Swipe or tap buttons below
-          </p>
-
-          {/* Success Message */}
-          {showSuccessMessage && (
-            <div className="mt-4 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg mx-4 animate-in slide-in-from-top-2 duration-300">
-              <div className="flex items-center justify-center gap-3 text-emerald-600 dark:text-emerald-400">
-                <CheckCircle className="w-4 h-4" />
-                <span className="font-medium text-sm">{successMessage}</span>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Main Card */}
-        <div className="pb-6">
-          <div
-            className={`rounded-2xl border border-border bg-card shadow-sm transition-all duration-300 ${swipeDirection === 'right' ? 'transform translate-x-8 opacity-80 bg-emerald-500/10' :
-                swipeDirection === 'left' ? 'transform -translate-x-8 opacity-80 bg-red-500/10' :
-                  isProcessing ? 'scale-[0.98]' : ''
-              }`}
-            style={{
-              transform: `translateX(${Math.max(-150, Math.min(150, touchOffset))}px)`,
-              opacity: Math.abs(touchOffset) > 50 ? 0.8 : 1
-            }}
-            onTouchStart={handleTouchStart}
-            onTouchMove={handleTouchMove}
-            onTouchEnd={handleTouchEnd}
-          >
-            <div className="p-5 sm:p-6">
-              {/* Title Row */}
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex-1 min-w-0">
-                  <h2 className="text-lg font-semibold text-card-foreground truncate">
-                    {currentTransaction.merchant_name}
-                  </h2>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {new Date(currentTransaction.date).toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric'
-                    })}
-                  </p>
-                </div>
-                <div className="text-xl font-semibold text-card-foreground">
-                  ${Math.abs(currentTransaction.amount).toFixed(2)}
-                </div>
-              </div>
-
-              {/* View Details Button */}
-              <button
-                onClick={() => onTransactionClick?.({ ...currentTransaction, _source: 'review-transactions' })}
-                className="w-full flex items-center justify-between p-3.5 sm:p-3 border border-border bg-muted hover:bg-muted/80 active:bg-muted/60 rounded-xl sm:rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-primary mb-4 min-h-[52px] sm:min-h-0 no-tap-highlight"
-                aria-label="View transaction details"
-              >
-                <div className="flex items-center gap-2.5 sm:gap-2">
-                  <Info className="w-5 h-5 sm:w-4 sm:h-4 text-muted-foreground" />
-                  <span className="text-base sm:text-sm font-medium text-card-foreground">View Details</span>
-                </div>
-                <ChevronRight className="w-5 h-5 sm:w-4 sm:h-4 text-muted-foreground" />
-              </button>
-
-              {/* Category Pill */}
-              <div className="mb-4">
-                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 rounded-full text-xs font-medium">
-                  <Tag className="w-3 h-3" />
-                  {formatCategory(currentTransaction.category)}
-                </div>
-              </div>
-
-              {/* Description Section */}
-              <div className="mb-4">
-                <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">
-                  DESCRIPTION
-                </div>
-                <p className="text-sm text-card-foreground">
-                  {currentTransaction.description || currentTransaction.deductible_reason || 'No additional details available'}
-                </p>
-              </div>
-
-              {/* AI Analysis Section */}
-              <div className="mb-6">
-                <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">
-                  AI ANALYSIS
-                </div>
-                {currentTransaction.ai?.reasoning ? (
-                  <div className="space-y-3">
-                    <p className="text-sm text-card-foreground">
-                      {currentTransaction.ai.status_label === 'Likely Deductible'
-                        ? `This ${currentTransaction.merchant_name} transaction appears to be a business expense that may qualify for tax deduction.`
-                        : currentTransaction.ai.status_label === 'Not Deductible'
-                        ? `This ${currentTransaction.merchant_name} transaction appears to be a personal expense and is not tax deductible.`
-                        : `This ${currentTransaction.merchant_name} transaction requires further review to determine tax deductibility.`
-                      }
-                    </p>
-                    {currentTransaction.ai.status_label && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-medium text-muted-foreground">Status:</span>
-                        <span className="text-xs px-2 py-1 bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-full">
-                          {currentTransaction.ai.status_label}
-                        </span>
-                      </div>
-                    )}
-                    {typeof currentTransaction.ai.score_pct === 'number' && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-medium text-muted-foreground">Confidence:</span>
-                        <span className="text-xs px-2 py-1 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-full">
-                          {currentTransaction.ai.score_pct}%
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Key Analysis Factors */}
-                    <div>
-                      <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
-                        KEY ANALYSIS FACTORS
-                      </h4>
-                      <ul className="text-xs text-muted-foreground space-y-1">
-                        <li>• <strong>Date:</strong> {new Date(currentTransaction.date).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          year: 'numeric'
-                        })}</li>
-                        <li>• <strong>Deduction Status:</strong> {currentTransaction.ai?.status_label || 'Not Analyzed'}</li>
-                        <li>• <strong>Reasoning:</strong> {currentTransaction.ai?.reasoning || 'Professional analysis pending'}</li>
-                        {(currentTransaction.ai?.irs?.publication || currentTransaction.ai?.irs?.section) && (
-                          <li>• <strong>IRS Reference:</strong> {currentTransaction.ai?.irs?.publication ? `Publication ${currentTransaction.ai.irs.publication}` : ''}{currentTransaction.ai?.irs?.publication && currentTransaction.ai?.irs?.section ? ', ' : ''}{currentTransaction.ai?.irs?.section ? `Section ${currentTransaction.ai.irs.section}` : ''}</li>
-                        )}
-                      </ul>
-                    </div>
-                  </div>
-                ) : currentTransaction.ai_analysis ? (
-                  <div className="space-y-3">
-                    <p className="text-sm text-card-foreground">
-                      {currentTransaction.ai_analysis}
-                    </p>
-
-                    {/* Key Analysis Factors */}
-                    <div>
-                      <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
-                        KEY ANALYSIS FACTORS
-                      </h4>
-                      <ul className="text-xs text-muted-foreground space-y-1">
-                        <li>• <strong>Date:</strong> {new Date(currentTransaction.date).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          year: 'numeric'
-                        })}</li>
-                        <li>• <strong>Deduction Status:</strong> {currentTransaction.ai?.status_label || 'Not Analyzed'}</li>
-                        <li>• <strong>Reasoning:</strong> {currentTransaction.ai?.reasoning || 'Professional analysis pending'}</li>
-                        {(currentTransaction.ai?.irs?.publication || currentTransaction.ai?.irs?.section) && (
-                          <li>• <strong>IRS Reference:</strong> {currentTransaction.ai?.irs?.publication ? `Publication ${currentTransaction.ai.irs.publication}` : ''}{currentTransaction.ai?.irs?.publication && currentTransaction.ai?.irs?.section ? ', ' : ''}{currentTransaction.ai?.irs?.section ? `Section ${currentTransaction.ai.irs.section}` : ''}</li>
-                        )}
-                      </ul>
-                    </div>
-                  </div>
-                ) : currentTransaction.deductible_reason ? (
-                  <div className="space-y-3">
-                    <p className="text-sm text-card-foreground">
-                      {currentTransaction.deductible_reason}
-                    </p>
-
-                    {/* Key Analysis Factors */}
-                    <div>
-                      <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
-                        KEY ANALYSIS FACTORS
-                      </h4>
-                      <ul className="text-xs text-muted-foreground space-y-1">
-                        <li>• <strong>Date:</strong> {new Date(currentTransaction.date).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          year: 'numeric'
-                        })}</li>
-                        <li>• <strong>Deduction Status:</strong> {currentTransaction.ai?.status_label || 'Not Analyzed'}</li>
-                        <li>• <strong>Reasoning:</strong> {currentTransaction.ai?.reasoning || 'Professional analysis pending'}</li>
-                        {(currentTransaction.ai?.irs?.publication || currentTransaction.ai?.irs?.section) && (
-                          <li>• <strong>IRS Reference:</strong> {currentTransaction.ai?.irs?.publication ? `Publication ${currentTransaction.ai.irs.publication}` : ''}{currentTransaction.ai?.irs?.publication && currentTransaction.ai?.irs?.section ? ', ' : ''}{currentTransaction.ai?.irs?.section ? `Section ${currentTransaction.ai.irs.section}` : ''}</li>
-                        )}
-                      </ul>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    <p className="text-sm text-muted-foreground">
-                      AI analysis has not been completed for this transaction yet. Use the buttons below to classify it, or tap &quot;Ask a CPA&quot; for professional guidance.
-                    </p>
-
-                    <div>
-                      <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
-                        KEY ANALYSIS FACTORS
-                      </h4>
-                      <ul className="text-xs text-muted-foreground space-y-1">
-                        <li>• <strong>Date:</strong> {new Date(currentTransaction.date).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          year: 'numeric'
-                        })}</li>
-                        <li>• <strong>Deduction Status:</strong> Not Analyzed</li>
-                        <li>• <strong>Reasoning:</strong> Analysis pending</li>
-                      </ul>
-                    </div>
-                  </div>
-                )}
-              </div>
+        <article className="rounded-3xl border border-border bg-card shadow-sm overflow-hidden" aria-label="Transaction to review"
+          style={{ transform: `translateX(${Math.max(-70, Math.min(70, touchOffset))}px)`, touchAction: 'pan-y' }}
+          onTouchStart={event => {
+            if (editing || operationLock.current || (event.target as HTMLElement).closest('button, a, input, textarea, select')) return;
+            touchStart.current = { x: event.touches[0].clientX, y: event.touches[0].clientY }; setTouchOffset(0);
+          }}
+          onTouchMove={event => {
+            if (!touchStart.current) return;
+            const dx = event.touches[0].clientX - touchStart.current.x;
+            const dy = event.touches[0].clientY - touchStart.current.y;
+            if (Math.abs(dy) > 50) { touchStart.current = null; setTouchOffset(0); return; }
+            setTouchOffset(dx);
+          }}
+          onTouchEnd={() => { if (touchStart.current && Math.abs(touchOffset) > 100) swipe(touchOffset > 0 ? 'right' : 'left'); touchStart.current = null; setTouchOffset(0); }}
+          onTouchCancel={() => { touchStart.current = null; setTouchOffset(0); }}>
+          <div className="p-5 sm:p-7 space-y-6">
+            <div className="flex justify-between gap-4">
+              <div className="min-w-0"><h2 className="text-xl font-semibold break-words">{current.merchant_name || 'Transaction'}</h2><p className="mt-1 text-sm text-muted-foreground">{current.date}{current.pending ? ' · Bank pending' : ''}</p></div>
+              <div className="text-right shrink-0"><p className="text-xl font-semibold">{Number.isFinite(current.amount) ? `$${Math.abs(current.amount).toFixed(2)}` : 'Amount needs review'}</p><p className="text-xs text-muted-foreground">{current.amount < 0 ? 'Received' : 'Spent'}</p></div>
             </div>
 
-            {/* Bottom Rail - Mobile optimized */}
-            <div className="border-t border-border p-4 sm:p-6">
-              {/* Mobile: Stack buttons, Desktop: Row */}
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-2 sm:justify-between">
-                {/* Main action buttons row */}
-                <div className="flex items-center justify-between sm:justify-start gap-2 sm:gap-4 order-1 sm:order-none">
-                  <button
-                    onClick={() => handleSwipe('left')}
-                    disabled={isProcessing}
-                    className="flex-1 sm:flex-none flex items-center justify-center gap-2 text-destructive hover:text-destructive/80 active:bg-destructive/10 transition-colors focus:outline-none focus:ring-2 focus:ring-destructive focus:ring-offset-2 rounded-xl sm:rounded-lg p-3 sm:p-2 min-h-[52px] sm:min-h-[40px] disabled:opacity-50 no-tap-highlight border border-destructive/20 sm:border-0"
-                    aria-label="Mark as personal expense"
-                  >
-                    <XCircle className="w-5 h-5" />
-                    <span className="font-medium text-sm">Personal</span>
-                  </button>
+            <section className="rounded-2xl border border-primary/20 bg-primary/5 p-5 space-y-3" aria-labelledby="suggestion-heading">
+              <div className="flex items-center gap-2 text-primary text-sm font-medium"><Sparkles className="h-4 w-4" /><span>{presentation!.label}</span></div>
+              <h3 id="suggestion-heading" className="text-2xl font-semibold">{presentation!.categoryLabel}</h3>
+              {suggestion?.transactionKind && suggestion.transactionKind !== 'unknown' && <p className="font-medium text-sm">{kindLabels[suggestion.transactionKind]}{suggestion.isDeductible === true ? ' · Potential business deduction' : ''}</p>}
+              <p className="text-sm leading-relaxed">{presentation!.reasoning}</p>
+              {presentation!.taxYear && <p className="text-xs text-muted-foreground">Tax year {presentation!.taxYear} · U.S. federal self-employed guidance</p>}
+              {suggestion?.isDeductible === true && typeof suggestion.deductiblePercent === 'number' && <p className="text-xs text-muted-foreground">Suggested deductible portion: {suggestion.deductiblePercent}%. Category rules and your documented business use still apply.</p>}
+              {(!mayConfirm || presentation!.needsTaxFacts) && <p className="text-sm text-amber-700 dark:text-amber-400">{presentation!.confirmationHint}</p>}
+            </section>
 
-                  {/* Skip Button */}
-                  <button
-                    onClick={handleSkip}
-                    disabled={isProcessing}
-                    className="flex-1 sm:flex-none flex items-center justify-center gap-2 text-muted-foreground hover:text-foreground active:bg-muted transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 rounded-xl sm:rounded-lg p-3 sm:p-2 min-h-[52px] sm:min-h-[40px] disabled:opacity-50 no-tap-highlight border border-border sm:border-0"
-                    aria-label="Skip transaction"
-                  >
-                    <SkipForward className="w-5 h-5" />
-                    <span className="font-medium text-sm">Skip</span>
-                  </button>
+            {presentation!.questions.length > 0 && <section className="space-y-2"><h3 className="text-sm font-semibold">What AI needs from you</h3><ul className="list-disc pl-5 text-sm text-muted-foreground space-y-2">{presentation!.questions.map(question => <li key={question}>{question}</li>)}</ul><Button variant="outline" onClick={() => onTransactionClick?.({ ...current, _source: 'review-transactions' })}>Add missing details</Button></section>}
+            {presentation!.documentation.length > 0 && <section className="space-y-2"><h3 className="text-sm font-semibold flex items-center gap-2"><FileText className="h-4 w-4" />Keep these records</h3><ul className="list-disc pl-5 text-sm text-muted-foreground space-y-1">{presentation!.documentation.map(item => <li key={item}>{item}</li>)}</ul></section>}
+            {presentation!.sources.length > 0 && <section className="space-y-2"><h3 className="text-sm font-semibold">Tax guidance used</h3><ul className="space-y-2">{presentation!.sources.map(source => <li key={source.url}><a href={source.url} target="_blank" rel="noopener noreferrer" className="text-sm text-primary inline-flex items-center gap-1 underline underline-offset-4">{source.title}<ExternalLink className="h-3 w-3" /></a><p className="text-xs text-muted-foreground">{source.edition}{source.reviewed_at ? ` · Checked ${source.reviewed_at}` : ''}</p></li>)}</ul></section>}
 
-                  <button
-                    onClick={() => handleSwipe('right')}
-                    disabled={isProcessing}
-                    className="flex-1 sm:flex-none flex items-center justify-center gap-2 text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 active:bg-emerald-500/10 transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 rounded-xl sm:rounded-lg p-3 sm:p-2 min-h-[52px] sm:min-h-[40px] disabled:opacity-50 no-tap-highlight border border-emerald-500/20 sm:border-0"
-                    aria-label="Mark as deductible expense"
-                  >
-                    <CheckCircle className="w-5 h-5" />
-                    <span className="font-medium text-sm">Deductible</span>
-                  </button>
-                </div>
+            {message && <p role="alert" className="rounded-xl bg-amber-500/10 border border-amber-500/20 p-3 text-sm">{message}</p>}
+            {current.pending !== true && !analysisRunning && !editing && <div className="flex flex-wrap gap-2 items-center">
+              <Button variant="outline" disabled={busy || availability.status !== 'configured' || providerFailed} onClick={runAnalysis}>{operation === 'analyzing' ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}{operation === 'analyzing' ? 'Analyzing…' : availability.status === 'checking' ? 'Checking AI…' : availability.status !== 'configured' || providerFailed ? 'AI unavailable' : suggestion ? 'Reanalyze' : 'Run AI analysis'}</Button>
+              {(availability.status === 'unavailable' || providerFailed) && <Button variant="ghost" disabled={busy} onClick={async () => { if (await availability.refresh()) setProviderFailed(false); }}>Check AI availability</Button>}
+            </div>}
+            {analysisQueued && <p role="status" className="text-sm text-muted-foreground">Queued for automatic analysis. You can run it now or wait for the result.</p>}
+            {analysisRunning && <p role="status" className="text-sm text-muted-foreground flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />AI is analyzing this transaction. Results refresh here.</p>}
+            {availability.status === 'unavailable' && <p className="text-xs text-muted-foreground">{availability.message} Manual categorization remains available.</p>}
 
-                {/* Ask a CPA Button - Full width on mobile */}
-                <div className="order-2 sm:order-none sm:ml-auto">
-                  <Button
-                    variant="outline"
-                    className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 sm:px-5 py-2.5 sm:py-2 text-purple-600 dark:text-purple-400 border border-purple-500/20 bg-purple-500/10 hover:bg-purple-500/20 active:bg-purple-500/30 hover:border-purple-500/30 focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 rounded-xl sm:rounded-lg shadow-sm font-semibold transition-colors min-h-[48px] sm:min-h-[40px] no-tap-highlight"
-                    onClick={() => setAskCpaOpen(true)}
-                  >
-                    <HelpCircle className="w-5 h-5" />
-                    <span>Ask a CPA</span>
-                  </Button>
-                </div>
-              </div>
-            </div>
+            {editing && <section className="rounded-2xl border border-border p-4 space-y-4" aria-labelledby="correction-heading">
+              <h3 id="correction-heading" ref={correctionHeading} tabIndex={-1} className="font-semibold">Correct the categorization</h3>
+              <div><label htmlFor="review-kind" className="block text-sm font-medium mb-1">What is this transaction?</label><select id="review-kind" value={kind} onChange={event => { const next = event.target.value as Exclude<TransactionKind, 'unknown'>; setKind(next); setDeductible(null); if (next === 'personal' || next === 'income' || next === 'transfer') setCategory(next); else setCategory(''); }} className="w-full rounded-lg border border-border bg-background p-3" disabled={busy}>{Object.entries(kindLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
+              {(kind === 'expense' || kind === 'refund') && <div><label htmlFor="review-category" className="block text-sm font-medium mb-1">Category</label><select id="review-category" value={category} onChange={event => { setCategory(event.target.value); setDeductible(null); }} className="w-full rounded-lg border border-border bg-background p-3" disabled={busy}><option value="">Choose a category</option>{REVIEW_CATEGORIES.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></div>}
+              {kind === 'expense' && <div><label htmlFor="review-deduction" className="block text-sm font-medium mb-1">Tax treatment</label><select id="review-deduction" value={deductible === null ? 'unresolved' : String(deductible)} onChange={event => setDeductible(event.target.value === 'unresolved' ? null : event.target.value === 'true')} disabled={busy} className="w-full rounded-lg border border-border bg-background p-3"><option value="unresolved">Save category; review tax treatment later</option><option value="true" disabled={['equipment', 'vehicle_expense', 'home_office', 'other'].includes(category)}>I confirmed this is a business deduction</option><option value="false">Not deductible</option></select><p className="text-xs text-muted-foreground mt-2">Only confirm a deduction when you have verified the business purpose and applicable rules. Meals and other limits still apply.</p></div>}
+              {kind === 'refund' && <p className="text-sm text-muted-foreground">Record the original expense category. The refund still needs reconciliation against the original expense before it changes a tax deduction.</p>}
+              <div><label htmlFor="review-reason" className="block text-sm font-medium mb-1">Your note <span className="font-normal text-muted-foreground">(optional)</span></label><textarea id="review-reason" value={reason} onChange={event => setReason(event.target.value)} maxLength={1000} className="w-full rounded-lg border border-border bg-background p-3 min-h-24" placeholder="For example: supplies used only for my client projects" disabled={busy} /></div>
+              <div className="flex gap-3"><Button variant="outline" disabled={busy} onClick={() => setEditing(false)}>Cancel</Button><Button disabled={busy || !category} onClick={() => saveReview('correct')}>{operation === 'saving' ? 'Saving…' : 'Save correction'}</Button></div>
+            </section>}
+
+            <button className="flex w-full items-center justify-between gap-3 rounded-xl border border-border p-3 text-sm hover:bg-muted" onClick={() => onTransactionClick?.({ ...current, _source: 'review-transactions' })}><span>View details, business context and receipts</span><ChevronRight className="h-4 w-4 shrink-0" /></button>
           </div>
-        </div>
+          {!editing && <div className="border-t border-border grid grid-cols-3 gap-2 p-4">
+            <Button variant="outline" disabled={busy || current.pending === true} onClick={() => swipe('left')} className="h-auto py-3 flex-col gap-1"><Edit3 className="h-5 w-5" /><span>Change</span></Button>
+            <Button variant="ghost" disabled={busy} onClick={later} className="h-auto py-3 flex-col gap-1"><SkipForward className="h-5 w-5" /><span>Later</span></Button>
+            <Button disabled={busy || !mayConfirm} onClick={() => saveReview('confirm')} className="h-auto py-3 flex-col gap-1">{operation === 'saving' ? <Loader2 className="h-5 w-5 animate-spin" /> : <Check className="h-5 w-5" />}<span>{operation === 'saving' ? 'Saving…' : 'Confirm category'}</span></Button>
+          </div>}
+        </article>
+        <p className="mt-4 text-center text-xs text-muted-foreground">AI proposes a category and explains the tax treatment. Your confirmation saves your decision; it does not file a tax return.</p>
       </div>
-      {/* Ask a CPA Modal */}
-      <AskCpaModal open={askCpaOpen} onClose={() => setAskCpaOpen(false)} transaction={currentTransaction} userEmail={user?.email} />
     </div>
   );
 };

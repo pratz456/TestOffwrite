@@ -1,3 +1,4 @@
+import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { auth } from '@/lib/firebase/client';
 import { getTransactions as getTransactionsClient } from '@/lib/firebase/transactions';
@@ -50,7 +51,7 @@ async function computeMonthlyDeductionsClient(userId: string, year?: number) {
     if (!Number.isFinite(dt) || dt < start || dt > end) continue;
 
     const month = new Date(dt).getMonth();
-    const isDeductible = (t as any).is_deductible === true;
+    const isDeductible = t.is_deductible === true && !transactionNeedsTaxReview(t);
     const taxSavings = isDeductible ? amount * taxRate : 0;
     monthlyData[month].total += taxSavings;
     if (taxSavings > 0) monthlyData[month].count += 1;

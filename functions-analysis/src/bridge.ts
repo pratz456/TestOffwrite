@@ -3,8 +3,11 @@ const STAGING_ORIGIN = 'https://writeoff-production-testing.web.app';
 const MAX_EVENT_AGE_MS = 23 * 60 * 60 * 1000;
 
 export function shouldQueueBankWrite(before: Record<string, unknown> | undefined, after: Record<string, unknown> | undefined) {
-  if (!after || after.pending === true || after.analyzed === true || after.analysis_status === 'completed' || after.analysisStatus === 'completed') return false;
-  if (typeof after.amount !== 'number' || after.amount <= 0 || after.type === 'income') return false;
+  if (!after || after.pending === true) return false;
+  const suggestion = after.ai_suggestion;
+  if (suggestion && typeof suggestion === 'object' && 'id' in suggestion &&
+      (after.analyzed === true || after.analysis_status === 'completed' || after.analysisStatus === 'completed')) return false;
+  if (typeof after.amount !== 'number' || !Number.isFinite(after.amount)) return false;
   // Catch new posted records and pending->posted transitions, not our own status writes.
   return !before || before.pending === true ||
     (typeof after.analysisInputRevision === 'string' && after.analysisInputRevision !== before.analysisInputRevision);

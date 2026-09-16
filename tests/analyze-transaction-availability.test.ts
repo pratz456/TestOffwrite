@@ -22,7 +22,7 @@ vi.mock('@/lib/ai/analyzeTransaction', () => ({
   convertToEnhancedContext: mocks.convertContext,
   findMissingUserFields: mocks.missingFields,
 }));
-vi.mock('@/lib/firebase/profiles-server', () => ({ getUserProfileServer: mocks.profile }));
+vi.mock('@/lib/ai/profile-context', () => ({ getAnalysisProfile: mocks.profile, analysisProfileHash: () => 'synthetic-profile-hash' }));
 vi.mock('@/lib/ai/analysis-persistence', () => ({
   claimAnalysisLease: mocks.claim, persistAnalysisSuggestion: mocks.persist, releaseAnalysisLease: mocks.release,
   analysisSuggestionUpdate: () => ({ ai: { status_label: 'Likely Deductible' }, analysisUpdatedAt: '2026-09-16T12:00:00.000Z' }),
@@ -147,6 +147,7 @@ describe('transaction analysis availability', () => {
       expect.objectContaining({ path: `user_profiles/${uid}/accounts/owned-account/transactions/${body.transactionId}` }),
       expect.objectContaining({ status: 'ok', is_deductible: true }),
       expect.objectContaining({ token: 'synthetic-lease' }),
+      'synthetic-profile-hash',
     );
     expect(mocks.release).not.toHaveBeenCalled();
   });

@@ -73,7 +73,7 @@ describe('analysis worker authentication and queue boundaries', () => {
     expect(paused.status).toBe(503); expect((await paused.json()).code).toBe('AI_UNAVAILABLE');
     expect(mocks.account).not.toHaveBeenCalled();
   });
-  it('does not count pending, income, or refunds as forever-running analysis', async () => {
+  it('reports credits and refunds as needing analysis while pending bank entries wait', async () => {
     mocks.transactions.mockResolvedValue({ data: [
       { amount: -100, type: 'income', analysisStatus: 'pending' },
       { amount: -20, analysisStatus: 'pending' },
@@ -81,7 +81,7 @@ describe('analysis worker authentication and queue boundaries', () => {
       { amount: 35, analysisStatus: 'failed' },
     ], error: null });
     const response = await status(new NextRequest('http://localhost/api/transactions/analysis-status'));
-    expect((await response.json()).data).toMatchObject({ overallStatus: 'failed', breakdown: { pending: 0, running: 0, completed: 0, failed: 1, skipped: 3 } });
+    expect((await response.json()).data).toMatchObject({ overallStatus: 'failed', breakdown: { pending: 2, running: 0, completed: 0, failed: 1, skipped: 1 } });
   });
 
   it('reports existing unanalysed records with no job as awaiting analysis, not active work', async () => {
@@ -99,7 +99,7 @@ describe('analysis worker authentication and queue boundaries', () => {
   it('never counts failed attempts as successfully analyzed records or completion percentage', async () => {
     mocks.transactions.mockResolvedValue({ data: [
       { amount: 75, analyzed: false, analysisStatus: 'failed' },
-      { amount: 25, analyzed: true, analysisStatus: 'completed' },
+      { amount: 25, analyzed: true, analysisStatus: 'completed', ai_suggestion: { id: 'saved' } },
     ], error: null });
     const response = await status(new NextRequest('http://localhost/api/transactions/analysis-status'));
     expect((await response.json()).data).toMatchObject({ overallStatus: 'failed',

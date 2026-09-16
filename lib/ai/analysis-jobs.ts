@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { adminDb } from '@/lib/firebase/admin';
 import { analyzeTransactionWithRetry, convertToEnhancedContext, findMissingUserFields, type TransactionInput } from './analyzeTransaction';
 import { getAIProviderStatus } from './provider-status';
+import { analysisProfileHash } from './profile-context';
 import { analysisInputHash, analysisLeaseUpdate, analysisSuggestionUpdate, createAnalysisLease,
   hasActiveAnalysisLease, isAnalysisLeaseCurrent } from './analysis-persistence';
 
@@ -20,11 +21,16 @@ function owned(data: Data, uid: string) {
   return [data.userId, data.user_id].some(value => value === uid) &&
     [data.userId, data.user_id].every(value => value == null || value === uid);
 }
+function hasStructuredAnalysis(data: Data) {
+  return data.ai_suggestion && typeof data.ai_suggestion.id === 'string' &&
+    data.analysisStatus !== 'failed' && data.analysis_status !== 'failed' &&
+    (data.analyzed === true || data.analysisStatus === 'completed' || data.analysis_status === 'completed');
+}
 function eligibleBankTransaction(data: Data, account: Data, address: AnalysisTaskAddress) {
-  const savedExpense = ['manual', 'receipt'].includes(data.source) && data.amount > 0 && data.type !== 'income';
-  const bankExpense = !['manual', 'receipt'].includes(data.source) && data.amount > 0 && data.type !== 'income' &&
+  const savedRecord = ['manual', 'receipt'].includes(data.source);
+  const bankRecord = !['manual', 'receipt'].includes(data.source) &&
     ['depository', 'credit', 'loan', 'investment', 'brokerage', 'other'].includes(account.type);
-  return owned(account, address.userId) && owned(data, address.userId) && (savedExpense || bankExpense) &&
+  return owned(account, address.userId) && owned(data, address.userId) && (savedRecord || bankRecord) && Number.isFinite(data.amount) &&
     data.pending !== true &&
     [data.account_id, data.accountId].every(value => value == null || value === address.accountId);
 }
@@ -46,7 +52,7 @@ export async function enqueueBankTransactionAnalysis(address: AnalysisTaskAddres
     const [account, record, task, job] = await Promise.all([tx.get(ref.account), tx.get(ref.transaction), tx.get(ref.task), tx.get(ref.job)]);
     if (!record.exists || !account.exists || !eligibleBankTransaction(record.data()!, account.data()!, address)) return { status: 'skipped' as const };
     const data = record.data()!;
-    if (data.analyzed === true || data.analysisStatus === 'completed' || data.analysis_status === 'completed') return { status: 'completed' as const };
+    if (hasStructuredAnalysis(data)) return { status: 'completed' as const };
     const old = task.data();
     const oldActive = old && ['queued', 'running', 'retry_wait'].includes(old.status);
     const changedInput = old && old.inputHash !== analysisInputHash(data);
@@ -79,7 +85,9 @@ export async function updateImportedTransactionForAnalysis(address: AnalysisTask
     const snap = await tx.get(ref);
     if (!snap.exists || !owned(snap.data()!, address.userId)) return { updated: false };
     const data = snap.data()!;
-    const changed = analysisInputHash(data) !== analysisInputHash({ ...data, ...fields });
+    // Keep the user's reviewed bookkeeping category; bank refreshes supply a separate source category.
+    const importedFields = data.review_status === 'confirmed' ? { ...fields, category: data.category, bank_category: fields.category } : fields;
+    const changed = analysisInputHash(data) !== analysisInputHash({ ...data, ...importedFields });
     const invalidated = changed ? {
       ...Object.fromEntries(Object.keys(data).filter(key => key.startsWith('ai_')).map(key => [key, null])),
       ai: null, analyzed: false, deductionStatus: 'Analysis pending', confidence: null, reasoning: null,
@@ -87,7 +95,7 @@ export async function updateImportedTransactionForAnalysis(address: AnalysisTask
       analysisLeaseToken: null, analysisLeaseExpiresAt: null, analysisErrorCode: null,
       analysisInputRevision: randomUUID(),
     } : {};
-    tx.update(ref, { ...fields, ...invalidated, updated_at: new Date() });
+    tx.update(ref, { ...importedFields, ...invalidated, updated_at: new Date() });
     return { updated: true, invalidated: changed };
   });
 }
@@ -108,10 +116,11 @@ export async function enqueueAccountAnalysis(userId: string, accountId: string) 
 
 function transactionInput(data: Data, id: string, account: Data): TransactionInput {
   return {
-    tx_id: id, merchant: data.merchant_name || data.name || '', amount_usd: data.amount, date_iso: data.date,
+    transaction_kind: data.transaction_kind, type: data.type, tx_id: id, merchant: data.merchant_name || data.name || '', amount_usd: data.amount, date_iso: data.date,
     datetime_iso: data.datetime, merchant_name: data.merchant_name, amount: data.amount, category: data.category,
     date: data.date, datetime: data.datetime, account_id: data.account_id, description: data.description,
     note: data.notes || data.note || data.description, notes: data.notes, business_purpose: data.business_purpose,
+    business_use_percentage: data.business_use_percentage,
     attendees: data.attendees, travel_destination: data.travel_destination, equipment_details: data.equipment_details,
     client_project: data.client_project, documentation_status: data.documentation_status,
     meeting_notes: data.meeting_notes, mileage_details: data.mileage_details, location: data.location,
@@ -150,13 +159,13 @@ export async function processAnalysisTask(taskId: string, generation: string): P
         tx.update(ref.job, { processed, failed, succeeded: progress.succeeded + (status === 'completed' ? 1 : 0),
           status: processed >= progress.total ? (failed ? 'failed' : 'done') : 'running', phase: status, lastErrorCode: code, lastUpdate: new Date(now) });
       }
-      if (record.exists && !hasActiveAnalysisLease(data!, now) && data?.analyzed !== true) {
+      if (record.exists && !hasActiveAnalysisLease(data!, now) && !hasStructuredAnalysis(data!)) {
         tx.update(ref.transaction, { analysis_status: 'failed', analysisStatus: 'failed', analysisErrorCode: code });
       }
       return { status: 'finished' as const, code };
     }
     if (!data || !account.exists || !eligibleBankTransaction(data, account.data()!, address)) return finish('skipped', 'TRANSACTION_UNAVAILABLE');
-    if (data.analyzed === true || data.analysisStatus === 'completed' || data.analysis_status === 'completed') return finish('completed', 'ALREADY_ANALYZED');
+    if (hasStructuredAnalysis(data)) return finish('completed', 'ALREADY_ANALYZED');
     if (hasActiveAnalysisLease(data, now) || work.nextAttemptAt > now) return { status: 'busy' as const };
     if (work.attempts >= MAX_ATTEMPTS || now - work.requestedAt > TASK_MAX_AGE_MS) return finish('failed', 'AI_RETRY_LIMIT');
     if (!getAIProviderStatus().configured) return finish('paused', 'AI_UNAVAILABLE');
@@ -170,7 +179,8 @@ export async function processAnalysisTask(taskId: string, generation: string): P
     const lease = createAnalysisLease(data, now);
     tx.update(taskRef, { status: 'running', attempts: work.attempts + 1, leaseToken: lease.token, startedAt: now });
     tx.update(ref.transaction, analysisLeaseUpdate(lease));
-    return { status: 'claimed' as const, lease, context, input: transactionInput(data, address.transactionId, account.data()!), attempts: work.attempts + 1 };
+    return { status: 'claimed' as const, lease, context, profileHash: analysisProfileHash(profile.data()!, data.date),
+      input: transactionInput(data, address.transactionId, account.data()!), attempts: work.attempts + 1 };
   });
   if (claim.status !== 'claimed') return { status: claim.status, retry: claim.status === 'busy' };
 
@@ -190,7 +200,7 @@ export async function processAnalysisTask(taskId: string, generation: string): P
     const now = Date.now();
     tx.update(taskRef, { status, lastErrorCode: code, nextAttemptAt: retry ? now + Math.min(60_000 * (2 ** (claim.attempts - 1)), 300_000) : null,
       leaseToken: null, finishedAt: retry ? null : now });
-    if (current && result.success) tx.update(ref.transaction, analysisSuggestionUpdate(result.result));
+    if (current && result.success) tx.update(ref.transaction, analysisSuggestionUpdate(result.result, now, data, claim.profileHash));
     else if (data?.analysisLeaseToken === claim.lease.token) tx.update(ref.transaction, {
       analysisLeaseToken: null, analysisLeaseExpiresAt: null, analysis_status: retry ? 'pending' : 'failed',
       analysisStatus: retry ? 'pending' : 'failed', analysisErrorCode: code,

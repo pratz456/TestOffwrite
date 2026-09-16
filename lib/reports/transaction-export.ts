@@ -65,6 +65,7 @@ export function convertTransactionsToCSV(records: ExportRecord[]): string {
       !record.iso_currency_code && !record.unofficial_currency_code && 'Currency not recorded',
       record.pending === true && 'Pending record; reconcile posted transaction',
       deductible === null && 'Classification unreviewed',
+      record.tax_review_required === true && 'Tax treatment unresolved; exclude from confirmed deduction totals',
       amount !== null && amount > 0 && deductible !== false && !Object.keys(businessUse).length && 'Business-use percentage not recorded; confirm allocation',
       rawPath && !receiptPath && 'Receipt link unavailable in private export',
     ].filter(Boolean).join('; ');

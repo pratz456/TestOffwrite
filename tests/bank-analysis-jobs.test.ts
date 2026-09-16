@@ -34,7 +34,7 @@ const accountPath = `${profilePath}/accounts/${address.accountId}`;
 const path = `${accountPath}/transactions/${address.transactionId}`;
 const taskPath = `analysis_tasks/${analysisTaskId(address)}`;
 const jobPath = `analysis_jobs/${address.userId}_${address.accountId}`;
-const suggestion = { status: 'ok' as const, is_deductible: true, category: 'supplies_small_tools' as const, confidence: 0.9, customized_reason: 'A suggestion requiring confirmation', irs_refs: ['Synthetic reference'] };
+const suggestion = { status: 'ok' as const, is_deductible: true, expense_type: 'business' as const, deductible_percent: 100, category: 'supplies_small_tools' as const, confidence: 0.9, customized_reason: 'A suggestion requiring confirmation', irs_refs: ['Synthetic reference'] };
 function generation() { return mocks.docs.get(taskPath)!.generation; }
 function change(p: string, values: Record<string, unknown>) { mocks.docs.set(p, { ...mocks.docs.get(p), ...values }); }
 async function run() { return processAnalysisTask(analysisTaskId(address), generation()); }
@@ -54,6 +54,19 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); });
 
 describe('durable bank transaction analysis', () => {
+  it('catches up legacy analyzed rows missing structured suggestions while preserving the recorded decision', async () => {
+    change(path, { analyzed: true, analysisStatus: 'completed', is_deductible: false, expense_type: 'personal' });
+    expect((await enqueueAccountAnalysis(address.userId, address.accountId)).queued).toBe(1);
+    await run();
+    expect(mocks.analyze).toHaveBeenCalledTimes(1);
+    expect(mocks.docs.get(path)).toMatchObject({ is_deductible: false, expense_type: 'personal', ai_suggestion: { category: 'supplies_small_tools' } });
+  });
+  it('shows a paused legacy catch-up as failed rather than retaining a completed flag', async () => {
+    change(path, { analyzed: true, analysisStatus: 'completed' }); mocks.configured = false;
+    await enqueueAccountAnalysis(address.userId, address.accountId); await run();
+    expect(mocks.docs.get(path)).toMatchObject({ analysisStatus: 'failed', analysisErrorCode: 'AI_UNAVAILABLE' });
+    expect(mocks.docs.get(taskPath)?.status).toBe('paused');
+  });
   it('deduplicates concurrent enqueue requests and permits the existing free-plan AI policy', async () => {
     const results = await Promise.all(Array.from({ length: 8 }, () => enqueueBankTransactionAnalysis(address)));
     expect(results.every(result => result.status === 'queued')).toBe(true);
@@ -61,14 +74,11 @@ describe('durable bank transaction analysis', () => {
     expect(mocks.analyze).not.toHaveBeenCalled();
     expect(await run()).toMatchObject({ status: 'completed', retry: false });
     expect(mocks.docs.get(jobPath)).toMatchObject({ total: 1, processed: 1, succeeded: 1, failed: 0, status: 'done' });
+    expect(mocks.docs.get(path)?.ai_suggestion.profileHash).toMatch(/^[a-f0-9]{64}$/);
   });
 
   it.each([
     ['pending bank record', path, { pending: true }],
-    ['income record', path, { source: 'manual', amount: -100, type: 'income' }],
-    ['negative refund', path, { amount: -20 }],
-    ['zero amount', path, { amount: 0 }],
-    ['explicit income category', path, { type: 'income' }],
     ['manual account', accountPath, { type: 'manual' }],
     ['foreign transaction owner', path, { user_id: 'different-user' }],
     ['foreign account owner', accountPath, { userId: 'different-user' }],
@@ -79,14 +89,23 @@ describe('durable bank transaction analysis', () => {
     expect(mocks.docs.has(taskPath)).toBe(false);
     expect(mocks.analyze).not.toHaveBeenCalled();
   });
-  it('catch-up skips pending, income, refund and zero records too', async () => {
+  it('catch-up includes credits, income and zero entries for kind review but skips pending records', async () => {
     change(path, { amount: -20 });
     for (const [index, values] of [{ amount: 0 }, { amount: 100, type: 'income' }, { amount: 100, pending: true }].entries()) {
       mocks.docs.set(`${accountPath}/transactions/ineligible-${index}`, { ...mocks.docs.get(path), ...values });
     }
-    expect((await enqueueAccountAnalysis(address.userId, address.accountId)).queued).toBe(0);
-    expect(mocks.docs.has(taskPath)).toBe(false);
+    expect((await enqueueAccountAnalysis(address.userId, address.accountId)).queued).toBe(3);
+    expect(mocks.docs.has(taskPath)).toBe(true);
     expect(mocks.analyze).not.toHaveBeenCalled();
+  });
+
+  it.each([{ amount: -25 }, { amount: 0 }, { amount: -100, type: 'income' }, { amount: 250, category: 'TRANSFER' }])('queues all posted transaction kinds while preventing unsafe expense suggestions %j', async values => {
+    change(path, values);
+    expect((await enqueueBankTransactionAnalysis(address)).status).toBe('queued');
+    await run();
+    expect(mocks.docs.get(path)?.is_deductible).toBeNull();
+    expect(mocks.docs.get(path)?.category).toBe(values.category || 'supplies');
+    if (values.amount <= 0) expect(mocks.docs.get(path)?.ai_suggestion).toMatchObject({ status: 'needs_more_info', isDeductible: null });
   });
 
   it.each(['manual', 'receipt'])('queues a server-saved %s expense through the same durable worker', async source => {
@@ -229,5 +248,13 @@ describe('durable bank transaction analysis', () => {
     expect(await updateImportedTransactionForAnalysis(address, fields)).toEqual({ updated: true, invalidated: false });
     expect(mocks.docs.get(path)!.analysisInputRevision).toBe(revision);
     expect(mocks.docs.get(path)!.analyzed).toBe(true);
+  });
+  it('preserves user-confirmed categories when Plaid refreshes its source category', async () => {
+    change(path, { category: 'SERVICE_SUBSCRIPTION', review_status: 'confirmed', is_deductible: true });
+    const fields = { date: '2026-09-15', amount: 75, merchant_name: 'Synthetic office store', category: 'GENERAL_MERCHANDISE',
+      description: 'Bank description', iso_currency_code: 'USD', unofficial_currency_code: null, pending: false };
+    await updateImportedTransactionForAnalysis(address, fields);
+    expect(mocks.docs.get(path)).toMatchObject({ category: 'SERVICE_SUBSCRIPTION', bank_category: 'GENERAL_MERCHANDISE', is_deductible: true });
+    expect(await updateImportedTransactionForAnalysis(address, fields)).toEqual({ updated: true, invalidated: false });
   });
 });

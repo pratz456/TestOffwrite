@@ -1,7 +1,14 @@
+import { taxDecisionUpdate } from '@/lib/transactions/tax-decision';
+import { recordedTransactionType, reviewHydrationFields, type AiReviewSuggestion, type TransactionKind } from '@/lib/transactions/ai-review-contract';
 // lib/firebase/transactions-server.ts
 import { adminDb } from './admin';
 
 export interface Transaction {
+  ai_suggestion?: AiReviewSuggestion | null;
+  transaction_kind?: TransactionKind;
+  review_status?: string;
+  review_source?: string;
+  tax_review_required?: boolean;
   id: string;
   trans_id: string;
   merchant_name: string;
@@ -129,7 +136,7 @@ function normalizeDoc(doc: FirebaseFirestore.QueryDocumentSnapshot): Transaction
     amount,
     category: data.category || '',
     date: dateIso,
-    type: amount < 0 ? 'income' : 'expense',
+    type: recordedTransactionType({ ...data, amount }),
     is_deductible: data.is_deductible ?? data.deductible ?? null,
     pending: data.pending ?? null,
     deductible_reason: data.deductible_reason || null,
@@ -151,6 +158,7 @@ function normalizeDoc(doc: FirebaseFirestore.QueryDocumentSnapshot): Transaction
     created_at: data.created_at,
     updated_at: data.updated_at,
     ai: data.ai || null,
+    ...reviewHydrationFields(data),
   };
 }
 
@@ -386,6 +394,7 @@ export async function updateTransactionServerWithUserId(
         const docRef = querySnapshot.docs[0].ref;
         const updateData: any = stripUndefinedDeep({
           ...updates,
+          ...taxDecisionUpdate(querySnapshot.docs[0].data(), updates),
           updated_at: new Date(),
         });
 
@@ -454,6 +463,7 @@ export async function updateTransactionServerWithUserId(
           const docRef = targetTransaction.ref;
           const updateData: any = stripUndefinedDeep({
             ...updates,
+            ...taxDecisionUpdate(targetTransaction.data(), updates),
             updated_at: new Date(),
           });
 
@@ -719,6 +729,7 @@ export async function getPaginatedTransactionsServer(
 
         // Include AI analysis data
         ai: data.ai || null,
+    ...reviewHydrationFields(data),
       };
 
       // Apply search filter if specified

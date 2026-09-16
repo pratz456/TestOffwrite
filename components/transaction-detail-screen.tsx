@@ -10,6 +10,8 @@ import { Badge } from '@/components/ui/badge';
 import { useToasts } from '@/components/ui/toast';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { ReceiptPreview } from '@/components/receipt-preview';
+import { AiTaxExplanation } from '@/components/ai-tax-explanation';
+import type { AiReviewSuggestion } from '@/lib/transactions/ai-review-contract';
 import { auth } from '@/lib/firebase/client';
 import { useAiAvailability } from '@/lib/hooks/use-ai-availability';
 import { consolidateCategory } from '@/lib/utils';
@@ -52,6 +54,7 @@ interface TransactionDetailScreenProps {
     receipt_filename?: string; // Original filename of the receipt
     trans_id?: string; // Transaction ID from Plaid
     account_id?: string; // Account ID
+    ai_suggestion?: AiReviewSuggestion | null;
     
     // Transaction-Specific Context Fields
     business_purpose?: string; // Why this expense was necessary for business
@@ -297,7 +300,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
 
     try {
       // Use React Query mutation with optimistic updates for instant UI feedback
-      await updateTransactionMutation.mutateAsync({
+      const savedTransaction = await updateTransactionMutation.mutateAsync({
         transactionId,
         userId,
         updates
@@ -311,6 +314,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
         is_deductible: updates.is_deductible,
         user_classification_reason: updates.user_classification_reason,
         notes: updates.notes || undefined,
+        ...savedTransaction,
       };
 
       await onSave(updatedTransaction);
@@ -615,6 +619,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
           irsPublication: result.analysis.irsReference?.publication,
           irsSection: result.analysis.irsReference?.section,
           analysisUpdatedAt: result.analysis.updatedAt,
+          ai_suggestion: result.ai_suggestion ?? null,
           // Keep nested `ai` in sync so list/detail views that read key_analysis_factors see fresh text.
           ai: transaction.ai
             ? {
@@ -825,10 +830,18 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                     <div className="h-4 bg-muted rounded animate-pulse w-1/2" />
                   </div>
                 </div>
+              ) : transaction.ai_suggestion ? (
+                <div className="space-y-4">
+                  <AiTaxExplanation suggestion={transaction.ai_suggestion} />
+                  <Button variant="outline" onClick={() => router.push(protectedScreenUrl('review-transactions'))}>
+                    Confirm or correct in review
+                  </Button>
+                </div>
               ) : (transaction.deductionStatus || transaction.ai) ? (
                 <div className="space-y-4">
                   <div className="space-y-3">
-                    <h4 className="font-semibold text-foreground">Key Analysis Factors</h4>
+                    <h4 className="font-semibold text-foreground">Earlier analysis</h4>
+                    <p className="text-sm text-muted-foreground">Run AI analysis again to get a current category suggestion, reviewed tax sources and questions about missing facts.</p>
                     <div className="p-4 rounded-lg bg-muted/50 dark:bg-muted/30 border border-border">
                       <ul className="text-sm text-muted-foreground space-y-2">
                         <li>• <strong>Date:</strong> {formatTransactionDate(transaction.date, 'en-US', {

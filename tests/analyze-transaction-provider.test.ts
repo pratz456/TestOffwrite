@@ -20,14 +20,16 @@ const transaction: TransactionInput = {
 };
 const context: UserContext = {
   user_id: 'synthetic-owner', age: 35, profession: ['Designer'],
-  annual_gross_income_usd: 100000, filing_state: 'CA',
+  annual_gross_income_usd: 100000, filing_state: 'CA', business_entity: 'sole_proprietor',
 };
 function output(overrides: Record<string, unknown> = {}) {
   return {
-    status: 'ok', is_deductible: true, expense_type: 'business', category: 'supplies_small_tools',
+    status: 'ok', transaction_kind: overrides.expense_type === 'personal' ? 'personal' : 'expense',
+    evidence_ids: overrides.expense_type === 'personal' ? ['personal-262'] : ['business-162'],
+    is_deductible: true, expense_type: 'business', category: 'supplies_small_tools',
     deductible_percent: null, key_analysis_factor: 'Materials for the recorded client project.',
     customized_reason: 'These materials relate to the client project you recorded. Keep the receipt for review.',
-    reasoning_summary: null, irs_refs: ['IRS Pub 334'], audit_risk: 'low', audit_risk_rationale: null,
+    reasoning_summary: null, irs_refs: null, audit_risk: 'low', audit_risk_rationale: null,
     confidence: 0.85, missing_fields: null, questions: null, documentation_required: null,
     reason: null, reason_hash: null, ...overrides,
   };
@@ -105,12 +107,74 @@ describe('AI provider request and result contract', () => {
     expect([...schema.schema.required].sort()).toEqual(Object.keys(schema.schema.properties).sort());
     expect(schema.schema.required).toHaveLength(Object.keys(output()).length);
     expect(schema.schema.properties.is_deductible.type).toEqual(['boolean', 'null']);
-    expect(result).toEqual({ success: true, result: {
+    expect(result).toMatchObject({ success: true, result: {
       status: 'ok', is_deductible: true, expense_type: 'business', category: 'supplies_small_tools',
       key_analysis_factor: output().key_analysis_factor, customized_reason: output().customized_reason,
-      irs_refs: ['IRS Pub 334'], audit_risk: 'low', confidence: 0.85,
+      irs_refs: ['26 USC 162 — Trade or business expenses'], audit_risk: 'low', confidence: 0.85,
+      tax_year: 2026, jurisdiction: 'US-federal', deductible_percent: 100,
+      sources: [{ id: 'business-162', url: expect.stringContaining('uscode.house.gov'), edition: expect.any(String) }],
+      provenance: { provider: 'openai', model: 'gpt-4o-mini', kind: 'model_with_curated_tax_policy' },
       reason_hash: expect.stringMatching(/^[a-f0-9]{16}$/),
     } });
+  });
+
+  it('keeps a known supplies category independently of missing receipts and a coarse bank category', async () => {
+    mocks.create.mockResolvedValue(completion(output({ status: 'needs_more_info', questions: ['Which records support this purchase?'],
+      is_deductible: null, expense_type: null, documentation_required: ['Receipt or invoice'] })));
+    const result = await analyzeTransaction({ ...transaction, category: 'OTHER',
+      business_purpose: 'Printer paper and pens used exclusively for client design projects.', documentation_status: 'missing' }, context);
+    expect(result).toMatchObject({ success: true, result: { transaction_kind: 'expense', category: 'supplies_small_tools', status: 'needs_more_info' } });
+    const prompt = mocks.create.mock.calls[0][0].messages[0].content;
+    expect(prompt).toContain('independently of missing receipts or unresolved tax eligibility');
+    expect(prompt).toContain('Printer paper, pens or other consumable office supplies');
+    expect(prompt).toContain('never copy it when the item is identifiable');
+    expect(prompt).toContain('Ask questions only for material missing facts, not facts already provided');
+  });
+
+  it.each(['income', 'transfer'])('accepts supported %s with inapplicable expense fields null', async transaction_kind => {
+    mocks.create.mockResolvedValue(completion(output({ transaction_kind, is_deductible: false, expense_type: null, category: null,
+      deductible_percent: 0, evidence_ids: ['records-334'] })));
+    const result = await analyzeTransaction({ ...transaction, amount_usd: -45,
+      business_purpose: transaction_kind === 'income' ? 'Customer invoice payment' : 'Internal transfer between my accounts' }, context);
+    expect(result).toMatchObject({ success: true, result: { status: 'ok', transaction_kind, is_deductible: false, deductible_percent: 0 } });
+    expect(result.success && result.result.expense_type).toBeUndefined();
+  });
+  it('retains an unresolved personal-rule response without inventing a confirmed classification', async () => {
+    mocks.create.mockResolvedValue(completion(output({ status: 'blocked', transaction_kind: 'expense', is_deductible: null,
+      expense_type: null, category: 'other', evidence_ids: ['personal-262'], confidence: 0,
+      customized_reason: 'These groceries were explicitly recorded as personal use.', missing_fields: [], questions: [] })));
+    const result = await analyzeTransaction({ ...transaction, business_purpose: 'Groceries for personal family use' }, context);
+    expect(result).toMatchObject({ success: true, result: { status: 'blocked', transaction_kind: 'expense', category: 'other' } });
+    expect(result.success && result.result.is_deductible).toBeUndefined();
+    const prompt = mocks.create.mock.calls[0][0].messages[0].content;
+    expect(prompt).toContain('A clear personal expense is not blocked');
+    expect(prompt).toContain('transaction_kind=personal, status=ok, is_deductible=false');
+    expect(prompt).toContain('transaction_kind=income, status=ok, is_deductible=false, expense_type=null');
+    expect(prompt).toContain('transaction_kind=transfer, status=ok, is_deductible=false, expense_type=null');
+  });
+  it('accepts explicit personal groceries without an invented audit-risk label', async () => {
+    mocks.create.mockResolvedValue(completion(output({ status: 'ok', transaction_kind: 'personal', evidence_ids: ['personal-262'],
+      is_deductible: false, expense_type: 'personal', category: 'other', deductible_percent: 0, confidence: 1,
+      customized_reason: 'These groceries were intended for family use and are not deductible. No further business-tax action is needed.',
+      key_analysis_factor: 'Personal-use groceries do not qualify as business deductions.',
+      audit_risk: null, audit_risk_rationale: null, missing_fields: null, questions: null, documentation_required: null })));
+    const result = await analyzeTransaction({ ...transaction, business_purpose: 'Groceries for personal family use' }, context);
+    expect(result).toMatchObject({ success: true, result: { status: 'ok', transaction_kind: 'personal', category: 'other', is_deductible: false, deductible_percent: 0 } });
+    expect(result.success && result.result.audit_risk).toBeUndefined();
+  });
+  it('accepts a refund without expense_type and replaces premature personal treatment with original-expense review', async () => {
+    mocks.create.mockResolvedValue(completion(output({ status: 'ok', transaction_kind: 'refund', evidence_ids: ['records-334'],
+      is_deductible: false, expense_type: null, category: 'other', deductible_percent: 0, confidence: 0.9,
+      customized_reason: 'Without original purchase details this refund is a personal expense.',
+      key_analysis_factor: 'Refund treated as personal because purchase details are missing.' })));
+    const result = await analyzeTransaction({ ...transaction, amount_usd: -45, business_purpose: 'Refund from returned office supplies' }, context);
+    expect(result).toMatchObject({ success: true, result: { status: 'needs_more_info', transaction_kind: 'refund',
+      missing_fields: ['original_expense'], questions: ['Which original purchase does this refund match, and in which tax year was that purchase deducted?'] } });
+    expect(result.success && result.result.is_deductible).toBeUndefined();
+    expect(result.success && result.result.expense_type).toBeUndefined();
+    expect(result.success && result.result.deductible_percent).toBeUndefined();
+    expect(result.success && result.result.customized_reason).toContain('Match this credit to its original purchase');
+    expect(result.success && result.result.reasoning_summary).not.toContain('personal expense');
   });
 
   it('keeps real false/zero and a provided percentage; does not replace them with defaults', async () => {

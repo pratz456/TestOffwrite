@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
     const { data: allTransactions, error } = await getTransactionsServer(user.uid);
     if (error) return NextResponse.json({ error: 'Failed to fetch transactions' }, { status: 500 });
     const owned = (allTransactions || []).filter(record => !accountId || record.account_id === accountId || record.accountId === accountId);
-    const transactions = owned.filter(record => record.pending !== true && Number.isFinite(record.amount) && record.amount > 0 && record.type !== 'income');
+    const transactions = owned.filter(record => record.pending !== true && Number.isFinite(record.amount));
     const skipped = owned.length - transactions.length;
     let completed = 0;
     let failed = 0;
@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
     for (const record of transactions) {
       if (runningLease(record, now)) continue;
       if (record.analysisStatus === 'failed') failed++;
-      else if (record.analysisStatus === 'completed' || record.analyzed === true) completed++;
+      else if (record.ai_suggestion?.id && (record.analysisStatus === 'completed' || record.analyzed === true)) completed++;
       else pending++; // Waiting for a job or manual review, including expired/unknown legacy running flags.
     }
     const total = transactions.length;

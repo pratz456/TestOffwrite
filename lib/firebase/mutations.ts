@@ -9,6 +9,8 @@ import {
   serverTimestamp
 } from 'firebase/firestore';
 import { db } from './client';
+import { makeAuthenticatedRequest } from './api-client';
+import { auth } from './client';
 import { Transaction } from './transactions';
 import { queryKeys } from './hooks';
 import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
@@ -69,10 +71,10 @@ async function findTransactionDoc(transactionId: string, userId: string) {
 // Helper function to calculate local stats from transactions
 function calculateLocalStats(transactions: Transaction[]) {
   const totalTransactions = transactions.length;
-  const deductibleTransactions = transactions.filter(t => t.is_deductible === true).length;
+  const deductibleTransactions = transactions.filter(t => t.is_deductible === true && !transactionNeedsTaxReview(t)).length;
   const needsReviewTransactions = transactions.filter((t) => transactionNeedsTaxReview(t)).length;
   const totalDeductibleAmount = transactions
-    .filter(t => t.is_deductible === true)
+    .filter(t => t.is_deductible === true && !transactionNeedsTaxReview(t))
     .reduce((sum, t) => sum + Math.abs(t.amount || 0), 0);
   const potentialSavings = totalDeductibleAmount * getUserTaxRate();
 
@@ -99,38 +101,15 @@ export function useUpdateTransaction() {
       userId: string; 
       updates: TransactionUpdate;
     }) => {
-      // Use Firebase transaction for atomic updates
-      return await runTransaction(db, async (transaction) => {
-        const docRef = await findTransactionDoc(transactionId, userId);
-        
-        // Get current document
-        const doc = await transaction.get(docRef);
-        if (!doc.exists()) {
-          throw new Error('Transaction not found');
-        }
-
-        const currentData = doc.data();
-        // Filter out undefined values as Firebase doesn't support them
-        const filteredUpdates = Object.fromEntries(
-          Object.entries(updates).filter(([, value]) => value !== undefined)
-        );
-        
-        const updateData = {
-          ...filteredUpdates,
-          updated_at: serverTimestamp(),
-        };
-
-        // Update the transaction document
-        transaction.update(docRef, updateData);
-
-        // Return the updated data for verification
-        return {
-          ...currentData,
-          ...updateData,
-          id: transactionId,
-          trans_id: transactionId,
-        };
+      if (!userId || auth.currentUser?.uid !== userId) throw new Error('Sign in again before saving changes.');
+      const response = await makeAuthenticatedRequest(`/api/transactions/${encodeURIComponent(transactionId)}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates),
       });
+      const result = await response.json().catch(() => null);
+      if (!response.ok || !result?.success || !result.transaction) {
+        throw new Error(result?.error || 'Your changes could not be saved. Please try again.');
+      }
+      return result.transaction as Transaction;
     },
 
     onMutate: async ({ transactionId, userId, updates }) => {
@@ -222,6 +201,13 @@ export function useUpdateTransaction() {
           console.error('Permission error detected. Check Firestore security rules.');
         }
       }
+    },
+
+    onSuccess: (saved, { transactionId, userId }) => {
+      // Server-owned review state must replace the optimistic tax decision.
+      queryClient.setQueryData(queryKeys.transaction(transactionId), saved);
+      queryClient.setQueryData(queryKeys.transactions(userId), (old: Transaction[] | undefined) => old?.map(transaction =>
+        transaction.trans_id === transactionId || transaction.id === transactionId ? { ...transaction, ...saved } : transaction));
     },
 
     onSettled: (data, error, variables) => {

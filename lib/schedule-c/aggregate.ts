@@ -125,6 +125,7 @@ export interface ScheduleCTransactionLike {
   category: string;
   is_deductible?: boolean | null;
   pending?: boolean | null;
+  tax_review_required?: boolean;
   merchant_name?: string;
   id?: string;
   [key: string]: unknown;
@@ -188,7 +189,7 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
   // - pending transactions are excluded when present
   const deductibleTransactions =
     mode === 'confirmed-only'
-      ? yearTransactions.filter((t) => t.pending !== true && t.is_deductible === true)
+      ? yearTransactions.filter((t) => t.pending !== true && t.tax_review_required !== true && t.is_deductible === true && !t.category.endsWith('_REVIEW_REQUIRED'))
       : yearTransactions.filter(isBusinessExpense);
 
   const lineItems: Record<string, LineItemSummary> = {};

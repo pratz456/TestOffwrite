@@ -151,14 +151,15 @@ describe('manual dashboard entry and review actions', () => {
     expect(generateActionItems({ ...profile, plaid_accounts: [{}] }, []).some(action => action.id === 'connect-bank')).toBe(false);
   });
 
-  it('does not send manually confirmed or skipped records back for AI analysis', () => {
+  it('keeps manually confirmed records done and skipped records eligible for analysis', () => {
     const records = [
       { amount: 100, is_deductible: true },
       { amount: 50, is_deductible: false },
       { amount: 20, is_deductible: null, user_classification_reason: 'Skipped by user' },
     ];
     const actions = generateActionItems(profile, records);
-    expect(actions.some(action => action.id === 'analyze-transactions' || action.id === 'review-analyzed' || action.id === 'add-first-transaction')).toBe(false);
+    expect(actions.find(action => action.id === 'analyze-transactions')).toMatchObject({ screen: 'review-transactions' });
+    expect(generateActionItems(profile, records.slice(0, 2)).some(action => action.id === 'analyze-transactions' || action.id === 'review-analyzed')).toBe(false);
     expect(generateActionItems(profile, [...records, { amount: 25, is_deductible: null }])
       .find(action => action.id === 'analyze-transactions')).toMatchObject({ screen: 'review-transactions' });
   });

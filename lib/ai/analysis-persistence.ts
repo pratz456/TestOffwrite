@@ -2,15 +2,17 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { DocumentReference } from 'firebase-admin/firestore';
 import { adminDb } from '@/lib/firebase/admin';
 import type { OutputType } from './analyzeTransaction';
+import { reviewCategory, type AiReviewSuggestion, type TransactionKind } from '@/lib/transactions/ai-review-contract';
 
 export const ANALYSIS_LEASE_MS = 240_000;
 export interface AnalysisLease { token: string; inputHash: string; expiresAt: number }
 const INPUT_FIELDS = [
-  'trans_id', 'merchant_name', 'name', 'amount', 'date', 'datetime', 'category', 'description', 'notes', 'note',
+  'trans_id', 'merchant_name', 'name', 'amount', 'date', 'datetime', 'category', 'bank_category', 'description', 'notes', 'note',
   'account_id', 'pending', 'business_purpose', 'attendees', 'travel_destination', 'equipment_details',
   'client_project', 'documentation_status', 'meeting_notes', 'mileage_details', 'location', 'city', 'state',
   'merchant_category_code', 'mcc', 'payment_channel', 'authorized_date', 'iso_currency_code',
   'unofficial_currency_code', 'personal_finance_category', 'counterparties', 'merchant_entity_id',
+  'transaction_kind', 'business_use_percentage',
 ] as const;
 
 function canonical(value: unknown): unknown {
@@ -58,28 +60,63 @@ export async function claimAnalysisLease(ref: DocumentReference) {
 }
 
 /** Only suggestions and workflow state; no user classification, category, amount, or reason fields. */
-export function analysisSuggestionUpdate(result: OutputType, now = Date.now()) {
-  const label = result.status === 'needs_more_info' ? 'Needs more information' : result.status === 'blocked' ? 'Needs manual review' :
-    result.is_deductible === true ? 'Likely Deductible' : result.is_deductible === false ? 'Unlikely Deductible' : 'Needs manual review';
+export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), canonicalData?: Record<string, unknown>, profileHash?: string) {
+  const evidence = result as OutputType & { transaction_kind?: TransactionKind; tax_year?: number | null;
+    policy_version?: string; sources?: AiReviewSuggestion['sources']; provenance?: unknown };
+  const transactionKind = evidence.transaction_kind ?? (canonicalData && Number(canonicalData.amount) > 0 ?
+    result.expense_type === 'personal' ? 'personal' : 'expense' : 'unknown');
+  const suggestion: AiReviewSuggestion = {
+    id: randomUUID(), status: result.status, transactionKind, category: result.category ?? null,
+    isDeductible: result.is_deductible ?? null, deductiblePercent: result.deductible_percent ?? null,
+    reasoning: result.customized_reason ?? result.reasoning_summary ?? result.reason ?? '',
+    questions: result.questions ?? [], documentationRequired: result.documentation_required ?? [],
+    irsReferences: result.irs_refs ?? [], sources: evidence.sources ?? [], taxYear: evidence.tax_year ?? null,
+    policyVersion: evidence.policy_version ?? null, model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    analyzedAt: now, inputHash: canonicalData ? analysisInputHash(canonicalData) : '',
+    profileHash: profileHash ?? '',
+    categoryReady: result.status !== 'blocked' || result.missing_fields?.some(field => ['supported_tax_year', 'entity_tax_treatment'].includes(field)) === true,
+  };
+  // A saved suggestion never approves a credit/zero amount as a new expense or approves an unsupported method.
+  if (canonicalData && (transactionKind === 'expense' && !(Number(canonicalData.amount) > 0) ||
+      transactionKind === 'income' && !(Number(canonicalData.amount) < 0) ||
+      transactionKind === 'refund' && !(Number(canonicalData.amount) < 0) ||
+      ['income', 'transfer', 'personal', 'refund'].includes(transactionKind) && suggestion.isDeductible === true)) {
+    suggestion.status = 'needs_more_info'; suggestion.isDeductible = null; suggestion.deductiblePercent = null;
+    suggestion.questions = [...suggestion.questions, 'Confirm whether this entry is a purchase, income, a transfer, or a refund before assigning tax treatment.'].slice(0, 3);
+  }
+  const supportedCategory = reviewCategory(suggestion.category);
+  if (suggestion.status === 'ok' && canonicalData && (transactionKind === 'unknown' ||
+      suggestion.isDeductible === true && (!supportedCategory || supportedCategory.recordedCategory.endsWith('_REVIEW_REQUIRED') ||
+        suggestion.deductiblePercent !== (supportedCategory.value === 'meals_50' ? 50 : 100)))) {
+    suggestion.status = 'needs_more_info'; suggestion.isDeductible = null; suggestion.deductiblePercent = null;
+    if (!suggestion.questions.length) suggestion.questions = ['Confirm the business use and applicable tax treatment before claiming a deduction.'];
+  }
+  const label = suggestion.status === 'needs_more_info' ? 'Needs more information' : suggestion.status === 'blocked' ? 'Needs manual review' :
+    suggestion.isDeductible === true ? 'Likely Deductible' : suggestion.isDeductible === false ? 'Unlikely Deductible' : 'Needs manual review';
   return {
-    ai_status: result.status, ai_category: result.category ?? null,
-    ai_deductible_percent: result.deductible_percent ?? null,
+    ai_suggestion: suggestion, ai_transaction_kind: transactionKind,
+    ai_tax_year: evidence.tax_year ?? null, ai_sources: evidence.sources ?? [],
+    ai_policy_version: evidence.policy_version ?? null, ai_provenance: evidence.provenance ?? null,
+    ai_status: suggestion.status, ai_category: result.category ?? null,
+    ai_deductible_percent: suggestion.deductiblePercent,
     ai_key_analysis_factor: result.key_analysis_factor ?? null,
     ai_customized_reason: result.customized_reason ?? null,
     ai_reasoning_summary: result.reasoning_summary ?? null,
     ai_irs_refs: result.irs_refs ?? [], ai_audit_risk: result.audit_risk ?? null,
     ai_audit_risk_rationale: result.audit_risk_rationale ?? null, ai_confidence: result.confidence ?? null,
-    ai_missing_fields: result.missing_fields ?? [], ai_questions: result.questions ?? [],
+    ai_missing_fields: result.missing_fields ?? [], ai_questions: suggestion.questions,
     ai_documentation_required: result.documentation_required ?? [], ai_reason_hash: result.reason_hash ?? null,
     ai_model: process.env.OPENAI_MODEL || 'gpt-4o-mini', ai_last_analyzed_at: now,
     deductionStatus: label, confidence: result.confidence ?? null,
     reasoning: result.customized_reason ?? result.reasoning_summary ?? null,
     irsPublication: result.irs_refs?.[0] ?? null, irsSection: null,
     ai: {
-      status: result.status, status_label: label, score_pct: result.confidence == null ? null : Math.round(result.confidence * 100),
+      transaction_kind: transactionKind, tax_year: evidence.tax_year ?? null, sources: evidence.sources ?? [],
+      policy_version: evidence.policy_version ?? null, provenance: evidence.provenance ?? null,
+      status: suggestion.status, status_label: label, score_pct: result.confidence == null ? null : Math.round(result.confidence * 100),
       reasoning: result.customized_reason ?? result.reasoning_summary ?? null, category: result.category ?? null,
       irs_refs: result.irs_refs ?? [], audit_risk: result.audit_risk ?? null,
-      deductible_percent: result.deductible_percent ?? null, questions: result.questions ?? [],
+      deductible_percent: suggestion.deductiblePercent, questions: suggestion.questions,
       missing_fields: result.missing_fields ?? [], documentation_required: result.documentation_required ?? [],
       model: process.env.OPENAI_MODEL || 'gpt-4o-mini', last_analyzed_at: now,
     },
@@ -89,12 +126,13 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now()) {
   };
 }
 
-export async function persistAnalysisSuggestion(ref: DocumentReference, result: OutputType, lease: AnalysisLease) {
+export async function persistAnalysisSuggestion(ref: DocumentReference, result: OutputType, lease: AnalysisLease, profileHash?: string) {
   return adminDb.runTransaction(async tx => {
     const snap = await tx.get(ref);
     if (!snap.exists || !isAnalysisLeaseCurrent(snap.data()!, lease)) return { status: 'stale' as const };
-    tx.update(ref, analysisSuggestionUpdate(result));
-    return { status: 'saved' as const };
+    const update = analysisSuggestionUpdate(result, Date.now(), snap.data()!, profileHash);
+    tx.update(ref, update);
+    return { status: 'saved' as const, suggestion: update.ai_suggestion };
   });
 }
 

@@ -1,3 +1,4 @@
+import { recordedTransactionType, reviewHydrationFields, type AiReviewSuggestion, type TransactionKind } from '@/lib/transactions/ai-review-contract';
 import {
   collection,
   doc,
@@ -17,6 +18,14 @@ import {
 import { db } from "./client";
 
 export interface Transaction {
+  ai_suggestion?: AiReviewSuggestion | null;
+  transaction_kind?: TransactionKind;
+  review_status?: string;
+  review_source?: string;
+  review_suggestion_id?: string | null;
+  tax_review_required?: boolean;
+  analysisErrorCode?: string | null;
+  analysisJobId?: string;
   id: string;
   trans_id: string;
   merchant_name: string;
@@ -174,17 +183,15 @@ const normalizeAiPayload = (rawAi: any, rawAiAnalysis: any): NormalizedAiResult 
 
   const deductionStatus =
     source.deductionStatus ||
-    source.status ||
     source.status_label ||
+    source.status ||
     undefined;
 
   const confidence =
     typeof source.confidence === "number"
       ? source.confidence
       : typeof source.score_pct === "number"
-      ? source.score_pct
-      : typeof source.deductible_percent === "number"
-      ? source.deductible_percent / 100
+      ? source.score_pct / 100
       : undefined;
 
   const analysisUpdatedAt =
@@ -202,9 +209,7 @@ const normalizeAiPayload = (rawAi: any, rawAiAnalysis: any): NormalizedAiResult 
   const ai: Transaction["ai"] = {
     status_label: deductionStatus,
     score_pct:
-      typeof source.deductible_percent === "number"
-        ? source.deductible_percent
-        : typeof source.score_pct === "number"
+      typeof source.score_pct === "number"
         ? source.score_pct
         : undefined,
     reasoning,
@@ -255,7 +260,7 @@ export const hydrateTransactionRecord = (data: DocumentData, fallbackId: string)
     category: data.category || '',
     date: data.date || '',
     datetime: data.datetime,
-    type: data.amount < 0 ? 'income' : 'expense',
+    type: recordedTransactionType(data),
     is_deductible: data.is_deductible,
     pending: data.pending ?? null,
     deductible_reason: data.deductible_reason || normalizedAi.reasoning,
@@ -266,6 +271,8 @@ export const hydrateTransactionRecord = (data: DocumentData, fallbackId: string)
     notes: data.notes,
     receipt_url: data.receipt_url,
     receipt_filename: data.receipt_filename,
+
+    ...reviewHydrationFields(data),
 
     // AI analysis data
     ai: normalizedAi.ai,
@@ -453,7 +460,7 @@ export async function createTransaction(
             amount: data.amount || 0,
             category: data.category || '',
             date: data.date || '',
-            type: data.amount < 0 ? 'income' : 'expense',
+            type: recordedTransactionType(data),
             is_deductible: data.is_deductible,
             deductible_reason: data.deductible_reason,
             deduction_score: data.deduction_score,

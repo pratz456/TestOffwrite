@@ -1,0 +1,186 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { isValidElement, type ReactElement } from 'react';
+import type { Transaction } from '../lib/firebase/transactions';
+import type { AiReviewSuggestion } from '../lib/transactions/ai-review-contract';
+import { reviewPresentation } from '../lib/transactions/review-presentation';
+
+const harness = vi.hoisted(() => ({ slots: [] as unknown[], cursor: 0, request: vi.fn(), updated: vi.fn(), open: vi.fn(), toast: vi.fn(), availability: 'configured', refresh: vi.fn() }));
+vi.mock('react', async importOriginal => {
+  const actual = await importOriginal<typeof import('react')>();
+  const hooks = {
+    useState(initial: unknown) { const index = harness.cursor++; if (!(index in harness.slots)) harness.slots[index] = typeof initial === 'function' ? initial() : initial; return [harness.slots[index], (value: unknown) => { harness.slots[index] = typeof value === 'function' ? value(harness.slots[index]) : value; }]; },
+    useRef(initial: unknown) { const index = harness.cursor++; if (!(index in harness.slots)) harness.slots[index] = { current: initial }; return harness.slots[index]; },
+    useEffect() {},
+  };
+  return { ...actual, ...hooks, default: { ...actual.default, ...hooks } };
+});
+vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: harness.request }));
+vi.mock('@/lib/hooks/use-ai-availability', () => ({ useAiAvailability: () => ({ status: harness.availability, refresh: harness.refresh, message: 'AI configuration unavailable.' }) }));
+vi.mock('sonner', () => ({ toast: { success: harness.toast } }));
+import { ReviewTransactionsScreen } from '../components/review-transactions-screen';
+
+type Props = { children?: unknown; id?: string; disabled?: boolean; value?: unknown; 'aria-label'?: string; onClick?: () => unknown; onChange?: (event: { target: { value: string; checked?: boolean } }) => void; onTouchStart?: (event: unknown) => void; onTouchMove?: (event: unknown) => void; onTouchEnd?: () => void };
+type Element = ReactElement<Props>;
+function walk(node: unknown): Element[] { if (Array.isArray(node)) return node.flatMap(walk); return isValidElement<Props>(node) ? [node, ...walk(node.props.children)] : []; }
+function text(node: unknown): string { if (Array.isArray(node)) return node.map(text).join(''); if (isValidElement<Props>(node)) return text(node.props.children); return typeof node === 'string' || typeof node === 'number' ? String(node) : ''; }
+function action(page: unknown, label: string) { return walk(page).find(node => node.props.onClick && text(node).trim() === label)!; }
+const suggestion: AiReviewSuggestion = { id: 'suggestion-1', inputHash: 'saved-input', status: 'ok', category: 'supplies_small_tools', transactionKind: 'expense', isDeductible: true, deductiblePercent: 100, reasoning: 'These supplies support the documented client project.', questions: [], documentationRequired: ['Itemized receipt and project note'], irsReferences: ['IRC 162'], sources: [{ id: '162', title: 'Business expenses', url: 'https://www.irs.gov/publications/p334', edition: '2025 publication; 2026 rule review', reviewed_at: '2026-09-16' }], taxYear: 2026, policyVersion: 'synthetic-test-policy', model: 'synthetic-model', analyzedAt: 1, };
+const base = (changes: Partial<Transaction> = {}): Transaction => ({ id: 'tx-1', trans_id: 'tx-1', account_id: 'account-1', merchant_name: 'Synthetic supplies', amount: 25, category: 'GENERAL_MERCHANDISE', date: '2026-09-16', is_deductible: null, analysisStatus: 'completed', ai_suggestion: suggestion, ...changes });
+let records: Transaction[];
+function page(userId = 'owner') { harness.cursor = 0; return ReviewTransactionsScreen({ user: { id: userId }, onBack() {}, transactions: records, onTransactionUpdate: harness.updated, onTransactionClick: harness.open }); }
+function serverReview(transaction = base()) { return Response.json({ success: true, transaction: { ...transaction, category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', is_deductible: true, review_status: 'confirmed', review_source: 'ai_confirmed' } }); }
+beforeEach(() => { harness.slots = []; harness.cursor = 0; records = [base()]; harness.availability = 'configured'; vi.clearAllMocks(); harness.refresh.mockResolvedValue(true); });
+
+describe('AI category swipe review', () => {
+  it('shows actual reasoning, tax year, official sources and records without fabricated service promises', () => {
+    const view = page();
+    expect(text(view)).toContain(suggestion.reasoning); expect(text(view)).toContain('Tax year 2026');
+    expect(text(view)).toContain('Itemized receipt and project note'); expect(text(view)).toContain('Business expenses');
+    expect(text(view)).not.toMatch(/Ask a CPA|within 24 hours|ready for filing|Swipe right to deduct/);
+  });
+
+  it('confirms the saved suggestion identity through the review endpoint and advances to the immediate next card', async () => {
+    records.push(base({ id: 'tx-2', trans_id: 'tx-2', merchant_name: 'Immediate next transaction' }));
+    harness.request.mockResolvedValue(serverReview());
+    await action(page(), 'Confirm category').props.onClick!();
+    expect(harness.request).toHaveBeenCalledExactlyOnceWith('/api/transactions/tx-1/review', expect.objectContaining({ method: 'POST', body: JSON.stringify({ action: 'confirm', accountId: 'account-1', suggestionId: 'suggestion-1' }) }));
+    expect(harness.updated).toHaveBeenCalledWith(expect.objectContaining({ category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES' }));
+    expect(text(page())).toContain('Immediate next transaction'); expect(text(page())).toContain('1 confirmed this session');
+  });
+
+  it('lets a known category be confirmed while showing that missing tax facts remain unresolved', async () => {
+    records = [base({ ai_suggestion: { ...suggestion, status: 'needs_more_info', isDeductible: null, deductiblePercent: null, questions: ['What was the business purpose?'] } })];
+    harness.request.mockResolvedValue(Response.json({ success: true, transaction: { ...records[0], review_status: 'confirmed', tax_review_required: true, is_deductible: null } }));
+    expect(action(page(), 'Confirm category').props.disabled).toBe(false);
+    expect(text(page())).toContain('category only'); expect(text(page())).toContain('What was the business purpose?');
+    await action(page(), 'Confirm category').props.onClick!();
+    expect(text(page())).toContain('Deductions remain unresolved');
+    await action(page(), 'Resolve missing tax details').props.onClick!();
+    expect(harness.open).toHaveBeenCalledWith(expect.objectContaining({ is_deductible: null }));
+  });
+
+  it('left/change opens correction and defaults to unresolved tax treatment without saving or marking personal', async () => {
+    await action(page(), 'Change').props.onClick!();
+    expect(harness.request).not.toHaveBeenCalled();
+    expect(walk(page()).find(node => node.props.id === 'review-deduction')!.props.value).toBe('unresolved');
+    harness.request.mockResolvedValue(serverReview());
+    await action(page(), 'Save correction').props.onClick!();
+    const payload = JSON.parse(harness.request.mock.calls[0][1].body);
+    expect(payload).toMatchObject({ action: 'correct', category: 'supplies_small_tools', transactionKind: 'expense', isDeductible: null });
+  });
+
+  it('records an explicit personal correction with no business deduction', async () => {
+    await action(page(), 'Change').props.onClick!();
+    walk(page()).find(node => node.props.id === 'review-kind')!.props.onChange!({ target: { value: 'personal' } });
+    harness.request.mockResolvedValue(serverReview());
+    await action(page(), 'Save correction').props.onClick!();
+    expect(JSON.parse(harness.request.mock.calls[0][1].body)).toMatchObject({ category: 'personal', transactionKind: 'personal', isDeductible: false });
+  });
+
+  it('a failed save leaves the card visible and never updates the parent or shows success', async () => {
+    harness.request.mockResolvedValue(Response.json({ error: 'Saved record unavailable' }, { status: 500 }));
+    await action(page(), 'Confirm category').props.onClick!();
+    expect(text(page())).toContain('Synthetic supplies'); expect(text(page())).toContain('Saved record unavailable');
+    expect(harness.updated).not.toHaveBeenCalled(); expect(harness.toast).not.toHaveBeenCalled();
+  });
+
+  it('refreshes a stale suggestion and requires the user to review the replacement', async () => {
+    harness.request.mockResolvedValueOnce(Response.json({ error: 'stale' }, { status: 409 })).mockResolvedValueOnce(Response.json({ transaction: base({ ai_suggestion: { ...suggestion, id: 'replacement', analyzedAt: 2, reasoning: 'Updated details change this suggestion.' } }) }));
+    await action(page(), 'Confirm category').props.onClick!();
+    expect(text(page())).toContain('Updated details change this suggestion.'); expect(text(page())).toContain('changed. Review the latest');
+    expect(harness.toast).not.toHaveBeenCalled();
+  });
+
+  it('serializes repeated confirmation clicks', async () => {
+    let resolve!: (response: Response) => void;
+    harness.request.mockReturnValue(new Promise<Response>(done => { resolve = done; }));
+    const confirm = action(page(), 'Confirm category');
+    const first = confirm.props.onClick!(); await confirm.props.onClick!();
+    expect(harness.request).toHaveBeenCalledOnce();
+    resolve(serverReview()); await first;
+  });
+
+  it('Later defers only in this session and does not silently mark the transaction reviewed', async () => {
+    await action(page(), 'Later').props.onClick!();
+    expect(text(page())).toContain('1 transaction still needs review');
+    expect(text(page())).toContain('Nothing was confirmed'); expect(harness.request).not.toHaveBeenCalled(); expect(harness.updated).not.toHaveBeenCalled();
+    await action(page(), 'Review remaining transactions').props.onClick!(); expect(text(page())).toContain('Synthetic supplies');
+  });
+
+  it.each([
+    { pending: true },
+    { analysisStatus: 'running' as const },
+    { ai_suggestion: null },
+    { ai_suggestion: { ...suggestion, status: 'blocked' as const } },
+    { ai_suggestion: { ...suggestion, transactionKind: 'unknown' as const } },
+  ])('does not falsely confirm a pending, running, absent, blocked or unknown suggestion', async changes => {
+    records = [base(changes)]; const confirm = action(page(), 'Confirm category');
+    expect(confirm.props.disabled).toBe(true); await confirm.props.onClick!(); expect(harness.request).not.toHaveBeenCalled();
+  });
+
+  it('runs explicit AI then reloads the persisted suggestion without confirming it', async () => {
+    records = [base({ ai_suggestion: null, analyzed: false, analysisStatus: 'pending' })];
+    harness.request.mockResolvedValueOnce(Response.json({ success: true })).mockResolvedValueOnce(Response.json({ transaction: base() }));
+    await action(page(), 'Run AI analysis').props.onClick!();
+    expect(harness.request.mock.calls.map(call => call[0])).toEqual(['/api/ai/analyze-transaction', '/api/transactions/tx-1']);
+    expect(text(page())).toContain(suggestion.reasoning); expect(text(page())).toContain('1 needs review'); expect(harness.toast).not.toHaveBeenCalled();
+  });
+
+  it('shows a real queued job separately from no analysis and allows an explicit analysis request', () => {
+    records = [base({ ai_suggestion: null, analysisStatus: 'pending', analysisJobId: 'queued-job' })];
+    expect(text(page())).toContain('Queued for automatic analysis');
+    expect(action(page(), 'Confirm category').props.disabled).toBe(true);
+    expect(action(page(), 'Run AI analysis').props.disabled).toBe(false);
+    expect(harness.request).not.toHaveBeenCalled();
+  });
+
+  it('handles provider unavailability without invented analysis and keeps manual categorization available', async () => {
+    records = [base({ ai_suggestion: null })]; harness.request.mockResolvedValue(Response.json({ code: 'AI_UNAVAILABLE' }, { status: 503 }));
+    await action(page(), 'Run AI analysis').props.onClick!();
+    expect(text(page())).toContain('AI is temporarily unavailable'); expect(action(page(), 'AI unavailable').props.disabled).toBe(true);
+    expect(action(page(), 'Confirm category').props.disabled).toBe(true); expect(action(page(), 'Change').props.disabled).toBe(false);
+    expect(harness.updated).not.toHaveBeenCalled();
+  });
+
+  it('honors a fresh bank snapshot that invalidates an earlier confirmed suggestion', async () => {
+    harness.request.mockResolvedValue(serverReview());
+    await action(page(), 'Confirm category').props.onClick!();
+    expect(text(page())).toContain('Categories reviewed');
+    records = [base({ ai_suggestion: null, amount: 40, is_deductible: null, review_status: undefined, analysisStatus: 'pending' })];
+    expect(text(page())).toContain('$40.00'); expect(text(page())).toContain('No AI suggestion yet');
+    expect(action(page(), 'Confirm category').props.disabled).toBe(true);
+  });
+
+  it('ignores a response after the account changes', async () => {
+    let resolve!: (response: Response) => void;
+    harness.request.mockReturnValue(new Promise<Response>(done => { resolve = done; }));
+    const pending = action(page(), 'Confirm category').props.onClick!(); page('another-owner'); resolve(serverReview()); await pending;
+    expect(harness.updated).not.toHaveBeenCalled(); expect(harness.toast).not.toHaveBeenCalled();
+  });
+
+  it('uses real horizontal swipe gestures for confirm and does not treat vertical scroll as review', async () => {
+    const card = () => walk(page()).find(node => node.type === 'article')!;
+    card().props.onTouchStart!({ target: { closest: () => null }, touches: [{ clientX: 0, clientY: 0 }] });
+    card().props.onTouchMove!({ touches: [{ clientX: 150, clientY: 75 }] }); card().props.onTouchEnd!();
+    expect(harness.request).not.toHaveBeenCalled();
+    harness.request.mockResolvedValue(serverReview());
+    card().props.onTouchStart!({ target: { closest: () => null }, touches: [{ clientX: 0, clientY: 0 }] });
+    card().props.onTouchMove!({ touches: [{ clientX: 150, clientY: 10 }] }); card().props.onTouchEnd!();
+    await Promise.resolve(); expect(harness.request).toHaveBeenCalledOnce();
+  });
+});
+
+describe('review content trust and meaning', () => {
+  it.each(['income', 'transfer', 'personal'] as const)('shows the %s label ahead of an incidental expense category', kind => {
+    const result = reviewPresentation(base({ ai_suggestion: { ...suggestion, category: 'other', transactionKind: kind, isDeductible: false } }));
+    expect(result.categoryLabel).toBe(kind === 'income' ? 'Business income' : kind === 'transfer' ? 'Transfer / card payment' : 'Personal purchase');
+  });
+  it('does not present legacy text or bank categorization as a current AI suggestion', () => {
+    const result = reviewPresentation(base({ ai_suggestion: null, ai_analysis: 'Legacy unsupported tax claim', deductible_reason: 'User supplied text' }));
+    expect(result.label).toBe('No AI suggestion yet'); expect(result.reasoning).not.toContain('Legacy'); expect(result.categoryLabel).toBe('Category needs review');
+  });
+  it('only links HTTPS official tax sources without credentials or lookalike hosts', () => {
+    const result = reviewPresentation(base({ ai_suggestion: { ...suggestion, sources: [suggestion.sources[0], ...['https://www.irs.gov.evil.test/a', 'javascript:alert(1)', 'http://irs.gov/a', 'https://user:pass@irs.gov/a'].map(url => ({ ...suggestion.sources[0], url }))] } }));
+    expect(result.sources).toEqual([suggestion.sources[0]]);
+  });
+});

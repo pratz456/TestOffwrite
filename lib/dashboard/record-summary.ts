@@ -6,6 +6,7 @@ export interface DashboardRecord {
   category?: string;
   pending?: boolean;
   is_deductible?: boolean | null;
+  tax_review_required?: boolean;
   user_classification_reason?: string;
   iso_currency_code?: string;
   unofficial_currency_code?: string;
@@ -15,6 +16,7 @@ export function dashboardRecordStatus(record: DashboardRecord) {
   if (record.pending === true) return 'pending';
   const category = typeof record.category === 'string' ? record.category.toLowerCase() : '';
   if (category === 'income' || category === 'revenue') return 'income';
+  if (record.tax_review_required === true) return 'review';
   if (record.is_deductible === true) return 'deductible';
   if (record.is_deductible === false) return 'personal';
   return transactionNeedsTaxReview(record) ? 'review' : 'skipped';

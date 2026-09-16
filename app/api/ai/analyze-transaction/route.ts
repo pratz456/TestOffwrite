@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { analyzeTransactionWithRetry, TransactionInput, findMissingUserFields, convertToEnhancedContext } from '@/lib/ai/analyzeTransaction';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
-import { getUserProfileServer } from '@/lib/firebase/profiles-server';
+import { getAnalysisProfile, analysisProfileHash } from '@/lib/ai/profile-context';
 import { adminDb } from '@/lib/firebase/admin';
 import { getAIProviderStatus } from '@/lib/ai/provider-status';
 import { claimAnalysisLease, persistAnalysisSuggestion, releaseAnalysisLease, analysisSuggestionUpdate } from '@/lib/ai/analysis-persistence';
@@ -118,7 +118,7 @@ export async function POST(request: NextRequest) {
       releaseCode = 'AI_INPUT_REVIEW';
       return NextResponse.json({ code: releaseCode, error: 'Confirm a valid amount, date and USD currency on this saved record before analysis.' }, { status: 422 });
     }
-    const { data: profile, error: profileError } = await getUserProfileServer(user.uid);
+    const { data: profile, error: profileError } = await getAnalysisProfile(user.uid);
     if (profileError || !profile) return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
     const context = convertToEnhancedContext(profile, date);
     const missingFields = findMissingUserFields(context);
@@ -149,14 +149,14 @@ export async function POST(request: NextRequest) {
           : 'AI could not complete a reliable assessment. Please retry or review this transaction manually.';
       return NextResponse.json({ code: releaseCode, error }, { status });
     }
-    const saved = await persistAnalysisSuggestion(ref, analysis.result, lease);
+    const saved = await persistAnalysisSuggestion(ref, analysis.result, lease, analysisProfileHash(profile, date));
     if (saved.status !== 'saved') {
       releaseCode = 'AI_RECORD_CHANGED';
       return NextResponse.json({ code: releaseCode, error: 'The transaction changed during analysis. Review the latest record and run analysis again.' }, { status: 409 });
     }
     lease = null;
     const fields = analysisSuggestionUpdate(analysis.result);
-    return NextResponse.json({ success: true, analysis: {
+    return NextResponse.json({ success: true, ai_suggestion: saved.suggestion ?? null, analysis: {
       status: analysis.result.status,
       deductionStatus: fields.ai.status_label,
       confidence: analysis.result.confidence ?? null,

@@ -11,8 +11,14 @@ describe('Firebase analysis event bridge', () => {
     expect(shouldQueueBankWrite(posted, { ...posted, analysisInputRevision: 'bank-correction-revision' })).toBe(true);
     expect(shouldQueueBankWrite(posted, undefined)).toBe(false);
   });
-  it.each([{ ...posted, pending: true }, { ...posted, amount: -40 }, { ...posted, amount: 0 }, { ...posted, analyzed: true }, { ...posted, type: 'income' }])('does not queue ineligible records %j', after => {
+  it.each([{ ...posted, pending: true }, { ...posted, amount: NaN }, { ...posted, amount: Infinity }, { ...posted, analyzed: true, ai_suggestion: { id: 'saved' } }])('does not queue ineligible records %j', after => {
     expect(shouldQueueBankWrite(undefined, after)).toBe(false);
+  });
+  it('queues an imported legacy analyzed record without the current suggestion contract', () => {
+    expect(shouldQueueBankWrite(undefined, { ...posted, analyzed: true, analysisStatus: 'completed' })).toBe(true);
+  });
+  it.each([{ amount: -40 }, { amount: 0 }, { amount: -500, type: 'income' }, { category: 'TRANSFER' }])('queues posted credits and other kinds for analysis %j', value => {
+    expect(shouldQueueBankWrite(undefined, { ...posted, ...value })).toBe(true);
   });
   it.each(['manual', 'receipt'])('also queues saved %s expenses without an HTTP background request', source => {
     expect(shouldQueueBankWrite(undefined, { ...posted, source })).toBe(true);

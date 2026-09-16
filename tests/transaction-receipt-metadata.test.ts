@@ -28,12 +28,19 @@ import { createTransactionServer, getPaginatedTransactionsServer } from '../lib/
 
 const receipt = { receipt_url: '/api/receipts/stored-receipt', receipt_filename: 'office-supplies.png' };
 const transaction = { trans_id: 'saved-expense', userId: 'owner', account_id: 'manual', merchant_name: 'Synthetic office supplies', amount: 25, category: 'supplies', date: '2026-09-02' };
-function document(data: Record<string, unknown>) { return { id: transaction.trans_id, exists: true, data: () => data }; }
+function document(data: Record<string, unknown>) { return { id: transaction.trans_id, exists: true,
+  ref: { path: `user_profiles/owner/accounts/manual/transactions/${transaction.trans_id}` }, data: () => data }; }
 function snapshot(docs: ReturnType<typeof document>[]) { return { empty: docs.length === 0, docs, size: docs.length, forEach: (visit: (doc: ReturnType<typeof document>) => void) => docs.forEach(visit) }; }
 
 beforeEach(() => { vi.clearAllMocks(); mocks.groupGet.mockReset(); mocks.nestedGet.mockReset(); mocks.set.mockResolvedValue(undefined); });
 
 describe('receipt metadata survives transaction reloads', () => {
+  it('rejects a collection-group hit whose path belongs to a different owner', async () => {
+    const doc = document(transaction); doc.ref.path = 'user_profiles/other/accounts/manual/transactions/saved-expense';
+    mocks.groupGet.mockResolvedValue(snapshot([doc])); mocks.nestedGet.mockResolvedValue({ docs: [] });
+    const response = await GET(new NextRequest('https://writeoff.test/api/transactions/saved-expense'), { params: Promise.resolve({ id: transaction.trans_id }) });
+    expect(response.status).toBe(404);
+  });
   for (const lookup of ['userId', 'user_id', 'account'] as const) {
     it.each([receipt, { receipt_url: '', receipt_filename: '' }])(`detail GET preserves saved or explicitly cleared receipt fields through ${lookup} lookup`, async fields => {
       const doc = document({ ...transaction, ...fields });

@@ -212,12 +212,12 @@ export function useUserStats(uid: string) {
           const transactions = querySnapshot.docs.map((d: any) => hydrateTransactionRecord(d.data(), d.id));
 
           const totalTransactions = transactions.length;
-          const deductibleTransactions = transactions.filter((t: Transaction) => t.is_deductible === true).length;
+          const deductibleTransactions = transactions.filter((t: Transaction) => t.is_deductible === true && !transactionNeedsTaxReview(t)).length;
           const needsReviewTransactions = transactions.filter((t: Transaction) =>
             transactionNeedsTaxReview(t)
           ).length;
           const totalDeductibleAmount: number = transactions
-            .filter((t: Transaction) => t.is_deductible === true)
+            .filter((t: Transaction) => t.is_deductible === true && !transactionNeedsTaxReview(t))
             .reduce((sum: number, t: Transaction) => sum + Math.abs(t.amount || 0), 0);
 
           const potentialSavings = totalDeductibleAmount * getUserTaxRate();

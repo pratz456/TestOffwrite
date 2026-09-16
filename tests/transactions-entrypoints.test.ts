@@ -281,6 +281,14 @@ describe('transaction detail preserves manual work without guessed tax impact or
     expect(harness.fetch).not.toHaveBeenCalled();
   });
 
+  it('uses canonical saved tax-review metadata when a detail classification resolves missing facts', async () => {
+    harness.mutate.mockResolvedValueOnce({ ...base, is_deductible: true, tax_review_required: false, expense_type: 'business' });
+    const business = walk(detail({ is_deductible: false })).find(node => node.props['aria-label'] === 'Mark as business expense')!;
+    await business.props.onClick!();
+    await action(detail({ is_deductible: false }), 'Save Changes').props.onClick!();
+    expect(harness.save).toHaveBeenCalledWith(expect.objectContaining({ is_deductible: true, tax_review_required: false }));
+  });
+
   it('waits for edited context to be saved before explicit analysis reads the canonical record', async () => {
     let saved!: () => void;
     harness.mutate.mockReturnValueOnce(new Promise<void>(resolve => { saved = resolve; }));
