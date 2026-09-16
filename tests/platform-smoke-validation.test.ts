@@ -42,6 +42,12 @@ describe('platform input smoke regressions', () => {
     expect(state.write).toHaveBeenCalledWith(expect.objectContaining({ amount: -125.25, userId: 'smoke-owner', type: 'income' }));
     expect(state.analyze).not.toHaveBeenCalled();
   });
+  it('manual expenses persist review choices and provenance without starting post-response model work', async () => {
+    expect((await manual(request({ ...manualBase, type: 'expense', is_deductible: true, iso_currency_code: 'USD' }))).status).toBe(201);
+    expect(state.write).toHaveBeenCalledWith(expect.objectContaining({ amount: 125.25, userId: 'smoke-owner', type: 'expense',
+      source: 'manual', is_deductible: true, analyzed: false, analysis_status: 'pending' }));
+    expect(state.analyze).not.toHaveBeenCalled();
+  });
   it('persists explicitly declared USD for new manual records and rejects another currency', async () => {
     expect((await manual(request({ ...manualBase, iso_currency_code: 'USD' }))).status).toBe(201);
     expect(state.write).toHaveBeenCalledWith(expect.objectContaining({ iso_currency_code: 'USD' }));

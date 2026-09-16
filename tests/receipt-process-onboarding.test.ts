@@ -215,16 +215,14 @@ describe('receipt onboarding without a connected bank', () => {
     expect(mocks.processReceipt).not.toHaveBeenCalled();
   });
 
-  it('passes the typed analysis request and saves only successful model output', async () => {
-    mocks.analyze.mockResolvedValue({ success: true, result: {
-      is_deductible: false, category: 'OTHER', audit_risk: 'Low', confidence: 0.8,
-      customized_reason: 'User should confirm business purpose', irs_refs: [],
-    } });
+  it('saves receipt provenance and pending analysis for the durable worker without post-response model work', async () => {
     expect((await POST(request())).status).toBe(200);
-    await vi.waitFor(() => expect(mocks.updateTransaction).toHaveBeenCalled());
-    expect(mocks.analyze).toHaveBeenCalledWith(expect.objectContaining({ merchant: 'Synthetic Stationery', amount_usd: 23.45, date_iso: '2026-09-15' }), { profession: 'Synthetic user' });
-    expect(mocks.updateTransaction).toHaveBeenCalledWith(owner, expect.stringMatching(/^receipt_/), expect.objectContaining({ analyzed: true, analysis_status: 'completed' }));
-    expect(mocks.updateTransaction.mock.calls[0][2]).not.toHaveProperty('is_deductible');
+    expect(mocks.createTransaction).toHaveBeenCalledWith(owner, 'manual', expect.objectContaining({
+      source: 'receipt', amount: 23.45, analyzed: false, analysis_status: 'pending', is_deductible: null,
+    }));
+    expect(mocks.analyze).not.toHaveBeenCalled();
+    expect(mocks.profile).not.toHaveBeenCalled();
+    expect(mocks.updateTransaction).not.toHaveBeenCalled();
   });
 
   it('saves validated manual confirmation even when OCR is unavailable', async () => {

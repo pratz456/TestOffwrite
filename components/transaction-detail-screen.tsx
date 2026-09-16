@@ -10,7 +10,8 @@ import { Badge } from '@/components/ui/badge';
 import { useToasts } from '@/components/ui/toast';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { ReceiptPreview } from '@/components/receipt-preview';
-import { auth, localEmulatorConfig } from '@/lib/firebase/client';
+import { auth } from '@/lib/firebase/client';
+import { useAiAvailability } from '@/lib/hooks/use-ai-availability';
 import { consolidateCategory } from '@/lib/utils';
 import { getTransactionId } from '@/lib/utils/transaction-id';
 import { protectedScreenUrl } from '@/lib/navigation/protected-screens';
@@ -177,6 +178,8 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
 
   // Debounced save for context fields
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const contextSaveTail = useRef<Promise<unknown>>(Promise.resolve());
+  const pendingContextSaves = useRef(0);
 
   // AI Analysis state
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -187,15 +190,27 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
   const userId = currentUser?.uid;
 
   // AI runs only after an explicit click, independently of record saves.
-  // The isolated demo deliberately has no external provider credentials.
-  const isLocalPreview = Boolean(localEmulatorConfig);
+  const aiAvailability = useAiAvailability(userId);
   const isAnalyzingRef = useRef(false);
-  const [analysisUnavailable, setAnalysisUnavailable] = useState(isLocalPreview);
+  const [analysisUnavailable, setAnalysisUnavailable] = useState(false);
+  const analysisContext = `${userId}:${getTransactionId(transaction)}`;
+  const activeAnalysisContext = useRef(analysisContext); activeAnalysisContext.current = analysisContext;
+  const analysisRequest = useRef(0);
 
   useEffect(() => {
+    const requests = analysisRequest;
     setAnalysisError(null);
-    setAnalysisUnavailable(isLocalPreview);
-  }, [userId, transaction.id, isLocalPreview]);
+    setAnalysisUnavailable(false);
+    setIsAnalyzing(false);
+    isAnalyzingRef.current = false;
+    return () => { ++requests.current; };
+  }, [analysisContext]);
+
+  const checkAiAvailability = async () => {
+    if (isAnalyzingRef.current) return;
+    if (await aiAvailability.refresh() && activeAnalysisContext.current === analysisContext) setAnalysisUnavailable(false);
+  };
+  const analysisBlocked = analysisUnavailable || aiAvailability.status !== 'configured';
 
   // Use React Query mutation with optimistic updates for instant UI feedback
   const updateTransactionMutation = useUpdateTransaction();
@@ -214,26 +229,34 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
   // Check if currently saving
   const isSaving = updateTransactionMutation.isPending;
 
+  // Keep older debounced writes ahead of the explicit pre-analysis save.
+  const saveContext = useCallback((updates: Record<string, string>) => {
+    pendingContextSaves.current++;
+    const save = contextSaveTail.current.catch(() => undefined).then(() => {
+      if (!userId || auth.currentUser?.uid !== userId) throw new Error('Sign in again before saving context.');
+      return updateTransactionMutation.mutateAsync({ transactionId: getTransactionId(transaction), userId, updates });
+    }).finally(() => { pendingContextSaves.current--; });
+    contextSaveTail.current = save;
+    return save;
+  }, [userId, transaction, updateTransactionMutation]);
+
   // Debounced save function
-  const debouncedSave = useCallback((updates: Record<string, any>) => {
+  const debouncedSave = useCallback((updates: Record<string, string>) => {
     if (debounceTimeoutRef.current) {
       clearTimeout(debounceTimeoutRef.current);
     }
 
     debounceTimeoutRef.current = setTimeout(async () => {
+      debounceTimeoutRef.current = null;
       if (!userId) return;
       
       try {
-        await updateTransactionMutation.mutateAsync({
-          transactionId: getTransactionId(transaction),
-          userId,
-          updates
-        });
+        await saveContext(updates);
       } catch (error) {
         console.error('Error saving context field:', error);
       }
     }, 500);
-  }, [userId, transaction.trans_id, transaction.id, updateTransactionMutation]);
+  }, [userId, saveContext]);
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -475,26 +498,47 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
 
   // Handle AI Analysis
   const handleAnalyzeTransaction = async () => {
-    if (isLocalPreview || isAnalyzingRef.current || analysisUnavailable) return;
+    if (isAnalyzingRef.current || analysisBlocked) return;
     if (!userId || !currentUser) {
       showError('Authentication Error', 'Please log in to analyze transactions');
       return;
     }
 
     isAnalyzingRef.current = true;
+    const request = ++analysisRequest.current;
+    const isCurrent = () => analysisRequest.current === request && activeAnalysisContext.current === analysisContext && auth.currentUser?.uid === userId;
     setIsAnalyzing(true);
     setAnalysisError(null);
     let unavailable = false;
 
     try {
-      // Get the current user's ID token for authentication
-      const token = await currentUser.getIdToken();
-
       const transactionId = getTransactionId(transaction);
       const trimmedAdditionalContext = (additionalContext || '').trim();
       const trimmedBusinessPurpose = (businessPurpose || '').trim();
       const trimmedClientProject = (clientProject || '').trim();
       const trimmedMeetingNotes = (meetingNotes || '').trim();
+
+      const hadPendingContext = debounceTimeoutRef.current !== null || pendingContextSaves.current > 0;
+      if (debounceTimeoutRef.current !== null) {
+        clearTimeout(debounceTimeoutRef.current);
+        debounceTimeoutRef.current = null;
+      }
+      const contextFields: [string, string, string][] = [
+        ['notes', trimmedAdditionalContext, (transaction.notes || '').trim()],
+        ['business_purpose', trimmedBusinessPurpose, (transaction.business_purpose || '').trim()],
+        ['client_project', trimmedClientProject, (transaction.client_project || '').trim()],
+        ['documentation_status', documentationStatus, transaction.documentation_status || 'missing'],
+        ['meeting_notes', trimmedMeetingNotes, (transaction.meeting_notes || '').trim()],
+      ];
+      const updates = Object.fromEntries(contextFields.filter(([, value, saved]) => hadPendingContext || value !== saved).map(([key, value]) => [key, value]));
+      if (Object.keys(updates).length > 0) {
+        try { await saveContext(updates); }
+        catch { throw new Error('Your latest context could not be saved, so AI analysis was not started. Save your changes and try again.'); }
+      }
+      if (!isCurrent()) return;
+      // The server analyzes canonical saved fields, including the context saved above.
+      const token = await currentUser.getIdToken();
+      if (!isCurrent()) return;
 
       const response = await fetch('/api/ai/analyze-transaction', {
         method: 'POST',
@@ -549,6 +593,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
       }
 
       const result = await response.json();
+      if (!isCurrent()) return;
 
       if (result.success) {
         showSuccess('Analysis Saved', 'An AI suggestion is available for your review; it does not establish tax eligibility.');
@@ -591,13 +636,16 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
       }
 
     } catch (error) {
+      if (!isCurrent()) return;
       const errorMessage = error instanceof Error ? error.message : 'AI analysis could not complete. Continue reviewing manually.';
       setAnalysisError(errorMessage);
       setAnalysisUnavailable(unavailable);
       showError(unavailable ? 'AI unavailable' : 'Analysis incomplete', errorMessage);
     } finally {
-      isAnalyzingRef.current = false;
-      setIsAnalyzing(false);
+      if (isCurrent()) {
+        isAnalyzingRef.current = false;
+        setIsAnalyzing(false);
+      }
     }
   };
 
@@ -725,7 +773,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                 </div>
                 <Button
                   onClick={handleAnalyzeTransaction}
-                  disabled={isAnalyzing || analysisUnavailable}
+                  disabled={isAnalyzing || analysisBlocked}
                   variant="outline"
                   size="sm"
                   className="text-green-700 dark:text-green-300 border-green-600/50 dark:border-green-500/50 hover:bg-green-600/10 dark:hover:bg-green-500/10"
@@ -738,17 +786,21 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                   ) : (
                     <>
                       <Bot className="w-3 h-3 mr-2" />
-                      {analysisUnavailable ? 'AI unavailable' : 'Run AI Analysis'}
+                      {aiAvailability.status === 'checking' ? 'Checking AI…' : analysisBlocked ? 'AI unavailable' : 'Run AI Analysis'}
                     </>
                   )}
                 </Button>
               </div>
 
-              {isLocalPreview && (
-                <p className="mb-4 rounded-lg border border-border bg-muted/50 p-3 text-sm text-muted-foreground" role="status">
-                  AI analysis is off in this local preview. You can still edit notes, attach receipts and record your classification manually.
-                </p>
-              )}
+              <div className="mb-4 rounded-lg border border-border bg-muted/50 p-3 text-sm text-muted-foreground" role="status">
+                <p>{aiAvailability.message}</p>
+                {aiAvailability.status === 'unavailable' && <p className="mt-1">You can still edit notes, attach receipts and record your classification manually.</p>}
+                {(analysisUnavailable || aiAvailability.status === 'unavailable') && (
+                  <Button variant="outline" size="sm" className="mt-2" onClick={checkAiAvailability} disabled={isAnalyzing || aiAvailability.status === 'checking'}>
+                    Check AI availability
+                  </Button>
+                )}
+              </div>
 
               {analysisError && (
                 <div className="mb-4 p-3 rounded-lg bg-red-500/10 dark:bg-red-900/20 border border-red-300 dark:border-red-700">
@@ -757,6 +809,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                     <span className="text-sm font-medium">{analysisUnavailable ? 'AI unavailable' : 'Analysis incomplete'}</span>
                   </div>
                   <p className="text-sm text-red-600 dark:text-red-400 mt-1">{analysisError}</p>
+                  <p className="text-sm text-red-600 dark:text-red-400 mt-1">After provider configuration or usage limits change, check availability and explicitly run analysis again. The configuration check does not verify funding.</p>
                 </div>
               )}
 
@@ -867,7 +920,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                     <p className="text-sm text-muted-foreground mb-3">No AI analysis available</p>
                     <Button
                       onClick={handleAnalyzeTransaction}
-                      disabled={isAnalyzing || analysisUnavailable}
+                      disabled={isAnalyzing || analysisBlocked}
                       className="bg-green-600 hover:bg-green-700 dark:bg-green-700 dark:hover:bg-green-600 text-white"
                     >
                       {isAnalyzing ? (
@@ -878,7 +931,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                       ) : (
                         <>
                           <Bot className="w-4 h-4 mr-2" />
-                          {analysisUnavailable ? 'AI unavailable' : 'Analyze Transaction'}
+                          {aiAvailability.status === 'checking' ? 'Checking AI…' : analysisBlocked ? 'AI unavailable' : 'Analyze Transaction'}
                         </>
                       )}
                     </Button>

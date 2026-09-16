@@ -3,13 +3,12 @@ import { Configuration, PlaidApi, PlaidEnvironments } from 'plaid';
 import { getUserProfileServer, upsertUserProfileServer } from '../firebase/profiles-server';
 import {
   createTransactionServer,
-  updateTransactionFromPlaidServer,
   deleteTransactionByUserIdAndTransId,
 } from '../firebase/transactions-server';
 import { adminDb } from '../firebase/admin';
 import { fetchAllPlaidTransactions } from './pagination';
 import { debugPlaid } from './debug';
-import { analyzeTransactionWithRetry, convertToEnhancedContext, findMissingUserFields, TransactionInput } from '../ai/analyzeTransaction';
+import { updateImportedTransactionForAnalysis } from '@/lib/ai/analysis-jobs';
 
 import { getPlaidConfig } from './config';
 
@@ -32,166 +31,6 @@ export interface SyncResult {
   transactionsSaved: number;
   autoClassified?: number;
   error?: string;
-}
-
-/**
- * Run AI analysis on newly synced transactions (suggestions only).
- * Does not set is_deductible / expense_type — users must confirm tax treatment in-app.
- * Runs in the background (fire-and-forget).
- */
-async function analyzeNewTransactions(
-  userId: string,
-  newlySaved: Array<{ trans_id: string; merchant_name: string; amount: number; category: string; date: string; account_id: string; authorized_date?: string; datetime?: string; payment_channel?: string; location?: any; personal_finance_category?: any; counterparties?: any[]; merchant_entity_id?: string }>,
-  userProfile: any
-): Promise<void> {
-  const BATCH_SIZE = 10;
-
-  const byAccount = new Map<string, typeof newlySaved>();
-  for (const tx of newlySaved) {
-    const existing = byAccount.get(tx.account_id) || [];
-    existing.push(tx);
-    byAccount.set(tx.account_id, existing);
-  }
-
-  // Pre-load recurring merchant names ONCE for whole batch
-  const recurringMerchants = new Set<string>();
-  try {
-    const recurringSnap = await adminDb.collection(`user_profiles/${userId}/recurring_transactions`).get();
-    recurringSnap.forEach(doc => {
-      const name = doc.data()?.merchant_name;
-      if (name) recurringMerchants.add(name.toLowerCase());
-    });
-  } catch {
-    // Recurring data may not exist yet
-  }
-
-  // Convert user profile ONCE for whole batch (not per-transaction)
-  const userContext = convertToEnhancedContext(userProfile, new Date().toISOString().split('T')[0]);
-
-  for (const [accountId, txs] of byAccount) {
-    const accountDoc = await adminDb.doc(`user_profiles/${userId}/accounts/${accountId}`).get();
-    const accountUsageType = accountDoc.exists ? (accountDoc.data()?.usageType || 'unknown') : 'unknown';
-
-    const collectionPath = `user_profiles/${userId}/accounts/${accountId}/transactions`;
-    const pendingSnap = await adminDb
-      .collection(collectionPath)
-      .where('analysis_status', '==', 'pending')
-      .limit(500)
-      .get();
-
-    const pendingIds = new Set(pendingSnap.docs.map(doc => doc.id));
-    const toAnalyze = txs.filter(tx => pendingIds.has(tx.trans_id));
-
-    if (toAnalyze.length === 0) continue;
-
-    console.log(`🧠 [Sync Helper] Auto-analyzing ${toAnalyze.length} transactions for account ${accountId}`);
-
-    // Mark all as running in a single batch write
-    const markRunningBatch = adminDb.batch();
-    for (const tx of toAnalyze) {
-      markRunningBatch.update(
-        adminDb.doc(`${collectionPath}/${tx.trans_id}`),
-        { analysis_status: 'running', analysisStatus: 'running' }
-      );
-    }
-    await markRunningBatch.commit();
-
-    for (let i = 0; i < toAnalyze.length; i += BATCH_SIZE) {
-      const chunk = toAnalyze.slice(i, i + BATCH_SIZE);
-
-      const results = await Promise.all(chunk.map(async (tx) => {
-        try {
-          const transactionInput: TransactionInput = {
-            tx_id: tx.trans_id,
-            merchant: tx.merchant_name,
-            amount_usd: tx.amount,
-            date_iso: tx.date,
-            note: undefined,
-            merchant_name: tx.merchant_name,
-            amount: tx.amount,
-            category: tx.category,
-            date: tx.date,
-            description: undefined,
-            authorized_date: tx.authorized_date,
-            datetime: tx.datetime,
-            payment_channel: tx.payment_channel as any,
-            location: tx.location ? {
-              address: tx.location.address,
-              city: tx.location.city,
-              state: tx.location.region || tx.location.state,
-              lat: tx.location.lat,
-              lon: tx.location.lon,
-            } : undefined,
-            personal_finance_category: tx.personal_finance_category ? {
-              primary: tx.personal_finance_category.primary,
-              detailed: tx.personal_finance_category.detailed,
-              confidence: tx.personal_finance_category.confidence_level,
-            } : undefined,
-            account_usage_type: accountUsageType,
-            counterparties: tx.counterparties,
-            merchant_entity_id: tx.merchant_entity_id,
-            is_recurring: recurringMerchants.has((tx.merchant_name || '').toLowerCase()),
-            city: tx.location?.city,
-            state: tx.location?.region || tx.location?.state,
-          };
-
-          const analysisResult = await analyzeTransactionWithRetry(transactionInput, userContext);
-          if (!analysisResult.success) {
-            console.error(`❌ [Sync Helper] Analysis failed for ${tx.trans_id}:`, analysisResult.error);
-            return { trans_id: tx.trans_id, failed: true };
-          }
-
-          const result = analysisResult.result;
-          return {
-            trans_id: tx.trans_id,
-            failed: false,
-            update: {
-              deduction_score: result.confidence || 0,
-              deductible_reason: result.customized_reason || result.reasoning_summary || 'Analysis complete',
-              is_deductible: null,
-              expense_type: null,
-              ai: {
-                status_label: result.is_deductible ? 'Likely Deductible' : 'Unlikely Deductible',
-                score_pct: typeof result.confidence === 'number' ? Math.round(result.confidence * 100) : 0,
-                reasoning: result.customized_reason || result.reasoning_summary || 'Analysis complete',
-                category: result.category,
-                audit_risk: result.audit_risk || 'medium',
-                irs_refs: result.irs_refs || ['IRS Pub 535 (Business Expenses)'],
-                key_analysis_factor: result.key_analysis_factor || '',
-                reasoning_summary: result.reasoning_summary || result.key_analysis_factor,
-                deductible_percent: result.deductible_percent,
-                documentation_required: result.documentation_required || [],
-                model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-                last_analyzed_at: Date.now(),
-              },
-              analyzed: true,
-              analysis_status: 'completed',
-              analysisStatus: 'completed',
-              updatedAt: Date.now(),
-            },
-          };
-        } catch (err) {
-          console.error(`❌ [Sync Helper] Failed to analyze ${tx.trans_id}:`, err);
-          return { trans_id: tx.trans_id, failed: true };
-        }
-      }));
-
-      // Write all results in a single Firestore batch (up to 500 ops — safe here since BATCH_SIZE=10)
-      const writeBatch = adminDb.batch();
-      for (const res of results) {
-        const txRef = adminDb.doc(`${collectionPath}/${res.trans_id}`);
-        if (!res.failed && res.update) {
-          writeBatch.set(txRef, res.update, { merge: true });
-          console.log(`✅ [Sync Helper] Queued analysis write: ${res.trans_id}`);
-        } else {
-          writeBatch.update(txRef, { analysis_status: 'failed', analysisStatus: 'failed' });
-        }
-      }
-      await writeBatch.commit();
-    }
-  }
-
-  console.log(`🎉 [Sync Helper] Background AI analysis complete for user ${userId}`);
 }
 
 /**
@@ -284,7 +123,6 @@ export async function syncUserTransactionsIncremental(userId: string): Promise<S
     }
 
     let transactionsSaved = 0;
-    const newlySaved: Array<{ trans_id: string; merchant_name: string; amount: number; category: string; date: string; account_id: string; authorized_date?: string; datetime?: string; payment_channel?: string; location?: any; personal_finance_category?: any; counterparties?: any[]; merchant_entity_id?: string }> = [];
 
     const CONCURRENT_BATCH = 20;
     for (let i = 0; i < settledAdded.length; i += CONCURRENT_BATCH) {
@@ -335,47 +173,29 @@ export async function syncUserTransactionsIncremental(userId: string): Promise<S
 
       for (const result of results) {
         if (result) {
-          const { tx, merchantName, category } = result;
           transactionsSaved++;
-          newlySaved.push({
-            trans_id: tx.transaction_id,
-            merchant_name: merchantName,
-            amount: tx.amount,
-            category,
-            date: tx.date,
-            account_id: tx.account_id,
-            authorized_date: tx.authorized_date || undefined,
-            datetime: tx.datetime || undefined,
-            payment_channel: tx.payment_channel || undefined,
-            location: tx.location || undefined,
-            personal_finance_category: tx.personal_finance_category || undefined,
-            counterparties: (tx as any).counterparties || undefined,
-            merchant_entity_id: (tx as any).merchant_entity_id || undefined,
-          });
         }
       }
     }
 
     for (const tx of allModified) {
       const category = tx.personal_finance_category?.detailed || tx.category?.[0] || 'Other';
-      await updateTransactionFromPlaidServer(userId, tx.transaction_id, {
+      await updateImportedTransactionForAnalysis({ userId, accountId: tx.account_id, transactionId: tx.transaction_id }, {
         date: tx.date,
         amount: tx.amount,
         merchant_name: tx.merchant_name || tx.name,
         category,
         description: tx.name,
+        iso_currency_code: tx.iso_currency_code,
+        unofficial_currency_code: tx.unofficial_currency_code,
+        pending: tx.pending,
       });
     }
     for (const r of allRemoved) {
       await deleteTransactionByUserIdAndTransId(userId, r.transaction_id);
     }
 
-    // Fire-and-forget AI suggestions (does not finalize business vs personal)
-    if (newlySaved.length > 0) {
-      void analyzeNewTransactions(userId, newlySaved, userProfile).catch(err =>
-        console.error(`❌ [Sync Helper] Background analysis error:`, err)
-      );
-    }
+    // Firestore bank-transaction events enqueue durable AI work after each saved record.
 
     await upsertUserProfileServer(userId, {
       plaid_transactions_cursor: nextCursor || undefined,
@@ -500,7 +320,6 @@ export async function syncUserTransactions(
     }
 
     let transactionsSaved = 0;
-    const newlySaved: Array<{ trans_id: string; merchant_name: string; amount: number; category: string; date: string; account_id: string; authorized_date?: string; datetime?: string; payment_channel?: string; location?: any; personal_finance_category?: any; counterparties?: any[]; merchant_entity_id?: string }> = [];
 
     // Process settled transactions
     if (settledTransactions.length > 0) {
@@ -560,32 +379,12 @@ export async function syncUserTransactions(
         } else if (savedTransaction) {
           console.log(`✅ [Sync Helper] Processed transaction: ${transaction.transaction_id} - ${savedTransaction?.merchant_name}`);
           transactionsSaved++;
-          newlySaved.push({
-            trans_id: transaction.transaction_id,
-            merchant_name: merchantName,
-            amount: transaction.amount,
-            category,
-            date: transaction.date,
-            account_id: transaction.account_id,
-            authorized_date: transaction.authorized_date || undefined,
-            datetime: transaction.datetime || undefined,
-            payment_channel: transaction.payment_channel || undefined,
-            location: transaction.location || undefined,
-            personal_finance_category: transaction.personal_finance_category || undefined,
-            counterparties: (transaction as any).counterparties || undefined,
-            merchant_entity_id: (transaction as any).merchant_entity_id || undefined,
-          });
         } else {
           console.log(`🔄 [Sync Helper] Skipped duplicate transaction: ${transaction.transaction_id}`);
         }
       }
 
-      // Fire-and-forget AI suggestions (does not finalize business vs personal)
-      if (newlySaved.length > 0) {
-        void analyzeNewTransactions(userId, newlySaved, userProfile).catch(err =>
-          console.error(`❌ [Sync Helper] Background analysis error:`, err)
-        );
-      }
+    // Firestore bank-transaction events enqueue durable AI work after each saved record.
 
       // Update the last sync time for this user
       const { error: syncError } = await upsertUserProfileServer(userId, {

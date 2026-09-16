@@ -75,14 +75,19 @@ export async function deleteUserData(uid: string): Promise<{ error?: any }> {
       'exports',
       'audit_logs',
       'analysis_jobs',
+      'analysis_tasks',
       'analysis_status',
     ];
 
     for (const collectionName of collectionsToCheck) {
       try {
         const collectionRef = adminDb.collection(collectionName);
-        const query = collectionRef.where('user_id', '==', uid);
-        const deleted = await deleteQueryBatch(query, 500);
+        const ownerFields = collectionName === 'analysis_tasks' ? ['userId'] :
+          ['analysis_jobs', 'analysis_status'].includes(collectionName) ? ['userId', 'user_id'] : ['user_id'];
+        let deleted = 0;
+        for (const ownerField of ownerFields) {
+          deleted += await deleteQueryBatch(collectionRef.where(ownerField, '==', uid), 500);
+        }
         if (deleted > 0) {
           console.log(`✅ [Delete User Data] Deleted ${deleted} documents from ${collectionName}`);
         }

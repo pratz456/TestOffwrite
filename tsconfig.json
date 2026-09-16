@@ -47,6 +47,7 @@
     "**/*.test.*",
     "**/*.spec.*",
     "api-backup/**",
-    "functions"
+    "functions",
+    "functions-analysis"
   ]
 }

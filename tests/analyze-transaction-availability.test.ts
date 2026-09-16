@@ -5,14 +5,15 @@ const mocks = vi.hoisted(() => ({
   authenticate: vi.fn(),
   analyze: vi.fn(),
   profile: vi.fn(),
-  transaction: vi.fn(),
   convertContext: vi.fn(),
   missingFields: vi.fn(),
   collectionGroup: vi.fn(),
   where: vi.fn(),
   limit: vi.fn(),
   get: vi.fn(),
-  update: vi.fn(),
+  claim: vi.fn(),
+  persist: vi.fn(),
+  release: vi.fn(),
 }));
 
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: mocks.authenticate }));
@@ -22,7 +23,10 @@ vi.mock('@/lib/ai/analyzeTransaction', () => ({
   findMissingUserFields: mocks.missingFields,
 }));
 vi.mock('@/lib/firebase/profiles-server', () => ({ getUserProfileServer: mocks.profile }));
-vi.mock('@/lib/firebase/transactions-server', () => ({ getTransactionServer: mocks.transaction }));
+vi.mock('@/lib/ai/analysis-persistence', () => ({
+  claimAnalysisLease: mocks.claim, persistAnalysisSuggestion: mocks.persist, releaseAnalysisLease: mocks.release,
+  analysisSuggestionUpdate: () => ({ ai: { status_label: 'Likely Deductible' }, analysisUpdatedAt: '2026-09-16T12:00:00.000Z' }),
+}));
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collectionGroup: mocks.collectionGroup } }));
 
 import { POST } from '../app/api/ai/analyze-transaction/route';
@@ -44,8 +48,8 @@ function request(value: unknown = body) {
 }
 
 function expectNoAnalysisWork() {
-  for (const mock of [mocks.profile, mocks.transaction, mocks.convertContext,
-    mocks.missingFields, mocks.analyze, mocks.collectionGroup, mocks.update]) {
+  for (const mock of [mocks.profile, mocks.claim, mocks.convertContext,
+    mocks.missingFields, mocks.analyze, mocks.collectionGroup, mocks.persist]) {
     expect(mock).not.toHaveBeenCalled();
   }
 }
@@ -53,19 +57,22 @@ function expectNoAnalysisWork() {
 beforeEach(() => {
   vi.resetAllMocks();
   vi.stubEnv('OPENAI_API_KEY', 'synthetic-key-provider-is-mocked');
+  vi.stubEnv('AI_ANALYSIS_ENABLED', undefined);
   vi.spyOn(console, 'log').mockImplementation(() => {});
   vi.spyOn(console, 'warn').mockImplementation(() => {});
   vi.spyOn(console, 'error').mockImplementation(() => {});
   uid = `availability-test-${++nextUser}`;
   mocks.authenticate.mockResolvedValue({ user: { uid }, error: null });
   mocks.profile.mockResolvedValue({ data: { profession: 'Designer' }, error: null });
-  mocks.transaction.mockResolvedValue({ data: {}, error: null });
+  mocks.claim.mockResolvedValue({ status: 'claimed', lease: { token: 'synthetic-lease', inputHash: 'hash', expiresAt: Date.now()+60000 }, data: { ...body.transaction, iso_currency_code: 'USD', pending: false, notes: 'Saved owner context' } });
+  mocks.persist.mockResolvedValue({ status: 'saved' });
+  mocks.release.mockResolvedValue(undefined);
   mocks.convertContext.mockReturnValue({ profession: 'Designer' });
   mocks.missingFields.mockReturnValue([]);
   mocks.analyze.mockResolvedValue({
     success: true,
     result: {
-      status: 'likely_deductible', is_deductible: true, category: 'office_supplies',
+      status: 'ok', is_deductible: true, category: 'supplies_small_tools',
       confidence: 0.9, customized_reason: 'Synthetic suggestion requiring review',
       reasoning_summary: 'Synthetic analysis', irs_refs: [],
     },
@@ -74,8 +81,7 @@ beforeEach(() => {
   mocks.collectionGroup.mockReturnValue(query);
   mocks.where.mockReturnValue(query);
   mocks.limit.mockReturnValue(query);
-  mocks.get.mockResolvedValue({ empty: false, docs: [{ ref: { update: mocks.update } }] });
-  mocks.update.mockResolvedValue(undefined);
+  mocks.get.mockResolvedValue({ empty: false, docs: [{ ref: { path: `user_profiles/${uid}/accounts/owned-account/transactions/${body.transactionId}` } }] });
 });
 
 afterEach(() => {
@@ -129,7 +135,6 @@ describe('transaction analysis availability', () => {
     expect(response.status).toBe(200);
     expect((await response.json()).success).toBe(true);
     expect(mocks.profile).toHaveBeenCalledWith(uid);
-    expect(mocks.transaction).toHaveBeenCalledWith(uid, body.transactionId);
     expect(mocks.analyze).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ tx_id: body.transactionId, amount_usd: 35 }),
       { profession: 'Designer' },
@@ -138,9 +143,12 @@ describe('transaction analysis availability', () => {
     expect(mocks.where.mock.calls).toEqual([
       ['userId', '==', uid], ['trans_id', '==', body.transactionId],
     ]);
-    expect(mocks.update).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-      is_deductible: null, expense_type: null, analyzed: true, analysisStatus: 'completed',
-    }));
+    expect(mocks.persist).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ path: `user_profiles/${uid}/accounts/owned-account/transactions/${body.transactionId}` }),
+      expect.objectContaining({ status: 'ok', is_deductible: true }),
+      expect.objectContaining({ token: 'synthetic-lease' }),
+    );
+    expect(mocks.release).not.toHaveBeenCalled();
   });
 
   it('does not spend the configured-provider rate limit while AI is unavailable', async () => {
@@ -150,7 +158,58 @@ describe('transaction analysis availability', () => {
     }
     expectNoAnalysisWork();
     vi.stubEnv('OPENAI_API_KEY', 'synthetic-key-provider-is-mocked');
+  vi.stubEnv('AI_ANALYSIS_ENABLED', undefined);
     expect((await POST(request())).status).toBe(200);
     expect(mocks.analyze).toHaveBeenCalledTimes(1);
   });
+  it('uses saved financial values and context rather than client-submitted replacements', async () => {
+    const response = await POST(request({ ...body, transaction: { ...body.transaction, amount: 900000, merchant_name: 'Forged merchant', notes: 'Unsaved replacement' } }));
+    expect(response.status).toBe(200);
+    expect(mocks.analyze).toHaveBeenCalledWith(expect.objectContaining({ amount_usd: 35, merchant: 'Synthetic office supplies', note: 'Saved owner context', iso_currency_code: 'USD', account_id: 'owned-account' }), expect.anything());
+  });
+
+  it('does not send missing or foreign-owner records to the provider', async () => {
+    mocks.get.mockResolvedValue({ empty: false, docs: [{ ref: { path: 'user_profiles/another-user/accounts/a/transactions/tx' } }] });
+    const response = await POST(request());
+    expect(response.status).toBe(404);
+    expect(mocks.claim).not.toHaveBeenCalled();
+    expect(mocks.analyze).not.toHaveBeenCalled();
+  });
+
+  it('does not duplicate an automatic or manual analysis already holding the lease', async () => {
+    mocks.claim.mockResolvedValue({ status: 'busy' });
+    const response = await POST(request());
+    expect(response.status).toBe(409);
+    expect((await response.json()).code).toBe('AI_IN_PROGRESS');
+    expect(mocks.analyze).not.toHaveBeenCalled();
+    expect(mocks.release).not.toHaveBeenCalled();
+  });
+
+  it.each([{ pending: true }, { iso_currency_code: undefined }, { iso_currency_code: 'EUR' }, { amount: Number.NaN }, { date: 'invalid' }, { date: '2026-02-30' }, { date: 'September 1, 2026' }])('refuses unresolved saved financial inputs %j', async patch => {
+    mocks.claim.mockResolvedValue({ status: 'claimed', lease: { token: 'synthetic-lease' }, data: { ...body.transaction, iso_currency_code: 'USD', ...patch } });
+    const response = await POST(request());
+    expect(response.status).toBe(422);
+    expect(mocks.analyze).not.toHaveBeenCalled();
+    expect(mocks.release).toHaveBeenCalledOnce();
+  });
+
+  it('returns a safe unavailable response and releases the lease when funding is exhausted', async () => {
+    mocks.analyze.mockResolvedValue({ success: false, error: 'provider-private-detail', code: 'AI_UNAVAILABLE', retryable: false });
+    const response = await POST(request());
+    expect(response.status).toBe(503);
+    const payload = await response.json();
+    expect(payload.code).toBe('AI_UNAVAILABLE');
+    expect(JSON.stringify(payload)).not.toContain('provider-private-detail');
+    expect(mocks.persist).not.toHaveBeenCalled();
+    expect(mocks.release).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'AI_UNAVAILABLE');
+  });
+
+  it('does not claim success when the saved record changed during analysis', async () => {
+    mocks.persist.mockResolvedValue({ status: 'stale' });
+    const response = await POST(request());
+    expect(response.status).toBe(409);
+    expect((await response.json()).code).toBe('AI_RECORD_CHANGED');
+    expect(mocks.release).toHaveBeenCalledOnce();
+  });
+
 });

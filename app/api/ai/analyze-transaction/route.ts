@@ -6,8 +6,11 @@ import { z } from 'zod';
 import { analyzeTransactionWithRetry, TransactionInput, findMissingUserFields, convertToEnhancedContext } from '@/lib/ai/analyzeTransaction';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getUserProfileServer } from '@/lib/firebase/profiles-server';
-import { getTransactionServer } from '@/lib/firebase/transactions-server';
 import { adminDb } from '@/lib/firebase/admin';
+import { getAIProviderStatus } from '@/lib/ai/provider-status';
+import { claimAnalysisLease, persistAnalysisSuggestion, releaseAnalysisLease, analysisSuggestionUpdate } from '@/lib/ai/analysis-persistence';
+import type { AnalysisLease } from '@/lib/ai/analysis-persistence';
+import type { DocumentReference } from 'firebase-admin/firestore';
 
 // ── Per-user rate limit: max 60 AI analysis calls per hour ──────────────────
 const rateLimitMap = new Map<string, { count: number; windowStart: number }>();
@@ -65,261 +68,109 @@ const AnalyzeTransactionRequestSchema = z.object({
   }),
 });
 
+/** Resolve the actual saved record before sending anything to a model. */
+async function ownedTransactionRef(uid: string, transactionId: string): Promise<DocumentReference | null> {
+  for (const ownerField of ['userId', 'user_id']) {
+    const snap = await adminDb.collectionGroup('transactions').where(ownerField, '==', uid)
+      .where('trans_id', '==', transactionId).limit(1).get();
+    if (snap.empty) continue;
+    const ref = snap.docs[0].ref;
+    const parts = ref.path.split('/');
+    if (parts.length === 6 && parts[0] === 'user_profiles' && parts[1] === uid
+      && parts[2] === 'accounts' && parts[4] === 'transactions') return ref;
+  }
+  return null;
+}
+
 export async function POST(request: NextRequest) {
+  let ref: DocumentReference | null = null;
+  let lease: AnalysisLease | null = null;
+  let releaseCode = 'AI_FAILED';
   try {
-    // Get the authenticated user
     const { user, error: authError } = await getAuthenticatedUser(request);
-    
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!getAIProviderStatus().configured) return NextResponse.json({
+      code: 'AI_UNAVAILABLE',
+      error: 'AI analysis is currently unavailable. You can review and classify this transaction manually.',
+    }, { status: 503 });
+
+    const validation = AnalyzeTransactionRequestSchema.safeParse(await request.json().catch(() => null));
+    if (!validation.success) return NextResponse.json({ error: 'Invalid request data' }, { status: 400 });
+    const { transactionId } = validation.data;
+    ref = await ownedTransactionRef(user.uid, transactionId);
+    if (!ref) return NextResponse.json({ error: 'Transaction not found' }, { status: 404 });
+    if (!checkRateLimit(user.uid)) return NextResponse.json({ code: 'AI_RATE_LIMITED', error: 'Analysis request limit reached. Please try again later.' }, { status: 429 });
+
+    const claim = await claimAnalysisLease(ref);
+    if (claim.status === 'missing') return NextResponse.json({ error: 'Transaction not found' }, { status: 404 });
+    if (claim.status === 'busy') return NextResponse.json({ code: 'AI_IN_PROGRESS', error: 'This transaction is already being analyzed. Wait for its result before retrying.' }, { status: 409 });
+    lease = claim.lease;
+    const transaction = claim.data;
+    if (transaction.pending === true) {
+      releaseCode = 'AI_PENDING_TRANSACTION';
+      return NextResponse.json({ code: releaseCode, error: 'This bank transaction is pending. Analysis can run once it is posted.' }, { status: 422 });
+    }
+    const date = typeof transaction.date === 'string' ? transaction.date : '';
+    if (typeof transaction.amount !== 'number' || !Number.isFinite(transaction.amount)
+      || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date))
+      || new Date(date).toISOString().slice(0, 10) !== date
+      || transaction.iso_currency_code !== 'USD' || transaction.unofficial_currency_code) {
+      releaseCode = 'AI_INPUT_REVIEW';
+      return NextResponse.json({ code: releaseCode, error: 'Confirm a valid amount, date and USD currency on this saved record before analysis.' }, { status: 422 });
+    }
+    const { data: profile, error: profileError } = await getUserProfileServer(user.uid);
+    if (profileError || !profile) return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
+    const context = convertToEnhancedContext(profile, date);
+    const missingFields = findMissingUserFields(context);
+    if (missingFields.length) {
+      releaseCode = 'AI_PROFILE_REQUIRED';
+      return NextResponse.json({ success: false, code: releaseCode, error: 'Complete your business profile before AI analysis.', missing_user_fields: missingFields }, { status: 422 });
     }
 
-    if (!process.env.OPENAI_API_KEY?.trim()) {
-      return NextResponse.json({
-        code: 'AI_UNAVAILABLE',
-        error: 'AI analysis is currently unavailable. You can review and classify this transaction manually.',
-      }, { status: 503 });
-    }
-
-    // Rate limit: 60 AI calls per user per hour
-    if (!checkRateLimit(user.uid)) {
-      return NextResponse.json({ error: 'Rate limit exceeded. Max 60 AI analyses per hour.' }, { status: 429 });
-    }
-
-    // Parse and validate request body
-    const body = await request.json();
-    const validationResult = AnalyzeTransactionRequestSchema.safeParse(body);
-    
-    if (!validationResult.success) {
-      console.error('❌ [AI Analysis API] Validation error:', validationResult.error);
-      return NextResponse.json({ 
-        error: 'Invalid request data', 
-        details: validationResult.error.errors 
-      }, { status: 400 });
-    }
-
-    const { transactionId, transaction: validatedTransaction } = validationResult.data;
-    const transaction = validatedTransaction as Record<string, any>;
-
-    console.log(`🔍 [AI Analysis API] Received transaction ID: "${transactionId}" (type: ${typeof transactionId})`);
-    console.log(`🔍 [AI Analysis API] Transaction data:`, {
-      merchant_name: transaction.merchant_name,
-      amount: transaction.amount,
-      date: transaction.date,
-      datetime: transaction.datetime,
-      account_id: transaction.account_id
-    });
-
-    // Get user profile for context
-    const { data: userProfile, error: profileError } = await getUserProfileServer(user.uid);
-
-    if (profileError || !userProfile) {
-      console.error('❌ [AI Analysis API] User profile not found:', profileError);
-      return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
-    }
-
-    console.log(`👤 [AI Analysis API] Found user profile for ${user.uid}:`, {
-      profession: userProfile.profession,
-      income: userProfile.income,
-      state: userProfile.state,
-      filing_status: userProfile.filing_status,
-      business_entity_type: userProfile.business_entity_type,
-      primary_work_location: userProfile.primary_work_location,
-      work_related_travel_pattern: userProfile.work_related_travel_pattern
-    });
-
-    // Convert user profile to enhanced context
-    const userContext = convertToEnhancedContext(userProfile, transaction.date);
-
-    console.log(`🔍 [AI Analysis API] User context for analysis:`, userContext);
-
-    // Check for required user profile fields before calling the model
-    const missingFields = findMissingUserFields(userContext);
-    if (missingFields.length > 0) {
-      console.warn(`⚠️ [AI Analysis API] Missing user profile fields: ${missingFields.join(', ')}`);
-      return NextResponse.json({
-        success: false,
-        error: 'Missing required user profile fields for AI analysis',
-        missing_user_fields: missingFields
-      }, { status: 422 });
-    }
-
-    // Preserve tax treatment only when the user explicitly recorded a classification reason (detail save, swipe, etc.).
-    // Old AI-only `is_deductible` values must not block re-analysis from updating suggestions.
-    const { data: existingTransaction } = await getTransactionServer(user.uid, transactionId);
-    const userReason =
-      existingTransaction?.user_classification_reason != null
-        ? String(existingTransaction.user_classification_reason).trim()
-        : '';
-    const shouldPreserveClassification = userReason.length > 0;
-
-    // Prepare transaction input with enhanced format
-    const transactionInput: TransactionInput = {
+    // Client-supplied financial values cannot override the owner's saved record.
+    // The client saves edited context first; the lease detects changes during analysis.
+    const input: TransactionInput = {
+      ...transaction,
       tx_id: transactionId,
-      merchant: transaction.merchant_name,
+      merchant: String(transaction.merchant_name || transaction.name || ''),
       amount_usd: transaction.amount,
-      date_iso: transaction.date,
-      datetime_iso: transaction.datetime, // Include datetime from Plaid
-      // Prefer user-added context (`notes`) over original transaction description.
-      note: transaction.notes || transaction.description,
-      // Additional Plaid fields
-      mcc: transaction.merchant_category_code || transaction.mcc,
-      location: transaction.location,
-      payment_channel: transaction.payment_channel,
-      authorized_date: transaction.authorized_date,
-      iso_currency_code: transaction.iso_currency_code,
-      unofficial_currency_code: transaction.unofficial_currency_code,
-      personal_finance_category: transaction.personal_finance_category,
-      pending: transaction.pending,
-      pending_transaction_id: transaction.pending_transaction_id,
-      account_owner: transaction.account_owner,
-      transaction_code: transaction.transaction_code,
-      merchant_category_code: transaction.merchant_category_code,
-      // User-added context fields
-      business_purpose: transaction.business_purpose,
-      attendees: transaction.attendees,
-      travel_destination: transaction.travel_destination,
-      equipment_details: transaction.equipment_details,
-      client_project: transaction.client_project,
-      documentation_status: transaction.documentation_status,
-      meeting_notes: transaction.meeting_notes,
-      mileage_details: transaction.mileage_details,
-      city: transaction.location?.city || transaction.city,
-      state: transaction.location?.state || transaction.state,
-      // Legacy fields for backward compatibility
-      merchant_name: transaction.merchant_name,
-      amount: transaction.amount,
-      category: transaction.category,
-      date: transaction.date,
-      datetime: transaction.datetime, // Legacy datetime field
-      account_id: transaction.account_id,
-      description: transaction.description,
-      notes: transaction.notes,
+      date_iso: date,
+      datetime_iso: transaction.datetime,
+      note: transaction.notes || transaction.note || transaction.description,
+      mcc: transaction.mcc || transaction.merchant_category_code,
+      account_id: ref.path.split('/')[3],
     };
-
-    console.log(`🤖 [AI Analysis API] Starting analysis for transaction: ${transaction.merchant_name} - $${transaction.amount}`);
-
-    // Analyze transaction with retry logic
-    const analysisResult = await analyzeTransactionWithRetry(transactionInput, userContext);
-
-    if (!analysisResult.success) {
-      console.error('❌ [AI Analysis API] Analysis failed:', analysisResult.error);
-      return NextResponse.json({ 
-        error: 'Analysis failed', 
-        details: analysisResult.error 
-      }, { status: 500 });
+    const analysis = await analyzeTransactionWithRetry(input, context);
+    if (!analysis.success) {
+      releaseCode = analysis.code || 'AI_FAILED';
+      const status = releaseCode === 'AI_UNAVAILABLE' ? 503 : releaseCode === 'AI_RATE_LIMITED' ? 429 : 502;
+      const error = releaseCode === 'AI_UNAVAILABLE' ? 'AI analysis is unavailable. Please try again once service is restored; manual review remains available.'
+        : releaseCode === 'AI_RATE_LIMITED' ? 'The AI service is busy. Please try again shortly.'
+          : 'AI could not complete a reliable assessment. Please retry or review this transaction manually.';
+      return NextResponse.json({ code: releaseCode, error }, { status });
     }
-
-    const { result } = analysisResult;
-
-    console.log(`✅ [AI Analysis API] Analysis complete for ${transaction.merchant_name}:`, {
-      status: result.status,
-      is_deductible: result.is_deductible,
-      category: result.category,
-      confidence: result.confidence,
-      audit_risk: result.audit_risk,
-    });
-
-    // Save analysis results to Firestore with flat, queryable fields
-    // IMPORTANT: AI suggests only — is_deductible stays null until the user confirms.
-    const analysisData = {
-      is_deductible: shouldPreserveClassification ? undefined : null,
-      expense_type: shouldPreserveClassification ? undefined : null,
-      deductible_reason: result.customized_reason,
-      deduction_score: result.confidence,
-      analyzed: true,
-      analysisStatus: 'completed' as const,
-      analysisCompletedAt: new Date(),
-      analysisUpdatedAt: new Date().toISOString(),
-
-      // Flat AI fields — all queryable in Firestore, no JSON blob
-      ai_status: result.status,
-      ai_category: result.category,
-      ai_deductible_percent: result.deductible_percent ?? null,
-      ai_key_analysis_factor: result.key_analysis_factor ?? null,
-      ai_customized_reason: result.customized_reason ?? null,
-      ai_reasoning_summary: result.reasoning_summary ?? null,
-      ai_irs_refs: result.irs_refs ?? [],
-      ai_audit_risk: result.audit_risk ?? null,
-      ai_audit_risk_rationale: result.audit_risk_rationale ?? null,
-      ai_confidence: result.confidence ?? null,
-      ai_missing_fields: result.missing_fields ?? [],
-      ai_questions: result.questions ?? [],
-      ai_documentation_required: result.documentation_required ?? [],
-      ai_reason_hash: result.reason_hash ?? null,
-      ai_model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-      ai_last_analyzed_at: Date.now(),
-
-      // Legacy shape kept for backward-compatible UI reads
-      deductionStatus: result.is_deductible ? 'Likely Deductible' as const : 'Non-Deductible' as const,
-      confidence: result.confidence,
-      reasoning: result.reasoning_summary || result.key_analysis_factor,
-      irsPublication: result.irs_refs?.[0] || undefined,
-    };
-
-    // Direct Firestore lookup — queries both field name variants to cover
-    // legacy transactions written with user_id (snake_case) and new ones with userId (camelCase)
-    let updateError: any = null;
-    try {
-      let snap = await adminDb
-        .collectionGroup('transactions')
-        .where('userId', '==', user.uid)
-        .where('trans_id', '==', transactionId)
-        .limit(1)
-        .get();
-
-      // Fallback: try snake_case user_id for older transactions
-      if (snap.empty) {
-        snap = await adminDb
-          .collectionGroup('transactions')
-          .where('user_id', '==', user.uid)
-          .where('trans_id', '==', transactionId)
-          .limit(1)
-          .get();
-      }
-
-      if (!snap.empty) {
-        const updateData = Object.fromEntries(
-          Object.entries({ ...analysisData, updated_at: new Date() }).filter(([, v]) => v !== undefined)
-        );
-        await snap.docs[0].ref.update(updateData);
-      } else {
-        updateError = new Error(`Transaction ${transactionId} not found for user ${user.uid}`);
-      }
-    } catch (err) {
-      updateError = err;
+    const saved = await persistAnalysisSuggestion(ref, analysis.result, lease);
+    if (saved.status !== 'saved') {
+      releaseCode = 'AI_RECORD_CHANGED';
+      return NextResponse.json({ code: releaseCode, error: 'The transaction changed during analysis. Review the latest record and run analysis again.' }, { status: 409 });
     }
-
-    if (updateError) {
-      console.error(`❌ [AI Analysis API] Failed to save analysis:`, updateError?.message);
-      return NextResponse.json({
-        error: 'Analysis completed but failed to save results',
-        details: updateError?.message || 'Unknown database error',
-      }, { status: 500 });
+    lease = null;
+    const fields = analysisSuggestionUpdate(analysis.result);
+    return NextResponse.json({ success: true, analysis: {
+      status: analysis.result.status,
+      deductionStatus: fields.ai.status_label,
+      confidence: analysis.result.confidence ?? null,
+      reasoning: analysis.result.customized_reason || analysis.result.reasoning_summary || analysis.result.key_analysis_factor || 'Review the saved AI suggestion.',
+      irsReference: { publication: analysis.result.irs_refs?.[0] || null, section: null },
+      updatedAt: fields.analysisUpdatedAt,
+    }, updatedAt: fields.analysisUpdatedAt });
+  } catch {
+    // Model and database payloads can contain financial details; never echo them.
+    return NextResponse.json({ code: 'AI_FAILED', error: 'Analysis could not complete. Please retry; your saved records are unchanged.' }, { status: 500 });
+  } finally {
+    if (ref && lease) {
+      try { await releaseAnalysisLease(ref, lease, releaseCode); }
+      catch { /* The bounded lease expires if a temporary database failure prevents release. */ }
     }
-
-    console.log(`💾 [AI Analysis API] Saved analysis: ${transaction.merchant_name} (${transactionId})`);
-
-    return NextResponse.json({
-      success: true,
-      analysis: {
-        deductionStatus: analysisData.deductionStatus,
-        confidence: result.confidence,
-        reasoning: result.reasoning_summary || result.key_analysis_factor,
-        irsReference: {
-          publication: result.irs_refs?.[0] || null,
-          section: null,
-        },
-        updatedAt: analysisData.analysisUpdatedAt,
-      },
-      updatedAt: analysisData.analysisUpdatedAt,
-    });
-
-  } catch (error) {
-    console.error('❌ [AI Analysis API] Unexpected error:', error);
-    return NextResponse.json(
-      { error: 'Internal server error during analysis' },
-      { status: 500 }
-    );
   }
 }

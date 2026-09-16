@@ -54,5 +54,22 @@
       }
     ],
     "site": "writeoff-production-testing"
-  }
+  },
+  "functions": [
+    {
+      "source": "functions-analysis",
+      "codebase": "analysis",
+      "ignore": [
+        "node_modules",
+        ".git",
+        "lib/**/*.map",
+        ".env*",
+        "*.local",
+        "firebase-debug*"
+      ],
+      "predeploy": [
+        "npm --prefix \"$RESOURCE_DIR\" run build"
+      ]
+    }
+  ]
 }

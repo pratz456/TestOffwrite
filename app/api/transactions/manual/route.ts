@@ -10,8 +10,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { adminDb } from '@/lib/firebase/admin';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
-import { analyzeTransactionWithRetry, convertToEnhancedContext } from '@/lib/ai/analyzeTransaction';
-import { getUserProfileServer } from '@/lib/firebase/profiles-server';
 
 const MANUAL_ACCOUNT_ID = 'manual';
 const manualInput = z.object({
@@ -68,27 +66,7 @@ export async function POST(request: NextRequest) {
 
   await accountRef.collection('transactions').doc(transId).set(txData);
 
-  if (txType === 'expense') {
-    void (async () => {
-      try {
-        const { data: profile } = await getUserProfileServer(user.uid);
-        if (!profile) return;
-        const userContext = convertToEnhancedContext(profile, date);
-        const result = await analyzeTransactionWithRetry({
-          tx_id: transId, merchant: merchant_name.trim(), amount_usd: numAmount,
-          date_iso: date, note: notes || business_purpose || '', category, account_usage_type: 'business',
-        }, userContext);
-        if (result.success) {
-          await accountRef.collection('transactions').doc(transId).set({
-            ai_category: result.result.category, ai_audit_risk: result.result.audit_risk,
-            ai_confidence: result.result.confidence, ai_customized_reason: result.result.customized_reason,
-            ai_irs_refs: result.result.irs_refs, analyzed: true,
-            analysis_status: 'completed', analysisStatus: 'completed',
-          }, { merge: true });
-        }
-      } catch { /* non-fatal */ }
-    })();
-  }
+  // The durable Firestore worker analyzes saved expenses after creation.
 
   return NextResponse.json({ success: true, trans_id: transId, id: transId }, { status: 201 });
 }

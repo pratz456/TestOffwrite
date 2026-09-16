@@ -2,7 +2,7 @@
 
 ## Open the app
 
-Open **http://localhost:3000**. The visible browser is signed into a populated demo account. This is an isolated development preview with synthetic records and local Firebase emulators. It does not use production accounts, bank connections, payments or AI credentials.
+Open **http://localhost:3000**. The visible browser is signed into a populated demo account. This is an isolated development preview with synthetic records and local Firebase emulators. It does not use production accounts, bank connections or payments. Following the request to enable analysis, OpenAI is explicitly connected on the local server; a successful provider response still requires available API credit.
 
 All local accounts use **`LocalDemo2026!`**. These credentials work only in this demo.
 
@@ -41,7 +41,7 @@ The populated demo currently includes a $25 printing-supplies expense added thro
 
 **Suitable for an invited beta focused on manual record keeping and preparer handoff. A broad paid launch is not yet ready.**
 
-Before charging a wider audience, finish Stripe test-mode checkout/subscription/webhook/refund verification, clean up signup's mandatory bank/AI acknowledgments for manual-only users, and validate the promised support and onboarding experience. Test Plaid Sandbox before advertising connected-bank workflows. AI stays unavailable by the owner's instruction. Current signup consent checkboxes are not a substitute for a persisted consent record.
+Before charging a wider audience, finish Stripe test-mode checkout/subscription/webhook/refund verification, clean up signup's mandatory bank/AI acknowledgments for manual-only users, and validate the promised support and onboarding experience. Test Plaid Sandbox before advertising connected-bank workflows. The owner has now requested OpenAI analysis and is arranging API funding. Its local automatic/manual flows are implemented, but successful live AI output is not yet verified. Current signup consent checkboxes are not a substitute for a persisted consent record.
 
 Exports do not include receipt image/PDF binaries, a state return, TXF imports or every federal tax scenario. 2027 is unsupported. Embedded filing requires partner access, complete provider QA and the necessary consent/security integration. The existing disabled adapter is not operational filing. See [export and filing status](EXPORT_FILING_STATUS_2026-09-16.md) and [tax coverage](TAX_COVERAGE_REFERENCE_MATRIX_2026-09-15.md).
 
@@ -55,13 +55,29 @@ The final ordinary test run passed **1,624 tests across 81 files**. The 11 emula
 
 Test logs: `/tmp/writeoff-local-preview-final-tests.log`, `/tmp/writeoff-local-preview-final-types.log`, `/tmp/writeoff-local-preview-final-lint.log`.
 
-### Follow-up: analysis console error
+### Earlier follow-up: analysis console error (superseded by the AI integration below)
 
 The reported stack referenced the older detail handler attempting AI without a configured key. The isolated local preview now disables transaction analysis on initial render and after reload, explains that AI is off, and keeps manual editing available. The server authenticates first, then returns `503 AI_UNAVAILABLE` for absent or blank keys before reading transaction input, consuming analysis quota or calling profile/database/provider services. Configured nonlocal AI behavior is unchanged.
 
 Fresh-browser verification showed both analysis buttons disabled and notes editable. Direct local HTTP checks returned 401 without authentication and the expected structured 503 for the demo user. The first probe during a development-route rebuild briefly returned 404; it passed after compilation settled. The final suite passed **1,634 tests**, with the same 11 emulator-only tests skipped; TypeScript passed. Evidence: `/tmp/writeoff-ai-unavailable-tests.log` and `/tmp/writeoff-local-ai-unavailable-evidence.json`. This follow-up is also local only.
 
 The prior staging release is application commit `f2ae741583420aaad9dc8d3ae332cb3dcc83dec6`. **The additional changes described here are local source changes; they have not been deployed to staging or production.** Production readiness is not established by a passing local test suite.
+
+## Current AI integration
+
+See [durable transaction analysis](AI_TRANSACTION_WORKER_2026-09-16.md) for the implementation and deployment requirements. New posted positive expenses now enter a durable queue in the local Functions emulator. Existing transactions have explicit Run AI Analysis/Retry controls. Pending entries wait for posting; refunds and income are excluded from automatic expense analysis. Suggestions never replace the user's confirmed classification.
+
+The local preview now runs the two dedicated analysis functions as well as Auth, Firestore, Storage and Eventarc. Demo accounts and the additional printing expense were restored from an emulator export. The Functions emulator has an isolated CLI configuration and no cloud credentials. Only the Next server receives the explicitly selected OpenAI settings. The API key is never copied into the frontend or Functions package.
+
+The final source suite passed **1,868 tests across 92 files**; 11 separate emulator security tests stayed skipped in that run. TypeScript, the production Next.js build, the dedicated Functions build and changed-source lint passed (zero lint errors; existing/type-style warnings remain). A separate real-emulator check verified that owners can read progress but cannot read or create analysis task documents.
+
+A synthetic pending bank transaction produced no task. Changing it to posted automatically invoked both event functions, attempted the provider once, persisted a paused `AI_UNAVAILABLE` outcome, released the lease and preserved the user's personal classification. Duplicate enqueue and workflow metadata writes did not rerun it. The job correctly reported zero successes and one failure. **This proves local dispatch and failure handling, not a successful model result or a real Plaid import.**
+
+Browser verification confirmed that the configured server enables manual analysis, provider refusal shows clear guidance instead of an error overlay, and manual editing remains available. Successful model output is covered by mocked-provider tests until API funding is confirmed. The dashboard no longer labels old unqueued records as active work; its live local status showed zero running jobs while preserving failed and unanalysed records for review.
+
+Evidence: `/tmp/writeoff-ai-flow-final-tests.log`, `/tmp/writeoff-ai-flow-final-types.log`, `/tmp/writeoff-ai-functions-build.log`, `/tmp/writeoff-ai-flow-final-lint.log`, `/tmp/writeoff-local-ai-event-evidence.json`, and `/tmp/writeoff-local-ai-rules-evidence.json`.
+
+**All current AI changes remain local. Neither the application nor the new event functions have been deployed to staging or production.**
 
 ## Run it again
 
@@ -72,3 +88,11 @@ node scripts/local-demo.mjs
 ```
 
 The launcher refuses occupied ports, starts loopback-only services, seeds synthetic fixtures and prints its temporary log directory. Keep its process running while reviewing the app. Ctrl+C stops the app and emulators. A restart creates new fixtures in a new temporary directory. If editing code after startup, restart the launcher to include the edits; its isolated source copy is intentional.
+
+To opt in to real OpenAI requests while retaining local Firebase/bank/payment isolation:
+
+```sh
+node scripts/local-demo.mjs --ai-env-file /absolute/path/to/server.env
+```
+
+Only `OPENAI_API_KEY`, `OPENAI_MODEL` and `AI_ANALYSIS_ENABLED` are read from that file. This option also starts the dedicated analysis Functions and Eventarc emulators with a generated local-only worker secret. Synthetic expenses may generate billable OpenAI calls when the provider has credit. The default command above connects no external AI provider.

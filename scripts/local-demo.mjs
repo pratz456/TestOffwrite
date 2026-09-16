@@ -1,4 +1,4 @@
-/** Isolated localhost walkthrough. No production environment files or provider keys. */
+/** Isolated localhost walkthrough. OpenAI can be explicitly connected; Firebase stays local. */
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -6,14 +6,19 @@ import os from 'node:os';
 import net from 'node:net';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { localDemoAIEnvironment } from './local-demo-ai.mjs';
+import { randomBytes } from 'node:crypto';
 
 const source = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const aiEnvironment = await localDemoAIEnvironment(process.argv.slice(2), source);
+const automaticAnalysis = !!aiEnvironment.OPENAI_API_KEY;
+const workerSecret = automaticAnalysis ? randomBytes(32).toString('hex') : null;
 const project = 'demo-writeoff-security';
 const base = 'http://localhost:3000';
 const password = 'LocalDemo2026!';
 const children = [];
 let closing = false;
-for (const port of [3000, 9099, 8180, 9299, 4400, 9150]) {
+for (const port of [3000, 9099, 8180, 9299, 4400, 9150, ...(automaticAnalysis ? [5001, 9298] : [])]) {
   await new Promise((resolve, reject) => {
     const socket = net.createServer();
     socket.once('error', () => reject(new Error(`Local demo port ${port} is occupied. Stop its owner before restarting.`)));
@@ -33,14 +38,23 @@ for (const file of new Set(files)) {
 }
 await fs.symlink(await fs.realpath(path.join(source, 'node_modules')), path.join(appDirectory, 'node_modules'), 'dir');
 assert.ok(!(await fs.readdir(appDirectory)).some(name => /^\.env(?:\.|$)/.test(name)));
+if (automaticAnalysis) {
+  const workerDirectory = path.join(appDirectory, 'functions-analysis');
+  await fs.symlink(await fs.realpath(path.join(source, 'node_modules')), path.join(workerDirectory, 'node_modules'), 'dir');
+  execFileSync(process.execPath, [path.join(source, 'node_modules/typescript/bin/tsc')], { cwd: workerDirectory, stdio: 'pipe' });
+  await fs.writeFile(path.join(workerDirectory, '.secret.local'), `ANALYSIS_WORKER_SECRET=${workerSecret}\n`, { mode: 0o600 });
+  await fs.writeFile(path.join(workerDirectory, '.env.local'), 'ANALYSIS_WORKER_ORIGIN=http://127.0.0.1:3000\n', { mode: 0o600 });
+}
 const configPath = path.join(directory, 'firebase.json');
 await fs.writeFile(configPath, JSON.stringify({
   firestore: { rules: path.join(appDirectory, 'firestore.rules') },
   storage: { rules: path.join(appDirectory, 'storage.rules') },
+  ...(automaticAnalysis ? { functions: [{ source: 'app/functions-analysis', codebase: 'analysis' }] } : {}),
   emulators: {
     auth: { host: '127.0.0.1', port: 9099 }, firestore: { host: '127.0.0.1', port: 8180 },
     storage: { host: '127.0.0.1', port: 9299 }, hub: { host: '127.0.0.1', port: 4400 },
     logging: { host: '127.0.0.1', port: 9150 }, ui: { enabled: false }, singleProjectMode: true,
+    ...(automaticAnalysis ? { functions: { host: '127.0.0.1', port: 5001 }, eventarc: { host: '127.0.0.1', port: 9298 } } : {}),
   },
 }, null, 2));
 // An allowlist prevents inherited credentials from reaching the preview processes.
@@ -49,6 +63,8 @@ Object.assign(env, {
   NODE_ENV: 'development', NEXT_TELEMETRY_DISABLED: '1', CI: 'true',
   WRITEOFF_ENV: 'local', NEXT_PUBLIC_APP_ENV: 'local', NEXT_PUBLIC_USE_FIREBASE_EMULATORS: 'true',
   GCLOUD_PROJECT: project, GOOGLE_CLOUD_PROJECT: project,
+  XDG_CONFIG_HOME: path.join(directory, 'isolated-cli-config'),
+  GOOGLE_APPLICATION_CREDENTIALS: path.join(directory, 'no-cloud-credentials.json'),
   FIREBASE_CONFIG: JSON.stringify({ projectId: project, storageBucket: `${project}.appspot.com` }),
   FIREBASE_STORAGE_BUCKET: `${project}.appspot.com`,
   FIREBASE_AUTH_EMULATOR_HOST: '127.0.0.1:9099', FIRESTORE_EMULATOR_HOST: '127.0.0.1:8180', FIREBASE_STORAGE_EMULATOR_HOST: '127.0.0.1:9299',
@@ -59,13 +75,13 @@ Object.assign(env, {
   CLOUD_FUNCTION_SECRET: 'local-demo-only-no-external-calls',
   SSN_ENCRYPTION_KEY: '1111111111111111111111111111111111111111111111111111111111111111',
 });
-async function start(label, args, cwd) {
+async function start(label, args, cwd, extraEnvironment = {}) {
   const log = await fs.open(path.join(directory, `${label}.log`), 'a', 0o600);
   if (closing) {
     await log.close();
     throw new Error('Local demo startup was stopped.');
   }
-  const child = spawn(process.execPath, args, { cwd, env, stdio: ['ignore', log.fd, log.fd] });
+  const child = spawn(process.execPath, args, { cwd, env: { ...env, ...extraEnvironment }, stdio: ['ignore', log.fd, log.fd] });
   children.push(child);
   child.once('exit', code => { if (!closing) { console.error(`${label} stopped (${code}); see ${directory}/${label}.log`); stop(code || 1); } });
   await log.close();
@@ -85,6 +101,18 @@ async function waitFor(url, expected, attempts = 90, headers = {}) {
     await new Promise(resolve => setTimeout(resolve, 1000));
   }
   throw new Error(`Local service did not become ready. Inspect ${directory}.`);
+}
+async function waitForAnalysisFunctions() {
+  for (let i = 0; i < 90 && !closing; i++) {
+    try {
+      const response = await fetch('http://127.0.0.1:5001/backends', { signal: AbortSignal.timeout(1000) });
+      const data = await response.json();
+      const names = data.backends?.flatMap(backend => backend.functionTriggers?.map(trigger => trigger.entryPoint) || []) || [];
+      if (['queueBankTransactionAnalysis', 'processBankTransactionAnalysis'].every(name => names.includes(name))) return;
+    } catch { /* Startup only. */ }
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+  throw new Error(`Local analysis functions did not load. Inspect ${directory}/emulators.log.`);
 }
 const authBase = 'http://127.0.0.1:9099/identitytoolkit.googleapis.com/v1';
 async function authRequest(route, data, admin = false) {
@@ -107,9 +135,10 @@ async function seed(document, data) {
 }
 try {
   console.log(`Preparing isolated local demo in ${directory}`);
-  await start('emulators', [path.join(source, 'node_modules/firebase-tools/lib/bin/firebase.js'), 'emulators:start', '--project', project, '--config', configPath, '--only', 'auth,firestore,storage', '--non-interactive'], directory);
+  await start('emulators', [path.join(source, 'node_modules/firebase-tools/lib/bin/firebase.js'), 'emulators:start', '--project', project, '--config', configPath, '--only', automaticAnalysis ? 'auth,firestore,storage,functions,eventarc' : 'auth,firestore,storage', '--non-interactive'], directory);
   await waitFor(`http://127.0.0.1:9099/emulator/v1/projects/${project}/config`, 200);
   await waitFor(`http://127.0.0.1:8180/v1/projects/${project}/databases/(default)/documents/user_profiles`, 200, 90, { authorization: 'Bearer owner' });
+  if (automaticAnalysis) await waitForAnalysisFunctions();
   const accounts = [];
   for (const role of ['new', 'demo', 'free']) {
     const email = `${role}@writeoff.example`;
@@ -145,8 +174,8 @@ try {
     });
   }
   await fs.writeFile(path.join(directory, 'demo-accounts.json'), JSON.stringify({ project, base, password, accounts }, null, 2), { mode: 0o600 });
-  await start('app', ['node_modules/next/dist/bin/next', 'dev', '--hostname', '127.0.0.1', '--port', '3000'], appDirectory);
+  await start('app', ['node_modules/next/dist/bin/next', 'dev', '--hostname', '127.0.0.1', '--port', '3000'], appDirectory, { ...aiEnvironment, ...(workerSecret ? { ANALYSIS_WORKER_SECRET: workerSecret } : {}) });
   await waitFor(`${base}/auth/login`, 200, 120);
   await fs.writeFile(path.join(directory, 'ready.json'), JSON.stringify({ source, appDirectory, project, base, accounts: accounts.map(({ role, email }) => ({ role, email })), password, readyAt: new Date().toISOString() }, null, 2));
-  console.log(`READY ${base}\nOnboarding: new@writeoff.example\nTrial: demo@writeoff.example\nExpired/free: free@writeoff.example\nLocal-only password: ${password}\nLogs: ${directory}\nCtrl+C stops this demo. Nothing is connected to production.`);
+  console.log(`READY ${base}\nOnboarding: new@writeoff.example\nTrial: demo@writeoff.example\nExpired/free: free@writeoff.example\nLocal-only password: ${password}\nLogs: ${directory}\nOpenAI: ${aiEnvironment.OPENAI_API_KEY ? 'explicitly connected; requests require provider credit' : 'not connected'}\nCtrl+C stops this demo. Firebase, banking, and payments are isolated from production.`);
 } catch (error) { console.error(error.message); stop(1); }

@@ -9,7 +9,6 @@ import {
   type Transaction
 } from '@/lib/firebase/transactions-server';
 import { adminDb } from '@/lib/firebase/admin';
-import { getUserProfileServer } from '@/lib/firebase/profiles-server';
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
 import {
@@ -235,7 +234,7 @@ export async function POST(request: NextRequest) {
     const storedReceipt = await storeReceipt(user.uid, newTransId, bytes, mimeType, originalName, setStep);
     const { receiptUrl } = storedReceipt;
 
-    const transactionData: Partial<Transaction> = {
+    const transactionData: Partial<Transaction> & { source: 'receipt' } = {
       trans_id: newTransId,
       merchant_name: receiptData.merchant,
       amount: signedAmount,
@@ -246,6 +245,7 @@ export async function POST(request: NextRequest) {
       notes: manualReceipt ? 'Receipt details confirmed manually.' : `Receipt created from OCR. OCR confidence: ${Math.round(receiptData.confidence * 100)}%.`,
       is_deductible: null,
       analysis_status: 'pending',
+      source: 'receipt',
       analyzed: false,
       receipt_filename: originalName,
       receipt_url: receiptUrl,
@@ -263,30 +263,7 @@ export async function POST(request: NextRequest) {
       throw new ReceiptRequestError('Failed to save transaction. Please retry.', 503);
     }
 
-    // Match the manual-entry analysis contract; an income receipt is not a deduction.
-    if (receiptType === 'expense') {
-      void (async () => {
-        try {
-          const { analyzeTransactionWithRetry, convertToEnhancedContext } = await import('@/lib/ai/analyzeTransaction');
-          const { data: profile } = await getUserProfileServer(user.uid);
-          if (!profile) return;
-          const result = await analyzeTransactionWithRetry({
-            tx_id: savedTransaction.trans_id, merchant: receiptData.merchant,
-            amount_usd: receiptAmountAbs, date_iso: receiptData.date,
-            category: receiptData.category || 'other', account_usage_type: 'business',
-          }, convertToEnhancedContext(profile, receiptData.date));
-          if (result.success) {
-            const analysisUpdates = {
-              analyzed: true, analysis_status: 'completed' as const, analysisStatus: 'completed' as const,
-              ai_category: result.result.category, ai_audit_risk: result.result.audit_risk,
-              ai_confidence: result.result.confidence, ai_customized_reason: result.result.customized_reason,
-              ai_irs_refs: result.result.irs_refs,
-            };
-            await updateTransactionServerWithUserId(user.uid, savedTransaction.trans_id, analysisUpdates);
-          }
-        } catch { /* Non-fatal: the receipt and transaction remain saved for review. */ }
-      })();
-    }
+    // The durable Firestore worker analyzes saved expenses after creation.
 
     return receiptResponse({
       success: true,

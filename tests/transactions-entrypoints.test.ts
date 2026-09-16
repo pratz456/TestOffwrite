@@ -3,7 +3,8 @@ import { isValidElement, type ReactElement } from 'react';
 import type { Transaction } from '../lib/firebase/transactions';
 
 // Run the real page/form handlers with controlled hook state and network calls.
-const harness = vi.hoisted(() => ({ slots: [] as unknown[], cursor: 0, push: vi.fn(), request: vi.fn(), transactions: [] as Transaction[], mutate: vi.fn(), save: vi.fn(), success: vi.fn(), error: vi.fn(), fetch: vi.fn(), localPreview: false }));
+const harness = vi.hoisted(() => ({ slots: [] as unknown[], cursor: 0, push: vi.fn(), request: vi.fn(), transactions: [] as Transaction[], mutate: vi.fn(), save: vi.fn(), success: vi.fn(), error: vi.fn(), fetch: vi.fn(), localPreview: false,
+  availability: 'configured' as 'configured' | 'checking' | 'unavailable', refreshAi: vi.fn() }));
 vi.mock('react', async importOriginal => {
   const actual = await importOriginal<typeof import('react')>();
   const hooks = {
@@ -29,12 +30,15 @@ vi.mock('@/lib/firebase/hooks', () => ({ useTransactions: () => ({ transactions:
 vi.mock('@/components/sync-status-indicator', () => ({ SyncStatusIndicator: () => null }));
 vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: harness.request }));
 vi.mock('@/lib/firebase/client', () => ({ auth: { currentUser: { uid: 'new-accountless-user', getIdToken: async () => 'synthetic-token' } }, get localEmulatorConfig() { return harness.localPreview ? {} : null; } }));
+vi.mock('@/lib/hooks/use-ai-availability', () => ({ useAiAvailability: () => ({ status: harness.availability,
+  model: 'synthetic-model', message: harness.availability === 'configured' ? 'AI is configured. Each analysis still depends on provider availability and usage limits.' : 'AI analysis is not configured for this environment.', refresh: harness.refreshAi }) }));
 vi.mock('@/lib/firebase/mutations', () => ({ useUpdateTransaction: () => ({ mutateAsync: harness.mutate, isPending: false }) }));
 vi.mock('@/components/ui/toast', () => ({ useToasts: () => ({ showSuccess: harness.success, showError: harness.error }) }));
 import TransactionsPage from '../app/protected/transactions/page';
 import { AddManualTransactionScreen } from '../components/add-manual-transaction-screen';
 import { SyncStatusIndicator } from '../components/sync-status-indicator';
 import { TransactionDetailScreen } from '../components/transaction-detail-screen';
+import { AddExpenseScreen } from '../components/add-expense-screen';
 
 type Props = {
   children?: unknown; type?: string; placeholder?: string; value?: unknown; 'aria-label'?: string; disabled?: boolean;
@@ -59,10 +63,19 @@ function enterExpense() {
   walk(render(manualForm)).find(node => node.props?.type === 'number')!.props.onChange!({ target: { value: '42.50' } });
   return walk(render(manualForm)).find(node => node.type === 'form')!;
 }
-beforeEach(() => { harness.slots = []; harness.cursor = 0; harness.transactions = []; harness.localPreview = false; vi.resetAllMocks(); vi.useFakeTimers(); harness.mutate.mockResolvedValue({}); vi.stubGlobal('fetch', harness.fetch); });
+beforeEach(() => { harness.slots = []; harness.cursor = 0; harness.transactions = []; harness.localPreview = false; harness.availability = 'configured'; vi.resetAllMocks(); vi.useFakeTimers(); harness.mutate.mockResolvedValue({}); harness.refreshAi.mockResolvedValue(true); vi.stubGlobal('fetch', harness.fetch); });
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('transaction page actions reach working accountless flows', () => {
+  it('routes the legacy editor through saved-record detail and unsaved entry through the real manual form', () => {
+    const transaction = { id: 'saved-expense', merchant_name: 'Synthetic saved expense', amount: 20, date: '2026-09-16', category: 'other' };
+    const existing = AddExpenseScreen({ user: { id: 'new-accountless-user' }, onBack() {}, onSave: harness.save, editingExpense: transaction });
+    expect(existing.type).toBe(TransactionDetailScreen);
+    expect(existing.props.transaction).toBe(transaction);
+    const newEntry = AddExpenseScreen({ user: { id: 'new-accountless-user' }, onBack() {}, onSave: harness.save });
+    expect(walk(newEntry).some(node => node.type === AddManualTransactionScreen)).toBe(true);
+    expect(harness.request).not.toHaveBeenCalled(); expect(harness.fetch).not.toHaveBeenCalled();
+  });
   it.each([
     ['Upload receipt', '/protected?screen=receipt-upload'],
     ['Add transaction', '/protected?screen=add-manual-transaction'],
@@ -183,6 +196,7 @@ describe('transaction detail preserves manual work without guessed tax impact or
     return TransactionDetailScreen({ transaction: { ...base, ...changes }, onBack() {}, onSave: harness.save }) as Element;
   }
   const action = (page: Element, label: string) => walk(page).find(node => typeof node.props.onClick === 'function' && text(node).trim() === label)!;
+  const analyzed = () => Response.json({ success: true, analysis: { deductionStatus: 'Possibly Deductible', reasoning: 'Review the saved business purpose.', confidence: 0.7, updatedAt: '2026-09-16T12:00:00Z' } });
 
   it('opens shared Tax Preview and leaves a recorded business classification without a rate, savings calculation or CPA submission', async () => {
     const page = detail();
@@ -194,10 +208,11 @@ describe('transaction detail preserves manual work without guessed tax impact or
     expect(harness.fetch).not.toHaveBeenCalled();
   });
 
-  it('shows AI as off before any request in the isolated local preview while manual notes still save', async () => {
+  it('uses server configuration to disable AI in a local preview while manual notes still save', async () => {
     harness.localPreview = true;
+    harness.availability = 'unavailable';
     const page = detail();
-    expect(text(page)).toContain('AI analysis is off in this local preview');
+    expect(text(page)).toContain('AI analysis is not configured for this environment');
     const buttons = walk(page).filter(node => typeof node.props.onClick === 'function' && text(node).trim() === 'AI unavailable');
     expect(buttons).toHaveLength(2);
     expect(buttons.every(node => node.props.disabled)).toBe(true);
@@ -207,6 +222,14 @@ describe('transaction detail preserves manual work without guessed tax impact or
     expect(harness.mutate).toHaveBeenCalledWith(expect.objectContaining({ updates: { notes: 'Manual review remains available' } }));
     expect(harness.fetch).not.toHaveBeenCalled();
     expect(harness.error).not.toHaveBeenCalled();
+  });
+
+  it('blocks analysis while the authenticated configuration check is pending', async () => {
+    harness.availability = 'checking';
+    const buttons = walk(detail()).filter(node => typeof node.props.onClick === 'function' && text(node).trim() === 'Checking AI…');
+    expect(buttons).toHaveLength(2); expect(buttons.every(node => node.props.disabled)).toBe(true);
+    await buttons[0].props.onClick!();
+    expect(harness.fetch).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -228,6 +251,19 @@ describe('transaction detail preserves manual work without guessed tax impact or
     expect(harness.success).not.toHaveBeenCalled(); expect(harness.error).toHaveBeenCalledWith('AI unavailable', expect.any(String));
   });
 
+  it('lets a later configuration recheck enable explicit retry without treating it as a funded-provider probe', async () => {
+    harness.fetch.mockResolvedValueOnce(Response.json({ code: 'AI_SERVICE_UNAVAILABLE' }, { status: 503 }));
+    await action(detail(), 'Run AI Analysis').props.onClick!();
+    harness.refreshAi.mockResolvedValueOnce(false);
+    await action(detail(), 'Check AI availability').props.onClick!();
+    expect(action(detail(), 'AI unavailable').props.disabled).toBe(true);
+    harness.refreshAi.mockResolvedValueOnce(true);
+    await action(detail(), 'Check AI availability').props.onClick!();
+    expect(harness.fetch).toHaveBeenCalledOnce();
+    expect(action(detail(), 'Run AI Analysis').props.disabled).toBe(false);
+    expect(text(detail())).toContain('configuration check does not verify funding');
+  });
+
   it('notes and business classification save without scheduling an AI/provider request', async () => {
     const notes = walk(detail({ is_deductible: false })).find(node => node.props.placeholder === 'Tell us more about this purchase...')!;
     notes.props.onChange!({ target: { value: 'Client meeting; itemized receipt retained' } });
@@ -245,6 +281,59 @@ describe('transaction detail preserves manual work without guessed tax impact or
     expect(harness.fetch).not.toHaveBeenCalled();
   });
 
+  it('waits for edited context to be saved before explicit analysis reads the canonical record', async () => {
+    let saved!: () => void;
+    harness.mutate.mockReturnValueOnce(new Promise<void>(resolve => { saved = resolve; }));
+    harness.fetch.mockImplementation(async () => analyzed());
+    walk(detail()).find(node => node.props.placeholder === 'Tell us more about this purchase...')!.props.onChange!({ target: { value: 'New client meeting context' } });
+    const pending = action(detail(), 'Run AI Analysis').props.onClick!();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(harness.mutate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ updates: expect.objectContaining({ notes: 'New client meeting context' }) }));
+    expect(harness.fetch).not.toHaveBeenCalled();
+    saved(); await pending;
+    expect(harness.fetch).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(harness.mutate).toHaveBeenCalledOnce(); // Canceled the pending debounce, rather than writing twice.
+  });
+
+  it('does not request analysis or discard edited notes when the prerequisite save fails', async () => {
+    harness.mutate.mockRejectedValueOnce(new Error('Synthetic unavailable storage'));
+    walk(detail()).find(node => node.props.placeholder === 'Tell us more about this purchase...')!.props.onChange!({ target: { value: 'Keep this unsaved context' } });
+    await action(detail(), 'Run AI Analysis').props.onClick!();
+    const page = detail();
+    expect(harness.fetch).not.toHaveBeenCalled(); expect(harness.save).not.toHaveBeenCalled();
+    expect(text(page)).toContain('latest context could not be saved');
+    expect(walk(page).find(node => node.props.placeholder === 'Tell us more about this purchase...')!.props.value).toBe('Keep this unsaved context');
+    expect(action(page, 'Run AI Analysis').props.disabled).toBe(false);
+  });
+
+  it('orders an older in-flight autosave before the latest context and never analyzes on autosave alone', async () => {
+    let oldSave!: () => void;
+    harness.mutate.mockReturnValueOnce(new Promise<void>(resolve => { oldSave = resolve; }));
+    harness.fetch.mockImplementation(async () => analyzed());
+    walk(detail()).find(node => node.props.placeholder === 'Tell us more about this purchase...')!.props.onChange!({ target: { value: 'Older notes' } });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(harness.mutate).toHaveBeenCalledOnce(); expect(harness.fetch).not.toHaveBeenCalled();
+    walk(detail()).find(node => node.props.placeholder === 'Tell us more about this purchase...')!.props.onChange!({ target: { value: 'Latest notes' } });
+    const pending = action(detail(), 'Run AI Analysis').props.onClick!();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(harness.mutate).toHaveBeenCalledOnce(); expect(harness.fetch).not.toHaveBeenCalled();
+    oldSave(); await pending;
+    expect(harness.mutate).toHaveBeenCalledTimes(2);
+    expect(harness.mutate).toHaveBeenLastCalledWith(expect.objectContaining({ updates: expect.objectContaining({ notes: 'Latest notes' }) }));
+    expect(harness.fetch).toHaveBeenCalledOnce();
+  });
+
+  it('ignores an analysis response after navigating to another transaction', async () => {
+    let complete!: (response: Response) => void;
+    harness.fetch.mockReturnValueOnce(new Promise<Response>(resolve => { complete = resolve; }));
+    const pending = action(detail(), 'Run AI Analysis').props.onClick!();
+    await vi.advanceTimersByTimeAsync(0);
+    detail({ id: 'another-transaction', trans_id: 'another-transaction' });
+    complete(analyzed()); await pending;
+    expect(harness.save).not.toHaveBeenCalled(); expect(harness.success).not.toHaveBeenCalled();
+  });
+
   it('preserves receipt unlink through the authenticated mutation', async () => {
     await action(detail({ receipt_url: '/api/receipts/synthetic', receipt_filename: 'receipt.png' }), 'Delete').props.onClick!();
     expect(harness.mutate).toHaveBeenCalledExactlyOnceWith({ transactionId: 'detail-id', userId: 'new-accountless-user', updates: { receipt_url: '', receipt_filename: '' } });
@@ -252,13 +341,15 @@ describe('transaction detail preserves manual work without guessed tax impact or
     expect(harness.fetch).not.toHaveBeenCalled();
   });
 
-  it('keeps explicit configured AI available and suppresses duplicate in-flight clicks', async () => {
+  it('allows configured AI in a local demo and suppresses duplicate in-flight clicks', async () => {
+    harness.localPreview = true;
     let complete!: (response: Response) => void;
     harness.fetch.mockReturnValue(new Promise<Response>(resolve => { complete = resolve; }));
     const button = action(detail(), 'Run AI Analysis');
     const pending = button.props.onClick!();
     await button.props.onClick!(); await Promise.resolve();
     expect(harness.fetch).toHaveBeenCalledOnce();
+    expect(harness.mutate).not.toHaveBeenCalled(); // Unchanged context adds no write.
     complete(Response.json({ success: true, analysis: { deductionStatus: 'Possibly Deductible', reasoning: 'Review the meal business purpose.', confidence: 0.7, irsReference: { publication: '463' }, updatedAt: '2026-09-16T12:00:00Z' } }));
     await pending;
     expect(harness.save).toHaveBeenCalledWith(expect.objectContaining({ reasoning: 'Review the meal business purpose.', is_deductible: true }));
