@@ -1,9 +1,9 @@
-# Staging validation — September 15, 2026
+# Staging validation — September 15–16, 2026
 
 ## Release candidate
 
-- Final application commit: `eabaab83b53ebfc615d432b913651dc0e901ac8a` on `codex/staging-readiness`, including the `4ea9dba` dashboard/receipt follow-up.
-- Final build: `jD5VDUIQnFFVmxofbvBzw`. The isolated HTTP/rules suite passed against this exact compiled artifact; all 1,110 compiled files matched by SHA-256. Backend handlers and security rules are unchanged by the follow-up client fixes.
+- Final application commit: `e15e7c81320204104942b535b37bf425858ceaeb` on `codex/staging-readiness`, including the prior dashboard, receipt and session fixes.
+- Final build: `3fYR2wdW7qSOn4hnwI2Pu`. The isolated HTTP/rules suite passed against this exact compiled artifact; all 1,110 non-cache build files matched by SHA-256 across source, tested copy and packaged Firebase function.
 - Firebase project: `writeoff-production-testing`.
 - Testing site: https://writeoff-production-testing.web.app
 - This batch has not been promoted to `writeoffapp.com`. The earlier production login and logo repairs remain separate.
@@ -12,16 +12,17 @@
 
 | Check | Result | What it establishes |
 |---|---:|---|
-| Application tests | 925 passed | Regression coverage of the final candidate; provider transport is mocked where applicable |
-| Compiled HTTP smoke suite | 248 passed | Authentication boundaries for 126 discovered API operations, plus selected authenticated ownership, workflow and subscription cases |
+| Application tests | 1,021 passed | Regression coverage of the final candidate; provider transport is mocked where applicable |
+| Compiled HTTP smoke suite | 249 passed | Authentication boundaries for 126 discovered API operations, plus selected authenticated ownership, workflow and subscription cases |
 | Firestore/Storage rules | 11 passed | Direct client access against real local Firebase emulators |
 | Production build | Passed | Compilation, type checking and configured lint checks; existing lint warnings remain |
 | OCR artifact check | Passed | Native worker/core files included and Tesseract remains external to the route bundle |
 | Native OCR sample | Passed | Synthetic receipt read with 95% OCR confidence; this is one sample, not an accuracy benchmark |
 | Resource mobile layout | Passed | Checklist and footer inspected at 390 × 844; checking items updates progress |
-| Deployed Firebase smoke suite (v6) | 17 passed | Real synthetic users, sessions, profile/record persistence, receipt ownership, export gating and staging metadata |
+| Deployed Firebase smoke suite (v7) | 17 passed | Real synthetic users, sessions, profile/record persistence, receipt ownership, export gating and staging metadata |
 | Deployed plan transitions (v4) | 5 passed | One persisted income record remains unchanged/readable through free, trial, expired, paid and past-due states; CSV gates correctly; backend unchanged through v6 |
-| Deployed tax consistency cases | 11 passed | Supported filing labels, unsupported-status/year rejection, and selected JSON/PDF field parity; checked on the preceding revision with unchanged tax code |
+| Deployed tax follow-up (v7) | 7 passed | Annual/quarterly parity, Free/Trial gates, normal PDF generation, voucher review and saved Social Security review responses |
+| Real Auth action SDK/API integration | 11 passed | Verification, signed-out reset, old/new password behavior and reused-code rejection; separate from inbox delivery |
 
 The HTTP/rules runs use an isolated copy, `demo-writeoff-security`, loopback emulators and synthetic records. Environment files and payment/bank/AI credentials are excluded. They do not contact production providers. All test servers and emulators were stopped after completion.
 
@@ -57,12 +58,12 @@ A separate deployed probe preserved the same existing synthetic income record th
 
 - **Stripe:** test keys, prices and webhook configuration pending; real billing lifecycle remains untested.
 - **Plaid:** Sandbox credentials pending; real linking, import, reconnect and sync remain untested.
-- **OpenAI:** model discovery succeeds, but an actual completion returns HTTP 429, `credit_balance_exhausted` / `insufficient_quota`. The deployed assistant returns a safe 503 retry message. Replenish the app's API account before response-quality tests.
-- **Google OAuth:** disabled in the testing Firebase project; fresh staging OAuth is untested.
-- **Email actions:** actual verification-email and password-reset delivery/links remain unverified. Synthetic accounts were created through Admin Auth; this does not exercise inbox delivery.
+- **OpenAI:** actual completion returns HTTP 429, `credit_balance_exhausted` / `insufficient_quota`. The deployed assistant returns a safe 503 retry message. The user chose to keep AI unavailable; paid response-quality tests are deferred.
+- **Google OAuth:** enabled in the testing Firebase project on September 16; provider read-back and OAuth URL generation passed. A completed user login remains unverified because the in-app browser did not expose the popup. A normal-browser user check is pending.
+- **Email actions:** the user-approved verification/reset emails were accepted by Firebase, but were not found in the target Inbox/Spam. Delivery remains unverified. Separate real staging SDK/API action-code checks passed 11/11, including signed-out reset and old/new password behavior; this does not establish inbox delivery.
 - **Browser journeys:** email sign-in, onboarding without a bank, session/profile reload, receipt OCR/edit/save, and manual expense entry passed against deployed staging. Final transaction-button navigation, attachment refresh and stored calendar-display checks passed as recorded below. Physical camera/microphone permissions and devices remain separate checks.
 - **Tax coverage:** matching JSON/PDF results is consistency evidence, not tax-law certification. See [the coverage matrix](TAX_COVERAGE_REFERENCE_MATRIX_2026-09-15.md) for unsupported cases and release exclusions. The calculator rejects 2027.
-- **Remaining estimates:** the corrected dashboard inherits the shared engine's documented limitations; it does not expand supported taxpayer scenarios. Other legacy savings/quarterly tools still need reconciliation or explicit restrictions as described in the tax coverage matrix.
+- **Remaining estimates:** the corrected dashboard inherits the shared engine's documented limitations. The September 16 quarterly batch shares annual totals and requires reviewed payment facts; legacy savings helpers and broader annual eligibility gaps remain as described in the tax coverage matrix.
 - **Runtime maintenance:** Firebase warns that Node 20 is deprecated and decommissions October 30, 2026. Upgrade and validate the runtime before that deadline.
 
 ## Baseline deployed verification
@@ -100,7 +101,7 @@ After prolonged browser idle/host time jumps, the browser returned to login with
 
 Follow-up evidence: `/tmp/writeoff-staging-deployment-v5.json`, `/tmp/writeoff-staging-real-smoke-v5.log`, `/tmp/writeoff-staging-tests-v5.log`, and `/tmp/writeoff-staging-dashboard-parity-v5.json`.
 
-## Final authentication follow-up
+## Previous authentication follow-up (v6)
 
 Commit `eabaab8` passed **925 application tests**, its production build, **248 isolated HTTP checks** and **11 security-rule checks**, with no failures. The isolated suite checked the exact deployed build `jD5VDUIQnFFVmxofbvBzw`; all 1,110 compiled files matched by SHA-256. Its demo services were stopped afterward.
 
@@ -119,3 +120,21 @@ The fresh browser pass closes the immediate post-deployment sign-in check. It do
 Final evidence: `/tmp/writeoff-staging-deployment-v6.json`, `/tmp/writeoff-staging-tests-v6.log`, `/tmp/writeoff-final-auth-smoke-v6-evidence.json`, `/tmp/writeoff-final-auth-smoke-v6-http-results.json`, `/tmp/writeoff-staging-real-smoke-v6.log`, `/tmp/writeoff-staging-smoke-results-v6.json`, and `/tmp/writeoff-staging-browser-v6.json`.
 
 The broader release remains in staging pending provider, email/OAuth, device and tax-coverage gates above. Production was not changed by this batch.
+
+## Email actions and quarterly tax follow-up (v7)
+
+Application commit `e15e7c8` passed **1,021 application tests**, a production build, **249 compiled HTTP checks** and **11 security-rule checks**. The ordinary unit run skipped the 11 emulator-only rules checks; they passed separately against actual local emulators. Existing lint warnings remain. All 1,110 non-cache build files matched across source, isolated tests and Firebase packaging, including 507 JavaScript files and 146 tracing manifests.
+
+Released to staging at `2026-09-16T12:14:56.612Z`:
+
+- Hosting release: `sites/writeoff-production-testing/releases/1789560896612000`.
+- Hosting version: `7f353bd8fb1038a8`; server revision `ssrwriteoffproductionte-00017-kuh`, ACTIVE, 1024 MiB.
+- Build: `3fYR2wdW7qSOn4hnwI2Pu`; login returned HTTP 200 with matching build and `noindex, nofollow`.
+- Real staging smoke: **17 passed, 0 failed**. New live tax probe: **7 passed, 0 failed**. Free accounts could not export protected PDFs/vouchers; trial normal PDF worked. Shared annual/quarterly figures matched. An unsupported voucher returned actionable 422 instead of a fabricated form. Saving Social Security benefits yielded matching review responses across annual/PDF/quarterly routes, with no tax total; clearing only the synthetic declaration restored its original result.
+- Auth action SDK/API checks: **11 passed** using the new helpers against actual Firebase. The synthetic account was deleted afterward. Deployed browser verification succeeded, a reused link showed recovery guidance, and the reset form validated the correct separate synthetic account. No new password was entered through browser automation. The browser fixture’s emailVerified flag was independently confirmed, then that exact synthetic account was deleted. The approved mail-delivery fixture remains available for later delivery checks.
+- The browser payment illustration returned $5,200 annually and four $1,300 original installments for reviewed synthetic $8,000 tax, $2,000 withholding, $10,000 prior tax and $100,000 prior AGI. Selecting unavailable prior return without ruling out the no-prior-tax exception cleared figures and required review. Desktop inspection at 1280 × 720 showed no horizontal overflow; no new phone-width claim is made.
+- Google provider configuration and OAuth URL generation passed; a completed Google login remains pending. Firebase accepted the authorized test emails, but a final Inbox/Spam search found no matches. Generated action links establish handler behavior, not mail delivery. AI remains unavailable at the user’s request.
+
+The changes repair signed-out password resets, replace the 85% Social Security shortcut with review requirements, and remove conflicting quarterly formulas and unsupported penalty/payment conclusions. The public payment tool requires reviewed annual figures and explicit regular-method/prior-year facts; it is not a complete tax return engine. See [auth evidence](AUTH_PROVIDER_VALIDATION_2026-09-16.md), [quarterly scope](TAX_QUARTERLY_VALIDATION_2026-09-16.md), and [Social Security scope](TAX_SOCIAL_SECURITY_VALIDATION_2026-09-16.md).
+
+Local sanitized evidence: `/tmp/writeoff-staging-deployment-v7.json`, `/tmp/writeoff-staging-validation-v7.json`, `/tmp/writeoff-staging-tests-v7.log`, `/tmp/writeoff-staging-smoke-results-v7.json`, `/tmp/writeoff-staging-tax-v7-evidence.json`, `/tmp/writeoff-staging-action-api-v7.json`, and `/tmp/writeoff-staging-browser-v7.json`. Temporary test services were stopped. Production was not changed by this batch.
