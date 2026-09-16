@@ -2,7 +2,7 @@
 
 ## Scope
 
-The new helper calculates standard deductions for reviewed age, blindness and dependency facts for 2024–2026, plus the enhanced senior deduction for 2025–2026. It does not certify a complete return. The shared annual engine, routes, PDF and organizer integration are owned by the coordinating task; helper tests alone do not prove that integration or deployment.
+WriteOff calculates standard deductions for reviewed age, blindness and dependency facts for 2024–2026, plus the enhanced senior deduction for 2025–2026. The organizer persists these declarations by year, and the shared annual engine supplies the API, dashboard, quarterly summary and PDF. These supported calculations do not certify a complete return.
 
 The supported ordinary case is a full calendar-year return for living U.S. citizens/residents, with no territorial standard-deduction allocation, nonresident/dual-status special rules or disaster-loss increase. Other cases receive an actionable review error. The existing four filing statuses are supported; qualifying surviving spouse is not silently mapped to another status. No 2027 inflation parameters are inferred. Although the senior provision is enacted for 2025–2028, this engine only accepts published supported tax years.
 
@@ -24,12 +24,12 @@ Schedule 1-A adds excluded Puerto Rico income, Form 2555 lines 45 and 50, and Fo
 
 ## Integration contract
 
-- `calculateStandardDeduction({ taxYear, filingStatus, organizer })` returns the allowed `standardDeduction`, base/age-blind breakdown, dependency flag and MFS exclusion explanation. Compare this result against independently allowable itemized deductions. Do not restore the old base deduction when the correct result is zero.
-- `calculateEnhancedSeniorDeduction({ taxYear, filingStatus, agi, organizer })` returns `deduction` plus per-person eligibility/phaseout details. Use final AGI, including any taxable Social Security; this is a below-AGI deduction and must not reduce Social Security combined income.
+- `calculateStandardDeduction({ taxYear, filingStatus, organizer })` returns the allowed `standardDeduction`, base/age-blind breakdown, dependency flag and MFS exclusion explanation. The engine compares this result against separately supplied itemized deductions and preserves a correctly calculated zero standard deduction.
+- `calculateEnhancedSeniorDeduction({ taxYear, filingStatus, agi, organizer })` returns `deduction` plus per-person eligibility/phaseout details. The engine uses final AGI, including taxable Social Security; the senior deduction remains below AGI and does not reduce Social Security combined income.
 - The senior amount also reduces taxable income **before** the QBI income limitation. The 2025 Form 8995 instructions compute this income from AGI less standard/itemized and Schedule 1-A deductions. [Form 8995 instructions, line 11](https://www.irs.gov/instructions/i8995).
-- Map `PersonalDeductionReviewRequiredError` to HTTP 422 with code `PERSONAL_DEDUCTION_REVIEW_REQUIRED`. Preserve its organizer guidance across annual, quarterly, dashboard and PDF consumers; do not substitute zero for a missing-facts error.
-- Save one new text answer, `personalDeductionFacts`, containing a JSON object with `version: 1`, the selected numeric `taxYear`, and text answers. Existing `dateOfBirth` and `spouseDoB` fields supply dates. Invalid JSON, nontext answers, unsupported versions and year mismatch require review. No actual SSN is stored in this new field.
-- `PersonalDeductionFields` is controlled by the organizer’s `answers` and `onChange`. All Yes/No selections begin unanswered. Old-year answers are cleared from the visible form and are not transferred automatically. The parent must persist this field when saving.
+- Annual, quarterly and PDF routes map `PersonalDeductionReviewRequiredError` to HTTP 422 with code `PERSONAL_DEDUCTION_REVIEW_REQUIRED`. Dashboard and preview consumers preserve the organizer guidance without substituting zero for missing facts.
+- The organizer saves `personalDeductionFacts` as one text answer containing a JSON object with `version: 1`, the selected numeric `taxYear`, and text answers. Existing `dateOfBirth` and `spouseDoB` fields supply dates. Invalid JSON, nontext answers, unsupported versions and year mismatch require review. No actual SSN is stored in this new field.
+- `PersonalDeductionFields` is controlled by the organizer’s `answers` and `onChange`. All Yes/No selections begin unanswered. Old-year answers are cleared from the visible form and are not transferred automatically. The organizer save request persists the complete field.
 - `tests/fixtures/personal-deductions.ts` exports explicit **synthetic reviewed facts for tests only**. These must never become application defaults for existing or new users.
 
 ## Reference cases
@@ -52,7 +52,7 @@ Schedule 1-A adds excluded Puerto Rico income, Form 2555 lines 45 and 50, and Fo
 
 An eligibility declaration is not independent document verification. This helper does not decide whether a dependent actually satisfies relationship/support/residency tests, compute dependent credits or kiddie tax, validate itemized expenses, calculate foreign exclusions, or prepare territorial returns. The earned-income worksheet amount must include the correct work income, taxable scholarships and business-loss treatment; it is not guessed from bank deposits. Positive foreign/territory addback arithmetic does not establish eligibility for the rest of the annual engine.
 
-No helper amounts should be advertised as live until integration and deployed checks pass. The coordinating task records final full-suite, compiled HTTP and browser evidence separately.
+Deployment and evidence apply to the staging site only. Full-suite, compiled HTTP and browser results are documented separately in the staging validation reports. No production rollout or complete-return coverage is implied.
 
 ## Organizer and PDF integration checks
 
@@ -68,4 +68,23 @@ The six focused annual/API/dashboard/quarterly/preview test files passed **72 te
 
 Independent review found that date-of-birth integration could activate a $664 no-child EITC refund for a $10,000 wage fixture without full credit-eligibility facts. Annual routes now require review whenever a potential positive EITC remains unverified; dependency answers alone do not prove valid SSNs, a U.S. main home for more than half the year, or the absence of qualifying-child status. The low-level credit arithmetic remains available for explicitly assumed calculation tests. [Publication 596, rules 2 and 11–14](https://www.irs.gov/publications/p596).
 
-A separate staging probe is prepared at `/tmp/writeoff-staging-tax-v8-probe.mjs` with 15 checks: missing/stale personal answers, unsupported 2027, annual/quarterly parity, January 1/2 age boundaries, single/joint senior phaseouts, age/blind and dependent standard amounts, MFS itemization, supported Social Security withholding and PDF amount parity, dependent/possible-EITC review, and Free-plan export gates. It creates and deletes one isolated synthetic owner, uses actual saved organizer and W-2 contracts, and makes no production, AI, bank, payment-provider or email-send requests. It is guarded by a final-deployment manifest and explicit coordinator authorization. **Prepared does not mean executed or deployed.** Sanitized live results will be recorded separately only after that authorization.
+The deployed staging probe passed **15/15 checks** against `https://writeoff-production-testing.web.app`, app commit `49cc7551d494f05456349bd742fd70508ecd639a`, build `k8rMRLkl0UPdv9rQVgkfB`, revision `ssrwriteoffproductionte-00019-qon` (released September 16, 2026, at 17:45:48 UTC). It used actual profile, W-2 and organizer save/read requests and real deployed tax routes. Its synthetic Auth owner and every tracked Firestore document were removed after the run. No production, AI, bank, payment-provider or email-send requests were made.
+
+| Deployed check | Verified result |
+|---|---|
+| Missing/stale personal declarations | Annual, PDF and both quarterly entrypoints return actionable 422 without totals |
+| Unsupported 2027 | Annual, PDF and quarterly reject the year |
+| Ordinary under-65 wages $100,000 | Standard $16,100; annual and quarterly federal tax both $13,170; no invented installment recommendation |
+| Single DOB January 1, 1962, AGI $100,000 | Standard $18,150; senior $4,500; taxable income $77,350; tax $11,729 |
+| DOB January 2, 1962 | Under 65 for 2026; standard $16,100 and no senior amount |
+| Joint, two eligible seniors, AGI $200,000 | Standard $35,500; senior $6,000 total ($3,000 each) |
+| Single age 65 and blind | Standard $20,200 plus eligible $6,000 senior amount |
+| Adult blind dependent, $30,000 interest and no earned income | Standard $3,400 ($1,350 minimum plus $2,050 blindness addition) |
+| MFS spouse itemizes | Standard $0, standard not selected, senior $0 |
+| Reviewed $40,000 taxable retirement income and $20,000 net Social Security | Taxable benefits $17,000; AGI $57,000; senior $6,000; tax $3,694; withholding $1,200; balance $2,494 |
+| Generic dependent parent and potential positive EITC | All annual/PDF/quarterly paths require credit review without invented credits or refunds |
+| Free-plan PDF and voucher | Both return the subscription gate before calculation |
+
+The single-senior, joint-senior and Social Security PDF amounts matched JSON. All six pages were rendered and visually inspected; deduction and withholding rows were legible and the 2026 planning-summary scope notice was present. This is example-based evidence, not validation of every tax scenario or an official IRS return.
+
+Sanitized evidence is stored at `/tmp/writeoff-staging-tax-v8-evidence.json`; the runner is `/tmp/writeoff-staging-tax-v8-probe.mjs`. An initial unpaced attempt passed six checks before the shared staging rate limiter returned HTTP 429 for the remaining requests. That attempt was cleaned up and preserved at `/tmp/writeoff-staging-tax-v8-rate-limited-attempt.json`. The final run spaced API requests 2.2 seconds apart and completed all checks without a rate-limit retry. Application rate limits were unchanged.

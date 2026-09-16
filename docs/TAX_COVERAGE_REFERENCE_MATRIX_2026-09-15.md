@@ -1,6 +1,6 @@
 # Federal tax coverage and release references
 
-Reviewed September 16, 2026. This describes the local staging implementation; it is not evidence of deployment or complete-return certification. Earlier broad platform counts do not validate tax eligibility or every taxpayer situation.
+Reviewed September 16, 2026. This describes the staging implementation. See [staging validation](STAGING_VALIDATION_2026-09-15.md) for deployment and live checks; this is not complete-return certification. Earlier broad platform counts do not validate tax eligibility or every taxpayer situation.
 
 ## Intended initial scope
 
