@@ -1,10 +1,7 @@
 import { LoginForm } from "@/components/login-form";
-import { Suspense } from "react";
+
+export const dynamic = "force-static";
 
 export default function Page() {
-  return (
-    <Suspense fallback={<div>Loading...</div>}>
-      <LoginForm />
-    </Suspense>
-  );
+  return <LoginForm />;
 }
