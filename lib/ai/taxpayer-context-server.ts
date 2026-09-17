@@ -1,4 +1,5 @@
 import { adminDb } from '@/lib/firebase/admin';
+import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import type { UserContext } from './analyzeTransaction';
 import { buildTaxpayerContext, summarizeConfirmedMerchants, type ConfirmedTransactionRecord, type HomeOfficeFacts, type TaxpayerAnalysisContext } from './taxpayer-context';
 
@@ -34,7 +35,8 @@ async function readConfirmedPerAccount(uid: string): Promise<ConfirmedTransactio
   const accounts = await adminDb.collection('user_profiles').doc(uid).collection('accounts').get();
   const snapshots = await Promise.all(accounts.docs.map(account =>
     account.ref.collection('transactions').where('review_status', '==', 'confirmed').limit(CONFIRMED_PER_ACCOUNT).get()));
-  return snapshots.flatMap(snapshot => snapshot.docs.map(toRecord)).slice(0, CONFIRMED_HISTORY_CAP);
+  // A superseded duplicate never repeats the canonical record's history.
+  return snapshots.flatMap(snapshot => snapshot.docs.filter(doc => !isSupersededRecord(doc.data())).map(toRecord)).slice(0, CONFIRMED_HISTORY_CAP);
 }
 
 /**
@@ -51,7 +53,7 @@ async function readConfirmedTransactionRecords(uid: string): Promise<ConfirmedTr
       .orderBy('date', 'desc')
       .limit(CONFIRMED_HISTORY_CAP)
       .get();
-    const owned = snapshot.docs.filter(doc => doc.ref.path.startsWith(`user_profiles/${uid}/accounts/`));
+    const owned = snapshot.docs.filter(doc => doc.ref.path.startsWith(`user_profiles/${uid}/accounts/`) && !isSupersededRecord(doc.data()));
     if (owned.length > 0) return owned.map(toRecord);
   } catch (error) {
     if (!isMissingIndexError(error)) throw error;

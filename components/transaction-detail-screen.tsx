@@ -13,6 +13,7 @@ import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { ReceiptPreview } from '@/components/receipt-preview';
 import { AiTaxExplanation } from '@/components/ai-tax-explanation';
 import type { AiReviewSuggestion } from '@/lib/transactions/ai-review-contract';
+import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import { auth } from '@/lib/firebase/client';
 import { useAiAvailability } from '@/lib/hooks/use-ai-availability';
 import { consolidateCategory } from '@/lib/utils';
@@ -54,6 +55,7 @@ interface TransactionDetailScreenProps {
     receipt_filename?: string; // Original filename of the receipt
     trans_id?: string; // Transaction ID from Plaid
     account_id?: string; // Account ID
+    superseded_by?: string | null; // Server-only: this bank record duplicates an earlier reviewed one
     ai_suggestion?: AiReviewSuggestion | null;
     
     // Transaction-Specific Context Fields
@@ -738,6 +740,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
       </header>
 
       <div className="mx-auto max-w-2xl space-y-3 px-3 py-3 sm:px-5">
+        {isSupersededRecord(transaction) && <p role="note" className="rounded-xl border border-border bg-muted p-3 text-sm text-muted-foreground">This bank record duplicates an earlier one you already reviewed; it is excluded from totals.</p>}
         <DetailTabs.Root value={detailSection} onValueChange={changeDetailSection} className="space-y-3">
           <DetailTabs.List aria-label="Transaction sections" className="grid grid-cols-3 gap-1 rounded-xl bg-muted/70 p-1">
             {[{ value: 'summary', label: 'Summary' }, { value: 'details', label: 'Details' }, { value: 'receipt', label: 'Receipt' }].map(tab =>

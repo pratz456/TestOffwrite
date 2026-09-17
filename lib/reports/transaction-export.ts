@@ -1,5 +1,6 @@
 import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { validateReceiptPreviewPath } from '@/lib/receipts/preview-path';
+import { isSupersededRecord } from '@/lib/transactions/record-scope';
 
 export type ExportRecord = Record<string, unknown>;
 export class ExportReviewRequiredError extends Error {
@@ -64,6 +65,7 @@ export function convertTransactionsToCSV(records: ExportRecord[]): string {
     const review = [!date && 'Missing/invalid date', amount === null && 'Missing/invalid amount',
       !record.iso_currency_code && !record.unofficial_currency_code && 'Currency not recorded',
       record.pending === true && 'Pending record; reconcile posted transaction',
+      isSupersededRecord(record) && 'Superseded duplicate of an earlier bank record; excluded from WriteOff totals',
       deductible === null && 'Classification unreviewed',
       record.tax_review_required === true && 'Tax treatment unresolved; exclude from confirmed deduction totals',
       amount !== null && amount > 0 && deductible !== false && !Object.keys(businessUse).length && 'Business-use percentage not recorded; confirm allocation',

@@ -1,5 +1,6 @@
 import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import { QuarterlyReviewRequiredError, QUARTERLY_REVIEW_MESSAGE } from './regular-estimated-payments';
 
 export type LocalDateParts = {
@@ -27,6 +28,7 @@ export type QuarterlyTransactionLike = {
   date?: string; // date-only or ISO
   datetime?: string; // ISO with time (preferred)
   pending?: boolean | null; // pending/unsettled
+  superseded_by?: string | null; // server-only: duplicate of an earlier reviewed bank record
   tax_review_required?: boolean;
   is_deductible?: boolean | null; // confirmed true, or null/undefined for needs review, false for non-deductible
 };
@@ -49,7 +51,7 @@ function halfCentsAwayFromZero(cents: number): number {
 }
 
 function isPosted(tx: QuarterlyTransactionLike): boolean {
-  return tx.pending !== true;
+  return tx.pending !== true && !isSupersededRecord(tx);
 }
 
 function getLocalDatePartsFromDate(date: Date, userTimezone: string): LocalDateParts {
@@ -169,7 +171,7 @@ function dedupeQuarterlyTransactions(transactions: QuarterlyTransactionLike[]): 
 
 /**
  * Gross income for a quarter.
- * - Posted only (`pending !== true`)
+ * - Posted only (`pending !== true`) and not a superseded duplicate bank record
  * - Business income only (category `income` or `revenue`, or tx.type === 'income' when present)
  * - Uses cents-stable math
  */

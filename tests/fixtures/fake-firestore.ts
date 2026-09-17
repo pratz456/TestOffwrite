@@ -1,7 +1,8 @@
 /**
  * Minimal in-memory stand-in for the Admin Firestore surface used by route
  * handlers: document get/set/update/delete/create, equality-filtered
- * collection queries, and `runTransaction` with buffered writes.
+ * collection queries (with no-op `orderBy`/`select`, `limit`, and a `count()` aggregation),
+ * and `runTransaction` with buffered writes.
  * Synthetic records only; behaviour matches the SDK closely enough for
  * ownership and rate-limit tests without a running emulator.
  */
@@ -48,18 +49,26 @@ export function createFakeFirestore(options: FakeFirestoreOptions = {}) {
     where: (field: string, _operator: string, value: unknown) => query(path, [...filters, [field, value]], maximum),
     limit: (count: number) => query(path, filters, count),
     select: () => query(path, filters, maximum),
+    orderBy: () => query(path, filters, maximum),
+    /** Aggregation stand-in: the number of matching documents, like `Query.count().get()`. */
+    count: () => ({ get: async () => { fail(); return { data: () => ({ count: matching(path, filters).length }) }; } }),
     get: async () => {
       fail();
-      const depth = path.split('/').length + 1;
-      const docs = [...records].filter(([key, data]) => key.startsWith(`${path}/`) && key.split('/').length === depth
-        && filters.every(([field, value]) => data[field] === value)).slice(0, maximum).map(([key]) => snapshot(key));
+      const docs = matching(path, filters).slice(0, maximum).map(([key]) => snapshot(key));
       return { docs, empty: docs.length === 0, size: docs.length };
     },
   });
+  const matching = (path: string, filters: Array<[string, unknown]>) => {
+    const depth = path.split('/').length + 1;
+    return [...records].filter(([key, data]) => key.startsWith(`${path}/`) && key.split('/').length === depth
+      && filters.every(([field, value]) => data[field] === value));
+  };
   const collectionGroup = (name: string): any => {
     const build = (filters: Array<[string, unknown]> = [], maximum = Number.POSITIVE_INFINITY): any => ({
       where: (field: string, _operator: string, value: unknown) => build([...filters, [field, value]], maximum),
       limit: (count: number) => build(filters, count),
+      orderBy: () => build(filters, maximum),
+      select: () => build(filters, maximum),
       get: async () => {
         fail();
         const docs = [...records].filter(([key, data]) => key.split('/').at(-2) === name

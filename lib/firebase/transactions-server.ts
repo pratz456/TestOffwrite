@@ -1,6 +1,7 @@
 import { FieldPath } from 'firebase-admin/firestore';
 import { taxDecisionUpdate } from '@/lib/transactions/tax-decision';
 import { recordedTransactionType, reviewHydrationFields, type AiReviewSuggestion, type TransactionKind } from '@/lib/transactions/ai-review-contract';
+import { isSupersededRecord } from '@/lib/transactions/record-scope';
 // lib/firebase/transactions-server.ts
 import { adminDb } from './admin';
 
@@ -51,6 +52,8 @@ export interface Transaction {
   pending_transaction_id?: string;
   account_owner?: string;
   transaction_code?: string;
+  /** Server-only: path of the earlier reviewed record this bank import duplicates. */
+  superseded_by?: string | null;
 
   account_id?: string;
   accountId?: string;
@@ -216,6 +219,8 @@ export interface GetTransactionsOptions {
    * aggregate needs cuts payload size and SSR memory. Identity fields are always included.
    */
   fields?: string[];
+  /** Include records superseded by historical-overlap reconciliation; lists, totals and analysis never want them. */
+  includeSuperseded?: boolean;
 }
 
 export interface TransactionsResult {
@@ -248,12 +253,12 @@ export function decodeTransactionsCursor(value: string | null | undefined): Tran
   }
 }
 
-function normalizeGetTransactionsOptions(options?: GetTransactionsOptions | string[]): Required<Pick<GetTransactionsOptions, 'fields'>> & { limit: number | null; cursor: TransactionsCursor | null } {
+function normalizeGetTransactionsOptions(options?: GetTransactionsOptions | string[]): Required<Pick<GetTransactionsOptions, 'fields'>> & { limit: number | null; cursor: TransactionsCursor | null; includeSuperseded: boolean } {
   const opts: GetTransactionsOptions = Array.isArray(options) ? { fields: options } : options ?? {};
   const limit = typeof opts.limit === 'number' && Number.isFinite(opts.limit) && opts.limit > 0
     ? Math.min(Math.floor(opts.limit), MAX_TRANSACTIONS_PAGE_SIZE)
     : null;
-  return { fields: opts.fields ?? [], limit, cursor: limit ? decodeTransactionsCursor(opts.cursor) : null };
+  return { fields: opts.fields ?? [], limit, cursor: limit ? decodeTransactionsCursor(opts.cursor) : null, includeSuperseded: opts.includeSuperseded === true };
 }
 
 function sortNewestFirst(rows: Transaction[]): Transaction[] {
@@ -287,7 +292,7 @@ export async function getTransactionsServer(
 ): Promise<TransactionsResult> {
   try {
     if (!userId) return { data: [], error: 'Missing userId', nextCursor: null };
-    const { fields, limit, cursor } = normalizeGetTransactionsOptions(options);
+    const { fields, limit, cursor, includeSuperseded } = normalizeGetTransactionsOptions(options);
     const projection = fields.length > 0 ? [...new Set([...PROJECTION_IDENTITY_FIELDS, ...fields])] : null;
 
     const foundMap = new Map<string, Transaction>(); // dedupe by trans_id (+ account_id when available)
@@ -296,6 +301,8 @@ export async function getTransactionsServer(
       for (const doc of docs) {
         try {
           const data: any = doc.data() || {};
+          // Superseded duplicates of an earlier reviewed record never reach lists or totals.
+          if (!includeSuperseded && isSupersededRecord(data)) continue;
           const transId: string | undefined = data?.trans_id || data?.transId || doc.id;
           const accountId: string | undefined = data?.account_id || data?.accountId;
 
@@ -723,6 +730,8 @@ export async function getPaginatedTransactionsServer(
     const transactions: Transaction[] = [];
     querySnapshot.forEach((doc: any) => {
       const data = doc.data();
+      // Superseded duplicates of an earlier reviewed record never reach a list; like the other in-memory filters below.
+      if (isSupersededRecord(data)) return;
       const transaction: Transaction = {
         id: data.trans_id || doc.id,
         trans_id: data.trans_id || doc.id,

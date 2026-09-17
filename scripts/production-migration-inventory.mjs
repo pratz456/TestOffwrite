@@ -4,6 +4,10 @@ import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { PRODUCTION_PROJECT, RELEASE_MANIFEST } from './production-preflight.mjs';
+// Node 22.18+ strips the types; the model has no runtime imports of its own.
+// Sharing it keeps the inventory's groups and the reconciliation command's
+// checks on one key, and drops records already reconciled by a decision.
+import { overlapCandidateKey } from '../lib/transactions/historical-overlap.ts';
 
 export const PRODUCTION_MIGRATION_INVENTORY_SCHEMA = 1;
 const ACCOUNT_MIGRATION_LIMIT = 400;
@@ -13,32 +17,7 @@ const accountReference = (uid, accountId) => `user_profiles/${uid}/accounts/${ac
 const transactionReference = (uid, accountId, transactionId) =>
   `${accountReference(uid, accountId)}/transactions/${transactionId}`;
 
-function normalizedDate(value) {
-  const text = typeof value === 'string' ? value.slice(0, 10) : '';
-  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
-}
-
-function normalizedCents(value) {
-  const amount = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(amount) ? Math.round(amount * 100) : null;
-}
-
-function normalizedMerchant(data) {
-  const value = data.merchant_name || data.name || data.description;
-  return typeof value === 'string'
-    ? value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase()
-    : '';
-}
-
-function overlapKey(data) {
-  if (data.pending === true || data.bank_removed === true) return null;
-  const date = normalizedDate(data.date);
-  const cents = normalizedCents(data.amount);
-  const merchant = normalizedMerchant(data);
-  if (!date || cents === null || !merchant) return null;
-  const currency = String(data.iso_currency_code || data.unofficial_currency_code || 'unknown').toUpperCase();
-  return JSON.stringify([date, cents, merchant, currency]);
-}
+const overlapKey = data => overlapCandidateKey(data);
 
 function fingerprint(value) {
   return createHash('sha256').update(value).digest('hex');
@@ -240,6 +219,7 @@ async function mapWithConcurrency(values, limit, work) {
 const TRANSACTION_FIELDS = [
   'date', 'amount', 'merchant_name', 'name', 'description', 'iso_currency_code', 'unofficial_currency_code',
   'pending', 'bank_removed', 'review_status', 'is_deductible', 'deductible', 'source', 'account_id',
+  'superseded_by', 'overlap_reviewed',
 ];
 
 export async function loadProductionMigrationRecords(db) {

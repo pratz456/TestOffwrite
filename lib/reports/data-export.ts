@@ -44,8 +44,9 @@ export interface UserDataExport {
 export async function generateUserDataExport(userId: string, year?: number): Promise<UserDataExport> {
   try {
     const profileRef = adminDb.collection('user_profiles').doc(userId);
+    // The archive is complete: superseded duplicates are included and point at the record that counts.
     const [profile, accountsSnapshot, rawTransactions, receiptSnapshot, ...datasets] = await Promise.all([
-      profileRef.get(), profileRef.collection('accounts').get(), readOwnedTransactions(userId),
+      profileRef.get(), profileRef.collection('accounts').get(), readOwnedTransactions(userId, { includeSuperseded: true }),
       Promise.all(['userId', 'user_id'].map(field => adminDb.collection('receipts').where(field, '==', userId).get()))
         .then(snapshots => ({ docs: [...new Map(snapshots.flatMap(snapshot => snapshot.docs.map(doc => [doc.ref.path, doc] as const))).values()] })),
       ...TOP_LEVEL.map(async name => {
@@ -70,6 +71,8 @@ export async function generateUserDataExport(userId: string, year?: number): Pro
       delete result.transaction_code; delete result.merchant_entity_id; delete result.pending_transaction_id;
       delete result.ai_analysis; delete result.ai;
       result.receipt_url = privateReceiptLink(record.receipt_url);
+      // Same hashed reference the canonical record carries as its id, never its raw document path.
+      if (typeof record.superseded_by === 'string' && record.superseded_by) result.superseded_by = exportReference('transaction', `${userId}/${record.superseded_by}`);
       return result;
     });
     const receipts: ExportRecord[] = receiptSnapshot.docs.map(doc => ownedExportRecord(doc, userId)).flatMap(record => {
@@ -112,6 +115,7 @@ export function generateDataPackage(data: UserDataExport) {
     'This is an owner data archive and tax-preparer handoff, not an official tax return, TXF import or filing confirmation.',
     'Signed amounts preserve the stored convention: positive is an outflow and negative an inflow. An inflow may be a refund or transfer, not taxable income.',
     'Recorded categories and deductibility are declarations; AI analysis is advisory. Pending, unreviewed, duplicate and mixed-use records require reconciliation. No filing deduction or refund is certified.',
+    'A transaction with superseded_by is a bank re-import that duplicates the earlier record referenced by that value; WriteOff totals count only the earlier record.',
     'Receipt metadata and private sign-in links are included; receipt image/PDF binaries are NOT attached. A preparer cannot open these links without authorized account access.',
     'A selected-year archive includes only receipt metadata linked to transactions in that year. Use an all-years archive to include unlinked receipt metadata.',
     'Tax datasets can overlap (for example bank deposits, gross receipts and 1099s). Do not sum them without reconciling duplicate income.',

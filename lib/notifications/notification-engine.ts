@@ -5,6 +5,7 @@ import { getEstimatedTaxDeadline } from '@/lib/tax-provider/payment-deadlines';
 
 /** Memory guard for the 30-day deductible sum; far above any realistic month of confirmed expenses. */
 const CELEBRATION_SCAN_LIMIT = 2000;
+import { isCountableRecord } from '@/lib/transactions/record-scope';
 
 export interface Notification {
   id: string;
@@ -307,6 +308,7 @@ export class NotificationEngine {
       return await runUserProfileBatch(this.profiles(), null, async userDoc => {
         const userId = userDoc.id;
         
+        // count() cannot exclude superseded duplicates (no negative field filter); they are rare and only inflate this reminder's number.
         const aggregate = await this.userTransactions(userId).where('analysis_status', '==', 'pending').count().get();
         const unreviewedCount = aggregate.data().count;
 
@@ -392,8 +394,8 @@ export class NotificationEngine {
 
         for (const doc of confirmedDeductions.docs) {
           const data = doc.data();
-          // Unresolved tax facts do not count toward confirmed totals.
-          if (data.tax_review_required === true || data.pending === true) continue;
+          // Unresolved tax facts and non-countable records do not count toward confirmed totals.
+          if (data.tax_review_required === true || !isCountableRecord(data)) continue;
           totalDeductions += Math.abs(data.amount || 0);
         }
 

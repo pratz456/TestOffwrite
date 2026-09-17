@@ -10,7 +10,7 @@
   },
   "historicalOverlapReconciliation": {
     "reviewed": false,
-    "evidence": ""
+    "evidence": "REPLACE: inventoryDigest <sha256> reviewed by <name> on <date>; decisions file sha256 <digest> (<n> duplicate / <n> distinct / <n> defer); production:overlap-reconcile evidence file <absolute private path> sha256 <digest>, planDigest <digest>, backup <absolute private path>. If the inventory reported zero potentialHistoricalOverlaps groups, cite that inventory digest instead."
   },
   "oldClientCompatibility": {
     "reviewed": false,

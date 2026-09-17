@@ -10,12 +10,15 @@
  * - confirmed-only: posted records whose deduction the server confirmed
  *   (review_status === 'confirmed', or a legacy pre-cutoff decision; see
  *   lib/transactions/confirmed-deduction.ts), excluding tax-method placeholders.
+ * - Superseded records (`superseded_by`, set by historical-overlap reconciliation)
+ *   are excluded in both modes; see lib/transactions/record-scope.ts.
  *
  * PDF generation path: route → getTransactionsServer(uid) → aggregateScheduleC → pdf-lib.
  */
 
 import { safeTaxYear } from './taxDate';
 import { isServerConfirmedDeduction } from '@/lib/transactions/confirmed-deduction';
+import { isCountableRecord, isSupersededRecord } from '@/lib/transactions/record-scope';
 
 export type CategoryMapEntry = { line: string; name: string; code: string };
 
@@ -130,6 +133,8 @@ export interface ScheduleCTransactionLike {
   is_deductible?: boolean | null;
   pending?: boolean | null;
   tax_review_required?: boolean;
+  /** Server-only: path of the earlier record this one duplicates; such records never count. */
+  superseded_by?: string | null;
   merchant_name?: string;
   id?: string;
   [key: string]: unknown;
@@ -147,9 +152,9 @@ export function isBusinessExpense(tx: ScheduleCTransactionLike): boolean {
   return false;
 }
 
-/** confirmed-only filter: posted, server-confirmed, and not a tax-method placeholder category. */
+/** confirmed-only filter: countable (posted, not superseded), server-confirmed, and not a tax-method placeholder category. */
 export function isConfirmedScheduleCExpense(tx: ScheduleCTransactionLike): boolean {
-  return tx.pending !== true
+  return isCountableRecord(tx)
     && !(typeof tx.category === 'string' && tx.category.endsWith('_REVIEW_REQUIRED'))
     && isServerConfirmedDeduction(tx);
 }
@@ -188,7 +193,9 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
   const yearStr = year.toString();
   const mode: AggregateScheduleCMode = options.mode ?? 'default';
   // Use timezone-safe year extraction (avoid local Date parsing shifting around year boundaries).
+  // Superseded duplicates of an earlier reviewed record never reach either mode.
   const yearTransactions = transactions.filter((t) => {
+    if (isSupersededRecord(t)) return false;
     const y = safeTaxYear(t.date);
     return y !== null && y.toString() === yearStr;
   });

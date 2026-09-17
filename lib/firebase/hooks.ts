@@ -13,7 +13,11 @@ import { getAuth } from 'firebase/auth';
 import { db } from './client';
 import { Transaction, hydrateTransactionRecord } from './transactions';
 import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
+import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
+
+/** Superseded duplicates of an earlier reviewed bank record stay out of every list, tab and count. */
+const visibleTransactions = (transactions: Transaction[]) => transactions.filter(transaction => !isSupersededRecord(transaction));
 
 // Query keys for consistent caching
 export const queryKeys = {
@@ -62,9 +66,9 @@ export function useTransactions(uid: string) {
       transactionsQuery,
       (querySnapshot: QuerySnapshot) => {
         try {
-          const processedTransactions = querySnapshot.docs.map((doc) =>
+          const processedTransactions = visibleTransactions(querySnapshot.docs.map((doc) =>
             hydrateTransactionRecord(doc.data(), doc.id)
-          );
+          ));
           console.log('✅ [useTransactions] Fetched transactions via collectionGroup:', processedTransactions.length);
           setTransactions(processedTransactions);
           setError(null);
@@ -83,8 +87,8 @@ export function useTransactions(uid: string) {
             const response = await makeAuthenticatedRequest('/api/transactions');
             if (response.ok) {
               const result = await response.json();
-              const apiTransactions = result.transactions || result.data || [];
-              setTransactions(apiTransactions);
+              const apiTransactions: Transaction[] = result.transactions || result.data || [];
+              setTransactions(visibleTransactions(apiTransactions));
               setError(null);
             } else {
               throw new Error('API request failed');
@@ -209,7 +213,7 @@ export function useUserStats(uid: string) {
       transactionsQuery,
       (querySnapshot: QuerySnapshot) => {
         try {
-          const transactions = querySnapshot.docs.map((d: any) => hydrateTransactionRecord(d.data(), d.id));
+          const transactions = visibleTransactions(querySnapshot.docs.map((d: any) => hydrateTransactionRecord(d.data(), d.id)));
 
           const totalTransactions = transactions.length;
           const deductibleTransactions = transactions.filter((t: Transaction) => t.is_deductible === true && !transactionNeedsTaxReview(t)).length;

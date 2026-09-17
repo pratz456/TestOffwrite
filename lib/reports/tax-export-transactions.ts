@@ -1,10 +1,15 @@
 import { readOwnedTransactions } from './export-records';
 import { exportDate, selectExportYear, transactionAmount, ExportReviewRequiredError } from './transaction-export';
+import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import type { ScheduleCTransactionLike } from '@/lib/schedule-c/aggregate';
 
-/** Complete owner-verified records; invalid dates/amounts cannot disappear from a tax calculation. */
+/**
+ * Complete owner-verified records; invalid dates/amounts cannot disappear from a
+ * tax calculation. Superseded duplicates are dropped here as well as in the
+ * reader, so no tax total can count them.
+ */
 export async function readTaxExportTransactions(uid: string, taxYear: number): Promise<ScheduleCTransactionLike[]> {
-  const records = selectExportYear(await readOwnedTransactions(uid), taxYear);
+  const records = selectExportYear((await readOwnedTransactions(uid)).filter(record => !isSupersededRecord(record)), taxYear);
   const seen = new Set<string>();
   return records.map(record => {
     const identity = record.trans_id ?? record.id;
