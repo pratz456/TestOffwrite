@@ -712,6 +712,8 @@ export async function getPaginatedTransactionsServer(
     const transactions: Transaction[] = [];
     querySnapshot.forEach((doc: any) => {
       const data = doc.data();
+      // Superseded duplicates of an earlier reviewed record never reach a list; like the other in-memory filters below.
+      if (isSupersededRecord(data)) return;
       const transaction: Transaction = {
         id: data.trans_id || doc.id,
         trans_id: data.trans_id || doc.id,

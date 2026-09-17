@@ -23,6 +23,7 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { consolidateCategory } from '@/lib/utils';
+import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 
 interface Transaction {
@@ -40,6 +41,7 @@ interface Transaction {
   receipt_url?: string;
   receipt_filename?: string;
   pending?: boolean;
+  superseded_by?: string | null;
   user_classification_reason?: string;
 }
 
@@ -75,7 +77,10 @@ export default function TransactionsPage() {
   // useAuth() is already called at the top of this component
 
   // Use real-time transactions hook for instant updates
-  const { transactions, isLoading: loading, error } = useTransactions(user?.id || '');
+  const { transactions: savedTransactions, isLoading: loading, error } = useTransactions(user?.id || '');
+  // A bank re-import that duplicates an earlier reviewed record is excluded from
+  // every tab and count; its detail view still opens from a direct link.
+  const transactions = useMemo(() => savedTransactions.filter(t => !isSupersededRecord(t)), [savedTransactions]);
 
   // Handle error state
   if (error) {

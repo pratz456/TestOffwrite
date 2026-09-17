@@ -156,7 +156,17 @@ describe('transaction list shows record status without inventing tax savings', (
       fixture('Expense refund', -20, { type: 'income', is_deductible: true }),
       fixture('Personal purchase', 42.5, { is_deductible: false }),
       fixture('Unreviewed purchase', 300, { is_deductible: null }),
+      // A relinked bank's re-import of an already reviewed purchase; reconciliation marked it superseded.
+      fixture('Superseded re-import', 300, { is_deductible: null, superseded_by: 'user_profiles/new-accountless-user/accounts/old/transactions/original' }),
     ];
+  });
+
+  it('hides a superseded bank re-import from every tab and count instead of asking for review again', () => {
+    const page = render(TransactionsPage);
+    expect(text(page)).not.toContain('Superseded re-import');
+    expect(walk(page).some(node => node.props['aria-label'] === 'Pending or needs review: 3')).toBe(true);
+    for (const tab of ['Review', 'Deductible', 'Personal']) expect(rows(clickTab(tab)).map(text).join(' ')).not.toContain('Superseded re-import');
+    expect(rows(clickTab('All')).map(text).join(' ')).not.toContain('Superseded re-import');
   });
 
   it('uses record counts and opens the authoritative Tax Preview instead of calculating tax dollars', () => {
@@ -233,6 +243,16 @@ describe('transaction detail preserves manual work without guessed tax impact or
   }
   const action = (page: Element, label: string) => walk(page).find(node => typeof node.props.onClick === 'function' && text(node).trim() === label)!;
   const analyzed = () => Response.json({ success: true, analysis: { deductionStatus: 'Possibly Deductible', reasoning: 'Review the saved business purpose.', confidence: 0.7, updatedAt: '2026-09-16T12:00:00Z' } });
+
+  it('explains a superseded duplicate opened by direct link and shows nothing extra otherwise', () => {
+    const notice = 'This bank record duplicates an earlier one you already reviewed; it is excluded from totals.';
+    const superseded = detail({ superseded_by: 'user_profiles/new-accountless-user/accounts/old/transactions/original' });
+    const note = walk(superseded).find(node => (node.props as { role?: string }).role === 'note')!;
+    expect(text(note)).toBe(notice);
+    expect(text(superseded)).not.toContain('user_profiles/');
+    expect(text(detail())).not.toContain(notice);
+    expect(harness.fetch).not.toHaveBeenCalled(); expect(harness.mutate).not.toHaveBeenCalled();
+  });
 
   it('opens requested tax details immediately without a provider or persistence request', () => {
     const page = detail({}, 'details');
