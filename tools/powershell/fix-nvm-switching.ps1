@@ -62,7 +62,7 @@ if (Test-Path $standaloneNodePath) {
         Write-Host "2. Or remove it if you don't need it:" -ForegroundColor Cyan
         Write-Host "   Remove-Item '$standaloneNodePath' -Recurse -Force" -ForegroundColor White
         Write-Host ""
-        Write-Host "3. Then run: nvm use 20.18.0" -ForegroundColor Cyan
+        Write-Host "3. Then run: nvm use 22.23.2" -ForegroundColor Cyan
         Write-Host ""
         
         # Ask user if they want to proceed
@@ -79,13 +79,13 @@ if (Test-Path $standaloneNodePath) {
                 Write-Host "Backup created successfully!" -ForegroundColor Green
                 Write-Host ""
                 
-                Write-Host "Switching to Node 20.18.0..." -ForegroundColor Yellow
-                nvm use 20.18.0
+                Write-Host "Switching to Node 22.23.2..." -ForegroundColor Yellow
+                nvm use 22.23.2
                 Write-Host ""
                 
                 Write-Host "Verifying Node version..." -ForegroundColor Yellow
                 $nodeVersion = node --version
-                if ($nodeVersion -like "*20.18.0*") {
+                if ($nodeVersion -like "*22.23.2*") {
                     Write-Host "SUCCESS! Node version is now: $nodeVersion" -ForegroundColor Green
                 } else {
                     Write-Host "WARNING: Node version is still: $nodeVersion" -ForegroundColor Yellow
@@ -97,21 +97,21 @@ if (Test-Path $standaloneNodePath) {
                 Write-Host ""
                 Write-Host "Please run this script as Administrator or manually:" -ForegroundColor Yellow
                 Write-Host "1. Rename '$standaloneNodePath' to '$standaloneNodePath.backup'" -ForegroundColor White
-                Write-Host "2. Run: nvm use 20.18.0" -ForegroundColor White
+                Write-Host "2. Run: nvm use 22.23.2" -ForegroundColor White
             }
         } else {
             Write-Host "Skipped. Please manually fix the issue as described above." -ForegroundColor Yellow
         }
     } else {
         Write-Host "The directory is already a symlink. Trying to switch versions..." -ForegroundColor Green
-        nvm use 20.18.0
+        nvm use 22.23.2
         Write-Host ""
         $nodeVersion = node --version
         Write-Host "Current Node version: $nodeVersion" -ForegroundColor Cyan
     }
 } else {
-    Write-Host "No standalone Node installation found. Switching to Node 20.18.0..." -ForegroundColor Green
-    nvm use 20.18.0
+    Write-Host "No standalone Node installation found. Switching to Node 22.23.2..." -ForegroundColor Green
+    nvm use 22.23.2
     Write-Host ""
     $nodeVersion = node --version
     Write-Host "Current Node version: $nodeVersion" -ForegroundColor Cyan
@@ -122,5 +122,5 @@ Write-Host "=== Fix Complete ===" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Note: If the version didn't change, try:" -ForegroundColor Yellow
 Write-Host "1. Closing and reopening your terminal" -ForegroundColor White
-Write-Host "2. Running: nvm use 20.18.0" -ForegroundColor White
+Write-Host "2. Running: nvm use 22.23.2" -ForegroundColor White
 Write-Host "3. Verifying with: node --version" -ForegroundColor White

@@ -16,14 +16,15 @@ Effortless tax deduction management for freelancers and small businesses.
 
 ### Prerequisites
 
-- Node.js 20 (see `.nvmrc`)
+- Node.js 22 (the tested patch version is pinned in `.nvmrc`)
 - npm
 
 ### Install and Run
 
 ```bash
-# Use Node 20 (Windows: run before npm commands)
-. .\tools\powershell\ensure-node-20.ps1
+# Select the tested Node version (macOS/Linux with nvm)
+nvm install
+nvm use
 
 # Install dependencies
 npm install
@@ -33,6 +34,8 @@ npm run dev
 ```
 
 App runs at [http://localhost:3000](http://localhost:3000).
+
+On Windows with nvm-windows, use `nvm install 22.23.2` and `nvm use 22.23.2` before the npm commands. Existing PowerShell helper scripts also select this version.
 
 ### Cross-origin dev warning (`100.x.x.x` → `/_next/*`)
 

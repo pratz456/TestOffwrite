@@ -10,10 +10,12 @@ console.log('🚀 Starting Firebase deployment with optimizations...');
 const nodeVersion = process.version;
 console.log(`📋 Current Node.js version: ${nodeVersion}`);
 
-// Check if we're using Node 20 (recommended for Firebase)
-if (!nodeVersion.startsWith('v20')) {
-  console.warn('⚠️  Warning: Firebase recommends Node.js 20. Current version:', nodeVersion);
-  console.log('💡 Consider using Node.js 20 for optimal Firebase deployment');
+// Build with the same major version that Firebase runs for the SSR backend.
+const requiredNodeMajor = require('../package.json').engines.node;
+if (nodeVersion.split('.')[0] !== `v${requiredNodeMajor}`) {
+  console.error(`Deployment requires Node.js ${requiredNodeMajor}; current version is ${nodeVersion}.`);
+  console.error('Select the version in .nvmrc before deploying.');
+  process.exit(1);
 }
 
 try {

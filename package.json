@@ -117,7 +117,7 @@
     "vitest": "^3.2.4"
   },
   "engines": {
-    "node": "20"
+    "node": "22"
   },
   "overrides": {
     "cookie": ">=0.7.0",
