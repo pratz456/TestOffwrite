@@ -1,5 +1,6 @@
-import { decryptSensitive, isEncrypted, formatSSNForDisplay } from '@/lib/security/utils';
 import { requireFeatureAccess } from '@/lib/subscriptions/feature-access';
+import { IDENTIFIER_PROVIDED_SEPARATELY, maskOrganizerIdentifier } from '@/lib/tax-organizer/identifiers';
+import { readOrganizerDocument } from '@/lib/tax-organizer/organizer-server';
 /**
  * Form 1040 (U.S. Individual Income Tax Return) PDF Export
  * Generates a 2-page federal planning summary using reviewed WriteOff data.
@@ -185,12 +186,12 @@ async function page1(doc: PDFDocument, f: PDFFont, bf: PDFFont, d: Record<string
   hl(p, y, ML, MR, 0.5, BLACK); y -= 1;
   field(p, 'Full name as saved (verify legal return name)', ML, y - 2, 370, profile.name || '', f, bf);
   vl(p, ML + 374, y, y - 16);
-  field(p, 'Social security number', ML + 377, y - 2, 159, profile.ssn || '___-__-____', f, bf);
+  field(p, 'Social security number (last 4 only)', ML + 377, y - 2, 159, profile.ssn || '___-__-____', f, bf);
   hl(p, y - 16, ML, MR, 0.5, BLACK); y -= 20;
 
   if (profile.filing_status === 'married_filing_jointly' || profile.filing_status === 'married_filing_separately') {
     field(p, 'Spouse full name as saved', ML, y - 2, 370, profile.spouseName || '', f, bf);
-    field(p, 'Spouse SSN', ML + 377, y - 2, 159, profile.spouseSSN || '', f, bf);
+    field(p, 'Spouse SSN (last 4 only)', ML + 377, y - 2, 159, profile.spouseSSN || '', f, bf);
     hl(p, y - 16, ML, MR, 0.5, BLACK); y -= 20;
   }
   field(p, 'Home address', ML, y - 2, 430, profile.mailing_address?.street || '', f, bf);
@@ -368,24 +369,18 @@ export async function POST(request: NextRequest) {
     const transactions = txResult;
     const profile = (profileResult.data || {}) as Record<string, any>;
     const ded = deductionsSnap.empty ? {} as Record<string, any> : deductionsSnap.docs[0].data();
-    const org = organizerSnap.empty ? {} as Record<string, any> : organizerSnap.docs[0].data();
-
-    for (const key of ['taxpayerSSN', 'spouseSSN', 'bankAccount']) {
-      if (typeof org[key] === 'string' && isEncrypted(org[key])) org[key] = decryptSensitive(org[key]);
-    }
+    // Identifier answers are decrypted here only to derive masked display values; the
+    // plaintext never reaches the PDF or the response.
+    const org: Record<string, any> = organizerSnap.empty ? {} : await readOrganizerDocument(organizerSnap.docs[0]);
 
     // Merge organizer data into profile for PDF pre-fill
     const enrichedProfile: Record<string, any> = {
       ...profile,
-      // SSN from organizer (formatted as XXX-XX-XXXX)
-      ssn: org.taxpayerSSN
-        ? formatSSNForDisplay(org.taxpayerSSN)
-        : '',
+      // SSN from organizer, last four digits only (***-**-1234)
+      ssn: maskOrganizerIdentifier('ssn', org.taxpayerSSN),
       // Spouse
       spouseName: org.spouseName || '',
-      spouseSSN: org.spouseSSN
-        ? formatSSNForDisplay(org.spouseSSN)
-        : '',
+      spouseSSN: maskOrganizerIdentifier('ssn', org.spouseSSN),
       // Address (organizer address takes priority over profile)
       mailing_address: {
         street: org.streetAddress || profile.mailing_address?.street || '',
@@ -393,14 +388,15 @@ export async function POST(request: NextRequest) {
         state: org.stateAddr || profile.mailing_address?.state || profile.state || '',
         zip: org.zipCode || profile.mailing_address?.zip || '',
       },
-      // Bank for direct deposit
-      bankRouting: org.bankRouting || '',
-      bankAccount: org.bankAccount || '',
+      // Refund account record, last four digits only
+      bankRouting: maskOrganizerIdentifier('bankRouting', org.bankRouting),
+      bankAccount: maskOrganizerIdentifier('bankAccount', org.bankAccount),
       bankAccountType: org.bankAccountType || 'checking',
       // Prior year AGI for e-file
       priorYearAGI: org.priorYearAGI || '',
-      // IP PIN
-      ipPin: org.ipPin || '',
+      // IP PIN: presence only; the PIN itself is never printed
+      ipPin: maskOrganizerIdentifier('ipPin', org.ipPin),
+      dependentRecords: typeof org.dependentDetails === 'string' && org.dependentDetails.trim() ? IDENTIFIER_PROVIDED_SEPARATELY : '',
     };
 
     const snapshot = buildFederalTaxSnapshot({
@@ -441,12 +437,15 @@ export async function POST(request: NextRequest) {
     const notes = await createPlanningPDF('Form 1040 - identity records and review notes', taxYear);
     notes.paragraph('Do not file this export with the IRS. It is an incomplete planning summary. WriteOff has not prepared all required schedules, signatures, elections or state returns.', true);
     notes.paragraph('Missing or blank fields are not findings that the item is zero or inapplicable. The numeric estimate covers the saved inputs and supported rules only.');
-    notes.section('Complete saved identity and optional handoff records');
+    notes.section('Saved identity and optional handoff records (last digits only)');
+    notes.paragraph('Social Security, account and routing numbers print with their last digits only; the IRS IP PIN and dependent identification numbers are never printed. WriteOff stores these identifiers encrypted. Give the full values to your preparer directly.');
     notes.table(['Record', 'Saved value'], [
-      ['Full name', enrichedProfile.name || 'Not provided'], ['SSN', enrichedProfile.ssn || 'Not provided'],
-      ['Spouse name', enrichedProfile.spouseName || 'Not provided'], ['Spouse SSN', enrichedProfile.spouseSSN || 'Not provided'],
+      ['Full name', enrichedProfile.name || 'Not provided'], ['SSN (last 4)', enrichedProfile.ssn || 'Not provided'],
+      ['Spouse name', enrichedProfile.spouseName || 'Not provided'], ['Spouse SSN (last 4)', enrichedProfile.spouseSSN || 'Not provided'],
+      ['Dependent identity records', enrichedProfile.dependentRecords || 'Not provided'],
       ['Address', [enrichedProfile.mailing_address.street, enrichedProfile.mailing_address.city, enrichedProfile.mailing_address.state, enrichedProfile.mailing_address.zip].filter(Boolean).join(', ') || 'Not provided'],
-      ['Optional refund routing / account', enrichedProfile.bankRouting || enrichedProfile.bankAccount ? `${enrichedProfile.bankRouting || 'Not provided'} / ${enrichedProfile.bankAccount || 'Not provided'} (${enrichedProfile.bankAccountType})` : 'Not provided'],
+      ['IRS Identity Protection PIN', enrichedProfile.ipPin || 'Not provided'],
+      ['Optional refund routing / account (last 4)', enrichedProfile.bankRouting || enrichedProfile.bankAccount ? `${enrichedProfile.bankRouting || 'Not provided'} / ${enrichedProfile.bankAccount || 'Not provided'} (${enrichedProfile.bankAccountType})` : 'Not provided'],
     ], [195, 333]);
     notes.section('Review notes');
     notes.paragraph(warnings.length ? `${warnings.length} calculation or completeness note(s) qualify the figures on pages 1-2:` : 'No calculation limits were reported for the saved inputs.');

@@ -4,6 +4,7 @@ import { createPlanningPDF, formatExportMoney as money } from './planning-pdf';
 
 export interface ScheduleCExportData {
   taxYear: number; grossReceipts: number; lineItems: LineItemSummary[];
+  /** `ssn` and `ein` are masked display values (last four digits); callers never pass full identifiers. */
   name?: string; ssn?: string; profession?: string; naicsCode?: string; ein?: string;
   includeAppendix: boolean;
 }
@@ -12,10 +13,11 @@ export async function generateScheduleCPlanningPDF(data: ScheduleCExportData) {
   pdf.paragraph('This is a preparer handoff, not an IRS Schedule C or an e-file-ready return. Recorded receipts and confirmed expense totals are included below; missing tax facts are not treated as zero.', true);
   pdf.paragraph(data.taxYear >= 2026 ? '2026 planning amounts use published 2025 Schedule C line references. Final 2026 form labels must be checked before filing.' : `Line references use the published ${data.taxYear} Schedule C.`);
   pdf.section('Owner and business records');
+  pdf.paragraph('Taxpayer identification numbers print with their last digits only. Give the full SSN and EIN to your preparer directly.');
   pdf.table(['Record', 'Saved value'], [
-    ['Name', data.name || 'Not provided'], ['SSN', data.ssn || 'Not provided'],
+    ['Name', data.name || 'Not provided'], ['SSN (last 4)', data.ssn || 'Not provided'],
     ['Profession / activity', data.profession || 'Not provided'], ['Business code', data.naicsCode || 'Not provided'],
-    ['EIN', data.ein || 'Not provided'],
+    ['EIN (last 4)', data.ein || 'Not provided'],
     ['Accounting method, business address, participation, information returns', 'Not established by this export - review separately'],
   ], [195, 333]);
   pdf.section('Recorded income and confirmed expenses');

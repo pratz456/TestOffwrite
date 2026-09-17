@@ -2,12 +2,13 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { encryptSensitive, decryptSensitive, isEncrypted, sanitizeString } from '@/lib/security/utils';
 import { adminDb } from '@/lib/firebase/admin';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
+import { DEPENDENT_IDENTIFIERS_REMOVED_WARNING, encryptOrganizerIdentifiers } from '@/lib/tax-organizer/identifiers';
+import { readOrganizerDocument } from '@/lib/tax-organizer/organizer-server';
 
 const privateHeaders = { 'Cache-Control': 'private, no-store' };
-const sensitiveFields = ['taxpayerSSN', 'spouseSSN', 'bankAccount'] as const;
+
 function validYear(value: unknown): number | null {
   if (value === undefined || value === null) return new Date().getFullYear();
   const year = typeof value === 'number' || typeof value === 'string' ? Number(value) : NaN;
@@ -23,12 +24,10 @@ export async function GET(request: NextRequest) {
     const snap = await adminDb.collection('tax_organizers').where('userId', '==', user.uid).where('taxYear', '==', year).limit(1).get();
     if (snap.empty) return NextResponse.json({ organizer: null, taxYear: year }, { headers: privateHeaders });
     const doc = snap.docs[0];
-    const data = doc.data();
     // Return the owner's editable values; never show encryption bytes in form inputs.
-    for (const field of sensitiveFields) {
-      if (typeof data[field] === 'string' && isEncrypted(data[field])) data[field] = decryptSensitive(data[field]);
-    }
-    return NextResponse.json({ organizer: { ...data, id: doc.id }, taxYear: year }, { headers: privateHeaders });
+    // Legacy plaintext identifiers are re-encrypted on this read.
+    const organizer = await readOrganizerDocument(doc);
+    return NextResponse.json({ organizer: { ...organizer, id: doc.id }, taxYear: year }, { headers: privateHeaders });
   } catch {
     return NextResponse.json({ error: 'Unable to load your organizer. Please try again.' }, { status: 503, headers: privateHeaders });
   }
@@ -51,24 +50,19 @@ export async function POST(request: NextRequest) {
   try {
     const snap = await adminDb.collection('tax_organizers').where('userId', '==', user.uid).where('taxYear', '==', year).limit(1).get();
     const previous = snap.empty ? {} : snap.docs[0].data();
-    const encryptedAnswers = { ...answers };
-    for (const field of sensitiveFields) {
-      const value = answers[field];
-      if (!value) continue;
-      // A tab opened before this update may still hold its existing encrypted value.
-      if (isEncrypted(value) && value === previous[field]) continue;
-      const pattern = field === 'bankAccount' ? /^\d{4,17}$/ : /^\d{9}$/;
-      if (!pattern.test(value)) return NextResponse.json({ error: `Invalid ${field === 'bankAccount' ? 'bank account number' : 'Social Security number'}` }, { status: 400 });
-      encryptedAnswers[field] = encryptSensitive(value);
-    }
-    if (answers.dependentDetails) encryptedAnswers.dependentDetails = sanitizeString(answers.dependentDetails, 2000);
-    const data = { ...encryptedAnswers, userId: user.uid, taxYear: year, updatedAt: new Date() };
+    const encrypted = encryptOrganizerIdentifiers(answers as Record<string, string>, previous);
+    if ('error' in encrypted) return NextResponse.json({ error: encrypted.error }, { status: 400 });
+    const data = { ...encrypted.answers, userId: user.uid, taxYear: year, updatedAt: new Date() };
+    // The client replaces its copy with the redacted text so the identifiers are not resent on the next save.
+    const redaction = encrypted.redactedTextFields.length
+      ? { warning: DEPENDENT_IDENTIFIERS_REMOVED_WARNING, redacted: Object.fromEntries(encrypted.redactedTextFields.map(field => [field, encrypted.answers[field]])) }
+      : {};
     if (snap.empty) {
       const ref = await adminDb.collection('tax_organizers').add({ ...data, createdAt: new Date() });
-      return NextResponse.json({ success: true, id: ref.id }, { status: 201, headers: privateHeaders });
+      return NextResponse.json({ success: true, id: ref.id, ...redaction }, { status: 201, headers: privateHeaders });
     }
     await snap.docs[0].ref.set(data, { merge: true });
-    return NextResponse.json({ success: true, id: snap.docs[0].id }, { headers: privateHeaders });
+    return NextResponse.json({ success: true, id: snap.docs[0].id, ...redaction }, { headers: privateHeaders });
   } catch {
     return NextResponse.json({ error: 'Unable to save your organizer. Please try again.' }, { status: 503, headers: privateHeaders });
   }

@@ -2,15 +2,18 @@ import { adminDb } from '@/lib/firebase/admin';
 import { validateReceiptPreviewPath } from '@/lib/receipts/preview-path';
 import { readOwnedTransactions, ownedExportRecord, exportReference, ExportDataUnavailableError } from './export-records';
 import { convertTransactionsToCSV, exportDate, selectExportYear, ExportReviewRequiredError, type ExportRecord } from './transaction-export';
+import { redactIdentifierText } from '@/lib/security/identifier-redaction';
 export { convertTransactionsToCSV } from './transaction-export';
 
 const TOP_LEVEL = ['gross_receipts', 'income_1099', 'income_reconciliations', 'w2_income', 'tax_deductions', 'tax_organizers'] as const;
 const PROFILE_CHILDREN = ['assets', 'settings', 'mileage_trips', 'quarterly_payments'] as const;
 const excludedKey = (key: string) => {
   const normalized = key.replace(/[^a-z0-9]/gi, '').toLowerCase();
-  return /token|secret|password|privatekey|plaid|stripe|signature|ssn|socialsecuritynumber|pin$|bankaccount|bankrouting|routingnumber|accountnumber/.test(normalized)
+  return /token|secret|password|privatekey|plaid|stripe|signature|ssn|itin|socialsecuritynumber|pin$|bankaccount|bankrouting|routingnumber|accountnumber|^ein$|identifiersencryptedat/.test(normalized)
     || ['efin', 'clientid', 'itemid', 'recordpath', 'storagepath', 'image', 'imagebase64', 'base64', 'dataurl', 'receiptdata', 'receiptbase64'].includes(normalized);
 };
+/** Free-text records that may still hold identifier digits from before server-side redaction. */
+const REDACTED_TEXT_KEYS = new Set(['dependentdetails']);
 /** Never include connector credentials, tax identity ciphertexts or legacy signing PINs. */
 export function sanitizeExportValue(value: unknown): unknown {
   if (value === undefined) return null;
@@ -18,7 +21,8 @@ export function sanitizeExportValue(value: unknown): unknown {
   if (value instanceof Date) return value.toISOString();
   if ('toDate' in value && typeof value.toDate === 'function') return value.toDate().toISOString();
   if (Array.isArray(value)) return value.map(sanitizeExportValue);
-  return Object.fromEntries(Object.entries(value).filter(([key]) => !excludedKey(key)).map(([key, entry]) => [key, sanitizeExportValue(entry)]));
+  return Object.fromEntries(Object.entries(value).filter(([key]) => !excludedKey(key)).map(([key, entry]) => [key,
+    typeof entry === 'string' && REDACTED_TEXT_KEYS.has(key.replace(/[^a-z0-9]/gi, '').toLowerCase()) ? redactIdentifierText(entry).text : sanitizeExportValue(entry)]));
 }
 function clean(record: ExportRecord): ExportRecord { return sanitizeExportValue(record) as ExportRecord; }
 function privateReceiptLink(value: unknown) { return typeof value === 'string' ? validateReceiptPreviewPath(value) ?? null : null; }
@@ -116,7 +120,7 @@ export function generateDataPackage(data: UserDataExport) {
     'A selected-year archive includes only receipt metadata linked to transactions in that year. Use an all-years archive to include unlinked receipt metadata.',
     'Tax datasets can overlap (for example bank deposits, gross receipts and 1099s). Do not sum them without reconciling duplicate income.',
     'Assets, settings and profile are current all-year snapshots; transaction, mileage, payment and tax-year records honor the selected year when supplied.',
-    'Authentication credentials, Plaid/Stripe connection details, SSN ciphertexts, bank account/routing numbers and legacy authorization PINs are excluded. Provide needed filing identity details separately through a secure preparer workflow.',
+    'Authentication credentials, Plaid/Stripe connection details, SSN/ITIN/EIN and IRS IP PIN ciphertexts, bank account/routing numbers and legacy authorization PINs are excluded, and identifier-shaped numbers are removed from dependent notes. Provide needed filing identity details separately through a secure preparer workflow.',
     'Only records saved in WriteOff are included. Missing W2/1099 forms, basis, carryovers, credits and other tax facts must be supplied separately.',
     'Audit support records (each confirmed deduction with its records on file, missing substantiation elements, mileage log and Pub 583 retention note) are a separate owner export from Reports > Audit support records; JSON and CSV are included on every plan.',
   ];
