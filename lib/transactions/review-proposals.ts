@@ -163,6 +163,11 @@ function unreviewed(transaction: Transaction): boolean {
   return !transaction.review_status && typeof transaction.is_deductible !== 'boolean' && transaction.pending !== true;
 }
 
+/** A category only counts toward a group when the analysis read the charge as an expense. */
+export function suggestedExpenseCategory(transaction: Pick<Transaction, 'ai_suggestion'>) {
+  return transaction.ai_suggestion?.transactionKind === 'expense' ? reviewCategory(transaction.ai_suggestion.category) : undefined;
+}
+
 /** Same refusals as the bulk route for a business decision, minus the caller-chosen category. */
 export function bulkDeductionBlocked(transaction: Pick<Transaction, 'ai_suggestion' | 'category' | 'transaction_kind'> & { ai_transaction_kind?: unknown }): boolean {
   const analysisKind = transaction.ai_suggestion?.transactionKind ?? (typeof transaction.ai_transaction_kind === 'string' ? transaction.ai_transaction_kind : undefined);
@@ -189,7 +194,7 @@ export function groupUnreviewedByMerchant(transactions: Transaction[]): Merchant
     group.count += 1;
     group.total += transaction.amount;
     group.proposedPurpose ??= proposedBusinessPurpose(transaction);
-    const category = reviewCategory(transaction.ai_suggestion?.category);
+    const category = suggestedExpenseCategory(transaction);
     if (category && !disagreeing.has(merchantKey)) {
       if (!group.category) { group.category = category.value; group.categoryLabel = category.label; }
       else if (group.category !== category.value) { disagreeing.add(merchantKey); group.category = null; group.categoryLabel = null; }

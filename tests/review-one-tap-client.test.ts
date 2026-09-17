@@ -216,7 +216,8 @@ describe('merchant-grouped triage', () => {
     const group = list.props.groups![0];
     expect(group).toMatchObject({ merchant: 'Adobe', count: 2, needsIndividualReview: 1 });
     const request = groupDecision(group, 'business', 'Design software for client work');
-    expect(request).toEqual({ merchantKey: 'adobe', merchant: 'Adobe', count: 2, decision: 'business', businessPurpose: 'Design software for client work', category: 'supplies_small_tools' });
+    // The only categorized suggestion read its charge as a transfer, so no category travels with the group decision.
+    expect(request).toEqual({ merchantKey: 'adobe', merchant: 'Adobe', count: 2, decision: 'business', businessPurpose: 'Design software for client work', category: null });
     list.props.onApplied!({ request, outcome: { updated: 1, skipped: 1, truncated: false, transactionIds: ['a1'] } }, group);
     expect(harness.updated).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: 'a1', is_deductible: true, business_purpose: 'Design software for client work', review_status: 'confirmed', review_source: 'user_decision' }));
     const after = grouped(page())!;

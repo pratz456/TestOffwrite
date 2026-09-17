@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown, ChevronRight, X } from 'lucide-react';
 import type { Transaction } from '@/lib/firebase/transactions';
 import { formatTransactionDate } from '@/lib/transactions/calendar-date';
-import { formatMoney, groupDecision, type BulkConfirmRequest, type MerchantGroup } from '@/lib/transactions/review-proposals';
+import { formatMoney, groupDecision, suggestedExpenseCategory, type BulkConfirmRequest, type MerchantGroup } from '@/lib/transactions/review-proposals';
 import { PurposeConfirmChip } from './purpose-confirm-chip';
 import { bulkOutcomeMessage, requestBulkConfirm, type BulkConfirmOutcome } from './bulk-confirm-offer';
 
@@ -42,7 +42,7 @@ export function MerchantGroupCard({ group, index, disabled = false, onApplied, o
       <div className="flex justify-between gap-3">
         <div className="min-w-0">
           <h3 className="break-words text-base font-semibold leading-snug">{group.merchant}</h3>
-          <p className="mt-0.5 text-xs text-muted-foreground">{charges} · {group.categoryLabel ?? (group.transactions.some(transaction => transaction.ai_suggestion) ? 'Suggested categories differ' : 'No AI suggestion yet')}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">{charges} · {group.categoryLabel ?? (group.transactions.some(transaction => suggestedExpenseCategory(transaction)) ? 'Suggested categories differ' : 'No category suggested yet')}</p>
         </div>
         <p className="shrink-0 text-base font-semibold tabular-nums">{formatMoney(group.total)}</p>
       </div>
