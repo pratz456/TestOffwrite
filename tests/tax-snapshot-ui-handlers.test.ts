@@ -177,6 +177,65 @@ describe('tax preview wage display', () => {
 });
 
 
+describe('tax preview informational state planning estimate', () => {
+  const supportedState = (taxYear: number) => ({
+    supported: true, label: 'informational state planning estimate', stateCode: 'NY', stateName: 'New York', taxYear, filingStatus: 'single', noIncomeTax: false,
+    estimate: 4860.65, stateWithheld: 1200, stateBalanceDue: 3660.65,
+    components: {
+      federalAGI: 100000, modifications: [], stateAGI: 100000, deductions: [{ label: 'New York standard deduction', amount: 8000 }], taxableIncome: 92000,
+      taxBeforeCredits: 4860.65, credits: [], additionalTaxes: [], detail: [{ label: 'Tax from New York State rate schedule', amount: 4860.65 }], marginalRate: 5.9, effectiveRate: 4.86,
+    },
+    warnings: ['New York City resident income tax, Yonkers taxes, the MCTMT on self-employment earnings and the NYC unincorporated business tax are separate and not included.'],
+    notes: [], sources: ['https://www.tax.ny.gov/pdf/current_forms/it/it2105i.pdf'],
+  });
+  const notice = { id: 'nyc-ubt', jurisdiction: 'New York City', basis: 'city', title: 'New York City unincorporated business tax (UBT)', summary: 'An individual with total gross business income over $95,000 must file a UBT return.', sources: [{ url: 'https://www.nyc.gov/site/finance/business/business-unincorporated-business-tax-ubt.page', note: 'NYC Department of Finance' }] };
+  const withState = (stateTax: unknown, businessTaxNotices: unknown[] = []) => (url: string) => {
+    if (!url.includes('compute-1040')) return requests(url);
+    return Promise.resolve(response({ ...snapshot(Number(new URL(url, 'http://localhost').searchParams.get('year'))), stateTax, businessTaxNotices }));
+  };
+
+  it('shows a supported estimate with its components, warnings, sources and notices, separate from total tax', async () => {
+    harness.request.mockImplementation(withState(supportedState(year), [notice]));
+    render(TaxPreviewScreen); await flush(); const tree = render(TaxPreviewScreen); const content = text(tree);
+    expect(content).toContain('New York state planning estimate');
+    expect(content).toContain('$4,861 informational state planning estimate (4.9% of federal AGI, 5.9% marginal)');
+    expect(content).toContain('New York standard deduction($8,000)');
+    expect(content).toContain('State taxable income$92,000');
+    expect(content).toContain('W-2 state withholding recorded: $1,200. Remaining state planning balance: $3,661.');
+    expect(content).toContain('not added to Total Tax');
+    expect(content).toContain('unincorporated business tax are separate and not included');
+    expect(content).toContain('Sources: tax.ny.gov');
+    expect(content).toContain('Separate business taxes to review1 notice');
+    expect(content).toContain(notice.title); expect(content).toContain(notice.summary); expect(content).toContain('nyc.gov');
+    expect(content).toContain('Estimated federal balance$0'); // the federal figure is unchanged by the state estimate
+    expect(content).not.toContain('Add your state');
+    expect(content).not.toMatch(/total tax with state|combined/i);
+  });
+
+  it('shows the reason instead of any state amount when the state-year is unsupported', async () => {
+    harness.request.mockImplementation(withState({ supported: false, label: 'informational state planning estimate', stateCode: 'CA', stateName: 'California', taxYear: year, reason: 'The Franchise Tax Board had not published the 2026 schedules at review.', sources: ['https://www.ftb.ca.gov/forms/index.html'], stateWithheld: 0 }));
+    render(TaxPreviewScreen); await flush(); const content = text(render(TaxPreviewScreen));
+    expect(content).toContain('California state planning estimateNot available');
+    expect(content).toContain(`No validated ${year} estimate for California`);
+    expect(content).toContain('The Franchise Tax Board had not published the 2026 schedules at review.');
+    expect(content).toContain('omitted until the department publishes');
+    expect(content).not.toContain('Separate business taxes to review');
+  });
+
+  it('shows the no-income-tax notes and asks for a state only when none is saved', async () => {
+    harness.request.mockImplementation(withState({ supported: true, label: 'informational state planning estimate', stateCode: 'WA', stateName: 'Washington', taxYear: year, filingStatus: 'single', noIncomeTax: true, estimate: 0, components: {}, warnings: [], notes: ['Washington has no individual income tax for 2025 or 2026.'], sources: ['https://dor.wa.gov/taxes-rates/income-tax'], stateWithheld: 0 }));
+    render(TaxPreviewScreen); await flush(); const noTax = text(render(TaxPreviewScreen));
+    expect(noTax).toContain('Washington state planning estimateNo income tax');
+    expect(noTax).toContain('Washington has no individual income tax for 2025 or 2026.');
+    expect(noTax).not.toContain('Add your state');
+    harness.request.mockImplementation(withState(null));
+    await walk(render(TaxPreviewScreen)).find(node => node.props?.['aria-label'] === 'Refresh tax estimate')!.props.onClick();
+    const missing = text(render(TaxPreviewScreen));
+    expect(missing).toContain('Add your state to see its informational state planning estimate');
+    expect(missing).not.toContain('state planning estimateNo income tax');
+  });
+});
+
 describe('tax preview personal deduction and benefit contract', () => {
   it.each(['PERSONAL_DEDUCTION_REVIEW_REQUIRED', 'DEPENDENT_CREDIT_REVIEW_REQUIRED'])('routes %s to Tax Organizer without fake totals or the add-income empty state', async code => {
     render(TaxPreviewScreen); await flush(); const previous = render(TaxPreviewScreen);

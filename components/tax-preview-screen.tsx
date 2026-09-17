@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { RefreshCw, DollarSign, ArrowRight, ChevronDown, ChevronUp, AlertCircle, Loader2, Info } from "lucide-react";
 import { TaxCalculationNotice } from "@/components/tax-calculation-notice";
 import { SUPPORTED_TAX_YEARS } from "@/lib/tax-rules/federal-year-rules";
+import type { BusinessTaxNotice, StateTaxComponents, StateTaxLine } from "@/lib/tax-rules/state";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 
 interface Props {
@@ -29,6 +30,40 @@ const fmt = (n: number, opts?: { abs?: boolean }) => {
   return v.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 });
 };
 const pct = (n: number) => `${n.toFixed(1)}%`;
+const sourceLabel = (url: string) => { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; } };
+const stringList = (value: unknown): string[] => Array.isArray(value)
+  ? [...new Set(value.filter((item): item is string => typeof item === "string" && item.trim().length > 0))]
+  : [];
+
+interface StateLine { label: string; amount: number; negative?: boolean }
+
+const lineList = (value: unknown): Partial<StateTaxLine>[] =>
+  Array.isArray(value) ? value.filter((line): line is Partial<StateTaxLine> => !!line && typeof line === "object") : [];
+
+/** Flatten the state estimate components (as received over the wire) into display rows; zero-amount deduction/credit rows are kept so the base is visible. */
+function stateComponentLines(value: unknown): StateLine[] {
+  if (!value || typeof value !== "object") return [];
+  const components = value as Partial<StateTaxComponents>;
+  const lines: StateLine[] = [];
+  const push = (label: unknown, amount: unknown, negative?: boolean) => {
+    if (typeof label === "string" && typeof amount === "number" && Number.isFinite(amount)) lines.push({ label, amount, negative });
+  };
+  push("Federal adjusted gross income", components.federalAGI);
+  for (const line of lineList(components.modifications)) push(line.label, Math.abs(line.amount ?? NaN), (line.amount ?? 0) < 0);
+  push("State adjusted gross income", components.stateAGI);
+  for (const line of lineList(components.deductions)) push(line.label, line.amount, true);
+  push("State taxable income", components.taxableIncome);
+  push("Tax before credits", components.taxBeforeCredits);
+  for (const line of lineList(components.credits)) push(line.label, line.amount, true);
+  for (const line of lineList(components.additionalTaxes)) push(line.label, line.amount);
+  return lines;
+}
+
+const isBusinessTaxNotice = (notice: unknown): notice is BusinessTaxNotice =>
+  !!notice && typeof notice === "object"
+  && typeof (notice as BusinessTaxNotice).id === "string"
+  && typeof (notice as BusinessTaxNotice).title === "string"
+  && typeof (notice as BusinessTaxNotice).summary === "string";
 
 export function TaxPreviewScreen({ user, onNavigate }: Props) {
   const [year, setYear] = useState(String(SUPPORTED_TAX_YEARS[SUPPORTED_TAX_YEARS.length - 1]));
@@ -66,15 +101,22 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
   const hasRefund = f1040?.refund > 0;
   const hasBalance = f1040?.balanceDue > 0;
 
-  const calculationWarnings = Array.isArray(f1040?.calculationWarnings)
-    ? [...new Set(f1040.calculationWarnings.filter((note: unknown): note is string => typeof note === "string" && note.trim().length > 0))]
+  const calculationWarnings = stringList(f1040?.calculationWarnings);
+  // Informational state planning estimate: { supported: true, estimate, components, warnings, sources } or { supported: false, reason }.
+  const stateTax = data?.stateTax && typeof data.stateTax === "object" && typeof data.stateTax.supported === "boolean" ? data.stateTax : null;
+  const stateLines = stateTax?.supported && !stateTax.noIncomeTax ? stateComponentLines(stateTax.components) : [];
+  const stateWarnings = stateTax?.supported ? stringList(stateTax.warnings) : [];
+  const stateNotes = stateTax?.supported ? stringList(stateTax.notes) : [];
+  const stateSources = stateTax ? stringList(stateTax.sources) : [];
+  const businessTaxNotices: BusinessTaxNotice[] = Array.isArray(data?.businessTaxNotices)
+    ? (data.businessTaxNotices as unknown[]).filter(isBusinessTaxNotice)
     : [];
   const gaps: { msg: string; screen: string }[] = [];
   if (f1040) {
     if (data.income.grossReceipts === 0 && data.income.w2Wages === 0) gaps.push({ msg: "No income recorded yet", screen: "income-tracking" });
     if (data.income.totalDeductible === 0) gaps.push({ msg: "Review expenses and refunds", screen: "transactions" });
     if (data.w2.count === 0 && data.income.w2Wages === 0) gaps.push({ msg: "Add W-2 income if you have a day job", screen: "w2-income" });
-    if (!data.stateTax) gaps.push({ msg: "Add your state to see its tax estimate", screen: "settings" });
+    if (!stateTax) gaps.push({ msg: "Add your state to see its informational state planning estimate", screen: "settings" });
     if (!data.income.grossReceipts && !data.income.w2Wages) gaps.push({ msg: "Complete the Tax Organizer to ensure all income is captured", screen: "tax-organizer" });
     if (!data.deductions.healthInsurancePremiums && !data.deductions.sepIraContribution) gaps.push({ msg: "Review eligible health insurance and retirement deductions", screen: "tax-organizer" });
   }
@@ -219,20 +261,75 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
                 </details>
               )}
 
-              {data?.stateTax && (
+              {stateTax && (
                 <details className="group">
                   <summary className="flex min-h-12 cursor-pointer list-none items-center gap-3 px-4 py-2.5 text-sm [&::-webkit-details-marker]:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary">
-                    <span className="min-w-0 flex-1 font-medium">{data.stateTax.stateName} state estimate</span>
-                    <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{data.stateTax.type === 'no_tax' ? 'No income tax' : fmt(data.stateTax.stateWithheld > 0 ? data.stateTax.stateBalanceDue : data.stateTax.estimatedTax)}</span>
+                    <span className="min-w-0 flex-1 font-medium">{stateTax.stateName} state planning estimate</span>
+                    <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                      {!stateTax.supported ? "Not available" : stateTax.noIncomeTax ? "No income tax" : fmt(stateTax.estimate)}
+                    </span>
                     <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
                   </summary>
                   <div className="space-y-1.5 px-4 pb-3 text-xs leading-relaxed text-muted-foreground">
-                    <p className="font-medium text-foreground">{data.stateTax.type === 'no_tax' ? 'No state income tax' : `${fmt(data.stateTax.estimatedTax)} estimated tax (${pct(data.stateTax.effectiveRate)} effective rate)`}</p>
-                    {data.stateTax.stateWithheld > 0 && data.stateTax.type !== 'no_tax' && <>
-                      <p>W-2 state withholding applied: {fmt(data.stateTax.stateWithheld)}</p>
-                      <p>State balance due: {fmt(data.stateTax.stateBalanceDue)}</p>
-                    </>}
-                    <p>{data.stateTax.note}</p>
+                    {!stateTax.supported ? (
+                      <>
+                        <p className="font-medium text-foreground">No validated {stateTax.taxYear} estimate for {stateTax.stateName}</p>
+                        <p>{stateTax.reason}</p>
+                      </>
+                    ) : stateTax.noIncomeTax ? (
+                      <>
+                        <p className="font-medium text-foreground">No state income tax for {stateTax.taxYear}</p>
+                        {stateNotes.map(note => <p key={note}>{note}</p>)}
+                      </>
+                    ) : (
+                      <>
+                        <p className="font-medium text-foreground">
+                          {fmt(stateTax.estimate)} informational state planning estimate ({pct(stateTax.components?.effectiveRate ?? 0)} of federal AGI, {pct(stateTax.components?.marginalRate ?? 0)} marginal)
+                        </p>
+                        <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-0.5 tabular-nums">
+                          {stateLines.map(line => (
+                            <React.Fragment key={line.label}>
+                              <dt className="min-w-0 break-words">{line.label}</dt>
+                              <dd className="text-right text-foreground">{line.negative ? `(${fmt(line.amount, { abs: true })})` : fmt(line.amount)}</dd>
+                            </React.Fragment>
+                          ))}
+                        </dl>
+                        {typeof stateTax.stateWithheld === "number" && stateTax.stateWithheld > 0 && (
+                          <p>W-2 state withholding recorded: {fmt(stateTax.stateWithheld)}. Remaining state planning balance: {fmt(stateTax.stateBalanceDue ?? 0)}. W-2 state codes are not reconciled against your saved state.</p>
+                        )}
+                      </>
+                    )}
+                    {stateWarnings.length > 0 && (
+                      <ul className="list-disc space-y-1 pl-4">
+                        {stateWarnings.map(warning => <li key={warning}>{warning}</li>)}
+                      </ul>
+                    )}
+                    <p>
+                      {stateTax.supported ? "Shown separately from the federal figures above and not added to Total Tax. This does not prepare a state return." : "State figures are omitted until the department publishes the parameters for this year."}
+                      {stateSources.length > 0 && <> Sources: {stateSources.map((url, index) => <React.Fragment key={url}>{index > 0 ? ", " : ""}<a href={url} target="_blank" rel="noreferrer" className="underline underline-offset-2">{sourceLabel(url)}</a></React.Fragment>)}.</>}
+                    </p>
+                  </div>
+                </details>
+              )}
+
+              {businessTaxNotices.length > 0 && (
+                <details className="group">
+                  <summary className="flex min-h-12 cursor-pointer list-none items-center gap-3 px-4 py-2.5 text-sm [&::-webkit-details-marker]:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary">
+                    <span className="min-w-0 flex-1 font-medium">Separate business taxes to review</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">{businessTaxNotices.length} {businessTaxNotices.length === 1 ? "notice" : "notices"}</span>
+                    <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+                  </summary>
+                  <div className="space-y-3 px-4 pb-3 text-xs leading-relaxed text-muted-foreground">
+                    <p>Informational only, based on the state and city saved in Settings. Nothing below is calculated or added to your federal or state figures.</p>
+                    {businessTaxNotices.map(notice => (
+                      <div key={notice.id} className="space-y-1">
+                        <p className="font-medium text-foreground">{notice.title}</p>
+                        <p>{notice.summary}</p>
+                        {Array.isArray(notice.sources) && notice.sources.length > 0 && (
+                          <p>Sources: {notice.sources.map((source, index) => <React.Fragment key={source.url}>{index > 0 ? ", " : ""}<a href={source.url} target="_blank" rel="noreferrer" className="underline underline-offset-2">{sourceLabel(source.url)}</a></React.Fragment>)}.</p>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 </details>
               )}
