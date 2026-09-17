@@ -11,19 +11,23 @@ export type ContactRequestBody = {
   message: string;
 };
 
+/** Upper bounds for the public form so a future mailer never relays unbounded text. */
+const LIMITS = { name: 200, email: 254, subject: 300, category: 64, message: 10_000 } as const;
+
 function validateBody(body: unknown): body is ContactRequestBody {
   if (!body || typeof body !== "object") return false;
   const b = body as Record<string, unknown>;
+  const within = (field: keyof typeof LIMITS) => typeof b[field] === "string" && (b[field] as string).length <= LIMITS[field];
   return (
-    typeof b.name === "string" &&
-    b.name.trim().length > 0 &&
-    typeof b.email === "string" &&
-    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(b.email) &&
-    typeof b.subject === "string" &&
-    b.subject.trim().length > 0 &&
-    typeof b.category === "string" &&
-    typeof b.message === "string" &&
-    b.message.trim().length > 0
+    within("name") &&
+    (b.name as string).trim().length > 0 &&
+    within("email") &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(b.email as string) &&
+    within("subject") &&
+    (b.subject as string).trim().length > 0 &&
+    within("category") &&
+    within("message") &&
+    (b.message as string).trim().length > 0
   );
 }
 
