@@ -251,7 +251,7 @@ export function calculateOBBBADeductions(input: OBBBADeductionInput): OBBBADeduc
     const amountReported = money(facts.nonItemizerCashCharity, 'cash gifts to public charities');
     if (!input.usingStandardDeduction) {
       result.nonItemizerCharitable = { ...none('You itemize, so charitable gifts belong on Schedule A rather than the non-itemizer deduction (section 170(p)).'), amountReported };
-      warnings.push('From 2026, itemized charitable contributions are deductible only above 0.5% of AGI (section 170(b)(1)(I)); that floor is not modeled.');
+      warnings.push('From 2026, itemized charitable contributions are deductible only above 0.5% of AGI (section 170(b)(1)(I)); the federal estimate applies that floor to the charitable gifts recorded in Tax Deductions, not to any Schedule A total entered directly.');
     } else {
       const limitedAmount = round(Math.min(amountReported, joint ? NON_ITEMIZER_CHARITY_LIMIT_JOINT : NON_ITEMIZER_CHARITY_LIMIT));
       result.nonItemizerCharitable = { deduction: limitedAmount, amountReported, limitedAmount, phaseoutReduction: 0 };

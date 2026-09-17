@@ -173,6 +173,31 @@ export function limitHSADeduction(taxYear: number, filingStatus: Form1040Input['
   return { deduction: Math.min(Math.max(0, contribution), ceiling), ceiling, selfOnlyCeiling };
 }
 
+/** §221(b)(1) per-return limit on deductible student loan interest. */
+export const STUDENT_LOAN_INTEREST_LIMIT = 2500;
+/** §221(b)(2)(B): the phaseout runs over $15,000 of modified AGI ($30,000 on a joint return); not indexed. */
+export const STUDENT_LOAN_PHASEOUT_WIDTH = 15000;
+export const STUDENT_LOAN_PHASEOUT_WIDTH_JOINT = 30000;
+
+/**
+ * Student Loan Interest Deduction Worksheet (Schedule 1, line 21): interest up to $2,500 (line 1)
+ * is reduced by the fraction of the phaseout range used by modified AGI (line 4: total income
+ * less the other Schedule 1 adjustments), rounded to three decimals and capped at 1.000 (line 7).
+ * §221(e)(2) denies the deduction to married taxpayers filing separately.
+ */
+export function limitStudentLoanInterest(taxYear: number, filingStatus: Form1040Input['filingStatus'], interestPaid: number, modifiedAGI: number): { deduction: number; limited: number; phaseoutFraction: number; phaseoutStart: number; phaseoutEnd: number } {
+  const start = getFederalTaxRules(taxYear).studentLoanInterestPhaseoutStart;
+  const joint = filingStatus === 'married_filing_jointly';
+  const phaseoutStart = joint ? start.joint : start.single;
+  const width = joint ? STUDENT_LOAN_PHASEOUT_WIDTH_JOINT : STUDENT_LOAN_PHASEOUT_WIDTH;
+  const limited = Math.min(Math.max(0, interestPaid), STUDENT_LOAN_INTEREST_LIMIT);
+  if (filingStatus === 'married_filing_separately') return { deduction: 0, limited, phaseoutFraction: 1, phaseoutStart, phaseoutEnd: phaseoutStart + width };
+  const excess = Math.max(0, modifiedAGI - phaseoutStart);
+  const phaseoutFraction = Math.min(1, Math.round(excess / width * 1000) / 1000);
+  const reduction = Math.round(limited * phaseoutFraction * 100) / 100;
+  return { deduction: Math.max(0, Math.round((limited - reduction) * 100) / 100), limited, phaseoutFraction, phaseoutStart, phaseoutEnd: phaseoutStart + width };
+}
+
 /**
  * Itemized charitable contributions: the §170(b)(1) ceiling is 60% of AGI (cash to
  * public charities; lower 50%/30% limits apply to other gifts) and, for tax years after
@@ -243,23 +268,23 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
   } else if (hsa.deduction > hsa.selfOnlyCeiling) {
     calculationWarnings.push(`An HSA deduction above $${hsa.selfOnlyCeiling.toLocaleString('en-US')} requires family HDHP coverage for the full year; confirm coverage type and eligibility months on Form 8889 before relying on it.`);
   }
-  // §221(b)(1) caps student loan interest at $2,500; §221(e)(2) denies it to married filing separately.
-  // The income phaseout is not modeled and is flagged for review when any amount is claimed.
-  let studentLoanInterestDeduction = Math.min(Math.max(0, studentLoanInterest), 2500);
-  if (studentLoanInterest > 2500) calculationWarnings.push('Student loan interest is limited to $2,500 per return.');
-  if (studentLoanInterestDeduction > 0 && filingStatus === 'married_filing_separately') {
-    studentLoanInterestDeduction = 0;
+  // §221(b)(1) caps student loan interest at $2,500; §221(e)(2) denies it to married filing separately;
+  // §221(b)(2) phases it out over modified AGI (worksheet line 4: total income less the other adjustments).
+  const otherAdjustments = halfSEDeduction + healthInsuranceDeduction + retirementContributions + hsa.deduction;
+  const studentLoan = limitStudentLoanInterest(taxYear, filingStatus, studentLoanInterest, totalIncome - otherAdjustments);
+  const studentLoanInterestDeduction = studentLoan.deduction;
+  if (studentLoanInterest > STUDENT_LOAN_INTEREST_LIMIT) calculationWarnings.push('Student loan interest is limited to $2,500 per return.');
+  if (studentLoanInterest > 0 && filingStatus === 'married_filing_separately') {
     calculationWarnings.push('Student loan interest is not deductible when married filing separately.');
-  } else if (studentLoanInterestDeduction > 0) {
-    calculationWarnings.push('Student loan interest phases out above the annual modified-AGI thresholds and requires a qualified loan; confirm eligibility before relying on this deduction.');
+  } else if (studentLoanInterest > 0 && studentLoan.phaseoutFraction >= 1) {
+    calculationWarnings.push(`Student loan interest is fully phased out: modified AGI is at or above $${studentLoan.phaseoutEnd.toLocaleString('en-US')} for ${taxYear} (Schedule 1 line 21 worksheet).`);
+  } else if (studentLoanInterest > 0) {
+    if (studentLoan.phaseoutFraction > 0) {
+      calculationWarnings.push(`Student loan interest is reduced to $${studentLoanInterestDeduction.toLocaleString('en-US')} because modified AGI exceeds $${studentLoan.phaseoutStart.toLocaleString('en-US')} (Schedule 1 line 21 worksheet, ${(studentLoan.phaseoutFraction * 100).toFixed(1)}% of the phaseout range used).`);
+    }
+    calculationWarnings.push('Student loan interest requires a qualified education loan for you, your spouse or a dependent, and cannot be claimed if you can be claimed as a dependent; confirm eligibility before relying on this deduction.');
   }
-  const adjustments = Math.max(0,
-    halfSEDeduction +
-    healthInsuranceDeduction +
-    retirementContributions +
-    hsa.deduction +
-    studentLoanInterestDeduction
-  );
+  const adjustments = Math.max(0, otherAdjustments + studentLoanInterestDeduction);
 
   // ── Step 3: AGI (Line 11) ──
   const agiBeforeFloor = totalIncome - adjustments;

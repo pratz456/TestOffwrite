@@ -24,10 +24,21 @@ describe('statutory above-the-line limits in the federal planning estimate', () 
     const capped = compute1040({ ...base, studentLoanInterest: 4000 });
     expect(capped.adjustments).toBe(1413 + 2500);
     expect(capped.calculationWarnings.join(' ')).toContain('limited to $2,500');
-    expect(capped.calculationWarnings.join(' ')).toContain('phases out');
+    expect(capped.calculationWarnings.join(' ')).toContain('qualified education loan');
+    expect(capped.calculationWarnings.join(' ')).not.toContain('phased out');
     const separate = compute1040({ ...base, filingStatus: 'married_filing_separately', studentLoanInterest: 1000 });
     expect(separate.adjustments).toBe(1413);
     expect(separate.calculationWarnings.join(' ')).toContain('not deductible when married filing separately');
+  });
+
+  it('phases student loan interest out over modified AGI (Schedule 1 line 21 worksheet)', () => {
+    // 2026 single: $85,000–$100,000. Total income 100,000 − 1,413 half SE = 98,587 MAGI → 13,587 / 15,000 = 0.906 → 2,500 × 0.906 = 2,265 reduction.
+    const partial = compute1040({ ...base, scheduleCNetProfit: 20000, w2Wages: 80000, w2MedicareWages: 80000, studentLoanInterest: 2500 });
+    expect(partial.adjustments).toBe(1413 + 235);
+    expect(partial.calculationWarnings.join(' ')).toContain('reduced to $235');
+    const gone = compute1040({ ...base, scheduleCNetProfit: 20000, w2Wages: 90000, w2MedicareWages: 90000, studentLoanInterest: 2500 });
+    expect(gone.adjustments).toBe(1413);
+    expect(gone.calculationWarnings.join(' ')).toContain('fully phased out');
   });
 
   it('reports the effective rate on total federal tax, including self-employment tax', () => {
