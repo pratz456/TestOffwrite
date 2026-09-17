@@ -1,11 +1,15 @@
 import { FieldPath } from 'firebase-admin/firestore';
 import { taxDecisionUpdate } from '@/lib/transactions/tax-decision';
 import { recordedTransactionType, reviewHydrationFields, type AiReviewSuggestion, type TransactionKind } from '@/lib/transactions/ai-review-contract';
+import type { AiExplanation } from '@/lib/transactions/review-proposals';
 // lib/firebase/transactions-server.ts
 import { adminDb } from './admin';
 
 export interface Transaction {
   ai_suggestion?: AiReviewSuggestion | null;
+  ai_missing_fields?: string[];
+  ai_customized_reason?: string | null;
+  ai_explanation?: AiExplanation | null;
   transaction_kind?: TransactionKind;
   review_status?: string;
   review_source?: string;

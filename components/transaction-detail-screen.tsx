@@ -11,8 +11,11 @@ import { Badge } from '@/components/ui/badge';
 import { useToasts } from '@/components/ui/toast';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { ReceiptPreview } from '@/components/receipt-preview';
-import { AiTaxExplanation } from '@/components/ai-tax-explanation';
+import { AiTaxAnalysisDialog, AiTaxExplanation } from '@/components/ai-tax-explanation';
+import { ExplanationCard } from '@/components/ai/explanation-card';
+import { PurposeConfirmChip } from '@/components/review/purpose-confirm-chip';
 import type { AiReviewSuggestion } from '@/lib/transactions/ai-review-contract';
+import { canOfferPurposeConfirmation, confirmPurposeUpdates, firstOpenQuestion, proposedBusinessPurpose, rejectProposalUpdates, type AiExplanation } from '@/lib/transactions/review-proposals';
 import { auth } from '@/lib/firebase/client';
 import { useAiAvailability } from '@/lib/hooks/use-ai-availability';
 import { consolidateCategory } from '@/lib/utils';
@@ -54,7 +57,12 @@ interface TransactionDetailScreenProps {
     receipt_filename?: string; // Original filename of the receipt
     trans_id?: string; // Transaction ID from Plaid
     account_id?: string; // Account ID
+    pending?: boolean | null;
+    review_status?: string;
     ai_suggestion?: AiReviewSuggestion | null;
+    ai_missing_fields?: string[];
+    ai_customized_reason?: string | null;
+    ai_explanation?: AiExplanation | null;
     
     // Transaction-Specific Context Fields
     business_purpose?: string; // Why this expense was necessary for business
@@ -362,6 +370,29 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
     } catch (error) {
       console.error('Error updating transaction:', error);
       showError('Update Failed', 'Failed to save changes. Please try again.');
+    }
+  };
+
+  // One-tap decision on the AI's proposed purpose. The same PUT route stamps the review server-side.
+  const [proposalSaving, setProposalSaving] = useState(false);
+  const proposal = proposedBusinessPurpose(transaction);
+  const openQuestion = firstOpenQuestion(transaction);
+  const offerPurpose = !isAnalyzing && canOfferPurposeConfirmation(transaction);
+  const handleProposalDecision = async (updates: Record<string, unknown>, title: string, detail: string) => {
+    if (proposalSaving) return;
+    if (!userId) { showError('Authentication Error', 'Please sign in to save changes'); return; }
+    setProposalSaving(true);
+    try {
+      const saved = await saveContext(updates as Parameters<typeof saveContext>[0]);
+      if (activeAnalysisContext.current !== analysisContext) return;
+      if (typeof updates.business_purpose === 'string') setBusinessPurpose(updates.business_purpose);
+      if (typeof updates.is_deductible === 'boolean') { setClassification(updates.is_deductible ? 'business' : 'personal'); localClassificationDraft.current = null; }
+      showSuccess(title, detail);
+      await onSave({ ...transaction, ...updates, ...saved });
+    } catch {
+      if (activeAnalysisContext.current === analysisContext) showError('Decision not saved', 'Your decision could not be saved. Please try again.');
+    } finally {
+      if (activeAnalysisContext.current === analysisContext) setProposalSaving(false);
     }
   };
 
@@ -765,6 +796,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
             {(analysisUnavailable || aiAvailability.status === 'unavailable') && <Button variant="outline" size="sm" className="h-11" onClick={checkAiAvailability} disabled={isAnalyzing || aiAvailability.status === 'checking'}>Check AI availability</Button>}
 
             {isAnalyzing ? <div className="space-y-3 py-2" role="status"><p className="text-sm text-muted-foreground">Analyzing transaction…</p><div className="h-4 animate-pulse rounded bg-muted" /><div className="h-4 w-3/4 animate-pulse rounded bg-muted" /></div>
+              : transaction.ai_explanation ? <div className="space-y-2"><ExplanationCard explanation={transaction.ai_explanation} />{transaction.ai_suggestion && <AiTaxAnalysisDialog key={transaction.ai_suggestion.id} suggestion={transaction.ai_suggestion} />}</div>
               : transaction.ai_suggestion ? <AiTaxExplanation key={transaction.ai_suggestion.id} suggestion={transaction.ai_suggestion} compact onAddContext={() => changeDetailSection('details')} />
               : <div className="space-y-2 text-sm text-muted-foreground">
                 <p>{transaction.deductionStatus || transaction.ai ? 'Run analysis again for a current category, tax explanation and sources.' : 'No AI suggestion yet. Add a business purpose, then run analysis.'}</p>
@@ -773,6 +805,10 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                   <div className="space-y-2 border-t border-border p-3"><p>{transaction.reasoning || transaction.ai?.key_analysis_factors?.reasoning_summary || transaction.ai?.reasoning || transaction.ai_analysis || transaction.deductible_reason || 'No saved explanation.'}</p><p className="text-xs">Earlier guidance has not been verified against the current facts. Run analysis again before relying on it.</p></div>
                 </details>}
               </div>}
+            {offerPurpose && <PurposeConfirmChip key={`${analysisContext}:${proposal ?? ''}`} proposal={proposal} question={openQuestion?.kind === 'business_purpose' ? openQuestion.question : null}
+              busy={proposalSaving} disabled={isSaving || isUploadingReceipt}
+              onConfirm={purpose => handleProposalDecision(confirmPurposeUpdates(purpose, proposal), 'Purpose confirmed', 'The business purpose is saved and the deduction is recorded.')}
+              onReject={() => handleProposalDecision(rejectProposalUpdates(), 'Marked not business', 'No deduction is recorded for this transaction.')} />}
             {transaction.ai_suggestion && <Button className="h-11 w-full" onClick={() => navigateFromTransaction(protectedScreenUrl(`review-transactions?transactionId=${encodeURIComponent(getTransactionId(transaction))}`))}>Confirm or change category<ArrowRight className="h-4 w-4" /></Button>}
           </div>
             </Card>

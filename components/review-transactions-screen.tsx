@@ -12,6 +12,9 @@ import { transactionNeedsCategoryReview, transactionNeedsTaxReview } from '@/lib
 import { REVIEW_CATEGORIES, canConfirmSuggestion, reviewCategory, type TransactionKind } from '@/lib/transactions/ai-review-contract';
 import { reviewPresentation, transactionReviewKey } from '@/lib/transactions/review-presentation';
 import { formatTransactionDate } from '@/lib/transactions/calendar-date';
+import { canOfferPurposeConfirmation, confirmPurposeUpdates, firstOpenQuestion, proposedBusinessPurpose, rejectProposalUpdates } from '@/lib/transactions/review-proposals';
+import { PurposeConfirmChip } from '@/components/review/purpose-confirm-chip';
+import { ExplanationCard } from '@/components/ai/explanation-card';
 
 interface ReviewTransactionsScreenProps {
   user: { id: string; email?: string; user_metadata?: { name?: string } };
@@ -95,6 +98,10 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
     ? `Confirm saves this category and marks it deductible. ${suggestedCategory?.value === 'meals_50' ? 'Verify business use; the 50% meal limit applies.' : 'Verify business use first.'}`
     : suggestion?.transactionKind === 'expense' ? 'Confirm also marks this expense not deductible.' : 'No expense deduction will be recorded.';
   const busy = operation !== null;
+  // One-tap purpose confirmation: only offered while the proposal can be recorded through the update API.
+  const proposal = current ? proposedBusinessPurpose(current) : null;
+  const openQuestion = current ? firstOpenQuestion(current) : null;
+  const offerPurpose = !!current && !analysisRunning && !analysisQueued && canOfferPurposeConfirmation(current);
 
   useEffect(() => {
     setEditing(false); setMessage(null); setTouchOffset(0); touchStart.current = null;
@@ -173,6 +180,32 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
       toast.success(result.transaction.tax_review_required ? 'Category saved · tax details still need review' : action === 'confirm' ? 'AI categorization confirmed' : 'Your correction was saved');
     } catch {
       if (mounted.current && activeUser.current === owner && activeKey.current === key) setMessage('Your review was not saved. Check your connection and try again.');
+    } finally { operationLock.current = false; if (mounted.current) { setOperation(null); setTouchOffset(0); } }
+  };
+
+  // Records a tax decision through the existing update route; the server stamps review_status/review_source/reviewed_at.
+  const saveDecision = async (updates: Record<string, unknown>, successMessage: string) => {
+    if (!current || operationLock.current || current.pending) return;
+    operationLock.current = true; setOperation('saving'); setMessage(null);
+    const owner = user.id;
+    const key = currentKey;
+    const record = current;
+    try {
+      const response = await makeAuthenticatedRequest(`/api/transactions/${encodeURIComponent(record.trans_id || record.id)}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates),
+      });
+      const result = await response.json().catch(() => null);
+      if (!mounted.current || activeUser.current !== owner || activeKey.current !== key) return;
+      if (!response.ok || !result?.success || !result.transaction) {
+        setMessage(response.status === 401 ? 'Your session expired. Sign in again to save your review.' : result?.error || 'Your decision was not saved. Please try again.');
+        return;
+      }
+      const saved = { ...record, ...(result.transaction as Partial<Transaction>) } as Transaction;
+      remember(saved);
+      setReviewed(previous => new Set([...previous, key]));
+      toast.success(successMessage);
+    } catch {
+      if (mounted.current && activeUser.current === owner && activeKey.current === key) setMessage('Your decision was not saved. Check your connection and try again.');
     } finally { operationLock.current = false; if (mounted.current) { setOperation(null); setTouchOffset(0); } }
   };
 
@@ -282,10 +315,17 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
               <section className="space-y-2 rounded-xl border border-primary/20 bg-primary/5 p-3" aria-labelledby="suggestion-heading">
                 <div className="flex items-center gap-1.5 text-xs font-medium text-primary"><Sparkles className="h-3.5 w-3.5 shrink-0" /><span>{mayConfirm && presentation!.needsTaxFacts ? 'AI suggested category' : presentation!.label}</span></div>
                 <h3 id="suggestion-heading" className="text-xl font-semibold leading-tight">{presentation!.categoryLabel}</h3>
-                <p className={suggestion ? 'line-clamp-2 text-sm leading-5' : 'text-sm leading-5'}>{presentation!.reasoning}</p>
+                {current.ai_explanation ? <ExplanationCard explanation={current.ai_explanation} />
+                  : <p className={suggestion ? 'line-clamp-2 text-sm leading-5' : 'text-sm leading-5'}>{presentation!.reasoning}</p>}
               </section>
 
-              {needsTaxFacts ? <div className="flex items-center justify-between gap-3 rounded-lg bg-amber-500/10 px-3 py-1.5 text-amber-900 dark:text-amber-200">
+              {offerPurpose && <PurposeConfirmChip key={currentKey} proposal={proposal} question={openQuestion?.kind === 'business_purpose' ? openQuestion.question : null}
+                busy={operation === 'saving'} disabled={busy}
+                onConfirm={purpose => saveDecision(confirmPurposeUpdates(purpose, proposal), 'Business purpose confirmed and deduction recorded')}
+                onReject={() => saveDecision(rejectProposalUpdates(), 'Marked not business; no deduction recorded')} />}
+
+              {offerPurpose ? <p id="review-confirmation-hint" className="text-xs leading-4 text-muted-foreground">{mayConfirm ? `${confirmationLabel} below saves the category${recordsDeduction ? ' and the deduction' : ' only'}; the purpose is saved when you confirm it above.` : presentation!.confirmationHint}</p>
+              : needsTaxFacts ? <div className="flex items-center justify-between gap-3 rounded-lg bg-amber-500/10 px-3 py-1.5 text-amber-900 dark:text-amber-200">
                 <div className="min-w-0"><p className="text-xs font-medium">Deduction unresolved</p><p id="review-confirmation-hint" className="text-xs leading-4">{mayConfirm ? 'Confirm saves the category only.' : presentation!.confirmationHint}</p></div>
                 {onTransactionClick && <button type="button" className="inline-flex min-h-11 shrink-0 items-center gap-1 text-xs font-medium underline underline-offset-2" onClick={() => onTransactionClick({ ...current, _source: 'review-transactions' }, 'details')}>Add details<ChevronRight aria-hidden="true" className="h-3.5 w-3.5" /></button>}
               </div> : <p id="review-confirmation-hint" className="text-xs leading-4 text-muted-foreground">{confirmationHint}</p>}
