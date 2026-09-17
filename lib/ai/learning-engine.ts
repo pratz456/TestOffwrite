@@ -57,6 +57,19 @@ export interface LearningPattern {
   lastUpdated: Date;
 }
 
+/** A learned merchant/category/MCC lean, surfaced to the analyst as context only. */
+export interface PatternPreference {
+  preferredClassification: boolean;
+  confidence: number;
+  correctionCount: number;
+}
+
+export interface AmountPreference {
+  type: 'low' | 'high';
+  preferredClassification: boolean;
+  confidence: number;
+}
+
 /**
  * Analysis input names the payee `merchant`; stored transactions use
  * `merchant_name` (Plaid) or `name`. Patterns are keyed by the same
@@ -352,7 +365,7 @@ export class AILearningEngine {
     }
   }
 
-  private getMerchantPreference(patterns: LearningPattern, merchantKey?: string): any {
+  private getMerchantPreference(patterns: LearningPattern, merchantKey?: string): PatternPreference | null {
     if (!merchantKey) return null;
     const merchant = patterns.merchantPatterns[merchantKey.toLowerCase()];
     return merchant ? {
@@ -362,7 +375,7 @@ export class AILearningEngine {
     } : null;
   }
 
-  private getCategoryPreference(patterns: LearningPattern, category?: string): any {
+  private getCategoryPreference(patterns: LearningPattern, category?: string): PatternPreference | null {
     if (!category) return null;
     const cat = patterns.categoryPatterns[category.toLowerCase()];
     return cat ? {
@@ -372,7 +385,7 @@ export class AILearningEngine {
     } : null;
   }
 
-  private getMccPreference(patterns: LearningPattern, mcc?: string): any {
+  private getMccPreference(patterns: LearningPattern, mcc?: string): PatternPreference | null {
     if (!mcc) return null;
     const mccPattern = patterns.mccPatterns[mcc];
     return mccPattern ? {
@@ -382,7 +395,7 @@ export class AILearningEngine {
     } : null;
   }
 
-  private getAmountPreference(patterns: LearningPattern, amount?: number): any {
+  private getAmountPreference(patterns: LearningPattern, amount?: number): AmountPreference | null {
     if (!amount) return null;
     const absAmount = Math.abs(amount);
     if (absAmount < patterns.amountPatterns.lowAmount.threshold) {
@@ -407,7 +420,7 @@ export class AILearningEngine {
       this.getCategoryPreference(patterns, transactionData.category),
       this.getMccPreference(patterns, transactionData.mcc),
       this.getAmountPreference(patterns, transactionData.amount)
-    ].filter(p => p !== null);
+    ].filter((p): p is PatternPreference | AmountPreference => p !== null);
 
     if (preferences.length === 0) return 0.5;
 
