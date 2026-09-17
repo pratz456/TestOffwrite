@@ -77,6 +77,18 @@ The command pins the production project, refuses emulators, writes a new mode-06
 
 Every overlap is labeled `human_review_required`; the command never chooses a canonical record, changes a confirmation, merges data or marks the release review complete. Exact-match candidates can miss real duplicates and can include legitimate repeated purchases. Use the private record references for the documented human reconciliation and retain separate evidence of the decision.
 
+## Application behavior changes that reach existing users at rollout
+
+These are code-level effects of the 2026-09-17 merges, separate from the banking migration above. None writes to customer records on its own.
+
+- **Paid tier verification.** Reports and exports require a server-verified `subscriptionPlan` (`basic` or `premium`). A paid profile without it is treated as locked until `GET /api/subscriptions/check-access` reconciles it from Stripe, which the app calls on every protected-app load. Live Stripe keys must therefore be configured before the app deploy, or Premium customers see the paywall until they are. Basic keeps extended bank history only, as approved.
+- **Home office.** A profile with a legacy `home_office_method` but no saved `settings/homeOffice` facts now receives `HOME_OFFICE_REVIEW_REQUIRED` from the annual estimate, Form 1040 PDF, Schedule C/SE and worksheet routes until the Settings questions are answered. The dashboard and Tax Preview link straight to the section. Previously the method was silently ignored.
+- **Confirmed deductions.** Schedule C totals, the dashboard and the audit support packet count `is_deductible === true` only with a server-stamped `review_status` or a legacy decision created before `2026-09-18T00:00:00Z` with no review-pipeline fields. Records confirmed through the API after the cutoff are stamped automatically; direct client edits of `is_deductible` on stamped records are rejected by the rules.
+- **Income reconciliation.** Overlapping bank/receipt/1099 income still returns `INCOME_RECONCILIATION_REQUIRED`, now with candidates and an owner decision flow instead of a bare 422. No existing income record is merged or edited.
+- **Consents.** New sign-ups (including Google) record acknowledgments on the profile through the profile API. Accounts created before 2026-09-17 have no record; a re-acknowledgment prompt outside profile setup is not built.
+- **Analytics.** The GA tag and its CSP origins render only when `NEXT_PUBLIC_GA_MEASUREMENT_ID` is set. The measurement-ID ownership decision (`G-1P3GNBHB9J` vs `G-LE26KP7E9N`) and the static CSP in `firebase.json` for `/auth/**` and `/login` are still open operator items.
+- **State estimates.** A saved state now produces an informational, year-labeled planning estimate for the encoded states or an explicit `supported: false`; it is never added to the federal total. CA 2026 and OH 2026 schedules are unpublished and correctly unsupported.
+
 ## Can the code ship with banking unavailable?
 
 Missing Plaid credentials fail closed and lazy initialization keeps unrelated routes from crashing. That alone is not a complete disabled-bank launch: the current UI can still offer Connect Bank, and migration still needs the encryption key. A limited release needs explicit unavailable-state UI, preserved record access, migration/rules coordination and accurate marketing. The current production preflight intentionally requires complete banking configuration for a full-platform launch.
