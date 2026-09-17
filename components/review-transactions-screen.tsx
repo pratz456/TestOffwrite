@@ -13,7 +13,7 @@ import { REVIEW_CATEGORIES, canConfirmSuggestion, reviewCategory, type Transacti
 import { reviewPresentation, transactionReviewKey } from '@/lib/transactions/review-presentation';
 import { formatTransactionDate } from '@/lib/transactions/calendar-date';
 import { bulkConfirmedLocally, bulkOfferFor, canOfferPurposeConfirmation, confirmPurposeUpdates, firstOpenQuestion, groupUnreviewedByMerchant, proposedBusinessPurpose,
-  questionAnswered, rejectProposalUpdates, type BulkConfirmRequest, type MerchantGroup } from '@/lib/transactions/review-proposals';
+  questionAnswered, rejectProposalUpdates, type BulkConfirmRequest } from '@/lib/transactions/review-proposals';
 import { PurposeConfirmChip } from '@/components/review/purpose-confirm-chip';
 import { BulkConfirmOffer, bulkOutcomeMessage, type BulkConfirmOutcome } from '@/components/review/bulk-confirm-offer';
 import { MerchantGroupList, type GroupDecisionResult } from '@/components/review/merchant-groups';
@@ -242,7 +242,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
     markBulkConfirmed(outcome, offer);
     toast.success(bulkOutcomeMessage(offer, outcome));
   };
-  const applyGroupLocally = (result: GroupDecisionResult, _group: MerchantGroup) => {
+  const applyGroupLocally = (result: GroupDecisionResult) => {
     markBulkConfirmed(result.outcome, result.request);
     setGroupResults(previous => [result, ...previous.filter(entry => entry.request.merchantKey !== result.request.merchantKey)]);
   };

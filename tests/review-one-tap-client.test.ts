@@ -32,7 +32,6 @@ type Props = { children?: unknown; proposal?: string | null; question?: string |
 type Element = ReactElement<Props>;
 function walk(node: unknown): Element[] { if (Array.isArray(node)) return node.flatMap(walk); return isValidElement<Props>(node) ? [node, ...walk(node.props.children)] : []; }
 function text(node: unknown): string { if (Array.isArray(node)) return node.map(text).join(''); if (isValidElement<Props>(node)) return text(node.props.children); return typeof node === 'string' || typeof node === 'number' ? String(node) : ''; }
-function action(page: unknown, label: string) { return walk(page).find(node => node.props.onClick && text(node).trim() === label)!; }
 const chip = (page: unknown) => walk(page).find(node => node.type === PurposeConfirmChip);
 
 const suggestion: AiReviewSuggestion & { proposed_purpose?: string } = { id: 'suggestion-1', inputHash: 'saved-input', status: 'needs_more_info', category: 'supplies_small_tools', transactionKind: 'expense', isDeductible: null, deductiblePercent: null,
@@ -86,7 +85,8 @@ describe('one-tap purpose confirmation on the review screen', () => {
   });
 
   it('falls back to the tailored reason when the suggestion predates proposed_purpose', () => {
-    const { proposed_purpose: _omitted, ...older } = suggestion;
+    const older = { ...suggestion };
+    delete older.proposed_purpose;
     records = [base({ ai_suggestion: older, ai_customized_reason: 'Supplies bought for the saved client project.' })];
     expect(chip(page())!.props.proposal).toBe('Supplies bought for the saved client project.');
     records = [base({ ai_suggestion: older })];

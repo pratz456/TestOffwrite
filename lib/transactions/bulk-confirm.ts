@@ -9,7 +9,7 @@
  * Nothing here decides tax treatment; the user's tap is the decision.
  */
 import { z } from 'zod';
-import type { DocumentReference, QueryDocumentSnapshot } from 'firebase-admin/firestore';
+import type { DocumentData, DocumentReference, QueryDocumentSnapshot } from 'firebase-admin/firestore';
 import { adminDb } from '@/lib/firebase/admin';
 import { aiLearningEngine } from '@/lib/ai/learning-engine';
 import { learningMerchantKey } from '@/lib/ai/merchant-key';
@@ -48,7 +48,7 @@ export interface BulkConfirmResult {
   transactionIds: string[];
 }
 
-interface Candidate { ref: DocumentReference; id: string; data: Record<string, any> }
+interface Candidate { ref: DocumentReference; id: string; data: DocumentData }
 
 /** Fields the decision, its stamps and the learning correction read. */
 const CANDIDATE_FIELDS = ['trans_id', 'account_id', 'accountId', 'userId', 'user_id', 'merchant_name', 'merchant', 'name', 'amount', 'date',
@@ -57,12 +57,12 @@ const CANDIDATE_FIELDS = ['trans_id', 'account_id', 'accountId', 'userId', 'user
 
 const NON_EXPENSE_KINDS = new Set(['income', 'transfer', 'personal', 'refund']);
 
-function ownedBy(data: Record<string, any>, uid: string): boolean {
+function ownedBy(data: DocumentData, uid: string): boolean {
   return [data.userId, data.user_id].every(value => value == null || value === uid);
 }
 
 /** An owner's posted, still-present charge from this merchant with no saved decision. */
-function isCandidate(data: Record<string, any>, uid: string, merchantKey: string): boolean {
+function isCandidate(data: DocumentData, uid: string, merchantKey: string): boolean {
   if (!ownedBy(data, uid)) return false;
   if (data.review_status || typeof data.is_deductible === 'boolean') return false;
   if (data.pending === true || data.bank_removed === true || data.superseded_by) return false;
@@ -93,7 +93,7 @@ async function loadCandidates(uid: string, merchantKey: string): Promise<Candida
   return candidates.sort((a, b) => (recordTimestampMs(b.data.date) ?? 0) - (recordTimestampMs(a.data.date) ?? 0));
 }
 
-function analysisKind(data: Record<string, any>): string | undefined {
+function analysisKind(data: DocumentData): string | undefined {
   const suggested = data.ai_suggestion && typeof data.ai_suggestion === 'object' ? (data.ai_suggestion as { transactionKind?: unknown }).transactionKind : undefined;
   return typeof suggested === 'string' ? suggested : typeof data.ai_transaction_kind === 'string' ? data.ai_transaction_kind : undefined;
 }
