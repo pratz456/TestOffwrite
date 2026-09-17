@@ -27,7 +27,7 @@ The script refuses dirty source or an existing output directory. It exports the 
 
 A **separate completed release review** is mandatory, with no env-variable bypass. Its JSON must specify `schemaVersion: 1`, `project: "writeoff-23910"`, the exact release `commit`, a nonempty `reviewedBy`, and an ISO `reviewedAt`. Each of `legacyProfileMigration`, `historicalOverlapReconciliation`, `oldClientCompatibility`, `plaidProductionAccess`, `stripeLiveConfiguration`, `secretManagerBindings`, `rulesAndIndexes`, and `rollbackCompatibility` must contain `reviewed: true` and a nonempty `evidence` reference to the completed assessment/validation. These are explicit operator acknowledgments, not automated proof. The predeploy guard verifies the copied review, its digest and commit. Do not mark unresolved migration, provider, secret, rules/index or rollback work reviewed simply to pass the guard. This implementation does not create provider approval or merge/discard historical records.
 
-`docs/production-release-review.example.json` is a deliberately incomplete template. Every review flag is false; copy it to a private path and replace fields only with actual evidence.
+`docs/production-release-review.example.json` is a deliberately incomplete template. Every review flag is false; copy it to a private path and replace fields only with actual evidence. The `legacyProfileMigration` and `oldClientCompatibility` entries name the exact artifacts and digests the bulk credential migration command emits; their text starts with `REPLACE` and is not evidence until the real digests are substituted.
 
 Install dependencies and run checks from that isolated directory using Node 22. Run the guard explicitly before any deployment:
 
@@ -52,13 +52,15 @@ Release integrity guards: the manifest records the git blob ID of every reviewed
 
 ## Existing-user migration and rollout order
 
-1. Inspect production rules/indexes and count legacy bank profiles/accounts without exporting tokens or taxpayer records. Check for users with more than 400 account documents, which need a paginated administrative migration. Preserve a private recoverable backup and existing encryption keys.
-2. Prepare the encryption configuration before the new profile route is served. It migrates plaintext bank fields before browser reads. Missing Plaid encryption prevents legacy profile loading even if new bank linking is disabled.
-3. Coordinate rules and application release. New rules deny legacy documents containing token fields; old clients do not perform the migration handshake. Rules-first without a compatible app/migration creates a temporary access interruption. App-first without restrictive rules leaves the new connection store unprotected under permissive rules. Use a controlled maintenance window or a separately validated compatibility rollout; do not treat independent deploy commands as atomic.
-4. Apply the reviewed rules/indexes and verify the server-only `plaid_connections`, analysis task and webhook receipt collections are denied to browsers. Complete migration before restoring normal access. Verify clean profile/account queries and relevant collection-group indexes.
-5. Deploy the web app, both analysis triggers, and the revised scheduled-sync function with production parameters. Ensure the old scheduler no longer selects public `plaid_token` fields. Verify Eventarc delivery, runtime service-account permissions and identical worker secrets using a synthetic fixture.
-6. Verify sign-in and retained records for a migrated existing user. Old Plaid account credentials are encrypted and retired as `relink_required`; they are never sent with the new account's credentials. Imported transactions and confirmations remain. Users must link again; the new provider's identifiers must not cause duplicate imported history to be treated as new tax expenses without reconciliation.
-7. Check a real authorized production bank link, asynchronous first import, automatic AI suggestions, manual reanalysis, OAuth resume, reconnect, signed webhooks, two-bank isolation and exact-bank disconnect before advertising fully working banking. Confirm no provider secret appears in browser-readable records or returned JSON.
+The new `firestore.rules` deny a browser read of `user_profiles/{uid}` (and of an `accounts/*` document) while the document still contains a `plaid_token` or `access_token` field. Old browser clients read their profile straight through the Firestore SDK and never call the API handshake that migrates those fields, so the only sequence in which existing users keep working is to empty every profile of tokens **before** the rules land. The sequence below was verified with `tests/plaid-migration.emulator.test.ts` against the repository rules: a seeded token-bearing profile is `permission-denied` to its own owner, the shared migration core removes the token, the same client reads the profile again and `plaid_connections/{itemId}` remains denied.
+
+1. **Inventory (read-only).** Run `npm run production:migration-inventory` (below). It counts legacy profiles/accounts and flags any profile with more than 400 account documents; it writes no records.
+2. **Backup + bulk credential migration.** Run `npm run production:plaid-migration` (below) with the release `PLAID_TOKEN_ENCRYPTION_KEY`: dry run, review the private plan, then `--apply`. Before its first write it exports and verifies a private mode-0600 backup of every profile and account document it will change. It executes `migrateLegacyPlaidCredentials` from `lib/plaid/legacy-migration.ts`, the same transaction the profile API runs lazily: the legacy token is encrypted into `plaid_connections/{itemId}` as `relink_required`, the public `plaid_token`/`access_token`/`plaid_item_id`/`plaid_transactions_cursor` fields are deleted, account token fields are deleted, and `plaid_credentials_migrated: true` is set. Profiles above 400 accounts are cleaned in follow-up transactions of at most 400 writes with the completion marker written last, so a rerun resumes an interrupted cleanup. Transactions, accounts, confirmations and existing private connections are never deleted. Preserve the key used here; the app must run with the same one.
+3. **Verify zero token-bearing profiles.** Run the command with `--verify`. It exits nonzero while any profile or account document still carries a token and writes a private verify report. Do not continue until it passes. A token that remains because the plan refused a profile (for example an Item already owned by another user, reported as `expectedRefusal: ownership_mismatch`) needs manual review first. The old application is still live until step 4 and writes a new public token whenever a user links a bank, so rerun steps 2–3 immediately before step 4 (both are idempotent: a rerun migrates nothing and reports so) and keep that window short.
+4. **Coordinated release.** `npm run production:deploy` releases the app, Firestore rules and indexes, Storage rules and both Functions codebases together. Because step 2 left no profile with a token, old clients that are still open keep reading their profile under the new rules and the lazy handshake only refreshes `bankConnected` for them. **Running step 4 without step 2 locks every legacy user out** until an API call performs the migration for them, because the new rules deny their profile read and the old client never triggers the handshake. Verify after release that the server-only `plaid_connections`, analysis task and webhook receipt collections are denied to browsers and that the old scheduler no longer selects public `plaid_token` fields.
+5. **Relink with the replacement Plaid client.** Old-account credentials stay encrypted as `relink_required` and are never sent with the new account's credentials; imported transactions and confirmations remain. Users link again (`PLAID_ACCOUNT_REPLACEMENT_2026-09-16.md`); the new provider's identifiers must not cause duplicate imported history to be treated as new tax expenses without the documented reconciliation. Then check a real authorized production bank link, asynchronous first import, automatic AI suggestions, manual reanalysis, OAuth resume, reconnect, signed webhooks, two-bank isolation and exact-bank disconnect before advertising fully working banking, and confirm no provider secret appears in browser-readable records or returned JSON.
+
+Independent deploy commands are still not atomic and Firebase target releases are coordinated but not transactional; keep the compatible rollback plan. Missing Plaid encryption prevents legacy profile loading even if new bank linking is disabled, so `PLAID_TOKEN_ENCRYPTION_KEY` must be present in the release environment as well as in the shell that ran step 2.
 
 Account deletion keeps a private durable gate outside the profile. New bank exchanges and checkout customer creation cannot start after that gate is set; unresolved operations prevent identity/record erasure. Ambiguous Stripe creation or failed customer compensation needs support review of the retained billing operation (including its customer identifier when known); it never expires automatically. An old-provider bank cannot be considered revoked merely by clicking Disconnect: its encrypted recovery record remains in `revocation_required` until manual revocation is verified. The old credentials are never tried with the replacement provider account.
 
@@ -76,6 +78,33 @@ npm run production:migration-inventory -- \
 The command pins the production project, refuses emulators, writes a new mode-0600 file outside the checkout, and prints aggregate totals/digest only. It inventories legacy credential locations, account/transaction counts, saved confirmations/tax decisions, private connection states, and exact cross-account date/amount/merchant/currency matches. Raw tokens, Item IDs, merchant text and amounts are never written to the report.
 
 Every overlap is labeled `human_review_required`; the command never chooses a canonical record, changes a confirmation, merges data or marks the release review complete. Exact-match candidates can miss real duplicates and can include legitimate repeated purchases. Use the private record references for the documented human reconciliation and retain separate evidence of the decision.
+
+### Bulk legacy credential migration (steps 2 and 3)
+
+Run from the reviewed checkout with authorized production Admin credentials and the release `PLAID_TOKEN_ENCRYPTION_KEY` exported in the shell (never on the command line or in a committed file). The private directory must be absolute and outside the checkout; the command creates it with mode 0700 if it is missing.
+
+```sh
+# Step 2a: dry run. Writes plaid-credential-migration-plan-<timestamp>.json (mode 0600) and prints its sha256.
+npm run production:plaid-migration -- \
+  --project writeoff-23910 \
+  --backup /absolute/private/path/plaid-migration \
+  --confirm plan:writeoff-23910
+
+# Step 2b: read the plan (one entry per legacy profile: action, token on profile / on N accounts,
+# Item present, account count, paginated, expected refusal). Then apply with the plan digest.
+npm run production:plaid-migration -- \
+  --project writeoff-23910 \
+  --backup /absolute/private/path/plaid-migration \
+  --apply --confirm apply:writeoff-23910:<sha256 printed by the dry run>
+
+# Step 3: verify. Exits nonzero while any profile or account still carries a token.
+npm run production:plaid-migration -- \
+  --project writeoff-23910 \
+  --backup /absolute/private/path/plaid-migration \
+  --verify --confirm verify:writeoff-23910
+```
+
+Apply refuses to start unless the plan file with that exact digest is in the backup directory, was produced with the same encryption key, and still matches production (a legacy profile that appeared or changed since the dry run requires a new plan). It then writes `plaid-credential-migration-backup-<digest16>.json` — the full profile and token-bearing account documents, including the tokens — verifies the file digest, and only then runs the shared migration transaction per profile, recording per-profile outcomes in `plaid-credential-migration-apply-<digest16>.json`. A second apply with the same plan is refused because that backup already exists. The verify report is `plaid-credential-migration-verify-<timestamp>.json`. Standard output carries counts, file paths and digests only; the plan, backup and reports contain uids, and the backup contains credentials, so keep the directory private and record the digests in the release review: `legacyProfileMigration` cites the plan, backup and apply digests; `oldClientCompatibility` cites the passing verify report digest together with the emulator test run. The command refuses any project other than `writeoff-23910` and any `FIRESTORE_EMULATOR_HOST`; `--allow-emulator` exists only for the local `demo-*` test suite.
 
 ## Application behavior changes that reach existing users at rollout
 

@@ -276,7 +276,7 @@ export async function loadProductionMigrationRecords(db) {
   };
 }
 
-function sourceCommit(cwd) {
+export function sourceCommit(cwd) {
   try {
     const manifest = JSON.parse(fs.readFileSync(path.join(cwd, RELEASE_MANIFEST), 'utf8'));
     if (/^[a-f\d]{40}$/.test(manifest.commit || '')) return manifest.commit;
