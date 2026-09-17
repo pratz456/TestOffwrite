@@ -36,7 +36,7 @@ export default function PrivacyPolicyPageClient() {
               Privacy Policy
             </CardTitle>
             <CardDescription className="text-sm text-muted-foreground mb-8 font-tabular-nums">
-              Last updated: September 11, 2025
+              Effective date: September 17, 2026 (version 2026-09-17)
             </CardDescription>
           </CardHeader>
           <CardContent className="p-8 md:p-10 pt-4 space-y-6 [&>div:not(:first-child)]:mt-10 [&>div:not(:first-child)]:border-t [&>div:not(:first-child)]:border-border [&>div:not(:first-child)]:pt-8 [&_p]:text-base [&_p]:leading-[1.75] [&_p]:text-muted-foreground [&_p]:mb-4 [&_h3]:text-lg md:[&_h3]:text-xl [&_h3]:font-bold [&_h3]:text-foreground [&_h3]:mb-3 [&_ul]:list-disc [&_ul]:list-inside [&_ul]:ml-5 md:[&_ul]:ml-6 [&_ul]:mt-2 [&_ul]:mb-4 [&_ul]:space-y-2 [&_ul]:text-muted-foreground [&_ul]:[&_li]:marker:text-muted-foreground">
@@ -52,11 +52,11 @@ export default function PrivacyPolicyPageClient() {
                 <li><strong>Personal Information:</strong> name, email address, state, profession, filing status, income</li>
                 <li><strong>Financial Data:</strong> bank account and transaction data via Plaid integration</li>
                 <li><strong>Receipt Data:</strong> receipt images and OCR-extracted transaction details</li>
-                <li><strong>User Corrections:</strong> corrections to AI classifications for machine learning improvement</li>
+                <li><strong>User Corrections:</strong> corrections to AI suggestions, kept in your account to personalize future suggestions for you; they are not used to train AI models</li>
                 <li><strong>Tax Data:</strong> quarterly tax calculation data, payment tracking, and tax bracket information</li>
                 <li><strong>Mobile Data:</strong> device information for PWA functionality and mobile optimization</li>
                 <li><strong>Preferences:</strong> notification settings, user preferences, and customization data</li>
-                <li><strong>Voice Data:</strong> voice input for expense tracking (processed locally when possible)</li>
+                <li><strong>Voice Data:</strong> if you use voice entry, your browser&apos;s speech recognition converts your speech to text and the text is sent to our AI provider to identify the expense; we do not store audio</li>
                 <li><strong>Usage Analytics:</strong> app usage patterns, feature interactions, and performance data</li>
                 <li><strong>Inferences:</strong> tax deduction analysis, personalized insights, and optimization recommendations</li>
               </ul>
@@ -93,11 +93,13 @@ export default function PrivacyPolicyPageClient() {
             <div>
               <h3>Third Parties</h3>
               <ul>
-                <li>Plaid (for bank data aggregation)</li>
-                <li>Firebase (for authentication, storage, and hosting)</li>
-                <li>OCR processing providers (for receipt scanning)</li>
-                <li>AI models (for receipt processing and insights generation)</li>
-                <li>Other service providers as required to operate our service</li>
+                <li>Plaid (for bank data aggregation; you connect your bank inside Plaid and we never receive your bank login)</li>
+                <li>Google Firebase and Google Cloud (for authentication, database, file storage, and hosting)</li>
+                <li>OpenAI (for AI analysis of your transactions and of tax documents, bank statements, or receipts you choose to upload for extraction; prompts are sent with storage disabled and are not used to train OpenAI models)</li>
+                <li>Stripe (for subscription payments; your card details are entered on Stripe&apos;s payment page and never reach our servers)</li>
+                <li>Resend (for delivering email when you send a question to a tax professional through the app)</li>
+                <li>Google Analytics (only when enabled for a release, for site usage measurement)</li>
+                <li>Receipt text recognition for individual receipts runs on our own servers and is not sent to a third party</li>
               </ul>
             </div>
 
@@ -108,7 +110,7 @@ export default function PrivacyPolicyPageClient() {
                 <li>Access controls and regular security reviews</li>
                 <li>Partnerships with audited and compliant service providers</li>
                 <li>Secure processing of receipt images and OCR data</li>
-                <li>Protected AI model training with user corrections</li>
+                <li>Your corrections stay within your account and are not used to train AI models</li>
               </ul>
               <p className="mt-3">
                 While no system is 100% secure, we continuously work to safeguard your data.
