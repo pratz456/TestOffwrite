@@ -8,6 +8,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ChevronDown, ChevronRight, ChevronLeft, CheckCircle2, Loader2, Save } from "lucide-react";
 import { PersonalDeductionFields } from "@/components/personal-deduction-fields";
 import { SocialSecurityFields, EMPTY_SOCIAL_SECURITY_ANSWERS, type SocialSecurityAnswers } from "@/components/tax-organizer-social-security";
+import { BusinessLossFields } from "@/components/business-loss-fields";
+import { OBBBADeductionFields } from "@/components/obbba-deduction-fields";
+import { NON_ITEMIZER_CHARITY_FIRST_YEAR, SCHEDULE_1A_FIRST_YEAR, SCHEDULE_1A_LAST_YEAR } from "@/lib/tax-rules/obbba-deductions";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 
 interface Props { user: { id: string; email?: string }; onBack: () => void; onNavigate?: (screen: string) => void; }
@@ -21,6 +24,10 @@ const FILING_STATUSES = [
 
 interface OrgAnswers extends SocialSecurityAnswers {
   personalDeductionFacts: string;
+  /** JSON declarations for a Schedule C loss year (business-loss-fields.tsx). */
+  businessLossFacts: string;
+  /** JSON Schedule 1-A / §170(p) intake (obbba-deduction-fields.tsx). */
+  obbbaDeductionFacts: string;
   // Personal
   filingStatus: string;
   dateOfBirth: string;
@@ -50,7 +57,10 @@ interface OrgAnswers extends SocialSecurityAnswers {
   has1099DIV: string;
   amount1099DIV: string;
   hasCapGains: string;
+  /** Legacy combined Schedule D line 16 total; kept equal to the split below when both are entered. */
   amountCapGains: string;
+  amountShortTermCapGains: string;
+  amountLongTermCapGains: string;
   hasSocialSecurity: string;
   amountSocialSecurity: string;
   hasIRADistributions: string;
@@ -84,9 +94,9 @@ interface OrgAnswers extends SocialSecurityAnswers {
 
 export const EMPTY_ORGANIZER_ANSWERS: OrgAnswers = {
   ...EMPTY_SOCIAL_SECURITY_ANSWERS,
-  personalDeductionFacts: "",
+  personalDeductionFacts: "", businessLossFacts: "", obbbaDeductionFacts: "",
   filingStatus:"",dateOfBirth:"",taxpayerSSN:"",spouseName:"",spouseDoB:"",spouseSSN:"",dependents:"0",dependentDetails:"",streetAddress:"",city:"",stateAddr:"",zipCode:"",priorYearAGI:"",bankRouting:"",bankAccount:"",bankAccountType:"checking",ipPin:"",
-  hasW2:"",hasSEIncome:"yes",has1099K:"",has1099INT:"",amount1099INT:"",has1099DIV:"",amount1099DIV:"",hasCapGains:"",amountCapGains:"",hasSocialSecurity:"",amountSocialSecurity:"",hasIRADistributions:"",amountIRADistributions:"",hasRentalIncome:"",amountRentalIncome:"",hasOtherIncome:"",amountOtherIncome:"",
+  hasW2:"",hasSEIncome:"yes",has1099K:"",has1099INT:"",amount1099INT:"",has1099DIV:"",amount1099DIV:"",hasCapGains:"",amountCapGains:"",amountShortTermCapGains:"",amountLongTermCapGains:"",hasSocialSecurity:"",amountSocialSecurity:"",hasIRADistributions:"",amountIRADistributions:"",hasRentalIncome:"",amountRentalIncome:"",hasOtherIncome:"",amountOtherIncome:"",
   paidHealthInsurance:"",healthInsurancePremium:"",madeRetirementContrib:"",retirementAmount:"",retirementType:"sep_ira",
   paidStudentLoanInterest:"",studentLoanInterest:"",paidHSA:"",hsaAmount:"",hasHomeMortgage:"",
   marriedThisYear:"",hadChild:"",boughtHome:"",soldHome:"",startedBusiness:"",
@@ -202,6 +212,25 @@ export function TaxOrganizerScreen({ user }: Props) {
     const unanswered = keys.filter(key => !answers[key]).length;
     return [selected ? `${selected} selected` : '', unanswered ? `${unanswered} to review` : ''].filter(Boolean).join(' · ') || 'No sources selected';
   };
+  /** Summary line for a JSON facts field saved for the open year; other years count as unanswered. */
+  const factsSummary = (raw: string, keys: string[], noun: string) => {
+    let facts: Record<string, unknown> = {};
+    try {
+      const parsed: unknown = JSON.parse(raw || '{}');
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && (parsed as { taxYear?: unknown }).taxYear === year) facts = parsed as Record<string, unknown>;
+    } catch { /* Malformed records read as unanswered. */ }
+    const selected = keys.filter(key => facts[key] === 'yes').length;
+    const unanswered = keys.filter(key => facts[key] !== 'yes' && facts[key] !== 'no').length;
+    return [selected ? `${selected} ${noun}` : '', unanswered ? `${unanswered} to review` : ''].filter(Boolean).join(' · ') || 'Reviewed';
+  };
+  /** Writes one Schedule D character amount and keeps the legacy combined total consistent with the split. */
+  const setCapitalGain = (key: 'amountShortTermCapGains' | 'amountLongTermCapGains', value: string) => {
+    const other = answers[key === 'amountShortTermCapGains' ? 'amountLongTermCapGains' : 'amountShortTermCapGains'].trim();
+    const valid = (text: string) => /^-?\d+(?:\.\d{1,2})?$/.test(text);
+    const combined = valid(value.trim()) && valid(other) ? String(Math.round((Number(value) + Number(other)) * 100) / 100) : '';
+    set(key, value); set('amountCapGains', combined);
+  };
+  const legacyCapitalGainOnly = !!answers.amountCapGains.trim() && !answers.amountShortTermCapGains.trim() && !answers.amountLongTermCapGains.trim();
   const disclosure = (title: string, summary: string, children: React.ReactNode) => (
     <details key={`${year}:${title}`} className="group rounded-xl border border-border bg-card">
       <summary className="flex min-h-[60px] cursor-pointer list-none items-center gap-3 px-4 py-2 [&::-webkit-details-marker]:hidden">
@@ -437,6 +466,11 @@ export function TaxOrganizerScreen({ user }: Props) {
               {yesno("hasSEIncome", "Freelance or self-employment income (including cash)")}
               {yesno("hasW2", "W-2 wages from an employer")}
               {yesno("has1099K", "Platform payments (1099-K)")}
+              {answers.hasSEIncome === "yes" && disclosure("Business loss facts", `Only for a Schedule C loss year · ${factsSummary(answers.businessLossFacts, ["allInvestmentAtRisk", "materialParticipation", "profitMotive"], "answered yes")}`, (
+                <div className="[&_section]:border-0 [&_section]:p-0">
+                  <BusinessLossFields taxYear={year} value={answers.businessLossFacts} onChange={value => set("businessLossFacts", value)} />
+                </div>
+              ))}
 
               {disclosure("Savings & investments", incomeSummary(["has1099INT", "has1099DIV", "hasCapGains"]), (<>
               {yesno("has1099INT", "Bank interest income (1099-INT)")}
@@ -460,12 +494,24 @@ export function TaxOrganizerScreen({ user }: Props) {
               )}
 
               {yesno("hasCapGains", "Capital gains or losses — stocks, crypto, or property sold (1099-B)")}
-              {answers.hasCapGains === "yes" && (
-                <div className="ml-4 border-l-2 border-primary/30 pl-4 space-y-1.5">
-                  <Label className="text-sm font-medium">Net capital gain or (loss) from Schedule D, Line 21</Label>
-                  <div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
-                    <Input type="number" value={answers.amountCapGains} onChange={e => set("amountCapGains", e.target.value)} placeholder="0.00 (enter negative if net loss)" className="pl-7 bg-background" /></div>
-                  <p className="text-xs text-muted-foreground">Flows to Form 1040 Line 7. Net losses limited to -$3,000/year; remainder carries forward.</p>
+              {(answers.hasCapGains === "yes" || legacyCapitalGainOnly) && (
+                <div className="ml-4 border-l-2 border-primary/30 pl-4 space-y-3">
+                  {legacyCapitalGainOnly && (
+                    <p role="alert" className="text-sm">{`A combined total of $${answers.amountCapGains} was saved earlier. Enter the short-term and long-term amounts separately; the estimate no longer assumes a combined total is long-term.`}</p>
+                  )}
+                  <div className="space-y-1.5">
+                    <Label htmlFor="organizer-short-term-gains" className="text-sm font-medium">Net short-term capital gain or (loss) — Schedule D line 7</Label>
+                    <div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
+                      <Input id="organizer-short-term-gains" type="number" step="0.01" value={answers.amountShortTermCapGains} onChange={e => setCapitalGain("amountShortTermCapGains", e.target.value)} placeholder="0.00 (negative if net loss; enter 0 when none)" className="pl-7 bg-background" /></div>
+                    <p className="text-xs text-muted-foreground">Assets held one year or less. Taxed as ordinary income.</p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="organizer-long-term-gains" className="text-sm font-medium">Net long-term capital gain or (loss) — Schedule D line 15</Label>
+                    <div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
+                      <Input id="organizer-long-term-gains" type="number" step="0.01" value={answers.amountLongTermCapGains} onChange={e => setCapitalGain("amountLongTermCapGains", e.target.value)} placeholder="0.00 (negative if net loss; enter 0 when none)" className="pl-7 bg-background" /></div>
+                    <p className="text-xs text-muted-foreground">Assets held more than one year; net gains use the 0%/15%/20% rates. Blank is unanswered, not 0.</p>
+                  </div>
+                  <p className="text-xs text-muted-foreground">The combined result flows to Form 1040 line 7. A net loss offsets at most $3,000 of other income per year ($1,500 married filing separately); the rest carries forward and needs review. Collectibles, unrecaptured section 1250 gain and prior-year carryovers are not calculated.</p>
                 </div>
               )}
 
@@ -575,6 +621,13 @@ export function TaxOrganizerScreen({ user }: Props) {
                 </div>
               )}
               {yesno("hasHomeMortgage", "Home mortgage interest")}
+              {disclosure("Working Families Tax Cuts deductions", year >= SCHEDULE_1A_FIRST_YEAR && year <= SCHEDULE_1A_LAST_YEAR
+                ? `Tips, overtime, vehicle loan interest${year >= NON_ITEMIZER_CHARITY_FIRST_YEAR ? ", charitable gifts" : ""} · ${factsSummary(answers.obbbaDeductionFacts, ["hasQualifiedTips", "hasW2Overtime", "hasVehicleLoanInterest", ...(year >= NON_ITEMIZER_CHARITY_FIRST_YEAR ? ["hasNonItemizerCharity"] : [])], "claimed")}`
+                : `Apply to ${SCHEDULE_1A_FIRST_YEAR}–${SCHEDULE_1A_LAST_YEAR} returns only`, (
+                <div className="[&_section]:border-0 [&_section]:p-0">
+                  <OBBBADeductionFields taxYear={year} filingStatus={answers.filingStatus} value={answers.obbbaDeductionFacts} onChange={value => set("obbbaDeductionFacts", value)} />
+                </div>
+              ))}
             </CardContent>
           </Card>
         )}

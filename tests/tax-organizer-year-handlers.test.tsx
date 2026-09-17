@@ -32,7 +32,10 @@ vi.mock('react', async importOriginal => {
 });
 import { TaxOrganizerScreen, EMPTY_ORGANIZER_ANSWERS } from '../components/tax-organizer-screen';
 import { PersonalDeductionFields } from '../components/personal-deduction-fields';
+import { BusinessLossFields } from '../components/business-loss-fields';
+import { OBBBADeductionFields } from '../components/obbba-deduction-fields';
 import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductions';
+import { reviewedBusinessLossFacts, reviewedOBBBADeductionFacts } from './fixtures/tier1-facts';
 type Element = ReactElement<Record<string, any>>;
 const walk = (node: any): Element[] => Array.isArray(node) ? node.flatMap(walk)
   : node && typeof node === 'object' && 'props' in node ? [node, ...walk(node.props.children)] : [];
@@ -72,7 +75,8 @@ describe('organizer personal facts and safe tax-year changes', () => {
     const saved = JSON.parse(harness.request.mock.calls.find(call => call[1]?.method === 'POST')![1].body);
     expect(saved).toMatchObject({ personalDeductionFacts: fact, dateOfBirth: '1955-06-01' });
     expect(Object.keys(saved).length - 1).toBeLessThanOrEqual(80);
-    expect(Object.keys(EMPTY_ORGANIZER_ANSWERS)).toHaveLength(66);
+    // 66 legacy fields plus the short/long-term capital gain amounts and the two JSON facts fields.
+    expect(Object.keys(EMPTY_ORGANIZER_ANSWERS)).toHaveLength(70);
   });
   it('keeps edited facts and the old year when automatic saving fails, without loading another year', async () => {
     personal(await load()).props.onChange('dateOfBirth', '1955-06-01');
@@ -175,5 +179,68 @@ describe('compact organizer sections', () => {
     await button(tree, 'Save').props.onClick();
     const saved = JSON.parse(harness.request.mock.calls.find(call => call[1]?.method === 'POST')![1].body);
     expect(saved).toMatchObject({ hasRentalIncome: 'no', hasOtherIncome: 'yes', has1099INT: '' });
+  });
+
+  it('collects short-term and long-term capital gains separately and keeps the legacy total consistent', async () => {
+    sectionSelect(await load()).props.onChange({ target: { value: '1' } });
+    choose(render(), 'Capital gains or losses — stocks, crypto, or property sold (1099-B)', 'yes');
+    const input = (tree: Element, id: string) => walk(tree).find(node => node.props.id === id)!;
+    input(render(), 'organizer-short-term-gains').props.onChange({ target: { value: '-5000' } });
+    let tree = render();
+    expect(input(tree, 'organizer-short-term-gains').props.value).toBe('-5000');
+    input(tree, 'organizer-long-term-gains').props.onChange({ target: { value: '1000' } });
+    tree = render();
+    expect(text(tree)).toContain('Taxed as ordinary income'); expect(text(tree)).toContain('$1,500 married filing separately');
+    await button(tree, 'Save').props.onClick();
+    const saved = JSON.parse(harness.request.mock.calls.find(call => call[1]?.method === 'POST')![1].body);
+    expect(saved).toMatchObject({ hasCapGains: 'yes', amountShortTermCapGains: '-5000', amountLongTermCapGains: '1000', amountCapGains: '-4000' });
+  });
+
+  it('asks for the character split when only a legacy combined total was saved', async () => {
+    harness.request.mockResolvedValueOnce(response({ taxYear: 2026, organizer: { hasCapGains: 'yes', amountCapGains: '20000' } }));
+    sectionSelect(await load()).props.onChange({ target: { value: '1' } });
+    const tree = render();
+    expect(text(tree)).toContain('A combined total of $20000 was saved earlier');
+    expect(text(tree)).toContain('no longer assumes a combined total is long-term');
+    walk(tree).find(node => node.props.id === 'organizer-short-term-gains')!.props.onChange({ target: { value: '20000' } });
+    // A partial split clears the superseded total instead of leaving an inconsistent record.
+    await button(render(), 'Save').props.onClick();
+    const saved = JSON.parse(harness.request.mock.calls.find(call => call[1]?.method === 'POST')![1].body);
+    expect(saved).toMatchObject({ amountShortTermCapGains: '20000', amountLongTermCapGains: '', amountCapGains: '' });
+  });
+
+  it('mounts year-aware business loss and Schedule 1-A intake, distinguishing unanswered from No', async () => {
+    sectionSelect(await load()).props.onChange({ target: { value: '1' } });
+    let tree = render();
+    const lossSection = section(tree, 'Business loss facts');
+    expect(text(lossSection.props.children[0])).toContain('3 to review');
+    const loss = walk(tree).find(node => node.type === BusinessLossFields)!;
+    expect(loss.props.taxYear).toBe(2026); expect(loss.props.value).toBe('');
+    expect(text(BusinessLossFields(loss.props))).toContain('blank answers need review and are not treated as No');
+    loss.props.onChange(reviewedBusinessLossFacts(2026, { profitMotive: '' }));
+    tree = render();
+    expect(text(section(tree, 'Business loss facts').props.children[0])).toContain('2 answered yes · 1 to review');
+    sectionSelect(tree).props.onChange({ target: { value: '2' } });
+    tree = render();
+    const obbba = walk(tree).find(node => node.type === OBBBADeductionFields)!;
+    expect(obbba.props).toMatchObject({ taxYear: 2026, filingStatus: '', value: '' });
+    expect(text(section(tree, 'Working Families Tax Cuts deductions').props.children[0])).toContain('charitable gifts · 4 to review');
+    expect(text(OBBBADeductionFields(obbba.props))).toContain('Generally unavailable to independent contractors');
+    obbba.props.onChange(reviewedOBBBADeductionFacts(2026, { hasVehicleLoanInterest: 'yes' }));
+    tree = render();
+    expect(text(section(tree, 'Working Families Tax Cuts deductions').props.children[0])).toContain('1 claimed');
+    await button(tree, 'Save').props.onClick();
+    const saved = JSON.parse(harness.request.mock.calls.find(call => call[1]?.method === 'POST')![1].body);
+    expect(JSON.parse(saved.businessLossFacts)).toMatchObject({ taxYear: 2026, allInvestmentAtRisk: 'yes', profitMotive: '' });
+    expect(JSON.parse(saved.obbbaDeductionFacts)).toMatchObject({ taxYear: 2026, hasVehicleLoanInterest: 'yes' });
+    // Switching years reloads that year's record (nothing unsaved remains); 2026 facts stored there are stale, not reused.
+    harness.request.mockResolvedValueOnce(response({ taxYear: 2025, organizer: { obbbaDeductionFacts: saved.obbbaDeductionFacts } }));
+    yearSelect(render()).props.onChange({ target: { value: '2025' } }); await tick();
+    sectionSelect(render()).props.onChange({ target: { value: '2' } });
+    tree = render();
+    const switched = walk(tree).find(node => node.type === OBBBADeductionFields)!;
+    expect(switched.props.taxYear).toBe(2025);
+    expect(text(OBBBADeductionFields(switched.props))).toContain('Your saved answers belong to another tax year');
+    expect(text(section(tree, 'Working Families Tax Cuts deductions').props.children[0])).not.toContain('charitable gifts');
   });
 });
