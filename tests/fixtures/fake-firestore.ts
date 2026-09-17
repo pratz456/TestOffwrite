@@ -83,7 +83,18 @@ export function createFakeFirestore(options: FakeFirestoreOptions = {}) {
     writes.forEach(apply => apply());
     return result;
   };
-  return { records, doc: ref, collection: query, collectionGroup, runTransaction,
+  /** WriteBatch stand-in: writes are buffered and applied together on `commit`. */
+  const batch = (): any => {
+    const writes: Array<() => void> = [];
+    const api = {
+      set: (target: any, data: Record<string, any>, setOptions?: { merge?: boolean }) => { writes.push(() => write(target.path, data, setOptions)); return api; },
+      update: (target: any, data: Record<string, any>) => { writes.push(() => { if (!records.has(target.path)) throw new Error(`No document at ${target.path}`); write(target.path, data, { merge: true }); }); return api; },
+      delete: (target: any) => { writes.push(() => { records.delete(target.path); }); return api; },
+      commit: async () => { fail(); writes.forEach(apply => apply()); writes.length = 0; return []; },
+    };
+    return api;
+  };
+  return { records, doc: ref, collection: query, collectionGroup, runTransaction, batch,
     recursiveDelete: async (target: any) => { for (const key of [...records.keys()]) if (key === target.path || key.startsWith(`${target.path}/`)) records.delete(key); } };
 }
 

@@ -184,6 +184,47 @@ export function similarUnreviewedCharges(transactions: Transaction[], transactio
   return transactions.filter(candidate => (candidate.trans_id || candidate.id) !== id && unreviewed(candidate) && learningMerchantKey(candidate) === merchantKey);
 }
 
+/** Body of POST /api/transactions/bulk-confirm plus the copy the offer needs. */
+export interface BulkConfirmRequest {
+  merchantKey: string;
+  merchant: string;
+  /** Other unreviewed charges from this merchant, not counting the one already decided. */
+  count: number;
+  decision: 'business' | 'personal';
+  businessPurpose: string | null;
+  /** Review category value, only when the decided record's category was itself reviewed. */
+  category: ReviewCategory | null;
+}
+
+/** The bulk offer that follows a saved decision, or `null` when fewer than two similar charges wait. */
+export function bulkOfferFor(saved: Transaction, transactions: Transaction[]): BulkConfirmRequest | null {
+  if (typeof saved.is_deductible !== 'boolean' || !(Number(saved.amount) > 0)) return null;
+  if (saved.transaction_kind && saved.transaction_kind !== 'expense' && saved.transaction_kind !== 'personal') return null;
+  const merchantKey = learningMerchantKey(saved);
+  if (!merchantKey) return null;
+  const count = similarUnreviewedCharges(transactions, saved).length;
+  if (count < 2) return null;
+  const merchant = saved.merchant_name?.trim() || merchantKey;
+  if (!saved.is_deductible) return { merchantKey, merchant, count, decision: 'personal', businessPurpose: null, category: null };
+  // A category travels only after category review (the review route records the kind); a raw bank category never does.
+  const category = saved.transaction_kind === 'expense' ? reviewCategory(saved.category) : undefined;
+  return { merchantKey, merchant, count, decision: 'business', businessPurpose: cleanText(saved.business_purpose),
+    category: category && !category.recordedCategory.endsWith('_REVIEW_REQUIRED') ? category.value : null };
+}
+
+/** Local copy of the stamps the bulk route writes, so confirmed rows leave the queue before the next snapshot. */
+export function bulkConfirmedLocally(transaction: Transaction, offer: BulkConfirmRequest, reviewedAt: string): Transaction {
+  const business = offer.decision === 'business';
+  return {
+    ...transaction,
+    is_deductible: business, expense_type: business ? 'business' : 'personal',
+    user_classification_reason: business ? AI_PROPOSAL_CONFIRMED_REASON : AI_PROPOSAL_REJECTED_REASON,
+    ...(business && offer.businessPurpose ? { business_purpose: offer.businessPurpose } : {}),
+    review_status: 'confirmed', reviewed_at: reviewedAt, tax_review_required: false,
+    review_source: !business ? 'user_corrected' : transaction.ai_suggestion ? 'ai_confirmed' : 'user_decision',
+  };
+}
+
 export function formatMoney(amount: number): string {
   return Number.isFinite(amount) ? `$${Math.abs(amount).toFixed(2)}` : 'Amount needs review';
 }

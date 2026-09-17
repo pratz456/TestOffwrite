@@ -712,6 +712,7 @@ export default function ProtectedPage() {
       return (
         <TransactionDetailScreen
           transaction={viewingTransaction}
+          transactions={transactions as any}
           initialSection={searchParams.get('section') === 'details' ? 'details' : 'summary'}
           onBack={handleGoBack}
           onSave={handleSaveTransaction}

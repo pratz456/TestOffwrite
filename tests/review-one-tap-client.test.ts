@@ -18,11 +18,13 @@ vi.mock('@/lib/hooks/use-ai-availability', () => ({ useAiAvailability: () => ({ 
 vi.mock('sonner', () => ({ toast: { success: harness.toast } }));
 import { ReviewTransactionsScreen } from '../components/review-transactions-screen';
 import { PurposeConfirmChip } from '../components/review/purpose-confirm-chip';
+import { BulkConfirmOffer, requestBulkConfirm, type BulkConfirmOutcome } from '../components/review/bulk-confirm-offer';
 import { ExplanationCard } from '../components/ai/explanation-card';
 import { reviewSourceFor, taxDecisionUpdate } from '../lib/transactions/tax-decision';
-import { canOfferPurposeConfirmation, confirmPurposeUpdates, proposedBusinessPurpose, rejectProposalUpdates } from '../lib/transactions/review-proposals';
+import { bulkOfferFor, canOfferPurposeConfirmation, confirmPurposeUpdates, proposedBusinessPurpose, rejectProposalUpdates, type BulkConfirmRequest } from '../lib/transactions/review-proposals';
 
-type Props = { children?: unknown; proposal?: string | null; question?: string | null; onConfirm?: (purpose: string) => unknown; onReject?: () => unknown; onClick?: () => unknown; disabled?: boolean; explanation?: unknown };
+type Props = { children?: unknown; proposal?: string | null; question?: string | null; onConfirm?: (purpose: string) => unknown; onReject?: () => unknown; onClick?: () => unknown; disabled?: boolean; explanation?: unknown;
+  offer?: BulkConfirmRequest; onApplied?: (outcome: BulkConfirmOutcome, offer: BulkConfirmRequest) => unknown; onDismiss?: () => unknown };
 type Element = ReactElement<Props>;
 function walk(node: unknown): Element[] { if (Array.isArray(node)) return node.flatMap(walk); return isValidElement<Props>(node) ? [node, ...walk(node.props.children)] : []; }
 function text(node: unknown): string { if (Array.isArray(node)) return node.map(text).join(''); if (isValidElement<Props>(node)) return text(node.props.children); return typeof node === 'string' || typeof node === 'number' ? String(node) : ''; }
@@ -106,6 +108,80 @@ describe('one-tap purpose confirmation on the review screen', () => {
     const card = walk(view).find(node => node.type === ExplanationCard)!;
     expect(card).toBeDefined();
     expect(text(view)).not.toContain(suggestion.reasoning);
+  });
+});
+
+describe('apply to similar charges after a single decision', () => {
+  const offerOn = (view: unknown) => walk(view).find(node => node.type === BulkConfirmOffer);
+  const similar = (id: string, changes: Partial<Transaction> = {}) => base({ id, trans_id: id, merchant_name: 'SYNTHETIC OFFICE MART', ai_suggestion: null, ai_missing_fields: [], ...changes });
+  const purpose = 'Printer paper and ink for client proposals';
+
+  it('offers the merchant\u2019s other unreviewed charges once, with the confirmed purpose, and none for a lone charge', async () => {
+    records = [base(), similar('tx-2'), similar('tx-3'), similar('tx-4', { is_deductible: false }), similar('tx-5', { pending: true }), base({ id: 'tx-6', trans_id: 'tx-6', merchant_name: 'Other Shop' })];
+    harness.request.mockResolvedValue(serverPut(records[0], { business_purpose: purpose, is_deductible: true, review_source: 'ai_confirmed' }));
+    expect(offerOn(page())).toBeUndefined();
+    await chip(page())!.props.onConfirm!(purpose);
+    const offer = offerOn(page())!;
+    expect(offer.props.offer).toEqual({ merchantKey: 'synthetic office mart', merchant: 'Synthetic Office Mart', count: 2, decision: 'business', businessPurpose: purpose, category: null });
+    expect(harness.request).toHaveBeenCalledTimes(1);
+    offer.props.onDismiss!();
+    expect(offerOn(page())).toBeUndefined();
+
+    harness.slots = []; harness.request.mockReset(); harness.updated.mockReset();
+    records = [base(), similar('tx-2'), base({ id: 'tx-6', trans_id: 'tx-6', merchant_name: 'Other Shop' })];
+    harness.request.mockResolvedValue(serverPut(records[0], { business_purpose: purpose, is_deductible: true }));
+    await chip(page())!.props.onConfirm!(purpose);
+    expect(offerOn(page())).toBeUndefined();
+  });
+
+  it('marks exactly the server-stamped rows reviewed locally and reports the server count', async () => {
+    records = [base(), similar('tx-2'), similar('tx-3'), similar('tx-4', { ai_suggestion: { ...suggestion, transactionKind: 'transfer' } })];
+    harness.request.mockResolvedValue(serverPut(records[0], { business_purpose: purpose, is_deductible: true }));
+    await chip(page())!.props.onConfirm!(purpose);
+    const offer = offerOn(page())!;
+    expect(offer.props.offer!.count).toBe(3);
+    harness.updated.mockReset();
+    offer.props.onApplied!({ updated: 2, skipped: 1, truncated: false, transactionIds: ['tx-2', 'tx-3'] }, offer.props.offer!);
+    expect(harness.updated).toHaveBeenCalledTimes(2);
+    expect(harness.updated).toHaveBeenCalledWith(expect.objectContaining({ id: 'tx-2', is_deductible: true, expense_type: 'business', business_purpose: purpose,
+      user_classification_reason: 'confirmed_ai_proposal', review_status: 'confirmed', review_source: 'user_decision', tax_review_required: false }));
+    expect(harness.toast).toHaveBeenLastCalledWith('Recorded 2 charges from Synthetic Office Mart as business deductions; 1 still needs your individual review.');
+    const view = page();
+    expect(text(view)).toContain('3 confirmed this session');
+    expect(text(view)).toContain('1 needs review');
+  });
+
+  it('offers a not-business bulk decision after rejecting the proposal', async () => {
+    records = [base(), similar('tx-2'), similar('tx-3')];
+    harness.request.mockResolvedValue(serverPut(records[0], { is_deductible: false, review_source: 'user_corrected' }));
+    await chip(page())!.props.onReject!();
+    const offer = offerOn(page())!.props.offer!;
+    expect(offer).toMatchObject({ decision: 'personal', count: 2, businessPurpose: null, category: null });
+  });
+
+  it('sends only the fields the route accepts and surfaces its result or refusal', async () => {
+    const offer: BulkConfirmRequest = { merchantKey: 'synthetic office mart', merchant: 'Synthetic Office Mart', count: 2, decision: 'business', businessPurpose: purpose, category: 'supplies_small_tools' };
+    harness.request.mockResolvedValueOnce(Response.json({ success: true, merchantKey: 'synthetic office mart', updated: 2, skipped: 0, truncated: true, transactionIds: ['tx-2', 'tx-3', 7] }));
+    expect(await requestBulkConfirm(offer)).toEqual({ ok: true, outcome: { updated: 2, skipped: 0, truncated: true, transactionIds: ['tx-2', 'tx-3'] } });
+    expect(harness.request).toHaveBeenCalledWith('/api/transactions/bulk-confirm', expect.objectContaining({ method: 'POST',
+      body: JSON.stringify({ merchantKey: 'synthetic office mart', decision: 'business', businessPurpose: purpose, category: 'supplies_small_tools' }) }));
+    harness.request.mockResolvedValueOnce(Response.json({ success: true, updated: 0, skipped: 0, truncated: false, transactionIds: [] }));
+    expect(JSON.parse((await requestBulkConfirm({ ...offer, decision: 'personal' }).then(() => harness.request.mock.calls.at(-1)![1].body)))).toEqual({ merchantKey: 'synthetic office mart', decision: 'personal' });
+    harness.request.mockResolvedValueOnce(Response.json({ code: 'RATE_LIMITED', error: 'Too many requests.' }, { status: 429 }));
+    expect(await requestBulkConfirm(offer)).toEqual({ ok: false, message: 'Too many bulk updates in a short time. Try again in a few minutes.' });
+    harness.request.mockRejectedValueOnce(new Error('offline'));
+    expect((await requestBulkConfirm(offer)).ok).toBe(false);
+  });
+
+  it('carries a reviewed category into the offer only after category review', () => {
+    const others = [similar('tx-2'), similar('tx-3')];
+    const confirmedCategory = base({ is_deductible: true, transaction_kind: 'expense', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', business_purpose: purpose });
+    expect(bulkOfferFor(confirmedCategory, [confirmedCategory, ...others])).toMatchObject({ decision: 'business', category: 'supplies_small_tools', businessPurpose: purpose });
+    expect(bulkOfferFor(base({ is_deductible: true, category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES' }), others)).toMatchObject({ category: null });
+    expect(bulkOfferFor(base({ is_deductible: true, transaction_kind: 'expense', category: 'EQUIPMENT_REVIEW_REQUIRED' }), others)).toMatchObject({ category: null });
+    expect(bulkOfferFor(base({ is_deductible: null }), others)).toBeNull();
+    expect(bulkOfferFor(base({ is_deductible: false, transaction_kind: 'refund', amount: 42.5 }), others)).toBeNull();
+    expect(bulkOfferFor(base({ is_deductible: true, amount: -42.5 }), others)).toBeNull();
   });
 });
 

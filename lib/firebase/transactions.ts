@@ -29,6 +29,7 @@ export interface Transaction {
   review_status?: string;
   review_source?: string;
   review_suggestion_id?: string | null;
+  reviewed_at?: string;
   tax_review_required?: boolean;
   analysisErrorCode?: string | null;
   analysisJobId?: string;

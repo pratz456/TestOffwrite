@@ -14,8 +14,11 @@ import { ReceiptPreview } from '@/components/receipt-preview';
 import { AiTaxAnalysisDialog, AiTaxExplanation } from '@/components/ai-tax-explanation';
 import { ExplanationCard } from '@/components/ai/explanation-card';
 import { PurposeConfirmChip } from '@/components/review/purpose-confirm-chip';
+import { BulkConfirmOffer, bulkOutcomeMessage } from '@/components/review/bulk-confirm-offer';
 import type { AiReviewSuggestion } from '@/lib/transactions/ai-review-contract';
-import { canOfferPurposeConfirmation, confirmPurposeUpdates, firstOpenQuestion, proposedBusinessPurpose, rejectProposalUpdates, type AiExplanation } from '@/lib/transactions/review-proposals';
+import type { Transaction as StoredTransaction } from '@/lib/firebase/transactions';
+import { bulkOfferFor, canOfferPurposeConfirmation, confirmPurposeUpdates, firstOpenQuestion, proposedBusinessPurpose, rejectProposalUpdates,
+  type AiExplanation, type BulkConfirmRequest } from '@/lib/transactions/review-proposals';
 import { auth } from '@/lib/firebase/client';
 import { useAiAvailability } from '@/lib/hooks/use-ai-availability';
 import { consolidateCategory } from '@/lib/utils';
@@ -123,12 +126,15 @@ interface TransactionDetailScreenProps {
     irsSection?: string; // IRS section reference
     analysisUpdatedAt?: string; // When the analysis was last updated
   };
+  /** The owner's loaded transactions; used only to count similar unreviewed charges for the bulk offer. */
+  transactions?: StoredTransaction[];
   onBack: () => void;
   onSave: (updatedTransaction: any) => void;
 }
 
 export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = ({
   transaction,
+  transactions,
   onBack,
   onSave,
   initialSection = 'summary'
@@ -375,6 +381,8 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
 
   // One-tap decision on the AI's proposed purpose. The same PUT route stamps the review server-side.
   const [proposalSaving, setProposalSaving] = useState(false);
+  const [bulkOffer, setBulkOffer] = useState<BulkConfirmRequest | null>(null);
+  useEffect(() => { setBulkOffer(null); }, [analysisContext]);
   const proposal = proposedBusinessPurpose(transaction);
   const openQuestion = firstOpenQuestion(transaction);
   const offerPurpose = !isAnalyzing && canOfferPurposeConfirmation(transaction);
@@ -387,8 +395,10 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
       if (activeAnalysisContext.current !== analysisContext) return;
       if (typeof updates.business_purpose === 'string') setBusinessPurpose(updates.business_purpose);
       if (typeof updates.is_deductible === 'boolean') { setClassification(updates.is_deductible ? 'business' : 'personal'); localClassificationDraft.current = null; }
+      const decided = { ...transaction, ...updates, ...saved } as unknown as StoredTransaction;
+      setBulkOffer(transactions ? bulkOfferFor(decided, transactions) : null);
       showSuccess(title, detail);
-      await onSave({ ...transaction, ...updates, ...saved });
+      await onSave(decided);
     } catch {
       if (activeAnalysisContext.current === analysisContext) showError('Decision not saved', 'Your decision could not be saved. Please try again.');
     } finally {
@@ -809,6 +819,8 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
               busy={proposalSaving} disabled={isSaving || isUploadingReceipt}
               onConfirm={purpose => handleProposalDecision(confirmPurposeUpdates(purpose, proposal), 'Purpose confirmed', 'The business purpose is saved and the deduction is recorded.')}
               onReject={() => handleProposalDecision(rejectProposalUpdates(), 'Marked not business', 'No deduction is recorded for this transaction.')} />}
+            {bulkOffer && <BulkConfirmOffer key={`${bulkOffer.merchantKey}:${bulkOffer.decision}`} offer={bulkOffer} disabled={isSaving || proposalSaving}
+              onApplied={(outcome, offer) => showSuccess('Applied to similar charges', bulkOutcomeMessage(offer, outcome))} onDismiss={() => setBulkOffer(null)} />}
             {transaction.ai_suggestion && <Button className="h-11 w-full" onClick={() => navigateFromTransaction(protectedScreenUrl(`review-transactions?transactionId=${encodeURIComponent(getTransactionId(transaction))}`))}>Confirm or change category<ArrowRight className="h-4 w-4" /></Button>}
           </div>
             </Card>

@@ -12,8 +12,10 @@ import { transactionNeedsCategoryReview, transactionNeedsTaxReview } from '@/lib
 import { REVIEW_CATEGORIES, canConfirmSuggestion, reviewCategory, type TransactionKind } from '@/lib/transactions/ai-review-contract';
 import { reviewPresentation, transactionReviewKey } from '@/lib/transactions/review-presentation';
 import { formatTransactionDate } from '@/lib/transactions/calendar-date';
-import { canOfferPurposeConfirmation, confirmPurposeUpdates, firstOpenQuestion, proposedBusinessPurpose, rejectProposalUpdates } from '@/lib/transactions/review-proposals';
+import { bulkConfirmedLocally, bulkOfferFor, canOfferPurposeConfirmation, confirmPurposeUpdates, firstOpenQuestion, proposedBusinessPurpose, rejectProposalUpdates,
+  type BulkConfirmRequest } from '@/lib/transactions/review-proposals';
 import { PurposeConfirmChip } from '@/components/review/purpose-confirm-chip';
+import { BulkConfirmOffer, bulkOutcomeMessage, type BulkConfirmOutcome } from '@/components/review/bulk-confirm-offer';
 import { ExplanationCard } from '@/components/ai/explanation-card';
 
 interface ReviewTransactionsScreenProps {
@@ -46,6 +48,8 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
   const [reason, setReason] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [providerFailed, setProviderFailed] = useState(false);
+  // Offered after a saved decision when other unreviewed charges share the merchant.
+  const [bulkOffer, setBulkOffer] = useState<BulkConfirmRequest | null>(null);
   const [touchOffset, setTouchOffset] = useState(0);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
   const operationLock = useRef(false);
@@ -57,7 +61,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
 
   useEffect(() => {
     setReviewed(new Set()); setDeferred(new Set()); setSnapshots({}); setEditing(false);
-    setMessage(null); setProviderFailed(false);
+    setMessage(null); setProviderFailed(false); setBulkOffer(null);
   }, [user.id]);
 
   const resolved = transactions.map(transaction => {
@@ -177,6 +181,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
       remember(result.transaction);
       setReviewed(previous => new Set([...previous, key]));
       setEditing(false);
+      setBulkOffer(bulkOfferFor(result.transaction as Transaction, resolved));
       toast.success(result.transaction.tax_review_required ? 'Category saved · tax details still need review' : action === 'confirm' ? 'AI categorization confirmed' : 'Your correction was saved');
     } catch {
       if (mounted.current && activeUser.current === owner && activeKey.current === key) setMessage('Your review was not saved. Check your connection and try again.');
@@ -203,11 +208,28 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
       const saved = { ...record, ...(result.transaction as Partial<Transaction>) } as Transaction;
       remember(saved);
       setReviewed(previous => new Set([...previous, key]));
+      setBulkOffer(bulkOfferFor(saved, resolved));
       toast.success(successMessage);
     } catch {
       if (mounted.current && activeUser.current === owner && activeKey.current === key) setMessage('Your decision was not saved. Check your connection and try again.');
     } finally { operationLock.current = false; if (mounted.current) { setOperation(null); setTouchOffset(0); } }
   };
+
+  // The server has already stamped these rows; mirror the stamps locally so they leave the queue now.
+  const applyBulkLocally = (outcome: BulkConfirmOutcome, offer: BulkConfirmRequest) => {
+    const reviewedAt = new Date().toISOString();
+    const ids = new Set(outcome.transactionIds);
+    const keys: string[] = [];
+    for (const transaction of resolved) {
+      if (!ids.has(transaction.trans_id || transaction.id)) continue;
+      remember(bulkConfirmedLocally(transaction, offer, reviewedAt));
+      keys.push(transactionReviewKey(transaction));
+    }
+    if (keys.length) setReviewed(previous => new Set([...previous, ...keys]));
+    toast.success(bulkOutcomeMessage(offer, outcome));
+  };
+  const bulkOfferBanner = bulkOffer && <BulkConfirmOffer key={`${bulkOffer.merchantKey}:${bulkOffer.decision}`} offer={bulkOffer} disabled={busy}
+    onApplied={applyBulkLocally} onDismiss={() => setBulkOffer(null)} />;
 
   const runAnalysis = async () => {
     if (!current || operationLock.current || current.pending || analysisRunning || availability.status !== 'configured' || providerFailed) return;
@@ -256,6 +278,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
           : transactions.length ? 'Your categorization decisions are saved. New transactions will appear here for review.'
           : 'Add a transaction or connect a bank to start building your tax records.'}</p>
         {taxQuestions.length > 0 && <p className="text-sm text-amber-700 dark:text-amber-400">{taxQuestions.length} categorized transaction{taxQuestions.length === 1 ? ' still needs' : 's still need'} tax details. Deductions remain unresolved.</p>}
+        {bulkOfferBanner && <div className="text-left">{bulkOfferBanner}</div>}
         {taxQuestions.length > 0 && onTransactionClick && <Button className="w-full" onClick={() => onTransactionClick({ ...taxQuestions[0], _source: 'review-transactions' }, 'details')}>Resolve missing tax details</Button>}
         {remaining.length > 0 && <Button className="w-full" onClick={() => setDeferred(new Set())}>Review remaining transactions</Button>}
         <Button variant="outline" className="w-full" onClick={onBack}>Back to dashboard</Button>
@@ -283,6 +306,8 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
             {!editing && <Button variant="ghost" disabled={busy} onClick={later} className="min-h-11 px-3 text-muted-foreground">Later</Button>}
           </div>
         </header>
+
+        {bulkOfferBanner && <div className="mb-3">{bulkOfferBanner}</div>}
 
         <article className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm" aria-label="Transaction to review"
           style={{ transform: `translateX(${Math.max(-70, Math.min(70, touchOffset))}px)`, touchAction: 'pan-y' }}
