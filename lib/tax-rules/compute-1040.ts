@@ -65,7 +65,9 @@ export interface Form1040Input {
   charitableDonations?: number;          // Schedule A charitable contributions
   saltDeduction?: number;                // Eligible personal state/local taxes paid; annual cap applied here
   saltModifiedAGI?: number;              // Includes applicable foreign/territory income exclusions; defaults to AGI
-  depreciationDeduction?: number;        // Section 179 / MACRS from Form 4562
+  depreciationDeduction?: number;        // Section 179 / MACRS from Form 4562 (Schedule C line 13)
+  deMinimisExpense?: number;             // Reg. §1.263(a)-1(f) safe-harbor items expensed on Schedule C, not depreciated
+  homeOfficeDeduction?: number;          // Schedule C line 30 (simplified method, Rev. Proc. 2013-13)
   stateCode?: string;                    // State used for state tax calculation
 }
 
@@ -161,9 +163,11 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
     : ['Planning estimate based on saved eligibility declarations and modeled income. Other deductions, credits and special return rules may require review.'];
 
   // ── Step 1: Total Income (Form 1040 Line 9) ──
-  // Subtract depreciation (Section 179 / MACRS) from Schedule C net profit
-  const adjustedScheduleC = Math.max(0, scheduleCNetProfit - (input.depreciationDeduction || 0));
-  if (scheduleCNetProfit - (input.depreciationDeduction || 0) < 0) {
+  // Schedule C line 31: subtract de minimis expenses, Form 4562 depreciation (line 13) and
+  // the home office deduction (line 30) before SE tax, QBI and Schedule 1 income.
+  const scheduleCLine31 = scheduleCNetProfit - (input.deMinimisExpense || 0) - (input.depreciationDeduction || 0) - (input.homeOfficeDeduction || 0);
+  const adjustedScheduleC = Math.max(0, scheduleCLine31);
+  if (scheduleCLine31 < 0) {
     calculationWarnings.push('Business losses are not applied by this estimate and require separate review.');
   }
   if ((input.numDependents ?? 0) > 0) {

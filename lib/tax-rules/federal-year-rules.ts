@@ -19,6 +19,22 @@ export interface EITCParameters {
   phaseOutEndMFJ: number;
 }
 
+/**
+ * §179(b)(1) dollar limit and §179(b)(2) phaseout threshold for the tax year.
+ * Verified against the published revenue procedures on 2026-09-17:
+ * - 2024: Rev. Proc. 2023-34 §3.25 ($1,220,000 / $3,050,000).
+ * - 2025: Rev. Proc. 2024-40 §2.25 originally $1,250,000 / $3,130,000; OBBBA §70306
+ *   (P.L. 119-21) raised them to $2,500,000 / $4,000,000 for tax years beginning after
+ *   2024 — Rev. Proc. 2025-32 §2.10 and §3.02 (which removes §2.25 of Rev. Proc. 2024-40).
+ * - 2026: Rev. Proc. 2025-32 §4.24 ($2,560,000 / $4,090,000).
+ * The §179(b)(3) business-income limit is applied by the caller, not stored here.
+ */
+export interface Section179Limits {
+  limit: number;
+  phaseoutThreshold: number;
+  source: string;
+}
+
 interface FederalTaxRules {
   taxYear: SupportedTaxYear;
   reviewedAt: string;
@@ -36,6 +52,7 @@ interface FederalTaxRules {
   saltPhaseoutStart: number;
   qbiThreshold: Record<FederalFilingStatus, number>;
   qbiPhaseInWidth: number;
+  section179: Section179Limits;
 }
 
 const rates = [0.10, 0.12, 0.22, 0.24, 0.32, 0.35, 0.37];
@@ -88,6 +105,7 @@ const rules: Record<SupportedTaxYear, FederalTaxRules> = {
     },
     saltCap: 10000, saltPhaseoutStart: Infinity,
     qbiThreshold: filingAmounts(191950, 383900, 191950, 191950), qbiPhaseInWidth: 50000,
+    section179: { limit: 1220000, phaseoutThreshold: 3050000, source: 'Rev. Proc. 2023-34 §3.25' },
   },
   2025: {
     taxYear: 2025, reviewedAt: '2026-09-15',
@@ -111,6 +129,8 @@ const rules: Record<SupportedTaxYear, FederalTaxRules> = {
     },
     saltCap: 40000, saltPhaseoutStart: 500000,
     qbiThreshold: filingAmounts(197300, 394600, 197300, 197300), qbiPhaseInWidth: 50000,
+    // Rev. Proc. 2024-40 §2.25 published $1,250,000 / $3,130,000 before OBBBA §70306.
+    section179: { limit: 2500000, phaseoutThreshold: 4000000, source: 'OBBBA §70306 (P.L. 119-21); Rev. Proc. 2025-32 §2.10 and §3.02' },
   },
   2026: {
     taxYear: 2026, reviewedAt: '2026-09-15',
@@ -133,6 +153,7 @@ const rules: Record<SupportedTaxYear, FederalTaxRules> = {
     },
     saltCap: 40400, saltPhaseoutStart: 505000,
     qbiThreshold: filingAmounts(201750, 403500, 201775, 201750), qbiPhaseInWidth: 75000,
+    section179: { limit: 2560000, phaseoutThreshold: 4090000, source: 'Rev. Proc. 2025-32 §4.24' },
   },
 };
 
@@ -197,6 +218,11 @@ export function describeUnsupportedTaxYear(taxYear: number): string {
 export function getFederalTaxRules(taxYear: number): FederalTaxRules {
   if (!SUPPORTED_TAX_YEARS.includes(taxYear as SupportedTaxYear)) throw new UnsupportedTaxYearError(taxYear);
   return rules[taxYear as SupportedTaxYear];
+}
+
+/** §179 dollar limits for a published year; 2027 stays unsupported until its revenue procedure issues. */
+export function getSection179Limits(taxYear: number): Section179Limits {
+  return getFederalTaxRules(taxYear).section179;
 }
 
 /** Rates for display helpers: the requested year when published, otherwise the latest published year. */
