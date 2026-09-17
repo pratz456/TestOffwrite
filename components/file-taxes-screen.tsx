@@ -196,10 +196,12 @@ export function FileTaxesScreen() {
       <div className="bg-card border-b border-border sticky top-0 z-50 shadow-sm min-w-0">
         <div className="flex items-center justify-between p-4 sm:p-6 min-w-0">
           <button
+            type="button"
+            aria-label="Back to reports"
             onClick={() => router.push("/protected/reports")}
             className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 rounded min-h-[44px] min-w-[44px] justify-center"
           >
-            <ArrowLeft className="w-5 h-5" />
+            <ArrowLeft className="w-5 h-5" aria-hidden="true" />
           </button>
           <div className="text-center">
             <h1 className="text-xl font-semibold text-foreground">

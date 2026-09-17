@@ -397,10 +397,12 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
                   <div className="space-y-3 pt-4 border-t border-slate-100">
                     <div className="flex items-center justify-between gap-3">
                       <div>
-                        <div className="text-sm font-medium text-slate-700">Receipt type</div>
-                        <div className="text-xs text-slate-500">Used only when creating a new transaction.</div>
+                        <label htmlFor="receipt-type" className="block text-sm font-medium text-slate-700">Receipt type</label>
+                        <p id="receipt-type-hint" className="text-xs text-slate-500">Used only when creating a new transaction.</p>
                       </div>
                       <select
+                        id="receipt-type"
+                        aria-describedby="receipt-type-hint"
                         value={receiptType}
                         disabled={isSaving}
                         onChange={(e) => setReceiptType(e.target.value as 'expense' | 'income')}
@@ -413,11 +415,13 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
 
                     {extractedData.matchCandidates.length > 0 ? (
                       <div className="space-y-2">
-                        <div className="text-sm font-medium text-slate-700">Save receipt to</div>
-                        <div className="text-xs text-slate-500">If attached, we only update the receipt photo (no amount/category changes).</div>
+                        <label htmlFor="receipt-save-target" className="block text-sm font-medium text-slate-700">Save receipt to</label>
+                        <p id="receipt-save-target-hint" className="text-xs text-slate-500">If attached, we only update the receipt photo (no amount/category changes).</p>
 
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                           <select
+                            id="receipt-save-target"
+                            aria-describedby="receipt-save-target-hint"
                             value={attachmentChoice}
                             disabled={isSaving}
                             onChange={(e) => {
@@ -436,6 +440,8 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
 
                           {attachmentChoice === 'attach' && (
                             <select
+                              id="receipt-match-transaction"
+                              aria-label="Transaction to attach this receipt to"
                               value={selectedCandidateTransId || ''}
                               disabled={isSaving}
                               onChange={(e) => setSelectedCandidateTransId(e.target.value)}

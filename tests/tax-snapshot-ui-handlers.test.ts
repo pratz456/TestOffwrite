@@ -240,6 +240,10 @@ describe('file taxes screen routes Schedule C through the shared federal snapsho
     expect(content).toContain(providerCopy);
     expect(content).toContain('Continue to TurboTax');
     expect(walk(tree).some(node => node.props?.role === 'alert')).toBe(false);
+    const back = walk(tree).find(node => node.type === 'button' && node.props['aria-label'] === 'Back to reports')!;
+    expect(back.props.type).toBe('button');
+    back.props.onClick();
+    expect(harness.navigate).toHaveBeenCalledWith('/protected/reports');
   });
 
   it('renders the 422 review message with a deep link to the input screen and never a profit figure', async () => {
