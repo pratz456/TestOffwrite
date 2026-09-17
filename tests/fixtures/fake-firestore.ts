@@ -14,6 +14,10 @@ export interface FakeFirestoreOptions {
   failure?: () => Error | null;
 }
 
+const DELETE_FIELD = Symbol('fake-firestore-delete-field');
+/** Stand-in for the Admin SDK `FieldValue`; `delete()` removes the key on set/update. */
+export const fakeFieldValue = { delete: () => DELETE_FIELD as unknown as never };
+
 export function createFakeFirestore(options: FakeFirestoreOptions = {}) {
   const records: FakeRecords = options.records ?? new Map();
   let generated = 0;
@@ -33,7 +37,9 @@ export function createFakeFirestore(options: FakeFirestoreOptions = {}) {
     collection: (name: string) => query(`${path}/${name}`),
   });
   const write = (path: string, data: Record<string, any>, setOptions?: { merge?: boolean }) => {
-    records.set(path, { ...(setOptions?.merge ? records.get(path) : {}), ...data });
+    const next: Record<string, any> = { ...(setOptions?.merge ? records.get(path) : {}) };
+    for (const [key, value] of Object.entries(data)) { if (value === DELETE_FIELD) delete next[key]; else next[key] = value; }
+    records.set(path, next);
   };
   const query = (path: string, filters: Array<[string, unknown]> = [], maximum = Number.POSITIVE_INFINITY): any => ({
     path,
@@ -68,6 +74,7 @@ export function createFakeFirestore(options: FakeFirestoreOptions = {}) {
     const writes: Array<() => void> = [];
     const result = await work({
       get: (target: any) => target.get(),
+      getAll: (...targets: any[]) => Promise.all(targets.map(target => target.get())),
       set: (target: any, data: Record<string, any>, setOptions?: { merge?: boolean }) => writes.push(() => write(target.path, data, setOptions)),
       update: (target: any, data: Record<string, any>) => writes.push(() => write(target.path, data, { merge: true })),
       create: (target: any, data: Record<string, any>) => writes.push(() => { if (records.has(target.path)) throw new Error(`Document exists at ${target.path}`); write(target.path, data); }),

@@ -6,7 +6,7 @@
   "reviewedAt": "",
   "legacyProfileMigration": {
     "reviewed": false,
-    "evidence": ""
+    "evidence": "REPLACE with the npm run production:plaid-migration artifacts from the private backup directory: plaid-credential-migration-plan-<timestamp>.json sha256 <plan digest printed by the dry run>; plaid-credential-migration-backup-<digest16>.json sha256 <backupDigest printed by --apply>; plaid-credential-migration-apply-<digest16>.json sha256 <resultDigest> with totals.failed 0"
   },
   "historicalOverlapReconciliation": {
     "reviewed": false,
@@ -14,7 +14,7 @@
   },
   "oldClientCompatibility": {
     "reviewed": false,
-    "evidence": ""
+    "evidence": "REPLACE with the passing --verify output run immediately before npm run production:deploy: plaid-credential-migration-verify-<timestamp>.json sha256 <reportDigest> with clean true, profilesWithToken 0 and accountsWithToken 0; plus the WRITEOFF_RULES_EMULATOR_TESTS=1 run of tests/plaid-migration.emulator.test.ts (3 passed) on the release commit"
   },
   "plaidProductionAccess": {
     "reviewed": false,

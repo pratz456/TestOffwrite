@@ -250,6 +250,11 @@ export async function runPlaidCredentialMigration({
     if (reviewed.encryptionKeyFingerprint !== fingerprint) {
       throw new Error(`${ENCRYPTION_KEY_VARIABLE} differs from the key present during the dry run; rerun the dry run with the release key`);
     }
+    const backupFile = artifactPath(directory, 'backup', planDigest.slice(0, 16));
+    const resultFile = artifactPath(directory, 'apply', planDigest.slice(0, 16));
+    if (fs.existsSync(backupFile) || fs.existsSync(resultFile)) {
+      throw new Error('The backup directory already contains a backup for this plan; rerun the dry run and review a fresh plan before applying again');
+    }
     if (JSON.stringify(reviewed.profiles) !== JSON.stringify(plan.profiles)) {
       throw new Error('Production changed since the reviewed plan was written; rerun the dry run and review the new plan');
     }
@@ -260,11 +265,6 @@ export async function runPlaidCredentialMigration({
     }
     if (state.activeConnectionsExist && !(inheritedEnv.PLAID_CLIENT_ID && inheritedEnv.PLAID_ENV)) {
       throw new Error('Active private connections exist; set PLAID_CLIENT_ID and PLAID_ENV so bankConnected projections match the release');
-    }
-    const backupFile = artifactPath(directory, 'backup', planDigest.slice(0, 16));
-    const resultFile = artifactPath(directory, 'apply', planDigest.slice(0, 16));
-    if (fs.existsSync(backupFile) || fs.existsSync(resultFile)) {
-      throw new Error('The backup directory already contains a backup for this plan; rerun the dry run and review a fresh plan before applying again');
     }
     const byUid = new Map(state.profiles.map(profile => [profile.uid, profile]));
     const documents = [];
