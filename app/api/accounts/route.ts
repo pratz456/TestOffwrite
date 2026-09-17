@@ -18,8 +18,7 @@ export async function GET(request: NextRequest) {
     
     if (result.error) {
       return NextResponse.json({ 
-        error: 'Failed to fetch accounts',
-        details: result.error.message || result.error
+        error: 'Failed to fetch accounts'
       }, { status: 500 });
     }
 

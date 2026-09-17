@@ -94,15 +94,6 @@ const KNOWN_GAPS: Record<string, KnownGap> = {
   'POST /api/stripe/create-portal-session': { mutating: [500], reason: 'A provider failure answers 500 instead of 503.' },
   'DELETE /api/plaid/items': { leaksDatabaseError: true, reason: 'Disconnect failure message echoed to the caller.' },
   'DELETE /api/plaid/exchange-token': { leaksDatabaseError: true, reason: 'Legacy alias of DELETE /api/plaid/items.' },
-  'GET /api/accounts': { leaksDatabaseError: true, reason: 'details field echoes the database error.' },
-  'GET /api/database/accounts': { leaksDatabaseError: true, reason: 'details field echoes the database error.' },
-  'GET /api/database/transactions': { leaksDatabaseError: true, reason: 'details field echoes the database error.' },
-  'GET /api/income/w2': { leaksDatabaseError: true, reason: 'error field echoes the exception message.' },
-  'GET /api/settings/assets': { leaksDatabaseError: true, reason: 'error field echoes the exception message.' },
-  'GET /api/settings/home-office': { leaksDatabaseError: true, reason: 'error field echoes the exception message.' },
-  'GET /api/settings/tax-summary': { leaksDatabaseError: true, reason: 'error field echoes the exception message.' },
-  'GET /api/transactions/paginated': { leaksDatabaseError: true, reason: 'error field echoes the exception message.' },
-  'POST /api/accounts/[accountId]/mark-personal': { leaksDatabaseError: true, reason: 'error field echoes the exception message.' },
 };
 
 /** Findings in files owned by another branch: reported in docs/API_SECURITY_AUDIT_2026-09-17.md, not asserted here. */

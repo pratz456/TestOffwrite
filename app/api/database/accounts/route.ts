@@ -28,8 +28,7 @@ export async function GET(request: NextRequest) {
     if (result.error) {
       console.error('❌ [Database Accounts API] Error fetching accounts:', result.error);
       return NextResponse.json({
-        error: 'Failed to fetch accounts',
-        details: result.error.message || result.error
+        error: 'Failed to fetch accounts'
       }, { status: 500 })
     }
 
@@ -66,8 +65,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('❌ [Database Accounts API] Unexpected error:', error);
     return NextResponse.json({
-      error: 'Internal server error',
-      details: error instanceof Error ? error.message : 'Unknown error'
+      error: 'Internal server error'
     }, { status: 500 })
   }
 }
@@ -113,8 +111,7 @@ export async function POST(request: NextRequest) {
     if (result.error) {
       console.error('❌ [Database Accounts API] Error creating account:', result.error);
       return NextResponse.json({
-        error: 'Failed to create account',
-        details: result.error.message || result.error
+        error: 'Failed to create account'
       }, { status: 500 })
     }
 
@@ -123,8 +120,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('❌ [Database Accounts API] Unexpected error:', error);
     return NextResponse.json({
-      error: 'Internal server error',
-      details: error instanceof Error ? error.message : 'Unknown error'
+      error: 'Internal server error'
     }, { status: 500 })
   }
 }
@@ -166,8 +162,7 @@ export async function PUT(request: NextRequest) {
     if (result.error) {
       console.error('❌ [Database Accounts API] Error updating account:', result.error);
       return NextResponse.json({
-        error: 'Failed to update account',
-        details: result.error.message || result.error
+        error: 'Failed to update account'
       }, { status: 500 })
     }
 
@@ -176,8 +171,7 @@ export async function PUT(request: NextRequest) {
   } catch (error) {
     console.error('❌ [Database Accounts API] Unexpected error:', error);
     return NextResponse.json({
-      error: 'Internal server error',
-      details: error instanceof Error ? error.message : 'Unknown error'
+      error: 'Internal server error'
     }, { status: 500 })
   }
 }
@@ -212,8 +206,7 @@ export async function DELETE(request: NextRequest) {
     if (!result.success) {
       console.error('❌ [Database Accounts API] Error deleting account:', result.error);
       return NextResponse.json({
-        error: 'Failed to delete account',
-        details: result.error?.message || result.error || 'Unknown error'
+        error: 'Failed to delete account'
       }, { status: 500 });
     }
 
@@ -222,8 +215,7 @@ export async function DELETE(request: NextRequest) {
   } catch (error) {
     console.error('❌ [Database Accounts API] Unexpected error:', error);
     return NextResponse.json({
-      error: 'Internal server error',
-      details: error instanceof Error ? error.message : 'Unknown error'
+      error: 'Internal server error'
     }, { status: 500 });
   }
 }

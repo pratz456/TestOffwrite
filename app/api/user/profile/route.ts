@@ -64,14 +64,14 @@ export async function POST(req: Request) {
     // 3) Admin write (bypasses security rules)
     try {
       await adminDb.collection('user_profiles').doc(uid).set(doc, { merge: true });
-    } catch (e: any) {
-      return err('firestore_write_failed', 500, String(e?.message ?? e));
+    } catch {
+      return err('firestore_write_failed', 500);
     }
 
     return NextResponse.json({ ok: true }, { status: 200 });
-  } catch (e: any) {
+  } catch {
     return NextResponse.json(
-      { ok: false, error: 'unexpected_server_error', details: String(e?.message ?? e) },
+      { ok: false, error: 'unexpected_server_error' },
       { status: 500 }
     );
   }

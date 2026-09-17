@@ -9,11 +9,11 @@ export async function GET(request: NextRequest) {
     const { data, error } = await getTaxSummarySettings(user.uid);
     if (error?.code === 'NOT_FOUND') return NextResponse.json({ success: true, data: null });
     if (error) {
-      return NextResponse.json({ error: error.message || 'Failed to load tax summary settings' }, { status: 500 });
+      return NextResponse.json({ error: 'Failed to load tax summary settings' }, { status: 500 });
     }
     return NextResponse.json({ success: true, data });
-  } catch (error) {
-    return NextResponse.json({ error: 'Failed to load tax summary settings', details: error instanceof Error ? error.message : 'Unknown error' }, { status: 500 });
+  } catch {
+    return NextResponse.json({ error: 'Failed to load tax summary settings' }, { status: 500 });
   }
 }
 import { NextRequest, NextResponse } from 'next/server';
@@ -98,8 +98,7 @@ export async function POST(request: NextRequest) {
     console.error('❌ [Tax Summary Settings API] Unexpected error:', error);
     return NextResponse.json(
       { 
-        error: 'Failed to save tax summary settings',
-        details: error instanceof Error ? error.message : 'Unknown error'
+        error: 'Failed to save tax summary settings'
       },
       { status: 500 }
     );

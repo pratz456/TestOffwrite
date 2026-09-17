@@ -72,7 +72,7 @@ export async function GET(request: NextRequest) {
     if (error) {
       console.error('❌ [Paginated Transactions API] Error fetching transactions:', error);
       return NextResponse.json({ 
-        error: error.message || 'Failed to fetch transactions' 
+        error: 'Failed to fetch transactions' 
       }, { status: 500 });
     }
 
@@ -108,8 +108,7 @@ export async function GET(request: NextRequest) {
     console.error('❌ [Paginated Transactions API] Unexpected error:', error);
     return NextResponse.json(
       { 
-        error: 'Failed to fetch transactions',
-        details: error instanceof Error ? error.message : 'Unknown error'
+        error: 'Failed to fetch transactions'
       },
       { status: 500 }
     );

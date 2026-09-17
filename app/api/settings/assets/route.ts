@@ -8,11 +8,11 @@ export async function GET(request: NextRequest) {
     }
     const { data, error } = await getAssetsSettings(user.uid);
     if (error) {
-      return NextResponse.json({ error: error.message || 'Failed to load assets' }, { status: 500 });
+      return NextResponse.json({ error: 'Failed to load assets' }, { status: 500 });
     }
     return NextResponse.json({ success: true, data });
-  } catch (error) {
-    return NextResponse.json({ error: 'Failed to load assets', details: error instanceof Error ? error.message : 'Unknown error' }, { status: 500 });
+  } catch {
+    return NextResponse.json({ error: 'Failed to load assets' }, { status: 500 });
   }
 }
 import { NextRequest, NextResponse } from 'next/server';
@@ -124,8 +124,7 @@ export async function POST(request: NextRequest) {
     console.error('❌ [Assets Settings API] Unexpected error:', error);
     return NextResponse.json(
       { 
-        error: 'Failed to save assets',
-        details: error instanceof Error ? error.message : 'Unknown error'
+        error: 'Failed to save assets'
       },
       { status: 500 }
     );
@@ -176,8 +175,7 @@ export async function DELETE(request: NextRequest) {
     console.error('❌ [Assets Settings API] Unexpected error:', error);
     return NextResponse.json(
       { 
-        error: 'Failed to delete asset',
-        details: error instanceof Error ? error.message : 'Unknown error'
+        error: 'Failed to delete asset'
       },
       { status: 500 }
     );
