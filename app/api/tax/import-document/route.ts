@@ -277,7 +277,7 @@ export async function POST(request: NextRequest) {
     const openai = getOpenAIClientOrThrow();
     const response = await openai.chat.completions.create({
       model: getOpenAIModel('document'),
-      max_tokens: 1500,
+      max_completion_tokens: 1500,
       store: false,
       messages: [
         {

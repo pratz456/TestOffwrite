@@ -597,7 +597,7 @@ taxpayer_context describes this user's saved methods, gaps and past confirmed de
         { role: 'user', content: userPrompt },
       ],
       temperature: 0.1,
-      max_tokens: 1000,
+      max_completion_tokens: 1000,
       seed: 42,
       response_format: { type: 'json_schema', json_schema: RESPONSE_JSON_SCHEMA },
     });

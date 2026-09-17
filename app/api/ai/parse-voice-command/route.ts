@@ -85,7 +85,7 @@ Examples:
         { role: 'user', content: text }
       ],
       temperature: 0.1,
-      max_tokens: 200,
+      max_completion_tokens: 200,
       store: false,
     });
 

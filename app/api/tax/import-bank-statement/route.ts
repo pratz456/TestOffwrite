@@ -96,7 +96,7 @@ async function callGPT4Vision(base64: string, mimeType: string, prompt: string):
 
   const response = await openai.chat.completions.create({
     model: getOpenAIModel('document'),
-    max_tokens: 4000,
+    max_completion_tokens: 4000,
     store: false,
     response_format: { type: 'json_object' },
     messages: [
