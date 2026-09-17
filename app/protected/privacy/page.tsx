@@ -90,7 +90,7 @@ export default function PrivacyPolicyPage() {
                 We take the protection of your data seriously. Measures include:
               </p>
               <ul>
-                <li>Bank-level encryption and secure connections.</li>
+                <li>Encryption in transit and at rest, and read-only bank connections.</li>
                 <li>Access controls and regular security reviews.</li>
                 <li>Partnerships with audited and compliant service providers.</li>
               </ul>

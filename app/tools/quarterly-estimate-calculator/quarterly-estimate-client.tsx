@@ -36,7 +36,7 @@ export function QuarterlyEstimateClient() {
     } catch (err) { setError(err instanceof Error ? err.message : 'Review the inputs before calculating.'); }
   };
   return <div className="min-h-screen bg-background"><LandingHeader /><main className="mx-auto max-w-4xl space-y-6 px-4 py-10">
-    <header><h1 className="text-3xl font-bold">Quarterly Payment Planning</h1><p className="mt-3 text-muted-foreground">Compare ordinary federal estimated-payment methods using a reviewed annual tax forecast. This tool does not calculate your income tax return or decide what you should pay today.</p></header>
+    <header><h1 className="text-3xl font-bold">Quarterly Payment Planning</h1><p className="mt-3 text-muted-foreground">Compare ordinary federal estimated-payment methods using a reviewed annual tax forecast. This is a planning estimate: it does not calculate your income tax return or decide what you should pay today.</p></header>
     <div className="grid gap-6 lg:grid-cols-2"><Card><CardHeader><CardTitle>Review your inputs</CardTitle></CardHeader><CardContent>
       <form onSubmit={calculate} className="space-y-4">
         <label className="block">Tax year<select aria-label="Tax year" className="mt-1 w-full rounded border bg-background p-2" value={form.taxYear} onChange={e => change('taxYear', e.target.value)}>{[2026, 2025, 2024].map(year => <option key={year}>{year}</option>)}</select></label>
@@ -63,7 +63,7 @@ export function QuarterlyEstimateClient() {
         {result.installments.map(item => <div key={item.quarter} className="flex justify-between gap-2 border-t pt-2"><span>Q{item.quarter} · {item.dueDate}</span><span>{money(item.amount)}</span></div>)}
         <p className="text-sm">{result.note}</p>
       </CardContent></Card> : <p className="rounded border p-4 text-sm">Complete the facts to show an illustration. Missing inputs are not treated as zero.</p>}
-      <div className="space-y-3 text-sm"><p>Keep a record of each actual payment date and amount. Prior payments are not subtracted and redistributed across four past deadlines. No “paid,” “on track” or penalty verdict is produced.</p><a className="block underline" href="https://www.irs.gov/publications/p505" target="_blank" rel="noopener noreferrer">IRS Publication 505: estimated-tax rules</a><a className="block underline" href="https://www.irs.gov/pub/irs-pdf/f1040es.pdf" target="_blank" rel="noopener noreferrer">2026 IRS 1040-ES worksheet and official vouchers</a></div>
+      <div className="space-y-3 text-sm"><p>Keep a record of each actual payment date and amount. Prior payments are not subtracted and redistributed across four past deadlines. No “paid,” “on track” or penalty verdict is produced.</p><a className="block underline" href="https://www.irs.gov/publications/p505" target="_blank" rel="noopener noreferrer">IRS Publication 505: estimated-tax rules</a><a className="block underline" href="https://www.irs.gov/forms-pubs/about-form-1040-es" target="_blank" rel="noopener noreferrer">IRS Form 1040-ES worksheet and official vouchers (choose the {form.taxYear} edition)</a><p className="text-xs text-muted-foreground">Installment dates shown already move to the next business day when the 15th falls on a weekend or legal holiday.</p></div>
     </div></div>
   </main></div>;
 }

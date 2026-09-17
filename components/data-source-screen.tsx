@@ -273,7 +273,7 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
               {[
                 { icon: '📥', label: 'Transaction sync', desc: 'Request available records from a supported account' },
                 { icon: '✅', label: 'Your review', desc: 'Check categories and business purpose before confirming expenses' },
-                { icon: '🔒', label: 'Bank-level security', desc: 'Read-only access via Plaid  -  WriteOff cannot move money' },
+                { icon: '🔒', label: 'Read-only access', desc: 'Encrypted connection via Plaid  -  WriteOff cannot move money' },
                 { icon: '🔌', label: 'Disconnect anytime', desc: 'Revoke access in Settings at any time' },
               ].map(item => (
                 <div key={item.label} className="flex items-start gap-3">

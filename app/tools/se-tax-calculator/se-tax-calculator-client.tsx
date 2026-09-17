@@ -2,19 +2,22 @@
 
 import React, { useState, useMemo } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { Calculator, DollarSign, Info, ArrowRight } from "lucide-react";
 import { LandingHeader } from "@/components/landing/landing-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { calcScheduleSE } from "@/lib/reports/calcSE";
+import {
+  additionalMedicareThreshold,
+  isPublicCalculatorTaxYear,
+  PUBLIC_CALCULATOR_TAX_YEARS,
+  PUBLIC_FILING_STATUSES,
+  socialSecurityWageBase,
+  type PublicCalculatorTaxYear,
+} from "@/lib/tax-rules/public-calculators";
 
-const FILING_STATUSES = [
-  { value: "single", label: "Single" },
-  { value: "married", label: "Married Filing Jointly" },
-  { value: "married_filing_separately", label: "Married Filing Separately" },
-  { value: "head_of_household", label: "Head of Household" },
-];
+const FILING_STATUSES = PUBLIC_FILING_STATUSES;
+const DEFAULT_TAX_YEAR: PublicCalculatorTaxYear = 2026;
 
 function formatCurrency(value: number): string {
   return new Intl.NumberFormat("en-US", {
@@ -24,22 +27,36 @@ function formatCurrency(value: number): string {
   }).format(value);
 }
 
+function formatWhole(value: number): string {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(value);
+}
+
 export function SETaxCalculatorClient() {
+  const [taxYear, setTaxYear] = useState<PublicCalculatorTaxYear>(DEFAULT_TAX_YEAR);
   const [netProfit, setNetProfit] = useState("");
   const [filingStatus, setFilingStatus] = useState("single");
   const [w2Wages, setW2Wages] = useState("");
 
   const parsedProfit = parseFloat(netProfit.replace(/[,$]/g, "")) || 0;
   const parsedW2 = parseFloat(w2Wages.replace(/[,$]/g, "")) || 0;
+  const wageBase = socialSecurityWageBase(taxYear);
+  const medicareThreshold = additionalMedicareThreshold(filingStatus);
 
   const calculation = useMemo(() => {
     if (parsedProfit <= 0) return null;
+    // W-2 wages count against both the Social Security wage base and the Additional Medicare threshold.
     return calcScheduleSE(
-      { scheduleCNetProfit: parsedProfit, taxYear: 2025 },
+      { scheduleCNetProfit: parsedProfit, taxYear },
       filingStatus,
+      parsedW2,
       parsedW2
     );
-  }, [parsedProfit, filingStatus, parsedW2]);
+  }, [parsedProfit, filingStatus, parsedW2, taxYear]);
+
+  const handleYearChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const next = Number(event.target.value);
+    if (isPublicCalculatorTaxYear(next)) setTaxYear(next);
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white">
@@ -56,8 +73,8 @@ export function SETaxCalculatorClient() {
             Self-Employment Tax Calculator
           </h1>
           <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-            Calculate your 2025 self-employment tax in seconds. See exactly how much you owe
-            in Social Security and Medicare taxes as a freelancer or 1099 contractor.
+            Estimate your {taxYear} self-employment tax in seconds. See how Social Security and
+            Medicare taxes are figured for a freelancer or 1099 contractor.
           </p>
         </div>
 
@@ -74,6 +91,25 @@ export function SETaxCalculatorClient() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
+              <div>
+                <label htmlFor="tax-year" className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Tax Year
+                </label>
+                <select
+                  id="tax-year"
+                  value={taxYear}
+                  onChange={handleYearChange}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-gray-900 bg-white"
+                >
+                  {PUBLIC_CALCULATOR_TAX_YEARS.map((year) => (
+                    <option key={year} value={year}>{year}</option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-gray-500">
+                  Social Security wage base: {formatWhole(wageBase)} for {taxYear}. The 2027 wage base has not been announced.
+                </p>
+              </div>
+
               <div>
                 <label htmlFor="net-profit" className="block text-sm font-medium text-gray-700 mb-1.5">
                   Schedule C Net Profit
@@ -130,7 +166,7 @@ export function SETaxCalculatorClient() {
                   />
                 </div>
                 <p className="mt-1 text-xs text-gray-500">
-                  Box 3 of your W-2  - reduces your Social Security wage base
+                  Box 3 of your W-2  - uses up part of the Social Security wage base and the Additional Medicare threshold
                 </p>
               </div>
             </CardContent>
@@ -178,7 +214,7 @@ export function SETaxCalculatorClient() {
                     <div className="flex justify-between items-center py-2 border-b border-gray-100">
                       <div>
                         <p className="text-sm font-medium text-gray-900">Social Security (12.4%)</p>
-                        <p className="text-xs text-gray-500">Up to ${(176100).toLocaleString()} wage base</p>
+                        <p className="text-xs text-gray-500">Up to the {formatWhole(wageBase)} {taxYear} wage base</p>
                       </div>
                       <p className="text-sm font-semibold">{formatCurrency(calculation.socialSecurityTax)}</p>
                     </div>
@@ -194,7 +230,7 @@ export function SETaxCalculatorClient() {
                         <div>
                           <p className="text-sm font-medium text-gray-900">Additional Medicare (0.9%)</p>
                           <p className="text-xs text-gray-500">
-                            On earnings over ${filingStatus === "married" ? "250,000" : "200,000"}
+                            Form 8959: on combined wages and SE earnings over {formatWhole(medicareThreshold)}
                           </p>
                         </div>
                         <p className="text-sm font-semibold">{formatCurrency(calculation.additionalMedicareTax)}</p>
@@ -248,7 +284,7 @@ export function SETaxCalculatorClient() {
 
           <section>
             <h2 className="text-2xl font-bold text-gray-900 mb-4">
-              2025 Self-Employment Tax Rates
+              {taxYear} Self-Employment Tax Rates
             </h2>
             <div className="overflow-x-auto">
               <table className="w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
@@ -263,7 +299,7 @@ export function SETaxCalculatorClient() {
                   <tr>
                     <td className="py-3 px-4 text-gray-700">Social Security</td>
                     <td className="py-3 px-4 text-gray-700">12.4%</td>
-                    <td className="py-3 px-4 text-gray-700">First $176,100 of net earnings</td>
+                    <td className="py-3 px-4 text-gray-700">First {formatWhole(wageBase)} of combined W-2 wages and net earnings ({taxYear} wage base)</td>
                   </tr>
                   <tr>
                     <td className="py-3 px-4 text-gray-700">Medicare</td>
@@ -273,7 +309,7 @@ export function SETaxCalculatorClient() {
                   <tr>
                     <td className="py-3 px-4 text-gray-700">Additional Medicare</td>
                     <td className="py-3 px-4 text-gray-700">0.9%</td>
-                    <td className="py-3 px-4 text-gray-700">Earnings over $200,000 ($250,000 if married)</td>
+                    <td className="py-3 px-4 text-gray-700">Wages plus net earnings over $200,000 ($250,000 married filing jointly; $125,000 married filing separately)</td>
                   </tr>
                   <tr className="bg-gray-50">
                     <td className="py-3 px-4 font-semibold text-gray-900">SE Adjustment</td>
@@ -299,12 +335,13 @@ export function SETaxCalculatorClient() {
                 earnings (this accounts for the employer-equivalent portion).
               </li>
               <li>
-                <strong>Calculate Social Security tax</strong>  - 12.4% on the first $176,100
-                (2025 wage base). If you have W-2 income, subtract those Social Security wages first.
+                <strong>Calculate Social Security tax</strong>  - 12.4% on the first {formatWhole(wageBase)}
+                ({taxYear} wage base). If you have W-2 income, subtract those Social Security wages first.
               </li>
               <li>
                 <strong>Calculate Medicare tax</strong>  - 2.9% on all net earnings, plus an
-                additional 0.9% on earnings over $200,000 (single) or $250,000 (married).
+                additional 0.9% on combined wages and net earnings over $200,000 (single or head of household),
+                $250,000 (married filing jointly) or $125,000 (married filing separately).
               </li>
               <li>
                 <strong>Deduct half</strong>  - Half of your total SE tax is deductible on
@@ -336,11 +373,14 @@ export function SETaxCalculatorClient() {
           <div className="flex items-start gap-3 p-4 bg-blue-50 rounded-lg border border-blue-200">
             <Info className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
             <div className="text-sm text-blue-800">
-              <p className="font-medium mb-1">Disclaimer</p>
+              <p className="font-medium mb-1">Planning estimate, not tax advice</p>
               <p>
-                This calculator provides estimates based on 2025 IRS tax rates (Rev. Proc. 2024-40).
-                It is for informational purposes only and does not constitute tax advice. Consult a
-                qualified tax professional for your specific situation.
+                This calculator is a planning estimate using the Schedule SE formula (92.35% of net profit; 12.4%
+                Social Security up to the {formatWhole(wageBase)} {taxYear} wage base; 2.9% Medicare) and the 0.9%
+                Additional Medicare Tax thresholds. It does not cover church employee income, farm optional methods,
+                spouses with separate businesses, or income tax. Verify the rules in the{" "}
+                <a href="https://www.irs.gov/instructions/i1040sse" className="underline" target="_blank" rel="noopener noreferrer">IRS Schedule SE instructions</a>{" "}
+                and consult a qualified tax professional for your specific situation.
               </p>
             </div>
           </div>

@@ -220,7 +220,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate = () => {
                 <h1 className="text-xl font-semibold text-slate-900">
                   Welcome back, <span className="text-blue-600 font-bold">{profile?.name || user.email}</span>
                 </h1>
-                <p className="text-sm text-slate-600">Ready to track your expenses and maximize deductions</p>
+                <p className="text-sm text-slate-600">Ready to track your expenses and keep your deduction records</p>
               </div>
             </div>
             <div className="flex items-center gap-3">

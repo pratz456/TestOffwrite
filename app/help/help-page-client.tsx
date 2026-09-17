@@ -158,12 +158,12 @@ function HelpPageContent() {
                     Receipt Scanning
                   </CardTitle>
                   <CardDescription>
-                    Upload receipts for automatic processing
+                    Upload receipts for text extraction
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <p className="text-sm text-muted-foreground">
-                    Simply take a photo of your receipt and let AI extract all the details automatically.
+                    Take a photo of your receipt; the merchant, date and amount are extracted for you to check and correct before saving.
                   </p>
                   <Button 
                     className="w-full" 
@@ -183,12 +183,12 @@ function HelpPageContent() {
                     Quarterly Tax Calculator
                   </CardTitle>
                   <CardDescription>
-                    Real-time tax estimates and deadlines
+                    Federal planning estimates and installment dates
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <p className="text-sm text-muted-foreground">
-                    Get accurate quarterly tax estimates and never miss a payment deadline with real-time calculations.
+                    See federal planning estimates for supported situations and the IRS installment dates for the year. Estimates depend on the facts you enter.
                   </p>
                   <Button 
                     className="w-full" 
@@ -208,12 +208,12 @@ function HelpPageContent() {
                     AI Insights
                   </CardTitle>
                   <CardDescription>
-                    Personalized tax optimization tips
+                    Deduction suggestions for your review
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <p className="text-sm text-muted-foreground">
-                    Get personalized recommendations to maximize your tax savings with AI-powered insights.
+                    Review suggested deductions and recordkeeping reminders based on your recorded expenses. Nothing counts until you confirm it.
                   </p>
                   <Button 
                     className="w-full" 
@@ -238,7 +238,7 @@ function HelpPageContent() {
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <p className="text-sm text-muted-foreground">
-                    Learn how to interpret your tax reports and analytics. AI learns from your corrections.
+                    Learn how to read your Schedule C summaries, exports and planning worksheets.
                   </p>
                   <Button 
                     className="w-full" 
@@ -308,19 +308,19 @@ function HelpPageContent() {
                     Tax Forms
                   </CardTitle>
                   <CardDescription>
-                    Generate Schedule C and other tax forms
+                    Schedule C summaries for your preparer
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <p className="text-sm text-muted-foreground">
-                    Automatically generate Schedule C, Form 4562, and other tax forms from your expense data.
+                    Build Schedule C and Form 8829 summaries from your confirmed expense data. These are preparer handoffs, not filed returns.
                   </p>
                   <Button 
                     className="w-full" 
                     size="sm"
                     onClick={() => window.open('/protected/schedule-c', '_blank')}
                   >
-                    Generate Tax Forms
+                    Open Tax Summaries
                   </Button>
                 </CardContent>
               </Card>
@@ -436,50 +436,47 @@ function HelpPageContent() {
                   About WriteOff
                 </CardTitle>
                 <CardDescription>
-                  AI-powered tax optimization for modern professionals
+                  Expense and deduction records for freelancers and small business owners
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6 text-sm text-muted-foreground">
                 <div>
                   <h3 className="text-lg font-semibold text-foreground mb-3">Our Mission</h3>
                   <p>
-                    At WriteOff, we believe that tax optimization shouldn't be complicated or time-consuming. 
-                    Our mission is to empower professionals and small business owners with intelligent tools 
-                    that automatically identify tax-saving opportunities and streamline expense management.
+                    At WriteOff, we believe that keeping deduction records shouldn't be complicated or time-consuming.
+                    Our mission is to give professionals and small business owners tools that organize expenses,
+                    suggest possible deductions for review and keep the records a tax preparer needs.
                   </p>
                 </div>
 
                 <div>
                   <h3 className="text-lg font-semibold text-foreground mb-3">What We Do</h3>
                   <p className="mb-3">
-                    WriteOff is an AI-powered platform that helps you:
+                    WriteOff helps you:
                   </p>
                   <ul className="list-disc list-inside space-y-1 ml-4">
-                    <li>Automatically categorize and analyze business expenses with AI</li>
-                    <li>Identify tax-deductible items using advanced machine learning</li>
-                    <li>Scan and process receipts automatically with OCR technology</li>
-                    <li>Calculate quarterly tax estimates with real-time federal tax brackets</li>
-                    <li>Provide personalized AI insights and tax optimization recommendations</li>
-                    <li>Learn from your corrections to improve AI accuracy over time</li>
-                    <li>Generate Schedule C, Form 4562, and other tax forms automatically</li>
+                    <li>Record and categorize business expenses, with AI suggestions where enabled</li>
+                    <li>Flag possible deductions and the facts still needed for your review</li>
+                    <li>Extract merchant, date and amount from receipt photos for you to confirm</li>
+                    <li>Show federal planning estimates using the published brackets for the selected tax year (2025 and 2026)</li>
+                    <li>Suggest recordkeeping steps based on your recorded expenses</li>
+                    <li>Build Schedule C and Form 8829 summaries your preparer can use</li>
                     <li>Voice input for hands-free expense tracking</li>
                     <li>Mobile-responsive design with PWA support</li>
-                    <li>Bank account integration via Plaid for automatic transaction import</li>
-                    <li>Comprehensive tax education with IRS-backed content</li>
-                    <li>Real-time tax savings calculations based on your specific tax bracket</li>
-                    <li>Smart notifications for quarterly tax deadlines</li>
-                    <li>Secure, bank-level encryption for all financial data</li>
+                    <li>Import posted bank transactions through Plaid where bank connections are enabled</li>
+                    <li>Tax education that cites IRS publications and notices</li>
+                    <li>Reminders for federal estimated-tax installment dates</li>
+                    <li>Encrypted storage and read-only bank connections; banking credentials are never stored</li>
                   </ul>
                 </div>
 
                 <div>
                   <h3 className="text-lg font-semibold text-foreground mb-3">Our Technology</h3>
                   <p>
-                    We leverage cutting-edge artificial intelligence and machine learning to analyze your 
-                    financial data and provide intelligent recommendations. Our platform features advanced 
-                    OCR for receipt processing, machine learning that adapts to user preferences, real-time 
-                    tax calculations, and IRS publication integration for education. We integrate securely 
-                    with major banks and financial institutions, ensuring your data is always protected.
+                    We use AI models to suggest categories and possible tax treatments, receipt text extraction,
+                    published federal tax parameters for planning estimates, and IRS publications for education.
+                    Every suggestion is shown for your review; nothing is treated as deductible until you confirm it.
+                    Bank connections run through Plaid with read-only access.
                   </p>
                 </div>
 
@@ -496,22 +493,22 @@ function HelpPageContent() {
                     <div className="flex items-start gap-3">
                       <Shield className="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" />
                       <div>
-                        <h4 className="font-medium text-foreground">Bank-Level Security</h4>
-                        <p className="text-xs">Enterprise-grade security to protect your financial data</p>
+                        <h4 className="font-medium text-foreground">Encrypted Data</h4>
+                        <p className="text-xs">Encrypted connections and storage; read-only bank access through Plaid</p>
                       </div>
                     </div>
                     <div className="flex items-start gap-3">
                       <HelpCircle className="w-5 h-5 text-green-500 mt-0.5 flex-shrink-0" />
                       <div>
-                        <h4 className="font-medium text-foreground">Smart Learning</h4>
-                        <p className="text-xs">AI that improves over time based on your corrections</p>
+                        <h4 className="font-medium text-foreground">You Stay in Control</h4>
+                        <p className="text-xs">Suggestions are reviewed and confirmed by you before they count</p>
                       </div>
                     </div>
                     <div className="flex items-start gap-3">
                       <GraduationCap className="w-5 h-5 text-purple-500 mt-0.5 flex-shrink-0" />
                       <div>
                         <h4 className="font-medium text-foreground">Tax Education</h4>
-                        <p className="text-xs">Comprehensive tax education built-in with IRS content</p>
+                        <p className="text-xs">Built-in tax education that cites IRS publications</p>
                       </div>
                     </div>
                     <div className="flex items-start gap-3">
@@ -524,8 +521,8 @@ function HelpPageContent() {
                     <div className="flex items-start gap-3">
                       <Users className="w-5 h-5 text-purple-500 mt-0.5 flex-shrink-0" />
                       <div>
-                        <h4 className="font-medium text-foreground">Expert Support</h4>
-                        <p className="text-xs">Dedicated support team to help you succeed</p>
+                        <h4 className="font-medium text-foreground">Support</h4>
+                        <p className="text-xs">Email support for account and product questions (not tax advice)</p>
                       </div>
                     </div>
                   </div>
@@ -535,7 +532,7 @@ function HelpPageContent() {
                   <h3 className="text-lg font-semibold text-foreground mb-3">Get in Touch</h3>
                   <p>
                     Have questions or want to learn more? We'd love to hear from you. 
-                    Contact us at writeoffapp@gmail.com or visit our website at writeoff.com
+                    Contact us at writeoffapp@gmail.com or visit our website at writeoffapp.com
                   </p>
                 </div>
               </CardContent>

@@ -67,16 +67,16 @@ export default function PrivacyPolicyPageClient() {
               <ul>
                 <li>To provide AI-powered tax deduction analysis and generate comprehensive reports</li>
                 <li>To automatically process receipts and extract transaction details using OCR</li>
-                <li>To calculate quarterly tax estimates using real-time federal tax brackets</li>
+                <li>To calculate federal planning estimates using the published tax brackets for the selected tax year</li>
                 <li>To provide personalized AI insights and tax optimization recommendations</li>
                 <li>To learn from your corrections and improve AI accuracy over time</li>
-                <li>To generate Schedule C, Form 4562, and other tax forms automatically</li>
+                <li>To build Schedule C and Form 8829 summaries from your confirmed records</li>
                 <li>To process voice input for hands-free expense tracking</li>
                 <li>To provide mobile-responsive experience with PWA functionality</li>
                 <li>To integrate with bank accounts via Plaid for automatic transaction import</li>
-                <li>To personalize tax education content and deliver IRS-backed information</li>
+                <li>To personalize tax education content that cites IRS publications</li>
                 <li>To send smart notifications for quarterly tax deadlines and important updates</li>
-                <li>To provide real-time tax savings calculations based on your specific tax bracket</li>
+                <li>To show planning estimates of tax effects based on your selected filing status and tax year</li>
                 <li>To manage your account and provide comprehensive customer support</li>
                 <li>To improve our services, user experience, and AI capabilities</li>
                 <li>To comply with legal obligations and maintain security standards</li>
@@ -104,7 +104,7 @@ export default function PrivacyPolicyPageClient() {
             <div>
               <h3>Security Measures</h3>
               <ul>
-                <li>Bank-level encryption and secure connections</li>
+                <li>Encryption in transit and at rest, and read-only bank connections</li>
                 <li>Access controls and regular security reviews</li>
                 <li>Partnerships with audited and compliant service providers</li>
                 <li>Secure processing of receipt images and OCR data</li>

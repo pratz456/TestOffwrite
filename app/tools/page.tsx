@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import Image from "next/image";
 import { Calculator, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LandingHeader } from "@/components/landing/landing-header";
@@ -29,21 +28,21 @@ const tools = [
   {
     title: "1099 Tax Calculator",
     description:
-      "Estimate your total federal tax as a freelancer  - income tax, self-employment tax, QBI deduction, standard deduction, and effective rate. The complete picture.",
+      "Planning estimate of your 2025 or 2026 federal tax as a freelancer  - income tax, self-employment tax, QBI deduction, standard deduction, and effective rate. Federal only; no credits or state tax.",
     href: "/tools/1099-tax-calculator",
     badge: "Free",
   },
   {
     title: "Quarterly Estimated Tax Calculator",
     description:
-      "Calculate how much to pay each quarter to avoid IRS underpayment penalties. Uses both current-year and safe harbor methods.",
+      "Illustrate original regular-method installments from a reviewed annual forecast using the 90% current-year and 100%/110% prior-year safe-harbor targets. Not a penalty calculation.",
     href: "/tools/quarterly-estimate-calculator",
     badge: "Free",
   },
   {
     title: "Self-Employment Tax Calculator",
     description:
-      "Calculate your 2025 self-employment tax  - Social Security (12.4%), Medicare (2.9%), and the deductible half. Supports W-2 wage offsets and all filing statuses.",
+      "Estimate your 2025 or 2026 self-employment tax  - Social Security (12.4% up to the annual wage base), Medicare (2.9%), and the deductible half. Supports W-2 wage offsets and all filing statuses.",
     href: "/tools/se-tax-calculator",
     badge: "Free",
   },
@@ -107,9 +106,9 @@ export default function ToolsPage() {
 
         {/* CTA */}
         <div className="mt-16 text-center rounded-2xl bg-gradient-to-r from-green-600 to-emerald-600 p-10 text-white">
-          <h3 className="text-xl font-bold mb-2">Want to automate your tax deductions?</h3>
+          <h3 className="text-xl font-bold mb-2">Want help keeping your deduction records?</h3>
           <p className="text-green-100 mb-6 max-w-md mx-auto">
-            WriteOff automatically tracks expenses, identifies deductions, and generates tax reports.
+            WriteOff tracks expenses, suggests likely deductions for your review, and prepares Schedule C-ready summaries your preparer can use.
           </p>
           <Link href="/auth/sign-up">
             <Button size="lg" className="bg-white text-green-700 hover:bg-green-50">
