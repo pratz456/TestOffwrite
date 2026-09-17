@@ -792,8 +792,8 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
               <div className="flex items-center gap-2 p-3 bg-muted/30 rounded-lg">
                 <CheckCircle className="w-4 h-4 text-primary" />
                 <div>
-                  <p className="font-medium text-foreground text-xs">Tax optimization</p>
-                  <p className="text-xs text-muted-foreground">Maximize deductions</p>
+                  <p className="font-medium text-foreground text-xs">Deduction review</p>
+                  <p className="text-xs text-muted-foreground">You confirm each suggestion</p>
                 </div>
               </div>
             </div>

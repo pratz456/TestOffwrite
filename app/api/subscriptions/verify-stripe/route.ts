@@ -13,6 +13,8 @@ export async function POST(req: Request) {
   let uid: string;
   try { ({ uid } = await getUserFromReqOrThrow(req)); }
   catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
+  // Raw provider records are a staging diagnostic; production uses fix-access reconciliation.
+  if (process.env.NODE_ENV === 'production') return NextResponse.json({ error: 'Not found' }, { status: 404 });
   try {
     const stripe = getStripeOrNull();
     if (!stripe) {

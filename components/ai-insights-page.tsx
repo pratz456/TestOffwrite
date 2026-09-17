@@ -212,7 +212,7 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
       insights.push({
         id: 'mileage-deduction',
         title: 'Mileage Tracking',
-        description: 'Track your business miles for rideshare driving. At $0.67/mile, this can save you thousands compared to actual expenses.',
+        description: 'Keep a dated log of your business miles for rideshare driving. The IRS standard mileage rate is set each year and may exceed your actual vehicle costs.',
         category: 'deduction',
         impact: 'high',
         difficulty: 'easy',

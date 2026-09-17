@@ -29,12 +29,12 @@ const faqData: FAQItem[] = [
   },
   {
     question: "Can I connect a bank account?",
-    answer: "Bank connections are not available in this preview. You can enter income and expenses manually and upload receipts.",
+    answer: "Where bank connections are enabled, you can link accounts through Plaid and WriteOff imports posted transactions for your review. Bank tokens are encrypted and never shown in the app. You can always enter income and expenses manually and upload receipts instead.",
     category: "banking"
   },
   {
     question: "Is AI categorization available?",
-    answer: "AI analysis is not available in this preview. You can review and edit categories yourself. Receipt text extraction can make mistakes, so check the merchant, date and amount before saving; it does not determine whether an expense is deductible.",
+    answer: "Where enabled, AI suggests a category, a possible tax treatment and the facts still needed for each imported transaction. Nothing counts toward your totals until you confirm it, and unresolved questions stay marked for review. Receipt text extraction can make mistakes, so check the merchant, date and amount before saving; neither feature determines on its own whether an expense is deductible.",
     category: "ai"
   },
   {
@@ -59,7 +59,7 @@ const faqData: FAQItem[] = [
   },
   {
     question: "How much does WriteOff cost?",
-    answer: "The Free plan keeps basic records and the records archive accessible. The 30-day trial and Premium plans unlock reports and exports. Listed Premium pricing is $14.99 monthly or $150 yearly. AI analysis, bank connections and filing are unavailable in the current preview; do not choose a plan expecting those features.",
+    answer: "The Free plan keeps basic records and the records archive accessible. The 30-day trial and Premium plans unlock reports and exports. Listed Premium pricing is $14.99 monthly or $150 yearly; existing Basic subscribers keep their $7.99 monthly price and extended history. In-app tax filing is not offered on any plan.",
     category: "pricing"
   }
 ];

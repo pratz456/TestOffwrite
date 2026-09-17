@@ -43,14 +43,18 @@ const usStates = [
 const filingStatuses = [
   'Single', 'Married Filing Jointly', 'Married Filing Separately', 'Head of Household', 'Qualifying Widower'
 ];
+// The stored value stays stable; the engine review-blocks it until support exists.
+const filingStatusLabels: Record<string, string> = {
+  'Qualifying Widower': 'Qualifying surviving spouse (estimates not yet supported)',
+};
 
 const businessEntityTypeOptions: { value: string; label: string }[] = [
   { value: 'Sole Proprietor / Independent Contractor', label: 'Sole proprietor or freelancer' },
   { value: 'Single-Member LLC (disregarded entity)', label: 'Single-owner LLC' },
-  { value: 'Multi-Member LLC', label: 'LLC with multiple owners' },
-  { value: 'S-Corporation', label: 'S-Corp' },
-  { value: 'C-Corporation', label: 'C-Corp' },
-  { value: 'Partnership', label: 'Partnership' },
+  { value: 'Multi-Member LLC', label: 'LLC with multiple owners (records only; no Schedule C estimate)' },
+  { value: 'S-Corporation', label: 'S-Corp (records only; no Schedule C estimate)' },
+  { value: 'C-Corporation', label: 'C-Corp (records only; no Schedule C estimate)' },
+  { value: 'Partnership', label: 'Partnership (records only; no Schedule C estimate)' },
   { value: 'This does not apply to me', label: 'Not applicable' }
 ];
 
@@ -280,7 +284,7 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                       <select id="profile-filingStatus" value={formData.filingStatus} onChange={event => { const value = event.target.value; setFormData(prev => ({ ...prev, filingStatus: value })); }} className="h-11 w-full min-w-0 rounded-xl border border-border bg-background px-3 text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                           <option value="" disabled>Select filing status</option>
                           {filingStatuses.map((status) => (
-                            <option key={status} value={status}>{status}</option>
+                            <option key={status} value={status}>{filingStatusLabels[status] ?? status}</option>
                           ))}
 
                       </select>

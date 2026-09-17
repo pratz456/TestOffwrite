@@ -137,7 +137,7 @@ export function generateActionItems(
       id: 'set-state',
       title: 'Set your state',
       description:
-        'We need your state to calculate state taxes and give state-specific advice.',
+        'Your state is used for planning context in reports. WriteOff does not prepare state returns.',
       priority: 'high',
       category: 'setup',
       screen: 'settings',
@@ -227,7 +227,7 @@ export function generateActionItems(
       id: 'track-mileage',
       title: 'Start tracking your mileage',
       description:
-        'You have vehicle expenses but no mileage log. The IRS standard mileage deduction ($0.67/mile) often saves more than actual expenses.',
+        'You have vehicle expenses but no mileage log. A contemporaneous log is required for either the IRS standard mileage rate or actual vehicle expenses; the rate changes each year.',
       priority: 'high',
       category: 'tax_optimization',
       screen: 'mileage-tracker',

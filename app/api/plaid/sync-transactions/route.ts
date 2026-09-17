@@ -105,12 +105,6 @@ export async function POST(req: Request) {
       });
     }
 
-    return NextResponse.json(
-      {
-        error: 'Failed to sync transactions. Please try again.',
-        details: error instanceof Error ? error.message : 'Unknown error'
-      },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to sync transactions. Please try again.' }, { status: 500 });
   }
 }

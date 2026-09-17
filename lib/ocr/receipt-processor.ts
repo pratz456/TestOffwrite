@@ -91,7 +91,8 @@ export class ReceiptProcessor {
         data: {
           merchant: receiptData.merchant || 'Unknown Merchant',
           amount: receiptData.amount || 0,
-          date: this.normalizeDateToISO(receiptData.date) || new Date().toISOString().split('T')[0],
+          // An unreadable date must be entered by the user, never defaulted to today.
+          date: this.normalizeDateToISO(receiptData.date) || '',
           category: receiptData.category,
           items: receiptData.items,
           confidence: confidence / 100,

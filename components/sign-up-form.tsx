@@ -361,7 +361,7 @@ export function SignUpForm({
                     required
                   />
                   <label htmlFor="aiConsent" className="text-xs text-foreground leading-relaxed">
-                    I understand that WriteOff uses automated (AI) analysis to help identify tax deductions.
+                    I understand that WriteOff uses automated (AI) analysis to suggest categories and possible tax treatments for my review, and that I confirm each one.
                     <span className="text-destructive ml-0.5">*</span>
                   </label>
                 </div>

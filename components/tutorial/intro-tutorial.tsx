@@ -16,7 +16,7 @@ const tutorialSteps = [
   {
     id: 'welcome',
     title: 'Welcome to WriteOff!',
-    description: 'Let\'s get you set up to maximize your tax deductions.',
+    description: 'Let\'s get you set up to track and review your business expenses.',
     icon: CheckCircle,
     content: (
       <div className="text-center space-y-4">
@@ -25,8 +25,8 @@ const tutorialSteps = [
         </div>
         <h3 className="text-xl font-semibold text-gray-900">Welcome to WriteOff!</h3>
         <p className="text-gray-600">
-          WriteOff helps you automatically categorize and track business expenses 
-          to maximize your tax deductions. Let&apos;s walk through the setup process.
+          WriteOff helps you track business expenses, suggests categories for your review,
+          and keeps records your tax preparer can use. Let&apos;s walk through the setup process.
         </p>
       </div>
     )

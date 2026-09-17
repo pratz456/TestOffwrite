@@ -36,6 +36,16 @@ export interface NotificationPreferences {
 export class NotificationEngine {
   private get db() { return adminDb; }
 
+  /** Bank and manual accounts use their own IDs; there is no shared "default" account. */
+  private async transactionsAcrossAccounts(
+    userId: string,
+    build: (transactions: FirebaseFirestore.CollectionReference) => FirebaseFirestore.Query,
+  ): Promise<FirebaseFirestore.QueryDocumentSnapshot[]> {
+    const accounts = await this.db.collection('user_profiles').doc(userId).collection('accounts').get();
+    const results = await Promise.all(accounts.docs.map(account => build(account.ref.collection('transactions')).get()));
+    return results.flatMap(snapshot => snapshot.docs);
+  }
+
   /**
    * Send a notification to a user
    */
@@ -292,22 +302,18 @@ export class NotificationEngine {
       for (const userDoc of usersSnapshot.docs) {
         const userId = userDoc.id;
         
-        const unreviewedSnapshot = await this.db
-          .collection('user_profiles').doc(userId)
-          .collection('accounts').doc('default')
-          .collection('transactions')
-          .where('analysis_status', '==', 'pending')
-          .get();
-        const unreviewedCount = unreviewedSnapshot.size;
+        const unreviewed = await this.transactionsAcrossAccounts(userId, transactions =>
+          transactions.where('analysis_status', '==', 'pending'));
+        const unreviewedCount = unreviewed.length;
 
         if (unreviewedCount >= 5) {
           await this.sendNotification({
             userId,
             type: 'unreviewed_transactions',
             title: '📋 Transactions Need Review',
-            message: `You have ${unreviewedCount} transactions waiting for review. Review them to maximize your deductions.`,
+            message: `You have ${unreviewedCount} transactions waiting for review. Confirmed records are what count toward your Schedule C totals.`,
             priority: unreviewedCount >= 20 ? 'high' : 'medium',
-            actionUrl: '/protected/transactions?filter=unreviewed',
+            actionUrl: '/protected?screen=review-transactions',
             actionText: 'Review Transactions',
             data: { count: unreviewedCount }
           });
@@ -335,20 +341,15 @@ export class NotificationEngine {
         const sevenDaysAgo = new Date();
         sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
         
-        const mileageSnapshot = await this.db
-          .collection('user_profiles').doc(userId)
-          .collection('accounts').doc('default')
-          .collection('transactions')
-          .where('category', '==', 'vehicle_expense')
-          .where('date', '>=', sevenDaysAgo.toISOString().split('T')[0])
-          .get();
-        
-        if (mileageSnapshot.size === 0) {
+        const recentVehicle = await this.transactionsAcrossAccounts(userId, transactions =>
+          transactions.where('category', '==', 'vehicle_expense').where('date', '>=', sevenDaysAgo.toISOString().split('T')[0]));
+
+        if (recentVehicle.length === 0) {
           await this.sendNotification({
             userId,
             type: 'mileage_reminder',
             title: '🚗 Log Your Mileage',
-            message: 'You haven\'t logged any business mileage this week. Don\'t miss out on valuable deductions!',
+            message: 'You haven\'t logged any business mileage this week. A dated log is required to support a vehicle deduction.',
             priority: 'low',
             actionUrl: '/protected?screen=mileage-tracker',
             actionText: 'Log Mileage'
@@ -376,21 +377,18 @@ export class NotificationEngine {
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
         
-        const deductionsSnapshot = await this.db
-          .collection('user_profiles').doc(userId)
-          .collection('accounts').doc('default')
-          .collection('transactions')
-          .where('is_deductible', '==', true)
-          .where('date', '>=', thirtyDaysAgo.toISOString().split('T')[0])
-          .get();
+        const confirmedDeductions = await this.transactionsAcrossAccounts(userId, transactions =>
+          transactions.where('is_deductible', '==', true).where('date', '>=', thirtyDaysAgo.toISOString().split('T')[0]));
         let totalDeductions = 0;
-        
-        deductionsSnapshot.forEach(doc => {
-          const data = doc.data();
-          totalDeductions += Math.abs(data.amount || 0);
-        });
 
-        // Send celebration for significant savings
+        for (const doc of confirmedDeductions) {
+          const data = doc.data();
+          // Unresolved tax facts do not count toward confirmed totals.
+          if (data.tax_review_required === true || data.pending === true) continue;
+          totalDeductions += Math.abs(data.amount || 0);
+        }
+
+        // Acknowledge confirmed review work; the rate is only a planning indicator.
         if (totalDeductions >= 1000) {
           const { rate } = getUserTaxRateDisplay(userData);
           if (rate === null) continue;
@@ -398,7 +396,7 @@ export class NotificationEngine {
             userId,
             type: 'celebration',
             title: '🎉 Great Job!',
-            message: `You've identified $${totalDeductions.toFixed(0)} in deductions this month. That's potential tax savings of $${(totalDeductions * rate).toFixed(0)}!`,
+            message: `You've confirmed $${totalDeductions.toFixed(0)} in business expenses this month. At your planning rate of ${Math.round(rate * 100)}%, that is roughly $${(totalDeductions * rate).toFixed(0)} in potential federal tax impact, subject to your full-year review.`,
             priority: 'low',
             actionUrl: '/protected?screen=ai-insights',
             actionText: 'View Insights',

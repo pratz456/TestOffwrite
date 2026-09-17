@@ -110,10 +110,10 @@ export function FileTaxesScreen() {
           </button>
           <div className="text-center">
             <h1 className="text-xl font-semibold text-foreground">
-              File Your Taxes
+              Prepare Records for Filing
             </h1>
             <p className="text-sm text-muted-foreground">
-              Prepare in WriteOff. File with a trusted provider.
+              Organize in WriteOff. File with your preparer or filing provider.
             </p>
           </div>
           <div className="w-12" />

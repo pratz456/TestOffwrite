@@ -1,5 +1,12 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { syncUserTransactionsIncremental } from '@/lib/plaid/sync-helper';
+
+function secretMatches(provided: string | null, expected: string): boolean {
+  if (!provided) return false;
+  const digest = (value: string) => createHash('sha256').update(value).digest();
+  return timingSafeEqual(digest(provided), digest(expected));
+}
 
 /**
  * Internal API endpoint for scheduled Cloud Function to sync transactions
@@ -21,7 +28,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!cloudFunctionSecret || cloudFunctionSecret !== expectedSecret) {
+    if (!secretMatches(cloudFunctionSecret, expectedSecret)) {
       console.error('❌ [Internal Sync] Invalid or missing Cloud Function secret');
       return NextResponse.json(
         { error: 'Unauthorized' },
@@ -62,12 +69,6 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     console.error('❌ [Internal Sync] Error syncing transactions:', error);
 
-    return NextResponse.json(
-      {
-        error: 'Failed to sync transactions',
-        details: error instanceof Error ? error.message : 'Unknown error'
-      },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to sync transactions' }, { status: 500 });
   }
 }

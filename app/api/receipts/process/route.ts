@@ -198,6 +198,9 @@ export async function POST(request: NextRequest) {
     if (attachTransactionId === null && (!Number.isFinite(receiptAmountAbs) || receiptAmountAbs <= 0)) {
       throw new ReceiptRequestError('Enter a positive receipt amount before saving', 422);
     }
+    if (attachTransactionId === null && !/^\d{4}-\d{2}-\d{2}$/.test(receiptData.date || '')) {
+      throw new ReceiptRequestError('Enter the receipt date before saving', 422);
+    }
     const signedAmount = receiptType === 'income' ? -receiptAmountAbs : receiptAmountAbs; // app expects expenses positive
 
     const ocr_data = {

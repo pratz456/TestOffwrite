@@ -152,13 +152,13 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
       setReceiptType(suggestedReceiptType);
       setAttachmentChoice(shouldAttach ? 'attach' : 'create');
       setSelectedCandidateTransId(shouldAttach && topCandidate ? topCandidate.trans_id : null);
-      setDraft({ merchant: String(ocr.merchant || ''), amount: String(ocr.amount ?? ''), date: String(ocr.date || new Date().toISOString().slice(0, 10)), category: String(ocr.category || 'other') });
+      setDraft({ merchant: String(ocr.merchant || ''), amount: String(ocr.amount ?? ''), date: String(ocr.date || ''), category: String(ocr.category || 'other') });
       setIsEditing(false);
 
       setExtractedData({
         merchant: ocr.merchant || 'Unknown Merchant',
         amount: Number(ocr.amount || 0),
-        date: ocr.date || new Date().toISOString().split('T')[0],
+        date: ocr.date || '',
         category: ocr.category || 'other',
         confidence: Number(ocr.confidence || 0),
         items: ocr.items || [],

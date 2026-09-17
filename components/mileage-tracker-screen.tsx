@@ -18,8 +18,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
-
-const IRS_STANDARD_MILEAGE_RATE = 0.67;
+import { businessMileageRateForDate, summarizeBusinessMileage } from "@/lib/tax-rules/mileage-rates";
 
 interface MileageTrip {
   id: string;
@@ -41,8 +40,9 @@ function getEffectiveMiles(trip: MileageTrip): number {
   return trip.roundTrip ? trip.miles * 2 : trip.miles;
 }
 
-function getDeductionAmount(miles: number): number {
-  return miles * IRS_STANDARD_MILEAGE_RATE;
+function getDeductionAmount(trip: MileageTrip): number | null {
+  const period = businessMileageRateForDate(trip.date);
+  return period ? getEffectiveMiles(trip) * period.ratePerMile : null;
 }
 
 export function MileageTrackerScreen({ user, onBack }: MileageTrackerScreenProps) {
@@ -152,7 +152,11 @@ export function MileageTrackerScreen({ user, onBack }: MileageTrackerScreenProps
     return !isNaN(d.getTime()) && d.getFullYear() === currentYear;
   });
   const totalMiles = yearTrips.reduce((sum, t) => sum + getEffectiveMiles(t), 0);
-  const totalDeduction = getDeductionAmount(totalMiles);
+  const mileageSummary = summarizeBusinessMileage(yearTrips.map(t => ({ date: t.date, miles: getEffectiveMiles(t) })));
+  const totalDeduction = mileageSummary.deduction;
+  const rateLabel = mileageSummary.ratesApplied.length
+    ? `@ ${mileageSummary.ratesApplied.map(rate => `$${rate}`).join(' / ')}/mi (IRS ${currentYear})`
+    : `IRS ${currentYear} rate not yet published`;
 
   return (
     <div className="min-h-screen bg-background">
@@ -199,7 +203,8 @@ export function MileageTrackerScreen({ user, onBack }: MileageTrackerScreenProps
                   ${totalDeduction.toFixed(2)}
                 </p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  @ ${IRS_STANDARD_MILEAGE_RATE}/mi (IRS 2024)
+                  {rateLabel}
+                  {mileageSummary.unratedTrips > 0 && ` · ${mileageSummary.unratedTrips} trip${mileageSummary.unratedTrips === 1 ? '' : 's'} awaiting a published rate`}
                 </p>
               </div>
               <div className="rounded-lg bg-muted/50 p-3 sm:p-4">
@@ -251,7 +256,7 @@ export function MileageTrackerScreen({ user, onBack }: MileageTrackerScreenProps
                   <div className="space-y-3">
                     {trips.map((trip) => {
                       const effectiveMiles = getEffectiveMiles(trip);
-                      const deduction = getDeductionAmount(effectiveMiles);
+                      const deduction = getDeductionAmount(trip);
                       return (
                         <div
                           key={trip.id}
@@ -284,10 +289,10 @@ export function MileageTrackerScreen({ user, onBack }: MileageTrackerScreenProps
                           <div className="flex items-center gap-3 sm:gap-4 shrink-0">
                             <div className="text-right">
                               <p className="text-sm font-semibold text-foreground">
-                                ${deduction.toFixed(2)}
+                                {deduction === null ? 'Rate pending' : `$${deduction.toFixed(2)}`}
                               </p>
                               <p className="text-xs text-muted-foreground">
-                                deduction
+                                {deduction === null ? 'IRS rate not yet published' : 'standard mileage'}
                               </p>
                             </div>
                             <Button
