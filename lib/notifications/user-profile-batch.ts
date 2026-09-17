@@ -1,4 +1,4 @@
-import { FieldPath } from 'firebase-admin/firestore';
+import { FieldPath, type DocumentData } from 'firebase-admin/firestore';
 
 /** Page size for "iterate all user_profiles" jobs. */
 export const USER_PROFILE_PAGE_SIZE = 200;
@@ -39,7 +39,7 @@ export interface PageableQuery {
 
 export interface PageDocument {
   id: string;
-  data(): Record<string, any>;
+  data(): DocumentData;
   get(field: string): unknown;
 }
 
