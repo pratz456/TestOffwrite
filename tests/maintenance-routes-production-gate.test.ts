@@ -4,7 +4,7 @@
  * any record, and outside production never echo a store error to the caller.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { contractRequest, CONTRACT_OWNER, installApiRouteMocks } from './fixtures/api-route-harness';
+import { contractRequest, installApiRouteMocks } from './fixtures/api-route-harness';
 
 const harness = installApiRouteMocks();
 const ROUTES = [
