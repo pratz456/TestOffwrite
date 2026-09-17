@@ -91,7 +91,7 @@ Receipt OCR attached to individual transactions runs in-process on the server (`
 ## Sources
 
 - FTC Safeguards Rule compliance guide (service provider oversight, §314.4(f)): https://www.ftc.gov/business-guidance/resources/ftc-safeguards-rule-what-your-business-needs-know
-- Treas. Reg. §301.7216-2 (contractor and preparer-to-preparer disclosures): https://www.ecfr.gov/current/title-26/chapter-I/subchapter-F/part-301/subpart-ZZZ/section-301.7216-2
+- Treas. Reg. §301.7216-2 (contractor and preparer-to-preparer disclosures): https://www.ecfr.gov/current/title-26/section-301.7216-2
 - FTC penalty-offense notices to tax preparation companies (Sept 2023): https://www.ftc.gov/news-events/news/press-releases/2023/09/ftc-warns-tax-preparation-companies-about-misuse-consumer-data
 - Vendor terms: linked inline above (Google Cloud, Firebase, Plaid, Stripe, OpenAI, Resend, Google Analytics, Apple, Expo).
 - Florida Stat. §501.171 (geolocation as personal information): http://www.leg.state.fl.us/statutes/index.cfm?App_mode=Display_Statute&URL=0500-0599/0501/Sections/0501.171.html
