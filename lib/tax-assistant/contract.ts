@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SELECTABLE_TOPICS } from './knowledge';
 
 export const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 export const MAX_REQUEST_BYTES = 3 * 1024 * 1024;
@@ -63,12 +64,11 @@ export function priorMessages(input: AssistantRequest) {
   return history;
 }
 
+/** Every topic the model may return; derived from the reviewed packets so the enum cannot drift. */
+export const GUIDANCE_TOPICS = [...SELECTABLE_TOPICS, 'not-supported'] as const;
+
 export const modelSelectionSchema = z.object({
-  topic: z.enum([
-    'business-expenses', 'vehicles-records', 'depreciation', 'home-office', 'meals',
-    'tips-overtime', 'vehicle-loan-interest', 'senior-deduction', 'information-returns', 'charitable-non-itemizer',
-    'not-supported',
-  ]),
+  topic: z.enum(GUIDANCE_TOPICS),
   missingFactIds: z.array(z.string().max(80)).max(5),
   photoCategories: z.array(z.enum(['vehicle', 'receipt', 'workspace', 'equipment', 'food', 'unclear'])).max(3),
 }).strict();
