@@ -91,6 +91,20 @@ function parseProviderOutput(value: unknown, transaction: TransactionInput, cont
   if (fields.some(field => !Object.prototype.hasOwnProperty.call(raw, field)) ||
       Object.keys(raw).some(field => !fields.includes(field))) return null;
   const normalized = Object.fromEntries(Object.entries(raw).filter(([, field]) => field !== null));
+  // Live models express the share as a 0-1 fraction about one time in ten (0.4, 1); the schema
+  // asks for 0-100. A 1% business share never occurs in practice, so treat (0, 1] as a fraction.
+  if (typeof normalized.deductible_percent === 'number' && normalized.deductible_percent > 0 && normalized.deductible_percent <= 1) {
+    normalized.deductible_percent = Math.round(normalized.deductible_percent * 100);
+  }
+  // Structured outputs cannot enforce maxItems; keep the first three distinct ids instead of rejecting.
+  if (Array.isArray(normalized.evidence_ids)) {
+    normalized.evidence_ids = [...new Set(normalized.evidence_ids.filter(id => typeof id === 'string'))].slice(0, 3);
+  }
+  // "ok" without a business/personal determination is a request for review, not a decision.
+  if (normalized.status === 'ok' && typeof normalized.is_deductible !== 'boolean' && ['expense', 'personal', 'unknown', undefined].includes(normalized.transaction_kind as string | undefined)) {
+    normalized.status = 'needs_more_info';
+    if (!Array.isArray(normalized.missing_fields) || !normalized.missing_fields.length) normalized.missing_fields = ['business_purpose'];
+  }
   const parsed = OutputSchema.safeParse(normalized);
   if (!parsed.success) return null;
   const result = parsed.data;

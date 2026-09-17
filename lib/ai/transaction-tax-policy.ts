@@ -1,7 +1,7 @@
 import type { OutputType, TransactionInput, UserContext } from './analyzeTransaction';
 
 /** Selected, reviewed federal rules. This is not retrieval over the entire tax code. */
-export const TRANSACTION_TAX_POLICY_VERSION = 'federal-transactions-2026-09-17.1';
+export const TRANSACTION_TAX_POLICY_VERSION = 'federal-transactions-2026-09-17.2';
 export const TRANSACTION_KINDS = ['expense', 'income', 'transfer', 'refund', 'personal', 'unknown'] as const;
 export interface TransactionTaxSource {
   id: string; title: string; url: string; edition: string; reviewed_at: string;
@@ -94,12 +94,16 @@ function percentage(value: unknown): number | null {
 const HEALTH_INSURANCE_PATTERN = /\b(?:health|medical|dental|vision)\s+(?:insurance|premiums?|plan|coverage)\b|\b(?:blue\s?cross|blue\s?shield|aetna|cigna|kaiser|unitedhealth(?:care)?|humana|oscar\s+health|anthem|ambetter|molina|healthcare\.gov)\b/i;
 const CLUB_DUES_PATTERN = /\b(?:gym|fitness\s+(?:center|club|membership)|health\s+club|athletic\s+club|country\s+club|golf\s+club|planet\s+fitness|equinox|crossfit|orangetheory|la\s+fitness|24\s+hour\s+fitness|peloton|soulcycle|barry'?s\s+bootcamp)\b/i;
 const HOME_RENT_PATTERN = /\b(?:apartment|apt\.?|home|house|residence|residential|landlord|housing|mortgage|rent\s+for\s+(?:my|our)\s+place)\b/i;
+/** Payments to tax authorities are never Schedule C expenses (federal income and SE tax are nondeductible; state income tax belongs on Schedule A). */
+const TAX_AUTHORITY_PATTERN = /\b(?:IRS|internal revenue|us treasury|u\.s\. treasury|usataxpymt|irs usataxpymt|estimated tax|1040-?es|form 1040|franchise tax board|\bftb\b|dept\.? of revenue|department of revenue|dept\.? of taxation|department of taxation|comptroller of|state tax payment|tax payment|edd|eftps)\b/i;
 const LIKELY_ASSET_PATTERN = /\b(?:laptop|computer|macbook|imac|desktop|monitor|camera|lens|drone|printer|tablet|ipad|iphone|smartphone|desk|chair|tripod|microphone|mixer|guitar|piano|keyboard|server|router|projector|television|appliance|machine|equipment|furniture|tools?)\b/i;
 /** Reg. §1.263(a)-1(f)(1)(ii)(D): per-item/per-invoice ceiling for taxpayers without an applicable financial statement. */
 export const DE_MINIMIS_ITEM_CEILING = 2500;
 /** Below this amount an ordinary supply is not second-guessed even when it names a durable item. */
 const ASSET_REVIEW_FLOOR = 500;
 
+/** Certainty claims the model must not make in any displayed field ("it's fully deductible", "would be 100% deductible", "is completely deductible"). */
+const UNCONDITIONAL_CLAIM = /\b(?:(?:is|are|it's|its|was|were|be|being|been|becomes?|remains?|would be|will be|can be|should be|considered|deemed|qualif(?:y|ies) as|treated as|counts? as)\s+(?:\w+\s+){0,2})?(?:fully|100\s?%|completely|entirely|wholly)\s+(?:tax[- ])?deductible\b/i;
 /** Digits shaped like an SSN, ITIN or EIN inside free text; bank descriptors and notes never need them. */
 export function redactTaxIdentifiers(value: string): string {
   return value.replace(/\b\d{3}[- ]\d{2}[- ]\d{4}\b/g, '[redacted-id]').replace(/\b\d{2}-\d{7}\b/g, '[redacted-id]');
@@ -165,8 +169,18 @@ export function groundTransactionAnalysis(
     result.category === 'equipment' ? ['assets-946', 'capital-263'] :
     result.category === 'home_office' ? ['home-587'] :
     result.status !== 'ok' && (!result.category || result.category === 'other') ? ['business-162', 'personal-262', 'records-334'] : ['business-162'];
-  if (!applicableEvidence.some(id => ids.includes(id))) return null;
-  const evidence = [...ids];
+  let evidenceIds = ids;
+  let offCategoryCitation = false;
+  if (!applicableEvidence.some(id => ids.includes(id))) {
+    // Every id is a real packet source, just not the one this category rests on. Rejecting
+    // outright was the main cause of dead-end "analysis failed" results in live evaluation, so the
+    // category suggestion survives with the server's own citations, and nothing is approved on
+    // that run: the result is forced to needs_more_info below. Explicit prose citations still fail closed.
+    if (/(?:\bsection\s+|§\s*)\d|\bpub(?:lication)?\.?\s+\d/i.test(explanation)) return null;
+    evidenceIds = applicableEvidence.slice(0, 2);
+    offCategoryCitation = true;
+  }
+  const evidence = [...evidenceIds];
   const addEvidence = (id: string) => { if (!evidence.includes(id)) evidence.push(id); };
   // Kind affects reporting even while eligibility is unresolved. Never let a tentative
   // model kind turn an unexplained deposit into income or a payment app into a transfer.
@@ -184,9 +198,20 @@ export function groundTransactionAnalysis(
       'The bank record and saved context do not establish the type of money movement. Confirm its purpose before using it in tax totals.');
   }
 
+  if (offCategoryCitation && result.status === 'ok') {
+    requireInfo(result, 'business_purpose', 'What did you buy or pay for, and how was it used in your business?',
+      'The category is a suggestion; the tax basis the analysis relied on did not match this kind of expense, so confirm the purpose before including a deduction.');
+  }
   if (year !== 2025 && year !== 2026) {
     requireInfo(result, 'supported_tax_year', 'Confirm the transaction date and review this tax year with your tax professional.',
       `The category is a suggestion only. This rule packet covers selected 2025 and 2026 federal transactions; ${year ?? 'this date'} is outside its verified scope.`, true);
+  } else if (result.is_deductible === true && kind !== 'refund' && TAX_AUTHORITY_PATTERN.test(`${saved} ${text(transaction.merchant)} ${text(transaction.merchant_name)}`)) {
+    // A live model approved a $1,500 IRS estimated-tax payment at 100%. Income tax and
+    // self-employment tax payments are not business expenses and never reach Schedule C.
+    addEvidence('records-334');
+    result.category = 'other';
+    requireInfo(result, 'tax_payment_recorded', 'Was this a federal or state income tax payment (including estimated tax)? Record it in the quarterly planner instead of as an expense.',
+      'Payments to the IRS or a state tax agency are not business expenses. Federal income tax and self-employment tax are never deductible on Schedule C; record estimated payments in the quarterly planner so they count toward what you have already paid.', true);
   } else if (context?.business_entity && !['sole_proprietor', 'single_member_llc'].includes(context.business_entity)) {
     requireInfo(result, 'entity_tax_treatment', 'Is this for a sole-proprietor/disregarded LLC business, or should your entity tax preparer review it?',
       'The category may help organize this transaction, but its entity-specific tax treatment is outside this self-employed federal review.', true);
@@ -277,10 +302,19 @@ export function groundTransactionAnalysis(
     if (!result.questions?.some(question => question.trim())) {
       result.questions = ['What was purchased or received, and what was its business or personal purpose?'];
     }
-    if (/\b(?:is|are)\s+(?:fully|100%|completely)\s+deductible\b/i.test(result.customized_reason ?? '')) {
+    const displayed = [result.customized_reason, result.reasoning_summary, result.key_analysis_factor, result.reason, result.audit_risk_rationale].filter(Boolean).join(' ');
+    if (UNCONDITIONAL_CLAIM.test(displayed)) {
       result.customized_reason = 'The category is a suggestion; tax eligibility remains unresolved. Answer the follow-up questions before including a deduction.';
       result.reasoning_summary = result.customized_reason;
       result.key_analysis_factor = 'Category suggested; more tax facts are needed.';
+      result.reason = result.customized_reason;
+      if (result.audit_risk_rationale && UNCONDITIONAL_CLAIM.test(result.audit_risk_rationale)) delete result.audit_risk_rationale;
+    }
+  } else {
+    // Even an approved ordinary expense is not "fully deductible" as a certainty; keep the claims policy wording.
+    for (const field of ['customized_reason', 'reasoning_summary', 'key_analysis_factor', 'reason', 'audit_risk_rationale'] as const) {
+      const value = result[field];
+      if (typeof value === 'string' && UNCONDITIONAL_CLAIM.test(value)) result[field] = value.replace(UNCONDITIONAL_CLAIM, 'deductible as a business expense, subject to your records');
     }
   }
   if (!result.documentation_required?.length && ['expense', 'refund'].includes(kind)) {

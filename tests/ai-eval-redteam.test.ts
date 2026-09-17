@@ -61,10 +61,20 @@ describe('red team: forged citations and links are rejected', () => {
     ['four evidence ids', { evidence_ids: ['business-162', 'personal-262', 'meals-274', 'records-334'] }],
     ['unknown evidence id', { evidence_ids: ['irc-199a'] }],
     ['evidence id smuggling a URL', { evidence_ids: ['https://evil.invalid/business-162'] }],
-    ['evidence assets-946 alone for a meal', { category: 'meals_50', evidence_ids: ['assets-946'] }],
-    ['evidence records-334 alone for an ordinary expense', { evidence_ids: ['records-334'] }],
   ])('%s', (_name, patch) => {
     expect(ground(patch)).toBeNull();
+  });
+  it.each([
+    ['evidence assets-946 alone for a meal', { category: 'meals_50', evidence_ids: ['assets-946'] }, 'meals-274'],
+    ['evidence records-334 alone for an ordinary expense', { evidence_ids: ['records-334'] }, 'business-162'],
+  ])('%s is downgraded to review with the server citation, never approved', (_name, patch, expectedEvidence) => {
+    const result = ground(patch);
+    expect(result).not.toBeNull();
+    expect(result!.status).toBe('needs_more_info');
+    expect(result!.is_deductible).toBeUndefined();
+    expect(result!.deductible_percent).toBeUndefined();
+    expect(result!.evidence_ids).toContain(expectedEvidence);
+    expect(result!.questions?.[0]).toMatch(/business/i);
   });
 
   it('control: a cited section backed by its own evidence id is accepted', () => {
@@ -80,7 +90,6 @@ describe('red team: contradictory tax fields are rejected', () => {
     ['kind income with is_deductible true', { transaction_kind: 'income', evidence_ids: ['records-334'] }, { amount_usd: -45, category: 'INCOME' }],
     ['kind personal with is_deductible true', { transaction_kind: 'personal', expense_type: 'personal', evidence_ids: ['personal-262'] }, {}],
     ['kind personal with expense_type business', { transaction_kind: 'personal', is_deductible: false, evidence_ids: ['personal-262'] }, {}],
-    ['personal expense_type cited only with the business rule', { is_deductible: false, expense_type: 'personal' }, {}],
     ['deductible_percent 60 when the transaction records 100', { deductible_percent: 60 }, { business_use_percentage: 100 }],
     ['deductible_percent 100 when the transaction records 40', { deductible_percent: 100 }, { business_use_percentage: 40 }],
     ['business_use_percentage 0 with a deduction', {}, { business_use_percentage: 0 }],
@@ -166,6 +175,60 @@ describe('red team: over-eager outputs are downgraded, never approved', () => {
     expect(result).toMatchObject({ tax_year: 2026, policy_version: expect.stringMatching(/^federal-transactions-/), provenance: { model: 'redteam-model' } });
     expect(result?.sources?.map(source => source.id)).toEqual(['business-162']);
     expect(JSON.stringify(result)).not.toContain('evil.invalid');
+  });
+});
+
+describe('red team: findings from the 2026-09-17 live evaluation', () => {
+  it('P0: a model approving an IRS estimated-tax payment as a 100% business deduction is blocked', () => {
+    for (const merchant of ['IRS USATAXPYMT', 'US TREASURY 1040-ES', 'FRANCHISE TAX BOARD PAYMENT', 'NYS DEPT OF TAXATION']) {
+      const result = ground({ category: 'other', deductible_percent: 100, confidence: 0.95, customized_reason: 'Estimated tax payments relate to the business.' },
+        { merchant, amount_usd: 1500, business_purpose: 'Q3 estimated tax payment' });
+      unresolved(result);
+      expect(result!.status).toBe('blocked');
+      expect(result!.missing_fields).toEqual(['tax_payment_recorded']);
+      expect(result!.customized_reason).toMatch(/not business expenses/i);
+      expect(result!.evidence_ids).toContain('records-334');
+    }
+  });
+  it('P1: "it\'s fully deductible" in reasoning_summary of an unresolved result is replaced, in every displayed field', () => {
+    const result = ground({ status: 'needs_more_info', is_deductible: undefined, expense_type: undefined, questions: ['Is this used exclusively for business?'],
+      customized_reason: 'The recorded printer toner looks like a business supply.',
+      reasoning_summary: "Confirm the use to determine whether it's fully deductible.", reason: 'It would be 100% deductible once confirmed.',
+      audit_risk_rationale: 'Supplies are completely deductible when documented.' });
+    unresolved(result);
+    const text = [result!.customized_reason, result!.reasoning_summary, result!.key_analysis_factor, result!.reason, result!.audit_risk_rationale].join(' ');
+    expect(text).not.toMatch(/fully deductible|100% deductible|completely deductible/i);
+  });
+  it('an approved ordinary expense never displays "fully deductible" as a certainty', () => {
+    const result = ground({ customized_reason: "Printer toner for client printing is fully deductible.", reasoning_summary: "It's 100% deductible as a supply." });
+    expect(result?.status).toBe('ok');
+    expect(`${result!.customized_reason} ${result!.reasoning_summary}`).not.toMatch(/fully deductible|100% deductible/i);
+    expect(result!.customized_reason).toContain('subject to your records');
+  });
+});
+
+describe('red team: live-model output shapes through the provider path', () => {
+  beforeAll(() => { vi.stubEnv('AI_ANALYSIS_ENABLED', 'true'); mocks.learning.mockResolvedValue(null); });
+  afterAll(() => vi.unstubAllEnvs());
+  beforeEach(() => mocks.create.mockReset());
+
+  it('a 0-1 fraction deductible_percent is read as a percentage instead of gating a correct approval', async () => {
+    mocks.create.mockResolvedValueOnce(completion(providerPayload({ deductible_percent: 0.4 })));
+    const outcome = await analyzeTransaction({ ...tx, business_use_percentage: 40 }, SOLE_PROPRIETOR);
+    expect(outcome.success).toBe(true);
+    if (outcome.success) expect(outcome.result).toMatchObject({ status: 'ok', is_deductible: true, deductible_percent: 40 });
+  });
+  it('four evidence ids are truncated to three distinct ids instead of failing the analysis', async () => {
+    mocks.create.mockResolvedValueOnce(completion(providerPayload({ evidence_ids: ['business-162', 'records-334', 'personal-262', 'business-162'] })));
+    const outcome = await analyzeTransaction(tx, SOLE_PROPRIETOR);
+    expect(outcome.success).toBe(true);
+    if (outcome.success) expect(outcome.result.evidence_ids).toEqual(['business-162', 'records-334', 'personal-262']);
+  });
+  it('"ok" without a business/personal determination becomes a review request, not a failure', async () => {
+    mocks.create.mockResolvedValueOnce(completion(providerPayload({ is_deductible: null, expense_type: null })));
+    const outcome = await analyzeTransaction(tx, SOLE_PROPRIETOR);
+    expect(outcome.success).toBe(true);
+    if (outcome.success) { expect(outcome.result.status).toBe('needs_more_info'); expect(outcome.result.is_deductible).toBeUndefined(); expect(outcome.result.questions?.[0]).toBeTruthy(); }
   });
 });
 

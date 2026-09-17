@@ -26,8 +26,14 @@ describe('curated transaction tax grounding', () => {
   it.each([[], ['invented-179'], ['business-162', 'business-162'], ['__proto__'], ['https://evil.invalid']].map(ids => [ids]))('rejects invalid evidence IDs %j', evidence_ids => {
     expect(analyze({ evidence_ids })).toBeNull();
   });
-  it('rejects known but inapplicable evidence for a meal', () => {
-    expect(analyze({ category: 'meals_50' })).toBeNull();
+  it('keeps a meal categorization cited only with the business rule but withholds the deduction with the meal citation', () => {
+    const result = analyze({ category: 'meals_50' });
+    expect(result).not.toBeNull();
+    expect(result!.status).toBe('needs_more_info');
+    expect(result!.is_deductible).toBeUndefined();
+    expect(result!.category).toBe('meals_50');
+    expect(result!.evidence_ids).toContain('meals-274');
+    expect(result!.evidence_ids).not.toContain('business-162');
   });
   it.each(['assets-946', 'capital-263'])('accepts %s evidence for a vehicle purchase while withholding its deduction', evidence => {
     const result = analyze({ category: 'vehicle_expense', status: 'needs_more_info', evidence_ids: [evidence],
@@ -37,9 +43,17 @@ describe('curated transaction tax grounding', () => {
     expect(result?.is_deductible).toBeUndefined();
     expect(result?.sources?.[0].id).toBe(evidence);
   });
-  it('still rejects depreciation-only evidence for a vehicle operating cost', () => {
-    expect(analyze({ category: 'vehicle_expense', evidence_ids: ['assets-946'] },
-      { business_purpose: 'Gasoline for driving between client appointments.' })).toBeNull();
+  it('swaps depreciation-only evidence on a vehicle operating cost for the travel rule and withholds the deduction', () => {
+    const result = analyze({ category: 'vehicle_expense', evidence_ids: ['assets-946'] },
+      { business_purpose: 'Gasoline for driving between client appointments.' });
+    expect(result).not.toBeNull();
+    expect(result!.status).toBe('needs_more_info');
+    expect(result!.is_deductible).toBeUndefined();
+    expect(result!.evidence_ids).toEqual(['travel-463']);
+    expect(result!.sources?.map(source => source.id)).toEqual(['travel-463']);
+  });
+  it('still rejects an off-category citation when the prose itself cites the wrong section', () => {
+    expect(analyze({ category: 'meals_50', customized_reason: 'Section 162 makes this ordinary and necessary.' })).toBeNull();
   });
   it('accepts a personal-rule citation when known personal categorization has unresolved tax fields', () => {
     const result = analyze({ transaction_kind: 'personal', category: 'other', status: 'needs_more_info', evidence_ids: ['personal-262'],

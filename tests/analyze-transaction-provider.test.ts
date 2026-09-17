@@ -257,7 +257,6 @@ describe('AI provider request and result contract', () => {
     ['missing keys', { status: 'ok' }],
     ['unknown property', output({ unexpected: null })],
     ['unknown status', output({ status: 'certain' })],
-    ['null completed decision', output({ is_deductible: null })],
     ['null completed type', output({ expense_type: null })],
     ['blank completed explanation', output({ customized_reason: ' ' })],
     ['out-of-range percentage', output({ deductible_percent: 120 })],
@@ -272,6 +271,20 @@ describe('AI provider request and result contract', () => {
     expect(await analyzeTransactionWithRetry(transaction, context)).toMatchObject({
       success: false, code: 'AI_INVALID_OUTPUT', retryable: false,
     });
+    expect(mocks.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('turns a completed result with no business/personal decision into a review request instead of a failed analysis', async () => {
+    // Live gpt-4.1-mini returned status ok with is_deductible null; the category is still useful.
+    mocks.create.mockResolvedValue(completion(output({ is_deductible: null })));
+    const outcome = await analyzeTransactionWithRetry(transaction, context);
+    expect(outcome.success).toBe(true);
+    if (outcome.success) {
+      expect(outcome.result.status).toBe('needs_more_info');
+      expect(outcome.result.is_deductible).toBeUndefined();
+      expect(outcome.result.expense_type).toBeUndefined();
+      expect(outcome.result.questions?.[0]).toBeTruthy();
+    }
     expect(mocks.create).toHaveBeenCalledTimes(1);
   });
 

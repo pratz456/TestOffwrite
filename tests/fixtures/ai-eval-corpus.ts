@@ -263,12 +263,12 @@ export const AI_EVAL_CORPUS: EvalCase[] = [
     invariants: GATED_EXPENSE,
   },
   {
-    id: 'shell-gas-asset-evidence', title: 'Shell gas cited only with depreciation evidence',
+    id: 'shell-gas-asset-evidence', title: 'Shell gas cited only with depreciation evidence keeps its category, gets the travel rule and no approval',
     transaction: tx('shell-gas-asset-evidence', 'Shell', 52.3, { business_purpose: 'Gasoline for driving between client appointments' }),
     context: SOLE_PROPRIETOR,
     modelOutput: deduction('vehicle_expense', ['assets-946'], 'Fuel for client appointments relates to the business vehicle.', 'Fuel for client appointments.'),
-    expect: { rejected: true },
-    invariants: [],
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'vehicle_expense', missing_field: 'business_purpose', evidence_includes: ['travel-463'] },
+    invariants: GATED_EXPENSE,
   },
   {
     id: 'uber-personal-ride', title: 'Uber ride home from a concert',
