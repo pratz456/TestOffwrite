@@ -18,7 +18,7 @@ interface ReviewTransactionsScreenProps {
   transactions: Transaction[];
   focusedTransactionId?: string | null;
   onTransactionUpdate: (updatedTransaction: Transaction) => void;
-  onTransactionClick?: (transaction: Transaction) => void;
+  onTransactionClick?: (transaction: Transaction, initialSection?: 'details') => void;
 }
 
 const kindLabels: Record<Exclude<TransactionKind, 'unknown'>, string> = {
@@ -203,15 +203,15 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
 
   if (!current) return (
     <div className="min-h-full bg-background px-4 py-6 flex items-center justify-center">
-      <div className="max-w-md w-full rounded-3xl border border-border bg-card p-8 text-center space-y-5">
-        <CheckCircle className="h-12 w-12 mx-auto text-primary" />
+      <div className="max-w-md w-full rounded-2xl border border-border bg-card p-5 text-center space-y-3">
+        <CheckCircle className="h-9 w-9 mx-auto text-primary" />
         <h1 className="text-2xl font-semibold">{remaining.length ? 'Saved for later' : transactions.length ? 'Categories reviewed' : 'Your review queue starts here'}</h1>
-        <p className="text-muted-foreground">{remaining.length
+        <p className="text-sm leading-5 text-muted-foreground">{remaining.length
           ? `${remaining.length} transaction${remaining.length === 1 ? ' still needs' : 's still need'} review. Nothing was confirmed when you chose Later.`
           : transactions.length ? 'Your categorization decisions are saved. New transactions will appear here for review.'
           : 'Add a transaction or connect a bank to start building your tax records.'}</p>
         {taxQuestions.length > 0 && <p className="text-sm text-amber-700 dark:text-amber-400">{taxQuestions.length} categorized transaction{taxQuestions.length === 1 ? ' still needs' : 's still need'} tax details. Deductions remain unresolved.</p>}
-        {taxQuestions.length > 0 && onTransactionClick && <Button className="w-full" onClick={() => onTransactionClick({ ...taxQuestions[0], _source: 'review-transactions' })}>Resolve missing tax details</Button>}
+        {taxQuestions.length > 0 && onTransactionClick && <Button className="w-full" onClick={() => onTransactionClick({ ...taxQuestions[0], _source: 'review-transactions' }, 'details')}>Resolve missing tax details</Button>}
         {remaining.length > 0 && <Button className="w-full" onClick={() => setDeferred(new Set())}>Review remaining transactions</Button>}
         <Button variant="outline" className="w-full" onClick={onBack}>Back to dashboard</Button>
       </div>
@@ -229,12 +229,13 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
   );
 
   return (
-    <div className="min-h-screen bg-background px-3 pb-6 sm:px-4">
-      <div className="mx-auto max-w-2xl">
+    <div className="min-h-full bg-background px-3 pb-4 sm:px-4">
+      <div className="mx-auto max-w-xl">
         <header className="sticky top-0 z-10 mb-3 border-b border-border bg-background/95 py-2 backdrop-blur">
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="icon" className="min-h-11 min-w-11" aria-label="Back to dashboard" onClick={onBack}><ArrowLeft className="h-5 w-5" /></Button>
-            <div className="min-w-0 flex-1"><h1 className="text-lg font-semibold">Review transactions</h1><p className="text-xs text-muted-foreground">{remaining.length} {remaining.length === 1 ? 'needs' : 'need'} review{reviewed.size > 0 ? ` · ${reviewed.size} confirmed this session` : ''}</p></div>
+            <div className="min-w-0 flex-1"><h1 className="text-lg font-semibold">Review</h1><p className="text-xs text-muted-foreground">{remaining.length} {remaining.length === 1 ? 'needs' : 'need'} review{reviewed.size > 0 ? ` · ${reviewed.size} confirmed this session` : ''}</p></div>
+            {!editing && <Button variant="ghost" disabled={busy} onClick={later} className="min-h-11 px-3 text-muted-foreground">Later</Button>}
           </div>
         </header>
 
@@ -259,7 +260,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
           }}
           onTouchEnd={() => { if (touchStart.current && Math.abs(touchOffset) > 100) swipe(touchOffset > 0 ? 'right' : 'left'); touchStart.current = null; setTouchOffset(0); }}
           onTouchCancel={() => { touchStart.current = null; setTouchOffset(0); }}>
-          <div className="space-y-3 p-4 sm:p-5">
+          <div className="space-y-3 p-3 sm:p-4">
             <div className="flex justify-between gap-3">
               <div className="min-w-0"><h2 className="break-words text-lg font-semibold leading-snug">{current.merchant_name || 'Transaction'}</h2><p className="mt-0.5 text-xs text-muted-foreground">{current.date}{current.pending ? ' · Bank pending' : ''}</p></div>
               <div className="shrink-0 text-right"><p className="text-xl font-semibold tabular-nums">{Number.isFinite(current.amount) ? `$${Math.abs(current.amount).toFixed(2)}` : 'Amount needs review'}</p><p className="text-xs text-muted-foreground">{current.amount < 0 ? 'Received' : 'Spent'}</p></div>
@@ -267,20 +268,25 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
 
             {!editing && <>
               <section className="space-y-2 rounded-xl border border-primary/20 bg-primary/5 p-3" aria-labelledby="suggestion-heading">
-                <div className="flex items-center gap-1.5 text-xs font-medium text-primary"><Sparkles className="h-3.5 w-3.5 shrink-0" /><span>{presentation!.label}</span></div>
+                <div className="flex items-center gap-1.5 text-xs font-medium text-primary"><Sparkles className="h-3.5 w-3.5 shrink-0" /><span>{mayConfirm && presentation!.needsTaxFacts ? 'AI suggested category' : presentation!.label}</span></div>
                 <h3 id="suggestion-heading" className="text-xl font-semibold leading-tight">{presentation!.categoryLabel}</h3>
                 <p className={suggestion ? 'line-clamp-2 text-sm leading-5' : 'text-sm leading-5'}>{presentation!.reasoning}</p>
-                {(!mayConfirm || presentation!.needsTaxFacts) && <p className="border-t border-primary/10 pt-2 text-xs leading-5 text-amber-800 dark:text-amber-300">{mayConfirm && presentation!.needsTaxFacts ? 'Confirming saves the category only. Your deduction stays unresolved until the tax details are reviewed.' : presentation!.confirmationHint}</p>}
               </section>
 
-              {presentation!.questions.length > 0 && onTransactionClick && <button className="flex min-h-11 w-full items-center justify-between gap-3 text-left text-sm" onClick={() => onTransactionClick({ ...current, _source: 'review-transactions' })}><span className="min-w-0"><span className="block font-medium">{presentation!.questions.length} tax detail{presentation!.questions.length === 1 ? '' : 's'} needed</span><span className="block truncate text-xs text-muted-foreground">{presentation!.questions[0]}</span></span><span className="inline-flex shrink-0 items-center gap-1 text-primary">Add details<ChevronRight className="h-4 w-4" /></span></button>}
+              {presentation!.needsTaxFacts ? <div className="flex items-center justify-between gap-3 rounded-lg bg-amber-500/10 px-3 py-1.5 text-amber-900 dark:text-amber-200">
+                <div className="min-w-0"><p className="text-xs font-medium">Deduction unresolved</p><p className="text-xs leading-4">{mayConfirm ? 'Confirm saves the category only.' : presentation!.confirmationHint}</p></div>
+                {onTransactionClick && <button type="button" className="inline-flex min-h-11 shrink-0 items-center gap-1 text-xs font-medium underline underline-offset-2" onClick={() => onTransactionClick({ ...current, _source: 'review-transactions' }, 'details')}>Add details<ChevronRight aria-hidden="true" className="h-3.5 w-3.5" /></button>}
+              </div> : !mayConfirm && <p className="text-xs leading-5 text-muted-foreground">{presentation!.confirmationHint}</p>}
 
-              {suggestion && <AiTaxAnalysisDialog key={currentKey} suggestion={suggestion}>{analysisControls}</AiTaxAnalysisDialog>}
+              {(suggestion || onTransactionClick) && <div className="flex items-center gap-3 border-t border-border">
+                {suggestion && <div className="min-w-0 flex-1"><AiTaxAnalysisDialog key={currentKey} suggestion={suggestion} triggerLabel="Why this category?">{analysisControls}</AiTaxAnalysisDialog></div>}
+                {onTransactionClick && <button type="button" className="inline-flex min-h-11 shrink-0 items-center gap-1 text-sm text-muted-foreground hover:text-foreground" aria-label="Transaction details and receipts" onClick={() => onTransactionClick({ ...current, _source: 'review-transactions' })}>Details<ChevronRight aria-hidden="true" className="h-4 w-4" /></button>}
+              </div>}
 
               {!suggestion && analysisControls}
               {analysisQueued && <p role="status" className="text-xs leading-5 text-muted-foreground">Queued for automatic analysis. Run it now or wait for the result.</p>}
               {analysisRunning && <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 shrink-0 animate-spin" />AI is analyzing. Results refresh here.</p>}
-              {availability.status === 'unavailable' && <p className="text-xs text-muted-foreground">{availability.message} Manual categorization remains available.</p>}
+              {!suggestion && availability.status === 'unavailable' && <p className="text-xs text-muted-foreground">{availability.message} Manual categorization remains available.</p>}
             </>}
 
             {message && <p role="alert" className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-sm">{message}</p>}
@@ -295,15 +301,13 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
               <div className="grid grid-cols-2 gap-2"><Button variant="outline" className="min-h-11" disabled={busy} onClick={() => setEditing(false)}>Cancel</Button><Button className="min-h-11" disabled={busy || !category} onClick={() => saveReview('correct')}>{operation === 'saving' ? 'Saving…' : 'Save correction'}</Button></div>
             </section>}
 
-            {!editing && onTransactionClick && <button className="flex min-h-11 w-full items-center justify-between gap-3 border-t border-border pt-2 text-sm text-muted-foreground hover:text-foreground" onClick={() => onTransactionClick({ ...current, _source: 'review-transactions' })}><span>Transaction details &amp; receipts</span><ChevronRight className="h-4 w-4 shrink-0" /></button>}
           </div>
-          {!editing && <div className="grid grid-cols-[1fr_auto_1.4fr] gap-2 border-t border-border bg-card p-3">
+          {!editing && <div className="grid grid-cols-2 gap-2 border-t border-border bg-card p-3">
             <Button variant="outline" disabled={busy || current.pending === true} onClick={() => swipe('left')} className="min-h-11 px-3"><Edit3 className="h-4 w-4" /><span>Change</span></Button>
-            <Button variant="ghost" disabled={busy} onClick={later} className="min-h-11 px-3"><span>Later</span></Button>
             <Button disabled={busy || !mayConfirm} onClick={() => saveReview('confirm')} className="min-h-11 gap-1.5 whitespace-normal px-2 leading-4">{operation === 'saving' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}<span>{operation === 'saving' ? 'Saving…' : 'Confirm category'}</span></Button>
           </div>}
         </article>
-        {!editing && <p className="mt-2 text-center text-xs text-muted-foreground">Swipe left to change · right to confirm the category</p>}
+        {!editing && <p className="mt-2 text-center text-xs text-muted-foreground">Swipe left to change · right to confirm</p>}
       </div>
     </div>
   );

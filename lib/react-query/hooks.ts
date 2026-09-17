@@ -32,7 +32,15 @@ async function computeMonthlyDeductionsClient(userId: string, year?: number) {
           .sort((a, b) => b - a)
       : [new Date().getFullYear()];
 
-  const taxRate = getUserTaxRate(profile ?? undefined);
+  const taxRate = getUserTaxRate(profile ? {
+    ...profile,
+    w2_income: profile.w2_income ?? undefined,
+    health_insurance_premiums: profile.health_insurance_premiums ?? undefined,
+    sep_ira_contribution: profile.sep_ira_contribution ?? undefined,
+    solo_401k_contribution: profile.solo_401k_contribution ?? undefined,
+    hsa_contribution: profile.hsa_contribution ?? undefined,
+    simple_ira_contribution: profile.simple_ira_contribution ?? undefined,
+  } : undefined);
 
   const monthlyData: MonthlyData[] = Array.from({ length: 12 }, (_, i) => ({
     month: i,

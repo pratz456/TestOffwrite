@@ -59,11 +59,33 @@ describe('AI category swipe review', () => {
     records = [base({ ai_suggestion: { ...suggestion, status: 'needs_more_info', isDeductible: null, deductiblePercent: null, questions: ['What was the business purpose?'] } })];
     harness.request.mockResolvedValue(Response.json({ success: true, transaction: { ...records[0], review_status: 'confirmed', tax_review_required: true, is_deductible: null } }));
     expect(action(page(), 'Confirm category').props.disabled).toBe(false);
-    expect(text(page())).toContain('category only'); expect(text(page())).toContain('What was the business purpose?');
+    expect(text(page())).toContain('category only');
+    expect(text(page())).toContain('Deduction unresolved');
+    const evidence = walk(page()).find(node => node.type === AiTaxAnalysisDialog) as ReactElement<{ suggestion: AiReviewSuggestion }>;
+    expect(text(AiTaxExplanation({ suggestion: evidence.props.suggestion }))).toContain('What was the business purpose?');
     await action(page(), 'Confirm category').props.onClick!();
     expect(text(page())).toContain('Deductions remain unresolved');
     await action(page(), 'Resolve missing tax details').props.onClick!();
-    expect(harness.open).toHaveBeenCalledWith(expect.objectContaining({ is_deductible: null }));
+    expect(harness.open).toHaveBeenCalledWith(expect.objectContaining({ is_deductible: null }), 'details');
+  });
+
+  it('keeps unresolved tax details actionable even when the AI supplied no follow-up question', async () => {
+    records = [base({ ai_suggestion: { ...suggestion, status: 'needs_more_info', isDeductible: null, deductiblePercent: null, questions: [] } })];
+    const view = page();
+    expect(text(view)).toContain('Deduction unresolved');
+    expect(text(view)).toContain('Confirm saves the category only');
+    await action(view, 'Add details').props.onClick!();
+    expect(harness.open).toHaveBeenCalledWith(expect.objectContaining({ id: 'tx-1', _source: 'review-transactions' }), 'details');
+    expect(harness.request).not.toHaveBeenCalled();
+    expect(harness.updated).not.toHaveBeenCalled();
+  });
+
+  it('keeps receipt/detail access alongside evidence without changing the saved review', async () => {
+    const view = page();
+    await action(view, 'Details').props.onClick!();
+    expect(harness.open).toHaveBeenCalledWith(expect.objectContaining({ id: 'tx-1', _source: 'review-transactions' }));
+    expect(harness.request).not.toHaveBeenCalled();
+    expect(harness.updated).not.toHaveBeenCalled();
   });
 
   it('opens a confirmed transaction selected from details before the ordinary review queue', () => {

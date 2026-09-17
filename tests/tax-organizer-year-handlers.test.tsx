@@ -133,3 +133,47 @@ describe('organizer personal facts and safe tax-year changes', () => {
     expect(copy).not.toContain('10-21'); expect(copy).not.toContain('enter $0'); expect(copy).not.toContain('Form 8879');
   });
 });
+
+describe('compact organizer sections', () => {
+  const sectionSelect = (tree: Element) => walk(tree).find(node => node.props['aria-label'] === 'Organizer section')!;
+  const section = (tree: Element, title: string) => walk(tree).find(node => node.type === 'details' && text(node.props.children[0]).includes(title))!;
+  const choose = (tree: Element, label: string, answer: string) => {
+    const group = walk(tree).find(node => node.props.role === 'group' && node.props['aria-label'] === label)!;
+    button(group, answer).props.onClick();
+  };
+
+  it('keeps optional records collapsed and preserves them when saving from a different section', async () => {
+    harness.request.mockResolvedValueOnce(response({ taxYear: 2026, organizer: { bankRouting: '123456789', bankAccount: '987654321', taxpayerSSN: '123456789' } }));
+    let tree = await load();
+    expect(section(tree, 'Accountant handoff').props.open).not.toBe(true);
+    expect(section(tree, 'Deduction eligibility').props.open).not.toBe(true);
+    expect(text(tree)).not.toContain('sections complete');
+    sectionSelect(tree).props.onChange({ target: { value: '3' } });
+    choose(render(), 'Started or acquired a business', 'yes');
+    sectionSelect(render()).props.onChange({ target: { value: '0' } });
+    tree = render();
+    expect(personal(tree).props.answers.startedBusiness).toBe('yes');
+    await button(tree, 'Save').props.onClick();
+    const saved = JSON.parse(harness.request.mock.calls.find(call => call[1]?.method === 'POST')![1].body);
+    expect(saved).toMatchObject({ bankRouting: '123456789', bankAccount: '987654321', taxpayerSSN: '123456789', startedBusiness: 'yes' });
+  });
+
+  it('keeps unanswered income distinct from No and updates the collapsed group summary', async () => {
+    sectionSelect(await load()).props.onChange({ target: { value: '1' } });
+    let tree = render();
+    expect(text(section(tree, 'Rental & other income').props.children[0])).toContain('2 to review');
+    choose(tree, 'Rental income from property you own', 'no');
+    tree = render();
+    expect(text(section(tree, 'Rental & other income').props.children[0])).toContain('1 to review');
+    choose(tree, 'Other income (gambling, prizes, alimony pre-2019, etc.)', 'yes');
+    tree = render();
+    expect(text(section(tree, 'Rental & other income').props.children[0])).toContain('1 selected');
+    expect(text(section(tree, 'Rental & other income').props.children[0])).not.toContain('to review');
+    const group = walk(tree).find(node => node.props['aria-label'] === 'Rental income from property you own')!;
+    expect(button(group, 'no').props['aria-pressed']).toBe(true);
+    expect(button(group, 'yes').props['aria-pressed']).toBe(false);
+    await button(tree, 'Save').props.onClick();
+    const saved = JSON.parse(harness.request.mock.calls.find(call => call[1]?.method === 'POST')![1].body);
+    expect(saved).toMatchObject({ hasRentalIncome: 'no', hasOtherIncome: 'yes', has1099INT: '' });
+  });
+});

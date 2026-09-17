@@ -16,10 +16,10 @@ export function trustedTaxSourceUrl(value: string): boolean {
 }
 
 /** A focused reading surface keeps detailed evidence out of the review queue. */
-export function AiTaxAnalysisDialog({ suggestion, children }: { suggestion: AiReviewSuggestion; children?: React.ReactNode }) {
+export function AiTaxAnalysisDialog({ suggestion, children, triggerLabel = 'Full analysis & sources' }: { suggestion: AiReviewSuggestion; children?: React.ReactNode; triggerLabel?: string }) {
   return (
     <Dialog>
-      <DialogTrigger asChild><button type="button" className="flex min-h-11 w-full items-center justify-between gap-2 rounded-lg text-left text-sm text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><span className="flex items-center gap-2"><BookOpen aria-hidden="true" className="h-4 w-4" />Full analysis & sources</span><ArrowRight aria-hidden="true" className="h-4 w-4" /></button></DialogTrigger>
+      <DialogTrigger asChild><button type="button" className="flex min-h-11 w-full items-center justify-between gap-2 rounded-lg text-left text-sm text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><span className="flex items-center gap-2"><BookOpen aria-hidden="true" className="h-4 w-4" />{triggerLabel}</span><ArrowRight aria-hidden="true" className="h-4 w-4" /></button></DialogTrigger>
       <DialogContent className="app-workspace max-h-[85dvh] overflow-y-auto overscroll-contain rounded-2xl p-4 pt-5 sm:max-w-xl [&>button]:top-2 [&>button]:right-2 [&>button]:flex [&>button]:h-11 [&>button]:w-11 [&>button]:items-center [&>button]:justify-center">
         <div className="pr-10"><DialogTitle>AI analysis</DialogTitle><DialogDescription className="mt-1 text-xs">Reasoning, missing facts and official tax sources.</DialogDescription></div>
         <AiTaxExplanation suggestion={suggestion} />

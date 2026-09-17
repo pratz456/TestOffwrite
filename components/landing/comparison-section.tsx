@@ -12,21 +12,21 @@ export function ComparisonSection() {
     <section id="availability" className="mx-auto grid max-w-5xl scroll-mt-20 gap-6 px-4 py-7 sm:px-6 sm:py-9 md:grid-cols-2 md:gap-10">
       <div>
         <h2 className="text-xl font-semibold tracking-tight">Start free. Keep your records.</h2>
-        <p className="mt-2 text-sm leading-5 text-slate-600">Try Premium reports for 30 days. Then choose:</p>
+        <p className="mt-2 text-sm leading-5 text-slate-600">30 days of Premium reports included.</p>
         <dl className="mt-3 divide-y divide-slate-200 text-sm">
           <div className="flex gap-4 py-3">
             <dt className="w-20 shrink-0 font-semibold">Free</dt>
-            <dd className="text-slate-600">Saved records, manual tracking, and your records archive.</dd>
+            <dd className="text-slate-600">Manual tracking and a records archive.</dd>
           </div>
           <div className="flex gap-4 py-3">
             <dt className="w-20 shrink-0 font-semibold">Premium</dt>
-            <dd className="text-slate-600"><span className="font-medium text-slate-950">$14.99/mo or $150/yr.</span> PDF and CSV reports, plus extended history. Cancel anytime.</dd>
+            <dd className="text-slate-600"><span className="font-medium text-slate-950">$14.99/mo or $150/yr.</span> PDF/CSV reports and extended history. Cancel anytime.</dd>
           </div>
         </dl>
         <CtaButton label="Try WriteOff" className="mt-2" />
       </div>
       <div>
-        <h2 className="text-xl font-semibold tracking-tight">A few useful answers.</h2>
+        <h2 className="text-xl font-semibold tracking-tight">Common questions</h2>
         <div className="mt-3 divide-y divide-slate-200">
           {QUESTIONS.map(({ question, answer }) => (
             <details key={question} className="group">

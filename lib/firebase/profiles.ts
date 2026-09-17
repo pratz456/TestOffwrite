@@ -30,28 +30,29 @@ export interface UserProfile {
   // Phase 1: High Impact Fields
   itemization_status?: 'itemize' | 'standard';
   business_start_date?: string;
-  home_office_sqft?: number;
-  total_home_sqft?: number;
+  home_office_sqft?: number | null;
+  total_home_sqft?: number | null;
   home_office_method?: 'simplified' | 'actual';
-  vehicle_business_use_percentage?: number;
+  vehicle_business_use_percentage?: number | null;
   vehicle_deduction_method?: 'standard_mileage' | 'actual_expense';
 
   // Phase 2: Medium Impact Fields
   naics_code?: string;
   business_purpose?: string;
   ein?: string;
-  w2_income?: number;
-  w2_federal_withheld?: number;
-  health_insurance_premiums?: number;
-  sep_ira_contribution?: number;
-  solo_401k_contribution?: number;
-  hsa_contribution?: number;
-  business_income?: number;
+  w2_income?: number | null;
+  w2_federal_withheld?: number | null;
+  health_insurance_premiums?: number | null;
+  sep_ira_contribution?: number | null;
+  solo_401k_contribution?: number | null;
+  hsa_contribution?: number | null;
+  simple_ira_contribution?: number | null;
+  business_income?: number | null;
   other_income?: number;
-  tax_bracket?: number;
+  tax_bracket?: number | null;
   professional_licenses?: string[];
 
-  prior_year_tax?: number;
+  prior_year_tax?: number | null;
   mailing_address?: {
     street?: string;
     city?: string;
@@ -148,6 +149,14 @@ export async function getUserProfileSafe(): Promise<{ data: UserProfile | null; 
             business_purpose: data.business_purpose,
             ein: data.ein,
             w2_income: data.w2_income,
+            w2_federal_withheld: data.w2_federal_withheld,
+            health_insurance_premiums: data.health_insurance_premiums,
+            sep_ira_contribution: data.sep_ira_contribution,
+            solo_401k_contribution: data.solo_401k_contribution,
+            hsa_contribution: data.hsa_contribution,
+            simple_ira_contribution: data.simple_ira_contribution,
+            prior_year_tax: data.prior_year_tax,
+            mailing_address: data.mailing_address,
             business_income: data.business_income,
             other_income: data.other_income,
             tax_bracket: data.tax_bracket,
@@ -230,6 +239,14 @@ export async function getUserProfile(userId: string): Promise<{ data: UserProfil
           business_purpose: data.business_purpose,
           ein: data.ein,
           w2_income: data.w2_income,
+          w2_federal_withheld: data.w2_federal_withheld,
+          health_insurance_premiums: data.health_insurance_premiums,
+          sep_ira_contribution: data.sep_ira_contribution,
+          solo_401k_contribution: data.solo_401k_contribution,
+          hsa_contribution: data.hsa_contribution,
+          simple_ira_contribution: data.simple_ira_contribution,
+          prior_year_tax: data.prior_year_tax,
+          mailing_address: data.mailing_address,
           business_income: data.business_income,
           other_income: data.other_income,
           tax_bracket: data.tax_bracket,
@@ -368,6 +385,14 @@ export async function upsertUserProfile(
           business_purpose: data.business_purpose,
           ein: data.ein,
           w2_income: data.w2_income,
+          w2_federal_withheld: data.w2_federal_withheld,
+          health_insurance_premiums: data.health_insurance_premiums,
+          sep_ira_contribution: data.sep_ira_contribution,
+          solo_401k_contribution: data.solo_401k_contribution,
+          hsa_contribution: data.hsa_contribution,
+          simple_ira_contribution: data.simple_ira_contribution,
+          prior_year_tax: data.prior_year_tax,
+          mailing_address: data.mailing_address,
           business_income: data.business_income,
           other_income: data.other_income,
           tax_bracket: data.tax_bracket,

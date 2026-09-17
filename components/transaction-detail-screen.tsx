@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 
 interface TransactionDetailScreenProps {
+  initialSection?: 'summary' | 'details';
   transaction: {
     id: string;
     merchant_name: string;
@@ -121,7 +122,8 @@ interface TransactionDetailScreenProps {
 export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = ({
   transaction,
   onBack,
-  onSave
+  onSave,
+  initialSection = 'summary'
 }) => {
   // Router hook (top-level hook call)
   const router = useRouter();
@@ -189,7 +191,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
   // AI Analysis state
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
-  const [detailSection, setDetailSection] = useState('summary');
+  const [detailSection, setDetailSection] = useState<string>(initialSection);
   const changeDetailSection = useCallback((section: string) => {
     if (section !== 'receipt') {
       // Cancel permission requests as well as an already visible camera preview.
@@ -215,12 +217,16 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
   useEffect(() => {
     const requests = analysisRequest;
     setAnalysisError(null);
-    changeDetailSection('summary');
     setAnalysisUnavailable(false);
     setIsAnalyzing(false);
     isAnalyzingRef.current = false;
     return () => { ++requests.current; };
-  }, [analysisContext, changeDetailSection]);
+  }, [analysisContext]);
+
+  useEffect(() => {
+    // The route selects a tab without interrupting an analysis of this record.
+    changeDetailSection(initialSection);
+  }, [analysisContext, initialSection, changeDetailSection]);
 
   const checkAiAvailability = async () => {
     if (isAnalyzingRef.current) return;
@@ -716,32 +722,22 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
   return (
     <div className="min-h-full bg-background">
       <header className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur">
-        <div className="mx-auto flex max-w-4xl items-center gap-2 px-3 py-1.5 sm:px-5">
+        <div className="mx-auto flex max-w-2xl items-center gap-2 px-3 py-2 sm:px-5">
           <Button onClick={handleBackNavigation} variant="ghost" size="icon" aria-label="Back to transactions" className="h-11 w-11 shrink-0">
             <ArrowLeft className="h-5 w-5" />
           </Button>
-          <h1 className="flex-1 text-base font-semibold">Transaction details</h1>
-          <span className="text-xs text-muted-foreground" role="status">{isSaving ? 'Saving…' : hasUnsavedChanges ? 'Unsaved changes' : 'Saved'}</span>
+          <div className="min-w-0 flex-1">
+            <h1 className="line-clamp-2 break-words text-base font-semibold leading-snug"><span className="sr-only">Transaction details: </span>{transaction.merchant_name || 'Transaction'}</h1>
+            <p className="mt-0.5 text-xs text-muted-foreground">{formatTransactionDate(transaction.date, 'en-US', { month: 'short', day: 'numeric', year: 'numeric' })}{transaction.amount < 0 ? ' · Money in' : ' · Money out'}</p>
+          </div>
+          <div className="shrink-0 text-right">
+            <p className="text-lg font-semibold tabular-nums">${Math.abs(transaction.amount).toFixed(2)}</p>
+            <span className="text-xs text-muted-foreground" role="status">{isSaving ? 'Saving…' : hasUnsavedChanges ? 'Unsaved changes' : 'Saved'}</span>
+          </div>
         </div>
       </header>
 
       <div className="mx-auto max-w-2xl space-y-3 px-3 py-3 sm:px-5">
-        <Card className="overflow-hidden rounded-xl shadow-none motion-safe:hover:translate-y-0">
-          <div className="p-3.5">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <h2 className="break-words text-base font-semibold leading-snug">{transaction.merchant_name || 'Transaction'}</h2>
-                <p className="mt-1 text-xs text-muted-foreground">{formatTransactionDate(transaction.date, 'en-US', { month: 'short', day: 'numeric', year: 'numeric' })}{transaction.amount < 0 ? ' · Money in' : ' · Money out'}</p>
-              </div>
-              <p className="shrink-0 text-xl font-semibold tabular-nums">${Math.abs(transaction.amount).toFixed(2)}</p>
-            </div>
-            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-              <Badge variant="outline" className="max-w-full whitespace-normal rounded-md font-normal">{consolidateCategory(transaction.category).displayName}</Badge>
-              <span className="text-muted-foreground">{transaction.is_deductible === true ? 'Deduction recorded' : transaction.is_deductible === false ? 'No deduction recorded' : 'Tax review needed'}</span>
-            </div>
-          </div>
-
-        </Card>
         <DetailTabs.Root value={detailSection} onValueChange={changeDetailSection} className="space-y-3">
           <DetailTabs.List aria-label="Transaction sections" className="grid grid-cols-3 gap-1 rounded-xl bg-muted/70 p-1">
             {[{ value: 'summary', label: 'Summary' }, { value: 'details', label: 'Details' }, { value: 'receipt', label: 'Receipt' }].map(tab =>
@@ -781,7 +777,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
           </div>
             </Card>
           <details className="group rounded-xl border border-border bg-card">
-            <summary className="flex min-h-11 cursor-pointer list-none items-center gap-3 px-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden"><CheckCircle aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" /><span className="flex-1 text-sm font-medium">Tax treatment</span><ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" /></summary>
+            <summary className="flex min-h-11 cursor-pointer list-none items-center gap-3 px-4 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden"><CheckCircle aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" /><span className="min-w-0 flex-1 text-sm font-medium">Tax treatment<span className="mt-0.5 block text-xs font-normal text-muted-foreground">{transaction.is_deductible === true ? 'Deduction recorded' : transaction.is_deductible === false ? 'No deduction recorded' : 'Tax review needed'}</span></span><ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" /></summary>
             <div className="space-y-3 border-t border-border p-4">
               <p className="text-sm text-muted-foreground">Confirm business use and tax eligibility before including a deduction. Category confirmation is separate.</p>
               <div className="grid grid-cols-2 gap-2">
@@ -795,7 +791,8 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
           </DetailTabs.Content>
           <DetailTabs.Content value="details" className="rounded-xl border border-border bg-card focus-visible:outline-none">
             <div className="space-y-3 p-4">
-              <p className="text-xs text-muted-foreground">Saved automatically. Add the business purpose or answer AI’s questions here.</p>
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-3 text-xs"><span className="text-muted-foreground">Recorded category</span><Badge variant="outline" className="max-w-full whitespace-normal rounded-md font-normal">{consolidateCategory(transaction.category).displayName}</Badge></div>
+              <p className="text-xs text-muted-foreground">Add context below. Changes save automatically.</p>
 
               {transaction.ai_suggestion?.questions?.length ? <details className="group rounded-lg bg-muted/60">
                 <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 px-3 text-sm font-medium [&::-webkit-details-marker]:hidden"><span>{transaction.ai_suggestion.questions.length} questions from AI</span><ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 group-open:rotate-180" /></summary>
@@ -812,7 +809,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
               <div><label htmlFor="transaction-notes" className="mb-1 block text-sm font-medium">Notes</label><Textarea id="transaction-notes" placeholder="Tell us more about this purchase..." value={additionalContext} onChange={e => { const next = e.target.value; setAdditionalContext(next); debouncedSave({ notes: next }); }} className="min-h-20 rounded-lg bg-background" /></div>
               <div><label htmlFor="documentation-status" className="mb-1 block text-sm font-medium">Documentation Status</label><select id="documentation-status" value={documentationStatus || 'missing'} onChange={e => { const next = e.target.value as 'complete' | 'partial' | 'missing'; setDocumentationStatus(next); debouncedSave({ documentation_status: next }); }} className="min-h-11 w-full rounded-lg border border-border bg-background px-3 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:text-sm"><option value="missing">Missing</option><option value="partial">Partial</option><option value="complete">Complete</option></select></div>
               <div><label htmlFor="meeting-notes" className="mb-1 block text-sm font-medium">Meeting Notes</label><Textarea id="meeting-notes" placeholder="Notes about business meetings or discussions" value={meetingNotes} onChange={e => { const next = e.target.value; setMeetingNotes(next); debouncedSave({ meeting_notes: next }); }} className="min-h-20 rounded-lg bg-background" maxLength={500} /></div>
-              {(transaction.description || transaction.datetime) && <div className="space-y-1 rounded-lg bg-muted p-3 text-xs text-muted-foreground"><p className="font-medium text-foreground">Original transaction details</p>{transaction.description && <p className="break-words">{transaction.description}</p>}{transaction.datetime && <p>{new Date(transaction.datetime).toLocaleString()}</p>}</div>}
+              <div className="space-y-1 rounded-lg bg-muted p-3 text-xs text-muted-foreground"><p className="font-medium text-foreground">Original transaction details</p><p className="break-words">{transaction.merchant_name || 'Transaction'}</p>{transaction.description && <p className="break-words">{transaction.description}</p>}{transaction.datetime && <p>{new Date(transaction.datetime).toLocaleString()}</p>}</div>
                 </div>
               </details>
 

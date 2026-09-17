@@ -225,14 +225,41 @@ describe('transaction detail preserves manual work without guessed tax impact or
     reasoning: 'Confirm the business purpose.', questions: ['Who attended?'], documentationRequired: [],
     irsReferences: [], sources: [], taxYear: 2026, policyVersion: 'synthetic-policy', model: 'synthetic-model', analyzedAt: 1,
   };
-  function detail(changes: Partial<DetailTransaction> = {}) {
+  function detail(changes: Partial<DetailTransaction> = {}, initialSection?: 'summary' | 'details') {
     harness.cursor = 0;
-    const page = TransactionDetailScreen({ transaction: { ...base, ...changes }, onBack: harness.back, onSave: harness.save }) as Element;
+    const page = TransactionDetailScreen({ transaction: { ...base, ...changes }, initialSection, onBack: harness.back, onSave: harness.save }) as Element;
     harness.effects.splice(0).forEach(effect => effect());
     return page;
   }
   const action = (page: Element, label: string) => walk(page).find(node => typeof node.props.onClick === 'function' && text(node).trim() === label)!;
   const analyzed = () => Response.json({ success: true, analysis: { deductionStatus: 'Possibly Deductible', reasoning: 'Review the saved business purpose.', confidence: 0.7, updatedAt: '2026-09-16T12:00:00Z' } });
+
+  it('opens requested tax details immediately without a provider or persistence request', () => {
+    const page = detail({}, 'details');
+    expect(walk(page).find(node => node.props.onValueChange)!.props.value).toBe('details');
+    expect(harness.fetch).not.toHaveBeenCalled();
+    expect(harness.mutate).not.toHaveBeenCalled();
+    expect(harness.save).not.toHaveBeenCalled();
+  });
+
+  it('changing only the requested tab preserves active analysis and returns to Summary when it completes', async () => {
+    harness.runEffects = true;
+    let complete!: (response: Response) => void;
+    harness.fetch.mockReturnValueOnce(new Promise<Response>(resolve => { complete = resolve; }));
+    const analysis = action(detail(), 'Run AI Analysis').props.onClick!();
+    await vi.advanceTimersByTimeAsync(0);
+    detail({}, 'details');
+    const redirected = detail({}, 'details');
+    expect(walk(redirected).find(node => node.props.onValueChange)!.props.value).toBe('details');
+    expect(action(redirected, 'Analyzing…').props.disabled).toBe(true);
+    expect(harness.fetch).toHaveBeenCalledOnce();
+    complete(analyzed());
+    await analysis;
+    expect(walk(detail({}, 'details')).find(node => node.props.onValueChange)!.props.value).toBe('summary');
+    expect(harness.save).toHaveBeenCalledOnce();
+    expect(harness.save.mock.calls[0][0]).not.toHaveProperty('initialSection');
+    expect(harness.save.mock.calls[0][0]).not.toHaveProperty('section');
+  });
 
   it('opens shared Tax Preview and leaves a recorded business classification without a rate, savings calculation or CPA submission', async () => {
     const page = detail();
@@ -615,7 +642,7 @@ describe('transaction detail preserves manual work without guessed tax impact or
     expect(harness.save).toHaveBeenCalledOnce();
   });
 
-  it('stops the active receipt camera when transaction identity changes', async () => {
+  it.each(['summary', 'details'] as const)('stops the receipt camera and opens %s when transaction identity changes', async initialSection => {
     harness.runEffects = true;
     const stop = vi.fn();
     const stream = { getTracks: () => [{ stop }] } as unknown as MediaStream;
@@ -623,10 +650,10 @@ describe('transaction detail preserves manual work without guessed tax impact or
     walk(detail()).find(node => node.props.onValueChange)!.props.onValueChange!('receipt');
     await action(detail(), 'Photo').props.onClick!();
     expect(stop).not.toHaveBeenCalled();
-    detail({ id: 'next-record', trans_id: 'next-record' });
-    const next = detail({ id: 'next-record', trans_id: 'next-record' });
+    detail({ id: 'next-record', trans_id: 'next-record' }, initialSection);
+    const next = detail({ id: 'next-record', trans_id: 'next-record' }, initialSection);
     expect(stop).toHaveBeenCalledOnce();
-    expect(walk(next).find(node => node.props.onValueChange)!.props.value).toBe('summary');
+    expect(walk(next).find(node => node.props.onValueChange)!.props.value).toBe(initialSection);
     expect(walk(next).some(node => node.type === 'video')).toBe(false);
   });
 

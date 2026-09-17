@@ -1,12 +1,9 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Card } from '@/components/ui/card';
+import React, { useState, useEffect, useRef, useCallback, useId, useContext, createContext } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Input as BaseInput } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/simple-select';
 import {
   User,
   Briefcase,
@@ -18,11 +15,12 @@ import {
   Shield,
   MapPin
 } from '@/lib/icons';
-import { getUserProfile, upsertUserProfile, UserProfile } from '@/lib/firebase/profiles';
+import { getUserProfile, upsertUserProfile } from '@/lib/firebase/profiles';
 import { useSubscription } from '@/lib/hooks/use-subscription';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { APP_NAVIGATION_EVENT } from '@/lib/navigation/navigation-guard';
 import { useBeforeUnload } from '@/lib/hooks/use-before-unload';
-import { CreditCard, Calendar, Sparkles, ExternalLink, XCircle, AlertTriangle, Home, Car, Receipt, Info, Building2, Landmark, Download, Trash2, Link2 } from 'lucide-react';
+import { CreditCard, Calendar, Sparkles, ExternalLink, XCircle, AlertTriangle, Home, Car, Receipt, Info, Building2, Landmark, Download, Trash2, Link2, ChevronDown, X } from 'lucide-react';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import { TrialCountdown } from '@/components/trial-countdown';
 import { toast } from 'sonner';
@@ -30,7 +28,7 @@ import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { Badge } from '@/components/ui/badge';
 
 // Payment Settings Tab Component
-const PaymentSettingsTab: React.FC<{ user: any }> = ({ user }) => {
+const PaymentSettingsTab: React.FC<{ beforeNavigate: (action: () => void) => void }> = ({ beforeNavigate }) => {
   const { status: accessStatus, isLoading: planLoading, error: planError, refetch } = useSubscription();
   const [syncLoading, setLoading] = useState(false);
   const loading = planLoading || syncLoading;
@@ -56,7 +54,7 @@ const PaymentSettingsTab: React.FC<{ user: any }> = ({ user }) => {
       if (!response.ok || typeof data.url !== 'string') throw new Error('Unable to open billing');
       const destination = new URL(data.url);
       if (destination.protocol !== 'https:' || destination.hostname !== 'billing.stripe.com') throw new Error('Invalid billing destination');
-      window.location.assign(destination.href);
+      beforeNavigate(() => window.location.assign(destination.href));
     } catch {
       toast.error('Billing could not be opened. Please try again.');
     } finally {
@@ -113,17 +111,17 @@ const PaymentSettingsTab: React.FC<{ user: any }> = ({ user }) => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <div className="space-y-4">
         <div className="flex items-center gap-2">
           <Sparkles className="w-5 h-5 text-primary" />
-          <h3 className="text-sm font-semibold text-foreground">Historical Transactions Subscription</h3>
+          <h3 className="text-sm font-semibold text-foreground">Your plan</h3>
         </div>
 
         {planError && (
           <div role="alert" className="rounded-lg border p-4 space-y-2">
             <p className="text-sm">Your plan could not be verified. You can still open billing below.</p>
-            <Button size="sm" variant="outline" onClick={() => void refetch()}>Retry plan check</Button>
+            <Button size="sm" className="min-h-11" variant="outline" onClick={() => void refetch()}>Retry plan check</Button>
           </div>
         )}
         {accessStatus?.hasAccess || accessStatus?.subscription ? (
@@ -208,10 +206,10 @@ const PaymentSettingsTab: React.FC<{ user: any }> = ({ user }) => {
                 </div>
               )}
 
-              <div className="flex gap-3">
+              <div className="flex flex-wrap gap-3">
                 <Button
                   onClick={handleManageBilling}
-                  className="flex-1"
+                  className="min-h-11 flex-1 whitespace-normal"
                   size="sm"
                 >
                   Manage Subscription
@@ -224,7 +222,7 @@ const PaymentSettingsTab: React.FC<{ user: any }> = ({ user }) => {
                     disabled={cancelLoading}
                     variant="destructive"
                     size="sm"
-                    className="flex-1"
+                    className="min-h-11 flex-1 whitespace-normal"
                   >
                     {cancelLoading ? (
                       <>
@@ -247,12 +245,12 @@ const PaymentSettingsTab: React.FC<{ user: any }> = ({ user }) => {
             <p className="text-sm text-muted-foreground">
               {planError ? 'Your plan status is currently unavailable.' : "You don't have an active subscription."} Upgrade to access up to 24 months (depending on your bank).
             </p>
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-3">
               <Button
-                onClick={() => window.location.href = '/protected/subscriptions'}
+                onClick={() => beforeNavigate(() => window.location.assign('/protected/subscriptions'))}
                 variant="outline"
                 size="sm"
-                className="flex-1"
+                className="min-h-11 flex-1 whitespace-normal"
               >
                 View Upgrade Options
                 <ExternalLink className="ml-2 w-4 h-4" />
@@ -274,7 +272,7 @@ const PaymentSettingsTab: React.FC<{ user: any }> = ({ user }) => {
                         if (response.ok) {
                           const data = await response.json();
                           toast.success('Subscription synced successfully!');
-                          window.location.reload();
+                          beforeNavigate(() => window.location.reload());
                         } else {
                           const errorData = await response.json().catch(() => ({}));
                           toast.error(errorData.error || 'No subscription found in Stripe.');
@@ -291,7 +289,7 @@ const PaymentSettingsTab: React.FC<{ user: any }> = ({ user }) => {
                 disabled={loading}
                 variant="secondary"
                 size="sm"
-                className="flex-1"
+                className="min-h-11 flex-1 whitespace-normal"
               >
                 {loading ? (
                   <>
@@ -321,14 +319,14 @@ const PaymentSettingsTab: React.FC<{ user: any }> = ({ user }) => {
         </div>
         <div className="p-4 bg-muted/30 border border-border rounded-lg">
           <p className="text-sm text-muted-foreground mb-3">
-            Manage your payment methods, billing address, and invoice history through the Stripe billing portal.
+            Payment methods, billing address and invoices.
           </p>
           <Button
             onClick={handleManageBilling}
             disabled={portalLoading || cancelLoading}
             variant="outline"
             size="sm"
-            className="w-full"
+            className="min-h-11 w-full"
           >
             {portalLoading ? 'Opening billing…' : 'Open Billing Portal'}
             <ExternalLink className="ml-2 w-4 h-4" />
@@ -341,13 +339,6 @@ const PaymentSettingsTab: React.FC<{ user: any }> = ({ user }) => {
         </div>
       </div>
 
-      {/* Information */}
-      <div className="p-3 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-        <p className="text-xs text-blue-800 dark:text-blue-200">
-          <strong>Note:</strong> The billing portal allows you to update payment methods, view invoices,
-          cancel your subscription, and manage all billing-related settings securely through Stripe.
-        </p>
-      </div>
       <ConfirmationDialog
         open={confirmDialog.open}
         onOpenChange={(open) => setConfirmDialog(prev => ({ ...prev, open }))}
@@ -364,36 +355,56 @@ const PaymentSettingsTab: React.FC<{ user: any }> = ({ user }) => {
   );
 };
 
-// Simple wrapper for Select components
-const SimpleSelectWrapper: React.FC<{
+// A shared field label also names nested currency inputs and native pickers.
+const SettingsFieldContext = createContext<{ id: string; hintId?: string } | null>(null);
+const Input = (props: React.ComponentProps<typeof BaseInput>) => {
+  const field = useContext(SettingsFieldContext);
+  return <BaseInput id={field?.id} aria-describedby={field?.hintId} {...props} className={`${props.className || ''} md:h-11 md:text-base`} />;
+};
+const SimpleSelectWrapper = ({ value, onValueChange, placeholder, options }: {
   value: string;
   onValueChange: (value: string) => void;
   placeholder: string;
   options: { value: string; label: string }[];
-}> = ({ value, onValueChange, placeholder, options }) => {
+}) => {
+  const field = useContext(SettingsFieldContext);
   return (
-    <Select value={value} onValueChange={onValueChange}>
-      <SelectTrigger className="h-10 rounded-lg border border-border bg-background">
-        <SelectValue placeholder={placeholder} />
-      </SelectTrigger>
-      <SelectContent>
-        {options.map((option) => (
-          <SelectItem key={option.value} value={option.value}>
-            {option.label}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <select id={field?.id} aria-describedby={field?.hintId} value={value} onChange={(event) => onValueChange(event.target.value)}
+      className="h-11 w-full min-w-0 rounded-lg border border-border bg-background px-3 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      <option value="">{placeholder}</option>
+      {value && !options.some(option => option.value === value) && <option value={value}>{value} (saved)</option>}
+      {options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+    </select>
+  );
+};
+const SettingsField = ({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) => {
+  const id = useId();
+  return (
+    <SettingsFieldContext.Provider value={{ id, hintId: hint ? `${id}-hint` : undefined }}>
+      <div className="min-w-0 space-y-1.5">
+        <Label htmlFor={id} className="text-xs font-medium text-muted-foreground">{label}</Label>
+        {children}
+        {hint && <p id={`${id}-hint`} className="text-xs text-muted-foreground">{hint}</p>}
+      </div>
+    </SettingsFieldContext.Provider>
   );
 };
 
-// Reusable settings field component
-const SettingsField = ({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) => (
-  <div className="space-y-1.5">
-    <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{label}</Label>
-    {children}
-    {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
-  </div>
+// Keep the overview scannable; fields stay mounted while a section is closed.
+const SettingsSection = ({ title, summary, icon: Icon, children, defaultOpen = false }: {
+  title: string; summary: string; icon: React.ElementType; children: React.ReactNode; defaultOpen?: boolean;
+}) => (
+  <details className="group rounded-xl border border-border bg-card" open={defaultOpen || undefined}>
+    <summary className="flex min-h-16 cursor-pointer list-none items-center gap-3 rounded-xl px-4 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+      <Icon aria-hidden="true" className="h-5 w-5 shrink-0 text-muted-foreground" />
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-semibold text-foreground">{title}</span>
+        <span className="block truncate text-xs text-muted-foreground">{summary}</span>
+      </span>
+      <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+    </summary>
+    <div className="space-y-4 border-t border-border px-4 py-4">{children}</div>
+  </details>
 );
 
 interface SettingsScreenProps {
@@ -411,13 +422,7 @@ interface SettingsScreenProps {
 
 type SettingsTab = 'profile' | 'tax' | 'account';
 
-export const SettingsScreen: React.FC<SettingsScreenProps> = ({
-  user,
-  onBack,
-  onNavigate,
-  inAppNavigation = false
-}) => {
-  const [profile, setProfile] = useState({
+const initialProfile = (user: SettingsScreenProps['user']) => ({
     // Profile & Business Tab
     name: user?.user_metadata?.name || '',
     email: user?.email || '',
@@ -462,12 +467,21 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     prior_year_deductions: [] as string[]
   });
 
+export const SettingsScreen: React.FC<SettingsScreenProps> = ({
+  user,
+  onBack,
+  onNavigate,
+  inAppNavigation = false
+}) => {
+  const router = useRouter();
+  const [profile, setProfile] = useState(() => initialProfile(user));
+
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState('');
   const settingsSearchParams = useSearchParams();
-  const [activeTab, setActiveTab] = useState<SettingsTab>(() => settingsSearchParams.get('tab') === 'account' || settingsSearchParams.get('tab') === 'payment' ? 'account' : 'profile');
+  const [activeTab, setActiveTab] = useState<SettingsTab>(() => settingsSearchParams.get('tab') === 'account' || settingsSearchParams.get('tab') === 'payment' ? 'account' : settingsSearchParams.get('tab') === 'tax' ? 'tax' : 'profile');
   const [confirmDialog, setConfirmDialog] = useState<{
     open: boolean;
     title: string;
@@ -478,6 +492,18 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   }>({ open: false, title: '', description: '', confirmLabel: 'Confirm', variant: 'default', onConfirm: () => {} });
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const saveTimeoutRef = useRef<NodeJS.Timeout>();
+  const profileRef = useRef(profile);
+  const profileRevision = useRef(0);
+  const dirtyRef = useRef(false);
+  const clearedNumericFields = useRef(new Set<string>());
+  const pendingNavigation = useRef<(() => void) | null>(null);
+  const navigationTimeout = useRef<ReturnType<typeof setTimeout>>();
+  const saveInFlight = useRef<symbol | null>(null);
+  const saveGeneration = useRef(0);
+  const saveLatestRef = useRef<() => Promise<void>>(async () => {});
+  const profileOwner = useRef<string | null>(user.id);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const exportInFlight = useRef(false);
   const exportOwner = useRef<string | null>(user.id); exportOwner.current = user.id;
   const exportGeneration = useRef(0);
@@ -588,6 +614,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
   // --- Save logic ---
   const handleSave = useCallback(async () => {
+    if (saveInFlight.current || profileOwner.current !== user.id) return;
+    const profile = profileRef.current;
+    const revision = profileRevision.current;
+    const owner = user.id;
+    const request = Symbol('profile-save');
+    const generation = saveGeneration.current;
+    const currentSave = () => profileOwner.current === owner && saveGeneration.current === generation;
+    saveInFlight.current = request;
     try {
       setIsSaving(true);
       setSaveStatus('saving');
@@ -639,10 +673,13 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         tax_bracket: profile.tax_bracket,
         prior_year_tax: profile.prior_year_tax,
         professional_licenses: profile.professional_licenses,
-        prior_year_deductions: profile.prior_year_deductions
+        prior_year_deductions: profile.prior_year_deductions,
+        // Undefined is omitted by the Firestore merge helper; explicit clears need null.
+        ...Object.fromEntries([...clearedNumericFields.current].map(key => [key, null]))
       };
 
-      const { data, error } = await upsertUserProfile(user.id, profileData as any);
+      const { error } = await upsertUserProfile(user.id, profileData as any);
+      if (!currentSave()) return;
 
       if (error) {
         console.error('Error saving profile:', error);
@@ -651,26 +688,70 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         return;
       }
 
-      setSaveStatus('saved');
-      setHasUnsavedChanges(false);
-
-      // Clear saved message after 2 seconds
-      setTimeout(() => {
-        setSaveStatus('idle');
-      }, 2000);
+      if (profileRevision.current === revision) {
+        setSaveStatus('saved');
+        dirtyRef.current = false;
+        clearedNumericFields.current.clear();
+        setHasUnsavedChanges(false);
+        if (pendingNavigation.current) {
+          // Allow the dirty beforeunload listener to detach before a full-page redirect.
+          navigationTimeout.current = setTimeout(() => {
+            if (!currentSave() || dirtyRef.current) return;
+            const navigate = pendingNavigation.current;
+            pendingNavigation.current = null;
+            navigate?.();
+          }, 0);
+        }
+      }
 
     } catch (err) {
+      if (!currentSave()) return;
       console.error('Error saving profile:', err);
       setSaveStatus('error');
       setErrorMessage(`Failed to save: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
-      setIsSaving(false);
+      if (saveInFlight.current === request) saveInFlight.current = null;
+      if (currentSave()) {
+        setIsSaving(false);
+        // A newer edit must never be marked saved by an older request.
+        if (profileRevision.current !== revision) {
+          if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+          saveTimeoutRef.current = setTimeout(() => void saveLatestRef.current(), pendingNavigation.current ? 0 : 1500);
+        }
+      }
     }
-  }, [profile, user.id]);
+  }, [user.id]);
+  saveLatestRef.current = handleSave;
+
+  const beforeNavigate = useCallback((navigate: () => void) => {
+    if (!dirtyRef.current) { navigate(); return; }
+    pendingNavigation.current = navigate;
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    void saveLatestRef.current();
+  }, []);
+
+  useEffect(() => {
+    const beforeAppNavigation = (event: Event) => {
+      const href = (event as CustomEvent<{ href?: unknown }>).detail?.href;
+      if (!dirtyRef.current || typeof href !== 'string' || !/^\/protected(?:[/?]|$)/.test(href)) return;
+      event.preventDefault();
+      beforeNavigate(() => router.push(href));
+    };
+    window.addEventListener(APP_NAVIGATION_EVENT, beforeAppNavigation);
+    return () => window.removeEventListener(APP_NAVIGATION_EVENT, beforeAppNavigation);
+  }, [beforeNavigate, router]);
 
   // Auto-save with debounce
   const handleProfileChange = useCallback((changes: Partial<typeof profile>) => {
-    setProfile(prev => ({ ...prev, ...changes }));
+    for (const [key, value] of Object.entries(changes)) {
+      const previous = profileRef.current[key as keyof typeof profile];
+      if (value === undefined && typeof previous === 'number') clearedNumericFields.current.add(key);
+      else if (typeof value === 'number') clearedNumericFields.current.delete(key);
+    }
+    profileRef.current = { ...profileRef.current, ...changes };
+    profileRevision.current += 1;
+    setProfile(profileRef.current);
+    dirtyRef.current = true;
     setHasUnsavedChanges(true);
 
     // Clear any existing timeout
@@ -681,21 +762,25 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
     // Auto-save after 1.5s of no changes
     saveTimeoutRef.current = setTimeout(() => {
-      handleSave();
+      void saveLatestRef.current();
     }, 1500);
-  }, [handleSave]);
+  }, []);
 
   // Cleanup timeout on unmount
   useEffect(() => {
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      if (navigationTimeout.current) clearTimeout(navigationTimeout.current);
+      pendingNavigation.current = null;
+      profileOwner.current = null;
+      saveGeneration.current += 1;
     };
   }, []);
 
   // Handle profession selection (multiple selection)
   const handleProfessionChange = (profession: string, checked: boolean) => {
     const newProfessions = checked
-      ? [...profile.profession, profession]
+      ? [...new Set([...profile.profession, profession])]
       : profile.profession.filter(p => p !== profession);
     const customProfession = profession === 'Other' && !checked ? '' : profile.customProfession;
     handleProfileChange({ profession: newProfessions, customProfession });
@@ -703,15 +788,34 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
   // Load existing profile data
   useEffect(() => {
+    let current = true;
+    profileOwner.current = user.id;
+    saveGeneration.current += 1;
+    saveInFlight.current = null;
+    const initial = initialProfile({ id: user.id, email: user.email, user_metadata: { name: user.user_metadata?.name } });
+    profileRef.current = initial;
+    setProfile(initial);
+    profileRevision.current += 1;
+    dirtyRef.current = false;
+    clearedNumericFields.current.clear();
+    pendingNavigation.current = null;
+    if (navigationTimeout.current) clearTimeout(navigationTimeout.current);
+    setHasUnsavedChanges(false);
+    setSaveStatus('idle');
     const loadProfile = async () => {
       try {
         setIsLoading(true);
+        setLoadFailed(false);
+        setErrorMessage('');
+        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
 
         const { data: existingProfile, error } = await getUserProfile(user.id);
+        if (!current) return;
 
-        if (error && error.code !== 'PGRST116') {
+        if (error && error.code !== 'PGRST116' && error.code !== 'PROFILE_NOT_FOUND') {
           console.error('Error loading profile:', error);
           setErrorMessage('Failed to load profile data');
+          setLoadFailed(true);
           return;
         }
 
@@ -751,51 +855,56 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             business_purpose: existingProfile.business_purpose || '',
             business_start_date: existingProfile.business_start_date || '',
             ein: existingProfile.ein || '',
-            w2_income: existingProfile.w2_income,
-            business_income: existingProfile.business_income,
+            w2_income: existingProfile.w2_income ?? undefined,
+            business_income: existingProfile.business_income ?? undefined,
             naics_code: existingProfile.naics_code || '',
-            w2_federal_withheld: existingProfile.w2_federal_withheld,
-            home_office_sqft: existingProfile.home_office_sqft,
-            total_home_sqft: existingProfile.total_home_sqft,
+            w2_federal_withheld: existingProfile.w2_federal_withheld ?? undefined,
+            home_office_sqft: existingProfile.home_office_sqft ?? undefined,
+            total_home_sqft: existingProfile.total_home_sqft ?? undefined,
             home_office_method: existingProfile.home_office_method || '',
-            vehicle_business_use_percentage: existingProfile.vehicle_business_use_percentage,
+            vehicle_business_use_percentage: existingProfile.vehicle_business_use_percentage ?? undefined,
             vehicle_deduction_method: existingProfile.vehicle_deduction_method || '',
             itemization_status: existingProfile.itemization_status || '',
-            health_insurance_premiums: existingProfile.health_insurance_premiums,
-            sep_ira_contribution: existingProfile.sep_ira_contribution,
-            solo_401k_contribution: existingProfile.solo_401k_contribution,
-            hsa_contribution: existingProfile.hsa_contribution,
-            simple_ira_contribution: (existingProfile as any).simple_ira_contribution,
+            health_insurance_premiums: existingProfile.health_insurance_premiums ?? undefined,
+            sep_ira_contribution: existingProfile.sep_ira_contribution ?? undefined,
+            solo_401k_contribution: existingProfile.solo_401k_contribution ?? undefined,
+            hsa_contribution: existingProfile.hsa_contribution ?? undefined,
+            simple_ira_contribution: (existingProfile as any).simple_ira_contribution ?? undefined,
             audit_history: existingProfile.audit_history || 'none',
             tax_professional: existingProfile.tax_professional || false,
             documentation_habits: existingProfile.documentation_habits || 'moderate',
             business_seasonality: existingProfile.business_seasonality || 'year_round',
             multiple_locations: existingProfile.multiple_locations || false,
             international_business: existingProfile.international_business || false,
-            tax_bracket: existingProfile.tax_bracket,
-            prior_year_tax: existingProfile.prior_year_tax,
+            tax_bracket: existingProfile.tax_bracket ?? undefined,
+            prior_year_tax: existingProfile.prior_year_tax ?? undefined,
             professional_licenses: existingProfile.professional_licenses || [],
             prior_year_deductions: existingProfile.prior_year_deductions || []
           };
 
+          profileRef.current = loadedProfile;
+          profileRevision.current += 1;
           setProfile(loadedProfile);
           setHasUnsavedChanges(false);
         }
 
-        setIsLoading(false);
       } catch (err) {
+        if (!current) return;
         console.error('Error loading profile:', err);
         setErrorMessage('Failed to load profile data');
-        setIsLoading(false);
+        setLoadFailed(true);
+      } finally {
+        if (current) setIsLoading(false);
       }
     };
 
-    loadProfile();
-  }, [user.id, user?.user_metadata?.name, user?.email]);
+    void loadProfile();
+    return () => { current = false; };
+  }, [user.id, user?.user_metadata?.name, user?.email, loadAttempt]);
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="min-h-full bg-background flex items-center justify-center">
         <div className="text-center space-y-4">
           <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
           <p className="text-muted-foreground">Loading settings...</p>
@@ -804,15 +913,24 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     );
   }
 
+  if (loadFailed) {
+    return <div className="mx-auto max-w-3xl space-y-3 p-4" role="alert">
+      <h1 className="text-xl font-semibold">Settings</h1>
+      <p className="text-sm">Your settings could not be loaded.</p>
+      <Button className="min-h-11" onClick={() => setLoadAttempt(attempt => attempt + 1)}>Retry loading settings</Button>
+    </div>;
+  }
+
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-full bg-background">
       {/* Header */}
       <div className="bg-card border-b border-border sticky top-0 z-50">
         <div className="max-w-3xl mx-auto flex items-center justify-between px-4 py-3 sm:px-6 sm:py-4">
           <h1 className="text-xl sm:text-2xl font-bold text-foreground">Settings</h1>
 
           {/* Save status pill */}
-          <div className="flex items-center">
+          <div className="flex items-center" role="status" aria-live="polite">
+            {saveStatus === 'idle' && <span className="text-xs text-muted-foreground">{hasUnsavedChanges ? 'Unsaved changes' : 'Changes save automatically'}</span>}
             {saveStatus === 'saving' && (
               <div className="flex items-center gap-1.5 px-3 py-1 bg-muted rounded-full">
                 <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
@@ -831,7 +949,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 <span className="text-xs font-medium text-red-700 dark:text-red-300">Save failed</span>
                 <button
                   onClick={handleSave}
-                  className="text-xs font-medium text-red-700 dark:text-red-300 underline ml-1"
+                  className="min-h-11 px-2 text-xs font-medium text-red-700 dark:text-red-300 underline ml-1"
                 >
                   Retry
                 </button>
@@ -841,18 +959,20 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         </div>
       </div>
 
-      <div className="max-w-3xl mx-auto px-4 py-4 sm:px-6 sm:py-6 space-y-4 sm:space-y-6">
+      <div className="max-w-3xl mx-auto px-4 py-4 sm:px-6 space-y-3">
         {/* Tab Navigation */}
-        <div className="flex gap-1 bg-muted rounded-xl p-1.5 border border-border">
+        <nav aria-label="Settings sections" className="flex gap-1 bg-muted rounded-xl p-1 border border-border">
           {([
-            { key: 'profile' as SettingsTab, label: 'Profile & Business', icon: User },
-            { key: 'tax' as SettingsTab, label: 'Tax Settings', icon: Receipt },
+            { key: 'profile' as SettingsTab, label: 'Profile', icon: User },
+            { key: 'tax' as SettingsTab, label: 'Tax', icon: Receipt },
             { key: 'account' as SettingsTab, label: 'Account', icon: Shield },
           ]).map(({ key, label, icon: Icon }) => (
             <button
               key={key}
               onClick={() => setActiveTab(key)}
-              className={`flex-1 px-3 py-2.5 rounded-lg text-xs sm:text-sm font-medium transition-all duration-150 flex items-center justify-center gap-1.5 ${
+              aria-pressed={activeTab === key}
+              aria-controls={`settings-${key}`}
+              className={`min-h-11 min-w-0 flex-1 px-2 py-2 rounded-lg text-sm font-medium transition-all duration-150 flex items-center justify-center gap-1.5 ${
                 activeTab === key
                   ? 'bg-primary text-primary-foreground shadow-md'
                   : 'text-muted-foreground hover:text-foreground hover:bg-background/60'
@@ -863,17 +983,13 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               <span className="sm:hidden">{label.split(' ')[0]}</span>
             </button>
           ))}
-        </div>
+        </nav>
 
         {/* ============= TAB 1: Profile & Business ============= */}
         {activeTab === 'profile' && (
-          <div className="space-y-6">
+          <div id="settings-profile" className="space-y-3">
             {/* Tax Filing Essentials - Highlighted Card */}
-            <Card className="p-4 sm:p-5 border-l-4 border-l-primary bg-primary/[0.03] border-border">
-              <div className="flex items-center gap-2 mb-4">
-                <FileText className="w-5 h-5 text-primary" />
-                <h3 className="text-sm font-semibold text-foreground">Tax Filing Essentials</h3>
-              </div>
+            <SettingsSection title="Tax profile" icon={FileText} summary={[profile.filing_status, profile.state].filter(Boolean).join(' · ') || 'Filing status, state & W-2 income'}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <SettingsField label="Filing Status">
                   <SimpleSelectWrapper
@@ -907,7 +1023,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                       value={profile.w2_income ?? ''}
                       onChange={(e) => handleProfileChange({ w2_income: e.target.value ? Number(e.target.value) : undefined })}
                       placeholder="0"
-                      className="h-10 rounded-lg border-border bg-background pl-9"
+                      className="h-11 text-base rounded-lg border-border bg-background pl-9"
                     />
                   </div>
                 </SettingsField>
@@ -919,21 +1035,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                       value={profile.w2_federal_withheld ?? ''}
                       onChange={(e) => handleProfileChange({ w2_federal_withheld: e.target.value ? Number(e.target.value) : undefined })}
                       placeholder="0"
-                      className="h-10 rounded-lg border-border bg-background pl-9"
+                      className="h-11 text-base rounded-lg border-border bg-background pl-9"
                     />
                   </div>
                 </SettingsField>
               </div>
-            </Card>
+            </SettingsSection>
 
             {/* Personal Information */}
-            <section className="rounded-xl border border-border bg-card p-5 space-y-4 shadow-sm">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                  <User className="w-4 h-4 text-primary" />
-                </div>
-                <h3 className="text-sm font-semibold text-foreground">Personal Information</h3>
-              </div>
+            <SettingsSection title="Personal Information" icon={User} summary={[profile.name, profile.email].filter(Boolean).join(' · ') || 'Name & email'}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <SettingsField label="Full Name">
                   <Input
@@ -941,7 +1051,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     value={profile.name}
                     onChange={(e) => handleProfileChange({ name: e.target.value })}
                     placeholder="Enter your full name"
-                    className="h-10 rounded-lg border-border bg-background"
+                    className="h-11 text-base rounded-lg border-border bg-background"
                   />
                 </SettingsField>
                 <SettingsField label="Email">
@@ -949,34 +1059,28 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     type="email"
                     value={profile.email}
                     readOnly
-                    className="h-10 rounded-lg border-border bg-muted/50 text-muted-foreground cursor-not-allowed"
+                    className="h-11 text-base rounded-lg border-border bg-muted/50 text-muted-foreground cursor-not-allowed"
                   />
                 </SettingsField>
               </div>
-            </section>
+            </SettingsSection>
 
             {/* Professional Information */}
-            <section className="rounded-xl border border-border bg-card p-5 space-y-4 shadow-sm">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                  <Briefcase className="w-4 h-4 text-primary" />
-                </div>
-                <h3 className="text-sm font-semibold text-foreground">Professional Information</h3>
-              </div>
-              <SettingsField label="Profession(s)" hint="Select all that apply">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto rounded-lg border border-border bg-muted/20 p-3">
-                  {professionOptions.map((option) => (
-                    <label key={option.value} className="flex items-center space-x-2 rounded-md px-2 py-1.5 hover:bg-muted transition-colors cursor-pointer">
-                      <Checkbox
-                        checked={profile.profession.includes(option.label)}
-                        onCheckedChange={(checked) => handleProfessionChange(option.label, checked as boolean)}
-                        className="text-primary"
-                      />
-                      <span className="text-sm text-foreground">{option.label}</span>
-                    </label>
+            <SettingsSection title="Professional Information" icon={Briefcase} summary={profile.profession.map(value => value === 'Other' ? profile.customProfession || 'Other' : value).join(', ') || 'Profession & business type'}>
+              <SettingsField label="Add profession" hint="You can choose more than one.">
+                <SimpleSelectWrapper value="" onValueChange={(value) => { if (value) handleProfessionChange(value, true); }}
+                  placeholder="Choose a profession" options={professionOptions.filter(option => !profile.profession.includes(option.value))} />
+              </SettingsField>
+              {profile.profession.length > 0 && (
+                <div className="flex flex-wrap gap-2" aria-label="Selected professions">
+                  {profile.profession.map(profession => (
+                    <button key={profession} type="button" onClick={() => handleProfessionChange(profession, false)}
+                      aria-label={`Remove ${profession}`} className="inline-flex min-h-11 max-w-full items-center gap-2 rounded-lg bg-muted px-3 text-sm">
+                      <span className="min-w-0 break-words">{profession}</span><X aria-hidden="true" className="h-4 w-4 shrink-0" />
+                    </button>
                   ))}
                 </div>
-              </SettingsField>
+              )}
               {profile.profession.includes('Other') && (
                 <SettingsField label="Custom Profession" hint="Separate multiple with commas">
                   <Input
@@ -984,7 +1088,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     value={profile.customProfession || ''}
                     onChange={(e) => handleProfileChange({ customProfession: e.target.value })}
                     placeholder="Enter your profession"
-                    className="h-10 rounded-lg border-border bg-background"
+                    className="h-11 text-base rounded-lg border-border bg-background"
                   />
                 </SettingsField>
               )}
@@ -996,14 +1100,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   options={businessEntityTypeOptions}
                 />
               </SettingsField>
-            </section>
+            </SettingsSection>
 
             {/* Business Details */}
-            <section className="space-y-4">
-              <div className="flex items-center gap-2 pb-2 border-b border-border">
-                <Building2 className="w-4 h-4 text-primary" />
-                <h3 className="text-sm font-semibold text-foreground">Business Details</h3>
-              </div>
+            <SettingsSection title="Business Details" icon={Building2} summary={profile.business_purpose || 'Business purpose, start date & tax IDs'}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <SettingsField label="Business Purpose">
                   <Input
@@ -1011,7 +1111,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     value={profile.business_purpose}
                     onChange={(e) => handleProfileChange({ business_purpose: e.target.value })}
                     placeholder="e.g., Software consulting"
-                    className="h-10 rounded-lg border-border bg-background"
+                    className="h-11 text-base rounded-lg border-border bg-background"
                   />
                 </SettingsField>
                 <SettingsField label="Business Start Date">
@@ -1019,7 +1119,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     type="date"
                     value={profile.business_start_date}
                     onChange={(e) => handleProfileChange({ business_start_date: e.target.value })}
-                    className="h-10 rounded-lg border-border bg-background"
+                    className="h-11 text-base rounded-lg border-border bg-background"
                   />
                 </SettingsField>
                 <SettingsField label="EIN">
@@ -1028,7 +1128,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     value={profile.ein}
                     onChange={(e) => handleProfileChange({ ein: e.target.value })}
                     placeholder="XX-XXXXXXX"
-                    className="h-10 rounded-lg border-border bg-background"
+                    className="h-11 text-base rounded-lg border-border bg-background"
                   />
                 </SettingsField>
                 <SettingsField label="NAICS Code">
@@ -1037,18 +1137,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     value={profile.naics_code}
                     onChange={(e) => handleProfileChange({ naics_code: e.target.value })}
                     placeholder="e.g., 541511"
-                    className="h-10 rounded-lg border-border bg-background"
+                    className="h-11 text-base rounded-lg border-border bg-background"
                   />
                 </SettingsField>
               </div>
-            </section>
+            </SettingsSection>
 
             {/* Mailing Address */}
-            <section className="space-y-4">
-              <div className="flex items-center gap-2 pb-2 border-b border-border">
-                <MapPin className="w-4 h-4 text-primary" />
-                <h3 className="text-sm font-semibold text-foreground">Mailing Address</h3>
-              </div>
+            <SettingsSection title="Mailing Address" icon={MapPin} summary={[profile.mailing_address.city, profile.mailing_address.state].filter(Boolean).join(', ') || 'Street, city, state & ZIP'}>
               <div className="grid grid-cols-1 gap-4">
                 <SettingsField label="Street Address">
                   <Input
@@ -1056,7 +1152,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     value={profile.mailing_address.street}
                     onChange={(e) => handleProfileChange({ mailing_address: { ...profile.mailing_address, street: e.target.value } })}
                     placeholder="123 Main St"
-                    className="h-10 rounded-lg border-border bg-background"
+                    className="h-11 text-base rounded-lg border-border bg-background"
                   />
                 </SettingsField>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -1067,7 +1163,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                         value={profile.mailing_address.city}
                         onChange={(e) => handleProfileChange({ mailing_address: { ...profile.mailing_address, city: e.target.value } })}
                         placeholder="City"
-                        className="h-10 rounded-lg border-border bg-background"
+                        className="h-11 text-base rounded-lg border-border bg-background"
                       />
                     </SettingsField>
                   </div>
@@ -1077,7 +1173,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                       value={profile.mailing_address.state}
                       onChange={(e) => handleProfileChange({ mailing_address: { ...profile.mailing_address, state: e.target.value } })}
                       placeholder="CA"
-                      className="h-10 rounded-lg border-border bg-background"
+                      className="h-11 text-base rounded-lg border-border bg-background"
                     />
                   </SettingsField>
                   <SettingsField label="Zip">
@@ -1086,26 +1182,20 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                       value={profile.mailing_address.zip}
                       onChange={(e) => handleProfileChange({ mailing_address: { ...profile.mailing_address, zip: e.target.value } })}
                       placeholder="90210"
-                      className="h-10 rounded-lg border-border bg-background"
+                      className="h-11 text-base rounded-lg border-border bg-background"
                     />
                   </SettingsField>
                 </div>
               </div>
-            </section>
+            </SettingsSection>
           </div>
         )}
 
         {/* ============= TAB 2: Tax Settings ============= */}
         {activeTab === 'tax' && (
-          <div className="space-y-6">
+          <div id="settings-tax" className="space-y-3">
             {/* Home Office Deduction */}
-            <section className="rounded-xl border border-border bg-card p-5 space-y-4 shadow-sm">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                  <Home className="w-4 h-4 text-primary" />
-                </div>
-                <h3 className="text-sm font-semibold text-foreground">Home Office Deduction</h3>
-              </div>
+            <SettingsSection title="Home Office Deduction" icon={Home} summary={profile.home_office_method ? `${profile.home_office_method === 'simplified' ? 'Simplified' : 'Actual expenses'}${profile.home_office_sqft !== undefined ? ` · ${profile.home_office_sqft} sq ft` : ''}` : 'Space & deduction method'}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <SettingsField label="Home Office Sqft">
                   <Input
@@ -1113,7 +1203,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     value={profile.home_office_sqft ?? ''}
                     onChange={(e) => handleProfileChange({ home_office_sqft: e.target.value ? Number(e.target.value) : undefined })}
                     placeholder="0"
-                    className="h-10 rounded-lg border-border bg-background"
+                    className="h-11 text-base rounded-lg border-border bg-background"
                   />
                 </SettingsField>
                 <SettingsField label="Total Home Sqft">
@@ -1122,7 +1212,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     value={profile.total_home_sqft ?? ''}
                     onChange={(e) => handleProfileChange({ total_home_sqft: e.target.value ? Number(e.target.value) : undefined })}
                     placeholder="0"
-                    className="h-10 rounded-lg border-border bg-background"
+                    className="h-11 text-base rounded-lg border-border bg-background"
                   />
                 </SettingsField>
                 <SettingsField label="Home Office Method">
@@ -1137,16 +1227,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   />
                 </SettingsField>
               </div>
-            </section>
+            </SettingsSection>
 
             {/* Vehicle Deduction */}
-            <section className="rounded-xl border border-border bg-card p-5 space-y-4 shadow-sm">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                  <Car className="w-4 h-4 text-primary" />
-                </div>
-                <h3 className="text-sm font-semibold text-foreground">Vehicle Deduction</h3>
-              </div>
+            <SettingsSection title="Vehicle Deduction" icon={Car} summary={profile.vehicle_deduction_method ? `${profile.vehicle_deduction_method === 'standard_mileage' ? 'Standard mileage' : 'Actual expense'}${profile.vehicle_business_use_percentage !== undefined ? ` · ${profile.vehicle_business_use_percentage}% business` : ''}` : 'Business use & deduction method'}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <SettingsField label="Vehicle Business Use %" hint="0-100">
                   <Input
@@ -1156,7 +1240,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     value={profile.vehicle_business_use_percentage ?? ''}
                     onChange={(e) => handleProfileChange({ vehicle_business_use_percentage: e.target.value ? Number(e.target.value) : undefined })}
                     placeholder="0"
-                    className="h-10 rounded-lg border-border bg-background"
+                    className="h-11 text-base rounded-lg border-border bg-background"
                   />
                 </SettingsField>
                 <SettingsField label="Vehicle Deduction Method">
@@ -1171,16 +1255,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   />
                 </SettingsField>
               </div>
-            </section>
+            </SettingsSection>
 
             {/* Tax Preferences */}
-            <section className="rounded-xl border border-border bg-card p-5 space-y-4 shadow-sm">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                  <FileText className="w-4 h-4 text-primary" />
-                </div>
-                <h3 className="text-sm font-semibold text-foreground">Tax Preferences</h3>
-              </div>
+            <SettingsSection title="Tax Preferences" icon={FileText} summary={profile.itemization_status === 'standard' ? 'Standard deduction' : profile.itemization_status === 'itemized' ? 'Itemized deductions' : 'Deduction choice & prior-year tax'}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <SettingsField label="Itemization Status">
                   <SimpleSelectWrapper
@@ -1201,7 +1279,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                       value={profile.prior_year_tax ?? ''}
                       onChange={(e) => handleProfileChange({ prior_year_tax: e.target.value ? Number(e.target.value) : undefined })}
                       placeholder="0"
-                      className="h-10 rounded-lg border-border bg-background pl-9"
+                      className="h-11 text-base rounded-lg border-border bg-background pl-9"
                     />
                   </div>
                 </SettingsField>
@@ -1213,24 +1291,18 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     value={profile.tax_bracket ?? ''}
                     onChange={(e) => handleProfileChange({ tax_bracket: e.target.value ? Number(e.target.value) : undefined })}
                     placeholder="Auto-calculated"
-                    className="h-10 rounded-lg border-border bg-background"
+                    className="h-11 text-base rounded-lg border-border bg-background"
                   />
                 </SettingsField>
               </div>
-            </section>
+            </SettingsSection>
 
             {/* Above-the-Line Deductions */}
-            <section className="rounded-xl border border-border bg-card p-5 space-y-4 shadow-sm">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                  <Receipt className="w-4 h-4 text-primary" />
-                </div>
-                <h3 className="text-sm font-semibold text-foreground">Above-the-Line Deductions</h3>
-              </div>
+            <SettingsSection title="Insurance & retirement" icon={Receipt} summary={'Insurance, retirement & HSA amounts'}>
               <div className="p-3 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg flex items-start gap-2">
                 <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
                 <p className="text-xs text-blue-800 dark:text-blue-200">
-                  These deductions reduce your adjusted gross income (AGI) and are available whether you itemize or take the standard deduction.
+                  Entered amounts are subject to eligibility and annual limits.
                 </p>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1242,7 +1314,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                       value={profile.health_insurance_premiums ?? ''}
                       onChange={(e) => handleProfileChange({ health_insurance_premiums: e.target.value ? Number(e.target.value) : undefined })}
                       placeholder="0"
-                      className="h-10 rounded-lg border-border bg-background pl-9"
+                      className="h-11 text-base rounded-lg border-border bg-background pl-9"
                     />
                   </div>
                 </SettingsField>
@@ -1254,7 +1326,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                       value={profile.sep_ira_contribution ?? ''}
                       onChange={(e) => handleProfileChange({ sep_ira_contribution: e.target.value ? Number(e.target.value) : undefined })}
                       placeholder="0"
-                      className="h-10 rounded-lg border-border bg-background pl-9"
+                      className="h-11 text-base rounded-lg border-border bg-background pl-9"
                     />
                   </div>
                 </SettingsField>
@@ -1266,7 +1338,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                       value={profile.solo_401k_contribution ?? ''}
                       onChange={(e) => handleProfileChange({ solo_401k_contribution: e.target.value ? Number(e.target.value) : undefined })}
                       placeholder="0"
-                      className="h-10 rounded-lg border-border bg-background pl-9"
+                      className="h-11 text-base rounded-lg border-border bg-background pl-9"
                     />
                   </div>
                 </SettingsField>
@@ -1278,7 +1350,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                       value={profile.hsa_contribution ?? ''}
                       onChange={(e) => handleProfileChange({ hsa_contribution: e.target.value ? Number(e.target.value) : undefined })}
                       placeholder="0"
-                      className="h-10 rounded-lg border-border bg-background pl-9"
+                      className="h-11 text-base rounded-lg border-border bg-background pl-9"
                     />
                   </div>
                 </SettingsField>
@@ -1290,72 +1362,60 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                       value={profile.simple_ira_contribution ?? ''}
                       onChange={(e) => handleProfileChange({ simple_ira_contribution: e.target.value ? Number(e.target.value) : undefined })}
                       placeholder="0"
-                      className="h-10 rounded-lg border-border bg-background pl-9"
+                      className="h-11 text-base rounded-lg border-border bg-background pl-9"
                     />
                   </div>
                 </SettingsField>
               </div>
-            </section>
+            </SettingsSection>
           </div>
         )}
 
         {/* ============= TAB 3: Account ============= */}
         {activeTab === 'account' && (
-          <div className="space-y-6">
+          <div id="settings-account" className="space-y-3">
             {/* Bank Connections */}
-            <section className="rounded-xl border border-border bg-card p-5 space-y-4 shadow-sm">
+            <section className="rounded-xl border border-border bg-card p-4 space-y-3">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
                   <Landmark className="w-4 h-4 text-primary" />
                 </div>
                 <h3 className="text-sm font-semibold text-foreground">Bank Connections</h3>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 min-[360px]:grid-cols-2 gap-3">
                 <Button
                   type="button"
-                  onClick={() => {
+                  onClick={() => beforeNavigate(() => {
                     if (inAppNavigation) {
                       onNavigate('plaid-link?from=settings');
                     } else {
-                      window.location.href = '/protected/plaid-link?from=settings';
+                      router.push('/protected/plaid-link?from=settings');
                     }
-                  }}
-                  className="h-10 bg-primary hover:bg-primary/90 text-white rounded-lg flex items-center justify-center gap-2"
+                  })}
+                  className="h-11 bg-primary hover:bg-primary/90 text-white rounded-lg flex items-center justify-center gap-2"
                 >
                   <Link2 className="w-4 h-4" />
                   <span className="text-sm">Connect Bank</span>
                 </Button>
                 <Button
                   type="button"
-                  onClick={() => onNavigate('plaid')}
+                  onClick={() => beforeNavigate(() => onNavigate('plaid'))}
                   variant="outline"
-                  className="h-10 rounded-lg flex items-center justify-center gap-2"
+                  className="h-11 text-base rounded-lg flex items-center justify-center gap-2"
                 >
                   <DollarSign className="w-4 h-4" />
-                  <span className="text-sm">Manage Accounts</span>
+                  <span className="text-sm">Accounts</span>
                 </Button>
               </div>
             </section>
 
             {/* Subscription */}
-            <section className="rounded-xl border border-border bg-card p-5 space-y-4 shadow-sm">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                  <CreditCard className="w-4 h-4 text-primary" />
-                </div>
-                <h3 className="text-sm font-semibold text-foreground">Subscription</h3>
-              </div>
-              <PaymentSettingsTab user={user} />
-            </section>
+            <SettingsSection title="Subscription" icon={CreditCard} summary={'Plan, payments & invoices'} defaultOpen={settingsSearchParams.get('tab') === 'payment'}>
+              <PaymentSettingsTab beforeNavigate={beforeNavigate} />
+            </SettingsSection>
 
             {/* Data & Privacy */}
-            <section className="rounded-xl border border-border bg-card p-5 space-y-4 shadow-sm">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-destructive/10 flex items-center justify-center">
-                  <Shield className="w-4 h-4 text-destructive" />
-                </div>
-                <h3 className="text-sm font-semibold text-foreground">Data & Privacy</h3>
-              </div>
+            <SettingsSection title="Data & Privacy" icon={Shield} summary={'Export data, revoke access or delete account'}>
               <div className="space-y-3">
                 <Button
                   onClick={async () => {
@@ -1441,7 +1501,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   }}
                   disabled={exportLoading}
                   variant="outline"
-                  className="w-full h-10 justify-center gap-2 rounded-lg"
+                  className="w-full h-11 justify-center gap-2 rounded-lg"
                 >
                   <Download className="w-4 h-4" />
                   {exportLoading ? 'Preparing export...' : 'Export Data'}
@@ -1450,7 +1510,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 <Button
                   asChild
                   variant="outline"
-                  className="w-full h-10 justify-center gap-2 rounded-lg"
+                  className="w-full h-11 justify-center gap-2 rounded-lg"
                 >
                   <a href="https://my.plaid.com/" target="_blank" rel="noopener noreferrer">
                     <Shield className="w-4 h-4" />
@@ -1486,13 +1546,13 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     });
                   }}
                   variant="destructive"
-                  className="w-full h-10 justify-center gap-2 rounded-lg"
+                  className="w-full h-11 justify-center gap-2 rounded-lg"
                 >
                   <Trash2 className="w-4 h-4" />
                   Delete Account
                 </Button>
               </div>
-            </section>
+            </SettingsSection>
           </div>
         )}
       </div>

@@ -363,7 +363,7 @@ export default function ProtectedPage() {
   };
 
   // Handle viewing transaction details
-  const handleViewTransaction = (transaction: Transaction & { _source?: string }) => {
+  const handleViewTransaction = (transaction: Transaction & { _source?: string }, initialSection?: 'details') => {
     // Use the source information if available, otherwise use current screen
     const sourceScreen = transaction._source || currentScreen;
     console.log('Viewing transaction from source:', sourceScreen);
@@ -376,7 +376,7 @@ export default function ProtectedPage() {
     // Update URL so the transaction detail can be opened directly and back-button works
     try {
       const transactionIdForUrl = (transaction as any).trans_id || transaction.id;
-      const url = `/protected?screen=transaction-detail&transactionId=${encodeURIComponent(transactionIdForUrl)}&from=${encodeURIComponent(sourceScreen)}`;
+      const url = `/protected?screen=transaction-detail&transactionId=${encodeURIComponent(transactionIdForUrl)}&from=${encodeURIComponent(sourceScreen)}${initialSection === 'details' ? '&section=details' : ''}`;
       router.push(url);
     } catch (e) {
       console.error('Failed to push router state for transaction detail:', e);
@@ -591,13 +591,13 @@ export default function ProtectedPage() {
           onBack={handleGoBack}
           transactions={transactions as any}
           onTransactionUpdate={handleTransactionUpdate as any}
-          onTransactionClick={(transaction) => {
+          onTransactionClick={(transaction, initialSection) => {
             // Add source to transaction
             const transactionWithSource = {
               ...transaction,
               _source: 'review-transactions'
             };
-            handleViewTransaction(transactionWithSource as any);
+            handleViewTransaction(transactionWithSource as any, initialSection);
           }}
         />
       );
@@ -708,6 +708,7 @@ export default function ProtectedPage() {
       return (
         <TransactionDetailScreen
           transaction={viewingTransaction}
+          initialSection={searchParams.get('section') === 'details' ? 'details' : 'summary'}
           onBack={handleGoBack}
           onSave={handleSaveTransaction}
         />
