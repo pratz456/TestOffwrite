@@ -39,10 +39,11 @@ describe('annual federal parameters are applied by the real 1040 function', () =
     expect(calculateFederalIncomeTax(Number(income) + 100, String(status), 2026)).toBe(Number(tax) + 12);
   });
 
-  it('restores the 2024 export while preserving the legacy 2025 helper default', () => {
+  it('restores the 2024 export and defaults the helper to the latest published year', () => {
     expect(FEDERAL_TAX_BRACKETS_2024.single[0].max).toBe(11600);
     expect(FEDERAL_TAX_BRACKETS_2025.single[0].max).toBe(11925);
-    expect(calculateFederalIncomeTax(84250, 'single')).toBe(13449);
+    expect(calculateFederalIncomeTax(84250, 'single', 2025)).toBe(13449);
+    expect(calculateFederalIncomeTax(84250, 'single')).toBe(calculateFederalIncomeTax(84250, 'single', 2026));
   });
 
   it.each([2023, 2027, 2026.5, NaN])('rejects unsupported year %s without substituting another year', taxYear => {

@@ -22,7 +22,7 @@ import { getUserProfileServer } from '@/lib/firebase/profiles-server';
 import { adminDb } from '@/lib/firebase/admin';
 import { calculateStateTax, STATE_TAX_CONFIG } from '@/lib/tax/state-tax-data';
 import { getAssetsSettings } from '@/lib/firebase/settings-server';
-import { getFederalTaxRules, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
+import { describeUnsupportedTaxYear, getFederalTaxRules, SUPPORTED_TAX_YEARS, TAX_YEAR_2027_STATUS } from '@/lib/tax-rules/federal-year-rules';
 import { getRecordedQuarterlyPayments, totalRecordedPayments } from '@/lib/firebase/quarterly-payments-server';
 
 export async function GET(request: NextRequest) {
@@ -32,7 +32,12 @@ export async function GET(request: NextRequest) {
   const yearParam = request.nextUrl.searchParams.get('year');
   const year = yearParam === null ? new Date().getFullYear() : /^\d{4}$/.test(yearParam) ? Number(yearParam) : NaN;
   try { getFederalTaxRules(year); } catch {
-    return NextResponse.json({ error: `Supported tax years: ${SUPPORTED_TAX_YEARS.join(', ')}` }, { status: 400 });
+    return NextResponse.json({
+      error: Number.isFinite(year) ? describeUnsupportedTaxYear(year) : `Supported tax years: ${SUPPORTED_TAX_YEARS.join(', ')}`,
+      code: 'TAX_YEAR_UNAVAILABLE',
+      supportedYears: SUPPORTED_TAX_YEARS,
+      ...(year === TAX_YEAR_2027_STATUS.taxYear ? { yearStatus: TAX_YEAR_2027_STATUS } : {}),
+    }, { status: 400 });
   }
 
   try {

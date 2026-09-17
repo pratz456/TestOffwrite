@@ -9,7 +9,8 @@
  *   IRS Publication 505 - Estimated tax / safe harbor
  */
 
-import { calculateFederalIncomeTax, STANDARD_DEDUCTIONS_2025, FEDERAL_TAX_BRACKETS_2025 } from './federal-brackets';
+import { calculateFederalIncomeTax } from './federal-brackets';
+import { getFederalTaxRules, LATEST_PUBLISHED_TAX_YEAR, nearestPublishedTaxYear } from './federal-year-rules';
 import { normalizeFilingStatus } from './filing-status';
 
 // ── Schedule C Net Profit ─────────────────────────────────────────────────────
@@ -41,6 +42,7 @@ export function calcCombinedSERate(
   scheduleCNetProfit: number,
   filingStatus: string,
   aboveLineDeductions = 0,
+  taxYear: number = LATEST_PUBLISHED_TAX_YEAR,
 ): {
   seTaxRate: number;          // SE tax as % of net profit (always ~14.13%)
   incomeTaxEffectiveRate: number; // Income tax / net profit
@@ -61,10 +63,12 @@ export function calcCombinedSERate(
   const halfSE = seTax / 2;
 
   // Income tax
-  const stdDed = STANDARD_DEDUCTIONS_2025[status];
+  const year = nearestPublishedTaxYear(taxYear);
+  const rules = getFederalTaxRules(year);
+  const stdDed = rules.standardDeductions[status];
   const agi = Math.max(0, scheduleCNetProfit - halfSE - aboveLineDeductions);
   const taxableIncome = Math.max(0, agi - stdDed);
-  const incomeTax = calculateFederalIncomeTax(taxableIncome, status);
+  const incomeTax = calculateFederalIncomeTax(taxableIncome, status, year);
 
   const totalTax = seTax + incomeTax;
   const seTaxRate = (seTax / scheduleCNetProfit) * 100;
@@ -74,7 +78,7 @@ export function calcCombinedSERate(
   // Marginal: SE tax on next dollar is always 14.13%, plus marginal income bracket
   const seMarginal = 0.9235 * 0.153; // 14.13%
   // Determine income tax marginal bracket
-  const bkts = FEDERAL_TAX_BRACKETS_2025[status];
+  const bkts = rules.brackets[status];
   let marginalIncomeBracket = bkts[0].rate;
   for (const b of bkts) {
     if (taxableIncome >= b.min) marginalIncomeBracket = b.rate;
