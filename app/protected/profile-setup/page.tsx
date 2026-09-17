@@ -12,6 +12,7 @@ export default function ProfileSetupPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
   const [status, setStatus] = useState<'loading' | 'existing' | 'missing' | 'error'>('loading');
+  const [existingConsents, setExistingConsents] = useState<unknown>(null);
   const [retry, setRetry] = useState(0);
 
   useEffect(() => {
@@ -27,6 +28,8 @@ export default function ProfileSetupPage() {
         const { data, error } = await getUserProfile(user.id);
         if (cancelled) return;
         const next = profileLookupState(data, error);
+        // A consent-only document counts as missing but its acknowledgments still stand.
+        setExistingConsents(data?.consents ?? null);
         setStatus(next);
         if (next === 'existing') router.replace(PROFILE_COMPLETE_URL);
       } catch {
@@ -61,6 +64,7 @@ export default function ProfileSetupPage() {
     <ProfileSetupScreen
       key={user.id}
       user={user}
+      existingConsents={existingConsents}
       onBack={() => router.back()}
       onComplete={() => { setStatus('existing'); router.replace(PROFILE_COMPLETE_URL); }}
     />

@@ -12,9 +12,15 @@ export const EDITABLE_PROFILE_FIELDS = new Set([
   'business_seasonality', 'multiple_locations', 'international_business', 'business_vehicle',
   'home_office_details', 'income_breakdown', 'businessEntityType', 'primaryWorkLocation',
   'workRelatedTravelPattern', 'annualIncomeRange',
+  // Sign-up acknowledgments; the route validates the shape with parseConsentRecord
+  // and firestore.rules keeps the field server-only.
+  'consents',
 ]);
+
+/** Server-stamped metadata returned with the profile but never accepted from a client. */
+const READ_ONLY_PROFILE_FIELDS = ['created_at', 'updated_at', 'bankConnected', 'consents_recorded_at'];
 
 export function publicProfile(data: Record<string, unknown>, uid: string) {
   return { ...Object.fromEntries(Object.entries(data).filter(([key]) =>
-    EDITABLE_PROFILE_FIELDS.has(key) || ['created_at', 'updated_at', 'bankConnected'].includes(key))), id: uid };
+    EDITABLE_PROFILE_FIELDS.has(key) || READ_ONLY_PROFILE_FIELDS.includes(key))), id: uid };
 }

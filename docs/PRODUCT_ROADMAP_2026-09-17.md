@@ -68,10 +68,19 @@ Other research-driven specifics to encode when the related features ship: 2026 �
 
 ## 5. Known gaps still open after this batch
 
-- Client-side Schedule C on the File Taxes screen bypasses income reconciliation; route it through the shared snapshot.
-- Filing hub hardcodes `quarterlyPaid: 0` and `income1099: 0`; wire to the snapshot payments/income.
-- Form 1040 planning PDF collects warnings but does not print them on the pages.
-- Learning engine `suggestClassification` is dead code; keep it out of any auto-apply path.
-- `firestore.rules` lets clients set `is_deductible` directly; decide whether confirmed-only aggregation should also require `review_status === 'confirmed'`.
-- CSP omits the GA/GTM origins used by `app/layout.tsx`; resolve tag ownership before changing either.
+Closed on 2026-09-17 (same-day follow-up batch; each item names its regression test):
+
+- ~~Client-side Schedule C on the File Taxes screen bypasses income reconciliation~~ — `components/file-taxes-screen.tsx` now reads `/api/tax/compute-1040` through the shared dashboard snapshot loader and renders the 422 review message with a deep link (`reviewTargetForCode`); no client-side profit is computed. `tests/tax-snapshot-ui-handlers.test.ts`.
+- ~~Filing hub hardcodes `quarterlyPaid: 0` and `income1099: 0`~~ — wired to `payments.estimatedPayments` and the new `income.income1099` (1099-documented receipts from `reconcileBusinessIncome`); the calculation-warnings banner renders with every refund/balance figure. `tests/tax-snapshot-ui-handlers.test.ts`, `tests/compute-1040-api.test.ts`, `tests/business-income-reconciliation.test.ts`.
+- ~~Form 1040 planning PDF collects warnings but does not print them~~ — a numbered "Review notes" block prints on page 2 (truncated with a pointer when long) and the full list in the appendix. `tests/tax-export-pdfs.test.ts`.
+- ~~Learning engine `suggestClassification` is dead code~~ — removed; merchant lookups accept `merchant`, `merchant_name` or `name`. `tests/learning-engine-contract.test.ts` fails if any module reintroduces the identifier.
+- ~~`firestore.rules` lets clients set `is_deductible` directly~~ — confirmed-only aggregation requires `review_status === 'confirmed'` or a legacy pre-cutoff record (documented in `docs/TAX_COVERAGE_REFERENCE_MATRIX_2026-09-15.md`); the server stamps `review_status`; rules keep `is_deductible` client-editable only until a review is recorded. `tests/schedule-c-aggregate.test.ts`, skipped-by-default case in `tests/security-rules.emulator.test.ts`.
+- ~~CSP omits the GA/GTM origins used by `app/layout.tsx`~~ — the tag and its CSP origins are both conditional on `NEXT_PUBLIC_GA_MEASUREMENT_ID` (unset → no tag, no origins); ownership of the two measurement IDs is still an operator decision, recorded with steps in `docs/PRELAUNCH_READINESS.md`. `tests/middleware.test.ts`.
+- Accessibility quick wins from the UX audit — receipt-match selects labeled, File Taxes back button named, login fallback announced as a status, and sign-up acknowledgments now required on the Google path with a server-validated consent record on the profile (`lib/onboarding/consents.ts`, `docs/PRELAUNCH_READINESS.md` §2). `tests/onboarding-consents.test.ts`, `tests/frontend-journeys.test.ts`, `tests/platform-auth-access.test.ts`.
+
+Still open:
+
 - Node 20 → 22 already in repo; production SSR still on Node 20 until cutover.
+- `firebase.json` static CSP for `/auth/**` and `/login` still omits the Google tag origins; add them in the same deploy that sets the analytics variable, if analytics should run there (see `docs/PRELAUNCH_READINESS.md`).
+- Accounts created before 2026-09-17 have no stored consent record; a re-acknowledgment prompt outside profile setup is needed before any terms change relies on `CONSENT_TERMS_VERSION`.
+- `app/auth/error/page.tsx` still uses an unannounced `Loading...` Suspense fallback; the other auth pages use `role="status"`.

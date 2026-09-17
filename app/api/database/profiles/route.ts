@@ -3,6 +3,7 @@ import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { adminDb, FieldValue } from '@/lib/firebase/admin';
 import { migrateLegacyPlaidConnection } from '@/lib/plaid/connections';
 import { EDITABLE_PROFILE_FIELDS, publicProfile } from '@/lib/firebase/profile-fields';
+import { parseConsentRecord } from '@/lib/onboarding/consents';
 
 export async function GET(request: NextRequest) {
   const { user } = await getAuthenticatedUser(request);
@@ -30,11 +31,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Profile contains fields that cannot be edited' }, { status: 400 });
   }
   if (JSON.stringify(body).length > 32_768) return NextResponse.json({ error: 'Profile is too large' }, { status: 413 });
+  const stamps: Record<string, unknown> = {};
+  if ('consents' in body) {
+    const consents = parseConsentRecord(body.consents);
+    if (!consents) return NextResponse.json({ error: 'Consent record is incomplete or not the current terms' }, { status: 400 });
+    body.consents = consents;
+    stamps.consents_recorded_at = FieldValue.serverTimestamp();
+  }
   try {
     const ref = adminDb.doc(`user_profiles/${user.uid}`);
     await adminDb.runTransaction(async transaction => {
       const snapshot = await transaction.get(ref);
-      transaction.set(ref, { ...body, updated_at: FieldValue.serverTimestamp(),
+      transaction.set(ref, { ...body, ...stamps, updated_at: FieldValue.serverTimestamp(),
         ...(!snapshot.exists ? { created_at: FieldValue.serverTimestamp() } : {}) }, { merge: true });
     });
     return NextResponse.json({ success: true });

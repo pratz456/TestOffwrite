@@ -13,6 +13,7 @@ import { PremiumFeatureGate } from '@/components/premium-feature-gate';
 import { premiumFeatureForLocation } from '@/lib/subscriptions/client-status';
 import { Button } from '@/components/ui/button';
 import { subscribeToProfileUpdates } from '@/lib/onboarding/profile-events';
+import { profileLookupState } from '@/lib/onboarding/profile';
 
 interface ProtectedLayoutClientProps { children: React.ReactNode }
 
@@ -56,8 +57,10 @@ const ProtectedLayoutContent: React.FC<ProtectedLayoutClientProps> = ({ children
       try {
         const { data, error } = await getUserProfile(userId);
         if (!current) return;
-        const missing = error?.code === 'PROFILE_NOT_FOUND' || error?.message === 'Profile not found';
-        setProfile({ userId, data: data ?? null, setup: missing, error: Boolean(error && !missing) });
+        // Same decision as the setup pages, so a consent-only document keeps setup mode.
+        const state = profileLookupState(data, error);
+        const missing = state === 'missing' || error?.message === 'Profile not found';
+        setProfile({ userId, data: data ?? null, setup: missing, error: !missing && state === 'error' });
       } catch {
         if (current) setProfile({ userId, data: null, setup: false, error: true });
       }

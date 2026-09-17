@@ -27,6 +27,16 @@ The 422 is an explicit review requirement, not a claim that records have been re
 
 The IRS requires reporting taxable business income even without an information return. Information returns must be reconciled with underlying records, not automatically added to the receipts they describe. Sources: [IRS gig economy tax center](https://www.irs.gov/businesses/gig-economy-tax-center), [understanding Form 1099-K](https://www.irs.gov/businesses/understanding-your-form-1099-k).
 
+## Confirmed-expense policy (2026-09-17)
+
+Firestore rules let the owner write `is_deductible` directly, while `review_status`, `tax_review_required` and `ai_suggestion` are server-only. Confirmed Schedule C totals, the federal snapshot, Schedule SE, quarterly confirmed sums and the dashboard deductible count therefore share one predicate (`lib/transactions/confirmed-deduction.ts`):
+
+- A deduction counts when `is_deductible === true`, `tax_review_required !== true`, the record is posted and not a `_REVIEW_REQUIRED` tax-method placeholder, **and** the server recorded the decision (`review_status === 'confirmed'`).
+- Legacy exception: a boolean `is_deductible` with **no** review-pipeline fields (`review_status`, `review_source`, `review_suggestion_id`, `reviewed_at`, `ai_suggestion`) still counts when the record was created before `LEGACY_CONFIRMATION_CUTOFF` (`2026-09-18T00:00:00.000Z`). Creation time is the server-set `created_at`; records from older code paths without one fall back to the transaction date. Clients cannot create records or edit `created_at`, so a post-cutoff record cannot be made to look legacy. Move the cutoff forward if the release that stamps `review_status` ships after it; do not move it backward.
+- Every server-saved decision now stamps `review_status: 'confirmed'`, `review_source` (`user_decision` for the transaction-detail toggle, `ai_confirmed`/`user_corrected` for the review screen) and `reviewed_at`. Clearing a decision (`is_deductible: null`) sets `tax_review_required: true` and leaves the record out of totals.
+- A `true` flag without a server decision on a post-cutoff record is excluded from totals and shown as needing review, so the customer re-confirms it through the API rather than losing it silently. Pre-cutoff records with an `ai_suggestion` but no `review_status` are treated the same way.
+- Rules change: `is_deductible` stays owner-editable only on records with no `review_status` (both storage paths). Reviewed records must change through `PUT /api/transactions/{id}` or the review API. `tests/transaction-rules-contract.test.ts` checks the rules text; `tests/security-rules.emulator.test.ts` (opt-in, emulator) exercises allow/deny.
+
 ## Reference matrix
 
 These are specific cases, not an exhaustive tax-code review. Tests use synthetic records, real calculation/route handlers and mocked persistence/provider transport. The platform-import regression mocks AI extraction; it does not validate OCR accuracy.

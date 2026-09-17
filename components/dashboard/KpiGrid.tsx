@@ -3,7 +3,7 @@
 import React from 'react';
 import { ArrowUpRight, ChevronDown, Info } from 'lucide-react';
 import { TaxCalculationNotice } from '@/components/tax-calculation-notice';
-import type { DashboardTaxState } from '@/lib/tax/dashboard-snapshot';
+import { reviewTargetForCode, type DashboardTaxState } from '@/lib/tax/dashboard-snapshot';
 
 interface KpiGridProps {
   state: DashboardTaxState;
@@ -19,22 +19,12 @@ export function KpiGrid({ state, taxYear, onRetry, onReview }: KpiGridProps) {
     return <div role="status" aria-live="polite" className="rounded-xl border p-4 text-sm">Loading your {taxYear} federal estimate…</div>;
   }
   if (state.status !== 'ready') {
-    const organizerLabels: Record<string, string> = {
-      PERSONAL_DEDUCTION_REVIEW_REQUIRED: 'Review personal deductions',
-      DEPENDENT_CREDIT_REVIEW_REQUIRED: 'Review dependent eligibility',
-      CAPITAL_GAIN_REVIEW_REQUIRED: 'Review capital gain character',
-      BUSINESS_LOSS_REVIEW_REQUIRED: 'Review business loss facts',
-      OBBBA_DEDUCTION_REVIEW_REQUIRED: 'Review Working Families Tax Cuts deductions',
-      SOCIAL_SECURITY_REVIEW_REQUIRED: 'Review Social Security records',
-    };
-    const target = ['FILING_STATUS_REVIEW_REQUIRED', 'HOME_OFFICE_REVIEW_REQUIRED'].includes(state.code ?? '') ? 'settings'
-      : state.code && state.code in organizerLabels ? 'tax-organizer'
-      : state.code === 'INCOME_RECONCILIATION_REQUIRED' ? 'income-tracking' : 'tax-preview';
+    const target = reviewTargetForCode(state.code);
     return <div role="alert" className="rounded-xl border p-4 text-sm">
       <h2 className="font-medium">{taxYear} federal estimate {state.status === 'review' ? 'needs review' : 'unavailable'}</h2>
       <p className="mt-1">{state.message}</p>
       <div className="mt-2 flex flex-wrap gap-x-4">
-        {state.status === 'review' && <button className="min-h-[44px] underline underline-offset-4" onClick={() => onReview(target)}>{state.code === 'HOME_OFFICE_REVIEW_REQUIRED' ? 'Review home office settings' : target === 'settings' ? 'Review profile' : target === 'income-tracking' ? 'Review income sources' : target === 'tax-organizer' ? organizerLabels[state.code!] : 'Review tax inputs'}</button>}
+        {state.status === 'review' && <button className="min-h-[44px] underline underline-offset-4" onClick={() => onReview(target.screen)}>{target.label}</button>}
         <button className="min-h-[44px] underline underline-offset-4" onClick={onRetry}>Retry estimate</button>
       </div>
     </div>;

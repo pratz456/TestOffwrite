@@ -67,6 +67,7 @@ Target path: landing page → signup → email verification or Google sign-in �
 - Verify Plaid cancellation, reconnect, account selection and asynchronous import states.
 - Provide an actionable empty dashboard and a clear completion state after the first reviewed expense.
 - Verify mobile layouts, keyboard access, password managers, expired sessions and slow-network behavior.
+- Sign-up acknowledgments (Plaid data use, AI suggestions for review, optional communications) are now recorded per account (2026-09-17). The sign-up form and the Google path both end in a consent record on `user_profiles/{uid}.consents` (`lib/onboarding/consents.ts`, `CONSENT_TERMS_VERSION`), written only through `POST /api/database/profiles`, which validates the shape and stamps `consents_recorded_at`; `firestore.rules` rejects client writes to both fields. Profile setup shows the acknowledgments step first whenever the profile has no record of the current terms, so Google sign-ins acknowledge the same terms before any answer is saved. Boxes checked on the sign-up form are carried to setup in `localStorage`, bound to the sign-up email, for seven days. Accounts created before this date have no record; if a re-acknowledgment campaign is needed, bump `CONSENT_TERMS_VERSION` and add a dashboard prompt (setup only runs for new profiles).
 
 **Done when:** a new test user can complete that path without intervention, and cancellation/failure paths recover without losing progress.
 
@@ -84,11 +85,36 @@ Target path: landing page → signup → email verification or Google sign-in �
 ### 4. Prepare an honest, measurable launch
 
 - Match landing-page, pricing, trial and filing claims to implemented behavior; substantiate testimonials and savings figures before launch.
-- Audit analytics delivery: the layout loads Google Analytics, but the current browser policy does not allow its script origin. Resolve consent/data-handling behavior before expanding analytics.
+- Audit analytics delivery: the Google tag is now opt-in through `NEXT_PUBLIC_GA_MEASUREMENT_ID` (see "Analytics tag ownership and browser policy" below). Resolve consent/data-handling behavior before setting it in production.
 - Instrument signup start/completion, verification, profile completion, bank-link start/success, import completion, first reviewed expense, return usage and trial conversion. Keep financial details and credentials out of event payloads.
 - Define activation as **a user reviewing their first imported or manually entered expense**; distinguish activation from account creation.
 
 **Done when:** a test journey appears accurately in the funnel and all launch claims match tested product behavior.
+
+#### Analytics tag ownership and browser policy (2026-09-17)
+
+Two GA4 measurement IDs exist in the repository history and neither has been chosen:
+
+| Where | ID | Status |
+| --- | --- | --- |
+| `app/layout.tsx` gtag.js (hard-coded until 2026-09-17) | `G-1P3GNBHB9J` | Removed from source. The layout now reads `NEXT_PUBLIC_GA_MEASUREMENT_ID`. |
+| `lib/firebase/client.ts` `measurementId` fallback (`NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID`) | `G-LE26KP7E9N` | Unchanged. The active client never calls `getAnalytics`, so this value only travels in the Firebase config. The legacy `lib/firebase/firebase/firebase.ts` does initialize Firebase Analytics with the same fallback but is not imported by the app. |
+
+Current behavior, enforced by `tests/middleware.test.ts`:
+
+- `lib/analytics/ga-measurement-id.ts` is the single decision point. `gaMeasurementId()` returns the validated `G-…` value from `NEXT_PUBLIC_GA_MEASUREMENT_ID`, or `null` when the variable is unset, malformed, or `NEXT_PUBLIC_APP_ENV=staging`.
+- `app/layout.tsx` renders the gtag.js `<Script>` tags only when that value is non-null. Unset means no tag, no `dataLayer`, no request to Google.
+- `middleware.ts` adds the Google tag origins (`https://*.googletagmanager.com` to `script-src`; `https://*.google-analytics.com https://*.googletagmanager.com` to `img-src`; `https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com` to `connect-src`) under the same condition, so the CSP never admits analytics origins for a build that renders no tag.
+- `firebase.json` is untouched. Its static `Content-Security-Policy` headers for `/auth/**` and `/login` cannot be conditional on a build variable and still omit the Google origins. Browsers enforce every CSP header they receive, so the tag stays blocked on those two paths even after the variable is set, which is the intended state until consent handling is decided.
+
+Resolution steps, in order:
+
+1. In the Google Analytics admin, identify the property and data stream behind each ID and confirm who owns the property. Record the owner here.
+2. Decide which stream the web app reports to. If it is the Firebase-linked stream, set `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID` and `NEXT_PUBLIC_GA_MEASUREMENT_ID` to the same value; if it is the standalone stream, set `NEXT_PUBLIC_GA_MEASUREMENT_ID` and plan a separate change to drop the fallback ID from `lib/firebase/client.ts`.
+3. Settle consent and data-handling behavior for analytics (what loads before consent, what is sent) before any production value is set. Keep financial details and credentials out of event payloads.
+4. Set `NEXT_PUBLIC_GA_MEASUREMENT_ID` in the production build environment only. The value is inlined at build time for both the layout and the middleware, so a redeploy is required after changing it. Leave it unset for staging; staging is excluded regardless.
+5. If analytics should also run on `/auth/**` and `/login`, add the same three origin groups to both `firebase.json` CSP values in the same deploy that sets the variable. Otherwise leave `firebase.json` as is and note that the auth pages are intentionally excluded.
+6. Verify after deploy: the response CSP contains the Google origins, the page loads exactly one gtag.js script with the chosen ID, and the staging smoke check (`scripts/smoke-staging.mjs`) still finds no gtag script on the testing site.
 
 ### 5. Run a focused GTM pilot, then scale what works
 

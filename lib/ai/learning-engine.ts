@@ -57,6 +57,39 @@ export interface LearningPattern {
   lastUpdated: Date;
 }
 
+/** A learned merchant/category/MCC lean, surfaced to the analyst as context only. */
+export interface PatternPreference {
+  preferredClassification: boolean;
+  confidence: number;
+  correctionCount: number;
+}
+
+export interface AmountPreference {
+  type: 'low' | 'high';
+  preferredClassification: boolean;
+  confidence: number;
+}
+
+/**
+ * Analysis input names the payee `merchant`; stored transactions use
+ * `merchant_name` (Plaid) or `name`. Patterns are keyed by the same
+ * lower-cased value regardless of which field a caller supplies.
+ */
+export function learningMerchantKey(transactionData: unknown): string | undefined {
+  if (!transactionData || typeof transactionData !== 'object') return undefined;
+  const record = transactionData as Record<string, unknown>;
+  for (const field of ['merchant_name', 'merchant', 'name'] as const) {
+    const value = record[field];
+    if (typeof value === 'string' && value.trim()) return value.trim().toLowerCase();
+  }
+  return undefined;
+}
+
+/**
+ * Corrections and pattern lookups never decide tax treatment on their own. The
+ * former pattern-based helper that could auto-set `is_deductible` from
+ * merchant/category preferences was removed; a server tax decision is required.
+ */
 export class AILearningEngine {
   private db = adminDb;
 
@@ -77,7 +110,7 @@ export class AILearningEngine {
         id: correctionId,
         userId,
         transactionId,
-        merchantName: transactionData.merchant_name || transactionData.name || 'Unknown',
+        merchantName: String(transactionData.merchant_name || transactionData.merchant || transactionData.name || 'Unknown').trim() || 'Unknown',
         category: transactionData.category || 'Other',
         originalAIAnalysis: {
           isDeductible: originalAnalysis.is_deductible || false,
@@ -122,7 +155,7 @@ export class AILearningEngine {
       }
 
       const context = {
-        merchantPreference: this.getMerchantPreference(patterns, transactionData.merchant_name),
+        merchantPreference: this.getMerchantPreference(patterns, learningMerchantKey(transactionData)),
         categoryPreference: this.getCategoryPreference(patterns, transactionData.category),
         mccPreference: this.getMccPreference(patterns, transactionData.mcc),
         amountPreference: this.getAmountPreference(patterns, transactionData.amount),
@@ -134,46 +167,6 @@ export class AILearningEngine {
       console.error('❌ [AI Learning] Error getting learning context:', error);
       return null;
     }
-  }
-
-  /**
-   * Suggest is_deductible from learning patterns (merchant + category).
-   * Used to auto-classify pending transactions when confidence is high enough.
-   * If merchant and category disagree, the higher-confidence preference wins.
-   */
-  async suggestClassification(
-    userId: string,
-    transactionData: { merchant_name?: string; category?: string; mcc?: string; amount?: number }
-  ): Promise<{ suggestedIsDeductible: boolean; confidence: number } | null> {
-    const MIN_CONFIDENCE = 0.65;
-    const context = await this.getLearningContext(userId, transactionData);
-    if (!context) return null;
-
-    const prefs: Array<{ isDeductible: boolean; confidence: number }> = [];
-    if (context.merchantPreference && context.merchantPreference.confidence >= MIN_CONFIDENCE) {
-      prefs.push({
-        isDeductible: context.merchantPreference.preferredClassification,
-        confidence: context.merchantPreference.confidence
-      });
-    }
-    if (context.categoryPreference && context.categoryPreference.confidence >= MIN_CONFIDENCE) {
-      prefs.push({
-        isDeductible: context.categoryPreference.preferredClassification,
-        confidence: context.categoryPreference.confidence
-      });
-    }
-
-    if (prefs.length === 0) return null;
-    if (prefs.length === 1) {
-      return prefs[0].confidence >= 0.7 ? { suggestedIsDeductible: prefs[0].isDeductible, confidence: prefs[0].confidence } : null;
-    }
-    const [a, b] = prefs;
-    if (a.isDeductible === b.isDeductible) {
-      const confidence = Math.max(a.confidence, b.confidence);
-      return confidence >= 0.7 ? { suggestedIsDeductible: a.isDeductible, confidence } : null;
-    }
-    const higher = a.confidence >= b.confidence ? a : b;
-    return higher.confidence >= 0.7 ? { suggestedIsDeductible: higher.isDeductible, confidence: higher.confidence } : null;
   }
 
   /**
@@ -289,8 +282,8 @@ export class AILearningEngine {
         }
       }
 
-      // Update merchant patterns
-      const merchantName = correction.merchantName.toLowerCase();
+      // Update merchant patterns (same key as learningMerchantKey lookups)
+      const merchantName = correction.merchantName.trim().toLowerCase();
       patterns.merchantPatterns[merchantName] = applyCorrection(
         patterns.merchantPatterns[merchantName],
         correction.userCorrection.isDeductible,
@@ -372,9 +365,9 @@ export class AILearningEngine {
     }
   }
 
-  private getMerchantPreference(patterns: LearningPattern, merchantName?: string): any {
-    if (!merchantName) return null;
-    const merchant = patterns.merchantPatterns[merchantName.toLowerCase()];
+  private getMerchantPreference(patterns: LearningPattern, merchantKey?: string): PatternPreference | null {
+    if (!merchantKey) return null;
+    const merchant = patterns.merchantPatterns[merchantKey.toLowerCase()];
     return merchant ? {
       preferredClassification: merchant.preferredClassification,
       confidence: merchant.confidence,
@@ -382,7 +375,7 @@ export class AILearningEngine {
     } : null;
   }
 
-  private getCategoryPreference(patterns: LearningPattern, category?: string): any {
+  private getCategoryPreference(patterns: LearningPattern, category?: string): PatternPreference | null {
     if (!category) return null;
     const cat = patterns.categoryPatterns[category.toLowerCase()];
     return cat ? {
@@ -392,7 +385,7 @@ export class AILearningEngine {
     } : null;
   }
 
-  private getMccPreference(patterns: LearningPattern, mcc?: string): any {
+  private getMccPreference(patterns: LearningPattern, mcc?: string): PatternPreference | null {
     if (!mcc) return null;
     const mccPattern = patterns.mccPatterns[mcc];
     return mccPattern ? {
@@ -402,7 +395,7 @@ export class AILearningEngine {
     } : null;
   }
 
-  private getAmountPreference(patterns: LearningPattern, amount?: number): any {
+  private getAmountPreference(patterns: LearningPattern, amount?: number): AmountPreference | null {
     if (!amount) return null;
     const absAmount = Math.abs(amount);
     if (absAmount < patterns.amountPatterns.lowAmount.threshold) {
@@ -423,11 +416,11 @@ export class AILearningEngine {
 
   private calculateOverallConfidence(patterns: LearningPattern, transactionData: any): number {
     const preferences = [
-      this.getMerchantPreference(patterns, transactionData.merchant_name),
+      this.getMerchantPreference(patterns, learningMerchantKey(transactionData)),
       this.getCategoryPreference(patterns, transactionData.category),
       this.getMccPreference(patterns, transactionData.mcc),
       this.getAmountPreference(patterns, transactionData.amount)
-    ].filter(p => p !== null);
+    ].filter((p): p is PatternPreference | AmountPreference => p !== null);
 
     if (preferences.length === 0) return 0.5;
 
@@ -537,13 +530,6 @@ export const aiLearningEngine = {
     return _aiLearningEngine.getLearningContext(...args);
   },
 
-  async suggestClassification(...args: Parameters<AILearningEngine['suggestClassification']>) {
-    if (!_aiLearningEngine) {
-      _aiLearningEngine = new AILearningEngine();
-    }
-    return _aiLearningEngine.suggestClassification(...args);
-  },
-  
   async getCorrectionHistory(...args: Parameters<AILearningEngine['getCorrectionHistory']>) {
     if (!_aiLearningEngine) {
       _aiLearningEngine = new AILearningEngine();

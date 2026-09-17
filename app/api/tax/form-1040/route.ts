@@ -109,6 +109,58 @@ function footer(p: PDFPage, pg: number, tot: number, yr: string, f: PDFFont) {
   drawR(p, `Page ${pg} of ${tot}`, MR, 19, 6, f, GRAY);
 }
 
+/** Warnings are free text from the calculation; keep every character encodable in the standard font. */
+function safeText(f: PDFFont, value: unknown): string {
+  return Array.from(String(value ?? '').replace(/\s+/g, ' ').trim()).map(char => {
+    try { f.encodeText(char); return char; } catch { return `[U+${char.codePointAt(0)!.toString(16).toUpperCase()}]`; }
+  }).join('');
+}
+function wrapText(f: PDFFont, value: string, size: number, available: number): string[] {
+  const lines: string[] = [];
+  let line = '';
+  for (const word of value.split(' ')) {
+    if (!word) continue;
+    const candidate = line ? `${line} ${word}` : word;
+    if (tw(f, candidate, size) <= available) { line = candidate; continue; }
+    if (line) lines.push(line);
+    line = '';
+    for (const char of word) {
+      if (line && tw(f, line + char, size) > available) { lines.push(line); line = ''; }
+      line += char;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+/** Review-notes block on the form page: lists every calculation warning next to the figures it qualifies. */
+const REVIEW_NOTES_BOTTOM = 48;
+function reviewNotes(p: PDFPage, warnings: string[], y: number, f: PDFFont, bf: PDFFont, appendixPage: number): number {
+  const notes = [...new Set(warnings.map(warning => safeText(f, warning)).filter(Boolean))];
+  y = banner(p, `Review notes (${notes.length})`, y, f, bf);
+  const size = 7, lineHeight = 9.5, indent = 14;
+  const pointer = `Full list continues in the review notes appendix (page ${appendixPage}).`;
+  if (notes.length === 0) {
+    p.drawText('No calculation limits were reported for the saved inputs. The preparer review items in the appendix still apply.', { x: ML, y: y - 8, size, font: f, color: BLACK });
+    return y - lineHeight - 4;
+  }
+  for (const [index, note] of notes.entries()) {
+    const lines = wrapText(f, note, size, MR - ML - indent);
+    const remaining = index < notes.length - 1;
+    // Keep room for the pointer line so a long list never runs into the footer.
+    if (y - lines.length * lineHeight - (remaining ? lineHeight : 0) < REVIEW_NOTES_BOTTOM) {
+      p.drawText(pointer, { x: ML, y: y - 8, size, font: bf, color: BLUE });
+      return y - lineHeight;
+    }
+    p.drawText(`${index + 1}.`, { x: ML, y: y - 8, size, font: bf, color: GRAY });
+    for (const line of lines) {
+      p.drawText(line, { x: ML + indent, y: y - 8, size, font: f, color: BLACK });
+      y -= lineHeight;
+    }
+    y -= 2;
+  }
+  return y;
+}
+
 async function page1(doc: PDFDocument, f: PDFFont, bf: PDFFont, d: Record<string, any>, profile: Record<string, any>, yr: string): Promise<PDFPage> {
   const p = doc.addPage([PW, PH]);
   let y = MT;
@@ -264,7 +316,11 @@ async function page2(doc: PDFDocument, f: PDFFont, bf: PDFFont, d: Record<string
   y -= 10;
 
   y = banner(p, 'Preparer review required - do not sign or file this summary', y, f, bf);
-  p.drawText('This is not a complete return, an IRS form, or an e-file authorization. See the review appendix.', { x: ML, y: y - 8, size: 7.5, font: f, color: BLACK });
+  p.drawText('This is not a complete return, an IRS form, or an e-file authorization. See the review notes below and the appendix.', { x: ML, y: y - 8, size: 7.5, font: f, color: BLACK });
+  y -= 16;
+
+  // Calculation warnings belong on the page that shows the refund/balance, not only in the appendix.
+  reviewNotes(p, Array.isArray(d.warnings) ? d.warnings : [], y, f, bf, 3);
 
   return p;
 }
@@ -391,8 +447,9 @@ export async function POST(request: NextRequest) {
       ['Address', [enrichedProfile.mailing_address.street, enrichedProfile.mailing_address.city, enrichedProfile.mailing_address.state, enrichedProfile.mailing_address.zip].filter(Boolean).join(', ') || 'Not provided'],
       ['Optional refund routing / account', enrichedProfile.bankRouting || enrichedProfile.bankAccount ? `${enrichedProfile.bankRouting || 'Not provided'} / ${enrichedProfile.bankAccount || 'Not provided'} (${enrichedProfile.bankAccountType})` : 'Not provided'],
     ], [195, 333]);
-    notes.section('Outstanding review');
-    for (const warning of warnings) notes.paragraph(warning);
+    notes.section('Review notes');
+    notes.paragraph(warnings.length ? `${warnings.length} calculation or completeness note(s) qualify the figures on pages 1-2:` : 'No calculation limits were reported for the saved inputs.');
+    warnings.forEach((warning, index) => notes.paragraph(`${index + 1}. ${warning}`));
     notes.paragraph('Verify all income sources; IRA versus pension classification and basis; qualified dividends and capital gains; depreciation and home-office adjustments; credits; AMT and other taxes; all non-W-2/non-SSA withholding; prior-year payments applied; Form8959 withholding; refund elections; and penalties. Supporting Schedules1,1-A,2,3,A,D and other required forms are not produced by this summary.');
     notes.paragraph('Review legal names, taxpayer/spouse identity, digital-asset answers, residency and all signatures with the preparer. Optional bank details are records only and do not authorize any payment, refund or electronic filing.');
     const appendix = await PDFDocument.load(await notes.save(2));

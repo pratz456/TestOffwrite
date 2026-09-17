@@ -6,13 +6,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import writeOffLogo from '@/public/writeofflogo.png';
 import Image from 'next/image';
 import { Eye, EyeOff } from "lucide-react";
 import { validatePassword } from "@/lib/utils/passwordValidation";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { auth } from "@/lib/firebase/client";
+import { buildConsentRecord, NO_CONSENTS, requiredConsentsAccepted, stashPendingConsents, type ConsentChoices } from "@/lib/onboarding/consents";
+import { ConsentCheckboxes, NoticeAtCollection } from "@/components/onboarding/consent-checkboxes";
 
 export function SignUpForm({
   className,
@@ -24,10 +26,7 @@ export function SignUpForm({
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Consent checkboxes
-  const [bankConsent, setBankConsent] = useState(false);
-  const [aiConsent, setAiConsent] = useState(false);
-  const [commConsent, setCommConsent] = useState(false);
+  const [consents, setConsents] = useState<ConsentChoices>(NO_CONSENTS);
   const [passwordErrors, setPasswordErrors] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
@@ -90,11 +89,18 @@ export function SignUpForm({
     setPasswordErrors(validation.errors);
   };
 
+  // The account cannot call the profile API until it is verified, so the
+  // acknowledgments wait in this browser for profile setup to record them.
+  const stashConsents = (accountEmail: string | null | undefined) => {
+    const record = buildConsentRecord(consents, 'sign-up');
+    if (record) stashPendingConsents(record, accountEmail);
+  };
+
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (operationRef.current || isSubmitting || isGoogleLoading) return;
-    if (!bankConsent || !aiConsent) {
+    if (!requiredConsentsAccepted(consents)) {
       setError("Please review and select the required acknowledgments below.");
       return;
     }
@@ -125,6 +131,7 @@ export function SignUpForm({
         // Account creation can succeed while sending verification fails. Keep
         // that account and let the verification page resend instead of creating it twice.
         if (auth.currentUser?.email?.toLowerCase() === email.trim().toLowerCase() && !auth.currentUser.emailVerified) {
+          stashConsents(email);
           hasRedirected.current = true;
           router.replace('/auth/sign-up-success');
           return;
@@ -132,6 +139,7 @@ export function SignUpForm({
         throw new Error(error.message);
       }
       if (!data?.user) throw new Error('We could not create your account. Please try again.');
+      stashConsents(email);
       hasRedirected.current = true;
       
       router.replace("/auth/sign-up-success");
@@ -176,6 +184,9 @@ export function SignUpForm({
       }
       
       if (data && data.user) {
+        // Boxes checked before choosing Google carry over; otherwise profile
+        // setup collects the acknowledgments before any answers are saved.
+        stashConsents(data.user.email);
         hasRedirected.current = true;
         // For Google sign-in, redirect to profile setup (same as email sign-up flow)
         router.push("/protected/profile-setup");
@@ -200,7 +211,7 @@ export function SignUpForm({
     }
   };
 
-  const isFormValid = email && password && confirmPassword && password === confirmPassword && passwordErrors.length === 0 && bankConsent && aiConsent && !isSubmitting;
+  const isFormValid = email && password && confirmPassword && password === confirmPassword && passwordErrors.length === 0 && requiredConsentsAccepted(consents) && !isSubmitting;
 
   return (
     <div {...props} className={`min-h-screen bg-background safe-area-inset-top safe-area-inset-bottom ${className || ""}`}>
@@ -243,10 +254,7 @@ export function SignUpForm({
 
           {/* Sign up form */}
           <div className="bg-card/80 backdrop-blur-xl rounded-xl sm:rounded-2xl shadow-lg shadow-black/5 dark:shadow-black/25 ring-1 ring-border p-4 sm:p-6">
-            {/* Notice at Collection */}
-            <div className="mb-4 p-3 sm:p-4 bg-primary/10 dark:bg-primary/15 border border-primary/20 rounded-lg text-xs text-foreground">
-              <strong>Notice at Collection:</strong> We collect your name, email, password, and, after signup, your bank transactions, employer/workstyle answers, and state. This information is used to provide tax deduction analysis, generate reports, and personalize your experience. See our <a href="/privacy" className="underline text-primary no-tap-highlight" target="_blank" rel="noopener noreferrer">Privacy Policy</a> for details.
-            </div>
+            <NoticeAtCollection className="mb-4" />
             <form onSubmit={handleSignUp} className="space-y-4 sm:space-y-5">
               <div className="space-y-4 sm:space-y-3">
                 <div>
@@ -336,48 +344,11 @@ export function SignUpForm({
               {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
 
               {/* Explicit Consents */}
-              <div className="space-y-3 sm:space-y-3 bg-muted/40 border border-border rounded-xl p-3 sm:p-4">
-                <div className="flex items-start gap-3 sm:gap-2">
-                  <input
-                    type="checkbox"
-                    id="bankConsent"
-                    checked={bankConsent}
-                    onChange={e => setBankConsent(e.target.checked)}
-                    className="mt-0.5 w-5 h-5 sm:w-4 sm:h-4 flex-shrink-0"
-                    required
-                  />
-                  <label htmlFor="bankConsent" className="text-xs text-foreground leading-relaxed">
-                    I authorize WriteOff to access and use my account and transaction data via Plaid to analyze potential tax deductions and generate reports. (<a href="/privacy" className="underline text-primary no-tap-highlight" target="_blank" rel="noopener noreferrer">Privacy</a> | <a href="https://plaid.com/legal/#end-user-privacy-policy" className="underline text-primary no-tap-highlight" target="_blank" rel="noopener noreferrer">Plaid</a>)
-                    <span className="text-destructive ml-0.5">*</span>
-                  </label>
-                </div>
-                <div className="flex items-start gap-3 sm:gap-2">
-                  <input
-                    type="checkbox"
-                    id="aiConsent"
-                    checked={aiConsent}
-                    onChange={e => setAiConsent(e.target.checked)}
-                    className="mt-0.5 w-5 h-5 sm:w-4 sm:h-4 flex-shrink-0"
-                    required
-                  />
-                  <label htmlFor="aiConsent" className="text-xs text-foreground leading-relaxed">
-                    I understand that WriteOff uses automated (AI) analysis to suggest categories and possible tax treatments for my review, and that I confirm each one.
-                    <span className="text-destructive ml-0.5">*</span>
-                  </label>
-                </div>
-                <div className="flex items-start gap-3 sm:gap-2">
-                  <input
-                    type="checkbox"
-                    id="commConsent"
-                    checked={commConsent}
-                    onChange={e => setCommConsent(e.target.checked)}
-                    className="mt-0.5 w-5 h-5 sm:w-4 sm:h-4 flex-shrink-0"
-                  />
-                  <label htmlFor="commConsent" className="text-xs text-foreground leading-relaxed">
-                    I consent to receive communications about my account and product updates.
-                  </label>
-                </div>
-              </div>
+              <ConsentCheckboxes
+                values={consents}
+                disabled={isSubmitting}
+                onChange={(key, checked) => setConsents(prev => ({ ...prev, [key]: checked }))}
+              />
 
               <div className="bg-muted/50 border border-border rounded-xl p-3 sm:p-4">
                 <div className="flex items-start gap-3">
@@ -441,6 +412,9 @@ export function SignUpForm({
                 </>
               )}
             </Button>
+            <p className="mt-2 text-center text-xs text-muted-foreground">
+              Google accounts make the same acknowledgments. If they are not checked above, we ask for them before profile setup.
+            </p>
 
             {/* Sign in link */}
             <div className="mt-5 sm:mt-6 text-center pb-2">

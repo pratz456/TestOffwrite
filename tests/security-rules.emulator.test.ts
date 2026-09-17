@@ -106,6 +106,20 @@ async function seed(path: string, values: Record<string, string | number | boole
     await expect(updateDoc(tx, { amount: deleteField() })).rejects.toMatchObject({ code: 'permission-denied' });
     await expect(deleteDoc(tx)).rejects.toMatchObject({ code: 'permission-denied' });
   });
+  it('keeps is_deductible owner-editable only until the server records a review', async () => {
+    // Pre-review records keep the current client flow, on both storage paths.
+    await updateDoc(doc(alice, 'user_profiles/alice_uid/accounts/account/transactions/tx'), { is_deductible: true, expense_type: 'business' });
+    await updateDoc(doc(alice, 'transactions/legacy'), { is_deductible: false });
+    for (const path of ['user_profiles/alice_uid/accounts/account/transactions/reviewed', 'transactions/legacy-reviewed']) {
+      await seed(path, { userId: owner, amount: 100, is_deductible: true, review_status: 'confirmed', notes: 'before' });
+      const reviewed = doc(alice, path);
+      await updateDoc(reviewed, { notes: 'notes stay editable', business_purpose: 'Client meeting' });
+      await expect(updateDoc(reviewed, { is_deductible: false })).rejects.toMatchObject({ code: 'permission-denied' });
+      await expect(updateDoc(reviewed, { is_deductible: deleteField() })).rejects.toMatchObject({ code: 'permission-denied' });
+      await expect(updateDoc(reviewed, { review_status: deleteField() })).rejects.toMatchObject({ code: 'permission-denied' });
+      await expect(updateDoc(doc(bob, path), { is_deductible: false })).rejects.toMatchObject({ code: 'permission-denied' });
+    }
+  });
   it('retains owner-filtered collection-group transaction reads', async () => {
     const documents = await getDocs(query(collectionGroup(alice, 'transactions'), where('userId', '==', owner)));
     expect(documents.size).toBe(1);
@@ -125,6 +139,16 @@ async function seed(path: string, values: Record<string, string | number | boole
     await expect(updateDoc(doc(bob, 'user_profiles/bob'), { subscriptionPlan: 'premium' })).rejects.toMatchObject({ code: 'permission-denied' });
     await expect(updateDoc(doc(bob, 'user_profiles/bob'), { subscriptionPlan: deleteField() })).rejects.toMatchObject({ code: 'permission-denied' });
     await expect(setDoc(doc(alice, 'user_profiles/somebody-else'), { name: 'Wrong owner' })).rejects.toMatchObject({ code: 'permission-denied' });
+  });
+  it('keeps the sign-up consent record server-only on create and update', async () => {
+    const consents = { version: '2026-09-17', source: 'profile-setup', accepted_at: '2026-09-17T12:00:00.000Z', bank_data: true, ai_review: true, communications: false };
+    await expect(setDoc(doc(alice, `user_profiles/${owner}`), { name: 'Alice', consents })).rejects.toMatchObject({ code: 'permission-denied' });
+    await seed(`user_profiles/${owner}`, { name: 'Alice', consents_recorded_at: 'server-stamped' });
+    await updateDoc(doc(alice, `user_profiles/${owner}`), { profession: 'Designer' });
+    await expect(updateDoc(doc(alice, `user_profiles/${owner}`), { consents })).rejects.toMatchObject({ code: 'permission-denied' });
+    await expect(updateDoc(doc(alice, `user_profiles/${owner}`), { consents_recorded_at: 'forged' })).rejects.toMatchObject({ code: 'permission-denied' });
+    await expect(updateDoc(doc(alice, `user_profiles/${owner}`), { consents_recorded_at: deleteField() })).rejects.toMatchObject({ code: 'permission-denied' });
+    expect((await getDoc(doc(alice, `user_profiles/${owner}`))).data()?.consents_recorded_at).toBe('server-stamped');
   });
   it('denies all client reads and writes of private Plaid connections, including the owner', async () => {
     await seed('plaid_connections/bank-synthetic', { uid: owner, encryptedAccessToken: 'synthetic-ciphertext', cursor: 'cursor' });

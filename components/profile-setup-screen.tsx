@@ -10,6 +10,12 @@ import type { AuthUser } from '@/lib/firebase/auth';
 import { PlaidLinkScreen } from './plaid-link-screen';
 import { DataSourceScreen } from './data-source-screen';
 import { reloadProfileEmail } from '@/lib/onboarding/profile-identity';
+import {
+  buildConsentRecord, clearPendingConsents, hasAcknowledgedRequiredConsents, NO_CONSENTS, readPendingConsents,
+  requiredConsentsAccepted, type ConsentChoices, type ConsentRecord,
+} from '@/lib/onboarding/consents';
+import { CONSENT_SAVE_ERROR, persistConsentRecord } from '@/lib/onboarding/consents-client';
+import { ConsentCheckboxes, NoticeAtCollection } from '@/components/onboarding/consent-checkboxes';
 
 import { missingProfileFields, profileDetailsError, profileWriteData, PROFILE_COMPLETE_SCREEN, type ProfileSetupData as UserProfile } from '@/lib/onboarding/profile';
 
@@ -17,6 +23,8 @@ interface ProfileSetupScreenProps {
   user: AuthUser;
   onBack: () => void;
   onComplete: (profile: UserProfile, redirectTo?: string) => void;
+  /** Consent record already stored on the (partial) profile, if any. */
+  existingConsents?: unknown;
 }
 
 const professions = [
@@ -75,8 +83,32 @@ const workRelatedTravelPatterns = [
   'This does not apply to me'
 ];
 
-export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, onBack, onComplete }) => {
-  const [currentStep, setCurrentStep] = useState<'profile' | 'data-source' | 'plaid'>('profile');
+export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, onBack, onComplete, existingConsents }) => {
+  // Google sign-in skips the sign-up form, so the acknowledgments are collected
+  // here, before any profile answer is saved, unless the profile already has them.
+  const [consentRecord, setConsentRecord] = useState<ConsentRecord | null>(() => hasAcknowledgedRequiredConsents(existingConsents) ? existingConsents : null);
+  const [currentStep, setCurrentStep] = useState<'consents' | 'profile' | 'data-source' | 'plaid'>(consentRecord ? 'profile' : 'consents');
+  const [consentChoices, setConsentChoices] = useState<ConsentChoices>(NO_CONSENTS);
+  const [consentSaving, setConsentSaving] = useState(false);
+  const [consentError, setConsentError] = useState<string | null>(null);
+  const pendingConsentsChecked = useRef(false);
+  useEffect(() => {
+    // Wait for the account email; the stash is bound to it.
+    if (consentRecord || pendingConsentsChecked.current || !user.email?.trim()) return;
+    pendingConsentsChecked.current = true;
+    // Acknowledgments checked on the sign-up form for this same account.
+    const pending = readPendingConsents(user.email);
+    if (!pending) return;
+    let cancelled = false;
+    setConsentChoices({ bank_data: true, ai_review: true, communications: pending.communications });
+    setConsentSaving(true);
+    setConsentError(null);
+    void persistConsentRecord(pending).then(
+      () => { if (cancelled) return; clearPendingConsents(); setConsentRecord(pending); setCurrentStep('profile'); },
+      () => { if (!cancelled) setConsentError(CONSENT_SAVE_ERROR); },
+    ).finally(() => { if (!cancelled) setConsentSaving(false); });
+    return () => { cancelled = true; };
+  }, [consentRecord, user.email]);
   const [currentSlide, setCurrentSlide] = useState<'about' | 'work' | 'business'>('about');
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   useEffect(() => { scrollAreaRef.current?.scrollTo({ top: 0 }); }, [currentSlide]);
@@ -143,10 +175,31 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
     }));
   };
 
+  const handleConsentContinue = async () => {
+    const record = buildConsentRecord(consentChoices, 'profile-setup');
+    if (!record || consentSaving) return;
+    setConsentSaving(true);
+    setConsentError(null);
+    try {
+      await persistConsentRecord(record);
+      clearPendingConsents();
+      setConsentRecord(record);
+      setCurrentStep('profile');
+    } catch {
+      setConsentError(CONSENT_SAVE_ERROR);
+    } finally {
+      setConsentSaving(false);
+    }
+  };
+
   const handleSubmit = async () => {
     if (!isFormValid || submittingRef.current) return;
     if (!user?.id) {
       setError('Your session has expired. Sign in again to save your profile.');
+      return;
+    }
+    if (!consentRecord) {
+      setCurrentStep('consents');
       return;
     }
     submittingRef.current = true;
@@ -169,6 +222,53 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
   const handlePlaidSuccess = () => {
     onComplete(formData, PROFILE_COMPLETE_SCREEN);
   };
+
+  if (currentStep === 'consents') {
+    return (
+      <div className="flex h-dvh min-h-0 flex-col overflow-hidden bg-background">
+        <header className="shrink-0 border-b border-border bg-background">
+          <div className="mx-auto flex max-w-xl items-center justify-between gap-3 px-4 py-2">
+            <button type="button" disabled={consentSaving} aria-label="Back" onClick={onBack} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl hover:bg-muted">
+              <ArrowLeft className="h-4 w-4" />
+            </button>
+            <h1 className="text-base font-semibold">Set up WriteOff</h1>
+            <span className="text-xs text-muted-foreground">Before you start</span>
+          </div>
+        </header>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+          <div className="mx-auto w-full max-w-xl pt-4">
+            <h2 className="text-xl font-semibold">A few acknowledgments first</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Every WriteOff account records these before profile setup. They are saved to your account, and you can review our policies at any time.</p>
+            <NoticeAtCollection className="mt-4" />
+            <div className="mt-4">
+              <ConsentCheckboxes
+                idPrefix="setup"
+                values={consentChoices}
+                disabled={consentSaving}
+                onChange={(key, checked) => setConsentChoices(prev => ({ ...prev, [key]: checked }))}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="shrink-0 border-t border-border bg-background px-4 py-3">
+          <div className="mx-auto max-w-xl">
+            {consentError && <p role="alert" className="mb-2 rounded-lg bg-destructive/10 p-2 text-xs text-destructive">{consentError}</p>}
+            {consentSaving && !consentError && <p role="status" className="mb-2 text-xs text-muted-foreground">Saving your acknowledgments…</p>}
+            <div className="flex items-center justify-between gap-3">
+              <Button type="button" onClick={onBack} disabled={consentSaving} variant="outline" className="min-h-11 rounded-xl px-4">
+                Back
+              </Button>
+              <Button type="button" onClick={handleConsentContinue} disabled={!requiredConsentsAccepted(consentChoices) || consentSaving} className="min-h-11 rounded-xl px-5">
+                {consentSaving ? 'Saving...' : 'Agree and continue'}<ArrowRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (currentStep === 'data-source') {
     return (

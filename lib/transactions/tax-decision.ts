@@ -2,7 +2,8 @@
 export function taxDecisionUpdate(
   record: { category?: unknown; transaction_kind?: unknown; pending?: unknown },
   updates: { is_deductible?: boolean | null },
-): { tax_review_required?: boolean } {
+  now: Date = new Date(),
+): { tax_review_required?: boolean; review_status?: 'confirmed'; review_source?: 'user_decision'; reviewed_at?: string } {
   if (updates.is_deductible === undefined) return {};
   if (updates.is_deductible === null) return { tax_review_required: true };
   if (updates.is_deductible === true && (
@@ -12,5 +13,7 @@ export function taxDecisionUpdate(
   )) {
     throw new Error('This transaction requires tax-method or refund reconciliation before it can be included as a deduction. Save its category and supporting details first.');
   }
-  return { tax_review_required: false };
+  // Confirmed totals only trust is_deductible together with a server-recorded
+  // decision (see lib/transactions/confirmed-deduction.ts), so stamp it here.
+  return { tax_review_required: false, review_status: 'confirmed', review_source: 'user_decision', reviewed_at: now.toISOString() };
 }

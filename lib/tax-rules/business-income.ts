@@ -59,12 +59,16 @@ export function listIncomeSourceCandidates(taxYear: number, transactions: Readon
     candidates.push({ kind: 'gross_receipt', id, amount: cents / 100, label: `Direct income · ${text(receipt.source) || 'Unnamed payer'}`, ...(typeof receipt.date === 'string' ? { date: receipt.date.slice(0, 10) } : {}) });
   }
 
+  // Every NEC/K amount documents receipts whether it stands alone, is linked to its imported
+  // gross receipt, or is reconciled to a bank deposit by an owner decision; never additive.
+  let form1099Cents = 0;
   let linkedForms = 0;
   for (const form of forms) {
     if (form.formType !== '1099-NEC' && form.formType !== '1099-K') {
       throw new IncomeReconciliationRequiredError('Confirm the tax treatment of this 1099. Only business NEC/K income is included automatically; MISC, interest, dividends and securities require separate review.');
     }
     const cents = money(form.amount);
+    form1099Cents += cents;
     const candidate: IncomeSourceCandidate = { kind: 'form_1099', id: recordId(form.id), amount: cents / 100, formType: form.formType, label: `${form.formType} · ${text(form.payerName) || text(form.payer) || 'Unknown payer'}` };
     if (form.grossReceiptId !== undefined) {
       const receiptAmount = typeof form.grossReceiptId === 'string' ? receiptsById.get(form.grossReceiptId) : undefined;
@@ -76,12 +80,14 @@ export function listIncomeSourceCandidates(taxYear: number, transactions: Readon
     }
     candidates.push(candidate);
   }
-  return { candidates, unclassifiedCreditCount, linkedForms };
+  return { candidates, unclassifiedCreditCount, linkedForms, form1099Cents };
 }
 
 export interface BusinessIncomeReconciliation {
   grossReceipts: number;
   source: 'transactions' | 'gross_receipts' | 'income_1099' | 'reconciled' | 'none';
+  /** Receipts documented on NEC/K forms (standalone, linked or reconciled); a subset view, never added to grossReceipts. */
+  form1099Receipts: number;
   linkedDocumentCount: number;
   unclassifiedCreditCount: number;
   reconciledDecisionCount: number;
@@ -98,7 +104,7 @@ export interface BusinessIncomeReconciliation {
  * decision can establish that two records describe the same payments.
  */
 export function reconcileBusinessIncome(taxYear: number, transactions: ReadonlyArray<IncomeRecord>, receipts: ReadonlyArray<IncomeRecord>, forms: ReadonlyArray<IncomeRecord>, decisions: ReadonlyArray<IncomeRecord> = []): BusinessIncomeReconciliation {
-  const { candidates, unclassifiedCreditCount, linkedForms } = listIncomeSourceCandidates(taxYear, transactions, receipts, forms);
+  const { candidates, unclassifiedCreditCount, linkedForms, form1099Cents } = listIncomeSourceCandidates(taxYear, transactions, receipts, forms);
   const resolution = resolveIncomeSources(taxYear, candidates, decisions);
   if (resolution.conflicts.length) {
     throw new IncomeReconciliationRequiredError(resolution.conflicts[0].message, resolution.conflicts);
@@ -115,6 +121,7 @@ export function reconcileBusinessIncome(taxYear: number, transactions: ReadonlyA
     grossReceipts: (resolution.reconciledCents + unclaimedTotal) / 100,
     source: resolution.appliedDecisionIds.length ? 'reconciled'
       : unclaimedCents.transaction > 0 ? 'transactions' : unclaimedCents.gross_receipt > 0 ? 'gross_receipts' : unclaimedCents.form_1099 > 0 ? 'income_1099' : 'none',
+    form1099Receipts: form1099Cents / 100,
     linkedDocumentCount: linkedForms,
     unclassifiedCreditCount,
     reconciledDecisionCount: resolution.appliedDecisionIds.length,

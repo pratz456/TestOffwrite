@@ -4,8 +4,19 @@ import { PDFDocument, PDFPage } from 'pdf-lib';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import type { UserProfile } from '../lib/firebase/profiles-server';
 import type { Asset } from '../lib/reports/calc4562';
-const state = vi.hoisted(() => ({ records: {} as Record<string, Record<string, unknown>[]>, transactions: [] as Record<string, unknown>[], assets: [] as Asset[], fail: '', queries: [] as string[] }));
+import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductions';
+const state = vi.hoisted(() => ({ records: {} as Record<string, Record<string, unknown>[]>, transactions: [] as Record<string, unknown>[], assets: [] as Asset[], fail: '', queries: [] as string[], extraWarnings: [] as string[] }));
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({ user: { uid: 'export-owner' } }) }));
+vi.mock('@/app/api/_lib/auth', () => ({ getUserFromReqOrThrow: async () => ({ uid: 'export-owner' }) }));
+vi.mock('@/lib/firebase/quarterly-payments-server', () => ({ getRecordedQuarterlyPayments: async () => [], totalRecordedPayments: () => 0 }));
+vi.mock('@/lib/tax-rules/compute-1040', async importOriginal => {
+  const actual = await importOriginal<typeof import('../lib/tax-rules/compute-1040')>();
+  return { ...actual, compute1040: (input: Parameters<typeof actual.compute1040>[0], prior?: number) => {
+    const result = actual.compute1040(input, prior);
+    result.calculationWarnings.push(...state.extraWarnings);
+    return result;
+  } };
+});
 vi.mock('@/lib/subscriptions/feature-access', () => ({ requireFeatureAccess: async () => null }));
 vi.mock('@/lib/reports/export-records', async importOriginal => ({ ...await importOriginal<typeof import('@/lib/reports/export-records')>(), readOwnedTransactions: async () => { if (state.fail === 'transactions') throw new Error('private failure'); return state.transactions; } }));
 vi.mock('@/lib/firebase/transactions-server', () => ({ getTransactionsServer: async () => ({ data: state.transactions, error: state.fail === 'transactions' ? new Error('private failure') : null }) }));
@@ -32,6 +43,7 @@ import { generateScheduleSEPDF } from '../lib/reports/scheduleSE';
 import { generateForm4562PDF } from '../lib/reports/form4562';
 import { generateForm8829PDF } from '../lib/reports/form8829';
 import { scheduleCExportLine } from '../lib/schedule-c/export-lines';
+import { POST as form1040 } from '../app/api/tax/form-1040/route';
 const profile = { name: 'Synthetic Taxpayer', filing_status: 'single' } as UserProfile;
 const request = (body: unknown) => new NextRequest('http://localhost/api/tax/schedule-c/export', { method: 'POST', body: JSON.stringify(body) });
 const record = (fields: Record<string, unknown>, taxYear = 2026) => ({ userId: 'export-owner', taxYear, ...fields });
@@ -46,7 +58,7 @@ function inspectText() {
     }
   } };
 }
-beforeEach(() => { vi.restoreAllMocks(); state.records = { gross_receipts: [record({ amount: 100000 })] }; state.transactions = []; state.assets = []; state.fail = ''; state.queries = []; });
+beforeEach(() => { vi.restoreAllMocks(); state.records = { gross_receipts: [record({ amount: 100000 })] }; state.transactions = []; state.assets = []; state.fail = ''; state.queries = []; state.extraWarnings = []; });
 
 describe('Schedule C real PDF and request integrity', () => {
   it.each([2027, 2026.5, '2026junk', '', null])('rejects unsupported/malformed year %s before fetching records', async year => {
@@ -135,6 +147,58 @@ describe('complete bounded asset/home-office PDFs', () => {
   });
 });
 
+
+describe('Form 1040 planning PDF prints its review notes', () => {
+  const request1040 = (year: unknown = 2026) => new NextRequest('http://localhost/api/tax/form-1040', { method: 'POST', body: JSON.stringify({ year }) });
+  // Form pages use a 36pt margin and a 19pt footer line; appendix pages stay inside them.
+  const checkFormBounds = (spy: ReturnType<typeof inspectText>['spy']) => {
+    for (const [text, options] of spy.mock.calls) {
+      expect(options!.y!, text).toBeGreaterThanOrEqual(18); expect(options!.y!, text).toBeLessThanOrEqual(766);
+      expect(options!.x!, text).toBeGreaterThanOrEqual(36);
+      expect(options!.x! + options!.font!.widthOfTextAtSize(text, options!.size!), text).toBeLessThanOrEqual(576.1);
+    }
+  };
+  beforeEach(() => { state.records.tax_organizers = [record(reviewedPersonalDeductionOrganizer())]; });
+
+  it('lists every calculation and completeness warning on the result page and in the appendix', async () => {
+    state.transactions = [{ id: 'inflow', amount: -50, date: '2026-03-01', category: 'unknown', is_deductible: false }];
+    const view = inspectText(); const response = await form1040(request1040());
+    expect(response.status).toBe(200); const bytes = new Uint8Array(await response.arrayBuffer());
+    expect((await PDFDocument.load(bytes)).getPageCount()).toBeGreaterThanOrEqual(3);
+    const text = view.text();
+    // compute1040 planning note + unreviewed Schedule 1-A note + reconciliation inflow warning + SSN + address completeness notes.
+    expect(text).toContain('Review notes (5)');
+    expect(text).toContain('1 posted inflow(s) are excluded from business receipts until classified as income/revenue.');
+    expect(text.match(/SSN not filled in - enter SSN in Tax Organizer/g)).toHaveLength(2); // page 2 block + appendix
+    expect(text.match(/Mailing address incomplete - update in Tax Organizer/g)).toHaveLength(2);
+    expect(text).toContain('5 calculation or completeness note(s) qualify the figures on pages 1-2:');
+    expect(text).not.toContain('Full list continues');
+    expect(text).toContain('Amount you owe (line 24 minus line 33).'); expect(text).toContain('Page 1 of 3'); expect(text).toContain('NOT FOR FILING');
+    checkFormBounds(view.spy); saveArtifact('form-1040-2026-review-notes', bytes);
+  });
+
+  it('keeps a long warning list inside the page and points to the appendix, which prints all of it', async () => {
+    state.extraWarnings = Array.from({ length: 40 }, (_, i) => `SYNTHETIC-WARNING-${String(i).padStart(2, '0')} requires review before this figure is relied on for planning or payment decisions. Emoji check → ok.`);
+    const view = inspectText(); const response = await form1040(request1040());
+    expect(response.status).toBe(200); const bytes = new Uint8Array(await response.arrayBuffer());
+    const text = view.text();
+    expect(text).toContain('Review notes (44)');
+    expect(text).toContain('Full list continues in the review notes appendix (page 3).');
+    for (let i = 0; i < 40; i++) expect(text).toContain(`SYNTHETIC-WARNING-${String(i).padStart(2, '0')}`);
+    expect(text).toContain('[U+2192]'); expect(text).not.toContain('→');
+    expect((await PDFDocument.load(bytes)).getPageCount()).toBeGreaterThan(3);
+    checkFormBounds(view.spy);
+  });
+
+  it('never prints a refund/balance page without its review notes block', async () => {
+    state.records.w2_income = [record({ wages: 100000, federalWithheld: 90000, socialSecurityWages: 100000, medicareWages: 100000 })];
+    const view = inspectText(); expect((await form1040(request1040())).status).toBe(200);
+    const text = view.text();
+    expect(text).toContain('Estimated overpayment - refund election not collected');
+    expect(text).toMatch(/Review notes \(\d+\)/);
+    checkFormBounds(view.spy);
+  });
+});
 
 describe('complete tax-export input validation', () => {
   it.each([{ date: '2026-02-30', amount: 10 }, { date: '2026-02-01', amount: 'unknown' }, { date: '2026-02-01', amount: 10, iso_currency_code: 'EUR' }])('requires review instead of silently dropping malformed records %j', async invalid => {

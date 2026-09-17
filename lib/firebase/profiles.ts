@@ -9,6 +9,7 @@ import {
 import { db } from "./client";
 import { waitForAuth } from "./auth";
 import { makeAuthenticatedRequest } from "./api-client";
+import type { ConsentRecord } from "@/lib/onboarding/consents";
 
 // Admin migration runs before SDK reads: Firestore cannot redact a secret field.
 async function prepareProfileRead() {
@@ -34,6 +35,8 @@ export interface UserProfile {
   year_of_birth?: string;
   created_at?: any;
   updated_at?: any;
+  /** Sign-up acknowledgments, recorded through the profile API before setup. */
+  consents?: ConsentRecord | null;
 
   // Phase 1: High Impact Fields
   itemization_status?: 'itemize' | 'standard';
@@ -144,6 +147,7 @@ export async function getUserProfileSafe(): Promise<{ data: UserProfile | null; 
             onboardingPlaidGuideCompleted: data.onboardingPlaidGuideCompleted,
             created_at: data.created_at,
             updated_at: data.updated_at,
+            consents: data.consents,
 
             // Phase 1: High Impact Fields
             itemization_status: data.itemization_status,
@@ -235,6 +239,7 @@ export async function getUserProfile(userId: string): Promise<{ data: UserProfil
           onboardingPlaidGuideCompleted: data.onboardingPlaidGuideCompleted || false,
           created_at: data.created_at,
           updated_at: data.updated_at,
+          consents: data.consents,
 
           // Phase 1: High Impact Fields
           itemization_status: data.itemization_status,
@@ -382,6 +387,7 @@ export async function upsertUserProfile(
           onboardingPlaidGuideCompleted: data.onboardingPlaidGuideCompleted,
           created_at: data.created_at,
           updated_at: data.updated_at,
+          consents: data.consents,
 
           // Phase 1: High Impact Fields
           itemization_status: data.itemization_status,

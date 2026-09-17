@@ -139,7 +139,7 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
     stateTax: result.stateTax,
     businessTaxNotices: businessTaxNotices({ stateCode: location.state, city: location.city, taxYear }),
     income: {
-      grossReceipts: reconciliation.grossReceipts, w2Wages: w2.wages, scheduleCNetProfit, scheduleCAllowed: result.scheduleCAllowed, totalDeductible, deMinimisExpense, depreciationDeduction,
+      grossReceipts: reconciliation.grossReceipts, income1099: reconciliation.form1099Receipts, w2Wages: w2.wages, scheduleCNetProfit, scheduleCAllowed: result.scheduleCAllowed, totalDeductible, deMinimisExpense, depreciationDeduction,
       scheduleCLine29TentativeProfit: scheduleC.tentativeProfit, homeOfficeDeduction, scheduleCLine31NetProfit,
       otherIncome, otherOrdinaryIncome, interest, dividends,
       capGains, shortTermCapGains: capitalGains.netShortTerm, longTermCapGains: capitalGains.netLongTerm, capitalLossCarryforward: capitalGains.lossCarryforward,

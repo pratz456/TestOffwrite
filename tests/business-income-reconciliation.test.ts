@@ -18,10 +18,14 @@ describe('conservative business-income reconciliation', () => {
     expect(reconcileBusinessIncome(2026, [{ ...income, account_id: 'manual', category: 'INCOME' }], [], []).grossReceipts).toBe(100000);
   });
   it('counts an explicitly linked imported receipt and information return only once', () => {
-    expect(reconcileBusinessIncome(2026, [], [receipt], [linkedForm])).toMatchObject({ grossReceipts: 100000, linkedDocumentCount: 1 });
+    expect(reconcileBusinessIncome(2026, [], [receipt], [linkedForm])).toMatchObject({ grossReceipts: 100000, linkedDocumentCount: 1, form1099Receipts: 100000 });
   });
   it('accepts a standalone business information return', () => {
-    expect(reconcileBusinessIncome(2026, [], [], [{ formType: '1099-NEC', amount: 100000 }]).grossReceipts).toBe(100000);
+    expect(reconcileBusinessIncome(2026, [], [], [{ formType: '1099-NEC', amount: 100000 }])).toMatchObject({ grossReceipts: 100000, source: 'income_1099', form1099Receipts: 100000 });
+  });
+  it('reports zero 1099-documented receipts when income comes only from transactions or receipts', () => {
+    expect(reconcileBusinessIncome(2026, [income], [], []).form1099Receipts).toBe(0);
+    expect(reconcileBusinessIncome(2026, [], [receipt], []).form1099Receipts).toBe(0);
   });
   it.each([
     [[income], [receipt], []],

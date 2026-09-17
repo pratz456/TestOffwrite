@@ -45,6 +45,16 @@ describe('Form1040 API integration', () => {
     expect(state.reads).not.toContain('quarterly_payments');
   });
 
+  it('exposes recorded estimated payments and 1099-documented receipts for the filing hub', async () => {
+    state.collections = { tax_organizers: [reviewedPersonalDeductionOrganizer()], income_1099: [{ formType: '1099-NEC', amount: 42000 }] };
+    const data = await (await GET(request())).json();
+    expect(data.income).toMatchObject({ grossReceipts: 42000, income1099: 42000 });
+    expect(data.payments.estimatedPayments).toBe(750);
+    expect(data.incomeReconciliation).toMatchObject({ source: 'income_1099', form1099Receipts: 42000 });
+    state.collections = { tax_organizers: [reviewedPersonalDeductionOrganizer()], gross_receipts: [{ amount: 42000 }] };
+    expect((await (await GET(request())).json()).income).toMatchObject({ grossReceipts: 42000, income1099: 0 });
+  });
+
   it('applies depreciation before Schedule SE and keeps a zero Box3 from falling back to Box1', async () => {
     state.collections = { tax_organizers: [reviewedPersonalDeductionOrganizer()], gross_receipts: [{ amount: 100000 }], w2_income: [{ box1Wages: 100000, box3SocialSecurityWages: 0, box5MedicareWages: 100000 }] };
     state.depreciation = 20000;
