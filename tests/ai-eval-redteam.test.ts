@@ -258,6 +258,15 @@ describe('red team: schema enforcement through the provider path', () => {
   afterAll(() => vi.unstubAllEnvs());
   beforeEach(() => mocks.create.mockReset());
 
+  it('the system prompt carries the decision rules from the live evaluation ahead of the policy packet', async () => {
+    mocks.create.mockResolvedValueOnce(completion(providerPayload()));
+    expect((await analyzeTransaction(tx, SOLE_PROPRIETOR)).success).toBe(true);
+    const system = (mocks.create.mock.calls[0][0].messages as Array<{ role: string; content: string }>).find(m => m.role === 'system')!.content;
+    expect(system).toContain('DECISION RULES (apply in order)');
+    expect(system.indexOf('DECISION RULES')).toBeLessThan(system.indexOf('TRUSTED SERVER TAX POLICY'));
+    expect(system).toContain('Do not ask whether it is used "exclusively" for business');
+    expect(system).toContain('deductible_percent is a whole number from 0 to 100');
+  });
   it('a key_analysis_factor over 400 characters is invalid output', async () => {
     mocks.create.mockResolvedValueOnce(completion(providerPayload({ key_analysis_factor: 'x'.repeat(401) })));
     expect(await analyzeTransaction(tx, SOLE_PROPRIETOR)).toMatchObject({ success: false, code: 'AI_INVALID_OUTPUT' });

@@ -5,6 +5,7 @@ import { aiLearningEngine } from './learning-engine';
 import { getAIProviderStatus } from './provider-status';
 import { groundTransactionAnalysis, redactTaxIdentifiers, transactionTaxPolicyPrompt, TRANSACTION_EVIDENCE_IDS, TRANSACTION_KINDS, type TransactionTaxMetadata } from './transaction-tax-policy';
 import { taxpayerContextForModel } from './taxpayer-context';
+import { ANALYSIS_DECISION_RULES } from './analysis-decision-rules';
 
 const OutputSchema = z.object({
   status: z.enum(['ok', 'needs_more_info', 'blocked']),
@@ -482,6 +483,8 @@ TRAVEL AND LODGING:
 - Within the existing maximum of three questions, prioritize only missing facts: (1) the business purpose, usual work area and whether work required the stay and sleep/rest away from it; (2) the travel dates and which dates or nights were business versus personal; (3) an itemized hotel bill separating lodging, meals and other charges. Request the invoice and business-activity record as documentation. Do not repeat facts already supplied or treat personal nights or meals as lodging.
 - Named clients or meetings are examples of business context, not mandatory for every trip; another documented business activity can explain the purpose. Keep the explanation to the existing 2–3 short sentences and a concrete next step. These questions gather facts; answering them does not itself approve a deduction or bypass the travel-policy review.
 A missing uploaded receipt is a recordkeeping reminder, not by itself proof that the purchase category or the user's stated business purpose is unknown. Ask questions only for material missing facts, not facts already provided. If the user explicitly cannot substantiate the expense, preserve categorization and request the needed tax records.
+
+${ANALYSIS_DECISION_RULES}
 
 ${transactionTaxPolicyPrompt(transaction)}`;
 

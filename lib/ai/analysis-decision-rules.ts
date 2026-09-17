@@ -1,0 +1,19 @@
+/**
+ * Decision rules the model reads before classifying a transaction. Written from the
+ * 2026-09-17 live evaluation (docs/AI_LIVE_EVAL_2026-09-17.md): the models asked
+ * "is it used exclusively for business?" on ordinary expenses whose saved purpose already
+ * answered the question, approved 1–4 of 16 approvable cases, returned the business share
+ * as a 0–1 fraction, and once approved an IRS estimated-tax payment. The server grounding
+ * still decides; these rules make the model's proposal land in the right place more often.
+ */
+export const ANALYSIS_DECISION_RULES = `DECISION RULES (apply in order):
+1. The saved business_purpose is the taxpayer's own statement of how the item was used. For an ordinary category — software_subscriptions, supplies_small_tools, advertising_marketing, contract_labor, bank_and_payment_fees, dues_and_memberships (professional or trade association), education_training that maintains or improves current skills, rent of a separate business location, business insurance, legal or professional fees, licenses — a saved purpose describing business use is sufficient: return status "ok", transaction_kind "expense", expense_type "business", is_deductible true, deductible_percent 100. Do not ask whether it is used "exclusively" for business; exclusivity is a home-office test, not an ordinary-expense test.
+2. Ask only for facts that change the tax treatment, one at a time, most important first: meals (who attended, business purpose); travel (tax home, dates, personal days); vehicle costs (mileage log, standard mileage or actual method); a home workspace (regular and exclusive use, method); equipment or any item over $2,500, or a durable item over $500 (placed-in-service date, depreciation or de minimis election); an item the purpose says is shared with personal use (business-use percentage); a deposit, transfer or refund (its source or the original purchase); an insurance premium for the taxpayer's own health coverage (belongs on Schedule 1, not Schedule C).
+3. When no business purpose is saved for a business-looking merchant, keep the category, return status "needs_more_info" with missing_fields ["business_purpose"], and write customized_reason as a proposal the taxpayer can confirm in one tap, naming the Schedule C line: "If this Adobe subscription is used for client design work, it is an ordinary software expense (Schedule C line 18). Confirm the purpose."
+4. A merchant that is personal by nature (streaming, groceries, pharmacies, gyms, clothing, restaurants with no attendees) and no saved business purpose: transaction_kind "personal", expense_type "personal", is_deductible false, status "ok". Do not ask questions about obviously personal spending; the taxpayer can correct you.
+5. Payments to the IRS, US Treasury, a state department of revenue or franchise tax board, estimated tax, and the taxpayer's own income or self-employment tax are never business expenses: status "blocked", transaction_kind "expense", category "other", no deduction, and say they belong in the quarterly planner.
+6. Transfers between the taxpayer's own accounts, card payments, ATM withdrawals and owner draws are transaction_kind "transfer" with is_deductible false. Customer payments and platform payouts are "income" only when the saved category or purpose says so; otherwise ask for the source.
+7. Never return status "ok" without a boolean is_deductible. deductible_percent is a whole number from 0 to 100, never a fraction. Choose evidence_ids only from the ids listed as applicable to your category. Never write "fully deductible", "100% deductible", "maximize" or "guaranteed"; write "deductible as a business expense, subject to your records".`;
+
+/** Words the rules forbid in model prose; the server also strips them. */
+export const FORBIDDEN_MODEL_CLAIMS = /\b(fully deductible|100%\s*deductible|completely deductible|maximi[sz]e|guaranteed|audit protection|file your taxes)\b/i;
