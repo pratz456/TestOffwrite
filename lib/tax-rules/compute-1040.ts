@@ -147,6 +147,45 @@ export interface Form1040Result {
   stateTaxNote?: string;                 // Informational note about state tax
 }
 
+/**
+ * §162(l)(2)(A) / Form 7206 line 13: the self-employed health insurance deduction
+ * cannot exceed the business's net profit (after depreciation) less the deductible
+ * half of SE tax and self-employed retirement contributions. Shared with the
+ * Pub 915 Social Security worksheet so both use the same allowed amount.
+ */
+export function limitSelfEmployedHealthInsurance(premiums: number, businessNetProfit: number, halfSEDeduction: number, retirementContributions: number): number {
+  const limit = Math.max(0, businessNetProfit - Math.max(0, halfSEDeduction) - Math.max(0, retirementContributions));
+  return Math.min(Math.max(0, premiums), limit);
+}
+
+/**
+ * §223(b): the HSA deduction cannot exceed the annual limit for the account holder's
+ * HDHP coverage plus a $1,000 catch-up per spouse age 55+. Coverage type, eligibility
+ * months and age are not collected, so the deduction is capped at the highest ceiling
+ * (family coverage with catch-up; two catch-ups only on a joint return) and the
+ * caller is told when a smaller limit may apply.
+ */
+export function limitHSADeduction(taxYear: number, filingStatus: Form1040Input['filingStatus'], contribution: number): { deduction: number; ceiling: number; selfOnlyCeiling: number } {
+  const limit = getFederalTaxRules(taxYear).hsaContributionLimit;
+  const catchUps = filingStatus === 'married_filing_jointly' ? 2 : 1;
+  const ceiling = limit.family + limit.catchUp * catchUps;
+  const selfOnlyCeiling = limit.selfOnly + limit.catchUp;
+  return { deduction: Math.min(Math.max(0, contribution), ceiling), ceiling, selfOnlyCeiling };
+}
+
+/**
+ * Itemized charitable contributions: the §170(b)(1) ceiling is 60% of AGI (cash to
+ * public charities; lower 50%/30% limits apply to other gifts) and, for tax years after
+ * 2025, §170(b)(1)(I) first reduces contributions by 0.5% of AGI. Amounts disallowed
+ * carry forward five years and are not tracked here.
+ */
+export function limitItemizedCharitable(taxYear: number, agi: number, donations: number): { deduction: number; floor: number; ceiling: number } {
+  const gifts = Math.max(0, donations);
+  const floor = taxYear >= 2026 ? Math.round(agi * 0.005 * 100) / 100 : 0;
+  const ceiling = Math.round(agi * 0.60 * 100) / 100;
+  return { deduction: Math.min(Math.max(0, gifts - floor), ceiling), floor, ceiling };
+}
+
 export function compute1040(input: Form1040Input, priorYearTax?: number): Form1040Result {
   const {
     taxYear,
@@ -192,11 +231,17 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
   // §162(l)(2)(A): the self-employed health insurance deduction cannot exceed the
   // business's earned income after the deductible half of SE tax and retirement
   // contributions (Form 7206 limit). Employer-plan eligibility months are not modeled.
-  const retirementContributions = sepIraContribution + solo401kContribution + simpleIraContribution;
-  const healthInsuranceLimit = Math.max(0, adjustedScheduleC - halfSEDeduction - retirementContributions);
-  const healthInsuranceDeduction = Math.min(Math.max(0, healthInsurancePremiums), healthInsuranceLimit);
+  const retirementContributions = Math.max(0, sepIraContribution) + Math.max(0, solo401kContribution) + Math.max(0, simpleIraContribution);
+  const healthInsuranceDeduction = limitSelfEmployedHealthInsurance(healthInsurancePremiums, adjustedScheduleC, halfSEDeduction, retirementContributions);
   if (healthInsurancePremiums > healthInsuranceDeduction) {
     calculationWarnings.push('The self-employed health insurance deduction is limited to business earned income after the SE-tax and retirement deductions; the excess is not applied here and may only be usable as an itemized medical expense.');
+  }
+  // §223(b): HSA deduction capped at the highest possible annual limit (Form 8889 line 13).
+  const hsa = limitHSADeduction(taxYear, filingStatus, hsaContribution);
+  if (hsaContribution > hsa.deduction) {
+    calculationWarnings.push(`The HSA deduction is limited to $${hsa.ceiling.toLocaleString('en-US')} for ${taxYear} (family coverage plus the age-55 catch-up${filingStatus === 'married_filing_jointly' ? ' for each spouse' : ''}); the excess is not deductible and may be subject to the 6% excess-contribution tax (Form 5329).`);
+  } else if (hsa.deduction > hsa.selfOnlyCeiling) {
+    calculationWarnings.push(`An HSA deduction above $${hsa.selfOnlyCeiling.toLocaleString('en-US')} requires family HDHP coverage for the full year; confirm coverage type and eligibility months on Form 8889 before relying on it.`);
   }
   // §221(b)(1) caps student loan interest at $2,500; §221(e)(2) denies it to married filing separately.
   // The income phaseout is not modeled and is flagged for review when any amount is claimed.
@@ -212,7 +257,7 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
     halfSEDeduction +
     healthInsuranceDeduction +
     retirementContributions +
-    hsaContribution +
+    hsa.deduction +
     studentLoanInterestDeduction
   );
 
@@ -232,12 +277,27 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
   const enhancedSeniorDeduction = personalDeductions?.senior.deduction ?? 0;
   // itemizedInput excludes the separately supplied charitable donations and personal SALT.
   const saltLimit = calculateSALTLimit(taxYear, filingStatus, input.saltModifiedAGI ?? agi);
+  const charitable = limitItemizedCharitable(taxYear, agi, input.charitableDonations || 0);
+  if ((input.charitableDonations || 0) > charitable.deduction) {
+    calculationWarnings.push(taxYear >= 2026
+      ? `Itemized charitable contributions are reduced by 0.5% of AGI ($${charitable.floor.toLocaleString('en-US')}) for ${taxYear} and cannot exceed 60% of AGI; disallowed amounts carry forward up to five years (Pub 526).`
+      : 'Itemized charitable contributions cannot exceed 60% of AGI (lower 50%/30% limits apply to non-cash gifts); the excess carries forward up to five years (Pub 526).');
+  } else if (charitable.deduction > 0.30 * agi) {
+    calculationWarnings.push('Charitable contributions above 30% of AGI are deductible in full only for cash gifts to public charities; non-cash and capital-gain property gifts have lower limits (Pub 526).');
+  }
   const itemizedDeductions = (itemizedInput ?? 0)
-    + (input.charitableDonations || 0)
+    + charitable.deduction
     + Math.min(Math.max(0, input.saltDeduction ?? 0), saltLimit);
   const usingStandardDeduction = personalDeductions?.standard.standardDeductionAllowed !== false && standardDeduction >= itemizedDeductions;
   const deductionUsed = Math.max(standardDeduction, itemizedDeductions);
   if (personalDeductions?.standard.reason) calculationWarnings.push(personalDeductions.standard.reason);
+  // §68 (P.L. 119-21 §70111): from 2026, itemized deductions are reduced by 2/37 of the lesser of the
+  // deductions or taxable income (plus those deductions) above the 37% bracket start. The IRS worksheet
+  // is not published yet, so the reduction is flagged rather than computed.
+  const topBracketStart = yearRules.brackets[filingStatus][yearRules.brackets[filingStatus].length - 1].min;
+  if (taxYear >= 2026 && !usingStandardDeduction && agi - enhancedSeniorDeduction > topBracketStart) {
+    calculationWarnings.push(`Taxable income before itemized deductions exceeds the 37% bracket start ($${topBracketStart.toLocaleString('en-US')}); section 68 reduces itemized deductions by 2/37 of the amount in that bracket for ${taxYear}. That reduction is not included in this estimate.`);
+  }
 
   // ── Step 4b: Schedule 1-A Parts II–IV and §170(p) (below AGI, before the Form 8995 cap) ──
   const obbbaDeductions = input.personalDeductionOrganizer === undefined ? undefined : calculateOBBBADeductions({

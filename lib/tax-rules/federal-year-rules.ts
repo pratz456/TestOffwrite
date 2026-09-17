@@ -37,6 +37,12 @@ interface FederalTaxRules {
   qbiThreshold: Record<FederalFilingStatus, number>;
   qbiPhaseInWidth: number;
   /**
+   * §223(b)(2) annual HSA deduction limits for self-only and family HDHP coverage
+   * (published each spring) and the §223(b)(3) $1,000 catch-up for account holders
+   * age 55+, which is fixed by statute and not indexed.
+   */
+  hsaContributionLimit: { selfOnly: number; family: number; catchUp: number };
+  /**
    * §461(l)(3) excess business loss threshold: base amount, doubled for joint returns
    * (married filing separately and head of household use the base amount).
    * Made permanent by P.L. 119-21 §70601. Annual amounts below are the published figures.
@@ -94,6 +100,8 @@ const rules: Record<SupportedTaxYear, FederalTaxRules> = {
     },
     saltCap: 10000, saltPhaseoutStart: Infinity,
     qbiThreshold: filingAmounts(191950, 383900, 191950, 191950), qbiPhaseInWidth: 50000,
+    // Rev. Proc. 2023-23 §2: $4,150 self-only, $8,300 family. https://www.irs.gov/pub/irs-drop/rp-23-23.pdf
+    hsaContributionLimit: { selfOnly: 4150, family: 8300, catchUp: 1000 },
     // Instructions for Form 461 (2024): $305,000 ($610,000 joint). https://www.irs.gov/instructions/i461
     excessBusinessLossThreshold: filingAmounts(305000, 610000, 305000, 305000),
   },
@@ -119,6 +127,8 @@ const rules: Record<SupportedTaxYear, FederalTaxRules> = {
     },
     saltCap: 40000, saltPhaseoutStart: 500000,
     qbiThreshold: filingAmounts(197300, 394600, 197300, 197300), qbiPhaseInWidth: 50000,
+    // Rev. Proc. 2024-25 §2: $4,300 self-only, $8,550 family. https://www.irs.gov/pub/irs-drop/rp-24-25.pdf
+    hsaContributionLimit: { selfOnly: 4300, family: 8550, catchUp: 1000 },
     // Rev. Proc. 2024-40 §2.32: $313,000 ($626,000 joint); Instructions for Form 461 (2025).
     excessBusinessLossThreshold: filingAmounts(313000, 626000, 313000, 313000),
   },
@@ -143,6 +153,8 @@ const rules: Record<SupportedTaxYear, FederalTaxRules> = {
     },
     saltCap: 40400, saltPhaseoutStart: 505000,
     qbiThreshold: filingAmounts(201750, 403500, 201775, 201750), qbiPhaseInWidth: 75000,
+    // Rev. Proc. 2025-19 §2: $4,400 self-only, $8,750 family. https://www.irs.gov/pub/irs-drop/rp-25-19.pdf
+    hsaContributionLimit: { selfOnly: 4400, family: 8750, catchUp: 1000 },
     // Rev. Proc. 2025-32 §4.31: $256,000 ($512,000 joint) after the P.L. 119-21 §70601 re-based indexing.
     excessBusinessLossThreshold: filingAmounts(256000, 512000, 256000, 256000),
   },

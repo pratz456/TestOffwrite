@@ -1,7 +1,7 @@
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { calc4562, type Asset } from '@/lib/reports/calc4562';
 import { calcScheduleSE } from '@/lib/reports/calcSE';
-import { compute1040 } from './compute-1040';
+import { compute1040, limitHSADeduction, limitSelfEmployedHealthInsurance } from './compute-1040';
 import { reconcileBusinessIncome, type IncomeRecord } from './business-income';
 import { summarizeW2Income } from './w2-income';
 import { normalizeFilingStatus } from './filing-status';
@@ -87,12 +87,17 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
   const nonBenefitOtherIncome = interest + dividends + capGains + iraDist + rental + otherOrdinaryIncome;
   if (benefitFacts) {
     const livedApart = org.socialSecurityLivedApartAllYear;
+    // Pub 915 Worksheet 1 line 7 takes the Schedule 1 adjustments as allowed on the return, so the
+    // §162(l) and §223(b) limits applied by compute1040 are applied here too (the business-loss gate
+    // above guarantees the net profit used for the §162(l) limit is the allowed amount).
+    const retirementContributions = Math.max(0, sepIraContribution) + Math.max(0, solo401kContribution) + Math.max(0, simpleIraContribution);
     socialSecurityWorksheet = calculateSocialSecurityWorksheet({
       taxYear, filingStatus, ...benefitFacts,
       otherIncome: scheduleCNetProfit - depreciationDeduction + w2.wages + nonBenefitOtherIncome,
       // Pub915 line7 excludes student-loan interest (Schedule1 line21).
-      allowedAdjustments: seCalc.halfSEDeduction + healthInsurancePremiums + sepIraContribution
-        + solo401kContribution + simpleIraContribution + hsaContribution,
+      allowedAdjustments: seCalc.halfSEDeduction
+        + limitSelfEmployedHealthInsurance(healthInsurancePremiums, scheduleCNetProfit - depreciationDeduction, seCalc.halfSEDeduction, retirementContributions)
+        + retirementContributions + limitHSADeduction(taxYear, filingStatus, hsaContribution).deduction,
       livedApartAllYear: livedApart === 'yes',
     });
   }
@@ -107,8 +112,10 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
     w2FederalWithheld, socialSecurityFederalWithheld, estimatedPayments: input.estimatedPayments,
     selfEmploymentTax: seCalc.totalSETax, halfSEDeduction: seCalc.halfSEDeduction,
     otherIncome, numDependents: 0, numEITCChildren: 0,
-    // Pub 596: EITC investment income includes the positive Form 1040 line 7 amount.
-    investmentIncome: interest + dividends + Math.max(0, capGains),
+    // Pub 596 Rule 6: investment income is taxable and tax-exempt interest, dividends, the positive
+    // Form 1040 line 7 capital gain amount and positive net rental income (royalties and passive
+    // activities are not collected).
+    investmentIncome: interest + (benefitFacts?.taxExemptInterest ?? 0) + dividends + Math.max(0, capGains) + Math.max(0, rental),
     longTermCapGains: capitalGains.preferentialLongTermGain, shortTermCapGains: capitalGains.ordinaryShortTermGain,
     healthInsurancePremiums, sepIraContribution, solo401kContribution, simpleIraContribution, hsaContribution, studentLoanInterest,
     charitableDonations: amount(ded.charitableCashDonations) + amount(ded.charitableNonCashDonations), depreciationDeduction,
