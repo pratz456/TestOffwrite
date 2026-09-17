@@ -11,6 +11,7 @@ import { useAiAvailability } from '@/lib/hooks/use-ai-availability';
 import { transactionNeedsCategoryReview, transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 import { REVIEW_CATEGORIES, canConfirmSuggestion, reviewCategory, type TransactionKind } from '@/lib/transactions/ai-review-contract';
 import { reviewPresentation, transactionReviewKey } from '@/lib/transactions/review-presentation';
+import { formatTransactionDate } from '@/lib/transactions/calendar-date';
 
 interface ReviewTransactionsScreenProps {
   user: { id: string; email?: string; user_metadata?: { name?: string } };
@@ -273,7 +274,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
           onTouchCancel={() => { touchStart.current = null; setTouchOffset(0); }}>
           <div className="space-y-3 p-3 sm:p-4">
             <div className="flex justify-between gap-3">
-              <div className="min-w-0"><h2 className="break-words text-lg font-semibold leading-snug">{current.merchant_name || 'Transaction'}</h2><p className="mt-0.5 text-xs text-muted-foreground">{current.date}{current.pending ? ' · Bank pending' : ''}</p></div>
+              <div className="min-w-0"><h2 className="break-words text-lg font-semibold leading-snug">{current.merchant_name || 'Transaction'}</h2><p className="mt-0.5 text-xs text-muted-foreground">{formatTransactionDate(current.date, 'en-US', { month: 'short', day: 'numeric', year: 'numeric' })}{current.pending ? ' · Bank pending' : ''}</p></div>
               <div className="shrink-0 text-right"><p className="text-xl font-semibold tabular-nums">{Number.isFinite(current.amount) ? `$${Math.abs(current.amount).toFixed(2)}` : 'Amount needs review'}</p><p className="text-xs text-muted-foreground">{current.amount < 0 ? 'Received' : 'Spent'}</p></div>
             </div>
 

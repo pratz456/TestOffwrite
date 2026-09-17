@@ -33,6 +33,18 @@ function serverReview(transaction = base()) { return Response.json({ success: tr
 beforeEach(() => { harness.slots = []; harness.cursor = 0; records = [base()]; harness.availability = 'configured'; vi.clearAllMocks(); harness.refresh.mockResolvedValue(true); });
 
 describe('AI category swipe review', () => {
+  it.each([
+    ['2026-09-12T00:00:00.000Z', 'Sep 12, 2026'],
+    ['2026-01-01T00:00:00+14:00', 'Jan 1, 2026'],
+    ['2026-09-12', 'Sep 12, 2026'],
+  ])('shows the stored calendar day for %s without timestamp clutter', (date, expected) => {
+    records = [base({ date })];
+    const view = page();
+    expect(text(view)).toContain(expected);
+    expect(text(view)).not.toContain(date);
+    expect(records[0].date).toBe(date);
+  });
+
   it('shows actual reasoning, tax year, official sources and records without fabricated service promises', () => {
     const view = page();
     expect(text(view)).toContain(suggestion.reasoning);
