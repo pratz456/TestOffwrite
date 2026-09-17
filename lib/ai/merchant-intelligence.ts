@@ -30,8 +30,12 @@ export const MERCHANT_DISPOSITIONS = [
   'schedule_1',
 ] as const;
 export type MerchantDisposition = typeof MERCHANT_DISPOSITIONS[number];
-/** Optional finer hint the grounding layer uses to pick a targeted question. */
-export type MerchantSubtype = 'local_transport' | 'fuel' | 'parking_tolls' | 'tax_prep' | 'auto_insurance' | 'clothing' | 'gift' | 'processor';
+/** Finer merchant signal the grounding layer and profession priors use to pick a targeted question. */
+export type MerchantSubtype =
+  | 'local_transport' | 'fuel' | 'parking_tolls' | 'auto_service' | 'auto_insurance' | 'rental_car' | 'travel_air' | 'travel_lodging'
+  | 'meal' | 'groceries' | 'streaming' | 'gym' | 'beauty' | 'clothing' | 'sporting_goods' | 'health_premium'
+  | 'electronics' | 'hardware' | 'general_merchandise' | 'software' | 'phone_internet' | 'home_utility' | 'rent' | 'coworking'
+  | 'education' | 'legal' | 'tax_prep' | 'insurance' | 'gift' | 'postage' | 'processor';
 
 export interface MerchantIntelligenceEntry {
   pattern: RegExp;
@@ -51,7 +55,7 @@ export interface MerchantIntelligenceEntry {
 type Detail = Pick<MerchantIntelligenceEntry, 'defaultPurpose' | 'question' | 'notes' | 'subtype'>;
 const entry = (pattern: RegExp, name: string, category: ExpenseCategory | null, scheduleCLine: string | null,
   disposition: MerchantDisposition, detail: Detail = {}): MerchantIntelligenceEntry =>
-  ({ pattern, name, category, scheduleCLine, disposition, ...detail });
+  ({ pattern, name, category, scheduleCLine, disposition, ...detail, subtype: detail.subtype ?? inferSubtype(detail.question) });
 
 // --- Question templates shared by many merchants (no tax conclusions, one fact each) -------------
 const Q = {
@@ -112,6 +116,25 @@ const Q = {
   wages: 'W-2 wages, pensions, unemployment and tax refunds are not Schedule C income. Confirm this deposit is not a customer payment.',
   otherIncome: 'Was this deposit a customer payment for your business, or other non-business income?',
 };
+/** Shared templates imply the merchant signal; entries with a bespoke question set `subtype` explicitly when it matters. */
+const SUBTYPE_BY_QUESTION = new Map<string, MerchantSubtype>([
+  [Q.meal, 'meal'], [Q.fuel, 'fuel'], [Q.convenience, 'fuel'], [Q.localRide, 'local_transport'], [Q.parking, 'parking_tolls'],
+  [Q.airfare, 'travel_air'], [Q.lodging, 'travel_lodging'], [Q.rentalCar, 'rental_car'], [Q.streaming, 'streaming'],
+  [Q.groceries, 'groceries'], [Q.clothing, 'clothing'], [Q.gym, 'gym'], [Q.beauty, 'beauty'], [Q.sportingGoods, 'sporting_goods'],
+  [Q.healthPremium, 'health_premium'], [Q.autoInsurance, 'auto_insurance'], [Q.insurance, 'insurance'], [Q.taxPrep, 'tax_prep'],
+  [Q.legal, 'legal'], [Q.education, 'education'], [Q.gift, 'gift'], [Q.hardware, 'hardware'], [Q.electronics, 'electronics'],
+  [Q.furniture, 'general_merchandise'], [Q.homeUtility, 'home_utility'], [Q.rent, 'rent'], [Q.postage, 'postage'],
+  [Q.processor, 'processor'], [Q.marketplacePayout, 'processor'],
+]);
+function inferSubtype(question: string | undefined): MerchantSubtype | undefined {
+  if (!question) return undefined;
+  const known = SUBTYPE_BY_QUESTION.get(question);
+  if (known) return known;
+  if (question.startsWith('What percentage of this ')) return 'phone_internet';
+  if (/^Is this .* plan used in your business/.test(question)) return 'software';
+  if (question.startsWith('What did you buy at ')) return 'general_merchandise';
+  return undefined;
+}
 
 // --- Merchant table. Order matters: specific patterns before generic ones; first match wins. ------
 // Section order: payment apps that carry a payee's name → brand patterns → generic keywords → processor prefixes.
@@ -258,7 +281,7 @@ export const MERCHANT_INTELLIGENCE: readonly MerchantIntelligenceEntry[] = [
   entry(/\bspeedway\b|\bsunoco\b|\barco\b|\bvalero\b|\bcitgo\b|\bphillips\s*66\b|\bconoco\b|\bmarathon\s*(?:petro|gas|oil|#|\d)|\bsinclair\b|\bracetrac\b|\bquiktrip\b|\bqt\s*\d/i, 'Gas station', 'vehicle_expense', '9', 'needs_purpose', { question: Q.fuel, subtype: 'fuel' }),
   entry(/\bpilot\s*(?:travel|flying|fj|#|\d)|\blove'?s\s*(?:travel|country|#|\d)|\btravelcenters\b|\bta\s*petro\b|\bta\s*#\s*\d/i, 'Truck stop', 'vehicle_expense', '9', 'business_likely', { defaultPurpose: 'Diesel fuel and truck stop costs for the trucking business', subtype: 'fuel', notes: 'Owner-operators of heavy trucks generally must use actual expenses, not standard mileage.' }),
   entry(/\bwawa\b|\bcircle\s*k\b|\b7-?\s?eleven\b|\bsheetz\b|\bcasey'?s\b|\bkwik\s*trip\b/i, 'Convenience store / fuel', 'vehicle_expense', '9', 'needs_purpose', { question: Q.convenience, subtype: 'fuel' }),
-  entry(/\bjiffy\s*lube\b|\bvalvoline\b|\bpep\s*boys\b|\bautozone\b|\bo'?reilly\s*auto\b|\badvance\s*auto\b|\bfirestone\b|\bdiscount\s*tire\b|\bcar\s*wash\b/i, 'Auto service / parts', 'vehicle_expense', '9', 'needs_purpose', { question: 'Is this vehicle used for business, what share of its miles are business, and do you use actual expenses (repairs and parts count) or the standard mileage rate (they are already included)?' }),
+  entry(/\bjiffy\s*lube\b|\bvalvoline\b|\bpep\s*boys\b|\bautozone\b|\bo'?reilly\s*auto\b|\badvance\s*auto\b|\bfirestone\b|\bdiscount\s*tire\b|\bcar\s*wash\b/i, 'Auto service / parts', 'vehicle_expense', '9', 'needs_purpose', { question: 'Is this vehicle used for business, what share of its miles are business, and do you use actual expenses (repairs and parts count) or the standard mileage rate (they are already included)?', subtype: 'auto_service' }),
   entry(/\bgeico\b/i, 'GEICO', 'vehicle_expense', '9', 'needs_purpose', { question: Q.autoInsurance, subtype: 'auto_insurance' }),
   entry(/\bprogressive\s*(?:ins|insurance|casualty|\*|$)/i, 'Progressive Insurance', 'vehicle_expense', '9', 'needs_purpose', { question: Q.autoInsurance, subtype: 'auto_insurance' }),
   entry(/\bmercury\s*(?:ins|insurance|general)\b|\broot\s*insurance\b|\blemonade\s*ins/i, 'Auto insurer', 'vehicle_expense', '9', 'needs_purpose', { question: Q.autoInsurance, subtype: 'auto_insurance' }),
@@ -269,10 +292,10 @@ export const MERCHANT_INTELLIGENCE: readonly MerchantIntelligenceEntry[] = [
   // Office, supplies, hardware and general merchandise (Schedule C line 22 / asset review) --------
   entry(/\bstaples\b/i, 'Staples', 'supplies_small_tools', '22', 'needs_purpose', { question: Q.item('Staples') }),
   entry(/\boffice\s*depot\b|\bofficemax\b|\boffice\s*max\b/i, 'Office Depot / OfficeMax', 'supplies_small_tools', '22', 'needs_purpose', { question: Q.item('Office Depot') }),
-  entry(/\bamazon\s*prime\b|\bprime\s*video\b|\bamzn\s*prime\b/i, 'Amazon Prime', 'software_subscriptions', '18', 'mixed_use', { question: 'Amazon Prime is a household membership unless it is used mainly for business shipping and purchases. What share is business?' }),
-  entry(/\bamazon\b|\bamzn\b/i, 'Amazon', 'supplies_small_tools', '22', 'needs_purpose', { question: 'What did you order from Amazon, and how is it used in your business? Household items are personal; durable items over $2,500 need asset review.' }),
+  entry(/\bamazon\s*prime\b|\bprime\s*video\b|\bamzn\s*prime\b/i, 'Amazon Prime', 'software_subscriptions', '18', 'mixed_use', { question: 'Amazon Prime is a household membership unless it is used mainly for business shipping and purchases. What share is business?', subtype: 'software' }),
+  entry(/\bamazon\b|\bamzn\b/i, 'Amazon', 'supplies_small_tools', '22', 'needs_purpose', { question: 'What did you order from Amazon, and how is it used in your business? Household items are personal; durable items over $2,500 need asset review.', subtype: 'general_merchandise' }),
   entry(/\bbest\s*buy\b/i, 'Best Buy', 'equipment', '13', 'needs_purpose', { question: Q.electronics }),
-  entry(/\bapple\.com\/bill\b|\bapple\s*\.?com\s*bill\b|\bitunes\b|\bapple\s*services\b/i, 'Apple services (iCloud/apps)', 'software_subscriptions', '18', 'mixed_use', { question: 'Apple.com/bill covers iCloud, apps, music and TV. Which subscription is this, and what share is business use?' }),
+  entry(/\bapple\.com\/bill\b|\bapple\s*\.?com\s*bill\b|\bitunes\b|\bapple\s*services\b/i, 'Apple services (iCloud/apps)', 'software_subscriptions', '18', 'mixed_use', { question: 'Apple.com/bill covers iCloud, apps, music and TV. Which subscription is this, and what share is business use?', subtype: 'software' }),
   entry(/\bapple\s*store\b|\bapple\.com\b|\bapple\s*retail\b/i, 'Apple Store', 'equipment', '13', 'needs_purpose', { question: Q.electronics }),
   entry(/\bb\s*&\s*h\s*(?:photo|foto)?\b|\bbhphoto\b/i, 'B&H Photo Video', 'equipment', '13', 'needs_purpose', { question: Q.electronics }),
   entry(/\badorama\b|\bkeh\s*camera\b|\bmpb\.com\b|\bmpb\b/i, 'Camera retailer', 'equipment', '13', 'needs_purpose', { question: Q.electronics }),
@@ -283,7 +306,7 @@ export const MERCHANT_INTELLIGENCE: readonly MerchantIntelligenceEntry[] = [
   entry(/\bharbor\s*freight\b|\bace\s*hardware\b|\bmenards\b|\btrue\s*value\b/i, 'Hardware store', 'supplies_small_tools', '22', 'needs_purpose', { question: Q.hardware }),
   entry(/\bferguson\b|\bsiteone\b|\bgrainger\b|\bzoro\b|\bfastenal\b/i, 'Trade supplier', 'supplies_small_tools', '22', 'business_likely', { defaultPurpose: 'Materials and supplies for client jobs' }),
   entry(/\bikea\b/i, 'IKEA', 'supplies_small_tools', '22', 'needs_purpose', { question: Q.furniture }),
-  entry(/\bcostco\b/i, 'Costco', 'supplies_small_tools', '22', 'needs_purpose', { question: 'What did you buy at Costco, and how much of it is for the business? A household run is personal, and the membership itself is mixed use.' }),
+  entry(/\bcostco\b/i, 'Costco', 'supplies_small_tools', '22', 'needs_purpose', { question: 'What did you buy at Costco, and how much of it is for the business? A household run is personal, and the membership itself is mixed use.', subtype: 'general_merchandise' }),
   entry(/\bsam'?s\s*club\b/i, "Sam's Club", 'supplies_small_tools', '22', 'needs_purpose', { question: Q.item("Sam's Club") }),
   entry(/\btarget\b/i, 'Target', 'supplies_small_tools', '22', 'needs_purpose', { question: Q.item('Target') }),
   entry(/\bwal-?mart\b|\bwm\s*supercenter\b|\bwalmart\b/i, 'Walmart', 'supplies_small_tools', '22', 'needs_purpose', { question: Q.item('Walmart') }),
@@ -315,12 +338,12 @@ export const MERCHANT_INTELLIGENCE: readonly MerchantIntelligenceEntry[] = [
   entry(/\bpg&e\b|\bpacific\s*gas\b|\bcon\s*ed(?:ison)?\b|\bduke\s*energy\b|\bsouthern\s*california\s*edison\b|\bsce\b|\bnational\s*grid\b|\bxcel\s*energy\b|\bdominion\s*energy\b|\bfpl\b|\bgeorgia\s*power\b|\bcomed\b|\bpse&g\b|\bdte\s*energy\b|\bameren\b|\bentergy\b|\bwater\s*(?:dept|district|utility|bill)\b|\bwaste\s*management\b/i, 'Utility company', 'utilities_phone_internet', '25', 'needs_purpose', { question: Q.homeUtility }),
 
   // Coworking and rent (Schedule C line 20b) -------------------------------------------------------
-  entry(/\bwework\b/i, 'WeWork', 'rent', '20b', 'business_likely', { defaultPurpose: 'Coworking space rented for business work' }),
-  entry(/\bregus\b|\biwg\b|\bspaces\s*(?:coworking|works)\b/i, 'Regus', 'rent', '20b', 'business_likely', { defaultPurpose: 'Office or coworking space rented for the business' }),
-  entry(/\bindustrious\b|\bconvene\b|\bthe\s*wing\b|\bcoworking\b/i, 'Coworking space', 'rent', '20b', 'business_likely', { defaultPurpose: 'Coworking space rented for business work' }),
+  entry(/\bwework\b/i, 'WeWork', 'rent', '20b', 'business_likely', { defaultPurpose: 'Coworking space rented for business work', subtype: 'coworking' }),
+  entry(/\bregus\b|\biwg\b|\bspaces\s*(?:coworking|works)\b/i, 'Regus', 'rent', '20b', 'business_likely', { defaultPurpose: 'Office or coworking space rented for the business', subtype: 'coworking' }),
+  entry(/\bindustrious\b|\bconvene\b|\bthe\s*wing\b|\bcoworking\b/i, 'Coworking space', 'rent', '20b', 'business_likely', { defaultPurpose: 'Coworking space rented for business work', subtype: 'coworking' }),
   entry(/\bpublic\s*storage\b|\bextra\s*space\s*storage\b|\bcubesmart\b|\blife\s*storage\b|\bu-?haul\s*storage\b/i, 'Self storage', 'rent', '20b', 'needs_purpose', { question: Q.storage }),
   entry(/\bproperty\s*management\b|\bapartments?\b|\brealty\b.*\brent\b|\brent\s*payment\b|\bbilt\b|\bavail\s*rent\b/i, 'Rent payment', 'rent', '20b', 'needs_purpose', { question: Q.rent }),
-  entry(/\bsola\s*salon\b|\bphenix\s*salon\b|\bsalon\s*suite\b|\bbooth\s*rent\b|\bchair\s*rent\b/i, 'Salon suite / booth rent', 'rent', '20b', 'business_likely', { defaultPurpose: 'Booth or suite rent for serving my own clients' }),
+  entry(/\bsola\s*salon\b|\bphenix\s*salon\b|\bsalon\s*suite\b|\bbooth\s*rent\b|\bchair\s*rent\b/i, 'Salon suite / booth rent', 'rent', '20b', 'business_likely', { defaultPurpose: 'Booth or suite rent for serving my own clients', subtype: 'rent' }),
 
   // Business, auto and health insurance ------------------------------------------------------------
   entry(/\bhiscox\b/i, 'Hiscox', 'other', '15', 'business_likely', { defaultPurpose: 'Business liability or professional (E&O) insurance for the business' }),
@@ -348,7 +371,7 @@ export const MERCHANT_INTELLIGENCE: readonly MerchantIntelligenceEntry[] = [
   entry(/\bskillshare\b|\bdomestika\b|\bcreativelive\b/i, 'Skillshare', 'education_training', '27a', 'needs_purpose', { question: Q.education }),
   entry(/\bpluralsight\b|\bfrontend\s*masters\b|\begghead\b|\bcodecademy\b|\bdatacamp\b/i, 'Developer training', 'education_training', '27a', 'needs_purpose', { question: Q.education }),
   entry(/\bwyzant\b|\boutschool\b|\bvarsity\s*tutors\b/i, 'Tutoring platform', null, null, 'needs_purpose', { question: 'Is this a platform fee or payout for tutoring you provide (business), or tutoring you bought for your family (personal)?' }),
-  entry(/\bkaplan\b|\bprinceton\s*review\b|\bbar\s*review\b|\bbarbri\b|\bthemis\b/i, 'Exam prep', 'education_training', '27a', 'personal_likely', { question: 'Exam preparation that qualifies you for a new profession or license is not deductible; continuing education in your current business is. Which was this?' }),
+  entry(/\bkaplan\b|\bprinceton\s*review\b|\bbar\s*review\b|\bbarbri\b|\bthemis\b/i, 'Exam prep', 'education_training', '27a', 'personal_likely', { question: 'Exam preparation that qualifies you for a new profession or license is not deductible; continuing education in your current business is. Which was this?', subtype: 'education' }),
 
   // Dues: gyms and clubs (personal) vs. professional associations (deductible) --------------------
   entry(/\bplanet\s*fitness\b/i, 'Planet Fitness', 'dues_and_memberships', '27a', 'personal_likely', { question: Q.gym }),
@@ -412,7 +435,7 @@ export const MERCHANT_INTELLIGENCE: readonly MerchantIntelligenceEntry[] = [
   entry(/\bsep\s*ira\b|\bsolo\s*401\b|\bira\s*contribution\b|\bhsa\s*contribution\b|\bhealth\s*savings\b|\blively\s*(?:hsa|inc)\b|\bhealthequity\b/i, 'Retirement / HSA contribution', null, null, 'schedule_1', { question: 'SEP-IRA, solo 401(k) and HSA contributions are Schedule 1 adjustments, not Schedule C expenses. Confirm this was a contribution rather than a business purchase.' }),
   entry(/\bgo\s*fund\s*me\b|\bgofundme\b|\bred\s*cross\b|\bunited\s*way\b|\bsalvation\s*army\b|\bdonation\b|\bcharity\b|\bfoundation\b|\bchurch\b|\bministr(?:y|ies)\b/i, 'Charity / donation', null, null, 'not_an_expense', { question: Q.donation }),
   entry(/\bkindercare\b|\bbright\s*horizons\b|\bcare\.com\b|\bdaycare\b|\bchild\s*care\b|\bpreschool\b/i, 'Childcare', null, null, 'personal_likely', { question: Q.childcare }),
-  entry(/\btuition\b|\bcommunity\s*college\b|\buniversity\b|\bcollege\b/i, 'Tuition / school', 'education_training', '27a', 'needs_purpose', { question: `${Q.education} Tuition for a family member is personal.` }),
+  entry(/\btuition\b|\bcommunity\s*college\b|\buniversity\b|\bcollege\b/i, 'Tuition / school', 'education_training', '27a', 'needs_purpose', { question: `${Q.education} Tuition for a family member is personal.`, subtype: 'education' }),
 
   // Processor prefixes: the real merchant follows the prefix, so these come after every brand pattern.
   entry(/\bpaypal\s*\*/i, 'PayPal purchase', null, null, 'needs_purpose', { question: 'What was bought through PayPal, from whom, and how is it used in your business?' }),
@@ -433,7 +456,7 @@ export interface PlaidCategoryMapping {
 }
 const plaid = (detailed: string, category: ExpenseCategory | null, scheduleCLine: string | null, disposition: MerchantDisposition,
   detail: Pick<PlaidCategoryMapping, 'defaultPurpose' | 'question' | 'subtype'> = {}): PlaidCategoryMapping =>
-  ({ detailed, category, scheduleCLine, disposition, ...detail });
+  ({ detailed, category, scheduleCLine, disposition, ...detail, subtype: detail.subtype ?? inferSubtype(detail.question) });
 
 export const PLAID_CATEGORY_MAP: readonly PlaidCategoryMapping[] = [
   // INCOME (7): bank-labelled income is never automatically business receipts.
@@ -522,7 +545,7 @@ export const PLAID_CATEGORY_MAP: readonly PlaidCategoryMapping[] = [
   plaid('PERSONAL_CARE_OTHER_PERSONAL_CARE', null, null, 'personal_likely', { question: Q.beauty }),
   // GENERAL_SERVICES (9)
   plaid('GENERAL_SERVICES_ACCOUNTING_AND_FINANCIAL_PLANNING', 'other', '17', 'needs_purpose', { question: 'Was this bookkeeping, accounting or the business portion of tax preparation (line 17), or personal financial planning and investment advice (not a business expense)?', subtype: 'tax_prep' }),
-  plaid('GENERAL_SERVICES_AUTOMOTIVE', 'vehicle_expense', '9', 'needs_purpose', { question: 'Is this vehicle used for business, what share of its miles are business, and do you use actual expenses (repairs count) or the standard mileage rate (already included)?' }),
+  plaid('GENERAL_SERVICES_AUTOMOTIVE', 'vehicle_expense', '9', 'needs_purpose', { question: 'Is this vehicle used for business, what share of its miles are business, and do you use actual expenses (repairs count) or the standard mileage rate (already included)?', subtype: 'auto_service' }),
   plaid('GENERAL_SERVICES_CHILDCARE', null, null, 'personal_likely', { question: Q.childcare }),
   plaid('GENERAL_SERVICES_CONSULTING_AND_LEGAL', 'other', '17', 'needs_purpose', { question: Q.legal }),
   plaid('GENERAL_SERVICES_EDUCATION', 'education_training', '27a', 'needs_purpose', { question: Q.education }),
