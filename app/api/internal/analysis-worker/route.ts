@@ -14,8 +14,10 @@ const schema = z.discriminatedUnion('action', [
 
 export async function POST(request: NextRequest) {
   const expected = process.env.ANALYSIS_WORKER_SECRET?.trim();
-  if (!expected || expected.length < 32) return NextResponse.json({ code: 'WORKER_UNAVAILABLE' }, { status: 503 });
   const provided = request.headers.get('x-analysis-worker-secret') || '';
+  // A caller without a credential learns nothing about the deployment's configuration.
+  if (!provided) return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: { 'cache-control': 'no-store' } });
+  if (!expected || expected.length < 32) return NextResponse.json({ code: 'WORKER_UNAVAILABLE' }, { status: 503 });
   const hash = (value: string) => createHash('sha256').update(value).digest();
   if (!timingSafeEqual(hash(provided), hash(expected))) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const parsed = schema.safeParse(await request.json().catch(() => null));

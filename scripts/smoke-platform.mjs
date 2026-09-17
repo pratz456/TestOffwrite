@@ -67,6 +67,8 @@ if (mode !== 'authenticated') {
     ['POST /api/auth/session', [400]], ['POST /api/auth/logout', [200]],
     ['POST /api/contact', [400]], ['POST /api/stripe/webhook', [400, 503]],
     ['POST /api/plaid/webhook', [401]], ['GET /api/plaid/webhook', [200]],
+    // Support diagnostics deliberately answer 404 to anonymous and non-admin callers (route existence is hidden).
+    ['GET /api/support/account/smoke-missing', [404]],
   ]);
   for (const { route, method } of sourceApis) {
     await check(`anonymous ${method} ${route}`, async () => {
@@ -270,7 +272,8 @@ if (mode !== 'public') {
     assert.ok(!(await request('/api/settings/assets', { token: owner.token })).data.data.some(asset => asset.id === id));
   });
   await check('unsupported Section 179 facts return review-required instead of completed tax totals', async () => {
-    const saved = await request('/api/settings/assets', { method: 'POST', token: owner.token, body: { assets: [{ description: 'Synthetic Section 179 election', cost: 1200, datePlacedInService: '2026-09-15', businessUsePercent: 100, category: 'computer', method: 'MACRS_5YR', section179Requested: true, bonusEligible: false }] } });
+    // 100%-use first-year §179 is calculated since the home-office/asset release; 50%-or-less business use stays review-blocked.
+    const saved = await request('/api/settings/assets', { method: 'POST', token: owner.token, body: { assets: [{ description: 'Synthetic Section 179 election', cost: 1200, datePlacedInService: '2026-09-15', businessUsePercent: 50, category: 'computer', method: 'MACRS_5YR', section179Requested: true, bonusEligible: false }] } });
     status(saved, 200); const id = saved.data.data[0].id;
     try {
       const calculation = await request('/api/tax/compute-1040?year=2026', { token: owner.token }); status(calculation, 422);
@@ -368,7 +371,9 @@ if (mode !== 'public') {
   });
   const future = new Date(Date.now() + 86400000 * 10);
   const past = new Date(Date.now() - 86400000 * 10);
-  const paid = { subscriptionStatus: 'active', stripeSubscriptionStatus: 'active', stripeSubscriptionId: 'sub_synthetic_fixture', subscriptionEnd: future };
+  // Stripe reconciliation writes the verified tier; the server never infers Premium from paid status alone.
+  const paidUnverified = { subscriptionStatus: 'active', stripeSubscriptionStatus: 'active', stripeSubscriptionId: 'sub_synthetic_fixture', subscriptionEnd: future };
+  const paid = { ...paidUnverified, subscriptionPlan: 'premium' };
   const planCases = [
     { name: 'free', access: false, profile: { subscriptionStatus: 'expired', trialEnd: past } },
     { name: 'trial-active', access: true, profile: {} },
@@ -379,6 +384,8 @@ if (mode !== 'public') {
     { name: 'premium-past-due', access: false, profile: { ...paid, stripeSubscriptionStatus: 'past_due' } },
     { name: 'premium-expired', access: false, profile: { ...paid, subscriptionEnd: past } },
     { name: 'premium-malformed', access: false, profile: { subscriptionStatus: 'active', hasHistoricalAccess: true } },
+    { name: 'paid-unverified-tier', access: false, profile: paidUnverified },
+    { name: 'basic-active', access: false, profile: { ...paid, subscriptionPlan: 'basic' } },
   ];
   for (const fixture of planCases) {
     const member = await makeUser(fixture.name, fixture.profile);

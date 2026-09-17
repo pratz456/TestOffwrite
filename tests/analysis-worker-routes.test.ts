@@ -37,6 +37,12 @@ describe('analysis worker authentication and queue boundaries', () => {
     expect((await internal(request())).status).toBe(503);
     expect(mocks.process).not.toHaveBeenCalled();
   });
+  it('tells an anonymous caller nothing about configuration: 401 even when the secret is missing', async () => {
+    vi.stubEnv('ANALYSIS_WORKER_SECRET', '');
+    const response = await internal(request(task, ''));
+    expect(response.status).toBe(401);
+    expect(await response.text()).not.toContain('WORKER_UNAVAILABLE');
+  });
   it.each([{ action: 'process', taskId: 'bad', generation: 'x' }, { action: 'enqueue', userId: 'owner/other', accountId: 'bank', transactionId: 'tx' }, { ...task, token: 'forged' }])('rejects invalid identifiers or extra payload %j', async body => {
     expect((await internal(request(body))).status).toBe(400);
     expect(mocks.process).not.toHaveBeenCalled(); expect(mocks.enqueue).not.toHaveBeenCalled();
