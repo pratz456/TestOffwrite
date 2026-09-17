@@ -137,7 +137,7 @@ describe('transaction analysis availability', () => {
     expect(mocks.profile).toHaveBeenCalledWith(uid);
     expect(mocks.analyze).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ tx_id: body.transactionId, amount_usd: 35 }),
-      { profession: 'Designer' },
+      expect.objectContaining({ profession: 'Designer', taxpayer_context: expect.objectContaining({ priors: expect.objectContaining({ confirmedMerchants: 0 }) }) }),
     );
     expect(mocks.collectionGroup).toHaveBeenCalledWith('transactions');
     expect(mocks.where.mock.calls).toEqual([

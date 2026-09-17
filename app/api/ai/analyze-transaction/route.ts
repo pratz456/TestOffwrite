@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { analyzeTransactionWithRetry, TransactionInput, findMissingUserFields, convertToEnhancedContext } from '@/lib/ai/analyzeTransaction';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getAnalysisProfile, analysisProfileHash } from '@/lib/ai/profile-context';
+import { loadTaxpayerContext } from '@/lib/ai/taxpayer-context-server';
 import { adminDb } from '@/lib/firebase/admin';
 import { getAIProviderStatus } from '@/lib/ai/provider-status';
 import { claimAnalysisLease, persistAnalysisSuggestion, releaseAnalysisLease, analysisSuggestionUpdate } from '@/lib/ai/analysis-persistence';
@@ -140,7 +141,8 @@ export async function POST(request: NextRequest) {
       mcc: transaction.mcc || transaction.merchant_category_code,
       account_id: ref.path.split('/')[3],
     };
-    const analysis = await analyzeTransactionWithRetry(input, context);
+    const taxpayer = await loadTaxpayerContext(user.uid, context, input.merchant, date).catch(() => undefined);
+    const analysis = await analyzeTransactionWithRetry(input, taxpayer ? { ...context, taxpayer_context: taxpayer } : context);
     if (!analysis.success) {
       releaseCode = analysis.code || 'AI_FAILED';
       const status = releaseCode === 'AI_UNAVAILABLE' ? 503 : releaseCode === 'AI_RATE_LIMITED' ? 429 : 502;

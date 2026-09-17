@@ -3,6 +3,7 @@ import { adminDb } from '@/lib/firebase/admin';
 import { analyzeTransactionWithRetry, convertToEnhancedContext, findMissingUserFields, type TransactionInput } from './analyzeTransaction';
 import { getAIProviderStatus } from './provider-status';
 import { analysisProfileHash } from './profile-context';
+import { loadTaxpayerContext } from './taxpayer-context-server';
 import { analysisInputHash, analysisLeaseUpdate, analysisSuggestionUpdate, createAnalysisLease,
   hasActiveAnalysisLease, isAnalysisLeaseCurrent } from './analysis-persistence';
 
@@ -189,7 +190,11 @@ export async function processAnalysisTask(taskId: string, generation: string): P
   if (claim.status !== 'claimed') return { status: claim.status, retry: claim.status === 'busy' };
 
   let result: Awaited<ReturnType<typeof analyzeTransactionWithRetry>>;
-  try { result = await analyzeTransactionWithRetry(claim.input, claim.context); }
+  try {
+    // Confirmed history and saved methods are hints; a failed load leaves profile-only context.
+    const taxpayer = await loadTaxpayerContext(address.userId, claim.context, claim.input.merchant, claim.input.date_iso ?? null).catch(() => undefined);
+    result = await analyzeTransactionWithRetry(claim.input, taxpayer ? { ...claim.context, taxpayer_context: taxpayer } : claim.context);
+  }
   catch { result = { success: false, error: 'AI analysis could not complete.', code: 'AI_FAILED', retryable: true }; }
 
   return adminDb.runTransaction(async tx => {

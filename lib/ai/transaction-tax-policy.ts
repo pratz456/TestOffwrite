@@ -196,6 +196,11 @@ export function groundTransactionAnalysis(
     } else if (result.is_deductible === true && saved.length < 8) {
       requireInfo(result, 'business_purpose', 'What did you buy, and how did you use it in your business?',
         'The likely category helps organize the purchase, but the merchant and account do not establish its business purpose.');
+    } else if (result.is_deductible === true && context?.taxpayer_context?.priors.merchant?.decision === 'personal'
+      && context.taxpayer_context.priors.merchant.personalCount >= 2) {
+      // The user's own repeated decisions outrank a model guess; ask before reversing them.
+      requireInfo(result, 'prior_decision_conflict', 'You previously marked purchases from this merchant as personal. Is this one different, and how was it used in your business?',
+        'Your earlier confirmed decisions treated this merchant as personal. Confirm what changed before a business deduction is proposed.');
     } else if (result.is_deductible === true && ['equipment', 'home_office', 'vehicle_expense', 'travel'].includes(result.category ?? '')) {
       const questions: Record<string, [string, string]> = {
         equipment: ['asset_treatment', 'What was purchased, when was it first used for business, and what business-use records and depreciation elections apply?'],

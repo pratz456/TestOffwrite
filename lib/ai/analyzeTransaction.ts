@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { aiLearningEngine } from './learning-engine';
 import { getAIProviderStatus } from './provider-status';
 import { groundTransactionAnalysis, transactionTaxPolicyPrompt, TRANSACTION_EVIDENCE_IDS, TRANSACTION_KINDS, type TransactionTaxMetadata } from './transaction-tax-policy';
+import { taxpayerContextForModel } from './taxpayer-context';
 
 const OutputSchema = z.object({
   status: z.enum(['ok', 'needs_more_info', 'blocked']),
@@ -200,6 +201,8 @@ export interface UserContext {
   office_location?: string; // city/zip
   work_related_travel?: 'none' | 'occasional' | 'frequent';
   work_related_travel_pattern?: string;
+  /** Aggregated taxpayer facts and confirmed history; hints and questions only. */
+  taxpayer_context?: import('./taxpayer-context').TaxpayerAnalysisContext;
   // Legacy fields for backward compatibility
   income?: string;
   state?: string;
@@ -490,6 +493,7 @@ ${transactionTaxPolicyPrompt(transaction)}`;
       business_income: bizIncome ?? null,
     },
     learning_context: learningContext ?? null,
+    taxpayer_context: (ctx as UserContext).taxpayer_context ? taxpayerContextForModel((ctx as UserContext).taxpayer_context!) : null,
     tx: {
       merchant: transaction.merchant || transaction.merchant_name || '',
       saved_category: transaction.category ?? null,
@@ -508,7 +512,7 @@ ${transactionTaxPolicyPrompt(transaction)}`;
       account_usage_type: transaction.account_usage_type ?? 'unknown',
       counterparties: transaction.counterparties ?? null,
       merchant_entity_id: transaction.merchant_entity_id ?? null,
-      is_recurring: transaction.is_recurring ?? null,
+      is_recurring: transaction.is_recurring ?? (ctx as UserContext).taxpayer_context?.priors.recurrence.isRecurring ?? null,
       note: transaction.note || transaction.notes || transaction.description || '',
       business_purpose: transaction.business_purpose ?? null,
       client_project: transaction.client_project ?? null,
@@ -525,7 +529,8 @@ ${transactionTaxPolicyPrompt(transaction)}`;
 CONTEXT:
 ${JSON.stringify(contextData, null, 2)}
 
-Do not infer self-employment from a profession, a deduction from a merchant, or business purpose from a transaction time. A W-2 employment expense is not a Schedule C expense. A 2025 IRS publication is not a finalized 2026 return instruction. Select the applicable evidence IDs and explain the relevant condition in everyday language.`;
+Do not infer self-employment from a profession, a deduction from a merchant, or business purpose from a transaction time. A W-2 employment expense is not a Schedule C expense. A 2025 IRS publication is not a finalized 2026 return instruction. Select the applicable evidence IDs and explain the relevant condition in everyday language.
+taxpayer_context describes this user's saved methods, gaps and past confirmed decisions. Use it to choose the most likely category, to reuse this user's own wording for the business purpose as a question, and to ask about listed open_questions first. A prior confirmation, a recurring charge or a home-office/vehicle method never establishes deductibility for this transaction; when the prior decision conflicts with the current evidence, ask whether this purchase is different.`;
 
   // JSON schema for OpenAI structured outputs — mirrors OutputSchema exactly
   const RESPONSE_JSON_SCHEMA = {
