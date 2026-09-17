@@ -61,7 +61,15 @@ async function eachConnection(uid: string, itemId: string | undefined,
     let failed = false;
     // Banks are independent: one failed item never replaces another item's cursor.
     for (const connection of connections) {
-      try { transactionsSaved += await withPlaidConnection(uid, connection.itemId, work); }
+      try { transactionsSaved += await withPlaidConnection(uid, connection.itemId, async (current, leaseId) => {
+        if (current.reauthenticationRequired) {
+          // Cached transaction data alone does not prove that a login was repaired.
+          const { data } = await plaidClient.itemGet({ access_token: current.accessToken });
+          if (data.item.item_id !== current.itemId || data.item.error !== null) throw new Error('Bank sign-in is required');
+          await updatePlaidConnection(uid, current.itemId, { reauthenticationRequired: false }, leaseId);
+        }
+        return work(current, leaseId);
+      }); }
       catch { failed = true; }
     }
     return { success: !failed, transactionsSaved, accountsProcessed: connections.reduce((count, connection) => count + connection.accountIds.length, 0),

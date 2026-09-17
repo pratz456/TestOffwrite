@@ -13,6 +13,7 @@ import { auth } from '@/lib/firebase/client';
 import { useJobProgress } from '@/lib/hooks/useJobProgress';
 import { analysisJobView, parseAnalysisJob, parseAnalysisQueue, type AnalysisJob } from '@/lib/ai/client-job-progress';
 import { debugLog } from '@/lib/utils/debug';
+import { clearPlaidOAuthSession, readPlaidOAuthResume, savePlaidOAuthSession, type PlaidOAuthResume } from '@/lib/plaid/oauth-session';
 
 // Global flag to prevent duplicate Plaid script loading
 let plaidScriptLoaded = false;
@@ -23,9 +24,10 @@ interface PlaidLinkScreenProps {
   onBack: () => void;
   fromSettings?: boolean; // If true, hide subscription options and connect directly
   updateItemId?: string;
+  oauthResume?: PlaidOAuthResume;
 }
 
-export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess, onBack, fromSettings = false, updateItemId }) => {
+export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess, onBack, fromSettings = false, updateItemId, oauthResume }) => {
   const router = useRouter();
   // Capture the app origin from the top-level page. Some Plaid callbacks can run
   // in a different browsing context (e.g. iframe), where relative URLs might
@@ -35,6 +37,9 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
   // Consent for Plaid data access
   const [bankConsent, setBankConsent] = useState(false);
   const [linkToken, setLinkToken] = useState<string | null>(null);
+  const [linkOwner, setLinkOwner] = useState<string | null>(null);
+  const [redirectUri, setRedirectUri] = useState<string | undefined>();
+  const resumedToken = useRef<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Removed subscription selection state - free trial is automatically started
@@ -196,6 +201,19 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
       appOriginRef.current = window.location.origin;
     }
 
+    if (oauthResume) {
+      const resumed = readPlaidOAuthResume(window.sessionStorage, user.id, window.location.href);
+      if (!resumed || resumed.session.token !== oauthResume.session.token || resumed.session.itemId !== updateItemId) {
+        setError('This bank sign-in session has expired. Return to your banks and connect again.');
+        return;
+      }
+      setLinkToken(resumed.session.token);
+      setLinkOwner(user.id);
+      setRedirectUri(resumed.session.redirectUri);
+      setBankConsent(true);
+      return; // Reuse the original Link token; creating another would lose the bank OAuth state.
+    }
+
     const urlParams = new URLSearchParams(window.location.search);
     const accountIdParam = urlParams.get('accountId');
     const analyzingParam = urlParams.get('analyzing');
@@ -205,6 +223,9 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
       return;
     }
 
+    let cancelled = false;
+    setLinkToken(null);
+    setLinkOwner(null);
     const createLinkToken = async () => {
       try {
         // Get Firebase auth token for authentication
@@ -256,24 +277,31 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
         }
 
         const data = await response.json();
+        if (cancelled || auth.currentUser?.uid !== user.id) return;
         setLinkToken(data.link_token);
+        setLinkOwner(user.id);
+        setRedirectUri(data.redirect_uri);
       } catch (err: any) {
+        if (cancelled) return;
         console.error('Error creating link token:', err);
         setError(err.message || 'Failed to initialize bank connection. Please try again.');
       }
     };
 
     createLinkToken();
-  }, [user.id, updateItemId]);
+    return () => { cancelled = true; };
+  }, [user.id, updateItemId, oauthResume]);
 
   const onPlaidSuccess = useCallback(async (public_token: string) => {
     setLoading(true);
     setError(null);
+    clearPlaidOAuthSession(window.sessionStorage);
 
     // Note: Free trial is automatically started when creating link token or exchanging public token
     // No need to pass subscription info - trial is app-managed
 
     try {
+      if (linkOwner !== user.id || auth.currentUser?.uid !== user.id) throw new Error('Sign in to the same WriteOff account and reconnect your bank.');
       // Link update repairs an existing item; it does not exchange a new public token.
       if (updateItemId) {
         const response = await makeAuthenticatedRequest('/api/plaid/sync-transactions', {
@@ -365,14 +393,19 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
     } finally {
       setLoading(false);
     }
-  }, [user.id, onSuccess, updateItemId, router]);
+  }, [user.id, onSuccess, updateItemId, router, linkOwner]);
 
   const onPlaidExit = useCallback((err: any) => {
+    clearPlaidOAuthSession(window.sessionStorage);
+    if (oauthResume) {
+      setError('Bank sign-in was not completed. Return to your banks and try again.');
+      return;
+    }
     if (err) {
       console.error('Plaid Link exit error:', err);
       setError('Bank connection was cancelled or failed. Please try again.');
     }
-  }, []);
+  }, [oauthResume]);
 
   // Check for duplicate script loading and warn if detected
   useEffect(() => {
@@ -387,10 +420,17 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
   }, [linkToken]);
 
   const { open, ready } = usePlaidLink({
-    token: linkToken,
+    token: linkOwner === user.id ? linkToken : null,
+    ...(oauthResume ? { receivedRedirectUri: oauthResume.receivedRedirectUri } : {}),
     onSuccess: onPlaidSuccess,
     onExit: onPlaidExit,
   });
+
+  useEffect(() => {
+    if (!oauthResume || !ready || !linkToken || linkOwner !== user.id || resumedToken.current === linkToken) return;
+    resumedToken.current = linkToken;
+    open();
+  }, [oauthResume, ready, linkToken, open, linkOwner, user.id]);
 
   const handleConnectBank = async () => {
     if (!bankConsent) return;
@@ -398,13 +438,31 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
     // Free trial is automatically started when creating link token
     // Just connect the bank - no subscription selection needed
     if (ready) {
-      open();
+      try {
+        if (!linkToken || linkOwner !== user.id || auth.currentUser?.uid !== user.id) throw new Error('Sign in again before connecting your bank.');
+        if (redirectUri) savePlaidOAuthSession(window.sessionStorage, { version: 1, uid: user.id, token: linkToken,
+          redirectUri, createdAt: Date.now(), fromSettings, ...(updateItemId ? { itemId: updateItemId } : {}) }, window.location.origin);
+        else clearPlaidOAuthSession(window.sessionStorage);
+        open();
+      } catch (err) { setError(err instanceof Error ? err.message : 'Bank sign-in could not start. Please retry.'); }
     }
   };
 
   const handleSkip = () => {
+    clearPlaidOAuthSession(window.sessionStorage);
     onSuccess(); // Continue to next step without connecting bank
   };
+
+  if (oauthResume) return (
+    <main className="mx-auto flex min-h-[60vh] max-w-md items-center p-4">
+      <Card className="w-full space-y-4 p-6">
+        <h1 className="text-xl font-semibold">{error ? 'Bank sign-in needs another try' : 'Finishing bank sign-in'}</h1>
+        {error ? <p role="alert" className="text-sm text-muted-foreground">{error}</p>
+          : <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Returning securely to your bank connection…</p>}
+        <Button variant="outline" onClick={() => { clearPlaidOAuthSession(window.sessionStorage); onBack(); }}>Return to banks</Button>
+      </Card>
+    </main>
+  );
 
   if (isConnected) {
     const getStatusMessage = () => {
@@ -662,7 +720,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
       <div className="bg-card border-b border-border sticky top-0 z-50 shadow-sm">
         <div className="flex items-center justify-between p-4 max-w-4xl mx-auto">
           <button
-            onClick={onBack}
+            onClick={() => { clearPlaidOAuthSession(window.sessionStorage); onBack(); }}
             className="w-10 h-10 bg-card border border-border rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-all duration-200 shadow-sm"
           >
             <ArrowLeft className="w-4 h-4" />

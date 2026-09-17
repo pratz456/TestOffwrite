@@ -13,11 +13,13 @@ export async function DELETE(request: NextRequest) {
     // Delete all user data (profile, transactions, etc.)
     const { error } = await deleteUserData(user.uid);
     if (error) {
-      return NextResponse.json({ error: 'Failed to delete user data', details: error.message || error }, { status: 500 });
+      return NextResponse.json({ error: 'Account deletion could not finish', details: error.message,
+        code: error.code, retryable: error.retryable }, { status: error.status });
     }
 
     return NextResponse.json({ success: true });
-  } catch (error) {
-    return NextResponse.json({ error: 'Failed to delete user data', details: error instanceof Error ? error.message : 'Unknown error' }, { status: 500 });
+  } catch {
+    return NextResponse.json({ error: 'Account deletion could not finish. Please retry or contact support.',
+      code: 'ACCOUNT_CLEANUP_FAILED', retryable: true }, { status: 503 });
   }
 }

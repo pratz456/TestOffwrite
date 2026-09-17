@@ -3,6 +3,7 @@ import { syncUserTransactionsIncremental, findUserByPlaidItemId } from '../../..
 import { adminDb } from '../../../../lib/firebase/admin';
 import { verifyPlaidWebhook } from '@/lib/plaid/webhook-verification';
 import { createHash } from 'node:crypto';
+import { markPlaidConnectionLoginRequired } from '@/lib/plaid/connections';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -101,7 +102,14 @@ export async function POST(request: NextRequest) {
         console.log(`ℹ️ [Webhook] Unhandled webhook code: ${payload.webhook_code}`);
         return NextResponse.json({ success: true, message: 'Webhook received but not processed' });
       }
-    } else if (payload.webhook_type === 'ERROR') {
+    } else if ((payload.webhook_type === 'ITEM' && payload.webhook_code === 'ERROR') || payload.webhook_type === 'ERROR') {
+      if (payload.error?.error_code === 'ITEM_LOGIN_REQUIRED') {
+        if (typeof payload.item_id !== 'string' || !payload.item_id || payload.item_id.includes('/') || payload.item_id.length > 256) {
+          return NextResponse.json({ error: 'Invalid item' }, { status: 400 });
+        }
+        await markPlaidConnectionLoginRequired(payload.item_id);
+        return NextResponse.json({ success: true, message: 'Bank sign-in status updated' });
+      }
       console.error(`❌ [Webhook] Plaid error for item ${payload.item_id}:`, payload.error);
       return NextResponse.json({ success: true, message: 'Error webhook logged' });
     } else {

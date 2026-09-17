@@ -151,6 +151,20 @@ async function seed(path: string, values: Record<string, string | number | boole
     expect((await getDocs(collection(alice, `user_profiles/${owner}/accounts`))).docs.some(account => account.id === 'secret-account')).toBe(true);
     await expect(updateDoc(doc(alice, `user_profiles/${owner}/accounts/secret-account`), { plaid_item_id: 'other-bank' })).rejects.toMatchObject({ code: 'permission-denied' });
   });
+  it('keeps deletion tombstones and provider recovery records private and immutable from every client', async () => {
+    const paths = [`account_deletions/${owner}`, `account_deletions/${owner}/plaid_revocations/synthetic`];
+    await seed(paths[0], { deletionRequested: true });
+    await seed(paths[1], { uid: owner, encryptedAccessToken: 'synthetic-ciphertext' });
+    for (const db of [alice, bob, anonymous]) {
+      for (const path of paths) {
+        await expect(getDoc(doc(db, path))).rejects.toMatchObject({ code: 'permission-denied' });
+        await expect(setDoc(doc(db, path), { deletionRequested: false })).rejects.toMatchObject({ code: 'permission-denied' });
+        await expect(deleteDoc(doc(db, path))).rejects.toMatchObject({ code: 'permission-denied' });
+      }
+      await expect(getDocs(collection(db, 'account_deletions'))).rejects.toMatchObject({ code: 'permission-denied' });
+      await expect(getDocs(collection(db, `account_deletions/${owner}/plaid_revocations`))).rejects.toMatchObject({ code: 'permission-denied' });
+    }
+  });
   it('allows valid owner receipt uploads, reads, replacements and deletes', async () => {
     const receipt = ref(aliceStorage, `receipts/${owner}/tx/rules-valid.png`);
     await uploadBytes(receipt, png, { contentType: 'image/png' });

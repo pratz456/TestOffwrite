@@ -3,6 +3,7 @@ import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import { adminDb } from '@/lib/firebase/admin';
 import { getStripeClient, configuredPriceIds, subscriptionPlanForPrice } from '@/lib/stripe/subscription-sync';
 import { z } from 'zod';
+import { beginCheckoutOperation, finishCheckoutOperation, retainCheckoutRecovery, CheckoutOperationError } from '@/lib/stripe/checkout-operations';
 
 const checkoutRequest = z.object({ interval: z.enum(['monthly', 'yearly']).default('monthly') }).strict();
 
@@ -30,7 +31,11 @@ export async function POST(req: Request) {
   if (!stripe || !priceId || subscriptionPlanForPrice(priceId) !== 'premium') {
     return NextResponse.json({ error: 'Billing is temporarily unavailable' }, { status: 503 });
   }
-  try {
+  let operationId: string | undefined;
+  let safeToRelease = true;
+  let unsavedCustomerId: string | undefined;
+  const response = await (async () => { try {
+    operationId = await beginCheckoutOperation(uid);
     const ref = adminDb.doc(`user_profiles/${uid}`);
     const snapshot = await ref.get();
     if (!snapshot.exists) return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
@@ -51,10 +56,15 @@ export async function POST(req: Request) {
     }
     const origin = checkoutOrigin();
     if (!customerId) {
+      // An unknown provider outcome must keep deletion blocked until reviewed.
+      safeToRelease = false;
       const customer = await stripe.customers.create({ email: typeof profile.email === 'string' ? profile.email : undefined,
-        metadata: { firebase_uid: uid } }, { idempotencyKey: `writeoff-customer-${uid}-${profile.stripeCustomerId || 'new'}-${Math.floor(Date.now() / 300000)}` });
+        metadata: { firebase_uid: uid } }, { idempotencyKey: `writeoff-customer-${uid}-${operationId}` });
       customerId = customer.id;
+      unsavedCustomerId = customer.id;
       await ref.update({ stripeCustomerId: customerId });
+      unsavedCustomerId = undefined;
+      safeToRelease = true; // Deletion can now discover and close this customer.
     }
     const session = await stripe.checkout.sessions.create({ customer: customerId, mode: 'subscription',
       payment_method_types: ['card', 'us_bank_account'], line_items: [{ price: priceId, quantity: 1 }],
@@ -64,7 +74,20 @@ export async function POST(req: Request) {
       metadata: { firebase_uid: uid, feature: 'historical_transactions' },
     }, { idempotencyKey: `writeoff-checkout-${uid}-${interval}-${customerId}-bank-v1-${Math.floor(Date.now() / 300000)}` });
     return NextResponse.json({ success: true, sessionId: session.id, url: session.url }, { headers: { 'Cache-Control': 'private, no-store' } });
-  } catch {
+  } catch (error) {
+    if (operationId && !safeToRelease) {
+      if (unsavedCustomerId) {
+        try { safeToRelease = (await stripe.customers.del(unsavedCustomerId)).deleted === true; }
+        catch { /* Keep the operation and recovery identifier for support. */ }
+      }
+      if (!safeToRelease) await retainCheckoutRecovery(uid, operationId, unsavedCustomerId).catch(() => {});
+    }
+    if (error instanceof CheckoutOperationError) return NextResponse.json({ error: error.message, code: error.code }, { status: 409 });
     return NextResponse.json({ error: 'Unable to create checkout. Please try again.' }, { status: 503 });
+  } })();
+  if (operationId && safeToRelease) {
+    try { await finishCheckoutOperation(uid, operationId); }
+    catch { return NextResponse.json({ error: 'Billing status needs another check. Please contact support before continuing.', code: 'BILLING_OPERATION_PENDING' }, { status: 503 }); }
   }
+  return response;
 }

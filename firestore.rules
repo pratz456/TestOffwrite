@@ -92,6 +92,14 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Durable deletion gates and encrypted provider-recovery records are server-only.
+    match /account_deletions/{uid} {
+      allow read, write: if false;
+      match /{document=**} {
+        allow read, write: if false;
+      }
+    }
+
     // ── User Profiles ──────────────────────────────────────────────────────
     // User profile can only be read by the owner, written via Admin/API only
     match /user_profiles/{uid} {

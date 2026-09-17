@@ -14,6 +14,7 @@ export interface PlaidConnection {
   cursor?: string;
   connectedAt?: unknown;
   lastSync?: number;
+  reauthenticationRequired?: boolean;
 }
 const configuredIdentity = () => ({ clientId: process.env.PLAID_CLIENT_ID || '', environment: process.env.PLAID_ENV || '' });
 const isCurrent = (data: FirebaseFirestore.DocumentData) => {
@@ -52,7 +53,8 @@ export function decryptPlaidToken(uid: string, itemId: string, encrypted: string
 function decode(data: FirebaseFirestore.DocumentData): PlaidConnection {
   return { uid: data.uid, itemId: data.itemId, accessToken: decryptPlaidToken(data.uid, data.itemId, data.encryptedAccessToken),
     accountIds: data.accountIds ?? [], institutionId: data.institutionId ?? null, cursor: data.cursor,
-    clientId: data.clientId, environment: data.environment, connectedAt: data.connectedAt, lastSync: data.lastSync };
+    clientId: data.clientId, environment: data.environment, connectedAt: data.connectedAt, lastSync: data.lastSync,
+    reauthenticationRequired: data.reauthenticationRequired === true };
 }
 async function refreshBankConnectionProjection(uid: string): Promise<void> {
   await adminDb.runTransaction(async tx => {
@@ -110,10 +112,11 @@ export async function listPlaidConnectionSummaries(uid: string) {
   const snapshot = await collection().where('uid', '==', uid).get();
   return snapshot.docs.filter(doc => doc.data().status !== 'disconnected').map(doc => {
     const data = doc.data();
-    const active = data.status === 'active' && isCurrent(data);
+    const active = data.status === 'active' && isCurrent(data) && data.reauthenticationRequired !== true;
     return { itemId: data.itemId as string, accountIds: (data.accountIds ?? []) as string[], institutionId: data.institutionId ?? null,
       connectedAt: data.connectedAt ?? null, lastSync: data.lastSync ?? null,
-      status: active ? 'active' : 'relink_required', relinkRequired: !active };
+      status: active ? 'active' : 'relink_required', relinkRequired: !active,
+      reauthenticationRequired: data.status === 'active' && isCurrent(data) && data.reauthenticationRequired === true };
   });
 }
 export async function listPlaidConnections(uid: string): Promise<PlaidConnection[]> {
@@ -146,6 +149,8 @@ export async function savePlaidConnection(input: Omit<PlaidConnection, 'cursor' 
   await migrateLegacyPlaidConnection(input.uid);
   const ref = connectionRef(input.itemId);
   await adminDb.runTransaction(async tx => {
+    const deletion = await tx.get(adminDb.doc(`account_deletions/${input.uid}`));
+    if (deletion.data()?.deletionRequested === true) throw new Error('ACCOUNT_DELETION_IN_PROGRESS');
     const existing = await tx.get(ref);
     const accounts = await Promise.all(accountIds.map(id => tx.get(adminDb.doc(`user_profiles/${input.uid}/accounts/${id}`))));
     if (existing.exists) throw new Error('BANK_ALREADY_CONNECTED');
@@ -193,12 +198,24 @@ export async function withPlaidConnection<T>(uid: string, itemId: string,
   }
 }
 export async function updatePlaidConnection(uid: string, itemId: string,
-  patch: { cursor?: string; lastSync?: number; status?: 'active' | 'disconnecting' }, leaseId: string): Promise<void> {
+  patch: { cursor?: string; lastSync?: number; status?: 'active' | 'disconnecting' | 'revocation_required'; reauthenticationRequired?: false }, leaseId: string): Promise<void> {
   const ref = connectionRef(itemId);
   await adminDb.runTransaction(async tx => {
     const data = (await tx.get(ref)).data();
     if (data?.uid !== uid || data.leaseId !== leaseId || data.status === 'disconnected') throw new Error('Bank connection changed');
-    tx.update(ref, { ...patch, updatedAt: new Date(), leaseExpiresAt: Date.now() + 20 * 60_000 });
+    tx.update(ref, { ...patch, ...(patch.reauthenticationRequired === false ? { reauthenticationRequired: FieldValue.delete() } : {}),
+      updatedAt: new Date(), leaseExpiresAt: Date.now() + 20 * 60_000 });
+  });
+}
+
+/** A signed provider error flags only a current Item; keep its token available for Link update mode. */
+export async function markPlaidConnectionLoginRequired(itemId: string): Promise<boolean> {
+  const ref = connectionRef(itemId);
+  return adminDb.runTransaction(async tx => {
+    const data = (await tx.get(ref)).data();
+    if (!data || data.status !== 'active' || !isCurrent(data)) return false;
+    tx.update(ref, { reauthenticationRequired: true, updatedAt: new Date() });
+    return true;
   });
 }
 export async function removePlaidConnection(uid: string, itemId: string, leaseId: string): Promise<void> {

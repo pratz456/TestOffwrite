@@ -39,6 +39,13 @@ beforeEach(() => {
 });
 
 describe('bank management keeps each connection and saved records separate', () => {
+  it('repairs a current-provider login error using the existing Item instead of creating another bank', async () => {
+    items[0] = { ...items[0], status: 'relink_required', relinkRequired: true, reauthenticationRequired: true };
+    await mount(); button('Repair connection').props.onClick();
+    expect(h.connect).toHaveBeenCalledWith('item-one');
+    expect(text(render())).toContain('Bank sign-in required');
+    expect(text(render())).not.toContain('provider has changed');
+  });
   it('disconnects only the selected item and retains its history, the other bank, and manual accounts', async () => {
     await mount(); button('Disconnect First Bank').props.onClick();
     walk(render()).find(n => n.props?.onConfirm)!.props.onConfirm(); await flush();

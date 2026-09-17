@@ -1,11 +1,11 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
-const mock = vi.hoisted(() => ({ connections: [] as any[], records: new Map<string, any>(), sync: vi.fn(), create: vi.fn(), modified: vi.fn(), update: vi.fn(), fetch: vi.fn() }));
+const mock = vi.hoisted(() => ({ connections: [] as any[], records: new Map<string, any>(), sync: vi.fn(), item: vi.fn(), create: vi.fn(), modified: vi.fn(), update: vi.fn(), fetch: vi.fn() }));
 vi.mock('@/lib/plaid/connections', () => ({
   listPlaidConnections: async () => mock.connections,
   withPlaidConnection: async (_uid: string, itemId: string, work: any) => work(mock.connections.find(item => item.itemId === itemId), `lease-${itemId}`),
   updatePlaidConnection: mock.update, findPlaidConnectionByItemId: vi.fn(),
 }));
-vi.mock('@/lib/plaid/client', () => ({ plaidClient: { transactionsSync: mock.sync } }));
+vi.mock('@/lib/plaid/client', () => ({ plaidClient: { transactionsSync: mock.sync, itemGet: mock.item } }));
 vi.mock('@/lib/firebase/transactions-server', () => ({ createTransactionServer: mock.create }));
 vi.mock('@/lib/ai/analysis-jobs', () => ({ updateImportedTransactionForAnalysis: mock.modified }));
 vi.mock('@/lib/plaid/pagination', () => ({ fetchAllPlaidTransactions: mock.fetch }));
@@ -40,6 +40,21 @@ afterEach(() => vi.restoreAllMocks());
 const cursorWrites = () => mock.update.mock.calls.filter(call => 'cursor' in call[2]);
 
 describe('per-item transaction sync', () => {
+  it('verifies a repaired provider Item before clearing its login-required flag and syncing', async () => {
+    mock.connections[0].reauthenticationRequired = true;
+    mock.item.mockResolvedValue({ data: { item: { item_id: 'bank-a', error: null } } });
+    expect((await syncUserTransactionsIncremental('owner', 'bank-a')).success).toBe(true);
+    expect(mock.item).toHaveBeenCalledExactlyOnceWith({ access_token: 'secret-a' });
+    expect(mock.update).toHaveBeenCalledWith('owner', 'bank-a', { reauthenticationRequired: false }, 'lease-bank-a');
+    expect(mock.sync).toHaveBeenCalledOnce();
+  });
+  it.each([null, { item_id: 'bank-a', error: { error_code: 'ITEM_LOGIN_REQUIRED' } }, { item_id: 'wrong-item', error: null }])('keeps unresolved login errors flagged without trusting a cached sync response (%j)', item => {
+    mock.connections[0].reauthenticationRequired = true;
+    mock.item.mockResolvedValue({ data: { item } });
+    return syncUserTransactionsIncremental('owner', 'bank-a').then(result => {
+      expect(result.success).toBe(false); expect(mock.sync).not.toHaveBeenCalled(); expect(mock.update).not.toHaveBeenCalled();
+    });
+  });
   it('sends only the selected item token/cursor and commits only that cursor', async () => {
     mock.sync.mockResolvedValue(page([tx('new-b', 'acc-b')], [], [], 'next-b'));
     expect(await syncUserTransactionsIncremental('owner', 'bank-b')).toMatchObject({ success: true, transactionsSaved: 1 });

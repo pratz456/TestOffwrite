@@ -2,7 +2,8 @@ import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mock = vi.hoisted(() => ({ sync: vi.fn(), findUser: vi.fn(), doc: vi.fn(), receiptSet: vi.fn(), receipts: new Map<string, unknown>() }));
+const mock = vi.hoisted(() => ({ sync: vi.fn(), findUser: vi.fn(), markLoginRequired: vi.fn(), doc: vi.fn(), receiptSet: vi.fn(), receipts: new Map<string, unknown>() }));
+vi.mock('@/lib/plaid/connections', () => ({ markPlaidConnectionLoginRequired: mock.markLoginRequired }));
 vi.mock('@/lib/plaid/sync-helper', () => ({ syncUserTransactionsIncremental: mock.sync, findUserByPlaidItemId: mock.findUser }));
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: { doc: mock.doc } }));
 vi.mock('@/lib/plaid/config', () => ({ getPlaidConfig: () => ({ plaidClientId: 'test-client', plaidSecret: 'test-secret', plaidEnv: 'sandbox' }) }));
@@ -29,10 +30,35 @@ beforeEach(() => {
   }));
   mock.findUser.mockResolvedValue('test-user');
   mock.sync.mockResolvedValue({ success: true, transactionsSaved: 2 });
+  mock.markLoginRequired.mockResolvedValue(true);
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ key }))));
 });
 afterEach(() => vi.unstubAllGlobals());
 describe('Plaid webhook authentication boundary', () => {
+  it.each(['ITEM', 'ERROR'])('marks only the exact Item for an authenticated %s/ERROR login-required delivery', async webhook_type => {
+    const body = JSON.stringify({ webhook_type, webhook_code: 'ERROR', item_id: 'sandbox-item', error: { error_code: 'ITEM_LOGIN_REQUIRED' } });
+    expect((await POST(request(body, body))).status).toBe(200);
+    expect(mock.markLoginRequired).toHaveBeenCalledExactlyOnceWith('sandbox-item');
+    expect(mock.sync).not.toHaveBeenCalled();
+  });
+  it('rejects unsigned or tampered Item error events before setting repair status', async () => {
+    const body = JSON.stringify({ webhook_type: 'ITEM', webhook_code: 'ERROR', item_id: 'sandbox-item', error: { error_code: 'ITEM_LOGIN_REQUIRED' } });
+    expect((await POST(request(body))).status).toBe(401);
+    expect((await POST(request(body.replace('sandbox-item', 'other-item'), body))).status).toBe(401);
+    expect(mock.markLoginRequired).not.toHaveBeenCalled();
+  });
+  it('keeps a signed Item error retryable when saving repair status fails', async () => {
+    const body = JSON.stringify({ webhook_type: 'ITEM', webhook_code: 'ERROR', item_id: 'sandbox-item', error: { error_code: 'ITEM_LOGIN_REQUIRED' } });
+    mock.markLoginRequired.mockRejectedValueOnce(new Error('Temporary database failure'));
+    expect((await POST(request(body, body))).status).toBe(500);
+    expect((await POST(request(body, body))).status).toBe(200);
+    expect(mock.markLoginRequired).toHaveBeenCalledTimes(2);
+  });
+  it('does not label other authenticated provider errors as invalid bank credentials', async () => {
+    const body = JSON.stringify({ webhook_type: 'ITEM', webhook_code: 'ERROR', item_id: 'sandbox-item', error: { error_code: 'INSTITUTION_DOWN' } });
+    expect((await POST(request(body, body))).status).toBe(200);
+    expect(mock.markLoginRequired).not.toHaveBeenCalled();
+  });
   it('syncs the verified item after validating an authentic ES256 JWK signature', async () => {
     const body = JSON.stringify(payload);
     const response = await POST(request(body, body));

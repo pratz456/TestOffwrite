@@ -6,6 +6,10 @@ const mock = vi.hoisted(() => ({ auth: vi.fn(), startTrial: vi.fn(), reconcile: 
 vi.mock('@/app/api/_lib/auth', () => ({ getUserFromReqOrThrow: mock.auth }));
 vi.mock('@/lib/subscriptions/trial-manager', () => ({ startFreeTrial: mock.startTrial }));
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: { doc: () => ({ get: async () => ({ exists: mock.exists, data: () => mock.profile }), update: mock.profileUpdate }) } }));
+vi.mock('@/lib/stripe/checkout-operations', async original => ({
+  ...await original<typeof import('@/lib/stripe/checkout-operations')>(),
+  beginCheckoutOperation: async () => 'fixture-billing-operation', finishCheckoutOperation: async () => {}, retainCheckoutRecovery: async () => {},
+}));
 vi.mock('@/lib/stripe/subscription-sync', () => ({
   getStripeClient: () => mock.configured ? { customers: { retrieve: mock.customersRetrieve, create: mock.customersCreate },
     subscriptions: { list: mock.subscriptionsList, retrieve: mock.subscriptionsRetrieve }, checkout: { sessions: { create: mock.checkoutCreate } },

@@ -12,6 +12,7 @@ beforeEach(() => { vi.clearAllMocks(); mock.auth.mockResolvedValue({ uid: 'owner
   mock.connection.mockResolvedValue({ uid: 'owner', itemId: 'owned-item', accessToken: 'synthetic-private-token' }); mock.trial.mockResolvedValue({ success: true });
   mock.history.mockResolvedValue({ days: 90 }); vi.stubEnv('PLAID_ENV', 'sandbox'); vi.stubEnv('PLAID_WEBHOOK_URL', '');
   vi.stubEnv('NEXT_PUBLIC_SITE_URL', 'https://staging.example.test'); vi.stubEnv('VERCEL_URL', '');
+  vi.stubEnv('PLAID_REDIRECT_URI', '');
 });
 afterEach(() => vi.unstubAllEnvs());
 describe('authenticated bank Link update mode', () => {
@@ -40,5 +41,20 @@ describe('authenticated bank Link update mode', () => {
   it('refuses insecure remote webhook configuration before provider calls', async () => {
     vi.stubEnv('NEXT_PUBLIC_SITE_URL', 'http://remote.example.test');
     expect((await POST(req())).status).toBe(503); expect(mock.link).not.toHaveBeenCalled();
+  });
+  it.each([{}, { itemId: 'owned-item' }])('configures the same registered OAuth callback for create and update mode (%j)', async body => {
+    vi.stubEnv('WRITEOFF_ENV', 'staging'); vi.stubEnv('NEXT_PUBLIC_APP_ENV', 'staging');
+    vi.stubEnv('NEXT_PUBLIC_FIREBASE_PROJECT_ID', 'writeoff-production-testing');
+    vi.stubEnv('PLAID_REDIRECT_URI', 'https://writeoff-production-testing.web.app/plaid/oauth');
+    const response = await POST(req({ ...body, redirect_uri: 'https://evil.test/callback' }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ redirect_uri: 'https://writeoff-production-testing.web.app/plaid/oauth' });
+    expect(mock.link.mock.calls[0][0].redirect_uri).toBe('https://writeoff-production-testing.web.app/plaid/oauth');
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+  });
+  it('rejects invalid OAuth configuration before starting a trial or calling Plaid', async () => {
+    vi.stubEnv('PLAID_REDIRECT_URI', 'https://evil.test/callback');
+    expect((await POST(req())).status).toBe(503);
+    expect(mock.link).not.toHaveBeenCalled(); expect(mock.trial).not.toHaveBeenCalled();
   });
 });

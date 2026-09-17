@@ -7,6 +7,7 @@ import { getTransactionHistoryWindow } from '@/lib/subscriptions/history-window'
 import { startFreeTrial } from '@/lib/subscriptions/trial-manager';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import { getPlaidConnection } from '@/lib/plaid/connections';
+import { getPlaidOAuthRedirectUri } from '@/lib/plaid/oauth-config';
 
 function webhookUrl(): string | undefined {
   const source = process.env.PLAID_WEBHOOK_URL || process.env.NEXT_PUBLIC_SITE_URL || process.env.VERCEL_URL;
@@ -23,6 +24,7 @@ export async function POST(request: NextRequest) {
   try { ({ uid } = await getUserFromReqOrThrow(request)); }
   catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
   try {
+    const redirectUri = getPlaidOAuthRedirectUri(process.env, request.headers.get('origin'));
     const body = await request.json().catch(() => ({}));
     if (body.itemId !== undefined && (typeof body.itemId !== 'string' || !body.itemId || body.itemId.includes('/'))) {
       return NextResponse.json({ error: 'Invalid bank connection' }, { status: 400 });
@@ -34,8 +36,11 @@ export async function POST(request: NextRequest) {
     if (!webhook && process.env.PLAID_ENV === 'production') throw new Error('A secure webhook URL is required');
     const configs: LinkTokenCreateRequest = { user: { client_user_id: uid }, client_name: 'WriteOff', country_codes: [CountryCode.Us], language: 'en',
       ...(webhook ? { webhook } : {}),
+      ...(redirectUri ? { redirect_uri: redirectUri } : {}),
       ...(connection ? { access_token: connection.accessToken } : { products: [Products.Transactions], transactions: { days_requested: (await getTransactionHistoryWindow(uid)).days } }) };
     const response = await plaidClient.linkTokenCreate(configs);
-    return NextResponse.json({ link_token: response.data.link_token, mode: connection ? 'update' : 'create', ...(connection ? { itemId: connection.itemId } : {}) });
+    return NextResponse.json({ link_token: response.data.link_token, mode: connection ? 'update' : 'create',
+      ...(redirectUri ? { redirect_uri: redirectUri } : {}), ...(connection ? { itemId: connection.itemId } : {}) },
+      { headers: { 'Cache-Control': 'no-store' } });
   } catch { return NextResponse.json({ error: 'Bank connection is unavailable. Please retry later.' }, { status: 503 }); }
 }

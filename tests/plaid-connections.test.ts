@@ -21,15 +21,18 @@ vi.mock('@/lib/firebase/admin', () => {
     runTransaction: async (work: any) => { const writes: (() => void)[] = [];
       const result = await work({ get: (reference: any) => reference.get(),
         set: (reference: any, data: any, options?: any) => writes.push(() => apply(reference.path, data, options?.merge)),
-        update: (reference: any, data: any) => writes.push(() => apply(reference.path, data)) });
+        update: (reference: any, data: any) => writes.push(() => apply(reference.path, data)),
+        delete: (reference: any) => writes.push(() => memory.records.delete(reference.path)) });
       writes.forEach(write => write()); return result;
     } } };
 });
 vi.mock('@/lib/plaid/client', () => ({ plaidClient: { itemRemove: memory.remove, accountsGet: memory.accounts } }));
 import { encryptPlaidToken, decryptPlaidToken, savePlaidConnection, listPlaidConnections, listPlaidConnectionSummaries,
-  migrateLegacyPlaidConnection, withPlaidConnection, updatePlaidConnection } from '@/lib/plaid/connections';
+  migrateLegacyPlaidConnection, withPlaidConnection, updatePlaidConnection, markPlaidConnectionLoginRequired, getPlaidConnection } from '@/lib/plaid/connections';
 import { disconnectPlaidItem } from '@/lib/plaid/delete-item';
 import { createAccountServer, updateAccountServer, deleteAccountServer } from '@/lib/firebase/accounts-server';
+import { beginPlaidLinkOperation, retainPlaidLinkRecovery, finishPlaidLinkOperation, markPlaidLinkOperationUnresolved,
+  recoverPendingPlaidLinks, quarantinePlaidLinkRecovery } from '@/lib/plaid/link-operations';
 const record = (path: string) => memory.records.get(path)!;
 const profile = 'user_profiles/owner';
 async function bank(itemId = 'bank-a', accountId = 'acc-a', uid = 'owner') {
@@ -42,6 +45,41 @@ beforeEach(() => { vi.clearAllMocks(); memory.records.clear(); memory.records.se
 afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 
 describe('private bank credentials and item ownership', () => {
+  it('rejects saving a connection after a durable deletion request even when the profile was removed', async () => {
+    memory.records.set('account_deletions/owner', { deletionRequested: true });
+    memory.records.delete(profile);
+    await expect(bank()).rejects.toThrow('ACCOUNT_DELETION_IN_PROGRESS');
+    expect(memory.records.has('plaid_connections/bank-a')).toBe(false);
+    expect(memory.records.has(`${profile}/accounts/acc-a`)).toBe(false);
+    expect(memory.records.has(profile)).toBe(false);
+  });
+  it('shows the exact Item needing repair while preserving its token for update mode and clearing only after provider verification', async () => {
+    await bank(); await bank('bank-b', 'acc-b');
+    const encrypted = record('plaid_connections/bank-a').encryptedAccessToken;
+    expect(await markPlaidConnectionLoginRequired('bank-a')).toBe(true);
+    expect(await listPlaidConnectionSummaries('owner')).toMatchObject([
+      { itemId: 'bank-a', status: 'relink_required' }, { itemId: 'bank-b', status: 'active' },
+    ]);
+    expect((await getPlaidConnection('owner', 'bank-a'))?.accessToken).toBe('synthetic-secret-bank-a');
+    await withPlaidConnection('owner', 'bank-a', async (_connection, lease) => {
+      await updatePlaidConnection('owner', 'bank-a', {}, lease);
+      expect(record('plaid_connections/bank-a').reauthenticationRequired).toBe(true);
+      await updatePlaidConnection('owner', 'bank-a', { lastSync: Date.now() }, lease);
+      expect(record('plaid_connections/bank-a').reauthenticationRequired).toBe(true);
+      await updatePlaidConnection('owner', 'bank-a', { reauthenticationRequired: false }, lease);
+    });
+    expect((await listPlaidConnectionSummaries('owner'))[0].status).toBe('active');
+    expect(record('plaid_connections/bank-a').encryptedAccessToken).toBe(encrypted);
+  });
+  it('never marks or reactivates unknown, old-provider or disconnected Items after a provider error', async () => {
+    expect(await markPlaidConnectionLoginRequired('missing')).toBe(false);
+    await bank(); vi.stubEnv('PLAID_CLIENT_ID', 'other-client');
+    expect(await markPlaidConnectionLoginRequired('bank-a')).toBe(false);
+    vi.stubEnv('PLAID_CLIENT_ID', 'new-client');
+    await disconnectPlaidItem('owner', 'bank-a');
+    expect(await markPlaidConnectionLoginRequired('bank-a')).toBe(false);
+    expect(record('plaid_connections/bank-a').status).toBe('disconnected');
+  });
   it('encrypts with random IVs, round trips, and binds ciphertext to the owner and item', () => {
     const encrypted = encryptPlaidToken('owner', 'bank-a', 'synthetic-secret');
     expect(encrypted).not.toContain('synthetic-secret');
@@ -130,6 +168,81 @@ describe('private bank credentials and item ownership', () => {
   });
 });
 
+describe('durable bank exchange and deletion coordination', () => {
+  const tombstone = 'account_deletions/owner';
+  const revocation = (id: string) => `${tombstone}/plaid_revocations/${id}`;
+  it('registers an operation before provider work and refuses every new operation after deletion is requested', async () => {
+    const id = await beginPlaidLinkOperation('owner');
+    expect(record(tombstone).linkOperations[id].state).toBe('in_flight');
+    record(tombstone).deletionRequested = true;
+    await expect(beginPlaidLinkOperation('owner')).rejects.toThrow('ACCOUNT_DELETION_IN_PROGRESS');
+    expect(Object.keys(record(tombstone).linkOperations)).toEqual([id]);
+  });
+  it('retains an encrypted recovery credential without enabling normal bank sync', async () => {
+    const id = await beginPlaidLinkOperation('owner');
+    await retainPlaidLinkRecovery('owner', id, 'new-item', 'synthetic-secret');
+    expect(record(revocation(id))).toMatchObject({ uid: 'owner', itemId: 'new-item', status: 'revocation_pending' });
+    expect(JSON.stringify(record(revocation(id)))).not.toContain('synthetic-secret');
+    expect(memory.records.has('plaid_connections/new-item')).toBe(false);
+    expect(await listPlaidConnections('owner')).toEqual([]);
+  });
+  it('retries a pending revocation and clears only its operation while retaining the deletion tombstone', async () => {
+    const id = await beginPlaidLinkOperation('owner'); const other = await beginPlaidLinkOperation('owner');
+    await retainPlaidLinkRecovery('owner', id, 'new-item', 'synthetic-secret');
+    await markPlaidLinkOperationUnresolved('owner', id, true);
+    record(tombstone).deletionRequested = true;
+    await recoverPendingPlaidLinks('owner');
+    expect(memory.remove).toHaveBeenCalledExactlyOnceWith({ access_token: 'synthetic-secret' });
+    expect(record(tombstone)).toMatchObject({ deletionRequested: true, linkOperations: { [other]: { state: 'in_flight' } } });
+    expect(record(tombstone).linkOperations[id]).toBeUndefined(); expect(memory.records.has(revocation(id))).toBe(false);
+  });
+  it('retains pending credentials and operation when the provider cannot revoke', async () => {
+    const id = await beginPlaidLinkOperation('owner');
+    await retainPlaidLinkRecovery('owner', id, 'new-item', 'synthetic-secret'); await markPlaidLinkOperationUnresolved('owner', id, true);
+    record(tombstone).deletionRequested = true; memory.remove.mockRejectedValue(new Error('unavailable'));
+    await expect(recoverPendingPlaidLinks('owner')).rejects.toThrow('retried');
+    expect(record(revocation(id)).encryptedAccessToken).toBeTruthy(); expect(record(tombstone).linkOperations[id]).toBeTruthy();
+  });
+  it.each(['in_flight', 'exchange_unknown', 'ownership_conflict'])('never expires or revokes an ambiguous %s operation', async state => {
+    const id = await beginPlaidLinkOperation('owner');
+    await retainPlaidLinkRecovery('owner', id, 'new-item', 'synthetic-secret');
+    Object.assign(record(tombstone).linkOperations[id], { state, startedAt: 1 }); record(tombstone).deletionRequested = true;
+    await recoverPendingPlaidLinks('owner');
+    expect(memory.remove).not.toHaveBeenCalled(); expect(record(tombstone).linkOperations[id]).toBeTruthy();
+  });
+  it('does not send an old-provider recovery token to the new client', async () => {
+    const id = await beginPlaidLinkOperation('owner');
+    await retainPlaidLinkRecovery('owner', id, 'new-item', 'synthetic-secret'); await markPlaidLinkOperationUnresolved('owner', id, true);
+    record(tombstone).deletionRequested = true; vi.stubEnv('PLAID_CLIENT_ID', 'another-client');
+    await recoverPendingPlaidLinks('owner');
+    expect(memory.remove).not.toHaveBeenCalled(); expect(record(revocation(id)).encryptedAccessToken).toBeTruthy();
+  });
+  it('quarantines a conflicting existing Item without revoking another user bank', async () => {
+    await bank('bank-a', 'acc-a', 'other');
+    const id = await beginPlaidLinkOperation('owner');
+    await retainPlaidLinkRecovery('owner', id, 'bank-a', 'synthetic-secret-bank-a'); await markPlaidLinkOperationUnresolved('owner', id, true);
+    record(tombstone).deletionRequested = true; await recoverPendingPlaidLinks('owner');
+    expect(memory.remove).not.toHaveBeenCalled();
+    expect(record('plaid_connections/bank-a').uid).toBe('other');
+    expect(record(revocation(id)).status).toBe('ownership_review');
+    expect(record(tombstone).linkOperations[id].state).toBe('ownership_conflict');
+  });
+  it('releases recovery for an already durably saved owned Item without revoking the active connection', async () => {
+    await bank(); const id = await beginPlaidLinkOperation('owner');
+    await retainPlaidLinkRecovery('owner', id, 'bank-a', 'synthetic-secret-bank-a'); await markPlaidLinkOperationUnresolved('owner', id, true);
+    record(tombstone).deletionRequested = true; await recoverPendingPlaidLinks('owner');
+    expect(memory.remove).not.toHaveBeenCalled(); expect(record(tombstone).linkOperations).toEqual({});
+    expect(record('plaid_connections/bank-a').encryptedAccessToken).toBeTruthy();
+  });
+  it('finishing one operation preserves concurrent provider operations and the durable deletion marker', async () => {
+    const id = await beginPlaidLinkOperation('owner'); const other = await beginPlaidLinkOperation('owner');
+    record(tombstone).deletionRequested = true; record(tombstone).billingOperations = { 'billing-fixture': { state: 'in_flight' } };
+    await finishPlaidLinkOperation('owner', id);
+    expect(record(tombstone).linkOperations[id]).toBeUndefined(); expect(record(tombstone).linkOperations[other]).toBeTruthy();
+    expect(record(tombstone).billingOperations).toEqual({ 'billing-fixture': { state: 'in_flight' } }); expect(record(tombstone).deletionRequested).toBe(true);
+  });
+});
+
 describe('bank disconnect retains imported records', () => {
   it('disconnects only one bank and preserves its records, the other bank, and manual data', async () => {
     await bank(); await bank('bank-b', 'acc-b');
@@ -162,11 +275,15 @@ describe('bank disconnect retains imported records', () => {
     expect(record('plaid_connections/bank-a').encryptedAccessToken).toBeTruthy();
     expect(record(`${profile}/accounts/acc-a`)).not.toHaveProperty('plaid_connection_status');
   });
-  it('retires a mismatched old connection locally without sending its token to the new account', async () => {
-    await bank(); vi.stubEnv('PLAID_ENV', 'production');
-    expect((await disconnectPlaidItem('owner', 'bank-a')).success).toBe(true);
+  it('retains an old connection for manual revocation instead of allowing local disconnect to bypass deletion safeguards', async () => {
+    await bank(); const encrypted = record('plaid_connections/bank-a').encryptedAccessToken; vi.stubEnv('PLAID_ENV', 'production');
+    const result = await disconnectPlaidItem('owner', 'bank-a');
+    expect(result.success).toBe(false); expect(result.error?.message).toContain('manual revocation');
     expect(memory.remove).not.toHaveBeenCalled();
-    expect(record('plaid_connections/bank-a')).not.toHaveProperty('encryptedAccessToken');
+    expect(record('plaid_connections/bank-a')).toMatchObject({ status: 'revocation_required', encryptedAccessToken: encrypted });
+    expect(record(`${profile}/accounts/acc-a`)).not.toHaveProperty('plaid_connection_status');
+    expect((await disconnectPlaidItem('owner', 'bank-a')).success).toBe(false);
+    expect(record('plaid_connections/bank-a').encryptedAccessToken).toBe(encrypted);
   });
   it('blocks public account API writes from forging bank bindings or changing active bank ownership', async () => {
     await bank();

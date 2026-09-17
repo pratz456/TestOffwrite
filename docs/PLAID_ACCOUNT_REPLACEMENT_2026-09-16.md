@@ -41,7 +41,25 @@ The focused configuration, client, staging isolation, webhook, scheduled-selecto
 - New Sandbox credentials verified against Plaid institutions API (HTTP 200).
 - Current staging Hosting uses `ssrwriteoffproductionte`. Unused staging functions `createLinkToken` and `ssrwriteoff23910` were retired after verifying no current Hosting/preview/caller references and no requests in seven days. Their old Plaid Secret Manager versions were disabled, with private recovery archives retained.
 - The prior local production-recovery environment’s old Plaid client ID/secret entries were removed. Existing live deployment is separate from this staging release and must be replaced at the production cutover; no claim is made that historical deployment artifacts or provider-issued keys have been revoked.
-- Dedicated `ANALYSIS_WORKER_SECRET` now matches staging SSR and the analysis bridge; worker origin points only at staging. The previously missing analysis workers will be deployed with this release.
-- Full suite: 2,436 passed, with 13 opt-in security cases separately passing in isolated emulators. TypeScript passed; lint has no errors (existing warnings remain). Staging isolation preflight passed.
+- Dedicated `ANALYSIS_WORKER_SECRET` now matches staging SSR and the analysis bridge; worker origin points only at staging. Both previously missing analysis workers were deployed successfully.
+- Bank replacement release: full suite 2,444 passed, with 13 opt-in security cases separately passing in isolated emulators. TypeScript passed; lint has no errors (existing warnings remain). Staging isolation preflight passed. Subsequent UI/date policy checks passed 118 focused tests.
 - New rules deployed before the bank backend, so clients cannot read the private bank store or forge bank ownership/projection fields.
-- Authentic provider and browser results will be recorded after deployment.
+- Staging release `36f9106` passed authentic provider and browser tests; UI policy/date polish `3a23912` was subsequently deployed and its formatted review date verified in the browser.
+
+## Authentic Sandbox verification (September 16–17, 2026)
+
+Only a dedicated synthetic QA account was used. No real customer transaction confirmations were changed.
+
+- The new provider account imported exactly three custom transactions through the application's authenticated Link/exchange path. Tokens are encrypted in the private connection store; client reads were denied.
+- All three imports automatically completed OpenAI analysis through the Firestore workers, each with a category, explanation, and IRS source references. Ambiguous expenses remained unresolved for user confirmation.
+- Repeated incremental sync preserved transaction IDs/count and saved zero duplicates. A genuine Plaid-signed callback caused an exact-item update and a verified success receipt.
+- A second bank with zero transactions connected successfully. Its account-usage page accurately reported no activity yet and returned to Bank accounts after saving.
+- Plaid's Sandbox login reset produced `ITEM_LOGIN_REQUIRED`. The browser's Repair connection flow successfully reauthenticated the same custom bank account; the next incremental sync succeeded with all three records and confirmations intact.
+- Disconnecting only the empty bank through the browser left the primary bank connected and retained both saved accounts. No records were deleted.
+- The provider's default data-use wording was corrected and published to describe business accounting/tax preparation and financial tracking.
+
+## Production status
+
+The new Plaid team's production request was submitted September 16. Its dashboard reports review pending and a required security questionnaire outstanding; it estimates 2–3 business days. That estimate is Plaid's, not a launch commitment. New-account production credentials and actual production-bank verification remain required.
+
+Production worker configuration, deployment isolation, OAuth return support, and runtime updates are being validated separately. Refer to `PRODUCTION_CUTOVER_2026-09-16.md` for release prerequisites, including existing-user history reconciliation. Sandbox success does not certify the old live release or automatically switch production credentials.

@@ -38,7 +38,8 @@ export async function deleteSubcollection(
  */
 export async function deleteQueryBatch(
   query: Query | CollectionReference,
-  batchSize: number = 500
+  batchSize: number = 500,
+  validateDocument?: (data: FirebaseFirestore.DocumentData) => void
 ): Promise<number> {
   let totalDeleted = 0;
   let lastDoc: any = null;
@@ -62,6 +63,7 @@ export async function deleteQueryBatch(
 
     const batch = adminDb.batch();
     snapshot.docs.forEach((doc) => {
+      validateDocument?.(doc.data());
       batch.delete(doc.ref);
       totalDeleted++;
     });
@@ -79,4 +81,3 @@ export async function deleteQueryBatch(
 
   return totalDeleted;
 }
-

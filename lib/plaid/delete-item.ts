@@ -1,6 +1,6 @@
 import { plaidClient } from './client';
 import { adminDb } from '@/lib/firebase/admin';
-import { listPlaidConnectionSummaries, removePlaidConnection, withPlaidConnection } from './connections';
+import { listPlaidConnectionSummaries, removePlaidConnection, updatePlaidConnection, withPlaidConnection } from './connections';
 /** Disconnect one bank while retaining imported records and all other banks. */
 export async function disconnectPlaidItem(uid: string, itemId?: string): Promise<{
   success: boolean; error?: Error; deletedCounts?: { accounts: number; transactions: number }; plaidRemoved?: boolean;
@@ -14,6 +14,12 @@ export async function disconnectPlaidItem(uid: string, itemId?: string): Promise
       return { success: true, plaidRemoved: false, deletedCounts: { accounts: 0, transactions: 0 } };
     }
     return await withPlaidConnection(uid, target.itemId, async (connection, leaseId) => {
+      if (!connection.accessToken) {
+        // Credentials from the previous provider account cannot be revoked with
+        // the new keys. Retain the only recovery record until manual revocation.
+        await updatePlaidConnection(uid, target.itemId, { status: 'revocation_required' }, leaseId);
+        throw new Error('This older bank connection requires manual revocation. Contact support; its recovery information and your saved records have been retained.');
+      }
       let plaidRemoved = false;
       if (connection.accessToken) {
         try { await plaidClient.itemRemove({ access_token: connection.accessToken }); plaidRemoved = true; }
