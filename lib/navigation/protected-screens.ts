@@ -26,6 +26,11 @@ export function protectedScreenUrl(raw: string): string {
   const target = new URLSearchParams({ screen });
   if (query.has('from')) target.set('from', protectedScreen(query.get('from')));
   if ((screen === 'transaction-detail' || screen === 'review-transactions') && query.get('transactionId')) target.set('transactionId', query.get('transactionId')!);
+  if (screen === 'income-tracking') {
+    // Deep link from an income-reconciliation notice: open one tab for one tax year.
+    if (/^[a-z]+$/.test(query.get('tab') ?? '')) target.set('tab', query.get('tab')!);
+    if (/^\d{4}$/.test(query.get('year') ?? '')) target.set('year', query.get('year')!);
+  }
   return `/protected?${target.toString()}`;
 }
 

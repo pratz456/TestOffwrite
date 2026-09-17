@@ -16,6 +16,7 @@ import {
   TrendingUp, Building2, ChevronDown, ArrowUpRight,
 } from "lucide-react";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
+import { IncomeReconciliationPanel } from "@/components/income-reconciliation-panel";
 
 /* ─── types ─────────────────────────────────────────────────────────────────── */
 const FORM_TYPES = ["1099-NEC","1099-K","1099-MISC","1099-INT","1099-DIV","1099-B"] as const;
@@ -31,9 +32,24 @@ interface GrossReceiptEntry {
   type: string; description?: string; taxYear: number;
 }
 
+const INCOME_TABS = ["receipts", "forms", "reconcile", "sources"] as const;
+type IncomeTab = (typeof INCOME_TABS)[number];
+
 interface IncomeTrackingScreenProps {
   user: { id: string; email?: string };
   onBack: () => void;
+  /** Deep-link targets, e.g. from the tax estimate's income-reconciliation notice. */
+  initialTab?: string | null;
+  initialYear?: string | number | null;
+}
+
+/** Only the last five tax years are offered; anything else falls back to the current year. */
+export function incomeScreenYear(raw: string | number | null | undefined, currentYear = new Date().getFullYear()): number {
+  const year = typeof raw === "number" ? raw : typeof raw === "string" && /^\d{4}$/.test(raw) ? Number(raw) : NaN;
+  return Number.isInteger(year) && year <= currentYear && year > currentYear - 5 ? year : currentYear;
+}
+export function incomeScreenTab(raw: string | null | undefined): IncomeTab {
+  return INCOME_TABS.includes(raw as IncomeTab) ? raw as IncomeTab : "receipts";
 }
 
 const INCOME_TYPES = [
@@ -55,10 +71,10 @@ const fmt = (n: number) =>
   n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /* ─── component ─────────────────────────────────────────────────────────────── */
-export function IncomeTrackingScreen({ user, onBack }: IncomeTrackingScreenProps) {
+export function IncomeTrackingScreen({ user, onBack, initialTab, initialYear }: IncomeTrackingScreenProps) {
   const currentYear = new Date().getFullYear();
-  const [taxYear, setTaxYear] = useState(currentYear);
-  const [activeTab, setActiveTab] = useState("receipts");
+  const [taxYear, setTaxYear] = useState(() => incomeScreenYear(initialYear, currentYear));
+  const [activeTab, setActiveTab] = useState<string>(() => incomeScreenTab(initialTab));
   const [error, setError] = useState<string | null>(null);
   const [formsLoadError, setFormsLoadError] = useState<string | null>(null);
   const [receiptsLoadError, setReceiptsLoadError] = useState<string | null>(null);
@@ -220,7 +236,11 @@ export function IncomeTrackingScreen({ user, onBack }: IncomeTrackingScreenProps
             </div>
           </div>
           <div className="mt-2 flex items-start justify-between gap-2 border-t border-border pt-2">
-            <p className="text-xs leading-relaxed text-muted-foreground">Record totals may overlap.</p>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Record totals may overlap.{" "}
+              <button type="button" onClick={() => setActiveTab("reconcile")} className="font-medium text-primary underline-offset-2 hover:underline">Reconcile</button>
+              {" "}to count each payment once.
+            </p>
             <Link href="/protected?screen=tax-preview" className="-my-2 inline-flex min-h-11 shrink-0 items-center gap-1 text-xs font-medium text-primary">
               Tax estimate <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
             </Link>
@@ -233,8 +253,8 @@ export function IncomeTrackingScreen({ user, onBack }: IncomeTrackingScreenProps
             <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground group-open:rotate-180" aria-hidden="true" />
           </summary>
           <div className="space-y-2 px-3 pb-3 text-xs leading-relaxed text-muted-foreground">
-            <p>A 1099 and a direct receipt may describe the same payment. Review overlaps and income types before using estimates or exports.</p>
-            <p>Bank transactions are excluded from these record totals. Tax Preview uses your saved income, expenses, and tax details; select the same year there. Saving records here does not file a return.</p>
+            <p>A 1099, a direct receipt and a bank deposit may describe the same payment. Tax estimates and exports stay on hold until you record how overlapping records relate on the Reconcile tab. WriteOff never merges or deletes records automatically.</p>
+            <p>Bank transactions are excluded from these record totals but are included in reconciliation. Tax Preview uses your saved income, expenses, and tax details; select the same year there. Saving records here does not file a return.</p>
           </div>
         </details>
 
@@ -244,12 +264,15 @@ export function IncomeTrackingScreen({ user, onBack }: IncomeTrackingScreenProps
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="w-full h-auto bg-muted/50 border border-border p-1 rounded-lg grid grid-cols-3">
+          <TabsList className="w-full h-auto bg-muted/50 border border-border p-1 rounded-lg grid grid-cols-4">
             <TabsTrigger value="receipts" className="min-h-11 rounded-md px-1 text-xs sm:text-sm">
               Direct income
             </TabsTrigger>
             <TabsTrigger value="forms" className="min-h-11 rounded-md px-1 text-xs sm:text-sm">
               1099 forms
+            </TabsTrigger>
+            <TabsTrigger value="reconcile" className="min-h-11 rounded-md px-1 text-xs sm:text-sm">
+              Reconcile
             </TabsTrigger>
             <TabsTrigger value="sources" className="min-h-11 rounded-md px-1 text-xs sm:text-sm">
               By source
@@ -450,6 +473,11 @@ export function IncomeTrackingScreen({ user, onBack }: IncomeTrackingScreenProps
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* Reconcile overlapping records */}
+          <TabsContent value="reconcile" className="mt-3">
+            <IncomeReconciliationPanel taxYear={taxYear} />
           </TabsContent>
 
           {/* By Source */}
