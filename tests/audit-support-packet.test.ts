@@ -4,11 +4,13 @@ const state = vi.hoisted(() => ({ rows: new Map<string, Record<string, unknown>>
 vi.mock('@/lib/firebase/admin', () => {
   function doc(path: string) { return { id: path.split('/').at(-1)!, ref: { path }, exists: state.rows.has(path), data: () => state.rows.get(path), get: async () => doc(path), collection: (name: string) => query(`${path}/${name}`) }; }
   function query(path: string, group = false, filters: [string, unknown][] = []) {
+    const matching = () => [...state.rows].filter(([key, value]) => (group ? key.split('/').at(-2) === path : key.slice(0, key.lastIndexOf('/')) === path)
+      && filters.every(([field, wanted]) => value[field] === wanted));
     return { doc: (id: string) => doc(`${path}/${id}`), where: (field: string, _op: string, value: unknown) => query(path, group, [...filters, [field, value]]),
+      count: () => ({ get: async () => { if (state.fail === path) throw Error('private database credentials'); return { data: () => ({ count: matching().length }) }; } }),
       get: async () => {
         if (state.fail === path) throw Error('private database credentials');
-        const docs = [...state.rows].filter(([key, value]) => (group ? key.split('/').at(-2) === path : key.slice(0, key.lastIndexOf('/')) === path)
-          && filters.every(([field, wanted]) => value[field] === wanted)).map(([key]) => doc(key));
+        const docs = matching().map(([key]) => doc(key));
         return { docs, empty: !docs.length };
       } };
   }

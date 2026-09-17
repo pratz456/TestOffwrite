@@ -1,9 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-const state = vi.hoisted(() => ({ rows: new Map<string, Record<string, unknown>>(), fail: '', reads: [] as string[] }));
+const state = vi.hoisted(() => ({ rows: new Map<string, Record<string, unknown>>(), fail: '', reads: [] as string[], counts: [] as string[] }));
 vi.mock('@/lib/firebase/admin', () => {
   function doc(path: string) { return { id: path.split('/').at(-1)!, ref: { path }, exists: state.rows.has(path), data: () => state.rows.get(path), get: async () => doc(path), collection: (name: string) => query(`${path}/${name}`) }; }
   function query(path: string, group = false, filters: [string, unknown][] = []) {
+    const matching = () => [...state.rows].filter(([key, value]) => (group ? key.split('/').at(-2) === path : key.slice(0, key.lastIndexOf('/')) === path)
+      && filters.every(([field, wanted]) => value[field] === wanted));
     return { doc: (id: string) => doc(`${path}/${id}`), where: (field: string, _op: string, value: unknown) => query(path, group, [...filters, [field, value]]),
+      count: () => ({ get: async () => { state.counts.push(path); return { data: () => ({ count: matching().length }) }; } }),
       get: async () => {
         state.reads.push(path); if (state.fail === path) throw Error('private database credentials');
         const docs = [...state.rows].filter(([key, value]) => (group ? key.split('/').at(-2) === path : key.slice(0, key.lastIndexOf('/')) === path)
@@ -43,6 +46,22 @@ describe('owner export source completeness and privacy', () => {
     expect(rows).toHaveLength(3); expect(rows.map(row => row.amount).sort((a, b) => Number(a) - Number(b))).toEqual([-1200, 20, 100]);
     expect(rows.every(row => String(row.exportReference).startsWith('transaction-'))).toBe(true);
     expect(rows.find(row => row.id === 'current')).toMatchObject({ business_purpose: 'Design work', pending: false });
+  });
+  it('walks an account only when its count() exceeds the owner-field rows the collection-group queries returned', async () => {
+    // Seeded account has an owner-field-less "manual" row: the count differs, so this account is walked.
+    state.reads.length = 0; state.counts.length = 0;
+    await readOwnedTransactions('owner');
+    expect(state.counts).toEqual(['user_profiles/owner/accounts/account/transactions']);
+    expect(state.reads.filter(path => path === 'user_profiles/owner/accounts/account/transactions')).toHaveLength(1);
+    // Once every nested row carries the owner field, the walk is skipped: A + N reads instead of A + 3N.
+    const manual = state.rows.get('user_profiles/owner/accounts/account/transactions/manual')!;
+    state.rows.set('user_profiles/owner/accounts/account/transactions/manual', { ...manual, userId: 'owner' });
+    state.reads.length = 0; state.counts.length = 0;
+    const rows = await readOwnedTransactions('owner');
+    expect(rows).toHaveLength(3);
+    expect(state.counts).toEqual(['user_profiles/owner/accounts/account/transactions']);
+    expect(state.reads.filter(path => path === 'user_profiles/owner/accounts/account/transactions')).toHaveLength(0);
+    state.rows.set('user_profiles/owner/accounts/account/transactions/manual', manual);
   });
   it.each(['transactions', 'user_profiles/owner/accounts/account/transactions'])('fails closed when %s cannot be read', async path => {
     state.fail = path; await expect(readOwnedTransactions('owner')).rejects.toBeInstanceOf(ExportDataUnavailableError);

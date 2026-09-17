@@ -28,13 +28,24 @@ export async function readOwnedTransactions(uid: string): Promise<ExportRecord[]
   try {
     const accounts = await adminDb.collection('user_profiles').doc(uid).collection('accounts').get();
     const queried = await Promise.all(['userId', 'user_id'].map(field => adminDb.collectionGroup('transactions').where(field, '==', uid).get()));
-    const nested = await Promise.all(accounts.docs.map(async account => {
-      ownedExportRecord(account, uid, true);
-      return adminDb.collection('user_profiles').doc(uid).collection('accounts').doc(account.id).collection('transactions').get();
-    }));
     const records = new Map<string, ExportRecord>();
-    queried.forEach(snapshot => snapshot.docs.forEach(doc => records.set(doc.ref.path, ownedExportRecord(doc, uid))));
-    nested.forEach(snapshot => snapshot.docs.forEach(doc => records.set(doc.ref.path, ownedExportRecord(doc, uid, true))));
+    const nestedSeen = new Map<string, number>();
+    queried.forEach(snapshot => snapshot.docs.forEach(doc => {
+      records.set(doc.ref.path, ownedExportRecord(doc, uid));
+      const parts = doc.ref.path.split('/');
+      if (parts[0] === 'user_profiles' && parts[2] === 'accounts' && parts[4] === 'transactions') nestedSeen.set(parts[3], (nestedSeen.get(parts[3]) ?? 0) + 1);
+    }));
+    // Rows written before the owner field existed are invisible to the collection-group queries.
+    // A count() aggregation per account (one read per 1,000 rows) decides whether that account
+    // needs a full walk, so a normal user costs A + N document reads instead of A + 3N.
+    await Promise.all(accounts.docs.map(async account => {
+      ownedExportRecord(account, uid, true);
+      const collection = adminDb.collection('user_profiles').doc(uid).collection('accounts').doc(account.id).collection('transactions');
+      const total = (await collection.count().get()).data().count;
+      if (total === (nestedSeen.get(account.id) ?? 0)) return;
+      const snapshot = await collection.get();
+      snapshot.docs.forEach(doc => records.set(doc.ref.path, ownedExportRecord(doc, uid, true)));
+    }));
     return [...records.values()].sort((a, b) => String(a.recordPath).localeCompare(String(b.recordPath))).map(record => ({
       ...record, exportReference: exportReference('transaction', `${uid}/${record.recordPath}`),
       accountReference: exportReference('account', `${uid}/${record.account_id ?? record.accountId ?? String(record.recordPath).split('/')[3] ?? 'unknown'}`),
