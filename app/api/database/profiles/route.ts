@@ -42,7 +42,12 @@ export async function POST(request: NextRequest) {
     const ref = adminDb.doc(`user_profiles/${user.uid}`);
     await adminDb.runTransaction(async transaction => {
       const snapshot = await transaction.get(ref);
-      transaction.set(ref, { ...body, ...stamps, updated_at: FieldValue.serverTimestamp(),
+      // A merge keeps nested fields, so a withdrawn §7216 signature is removed explicitly.
+      const stored = snapshot.exists ? snapshot.data()?.consents : undefined;
+      const withdrawn = 'consents' in body && !body.consents.document_import_signature
+        && stored && typeof stored === 'object' && 'document_import_signature' in stored;
+      transaction.set(ref, { ...body, ...(withdrawn ? { consents: { ...body.consents, document_import_signature: FieldValue.delete() } } : {}),
+        ...stamps, updated_at: FieldValue.serverTimestamp(),
         ...(!snapshot.exists ? { created_at: FieldValue.serverTimestamp() } : {}) }, { merge: true });
     });
     return NextResponse.json({ success: true });
