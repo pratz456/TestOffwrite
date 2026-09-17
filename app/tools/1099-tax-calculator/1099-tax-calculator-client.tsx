@@ -367,10 +367,10 @@ export function TaxCalculator1099Client() {
           <Card className="bg-gradient-to-r from-green-600 to-emerald-600 text-white border-0">
             <CardContent className="py-8">
               <div className="text-center space-y-4">
-                <h3 className="text-xl font-bold">Want to Find Every Deduction You Qualify For?</h3>
+                <h3 className="text-xl font-bold">Want Help Tracking Your Deductions?</h3>
                 <p className="text-green-100 max-w-lg mx-auto">
-                  WriteOff automatically tracks your expenses, categorizes them for Schedule C,
-                  and finds deductions you might be missing  - reducing both income tax and SE tax.
+                  WriteOff tracks your expenses, organizes them for Schedule C, and flags
+                  possible deductions for you to confirm  - so fewer write-offs slip through.
                 </p>
                 <Link href="/auth/sign-up">
                   <Button size="lg" className="bg-white text-green-700 hover:bg-green-50 mt-2">

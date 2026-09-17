@@ -319,8 +319,8 @@ export function SETaxCalculatorClient() {
               <div className="text-center space-y-4">
                 <h3 className="text-xl font-bold">Want to Find More Tax Deductions?</h3>
                 <p className="text-green-100 max-w-lg mx-auto">
-                  WriteOff automatically tracks your expenses and identifies every deduction
-                  you qualify for  - reducing both your income tax and self-employment tax.
+                  WriteOff tracks your business expenses, suggests likely deductions for your
+                  review, and keeps the records your preparer needs at tax time.
                 </p>
                 <Link href="/auth/sign-up">
                   <Button size="lg" className="bg-white text-green-700 hover:bg-green-50 mt-2">

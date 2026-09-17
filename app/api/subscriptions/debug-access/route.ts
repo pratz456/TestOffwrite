@@ -9,6 +9,8 @@ export async function GET(req: Request) {
   let uid: string;
   try { ({ uid } = await getUserFromReqOrThrow(req)); }
   catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
+  // Billing identifiers are exposed only for local/staging diagnosis.
+  if (process.env.NODE_ENV === 'production') return NextResponse.json({ error: 'Not found' }, { status: 404 });
   try {
 
     // Get user profile
