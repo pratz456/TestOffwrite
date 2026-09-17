@@ -135,7 +135,7 @@ Separate business taxes are surfaced as informational notices only, from the sav
 
 Run `npx vitest run tests/ai-eval-harness.test.ts tests/ai-eval-redteam.test.ts`. The harness is offline: no API key or network is needed, and it documents the deterministic grounding behaviour only. It does not measure live-model accuracy, and a passing run is not evidence that any real model output is correct.
 
-Behaviour documented as-is but flagged in `KNOWN_CONCERNS` (production code unchanged):
+The harness surfaced one regex miss that was fixed in the grounding: an own-account transfer recorded as "between my own accounts" (or plural "own accounts") is now recognized as an explicit transfer instead of being downgraded to unknown. Behaviour documented as-is but flagged in `KNOWN_CONCERNS` (production code unchanged):
 
 - `desk-as-supplies`: a $249 desk categorized as `supplies_small_tools` is approved at 100%; the asset gate is category-driven, so a model can bypass it by choosing supplies.
 - `rent-as-rent-category`: apartment rent categorized as `rent` is approved at 100% although the note says it is the home; the home-office gate only fires for `home_office`.
@@ -143,7 +143,6 @@ Behaviour documented as-is but flagged in `KNOWN_CONCERNS` (production code unch
 - `gym-membership-over-eager`: the business-purpose gate is length-only (>= 8 characters); a "Monthly gym membership" note passes it.
 - `note-prompt-injection`: injected instructions in a note count as saved context for the same length-only gate; the grounding relies on the model to ignore them.
 - `pending-transaction`: the pending flag is ignored, so a pending authorization can receive a completed deduction suggestion before it posts.
-- `venmo-own-accounts-phrase`: the own-account transfer regex misses "between my own accounts" and the plural "own accounts", downgrading an explicitly recorded transfer to unknown.
 - `redteam-merchant-ssn-pattern`: the merchant descriptor is forwarded verbatim to the provider prompt, so SSN-like digits inside a merchant string would reach the model.
 
 ## Focused verification

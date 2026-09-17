@@ -492,12 +492,12 @@ export const AI_EVAL_CORPUS: EvalCase[] = [
     invariants: TEXT,
   },
   {
-    id: 'venmo-own-accounts-phrase', title: 'Venmo with a "between my own accounts" note (phrase missed by the regex)',
+    id: 'venmo-own-accounts-phrase', title: 'Venmo with a "between my own accounts" note',
     transaction: tx('venmo-own-accounts-phrase', 'Venmo', 300, { note: 'Moved money between my own accounts' }),
     context: SOLE_PROPRIETOR,
     modelOutput: movement('transfer', 'You recorded this as money moved between your own accounts, so it is not income or an expense.', 'Recorded own-account transfer.'),
-    expect: { status: 'needs_more_info', transaction_kind: 'unknown', missing_field: 'transaction_kind' },
-    invariants: GATED_MOVEMENT,
+    expect: { status: 'ok', transaction_kind: 'transfer', is_deductible: false, deductible_percent: 0 },
+    invariants: TEXT,
   },
   {
     id: 'venmo-no-note', title: 'Venmo payment with no note (model calls it a transfer)',
@@ -758,6 +758,5 @@ export const KNOWN_CONCERNS: Array<{ id: string; rationale: string }> = [
   { id: 'gym-membership-over-eager', rationale: 'The business-purpose gate is length-only (>= 8 chars); a "Monthly gym membership" note passes it and the deduction is approved.' },
   { id: 'note-prompt-injection', rationale: 'Injected instructions in the note count as saved context for the length-only purpose gate; the grounding relies on the model to ignore them.' },
   { id: 'pending-transaction', rationale: 'The pending flag is ignored, so a pending authorization can receive a completed deduction suggestion before it posts.' },
-  { id: 'venmo-own-accounts-phrase', rationale: 'The own-account transfer regex misses "between my own accounts" (and plural "own accounts"), downgrading an explicitly recorded transfer to unknown.' },
   { id: 'redteam-merchant-ssn-pattern', rationale: 'The merchant descriptor is forwarded verbatim to the provider prompt, so SSN-like digits inside a merchant string would reach the model.' },
 ];
