@@ -84,9 +84,6 @@ const EMPTY_BODY_ACCEPTED: Record<string, Expectation> = {
  */
 interface KnownGap { anonymous?: number[]; mutating?: number[]; throws?: true; leaksDatabaseError?: true; reason: string }
 const KNOWN_GAPS: Record<string, KnownGap> = {
-  'POST /api/tax/deductions': { throws: true, reason: 'No error handling: a database failure escapes as an exception.' },
-  'GET /api/tax/deductions': { throws: true, reason: 'No error handling: a database failure escapes as an exception.' },
-  'POST /api/transactions/reset-unreviewed-classifications': { throws: true, reason: 'No error handling: a database failure escapes as an exception.' },
   'POST /api/tax/import-document': { mutating: [500], reason: 'Non-multipart body answers 500; upload lacks size, MIME and signature checks and a rate limit.' },
   'DELETE /api/plaid/items/[itemId]': { mutating: [500], leaksDatabaseError: true, reason: 'Unknown connection answers 500 and the failure message is echoed.' },
   'POST /api/plaid/sync-transactions': { mutating: [500], reason: 'A missing bank connection answers 500.' },
