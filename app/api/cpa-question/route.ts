@@ -96,16 +96,15 @@ export async function POST(request: NextRequest) {
             text: emailBody,
           }),
         });
-        if (!resendRes.ok) {
-          console.error('Failed to send CPA email notification:', await resendRes.text());
-        }
+        // The provider response can echo the message; record only the status.
+        if (!resendRes.ok) console.error(`Failed to send CPA email notification for ${docRef.id}: HTTP ${resendRes.status}`);
       } else {
-        // Fallback: use mailto-style logging so questions aren't lost
-        console.log(`📧 CPA Question Email (RESEND_API_KEY not set):\nTo: writeoffapp@gmail.com\n${emailBody}`);
+        // The question, the asker's email and the amounts stay in Firestore, not in logs.
+        console.warn(`[CPA Question] RESEND_API_KEY not set; question ${docRef.id} awaits manual review in Firestore`);
       }
-    } catch (emailErr) {
+    } catch {
       // Don't fail the request if email fails
-      console.error('Email notification error (non-blocking):', emailErr);
+      console.error(`Email notification error (non-blocking) for CPA question ${docRef.id}`);
     }
 
     console.log(`New CPA question submitted: ${docRef.id} for user ${userId}`);

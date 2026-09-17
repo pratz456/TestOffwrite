@@ -45,11 +45,8 @@ export async function GET(request: NextRequest) {
     });
 
     if (accountsWithoutBalance.length > 0) {
-      console.log(`⚠️ [Database Accounts API] Found ${accountsWithoutBalance.length} account(s) without balance data:`);
-      accountsWithoutBalance.forEach(acc => {
-        console.log(`   - ${acc.name || acc.account_id}: balance=${acc.balance}, available_balance=${acc.available_balance}, current_balance=${acc.current_balance}`);
-      });
-      console.log(`💡 [Database Accounts API] Balance data can be refreshed via /api/plaid/refresh-balances endpoint`);
+      // Account names identify the owner's banks; log the count only.
+      console.log(`⚠️ [Database Accounts API] Found ${accountsWithoutBalance.length} account(s) without balance data; refresh via /api/plaid/refresh-balances`);
     } else {
       console.log(`✅ [Database Accounts API] All ${result.data.length} accounts have balance data`);
     }
