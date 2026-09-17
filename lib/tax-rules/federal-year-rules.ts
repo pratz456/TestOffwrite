@@ -36,6 +36,12 @@ interface FederalTaxRules {
   saltPhaseoutStart: number;
   qbiThreshold: Record<FederalFilingStatus, number>;
   qbiPhaseInWidth: number;
+  /**
+   * §461(l)(3) excess business loss threshold: base amount, doubled for joint returns
+   * (married filing separately and head of household use the base amount).
+   * Made permanent by P.L. 119-21 §70601. Annual amounts below are the published figures.
+   */
+  excessBusinessLossThreshold: Record<FederalFilingStatus, number>;
 }
 
 const rates = [0.10, 0.12, 0.22, 0.24, 0.32, 0.35, 0.37];
@@ -88,6 +94,8 @@ const rules: Record<SupportedTaxYear, FederalTaxRules> = {
     },
     saltCap: 10000, saltPhaseoutStart: Infinity,
     qbiThreshold: filingAmounts(191950, 383900, 191950, 191950), qbiPhaseInWidth: 50000,
+    // Instructions for Form 461 (2024): $305,000 ($610,000 joint). https://www.irs.gov/instructions/i461
+    excessBusinessLossThreshold: filingAmounts(305000, 610000, 305000, 305000),
   },
   2025: {
     taxYear: 2025, reviewedAt: '2026-09-15',
@@ -111,6 +119,8 @@ const rules: Record<SupportedTaxYear, FederalTaxRules> = {
     },
     saltCap: 40000, saltPhaseoutStart: 500000,
     qbiThreshold: filingAmounts(197300, 394600, 197300, 197300), qbiPhaseInWidth: 50000,
+    // Rev. Proc. 2024-40 §2.32: $313,000 ($626,000 joint); Instructions for Form 461 (2025).
+    excessBusinessLossThreshold: filingAmounts(313000, 626000, 313000, 313000),
   },
   2026: {
     taxYear: 2026, reviewedAt: '2026-09-15',
@@ -133,6 +143,8 @@ const rules: Record<SupportedTaxYear, FederalTaxRules> = {
     },
     saltCap: 40400, saltPhaseoutStart: 505000,
     qbiThreshold: filingAmounts(201750, 403500, 201775, 201750), qbiPhaseInWidth: 75000,
+    // Rev. Proc. 2025-32 §4.31: $256,000 ($512,000 joint) after the P.L. 119-21 §70601 re-based indexing.
+    excessBusinessLossThreshold: filingAmounts(256000, 512000, 256000, 256000),
   },
 };
 

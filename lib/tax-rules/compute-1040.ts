@@ -4,7 +4,8 @@
  * Sources:
  *   - IRS Rev. Proc. 2024-40 (2025 brackets and standard deductions)
  *   - IRS Publication 505 (SE tax, quarterly estimates)
- *   - One Big Beautiful Bill Act P.L. 119-21 (updated standard deductions)
+ *   - One Big Beautiful Bill Act P.L. 119-21 (updated standard deductions; Schedule 1-A deductions in obbba-deductions.ts)
+ *   - Schedule C loss treatment (§465/§469/§183/§461(l)) in business-losses.ts
  */
 
 import {
@@ -21,6 +22,8 @@ import { calculateStateTax } from './state-tax';
 import { getFederalTaxRules, calculateSALTLimit } from './federal-year-rules';
 import { calculateStandardDeduction, calculateEnhancedSeniorDeduction } from './personal-deductions';
 import { assertEITCDependencyScope, readNoChildEITCAge } from './credit-scope';
+import { calculateAllowedBusinessLoss, type BusinessLossResult } from './business-losses';
+import { calculateOBBBADeductions, type OBBBADeductionResult } from './obbba-deductions';
 
 export interface Form1040Input {
   taxYear: number;
@@ -74,6 +77,9 @@ export interface Form1040Result {
   calculationWarnings: string[];         // Unmodeled situations / missing facts that limit this estimate
   // Income lines
   totalIncome: number;              // Line 9 (gross income)
+  /** Schedule C amount in total income after depreciation and any allowed loss (negative in a loss year). */
+  scheduleCAllowed: number;
+  businessLoss?: BusinessLossResult;
   adjustments: number;             // Schedule 1 above-the-line deductions
   agi: number;                     // Line 11 (Adjusted Gross Income)
 
@@ -83,6 +89,13 @@ export interface Form1040Result {
   deductionUsed: number;           // Larger of standard vs itemized
   usingStandardDeduction: boolean;
   enhancedSeniorDeduction: number;
+  qualifiedTipsDeduction: number;          // Schedule 1-A Part II
+  qualifiedOvertimeDeduction: number;      // Schedule 1-A Part III
+  vehicleLoanInterestDeduction: number;    // Schedule 1-A Part IV
+  nonItemizerCharitableDeduction: number;  // §170(p), 2026 onward
+  /** Form 1040 line 13b: Schedule 1-A Part VI total, including the enhanced senior deduction. */
+  scheduleOneADeductions: number;
+  obbbaDeductions?: OBBBADeductionResult;
   personalDeductions?: {
     standard: ReturnType<typeof calculateStandardDeduction>;
     senior: ReturnType<typeof calculateEnhancedSeniorDeduction>;
@@ -161,11 +174,15 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
     : ['Planning estimate based on saved eligibility declarations and modeled income. Other deductions, credits and special return rules may require review.'];
 
   // ── Step 1: Total Income (Form 1040 Line 9) ──
-  // Subtract depreciation (Section 179 / MACRS) from Schedule C net profit
-  const adjustedScheduleC = Math.max(0, scheduleCNetProfit - (input.depreciationDeduction || 0));
-  if (scheduleCNetProfit - (input.depreciationDeduction || 0) < 0) {
-    calculationWarnings.push('Business losses are not applied by this estimate and require separate review.');
-  }
+  // Schedule C net profit after depreciation (Section 179 / MACRS). A loss offsets
+  // other income only with the organizer's at-risk, participation and profit-motive
+  // facts (§465, §469, §183) and is capped by §461(l); it is never clamped silently.
+  const scheduleCAfterDepreciation = scheduleCNetProfit - (input.depreciationDeduction || 0);
+  const businessLoss = scheduleCAfterDepreciation < 0
+    ? calculateAllowedBusinessLoss({ taxYear, filingStatus, netLoss: -scheduleCAfterDepreciation, organizer: input.personalDeductionOrganizer })
+    : undefined;
+  const adjustedScheduleC = businessLoss ? -businessLoss.allowedLoss : scheduleCAfterDepreciation;
+  if (businessLoss) calculationWarnings.push(...businessLoss.warnings);
   if ((input.numDependents ?? 0) > 0) {
     calculationWarnings.push('Dependent counts do not establish child-credit eligibility. Confirm each child meets the applicable age, relationship, residency, support and Social Security number requirements.');
   }
@@ -200,7 +217,11 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
   );
 
   // ── Step 3: AGI (Line 11) ──
-  const agi = Math.max(0, totalIncome - adjustments);
+  const agiBeforeFloor = totalIncome - adjustments;
+  const agi = Math.max(0, agiBeforeFloor);
+  if (agiBeforeFloor < 0) {
+    calculationWarnings.push(`Total income after adjustments is negative ($${round2(agiBeforeFloor).toLocaleString('en-US')}). A net operating loss may carry forward under section 172 (Publication 536); this estimate shows $0 adjusted gross income and does not compute the NOL.`);
+  }
 
   // ── Step 4: Standard vs Itemized ──
   const personalDeductions = input.personalDeductionOrganizer === undefined ? undefined : {
@@ -218,21 +239,38 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
   const deductionUsed = Math.max(standardDeduction, itemizedDeductions);
   if (personalDeductions?.standard.reason) calculationWarnings.push(personalDeductions.standard.reason);
 
+  // ── Step 4b: Schedule 1-A Parts II–IV and §170(p) (below AGI, before the Form 8995 cap) ──
+  const obbbaDeductions = input.personalDeductionOrganizer === undefined ? undefined : calculateOBBBADeductions({
+    taxYear, filingStatus, agi, scheduleCNetProfit: adjustedScheduleC, usingStandardDeduction, organizer: input.personalDeductionOrganizer,
+  });
+  if (obbbaDeductions) calculationWarnings.push(...obbbaDeductions.warnings);
+  const qualifiedTipsDeduction = obbbaDeductions?.qualifiedTips.deduction ?? 0;
+  const qualifiedOvertimeDeduction = obbbaDeductions?.qualifiedOvertime.deduction ?? 0;
+  const vehicleLoanInterestDeduction = obbbaDeductions?.vehicleLoanInterest.deduction ?? 0;
+  const nonItemizerCharitableDeduction = obbbaDeductions?.nonItemizerCharitable.deduction ?? 0;
+  // Form 1040 line 13b is the Schedule 1-A Part VI total (lines 13, 21, 30 and 37).
+  const scheduleOneADeductions = enhancedSeniorDeduction + qualifiedTipsDeduction + qualifiedOvertimeDeduction + vehicleLoanInterestDeduction;
+  const belowAGIDeductions = deductionUsed + scheduleOneADeductions + nonItemizerCharitableDeduction;
+
   // ── Step 5: QBI Deduction (Section 199A / Form 8995) ──
   // Annual threshold is separate from the ordinary income-tax brackets.
   const qbiThreshold = yearRules.qbiThreshold[filingStatus];
   const qbiPhaseOutRange = yearRules.qbiPhaseInWidth * (filingStatus === 'married_filing_jointly' ? 2 : 1);
   const qbiPhaseOutEnd = qbiThreshold + qbiPhaseOutRange;
   let qbiDeduction = 0;
-  if (adjustedScheduleC > 0) {
-    // QBI = Schedule C net profit (after depreciation) reduced by SE tax deduction, health insurance, retirement
+  if (adjustedScheduleC < 0) {
+    // §199A(c)(2): a qualified business loss carries forward and reduces the next year's QBI (Form 8995 line 16).
+    calculationWarnings.push(`Qualified business income is negative, so no QBI deduction applies this year. The $${round2(-adjustedScheduleC).toLocaleString('en-US')} allowed loss carries forward as a qualified business (loss) that reduces next year's QBI (Form 8995 line 16; section 199A(c)(2)).`);
+  } else if (adjustedScheduleC > 0) {
+    // QBI = Schedule C net profit (after depreciation) reduced by SE tax deduction, health insurance, retirement.
+    // §199A(c)(4)(D): qualified tips deducted under §224 are excluded from QBI.
     const qualifiedBusinessIncome = Math.max(0,
-      adjustedScheduleC - halfSEDeduction - healthInsuranceDeduction - retirementContributions
+      adjustedScheduleC - halfSEDeduction - healthInsuranceDeduction - retirementContributions - qualifiedTipsDeduction
     );
     // Cap: 20% of (taxable income before QBI, minus net capital gains)
     // The caller must separately identify net long-term capital gains.
-    // Form8995 line11 includes the separate Schedule1-A deduction before its cap.
-    const taxableIncomeBeforeQBI = Math.max(0, agi - deductionUsed - enhancedSeniorDeduction);
+    // Form8995 line11 includes the Schedule1-A and §170(p) deductions before its cap.
+    const taxableIncomeBeforeQBI = Math.max(0, agi - belowAGIDeductions);
     const capGains = Math.max(0, input.longTermCapGains ?? 0);
     const qbiCap = Math.max(0, taxableIncomeBeforeQBI - capGains) * 0.20;
     const fullQBI = Math.min(qualifiedBusinessIncome * 0.20, qbiCap);
@@ -259,7 +297,7 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
   }
 
   // ── Step 6: Taxable Income (Line 15) ──
-  const taxableIncome = Math.max(0, agi - deductionUsed - enhancedSeniorDeduction - qbiDeduction);
+  const taxableIncome = Math.max(0, agi - belowAGIDeductions - qbiDeduction);
 
   // ── Step 7: Income Tax (Line 16) ──
   // Ordinary long-term gains stack above ordinary taxable income; do not estimate
@@ -352,6 +390,8 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
     taxYear,
     calculationWarnings,
     totalIncome: round2(totalIncome),
+    scheduleCAllowed: round2(adjustedScheduleC),
+    businessLoss,
     adjustments: round2(adjustments),
     agi: round2(agi),
     standardDeduction,
@@ -359,6 +399,12 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
     deductionUsed,
     usingStandardDeduction,
     enhancedSeniorDeduction: round2(enhancedSeniorDeduction),
+    qualifiedTipsDeduction: round2(qualifiedTipsDeduction),
+    qualifiedOvertimeDeduction: round2(qualifiedOvertimeDeduction),
+    vehicleLoanInterestDeduction: round2(vehicleLoanInterestDeduction),
+    nonItemizerCharitableDeduction: round2(nonItemizerCharitableDeduction),
+    scheduleOneADeductions: round2(scheduleOneADeductions),
+    obbbaDeductions,
     personalDeductions,
     qbiDeduction: round2(qbiDeduction),
     taxableIncome: round2(taxableIncome),

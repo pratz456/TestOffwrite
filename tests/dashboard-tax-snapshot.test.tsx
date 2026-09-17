@@ -1,4 +1,5 @@
 import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductions';
+import { reviewedBusinessLossFacts } from './fixtures/tier1-facts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import type { ReactElement } from 'react';
@@ -199,9 +200,10 @@ describe('dashboard tax cards share the federal server calculation', () => {
     expect(cards(props).some(card => card.title === 'Estimated federal balance')).toBe(false);
     expect(valueFor(props, 'Estimated federal refund')).toBe(h.lastJson.form1040.refund.toLocaleString('en-US', { style: 'currency', currency: 'USD' }));
   });
-  it.each(['income', 'status', 'personal', 'dependent'])('422 %s review cannot become zero tax or stale previous totals', async kind => {
+  it.each(['income', 'status', 'personal', 'dependent', 'loss'])('422 %s review cannot become zero tax or stale previous totals', async kind => {
     render(); await flush(); render();
     if (kind === 'income') { h.tx = [{ amount: -100, category: 'income', date: '2026-01-01' }]; h.records.gross_receipts = [{ amount: 100 }]; }
+    else if (kind === 'loss') h.tx = [expense(20)]; // A Schedule C loss without at-risk/participation/profit-motive facts is review-blocked, not clamped to $0.
     else if (kind === 'personal' || kind === 'dependent') {
       h.records.tax_organizers = kind === 'personal' ? [] : [reviewedPersonalDeductionOrganizer(2026, {}, { dependents: '1' })];
       h.profile = { ...h.profile, updated_at: 'synthetic-review-refresh' }; // A saved-data refresh invalidates the cached snapshot.
@@ -209,12 +211,15 @@ describe('dashboard tax cards share the federal server calculation', () => {
     else h.profile = { ...h.profile, filing_status: 'Qualifying Widower' };
     expect(render().state.status).toBe('loading'); await flush(); const props = render();
     expect(props.state.status).toBe('review'); expect(props.state).not.toHaveProperty('snapshot'); expect(cards(props)).toEqual([]);
+    if (kind === 'loss') expect(h.lastJson).toMatchObject({ code: 'BUSINESS_LOSS_REVIEW_REQUIRED' });
     const nav = vi.fn(); const tree = KpiGrid({ ...props, onReview: nav } as any);
     expect(text(tree)).toContain('needs review');
     walk(tree).find(n => n.type === 'button' && text(n).startsWith('Review'))!.props.onClick();
     expect(nav).toHaveBeenCalledWith(kind === 'income' ? 'income-tracking' : kind === 'status' ? 'settings' : 'tax-organizer');
   });
   it('clears prior values while transaction changes refresh and preserves an actionable 503', async () => {
+    // The refreshed records show a $20 Schedule C loss, which needs the saved loss-year declarations.
+    h.records.tax_organizers = [reviewedPersonalDeductionOrganizer(2026, {}, { businessLossFacts: reviewedBusinessLossFacts() })];
     render(); await flush(); const ready = render(); expect(ready.state.status).toBe('ready');
     h.tx = [expense(20)]; h.apiError = 'synthetic unavailable';
     expect(render().state.status).toBe('loading'); await flush(); const error = render();
