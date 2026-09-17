@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { PDFDocument } from 'pdf-lib';
+import { resetRateLimitStore } from './fixtures/rate-limit-store';
 const mock = vi.hoisted(() => ({ authenticated: true, profile: {} as Record<string, unknown>, lookupFails: false,
   lookup: vi.fn(), collection: vi.fn(), transactions: vi.fn(), taxpayer: vi.fn() }));
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => mock.authenticated
   ? { user: { uid: 'u1' }, error: null } : { user: null, error: 'Unauthorized' } }));
 vi.mock('@/app/api/_lib/auth', () => ({ getUserFromReqOrThrow: async () => { if (!mock.authenticated) throw Error('Unauthorized'); return { uid: 'u1' }; } }));
+vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: {
   doc: (path: string) => ({ get: async () => { mock.lookup(path); if (mock.lookupFails) throw Error('databaseprivatefailure'); return { exists: true, data: () => mock.profile }; } }),
   collection: mock.collection,
@@ -42,7 +44,7 @@ function request(route: typeof routes[number], body: Record<string, unknown> = {
     ...(route.method === 'POST' ? { body: JSON.stringify(body), headers: { 'content-type': 'application/json' } } : {}) });
 }
 beforeEach(() => {
-  vi.clearAllMocks(); vi.useFakeTimers(); vi.setSystemTime(now);
+  vi.clearAllMocks(); resetRateLimitStore(); vi.useFakeTimers(); vi.setSystemTime(now);
   vi.spyOn(console, 'log').mockImplementation(() => {}); vi.spyOn(console, 'error').mockImplementation(() => {});
   vi.spyOn(PDFDocument, 'create');
   mock.authenticated = true; mock.lookupFails = false;

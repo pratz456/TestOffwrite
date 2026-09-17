@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase/admin';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
+import { invalidJsonResponse, readJsonObject } from '@/app/api/_lib/body';
 
 const FORM_TYPES = [
   '1099-NEC',
@@ -85,9 +86,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const body = await request.json();
-    const formType = body.formType || '1099-NEC';
-    const payerName = String(body.payerName || '').trim();
+    const body = await readJsonObject(request);
+    if (!body) return invalidJsonResponse();
+    const formType = typeof body.formType === 'string' && body.formType ? body.formType : '1099-NEC';
+    const payerName = typeof body.payerName === 'string' ? body.payerName.trim().slice(0, 200) : '';
     const amount = typeof body.amount === 'number' ? body.amount : Number(body.amount) || 0;
     const currentYear = new Date().getFullYear();
     const taxYear =
@@ -107,7 +109,7 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    if (amount <= 0) {
+    if (!Number.isFinite(amount) || amount <= 0 || amount > 100_000_000) {
       return NextResponse.json(
         { error: 'Amount must be greater than 0' },
         { status: 400 }

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { PDFDocument, PDFPage } from 'pdf-lib';
+import { resetRateLimitStore } from './fixtures/rate-limit-store';
 import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductions';
 
 /**
@@ -10,6 +11,7 @@ import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductio
  */
 const store = vi.hoisted(() => ({ uid: 'owner-a' as string | null, docs: new Map<string, Record<string, unknown>>(), rows: {} as Record<string, Record<string, unknown>[]>, transactions: [] as Record<string, unknown>[] }));
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({ user: store.uid ? { uid: store.uid } : null, error: store.uid ? null : 'unauthenticated' }) }));
+vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
 vi.mock('@/app/api/_lib/auth', () => ({ getUserFromReqOrThrow: async () => { if (!store.uid) throw new Error('unauthenticated'); return { uid: store.uid }; } }));
 vi.mock('@/lib/subscriptions/feature-access', () => ({ requireFeatureAccess: async () => null }));
 vi.mock('@/lib/reports/export-records', async importOriginal => ({ ...await importOriginal<typeof import('@/lib/reports/export-records')>(), readOwnedTransactions: async () => store.transactions }));
@@ -56,7 +58,7 @@ const timestamp = (iso: string) => ({ toDate: () => new Date(iso) });
 const seedAsset = (id: string, fields: Record<string, unknown>) => store.docs.set(`user_profiles/owner-a/assets/${id}`, { description: id, datePlacedInService: timestamp('2026-04-01T00:00:00Z'), cost: 10000, businessUsePercent: 100, category: 'computer', method: 'MACRS_5YR', section179Requested: false, bonusEligible: false, ...fields });
 
 beforeEach(() => {
-  store.uid = 'owner-a'; store.docs.clear(); store.transactions = [];
+  resetRateLimitStore(); store.uid = 'owner-a'; store.docs.clear(); store.transactions = [];
   store.rows = { gross_receipts: [{ userId: 'owner-a', taxYear: 2026, amount: 100000 }], tax_organizers: [{ userId: 'owner-a', ...reviewedPersonalDeductionOrganizer() }], w2_income: [], income_1099: [], tax_deductions: [] };
 });
 

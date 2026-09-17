@@ -6,6 +6,7 @@ import { requireFeatureAccess } from '@/lib/subscriptions/feature-access';
 import { readOwnedTransactions } from '@/lib/reports/export-records';
 import { exportYear, ExportReviewRequiredError } from '@/lib/reports/transaction-export';
 import { generatePreparerReport } from '@/lib/reports/preparer-report';
+import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 
 export async function POST(request: NextRequest) {
   const { user, error } = await getAuthenticatedUser(request);
@@ -20,6 +21,8 @@ export async function POST(request: NextRequest) {
     if (parsed === undefined) throw new Error();
     year = parsed;
   } catch { return NextResponse.json({ error: 'Provide a four-digit report year from 2000 through 2100.' }, { status: 400 }); }
+  const limit = await enforceRateLimit({ ...RATE_LIMITS.reportExport, key: user.uid });
+  if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many report downloads. Please wait a few minutes and try again.' });
   try {
     const bytes = await generatePreparerReport(await readOwnedTransactions(user.uid), year);
     return new NextResponse(Buffer.from(bytes), { headers: { 'Content-Type': 'application/pdf',

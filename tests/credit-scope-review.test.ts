@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { PDFDocument } from 'pdf-lib';
+import { resetRateLimitStore } from './fixtures/rate-limit-store';
 import { assertGenericDependentCreditScope, DependentCreditReviewRequiredError, noChildEITCAgeAtYearEnd, readNoChildEITCAge, assertEITCDependencyScope } from '../lib/tax-rules/credit-scope';
 import { compute1040, type Form1040Input } from '../lib/tax-rules/compute-1040';
 import { buildFederalTaxSnapshot } from '../lib/tax-rules/federal-tax-snapshot';
@@ -13,6 +14,7 @@ const state = vi.hoisted(() => ({
   w2: [] as Record<string, unknown>[],
 }));
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({ user: { uid: 'credit-scope-owner' } }) }));
+vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
 vi.mock('@/lib/subscriptions/feature-access', () => ({ requireFeatureAccess: async () => null }));
 vi.mock('@/lib/reports/export-records', async importOriginal => ({ ...await importOriginal<typeof import('@/lib/reports/export-records')>(), readOwnedTransactions: async () => [] }));
 vi.mock('@/lib/firebase/transactions-server', () => ({ getTransactionsServer: async () => ({ data: [], error: null }) }));
@@ -44,7 +46,7 @@ const snapshot = (organizer: Record<string, unknown>) => buildFederalTaxSnapshot
   deductions: {}, assets: [], estimatedPayments: 0,
 });
 beforeEach(() => {
-  vi.restoreAllMocks();
+  vi.restoreAllMocks(); resetRateLimitStore();
   state.profile = { filing_status: 'single' };
   state.organizer = reviewedPersonalDeductionOrganizer();
   state.receipts = 20000;

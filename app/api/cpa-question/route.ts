@@ -4,12 +4,15 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase/admin';
+import { invalidJsonResponse, readJsonObject } from '@/app/api/_lib/body';
+import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 
 export async function POST(request: NextRequest) {
   try {
     const { user } = await getAuthenticatedUser(request);
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    const body = await request.json();
+    const body = await readJsonObject(request);
+    if (!body) return invalidJsonResponse();
     const { userId, transactionId, merchantName, amount, date, category, question } = body;
 
     // Validate required fields
@@ -27,17 +30,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const amountValue = Number(amount);
     if (typeof question !== 'string' || !question.trim() || question.length > 5000 ||
-      !Number.isFinite(Number(amount)) || typeof merchantName !== 'string') {
+      !Number.isFinite(amountValue) || typeof merchantName !== 'string' || merchantName.length > 500 ||
+      typeof transactionId !== 'string' || transactionId.length > 256 ||
+      typeof date !== 'string' || date.length > 64 || typeof category !== 'string' || category.length > 128) {
       return NextResponse.json({ error: 'Invalid question or transaction details' }, { status: 400 });
     }
+
+    const limit = await enforceRateLimit({ ...RATE_LIMITS.cpaQuestion, key: user.uid });
+    if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many questions submitted. Please wait before asking another.' });
 
     // Create CPA question document
     const cpaQuestionData = {
       userId,
       transactionId,
       merchantName,
-      amount: parseFloat(amount),
+      amount: amountValue,
       date,
       category,
       question: question.trim(),
@@ -61,7 +70,7 @@ export async function POST(request: NextRequest) {
         `Date: ${new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })}`,
         ``,
         `Transaction: ${merchantName}`,
-        `Amount: $${parseFloat(amount).toFixed(2)}`,
+        `Amount: $${amountValue.toFixed(2)}`,
         `Category: ${category}`,
         `Transaction Date: ${date}`,
         ``,
@@ -83,20 +92,19 @@ export async function POST(request: NextRequest) {
           body: JSON.stringify({
             from: 'WriteOff Notifications <notifications@writeoffapp.com>',
             to: ['writeoffapp@gmail.com'],
-            subject: `CPA Question: ${merchantName} ($${parseFloat(amount).toFixed(2)}) - ${user.email || 'User'}`,
+            subject: `CPA Question: ${merchantName} ($${amountValue.toFixed(2)}) - ${user.email || 'User'}`,
             text: emailBody,
           }),
         });
-        if (!resendRes.ok) {
-          console.error('Failed to send CPA email notification:', await resendRes.text());
-        }
+        // The provider response can echo the message; record only the status.
+        if (!resendRes.ok) console.error(`Failed to send CPA email notification for ${docRef.id}: HTTP ${resendRes.status}`);
       } else {
-        // Fallback: use mailto-style logging so questions aren't lost
-        console.log(`📧 CPA Question Email (RESEND_API_KEY not set):\nTo: writeoffapp@gmail.com\n${emailBody}`);
+        // The question, the asker's email and the amounts stay in Firestore, not in logs.
+        console.warn(`[CPA Question] RESEND_API_KEY not set; question ${docRef.id} awaits manual review in Firestore`);
       }
-    } catch (emailErr) {
+    } catch {
       // Don't fail the request if email fails
-      console.error('Email notification error (non-blocking):', emailErr);
+      console.error(`Email notification error (non-blocking) for CPA question ${docRef.id}`);
     }
 
     console.log(`New CPA question submitted: ${docRef.id} for user ${userId}`);

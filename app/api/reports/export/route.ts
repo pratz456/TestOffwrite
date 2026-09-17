@@ -10,6 +10,7 @@ import { loadScheduleCRecords, loadScheduleSEData, scheduleCProfitFromRecords } 
 import { getFederalTaxRules, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
 import { exportYear } from '@/lib/reports/transaction-export';
 import { HomeOfficeReviewRequiredError, homeOfficeReviewReasons } from '@/lib/reports/calc8829';
+import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 
 const REVIEW_CODES = ['EXPORT_REVIEW_REQUIRED', 'DEPRECIATION_REVIEW_REQUIRED', 'HOME_OFFICE_REVIEW_REQUIRED', 'HOME_OFFICE_DETAILS_REQUIRED', 'INVALID_HOME_OFFICE_INPUT', 'FILING_STATUS_REVIEW_REQUIRED', 'INCOME_RECONCILIATION_REQUIRED'];
 
@@ -27,6 +28,8 @@ export async function POST(request: NextRequest) {
     type = body.type; year = exportYear(body.year) ?? new Date().getFullYear();
     getFederalTaxRules(year);
   } catch { return NextResponse.json({ error: `Provide form8829, form4562 or scheduleSE and a supported year (${SUPPORTED_TAX_YEARS.join(', ')}).` }, { status: 400 }); }
+  const limit = await enforceRateLimit({ ...RATE_LIMITS.reportExport, key: uid });
+  if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many report downloads. Please wait a few minutes and try again.' });
   try {
     let bytes: Uint8Array;
     if (type === 'scheduleSE') {

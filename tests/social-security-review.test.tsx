@@ -17,6 +17,9 @@ vi.mock('@/lib/subscriptions/feature-access', () => ({ requireFeatureAccess: asy
 vi.mock('@/lib/reports/export-records', async importOriginal => ({ ...await importOriginal<typeof import('@/lib/reports/export-records')>(), readOwnedTransactions: async () => [] }));
 vi.mock('@/lib/firebase/transactions-server', () => ({ getTransactionsServer: async () => ({ data: [], error: null }) }));
 vi.mock('@/lib/firebase/profiles-server', () => ({ getUserProfileServer: async () => ({ data: state.profile, error: null }) }));
+// The Form 1040 PDF route is rate limited per owner; give the limiter an in-memory store independent of this suite's Admin double.
+vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
+import { resetRateLimitStore } from './fixtures/rate-limit-store';
 vi.mock('@/lib/firebase/settings-server', () => ({ getAssetsSettings: async () => ({ data: [], error: null }), getScheduleCSettings: async () => ({ data: { assets: [], homeOffice: null, depreciationElections: { deMinimisSafeHarborYears: [] } }, error: null }) }));
 vi.mock('@/lib/firebase/quarterly-payments-server', () => ({ getRecordedQuarterlyPayments: async () => [], totalRecordedPayments: () => 0 }));
 vi.mock('@/lib/tax-rules/compute-1040', async importOriginal => {
@@ -61,7 +64,7 @@ async function save(answers: Record<string, string>, taxYear = 2026) {
   const response = await saveOrganizer(new NextRequest('http://localhost/api/tax/organizer', { method: 'POST', body: JSON.stringify({ ...reviewedPersonalDeductionOrganizer(taxYear), ...answers, taxYear }) }));
   expect(response.status).toBe(201);
 }
-beforeEach(() => { vi.restoreAllMocks(); state.records = {}; state.profile = { filing_status: 'single' }; state.calculations = []; });
+beforeEach(() => { vi.restoreAllMocks(); state.records = {}; state.profile = { filing_status: 'single' }; state.calculations = []; resetRateLimitStore(); });
 
 describe('Social Security requires the missing IRS facts', () => {
   it.each([2024, 2025, 2026])('withholds JSON and PDF for a saved $20,000-only benefits organizer in %s', async year => {

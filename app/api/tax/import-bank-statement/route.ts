@@ -23,6 +23,7 @@ import { adminDb } from '@/lib/firebase/admin';
 import { getOpenAIClientOrThrow, getOpenAIModel } from '@/lib/openai/client';
 import { z } from 'zod';
 import { MAX_RECEIPT_BYTES, ReceiptRequestError, receiptFormData, receiptSignatureMatches } from '@/lib/firebase/receipt-security';
+import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 
 const BANK_STATEMENT_PROMPT = `You are a financial document parser specializing in bank and credit card statements.
 
@@ -209,6 +210,9 @@ export async function POST(request: NextRequest) {
     const { user, error: authError } = await getAuthenticatedUser(request);
     if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+    // Up to two vision-model calls per upload; bound them per owner before the body is read.
+    const limit = await enforceRateLimit({ ...RATE_LIMITS.taxStatementImport, key: user.uid });
+    if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many document scans. Please wait a few minutes and try again.' });
     const formData = await receiptFormData(request);
     const file = formData.get('file');
     const hint = String(formData.get('docType') || 'auto');

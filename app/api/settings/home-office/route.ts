@@ -13,11 +13,11 @@ export async function GET(request: NextRequest) {
     const { data, error } = await getHomeOfficeSettings(user.uid);
     if (error?.code === 'NOT_FOUND') return NextResponse.json({ success: true, data: null });
     if (error) {
-      return NextResponse.json({ error: error.message || 'Failed to load home office settings' }, { status: 500 });
+      return NextResponse.json({ error: 'Failed to load home office settings' }, { status: 500 });
     }
     return NextResponse.json({ success: true, data });
-  } catch (error) {
-    return NextResponse.json({ error: 'Failed to load home office settings', details: error instanceof Error ? error.message : 'Unknown error' }, { status: 500 });
+  } catch {
+    return NextResponse.json({ error: 'Failed to load home office settings' }, { status: 500 });
   }
 }
 
@@ -63,8 +63,7 @@ export async function POST(request: NextRequest) {
     console.error('❌ [Home Office Settings API] Unexpected error:', error);
     return NextResponse.json(
       { 
-        error: 'Failed to save home office settings',
-        details: error instanceof Error ? error.message : 'Unknown error'
+        error: 'Failed to save home office settings'
       },
       { status: 500 }
     );

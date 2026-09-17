@@ -5,6 +5,7 @@ import { plaidClient } from '@/lib/plaid/client';
 import { assertPlaidTokenEncryptionConfigured, savePlaidConnection } from '@/lib/plaid/connections';
 import { syncUserTransactionsIncremental } from '@/lib/plaid/sync-helper';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
+import { invalidJsonResponse, readJsonObject } from '@/app/api/_lib/body';
 import { ACCOUNT_DELETION_IN_PROGRESS, beginPlaidLinkOperation, retainPlaidLinkRecovery, finishPlaidLinkOperation,
   markPlaidLinkOperationUnresolved, existingPlaidLinkOwner, quarantinePlaidLinkRecovery } from '@/lib/plaid/link-operations';
 
@@ -16,9 +17,11 @@ export async function POST(req: Request) {
   let created: { access_token: string; item_id: string } | undefined;
   let saved = false;
   let recoverySaved = false;
+  const body = await readJsonObject(req);
+  if (!body) return invalidJsonResponse();
+  const { public_token } = body;
+  if (typeof public_token !== 'string' || !public_token || public_token.length > 2048) return NextResponse.json({ error: 'Missing public_token' }, { status: 400 });
   try {
-    const { public_token } = await req.json();
-    if (typeof public_token !== 'string' || !public_token || public_token.length > 2048) return NextResponse.json({ error: 'Missing public_token' }, { status: 400 });
     assertPlaidTokenEncryptionConfigured();
     operationId = await beginPlaidLinkOperation(uid);
     const exchanged = await plaidClient.itemPublicTokenExchange({ public_token });

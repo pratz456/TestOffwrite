@@ -1,6 +1,7 @@
 import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductions';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
+import { resetRateLimitStore } from './fixtures/rate-limit-store';
 import { PDFPage } from 'pdf-lib';
 import { profileWriteData } from '../lib/onboarding/profile';
 
@@ -8,6 +9,7 @@ import { profileWriteData } from '../lib/onboarding/profile';
 // Authentication, persistence and subscriptions are mocked; no live records/providers.
 const state = vi.hoisted(() => ({ filingStatus: 'single' as unknown, records: {} as Record<string, Record<string, unknown>[]>, transactions: [] as Record<string, unknown>[], computedInputs: [] as Record<string, unknown>[], computedResults: [] as Record<string, unknown>[] }));
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({ user: { uid: 'w2-contract-user' }, error: null }) }));
+vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
 vi.mock('@/app/api/_lib/auth', () => ({ getUserFromReqOrThrow: async () => ({ uid: 'w2-contract-user' }) }));
 vi.mock('@/lib/subscriptions/feature-access', () => ({ requireFeatureAccess: async () => null }));
 vi.mock('@/lib/reports/export-records', async importOriginal => ({ ...await importOriginal<typeof import('@/lib/reports/export-records')>(), readOwnedTransactions: async () => state.transactions }));
@@ -54,6 +56,7 @@ const organizerFixture = (overrides: Record<string, unknown> = {}) => reviewedPe
 const fixture = { employer: 'Synthetic employer', taxYear: 2026, wages: 200000, federalWithheld: 35000, socialSecurityWages: 184500, medicareWages: 210000, stateWithheld: 5000 };
 const request = (path: string) => new NextRequest(`http://localhost${path}?year=2026`);
 beforeEach(() => {
+  resetRateLimitStore();
   state.filingStatus = 'single';
   state.records = { tax_organizers: [organizerFixture()], gross_receipts: [{ userId: 'w2-contract-user', taxYear: 2026, amount: 100000 }] };
   state.computedInputs = [];
@@ -150,7 +153,8 @@ describe('shared income snapshot across JSON and PDF', () => {
   it('links the actual platform importer’s paired 1099 and receipt and counts that income once', async () => {
     state.records = { tax_organizers: [organizerFixture()] };
     const form = new FormData();
-    form.set('file', new Blob(['synthetic-image'], { type: 'image/png' }), 'synthetic.png');
+    // The route verifies the image signature, so the synthetic upload carries the PNG magic bytes.
+    form.set('file', new Blob([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), 'synthetic-image'], { type: 'image/png' }), 'synthetic.png');
     form.set('docType', 'platform_summary'); form.set('taxYear', '2026'); form.set('commit', 'true');
     expect((await importDocument(new NextRequest('http://localhost/api/tax/import-document', { method: 'POST', body: form }))).status).toBe(200);
     expect(state.records.income_1099[0].grossReceiptId).toBe('synthetic-1');

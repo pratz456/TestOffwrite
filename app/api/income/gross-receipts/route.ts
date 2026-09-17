@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { validateGrossReceipt, sanitizeString, sanitizeAmount } from '@/lib/security/utils';
 import { adminDb } from '@/lib/firebase/admin';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
+import { invalidJsonResponse, readJsonObject } from '@/app/api/_lib/body';
 
 export type IncomeType =
   | 'freelance'
@@ -88,17 +89,25 @@ export async function POST(request: NextRequest) {
     const { user, error } = await getAuthenticatedUser(request);
     if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const body = await request.json();
+    const body = await readJsonObject(request);
+    if (!body) return invalidJsonResponse();
     const { amount, source, description, date, type, taxYear } = body;
 
-    if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
+    if (!amount || isNaN(Number(amount)) || Number(amount) <= 0 || Number(amount) > 100_000_000) {
       return NextResponse.json({ error: 'Amount must be a positive number' }, { status: 400 });
     }
-    if (!source?.trim()) {
+    if (typeof source !== 'string' || !source.trim() || source.length > 200) {
       return NextResponse.json({ error: 'Source / payer name is required' }, { status: 400 });
     }
-    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       return NextResponse.json({ error: 'Date must be YYYY-MM-DD format' }, { status: 400 });
+    }
+    if (description !== undefined && (typeof description !== 'string' || description.length > 1_000)) {
+      return NextResponse.json({ error: 'Description must be text of at most 1000 characters' }, { status: 400 });
+    }
+    const INCOME_TYPES: readonly IncomeType[] = ['freelance', 'consulting', 'product_sales', 'rental', 'interest_dividends', 'other'];
+    if (type !== undefined && !INCOME_TYPES.includes(type as IncomeType)) {
+      return NextResponse.json({ error: 'Invalid income type' }, { status: 400 });
     }
 
     const year = taxYear ? parseInt(String(taxYear), 10) : parseInt(date.slice(0, 4), 10);

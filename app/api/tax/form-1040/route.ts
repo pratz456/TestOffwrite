@@ -24,6 +24,8 @@ import { createPlanningPDF } from '@/lib/reports/planning-pdf';
 import { PDFDocument, StandardFonts, rgb, PDFFont, PDFPage } from 'pdf-lib';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
+import { invalidJsonResponse, readJsonObject } from '@/app/api/_lib/body';
+import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 import { adminDb } from '@/lib/firebase/admin';
 import { readTaxExportTransactions } from '@/lib/reports/tax-export-transactions';
 import { ExportReviewRequiredError } from '@/lib/reports/transaction-export';
@@ -340,13 +342,18 @@ export async function POST(request: NextRequest) {
     const denied = await requireFeatureAccess(uid, 'exports');
     if (denied) return denied;
 
-    const { year } = await request.json();
-    if (!year) return NextResponse.json({ error: 'Year required' }, { status: 400 });
+    const body = await readJsonObject(request);
+    if (!body) return invalidJsonResponse();
+    const { year } = body;
+    if (!year || (typeof year !== 'number' && typeof year !== 'string')) return NextResponse.json({ error: 'Year required' }, { status: 400 });
     const taxYear = Number(year);
     try { getFederalTaxRules(taxYear); } catch {
       return NextResponse.json({ error: `Supported tax years: ${SUPPORTED_TAX_YEARS.join(', ')}` }, { status: 400 });
     }
     requestedYear = taxYear;
+
+    const limit = await enforceRateLimit({ ...RATE_LIMITS.reportExport, key: uid });
+    if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many report downloads. Please wait a few minutes and try again.' });
 
     const [txResult, profileResult, grossSnap, income1099Snap, w2Snap, deductionsSnap, quarterlySnap, organizerSnap, settingsResult, reconciliationDecisions] = await Promise.all([
       readTaxExportTransactions(uid, taxYear),

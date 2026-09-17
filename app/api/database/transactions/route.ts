@@ -22,8 +22,7 @@ export async function GET(request: NextRequest) {
     if (result.error) {
       console.error('❌ [Database Transactions API] Error fetching transactions:', result.error);
       return NextResponse.json({ 
-        error: 'Failed to fetch transactions',
-        details: result.error.message || result.error
+        error: 'Failed to fetch transactions'
       }, { status: 500 })
     }
 
@@ -32,8 +31,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('❌ [Database Transactions API] Unexpected error:', error);
     return NextResponse.json({ 
-      error: 'Internal server error',
-      details: error instanceof Error ? error.message : 'Unknown error'
+      error: 'Internal server error'
     }, { status: 500 })
   }
 }
@@ -67,8 +65,7 @@ export async function POST(request: NextRequest) {
     if (result.error) {
       console.error('❌ [Database Transactions API] Error creating transaction:', result.error);
       return NextResponse.json({ 
-        error: 'Failed to create transaction',
-        details: result.error.message || result.error
+        error: 'Failed to create transaction'
       }, { status: 500 })
     }
 
@@ -77,8 +74,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('❌ [Database Transactions API] Unexpected error:', error);
     return NextResponse.json({ 
-      error: 'Internal server error',
-      details: error instanceof Error ? error.message : 'Unknown error'
+      error: 'Internal server error'
     }, { status: 500 })
   }
 }
@@ -114,8 +110,7 @@ export async function PUT(request: NextRequest) {
     if (result.error) {
       console.error('❌ [Database Transactions API] Error updating transaction:', result.error);
       return NextResponse.json({ 
-        error: 'Failed to update transaction',
-        details: result.error.message || result.error
+        error: 'Failed to update transaction'
       }, { status: 500 })
     }
 
@@ -124,8 +119,7 @@ export async function PUT(request: NextRequest) {
   } catch (error) {
     console.error('❌ [Database Transactions API] Unexpected error:', error);
     return NextResponse.json({ 
-      error: 'Internal server error',
-      details: error instanceof Error ? error.message : 'Unknown error'
+      error: 'Internal server error'
     }, { status: 500 })
   }
 } 

@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ entries, totalWages, totalWithheld, taxYear: year });
   } catch (err) {
     console.error('[W-2 GET] Error:', err);
-    return NextResponse.json({ error: err instanceof Error ? err.message : 'Failed to load W-2 data' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to load W-2 data' }, { status: 500 });
   }
 }
 
@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, id: ref.id }, { status: 201 });
   } catch (err) {
     console.error('[W-2 POST] Error:', err);
-    return NextResponse.json({ error: err instanceof Error ? err.message : 'Failed to save W-2' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to save W-2' }, { status: 500 });
   }
 }
 
@@ -87,6 +87,6 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error('[W-2 DELETE] Error:', err);
-    return NextResponse.json({ error: err instanceof Error ? err.message : 'Failed to delete W-2' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to delete W-2' }, { status: 500 });
   }
 }

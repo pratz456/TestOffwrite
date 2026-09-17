@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
+import { resetRateLimitStore } from './fixtures/rate-limit-store';
 
 const mocks = vi.hoisted(() => ({ auth: vi.fn(), create: vi.fn(), accountGet: vi.fn(), accountCreate: vi.fn(), runTransaction: vi.fn(), batch: vi.fn(), writes: [] as Array<{ path: string; data: Record<string, unknown> }>, batches: [] as Array<{ set: ReturnType<typeof vi.fn>; commit: ReturnType<typeof vi.fn> }>, id: 0 }));
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: mocks.auth }));
+vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
 vi.mock('@/lib/openai/client', () => ({ getOpenAIModel: () => 'gpt-4o', getOpenAIClientOrThrow: () => ({ chat: { completions: { create: mocks.create } } }) }));
 vi.mock('@/lib/firebase/admin', () => {
   function ref(path: string): any {
@@ -22,7 +24,7 @@ function request(fields: Record<string, string> = {}, file = new File([PNG], 'sy
   return new NextRequest('http://localhost/api/tax/import-bank-statement', { method: 'POST', body: form });
 }
 beforeEach(() => {
-  vi.clearAllMocks(); mocks.writes = []; mocks.batches = []; mocks.id = 0;
+  vi.clearAllMocks(); resetRateLimitStore(); mocks.writes = []; mocks.batches = []; mocks.id = 0;
   mocks.auth.mockResolvedValue({ user: { uid: 'synthetic-import-owner' }, error: null });
   mocks.create.mockResolvedValue(completion(statement));
   mocks.accountGet.mockResolvedValue({ exists: false });

@@ -6,8 +6,10 @@ import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import { adminDb } from '@/lib/firebase/admin';
 
 export async function POST(_req: Request, context: { params: Promise<{ accountId: string }> }) {
+  let uid: string;
+  try { ({ uid } = await getUserFromReqOrThrow(_req)); }
+  catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
   try {
-    const { uid } = await getUserFromReqOrThrow(_req);
     const { accountId } = await context.params;
 
     const txColPath = `user_profiles/${uid}/accounts/${accountId}/transactions`;
@@ -26,10 +28,8 @@ export async function POST(_req: Request, context: { params: Promise<{ accountId
     await batch.commit();
 
     return NextResponse.json({ ok: true, count: snap.size });
-  } catch (e: any) {
-    const msg = e?.message || 'Internal server error';
-    const status = /token|auth|credential|unauthor/i.test(msg) ? 401 : 500;
-    console.error('mark-personal failed:', msg);
-    return NextResponse.json({ error: msg }, { status });
+  } catch (e) {
+    console.error('mark-personal failed:', e);
+    return NextResponse.json({ error: 'Could not update the account. Please retry.' }, { status: 500 });
   }
 }

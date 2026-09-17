@@ -5,6 +5,7 @@ import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { requireFeatureAccess } from '@/lib/subscriptions/feature-access';
 import { readOwnedTransactions } from '@/lib/reports/export-records';
 import { convertTransactionsToCSV, exportYear, selectExportYear, recordedDeductibility, ExportReviewRequiredError } from '@/lib/reports/transaction-export';
+import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 
 export async function GET(request: NextRequest) {
   const { user, error } = await getAuthenticatedUser(request);
@@ -17,6 +18,8 @@ export async function GET(request: NextRequest) {
     year = exportYear(request.nextUrl.searchParams.get('year'));
     if (!['all', 'deductible', 'non-deductible', 'unreviewed'].includes(filter)) throw new RangeError('Invalid export filter.');
   } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid export options' }, { status: 400 }); }
+  const limit = await enforceRateLimit({ ...RATE_LIMITS.reportExport, key: user.uid });
+  if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many exports. Please wait a few minutes and try again.' });
   try {
     let records = selectExportYear(await readOwnedTransactions(user.uid), year);
     if (filter === 'deductible') records = records.filter(tx => recordedDeductibility(tx) === true);

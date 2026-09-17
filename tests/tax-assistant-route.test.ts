@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
+import { resetRateLimitStore } from './fixtures/rate-limit-store';
 
 const { authenticate, create, constructor } = vi.hoisted(() => ({ authenticate: vi.fn(), create: vi.fn(), constructor: vi.fn() }));
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: authenticate }));
+vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
 vi.mock('openai', () => ({ default: function MockOpenAI(options: unknown) { constructor(options); return { chat: { completions: { create } } }; } }));
 import { POST } from '../app/api/ai/tax-assistant/route';
 
@@ -17,7 +19,7 @@ function completion(content = JSON.stringify(selection), finish_reason = 'stop',
 }
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.clearAllMocks(); resetRateLimitStore();
   vi.stubEnv('OPENAI_API_KEY', 'test-only-provider-is-mocked');
   authenticate.mockResolvedValue({ user: { uid: 'synthetic-test-user' }, error: null });
   create.mockResolvedValue(completion());

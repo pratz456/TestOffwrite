@@ -74,8 +74,8 @@ export async function POST(req: Request) {
       } catch (createError) {
         console.error('Error creating Stripe customer:', createError);
         return NextResponse.json(
-          { error: 'Failed to create Stripe customer. Please try again.' },
-          { status: 500 }
+          { error: 'Billing is temporarily unavailable. Please try again.' },
+          { status: 503 }
         );
       }
     }
@@ -93,8 +93,8 @@ export async function POST(req: Request) {
   } catch (error) {
     console.error('Error creating billing portal session:', error);
     return NextResponse.json(
-      { error: 'Failed to create billing portal session' },
-      { status: 500 }
+      { error: 'Billing is temporarily unavailable. Please try again.' },
+      { status: 503 }
     );
   }
 }

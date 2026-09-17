@@ -118,7 +118,7 @@ export async function GET(
   } catch (error) {
     console.error('❌ [API GET Transaction] Unexpected error:', error);
     return NextResponse.json(
-      { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }
@@ -174,7 +174,7 @@ export async function PUT(
     if (error) {
       console.error('❌ [API UPDATE→DB] Update failed:', error);
       return NextResponse.json(
-        { error: 'Update failed', details: error.message },
+        { error: 'Update failed' },
         { status: 500 }
       );
     }
@@ -210,7 +210,7 @@ export async function PUT(
   } catch (error) {
     console.error('❌ [API UPDATE→DB] Unexpected error:', error);
     return NextResponse.json(
-      { error: 'Internal server error', details: error },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }

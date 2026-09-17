@@ -5,8 +5,10 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import type { UserProfile } from '../lib/firebase/profiles-server';
 import type { Asset } from '../lib/reports/calc4562';
 import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductions';
+import { resetRateLimitStore } from './fixtures/rate-limit-store';
 const state = vi.hoisted(() => ({ records: {} as Record<string, Record<string, unknown>[]>, transactions: [] as Record<string, unknown>[], assets: [] as Asset[], fail: '', queries: [] as string[], extraWarnings: [] as string[] }));
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({ user: { uid: 'export-owner' } }) }));
+vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
 vi.mock('@/app/api/_lib/auth', () => ({ getUserFromReqOrThrow: async () => ({ uid: 'export-owner' }) }));
 vi.mock('@/lib/firebase/quarterly-payments-server', () => ({ getRecordedQuarterlyPayments: async () => [], totalRecordedPayments: () => 0 }));
 vi.mock('@/lib/tax-rules/compute-1040', async importOriginal => {
@@ -58,7 +60,7 @@ function inspectText() {
     }
   } };
 }
-beforeEach(() => { vi.restoreAllMocks(); state.records = { gross_receipts: [record({ amount: 100000 })] }; state.transactions = []; state.assets = []; state.fail = ''; state.queries = []; state.extraWarnings = []; });
+beforeEach(() => { vi.restoreAllMocks(); resetRateLimitStore(); state.records = { gross_receipts: [record({ amount: 100000 })] }; state.transactions = []; state.assets = []; state.fail = ''; state.queries = []; state.extraWarnings = []; });
 
 describe('Schedule C real PDF and request integrity', () => {
   it.each([2027, 2026.5, '2026junk', '', null])('rejects unsupported/malformed year %s before fetching records', async year => {

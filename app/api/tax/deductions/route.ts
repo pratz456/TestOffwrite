@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { validateDeductionEntry } from '@/lib/security/utils';
 import { adminDb } from '@/lib/firebase/admin';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
+import { invalidJsonResponse, readJsonObject } from '@/app/api/_lib/body';
 
 export interface TaxDeductions {
   userId: string;
@@ -44,38 +45,45 @@ export async function GET(request: NextRequest) {
 
   const yearParam = request.nextUrl.searchParams.get('year');
   const year = yearParam ? parseInt(yearParam, 10) : new Date().getFullYear();
+  if (!Number.isInteger(year) || year < 2000 || year > 2100) return NextResponse.json({ error: 'Invalid tax year' }, { status: 400 });
 
-  const snap = await adminDb
-    .collection('tax_deductions')
-    .where('userId', '==', user.uid)
-    .where('taxYear', '==', year)
-    .limit(1)
-    .get();
+  try {
+    const snap = await adminDb
+      .collection('tax_deductions')
+      .where('userId', '==', user.uid)
+      .where('taxYear', '==', year)
+      .limit(1)
+      .get();
 
-  if (snap.empty) {
+    if (snap.empty) {
+      return NextResponse.json({
+        deductions: null,
+        taxYear: year,
+        message: 'No deductions saved for this year yet'
+      });
+    }
+
+    const d = snap.docs[0].data();
     return NextResponse.json({
-      deductions: null,
+      deductions: {
+        id: snap.docs[0].id,
+        ...d,
+        updatedAt: d.updatedAt?.toDate?.()?.toISOString?.() || '',
+      },
       taxYear: year,
-      message: 'No deductions saved for this year yet'
     });
+  } catch (err) {
+    console.error('[tax/deductions GET]', err);
+    return NextResponse.json({ error: 'Failed to load deductions' }, { status: 500 });
   }
-
-  const d = snap.docs[0].data();
-  return NextResponse.json({
-    deductions: {
-      id: snap.docs[0].id,
-      ...d,
-      updatedAt: d.updatedAt?.toDate?.()?.toISOString?.() || '',
-    },
-    taxYear: year,
-  });
 }
 
 export async function POST(request: NextRequest) {
   const { user, error } = await getAuthenticatedUser(request);
   if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const body = await request.json();
+  const body = await readJsonObject(request);
+  if (!body) return invalidJsonResponse();
   const dedValidation = validateDeductionEntry(body);
   if (!dedValidation.valid) {
     return NextResponse.json({ error: dedValidation.errors.join(', ') }, { status: 400 });
@@ -100,6 +108,7 @@ export async function POST(request: NextRequest) {
   }
 
   const year = taxYear ? parseInt(String(taxYear), 10) : new Date().getFullYear();
+  if (!Number.isInteger(year) || year < 2000 || year > 2100) return NextResponse.json({ error: 'Invalid tax year' }, { status: 400 });
 
   const data = {
     userId: user.uid,
@@ -118,22 +127,27 @@ export async function POST(request: NextRequest) {
     updatedAt: new Date(),
   };
 
-  // Upsert
-  const existing = await adminDb
-    .collection('tax_deductions')
-    .where('userId', '==', user.uid)
-    .where('taxYear', '==', year)
-    .limit(1)
-    .get();
+  try {
+    // Upsert
+    const existing = await adminDb
+      .collection('tax_deductions')
+      .where('userId', '==', user.uid)
+      .where('taxYear', '==', year)
+      .limit(1)
+      .get();
 
-  let id: string;
-  if (existing.empty) {
-    const ref = await adminDb.collection('tax_deductions').add(data);
-    id = ref.id;
-  } else {
-    id = existing.docs[0].id;
-    await adminDb.collection('tax_deductions').doc(id).set(data, { merge: true });
+    let id: string;
+    if (existing.empty) {
+      const ref = await adminDb.collection('tax_deductions').add(data);
+      id = ref.id;
+    } else {
+      id = existing.docs[0].id;
+      await adminDb.collection('tax_deductions').doc(id).set(data, { merge: true });
+    }
+
+    return NextResponse.json({ success: true, id });
+  } catch (err) {
+    console.error('[tax/deductions POST]', err);
+    return NextResponse.json({ error: 'Failed to save deductions' }, { status: 500 });
   }
-
-  return NextResponse.json({ success: true, id });
 }

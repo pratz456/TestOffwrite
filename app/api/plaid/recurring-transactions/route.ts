@@ -3,10 +3,13 @@ import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import { adminDb } from '@/lib/firebase/admin';
 import { plaidClient } from '@/lib/plaid/client';
 import { listPlaidConnections, withPlaidConnection } from '@/lib/plaid/connections';
+import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 export async function POST(req: Request) {
   let uid: string;
   try { ({ uid } = await getUserFromReqOrThrow(req)); }
   catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
+  const limit = await enforceRateLimit({ ...RATE_LIMITS.plaidSync, key: uid });
+  if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many bank syncs. Please wait a few minutes and try again.' });
   try {
     const connections = await listPlaidConnections(uid);
     if (!connections.length) return NextResponse.json({ error: 'No active bank connection found' }, { status: 400 });

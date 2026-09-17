@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { syncUserTransactionsIncremental } from '@/lib/plaid/sync-helper';
+import { invalidJsonResponse, readJsonObject } from '@/app/api/_lib/body';
 
 function secretMatches(provided: string | null, expected: string): boolean {
   if (!provided) return false;
@@ -20,25 +21,28 @@ export async function POST(req: NextRequest) {
     const cloudFunctionSecret = req.headers.get('x-cloud-function-secret');
     const expectedSecret = process.env.CLOUD_FUNCTION_SECRET;
 
+    // A caller without a credential learns nothing about the deployment's configuration.
+    if (!cloudFunctionSecret) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
     if (!expectedSecret) {
       console.error('❌ [Internal Sync] CLOUD_FUNCTION_SECRET not configured');
-      return NextResponse.json(
-        { error: 'Server configuration error' },
-        { status: 500 }
-      );
+      return NextResponse.json({ code: 'SYNC_UNAVAILABLE' }, { status: 503 });
     }
 
     if (!secretMatches(cloudFunctionSecret, expectedSecret)) {
-      console.error('❌ [Internal Sync] Invalid or missing Cloud Function secret');
+      console.error('❌ [Internal Sync] Invalid Cloud Function secret');
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
       );
     }
 
-    const { userId, import_timeframe = '6months' } = await req.json();
+    const body = await readJsonObject(req);
+    if (!body) return invalidJsonResponse();
+    const { userId, import_timeframe = '6months' } = body;
 
-    if (!userId) {
+    // The UID becomes a Firestore document path segment.
+    if (typeof userId !== 'string' || !userId || userId.length > 128 || /[\/\\\x00-\x1f\x7f]/.test(userId)) {
       return NextResponse.json(
         { error: 'User ID is required' },
         { status: 400 }
@@ -60,10 +64,8 @@ export async function POST(req: NextRequest) {
       });
     } else {
       console.error(`❌ [Internal Sync] Failed to sync transactions for user ${userId}:`, syncResult.error);
-      return NextResponse.json({
-        success: false,
-        error: syncResult.error || 'Failed to sync transactions'
-      }, { status: 500 });
+      // The scheduler only needs to know whether to retry; the detail stays in the log.
+      return NextResponse.json({ success: false, error: 'Failed to sync transactions' }, { status: 500 });
     }
 
   } catch (error) {
