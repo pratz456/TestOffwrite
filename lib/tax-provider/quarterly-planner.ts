@@ -39,6 +39,8 @@ export const QUARTERLY_PLANNER_SOURCES = {
 
 export const ANNUALIZED_INCOME_METHOD_NOTE = 'The annualized income installment method (Form 2210 Schedule AI, periods ending March 31, May 31, August 31 and December 31) is not available in WriteOff. Uneven income may lower earlier installments under that method; review it with the Form 2210 instructions or a preparer.';
 
+export const QUARTERLY_PLANNER_READY_MESSAGE = 'Planning estimate from your reviewed prior-year facts and saved records using the Pub 505 regular method. It is not a balance due and not a penalty determination; the IRS figures both when the return is filed.';
+
 const QUARTERS: readonly Quarter[] = [1, 2, 3, 4];
 const DAY_MS = 86_400_000;
 const DE_MINIMIS_THRESHOLD_CENTS = 100_000; // §6654(e)(1): no penalty when tax less withholding is under $1,000.
@@ -606,9 +608,14 @@ export interface ResolvedPlannerFacts {
   assumptions: string[];
 }
 
+export interface PlannerReviewRequired { status: 'review_required'; missingFacts: MissingFact[]; notes: string[] }
+
 export type PlannerFactResolution =
   | { status: 'ready'; facts: ResolvedPlannerFacts }
-  | { status: 'review_required'; missingFacts: MissingFact[]; notes: string[] };
+  | PlannerReviewRequired;
+
+/** Shape of the `planner` field returned by /api/tax/quarterly-reminders. */
+export type QuarterlyPlannerResponse = QuarterlyPlan | PlannerReviewRequired;
 
 function readNumber(value: unknown): number | null {
   if (value === undefined || value === null || value === '') return null;
