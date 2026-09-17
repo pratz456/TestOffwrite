@@ -29,7 +29,7 @@ export default function AccountUsagePage() {
     const importedParam = urlParams.get('imported');
     if (importedParam) {
       const count = parseInt(importedParam, 10);
-      if (!isNaN(count)) {
+      if (Number.isSafeInteger(count) && count >= 0) {
         setImportedCount(count);
         console.log(`📊 [Account Usage] Found ${count} imported transactions`);
       }
@@ -64,15 +64,21 @@ export default function AccountUsagePage() {
 
       // 2) branch by usage
       if (usage === 'personal') {
-        // Mark all transactions as personal (AUTH HEADER ADDED)
-        await fetch(`/api/accounts/${accountId}/mark-personal`, {
+        const response = await fetch(`/api/accounts/${accountId}/mark-personal`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${idToken}` },
-        }).catch(()=>{});
+        });
+        const result = await response.json().catch(() => null);
+        if (!response.ok || result?.ok !== true || !Number.isSafeInteger(result.count) || result.count < 0) {
+          throw new Error('Your account usage was saved, but marking transactions as personal could not be confirmed. Please retry.');
+        }
 
-        // Show personal account message and redirect to dashboard
-        toast.info('Personal accounts are not useful for tax calculations. All transactions have been marked as personal expenses. Consider connecting a business account for tax deduction analysis.', { duration: 6000 });
-        router.push('/protected');
+        toast.info(result.count > 0
+          ? `${result.count} saved ${result.count === 1 ? 'transaction was' : 'transactions were'} marked as personal based on your choice. Review any business expenses separately.`
+          : importedCount === 0
+            ? 'Bank connected; no transactions have arrived yet. Activity will appear as available.'
+            : 'Account usage saved as personal. No saved transactions were changed.');
+        router.push(result.count === 0 ? '/protected?screen=banks-detail' : '/protected');
         return;
       }
 
@@ -95,6 +101,11 @@ export default function AccountUsagePage() {
       const queued = parseAnalysisQueue(responseData);
       if (!queued) throw new Error('Your account usage was saved, but the analysis queue response could not be verified.');
       if (queued.status === 'idle') {
+        if (importedCount === 0) {
+          toast.info('Bank connected; no transactions have arrived yet. Activity will appear as available.');
+          router.push('/protected?screen=banks-detail');
+          return;
+        }
         toast.info('No additional analysis was queued. Review your saved records.');
         router.push(`/protected?screen=review-transactions&accountId=${encodeURIComponent(accountId)}`);
         return;
@@ -125,6 +136,11 @@ export default function AccountUsagePage() {
                 Successfully imported {importedCount} {importedCount === 1 ? 'transaction' : 'transactions'}
               </span>
             </div>
+          )}
+          {importedCount === 0 && (
+            <p className="text-sm text-muted-foreground" role="status">
+              Bank connected; no transactions have arrived yet. Activity will appear as available.
+            </p>
           )}
         </CardHeader>
         <CardContent className="px-6 sm:px-8 pb-6 sm:pb-8 space-y-6">
@@ -175,7 +191,7 @@ export default function AccountUsagePage() {
               />
               <div className="flex-1 min-w-0 space-y-1">
                 <span className="text-sm font-semibold text-foreground">Personal</span>
-                <p className="text-xs text-muted-foreground leading-relaxed">Personal accounts are not used for tax calculations. All transactions will be marked as personal expenses.</p>
+                <p className="text-xs text-muted-foreground leading-relaxed">Marks saved transactions as personal. Choose mixed use if this account also pays business expenses.</p>
               </div>
             </label>
 
@@ -255,7 +271,7 @@ export default function AccountUsagePage() {
               disabled={saving}
               className="w-full h-12 rounded-xl font-semibold bg-gradient-to-r from-primary to-primary/90 hover:from-primary/95 hover:to-primary/85 shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
             >
-              {saving ? 'Saving…' : usage === 'personal' ? 'Mark as Personal & Continue' : 'Save & Start Analysis'}
+              {saving ? 'Saving…' : usage === 'personal' ? 'Mark as Personal & Continue' : importedCount === 0 ? 'Save & Continue' : 'Save & Start Analysis'}
             </Button>
             <div className="flex items-center justify-center gap-3 text-sm">
               <button

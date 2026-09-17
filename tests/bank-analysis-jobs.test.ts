@@ -257,4 +257,31 @@ describe('durable bank transaction analysis', () => {
     expect(mocks.docs.get(path)).toMatchObject({ category: 'SERVICE_SUBSCRIPTION', bank_category: 'GENERAL_MERCHANDISE', is_deductible: true });
     expect(await updateImportedTransactionForAnalysis(address, fields)).toEqual({ updated: true, invalidated: false });
   });
+  it('requeues a restored bank row whose invalidated suggestion had the same original financial input', async () => {
+    const fields = { date: '2026-09-15', amount: 75, merchant_name: 'Synthetic office store', category: 'supplies',
+      description: 'Bank description', iso_currency_code: 'USD', unofficial_currency_code: null, pending: false };
+    change(path, { ...fields, bank_category: fields.category, review_status: 'confirmed', is_deductible: true,
+      user_classification_reason: 'Confirmed supplies', receipt_url: '/receipt' });
+    await enqueueBankTransactionAnalysis(address); await run();
+    const originalGeneration = generation();
+    const originalInputHash = mocks.docs.get(taskPath)!.inputHash;
+    change(path, { bank_removed: true, pending: true });
+    expect(await updateImportedTransactionForAnalysis(address, fields)).toEqual({ updated: true, invalidated: true });
+    change(path, { bank_removed: false });
+    expect(mocks.docs.get(path)).toMatchObject({ ai_suggestion: null, analysisStatus: 'pending', review_status: 'confirmed',
+      is_deductible: true, user_classification_reason: 'Confirmed supplies', receipt_url: '/receipt' });
+    expect((await enqueueBankTransactionAnalysis(address)).status).toBe('queued');
+    expect(mocks.docs.get(taskPath)!.inputHash).toBe(originalInputHash);
+    expect(generation()).not.toBe(originalGeneration);
+    const restoredGeneration = generation();
+    expect((await enqueueBankTransactionAnalysis(address)).status).toBe('queued');
+    expect(generation()).toBe(restoredGeneration);
+    expect(mocks.docs.get(jobPath)).toMatchObject({ total: 1, processed: 0 });
+    await run();
+    expect((await enqueueBankTransactionAnalysis(address)).status).toBe('completed');
+    expect(generation()).toBe(restoredGeneration);
+    expect(mocks.analyze).toHaveBeenCalledTimes(2);
+    expect(mocks.docs.get(path)).toMatchObject({ analyzed: true, analysisStatus: 'completed', review_status: 'confirmed',
+      is_deductible: true, user_classification_reason: 'Confirmed supplies', receipt_url: '/receipt' });
+  });
 });

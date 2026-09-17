@@ -44,7 +44,7 @@ import { JobProgress } from '../components/JobProgress';
 import { PlaidLinkScreen } from '../components/plaid-link-screen';
 import AccountUsagePage from '../app/protected/account-usage/[accountId]/page';
 
-type Props = { children?: unknown; onClick?: () => void | Promise<void> };
+type Props = { children?: unknown; onClick?: () => void | Promise<void>; value?: string; onChange?: (event: { target: { value: string } }) => void };
 type Element = ReactElement<Props>;
 function walk(node: unknown): Element[] { return Array.isArray(node) ? node.flatMap(walk) : isValidElement<Props>(node) ? [node, ...walk(node.props.children)] : []; }
 function text(node: unknown): string { return Array.isArray(node) ? node.map(text).join('') : isValidElement<Props>(node) ? text(node.props.children) : typeof node === 'string' || typeof node === 'number' ? String(node) : ''; }
@@ -160,5 +160,52 @@ describe('account usage queue responses', () => {
       : '/protected?screen=review-transactions&accountId=acct_with_underscores');
     expect([...h.info.mock.calls, ...h.warning.mock.calls].flat().join(' ')).not.toMatch(/completed|successfully analyzed/i);
     expect(h.error).not.toHaveBeenCalled();
+  });
+  it('shows an honest empty-bank state and opens banks when zero imported records produce an idle queue', async () => {
+    window.location.search = '?imported=0';
+    h.fetch.mockImplementation(async (url: string) => url.includes('/usage') ? Response.json({ success: true })
+      : Response.json({ jobId: 'owner_acct_with_underscores', queued: 0, status: 'idle' }));
+    render(AccountUsagePage);
+    const tree = render(AccountUsagePage);
+    expect(text(tree)).toContain('Bank connected; no transactions have arrived yet. Activity will appear as available.');
+    await action(tree, 'Save & Continue').props.onClick!();
+    expect(h.push).toHaveBeenCalledExactlyOnceWith('/protected?screen=banks-detail');
+    expect(h.info).toHaveBeenCalledWith('Bank connected; no transactions have arrived yet. Activity will appear as available.');
+    expect(h.error).not.toHaveBeenCalled();
+  });
+  it('follows real queued work if records arrived after the initial empty import', async () => {
+    window.location.search = '?imported=0';
+    h.fetch.mockImplementation(async (url: string) => url.includes('/usage') ? Response.json({ success: true })
+      : Response.json({ jobId: 'owner_acct_with_underscores', queued: 2, status: 'queued' }));
+    render(AccountUsagePage);
+    await action(render(AccountUsagePage), 'Save & Continue').props.onClick!();
+    expect(h.push).toHaveBeenCalledExactlyOnceWith('/protected?screen=plaid-link&accountId=acct_with_underscores&analyzing=true');
+    expect(h.info).toHaveBeenCalledWith('2 records queued for analysis. Suggestions still require your review.');
+  });
+  it.each(['http-error', 'invalid-acknowledgement', 'network-error'])('does not claim personal classification or navigate after %s', async failure => {
+    h.fetch.mockImplementation(async (url: string) => {
+      if (url.includes('/usage')) return Response.json({ success: true });
+      if (failure === 'network-error') throw new Error('Connection interrupted. Please retry.');
+      return failure === 'http-error' ? Response.json({ error: 'Failed' }, { status: 503 }) : Response.json({ ok: true });
+    });
+    const tree = render(AccountUsagePage);
+    walk(tree).find(node => node.props.value === 'personal')!.props.onChange!({ target: { value: 'personal' } });
+    await action(render(AccountUsagePage), 'Mark as Personal & Continue').props.onClick!();
+    expect(h.error).toHaveBeenCalled();
+    expect(h.info).not.toHaveBeenCalled(); expect(h.push).not.toHaveBeenCalled();
+    expect(JSON.parse(h.fetch.mock.calls[0][1].body)).toEqual({ usageType: 'personal' });
+  });
+  it.each([0, 2])('only reports verified personal classification of %s saved rows', async count => {
+    window.location.search = '?imported=0';
+    h.fetch.mockImplementation(async (url: string) => url.includes('/usage') ? Response.json({ success: true }) : Response.json({ ok: true, count }));
+    const tree = render(AccountUsagePage);
+    expect(text(tree)).not.toContain('Personal accounts are not used for tax calculations');
+    walk(tree).find(node => node.props.value === 'personal')!.props.onChange!({ target: { value: 'personal' } });
+    await action(render(AccountUsagePage), 'Mark as Personal & Continue').props.onClick!();
+    expect(h.info).toHaveBeenCalledWith(count === 0
+      ? 'Bank connected; no transactions have arrived yet. Activity will appear as available.'
+      : '2 saved transactions were marked as personal based on your choice. Review any business expenses separately.');
+    expect(h.push).toHaveBeenCalledWith(count === 0 ? '/protected?screen=banks-detail' : '/protected');
+    expect(h.fetch.mock.calls.some(([url]) => url === '/api/plaid/auto-analyze')).toBe(false);
   });
 });

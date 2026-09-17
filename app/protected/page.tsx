@@ -298,11 +298,13 @@ export default function ProtectedPage() {
   const handlePlaidConnectionSuccess = async () => {
     if (user) {
       try {
-        // Refresh user profile to get updated Plaid token
+        // Refresh the safe server-managed bank connection status
         const { data: userProfile, error: profileError } = await getUserProfile(user.id);
 
         if (!profileError && userProfile) {
           setUserProfile(userProfile);
+          setBankConnected(userProfile.bankConnected === true);
+          notifyProfileUpdated(user.id);
 
           // If this is the first Plaid connection and Plaid guide hasn't been shown,
           // trigger the Plaid guide tutorial

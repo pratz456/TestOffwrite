@@ -55,7 +55,10 @@ export async function enqueueBankTransactionAnalysis(address: AnalysisTaskAddres
     if (hasStructuredAnalysis(data)) return { status: 'completed' as const };
     const old = task.data();
     const oldActive = old && ['queued', 'running', 'retry_wait'].includes(old.status);
-    const changedInput = old && old.inputHash !== analysisInputHash(data);
+    // A bank removal/restoration can invalidate a suggestion while returning to
+    // the exact original financial input. Its revision still needs a fresh task.
+    const changedInput = old && (old.inputHash !== analysisInputHash(data) ||
+      typeof data.analysisInputRevision === 'string' && old.inputRevision !== data.analysisInputRevision);
     if (oldActive && !changedInput && (Date.now() - old.requestedAt < TASK_MAX_AGE_MS || hasActiveAnalysisLease(data))) return { status: 'queued' as const, taskId: ref.task.id };
     if (old && !changedInput && (!retryFailed || Date.now() - old.requestedAt < 60_000)) return { status: old.status as 'paused' | 'failed' | 'completed', taskId: ref.task.id };
     const previousJob = job.data();
@@ -65,7 +68,8 @@ export async function enqueueBankTransactionAnalysis(address: AnalysisTaskAddres
       { total: 0, processed: 0, succeeded: 0, failed: 0 };
     const now = Date.now();
     tx.set(ref.task, { ...address, generation: randomUUID(), batchId, status: 'queued', attempts: 0,
-      requestedAt: now, nextAttemptAt: now, inputHash: analysisInputHash(data), lastErrorCode: null });
+      requestedAt: now, nextAttemptAt: now, inputHash: analysisInputHash(data),
+      inputRevision: typeof data.analysisInputRevision === 'string' ? data.analysisInputRevision : null, lastErrorCode: null });
     tx.set(ref.job, { version: 1, userId: address.userId, accountId: address.accountId, batchId,
       ...counts, total: counts.total + (active && oldActive && old.batchId === batchId ? 0 : 1), status: 'running', phase: 'queued',
       startedAt: active ? previousJob.startedAt : new Date(now), completedAt: null, lastUpdate: new Date(now) });
