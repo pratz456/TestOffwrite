@@ -12,6 +12,16 @@ export const EXPECTED_PRODUCTION_PLAID_CLIENT_ID = '6aab263acbddc2000d721272';
 export const RELEASE_MANIFEST = '.writeoff-production-release.json';
 export const MIGRATION_REVIEW = '.writeoff-production-migration-review.json';
 export const RELEASE_ENV = '.env.production.local';
+export const REQUIRED_RELEASE_REVIEWS = Object.freeze([
+  'legacyProfileMigration',
+  'historicalOverlapReconciliation',
+  'oldClientCompatibility',
+  'plaidProductionAccess',
+  'stripeLiveConfiguration',
+  'secretManagerBindings',
+  'rulesAndIndexes',
+  'rollbackCompatibility',
+]);
 const buckets = [`${PRODUCTION_PROJECT}.firebasestorage.app`, `${PRODUCTION_PROJECT}.appspot.com`];
 const protectedEnvironmentName = name => /^(?:NEXT_PUBLIC_|FIREBASE_|GOOGLE_CLOUD_PROJECT$|GCLOUD_PROJECT$|GCP_PROJECT$|WRITEOFF_ENV$|PLAID_|STRIPE_|ANALYSIS_WORKER_|CLOUD_FUNCTION_|SSN_|OPENAI_|COLUMN_TAX_|ENABLE_TRANSACTION_RESET$)/.test(name);
 export const environmentDigest = contents => createHash('sha256').update(contents).digest('hex');
@@ -24,7 +34,7 @@ export function validateMigrationReview(review, commit) {
       typeof review.reviewedAt !== 'string' || !Number.isFinite(Date.parse(review.reviewedAt))) {
     errors.push('Migration review must identify the reviewer, date, exact release commit and production project');
   }
-  for (const name of ['legacyProfileMigration', 'historicalOverlapReconciliation', 'oldClientCompatibility']) {
+  for (const name of REQUIRED_RELEASE_REVIEWS) {
     if (review?.[name]?.reviewed !== true || typeof review?.[name]?.evidence !== 'string' || !review[name].evidence.trim()) {
       errors.push(`${name} requires an explicit completed review and evidence reference`);
     }
@@ -94,6 +104,9 @@ export function validateProductionConfiguration(env, { project, hosting, firebas
     if ((name.includes('EMULATOR') || name === 'FIREBASE_AUTH_EMULATOR_HOST') && value && value !== 'false') errors.push(`${name} must not enable emulators in production`);
   }
   if (env.COLUMN_TAX_MODE !== 'disabled') errors.push('COLUMN_TAX_MODE must explicitly remain disabled pending the separate filing launch');
+  if (Object.entries(env).some(([name, value]) => name !== 'COLUMN_TAX_MODE' && name.startsWith('COLUMN_TAX_') && value?.trim())) {
+    errors.push('Column Tax credentials and launch settings must be absent while embedded filing is disabled');
+  }
   if (env.STRIPE_TEST_MODE_EXPIRE_TODAY === 'true' || env.ENABLE_TRANSACTION_RESET === 'true') errors.push('Test expiry and transaction reset switches must be disabled');
   return { errors: [...new Set(errors)], pending: [
     'Verify the new Plaid account has production Transactions access and registered OAuth callback; old-account tokens require relinking.',
@@ -138,6 +151,7 @@ export function runProductionPreflight({ cwd = process.cwd(), args = process.arg
     serviceAccount: readConfiguration(env.GOOGLE_APPLICATION_CREDENTIALS, 'GOOGLE_APPLICATION_CREDENTIALS', cwd) });
   result.errors.push(...mismatches);
   result.errors.push(...validateMigrationReview(migrationReview, manifest.commit));
+  if (!config.functions?.some(item => item.source === 'functions' && item.codebase === 'default')) result.errors.push('The production scheduled-sync Functions codebase must be included');
   if (!config.functions?.some(item => item.source === 'functions-analysis' && item.codebase === 'analysis')) result.errors.push('The production analysis Functions codebase must be included');
   return result;
 }

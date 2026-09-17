@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "project": "writeoff-23910",
+  "commit": "REPLACE_WITH_EXACT_40_CHARACTER_RELEASE_COMMIT",
+  "reviewedBy": "",
+  "reviewedAt": "",
+  "legacyProfileMigration": {
+    "reviewed": false,
+    "evidence": ""
+  },
+  "historicalOverlapReconciliation": {
+    "reviewed": false,
+    "evidence": ""
+  },
+  "oldClientCompatibility": {
+    "reviewed": false,
+    "evidence": ""
+  },
+  "plaidProductionAccess": {
+    "reviewed": false,
+    "evidence": ""
+  },
+  "stripeLiveConfiguration": {
+    "reviewed": false,
+    "evidence": ""
+  },
+  "secretManagerBindings": {
+    "reviewed": false,
+    "evidence": ""
+  },
+  "rulesAndIndexes": {
+    "reviewed": false,
+    "evidence": ""
+  },
+  "rollbackCompatibility": {
+    "reviewed": false,
+    "evidence": ""
+  }
+}

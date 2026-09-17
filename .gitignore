@@ -22,6 +22,7 @@
 # production
 /build
 /dist
+/.writeoff-production-*.json
 
 # misc
 .DS_Store

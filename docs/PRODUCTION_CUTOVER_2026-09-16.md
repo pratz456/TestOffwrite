@@ -25,17 +25,28 @@ node scripts/prepare-production-release.mjs \
 
 The script refuses dirty source or an existing output directory. It exports the exact commit, excludes ignored staging/build artifacts, creates a private `.env.production.local`, records its digest, and writes only non-secret Functions routing parameters. It does not install dependencies, contact providers, build or deploy. Editing the prepared env or review requires preparing a new release.
 
-A **separate completed migration review** is mandatory, with no env-variable bypass. Its JSON must specify `schemaVersion: 1`, `project: "writeoff-23910"`, the exact release `commit`, a nonempty `reviewedBy`, and an ISO `reviewedAt`. Each of `legacyProfileMigration`, `historicalOverlapReconciliation`, and `oldClientCompatibility` must contain `reviewed: true` and a nonempty `evidence` reference to the completed assessment/validation. These are explicit operator acknowledgments, not an automated proof of data correctness. The predeploy guard verifies the copied review, its digest and commit. Do not mark unresolved overlap or compatibility work reviewed simply to pass the guard. This implementation does not create a real production approval or merge/discard historical records.
+A **separate completed release review** is mandatory, with no env-variable bypass. Its JSON must specify `schemaVersion: 1`, `project: "writeoff-23910"`, the exact release `commit`, a nonempty `reviewedBy`, and an ISO `reviewedAt`. Each of `legacyProfileMigration`, `historicalOverlapReconciliation`, `oldClientCompatibility`, `plaidProductionAccess`, `stripeLiveConfiguration`, `secretManagerBindings`, `rulesAndIndexes`, and `rollbackCompatibility` must contain `reviewed: true` and a nonempty `evidence` reference to the completed assessment/validation. These are explicit operator acknowledgments, not automated proof. The predeploy guard verifies the copied review, its digest and commit. Do not mark unresolved migration, provider, secret, rules/index or rollback work reviewed simply to pass the guard. This implementation does not create provider approval or merge/discard historical records.
+
+`docs/production-release-review.example.json` is a deliberately incomplete template. Every review flag is false; copy it to a private path and replace fields only with actual evidence.
 
 Install dependencies and run checks from that isolated directory using Node 22. Run the guard explicitly before any deployment:
 
 ```sh
+npm ci --include=dev
 node scripts/production-preflight.mjs --project writeoff-23910 --config firebase.json
 ```
 
 The same guard runs in production hosting and Functions predeploy hooks. It rejects wrong project/site/bucket/auth app, mixed local env files, conflicting inherited config, Sandbox/test credentials, missing encryption/worker settings, test switches, and overlapping Basic/Premium prices. The Plaid client identifier must exactly match the replacement account verified for this rollout; another account requires an explicit code/configuration review. A pass confirms static consistency only. It does not verify that the supplied secret belongs to that account, production provider approval, key funding, Secret Manager equality, already-deployed rules, or migration readiness.
 
 Production hosting uses `firebase.json`, explicitly targeting `writeoff-23910`. `firebase.staging.json` stays isolated and uses only the staging project. The production config includes both `default` (bank sync scheduler) and `analysis` codebases; a hosting-only deployment does **not** deploy the worker or scheduler.
+
+After the release review is complete, the sole supported deployment entry point is:
+
+```sh
+npm run production:deploy -- --confirm "deploy:writeoff-23910:<exact-40-character-commit>"
+```
+
+It reruns the preflight, builds the app and both Functions packages, reruns the preflight immediately before release, and asks Firebase to deploy Hosting, Firestore rules/indexes, Storage rules, and both Functions codebases together. It intentionally omits `--force`. Firebase target releases are coordinated but not transactional; retain the reviewed compatible rollback plan.
 
 ## Existing-user migration and rollout order
 
@@ -57,7 +68,7 @@ Missing Plaid credentials fail closed and lazy initialization keeps unrelated ro
 
 Read-only metadata on September 16, 2026 showed production `ssrwriteoff23910` on Node 20 (last updated September 15), plus the older scheduled-sync function; no analysis queue/process Functions were deployed. Production Secret Manager listed the prior OpenAI/Plaid secret resources, with no analysis-worker or Plaid-encryption resource; SSR runtime environment metadata did not expose packaged `.env` values, so resource absence does not prove every packaged setting is absent. The gcloud identity could not read production Firestore rules (HTTP 403); current production rules must be verified through an authorized Firebase identity before rollout.
 
-The repository's existing main-branch deployment workflow selects hosting and changed rules/storage only, and lacks the new complete production environment/worker rollout. Its production preflight will now block an unprepared deployment. Update/review that workflow separately before relying on automatic promotion.
+Production deployment is manual-only through `.github/workflows/deploy.yml`; ordinary pushes cannot trigger it. Dispatch requires an exact commit and matching confirmation, the protected GitHub `production` environment, private `PRODUCTION_ENV_FILE` and `PRODUCTION_MIGRATION_REVIEW_JSON` environment secrets, and the Firebase service-account secret. The workflow prepares a fresh isolated release and calls the same coordinated deploy entry point. Configure required reviewers on the GitHub `production` environment before relying on this path. Direct partial-deploy convenience scripts are disabled.
 
 Read-only Firestore aggregate inventory on September 17 found 40 production profiles, 11 profiles with nonempty legacy bank credentials (and 11 with nonempty bank Item IDs), 25 saved account documents, and zero private `plaid_connections` documents. Account-specific filtered aggregates could not run because of query prerequisites; no indexes were changed. These counts establish the immediate relink scope, not verified account correspondence or absence of overlapping transactions. No customer identifiers, credentials, transactions, or amounts were retrieved/exported for this inventory.
 

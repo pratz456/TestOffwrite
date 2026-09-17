@@ -3,11 +3,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { afterEach, describe, expect, it } from 'vitest';
-import { environmentDigest, EXPECTED_PRODUCTION_PLAID_CLIENT_ID, RELEASE_ENV, RELEASE_MANIFEST, MIGRATION_REVIEW, runProductionPreflight, validateMigrationReview, validateProductionConfiguration } from '../scripts/production-preflight.mjs';
+import { environmentDigest, EXPECTED_PRODUCTION_PLAID_CLIENT_ID, RELEASE_ENV, RELEASE_MANIFEST, MIGRATION_REVIEW, REQUIRED_RELEASE_REVIEWS, runProductionPreflight, validateMigrationReview, validateProductionConfiguration } from '../scripts/production-preflight.mjs';
 import { prepareProductionRelease } from '../scripts/prepare-production-release.mjs';
 
 const project = 'writeoff-23910';
-const config = { hosting: { source: '.', site: project }, functions: [{ source: 'functions-analysis', codebase: 'analysis' }] };
+const config = { hosting: { source: '.', site: project }, functions: [
+  { source: 'functions', codebase: 'default' },
+  { source: 'functions-analysis', codebase: 'analysis' },
+] };
 const target = { project, hosting: config.hosting };
 const env = {
   WRITEOFF_ENV: 'production', NEXT_PUBLIC_APP_ENV: 'production', NEXT_PUBLIC_FIREBASE_PROJECT_ID: project,
@@ -28,10 +31,17 @@ afterEach(() => { for (const directory of directories.splice(0)) fs.rmSync(direc
 function directory() { const value = fs.mkdtempSync(path.join(os.tmpdir(), 'writeoff-production-config-test-')); directories.push(value); return value; }
 function environmentText(value: Record<string, string> = env) { return Object.entries(value).map(([name, value]) => `${name}=${value}`).join('\n') + '\n'; }
 function review(commit = 'a'.repeat(40)) {
-  return { schemaVersion: 1, project, commit, reviewedBy: 'Synthetic reviewer', reviewedAt: '2026-09-16T00:00:00Z',
-    legacyProfileMigration: { reviewed: true, evidence: 'synthetic-fixture: migration checked' },
-    historicalOverlapReconciliation: { reviewed: true, evidence: 'synthetic-fixture: overlap checked' },
-    oldClientCompatibility: { reviewed: true, evidence: 'synthetic-fixture: rollout checked' } };
+  return {
+    schemaVersion: 1,
+    project,
+    commit,
+    reviewedBy: 'Synthetic reviewer',
+    reviewedAt: '2026-09-16T00:00:00Z',
+    ...Object.fromEntries(REQUIRED_RELEASE_REVIEWS.map(name => [
+      name,
+      { reviewed: true, evidence: `synthetic-fixture: ${name} checked` },
+    ])),
+  };
 }
 function prepared() {
   const cwd = directory(); const contents = environmentText();
@@ -72,7 +82,8 @@ describe('production deployment configuration', () => {
     { STRIPE_PRICE_ID: 'price_wronggeneric' }, { NEXT_PUBLIC_STRIPE_PRICE_ID_MONTHLY: 'price_wrongpublicalias' },
     { STRIPE_PRICE_ID_BASIC_MONTHLY: env.STRIPE_PRICE_ID_MONTHLY }, { STRIPE_PRICE_ID_YEARLY: env.STRIPE_PRICE_ID_MONTHLY },
     { NEXT_PUBLIC_PLAID_SECRET: 'must-never-be-public' }, { FIRESTORE_EMULATOR_HOST: 'localhost:8180' },
-    { COLUMN_TAX_MODE: 'sandbox' }, { ENABLE_TRANSACTION_RESET: 'true' }, { STRIPE_TEST_MODE_EXPIRE_TODAY: 'true' },
+    { COLUMN_TAX_MODE: 'sandbox' }, { COLUMN_TAX_CLIENT_ID: 'must-not-ship' },
+    { ENABLE_TRANSACTION_RESET: 'true' }, { STRIPE_TEST_MODE_EXPIRE_TODAY: 'true' },
   ])('rejects unsafe production configuration without exposing values: %j', override => {
     const result = validateProductionConfiguration({ ...env, ...override }, target);
     expect(result.errors.length).toBeGreaterThan(0);
@@ -107,8 +118,9 @@ describe('isolated production release preflight', () => {
     fs.chmodSync(path.join(cwd, RELEASE_ENV), 0o644);
     expect(() => runProductionPreflight({ cwd, inheritedEnv: {}, args: ['--project', project] })).toThrow('private regular file');
   });
-  it('rejects missing analysis codebase configuration', () => {
+  it('rejects missing production Functions codebase configuration', () => {
     const cwd = prepared(); fs.writeFileSync(path.join(cwd, 'firebase.json'), JSON.stringify({ hosting: config.hosting }));
+    expect(runProductionPreflight({ cwd, inheritedEnv: {}, args: ['--project', project] }).errors).toContain('The production scheduled-sync Functions codebase must be included');
     expect(runProductionPreflight({ cwd, inheritedEnv: {}, args: ['--project', project] }).errors).toContain('The production analysis Functions codebase must be included');
   });
   it('rejects absent or changed migration review even with otherwise valid production configuration', () => {
@@ -120,7 +132,7 @@ describe('isolated production release preflight', () => {
   it.each([
     undefined, {}, { ...review(), commit: 'b'.repeat(40) }, { ...review(), project: 'writeoff-production-testing' },
     { ...review(), reviewedBy: '' }, { ...review(), reviewedAt: 'invalid' },
-    ...['legacyProfileMigration', 'historicalOverlapReconciliation', 'oldClientCompatibility'].flatMap(name => [
+    ...REQUIRED_RELEASE_REVIEWS.flatMap(name => [
       { ...review(), [name]: { reviewed: false, evidence: 'not done' } },
       { ...review(), [name]: { reviewed: true, evidence: '' } },
     ]),
