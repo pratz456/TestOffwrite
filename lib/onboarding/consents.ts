@@ -12,7 +12,8 @@ export type RequiredConsent = (typeof REQUIRED_CONSENTS)[number];
 export type OptionalConsent = (typeof OPTIONAL_CONSENTS)[number];
 export type ConsentKey = RequiredConsent | OptionalConsent;
 
-export const CONSENT_SOURCES = ['sign-up', 'profile-setup'] as const;
+/** `reacknowledgment` covers accounts created before the current terms version, gated in the protected layout. */
+export const CONSENT_SOURCES = ['sign-up', 'profile-setup', 'reacknowledgment'] as const;
 export type ConsentSource = (typeof CONSENT_SOURCES)[number];
 
 export type ConsentChoices = Record<ConsentKey, boolean>;

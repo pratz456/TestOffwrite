@@ -14,6 +14,7 @@ import { premiumFeatureForLocation } from '@/lib/subscriptions/client-status';
 import { Button } from '@/components/ui/button';
 import { subscribeToProfileUpdates } from '@/lib/onboarding/profile-events';
 import { profileLookupState } from '@/lib/onboarding/profile';
+import { ConsentReacknowledgment, needsConsentReacknowledgment } from '@/components/onboarding/consent-reacknowledgment';
 
 interface ProtectedLayoutClientProps { children: React.ReactNode }
 
@@ -93,8 +94,11 @@ const ProtectedLayoutContent: React.FC<ProtectedLayoutClientProps> = ({ children
     return <div role="status" className="flex h-screen items-center justify-center">Redirecting to login…</div>;
   }
 
+  // Accounts from before the current terms version confirm the acknowledgments before the app renders.
+  // Profile setup collects them itself; a failed profile read never traps the account here.
+  const reacknowledge = !isProfileSetup && !currentProfile?.error && !!userProfile && needsConsentReacknowledgment(userProfile);
   // Account/billing navigation remains available even when the profile service fails.
-  const showNavigation = !isProfileSetup || pathname === '/protected/settings' || pathname === '/protected/subscriptions';
+  const showNavigation = !reacknowledge && (!isProfileSetup || pathname === '/protected/settings' || pathname === '/protected/subscriptions');
   return (
     <>
       <ToastContainer toasts={toasts} onClose={removeToast} />
@@ -110,14 +114,16 @@ const ProtectedLayoutContent: React.FC<ProtectedLayoutClientProps> = ({ children
               </div>
             )}
             <ErrorBoundary>
-              {feature ? (
+              {reacknowledge ? (
+                <ConsentReacknowledgment onRecorded={() => setProfileVersion((version) => version + 1)} />
+              ) : feature ? (
                 <PremiumFeatureGate feature={feature} featureName={feature === 'reports' ? 'reports' : 'report exports'}>
                   {children}
                 </PremiumFeatureGate>
               ) : children}
             </ErrorBoundary>
           </main>
-          {userProfile && !isProfileSetup && (
+          {userProfile && !isProfileSetup && !reacknowledge && (
             <TutorialManager userId={user.id} userProfile={userProfile} onProfileUpdate={() => setProfileVersion((version) => version + 1)} />
           )}
         </div>
