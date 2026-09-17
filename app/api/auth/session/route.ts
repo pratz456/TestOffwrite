@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { adminAuth } from '@/lib/firebase/admin';
 import { isSameOriginRequest } from '@/lib/firebase/api-auth';
+import { anonymousRateLimitKey, enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 
 export async function POST(request: NextRequest) {
   if (!isSameOriginRequest(request)) {
@@ -13,6 +14,11 @@ export async function POST(request: NextRequest) {
   if (typeof idToken !== 'string' || !idToken.trim()) {
     return NextResponse.json({ error: 'Missing idToken' }, { status: 400 });
   }
+  // Durable per-address bound on token verification and cookie minting, shared
+  // across hosting instances. Sign-in stays available if the limiter store is
+  // down, falling back to this instance's memory rather than locking users out.
+  const limit = await enforceRateLimit({ ...RATE_LIMITS.sessionCreate, key: anonymousRateLimitKey(request) });
+  if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many sign-in attempts. Please wait a few minutes and try again.' });
   try {
     const decoded = await adminAuth.verifyIdToken(idToken, true);
     if (decoded.email_verified !== true) {

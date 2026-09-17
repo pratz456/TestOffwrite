@@ -4,6 +4,7 @@ import { adminDb } from '@/lib/firebase/admin';
 import { getStripeClient, configuredPriceIds, subscriptionPlanForPrice } from '@/lib/stripe/subscription-sync';
 import { z } from 'zod';
 import { beginCheckoutOperation, finishCheckoutOperation, retainCheckoutRecovery, CheckoutOperationError } from '@/lib/stripe/checkout-operations';
+import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 
 const checkoutRequest = z.object({ interval: z.enum(['monthly', 'yearly']).default('monthly') }).strict();
 
@@ -31,6 +32,10 @@ export async function POST(req: Request) {
   if (!stripe || !priceId || subscriptionPlanForPrice(priceId) !== 'premium') {
     return NextResponse.json({ error: 'Billing is temporarily unavailable' }, { status: 503 });
   }
+  // Each attempt can create a provider customer and session; bound it per owner
+  // before the billing operation marker is opened.
+  const limit = await enforceRateLimit({ ...RATE_LIMITS.stripeCheckout, key: uid });
+  if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many checkout attempts. Please wait a few minutes and try again.' });
   let operationId: string | undefined;
   let safeToRelease = true;
   let unsavedCustomerId: string | undefined;

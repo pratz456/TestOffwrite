@@ -6,6 +6,7 @@ const mock = vi.hoisted(() => ({ auth: vi.fn(), startTrial: vi.fn(), reconcile: 
 vi.mock('@/app/api/_lib/auth', () => ({ getUserFromReqOrThrow: mock.auth }));
 vi.mock('@/lib/subscriptions/trial-manager', () => ({ startFreeTrial: mock.startTrial }));
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: { doc: () => ({ get: async () => ({ exists: mock.exists, data: () => mock.profile }), update: mock.profileUpdate }) } }));
+vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
 vi.mock('@/lib/stripe/checkout-operations', async original => ({
   ...await original<typeof import('@/lib/stripe/checkout-operations')>(),
   beginCheckoutOperation: async () => 'fixture-billing-operation', finishCheckoutOperation: async () => {}, retainCheckoutRecovery: async () => {},
@@ -22,11 +23,13 @@ import { GET as checkAccess } from '@/app/api/subscriptions/check-access/route';
 import { POST as checkout } from '@/app/api/stripe/create-checkout/route';
 import { POST as webhook } from '@/app/api/stripe/webhook/route';
 import { POST as fixAccess } from '@/app/api/subscriptions/fix-access/route';
+import { RATE_LIMITS } from '@/lib/security/rate-limit';
+import { exhaustRateLimit, failRateLimitStore, resetRateLimitStore } from './fixtures/rate-limit-store';
 const now = new Date('2026-09-15T12:00:00Z');
 const future = new Date('2026-10-01T12:00:00Z');
 const req = (body: unknown = {}, signature = false) => new Request('https://writeoffapp.com/api/test', { method: 'POST', body: JSON.stringify(body), headers: signature ? { 'stripe-signature': 'signed-fixture' } : {} });
 beforeEach(() => {
-  vi.clearAllMocks(); vi.useFakeTimers(); vi.setSystemTime(now);
+  vi.clearAllMocks(); vi.useFakeTimers(); vi.setSystemTime(now); resetRateLimitStore();
   vi.stubEnv('STRIPE_PRICE_ID_MONTHLY', 'price_month'); vi.stubEnv('STRIPE_WEBHOOK_SECRET', 'mock-secret');
   vi.stubEnv('NEXT_PUBLIC_SITE_URL', 'https://writeoffapp.com');
   mock.auth.mockResolvedValue({ uid: 'u1' }); mock.configured = true; mock.exists = true;
@@ -78,6 +81,23 @@ describe('checkout creation', () => {
     expect((await checkout(req({ interval: 'monthly' }))).status).toBe(503);
     expect(mock.checkoutCreate).not.toHaveBeenCalled();
     expect(mock.customersRetrieve).not.toHaveBeenCalled();
+  });
+  it('refuses checkout over the durable per-owner window before any provider call', async () => {
+    await exhaustRateLimit(RATE_LIMITS.stripeCheckout, 'u1');
+    const response = await checkout(req({ interval: 'monthly' }));
+    expect(response.status).toBe(429);
+    expect(response.headers.get('retry-after')).toBe(String(RATE_LIMITS.stripeCheckout.windowMs / 1000));
+    expect(await response.json()).toMatchObject({ code: 'RATE_LIMITED', retryAfter: RATE_LIMITS.stripeCheckout.windowMs / 1000 });
+    expect(mock.customersRetrieve).not.toHaveBeenCalled(); expect(mock.customersCreate).not.toHaveBeenCalled(); expect(mock.checkoutCreate).not.toHaveBeenCalled();
+    // A different owner is unaffected by the exhausted window.
+    mock.auth.mockResolvedValue({ uid: 'u2' });
+    expect((await checkout(req({ interval: 'monthly' }))).status).toBe(200);
+  });
+  it('fails closed instead of creating unmetered billing sessions when the limiter store is unreachable', async () => {
+    failRateLimitStore();
+    const response = await checkout(req({ interval: 'monthly' }));
+    expect(response.status).toBe(503); expect(await response.json()).toMatchObject({ code: 'RATE_LIMIT_UNAVAILABLE' });
+    expect(mock.checkoutCreate).not.toHaveBeenCalled();
   });
   it.each(['active', 'trialing', 'past_due', 'unpaid', 'incomplete', 'paused'])('prevents duplicate checkout for a legacy Basic subscription in %s', async status => {
     mock.profile.stripeCustomerId = 'cus_1';

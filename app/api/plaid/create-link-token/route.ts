@@ -8,6 +8,7 @@ import { startFreeTrial } from '@/lib/subscriptions/trial-manager';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import { getPlaidConnection } from '@/lib/plaid/connections';
 import { getPlaidOAuthRedirectUri } from '@/lib/plaid/oauth-config';
+import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 
 function webhookUrl(): string | undefined {
   const source = process.env.PLAID_WEBHOOK_URL || process.env.NEXT_PUBLIC_SITE_URL || process.env.VERCEL_URL;
@@ -23,6 +24,9 @@ export async function POST(request: NextRequest) {
   let uid: string;
   try { ({ uid } = await getUserFromReqOrThrow(request)); }
   catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
+  // Link tokens start provider sessions and can start a trial; bound them per owner.
+  const limit = await enforceRateLimit({ ...RATE_LIMITS.plaidLinkToken, key: uid });
+  if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many bank connection attempts. Please wait a few minutes and try again.' });
   try {
     const redirectUri = getPlaidOAuthRedirectUri(process.env, request.headers.get('origin'));
     const body = await request.json().catch(() => ({}));

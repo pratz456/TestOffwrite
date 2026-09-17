@@ -8,6 +8,8 @@ export interface AuthenticatedUser {
   /** Verified token fields, used only to bind provider security metadata to this login. */
   authTime?: number;
   secondFactorVerified?: boolean;
+  /** Firebase custom claim `admin: true`; support routes also require the env allowlist. */
+  admin?: boolean;
 }
 
 /** Cookie credentials are automatic, so reject mutations originating at another site. */
@@ -47,7 +49,8 @@ export async function getAuthenticatedUser(request: Request): Promise<{
     return {
       user: { uid: decoded.uid, email: decoded.email || null, emailVerified: decoded.email_verified === true,
         authTime: typeof decoded.auth_time === 'number' ? decoded.auth_time : undefined,
-        secondFactorVerified: typeof decoded.firebase?.sign_in_second_factor === 'string' },
+        secondFactorVerified: typeof decoded.firebase?.sign_in_second_factor === 'string',
+        admin: decoded.admin === true },
       error: null,
     };
   } catch {

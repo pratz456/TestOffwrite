@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest, NextResponse } from 'next/server';
 const mock = vi.hoisted(() => ({ uid: 'owner', auth: true, deny: false, rows: vi.fn(), archive: vi.fn(), se: vi.fn(), sePDF: vi.fn(), profile: vi.fn() }));
+// The archive route's durable throttle runs against an in-memory store.
+vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({ user: mock.auth ? { uid: mock.uid } : null, error: mock.auth ? null : 'Unauthorized' }) }));
 vi.mock('@/app/api/_lib/auth', () => ({ getUserFromReqOrThrow: async () => { if (!mock.auth) throw Error(); return { uid: mock.uid }; } }));
 vi.mock('@/lib/subscriptions/feature-access', () => ({ requireFeatureAccess: async () => mock.deny ? NextResponse.json({ code: 'SUBSCRIPTION_REQUIRED' }, { status: 403 }) : null }));
@@ -16,10 +18,12 @@ import { POST as pdf } from '@/app/api/reports/generate-pdf/route';
 import { POST as forms } from '@/app/api/reports/export/route';
 import { POST as archive, GET as status } from '@/app/api/user/export/route';
 import { ExportReviewRequiredError } from '@/lib/reports/transaction-export';
+import { RATE_LIMITS } from '@/lib/security/rate-limit';
+import { exhaustRateLimit, failRateLimitStore, recordedRateLimitCount, resetRateLimitStore } from './fixtures/rate-limit-store';
 let sequence = 0;
 const request = (path: string, body?: unknown) => new NextRequest(`http://localhost/api/${path}`, body === undefined ? undefined : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 beforeEach(() => {
-  vi.clearAllMocks(); mock.uid = `owner-${++sequence}`; mock.auth = true; mock.deny = false;
+  vi.clearAllMocks(); resetRateLimitStore(); mock.uid = `owner-${++sequence}`; mock.auth = true; mock.deny = false;
   mock.rows.mockResolvedValue([{ date: '2026-01-01', amount: -99, merchant_name: 'Owned client', iso_currency_code: 'USD', is_deductible: false }]);
   mock.archive.mockResolvedValue({ exportInfo: { exportId: 'id', exportDate: '2026-01-01' } });
   mock.se.mockResolvedValue({ taxYear: 2026, calculation: { totalSelfEmploymentTax: 123 }, w2SocialSecurityWages: 5000 });
@@ -91,6 +95,32 @@ describe('data and report export HTTP contracts', () => {
     expect(await (await status(request('user/export'))).json()).toMatchObject({ canExport: true });
     expect((await archive(request('user/export', {}))).status).toBe(200);
     expect((await archive(request('user/export', {}))).status).toBe(429);
+  });
+  it('answers a throttled archive with Retry-After, a stable code and a durable status window', async () => {
+    expect((await archive(request('user/export', {}))).status).toBe(200);
+    const response = await archive(request('user/export', {}));
+    expect(response.status).toBe(429);
+    expect(Number(response.headers.get('retry-after'))).toBeGreaterThan(3500);
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(await response.json()).toMatchObject({ code: 'RATE_LIMITED', retryAfter: expect.any(Number) });
+    expect(await (await status(request('user/export'))).json()).toMatchObject({ canExport: false, timeRemaining: 60, rateLimitHours: 1 });
+    expect(mock.archive).toHaveBeenCalledTimes(1);
+    // The completed archive is the only recorded use; the failed attempt limit counts both tries.
+    expect(recordedRateLimitCount(RATE_LIMITS.userExport.scope)).toBe(1);
+    expect(recordedRateLimitCount(RATE_LIMITS.userExportAttempts.scope)).toBe(2);
+  });
+  it('bounds repeated failing archive attempts even though each failure is refunded', async () => {
+    await exhaustRateLimit(RATE_LIMITS.userExportAttempts, mock.uid);
+    const response = await archive(request('user/export', {}));
+    expect(response.status).toBe(429); expect(await response.json()).toMatchObject({ code: 'RATE_LIMITED' });
+    expect(mock.archive).not.toHaveBeenCalled();
+  });
+  it('fails closed on archive creation but keeps the status read available when the limiter store is unreachable', async () => {
+    failRateLimitStore();
+    const response = await archive(request('user/export', {}));
+    expect(response.status).toBe(503); expect(await response.json()).toMatchObject({ code: 'RATE_LIMIT_UNAVAILABLE' });
+    expect(mock.archive).not.toHaveBeenCalled();
+    expect(await (await status(request('user/export'))).json()).toMatchObject({ canExport: true });
   });
   it('rejects cross-owner archive parameters and preserves typed review errors', async () => {
     expect((await archive(request('user/export', { userId: 'victim' }))).status).toBe(400); expect(mock.archive).not.toHaveBeenCalled();

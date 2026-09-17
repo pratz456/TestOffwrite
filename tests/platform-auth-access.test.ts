@@ -4,16 +4,21 @@ import { NextRequest } from 'next/server';
 const mock = vi.hoisted(() => ({ verifyIdToken: vi.fn(), verifySessionCookie: vi.fn(), createSessionCookie: vi.fn(), get: vi.fn(), transaction: vi.fn() }));
 vi.mock('@/lib/firebase/admin', () => ({ adminAuth: mock, adminDb: { doc: vi.fn(() => ({ get: mock.get })), runTransaction: mock.transaction }, FieldValue: { serverTimestamp: () => 'server-time' } }));
 vi.mock('@/lib/plaid/connections', () => ({ migrateLegacyPlaidConnection: vi.fn() }));
+vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import { POST as session } from '@/app/api/auth/session/route';
 import { GET as profileGet, POST as profilePost } from '@/app/api/database/profiles/route';
+import { anonymousRateLimitKey, clearRateLimitMemory, RATE_LIMITS } from '@/lib/security/rate-limit';
+import { exhaustRateLimit, failRateLimitStore, fakeRateLimitFirestore, recordedRateLimitCount, resetRateLimitStore } from './fixtures/rate-limit-store';
 
 function request(headers: Record<string, string> = {}, method = 'GET', body?: unknown) {
   return new NextRequest('https://writeoff.test/api/test', { method, headers, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
 }
 beforeEach(() => {
   vi.clearAllMocks();
+  resetRateLimitStore();
+  clearRateLimitMemory();
   mock.verifyIdToken.mockResolvedValue({ uid: 'owner', email_verified: true });
   mock.verifySessionCookie.mockResolvedValue({ uid: 'session-owner', email_verified: true });
   mock.createSessionCookie.mockResolvedValue('verified-session');
@@ -77,6 +82,29 @@ describe('verified API credentials and browser sessions', () => {
     const response = await session(request({}, 'POST', { idToken: 'id' }));
     expect(response.status).toBe(503);
     expect(response.cookies.get('__session')).toBeUndefined();
+  });
+  it('throttles session minting per hashed client address across instances, before token verification', async () => {
+    const attacker = { 'x-forwarded-for': '203.0.113.9, 10.0.0.1' };
+    await exhaustRateLimit(RATE_LIMITS.sessionCreate, anonymousRateLimitKey(request(attacker)));
+    const response = await session(request(attacker, 'POST', { idToken: 'id' }));
+    expect(response.status).toBe(429);
+    expect(Number(response.headers.get('retry-after'))).toBeGreaterThan(0);
+    expect(response.headers.get('cache-control')).toContain('no-store');
+    expect(await response.json()).toMatchObject({ code: 'RATE_LIMITED' });
+    expect(mock.verifyIdToken).not.toHaveBeenCalled();
+    expect(mock.createSessionCookie).not.toHaveBeenCalled();
+    // Other addresses keep signing in, and the raw address is never persisted.
+    expect((await session(request({ 'x-forwarded-for': '198.51.100.7' }, 'POST', { idToken: 'id' }))).status).toBe(200);
+    expect(fakeRateLimitFirestore.records.size).toBe(2);
+    expect(JSON.stringify([...fakeRateLimitFirestore.records])).not.toMatch(/203\.0\.113\.9|198\.51\.100\.7|10\.0\.0\.1/);
+  });
+  it('keeps sign-in available on a per-instance memory window when the limiter store is unreachable', async () => {
+    failRateLimitStore();
+    for (let attempt = 0; attempt < RATE_LIMITS.sessionCreate.limit; attempt += 1) {
+      expect((await session(request({ 'x-forwarded-for': '192.0.2.44' }, 'POST', { idToken: 'id' }))).status).toBe(200);
+    }
+    expect((await session(request({ 'x-forwarded-for': '192.0.2.44' }, 'POST', { idToken: 'id' }))).status).toBe(429);
+    expect(recordedRateLimitCount(RATE_LIMITS.sessionCreate.scope)).toBe(0);
   });
 });
 

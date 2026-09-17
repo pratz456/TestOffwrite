@@ -6,9 +6,12 @@ vi.mock('@/lib/plaid/connections', () => ({ getPlaidConnection: mock.connection 
 vi.mock('@/lib/plaid/client', () => ({ plaidClient: { linkTokenCreate: mock.link } }));
 vi.mock('@/lib/subscriptions/trial-manager', () => ({ startFreeTrial: mock.trial }));
 vi.mock('@/lib/subscriptions/history-window', () => ({ getTransactionHistoryWindow: mock.history }));
+vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
 import { POST } from '@/app/api/plaid/create-link-token/route';
+import { RATE_LIMITS } from '@/lib/security/rate-limit';
+import { exhaustRateLimit, failRateLimitStore, resetRateLimitStore } from './fixtures/rate-limit-store';
 const req = (body = {}) => new NextRequest('https://staging.example.test/api/plaid/create-link-token', { method: 'POST', body: JSON.stringify(body) });
-beforeEach(() => { vi.clearAllMocks(); mock.auth.mockResolvedValue({ uid: 'owner' }); mock.link.mockResolvedValue({ data: { link_token: 'public-link-token' } });
+beforeEach(() => { vi.clearAllMocks(); resetRateLimitStore(); mock.auth.mockResolvedValue({ uid: 'owner' }); mock.link.mockResolvedValue({ data: { link_token: 'public-link-token' } });
   mock.connection.mockResolvedValue({ uid: 'owner', itemId: 'owned-item', accessToken: 'synthetic-private-token' }); mock.trial.mockResolvedValue({ success: true });
   mock.history.mockResolvedValue({ days: 90 }); vi.stubEnv('PLAID_ENV', 'sandbox'); vi.stubEnv('PLAID_WEBHOOK_URL', '');
   vi.stubEnv('NEXT_PUBLIC_SITE_URL', 'https://staging.example.test'); vi.stubEnv('VERCEL_URL', '');
@@ -41,6 +44,19 @@ describe('authenticated bank Link update mode', () => {
   it('refuses insecure remote webhook configuration before provider calls', async () => {
     vi.stubEnv('NEXT_PUBLIC_SITE_URL', 'http://remote.example.test');
     expect((await POST(req())).status).toBe(503); expect(mock.link).not.toHaveBeenCalled();
+  });
+  it.each([{}, { itemId: 'owned-item' }])('refuses Link tokens over the durable per-owner window with Retry-After (%j)', async body => {
+    await exhaustRateLimit(RATE_LIMITS.plaidLinkToken, 'owner');
+    const response = await POST(req(body));
+    expect(response.status).toBe(429); expect(Number(response.headers.get('retry-after'))).toBeGreaterThan(0);
+    expect(await response.json()).toMatchObject({ code: 'RATE_LIMITED', error: expect.stringContaining('Too many bank connection attempts') });
+    expect(mock.link).not.toHaveBeenCalled(); expect(mock.connection).not.toHaveBeenCalled(); expect(mock.trial).not.toHaveBeenCalled();
+  });
+  it('fails closed rather than starting unmetered provider sessions when the limiter store is unreachable', async () => {
+    failRateLimitStore();
+    const response = await POST(req());
+    expect(response.status).toBe(503); expect(await response.json()).toMatchObject({ code: 'RATE_LIMIT_UNAVAILABLE' });
+    expect(mock.link).not.toHaveBeenCalled();
   });
   it.each([{}, { itemId: 'owned-item' }])('configures the same registered OAuth callback for create and update mode (%j)', async body => {
     vi.stubEnv('WRITEOFF_ENV', 'staging'); vi.stubEnv('NEXT_PUBLIC_APP_ENV', 'staging');

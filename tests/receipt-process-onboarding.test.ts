@@ -24,8 +24,11 @@ vi.mock('@/lib/firebase/admin', () => ({ adminApp: { name: 'firebase-frameworks'
 vi.mock('@/lib/firebase/profiles-server', () => ({ getUserProfileServer: mocks.profile }));
 vi.mock('@/lib/ai/analyzeTransaction', () => ({ analyzeTransactionWithRetry: mocks.analyze, convertToEnhancedContext: mocks.context }));
 vi.mock('firebase-admin/storage', () => ({ getStorage: () => ({ bucket: mocks.bucket, app: { options: {} } }) }));
+vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
 import { POST, PUT } from '../app/api/receipts/process/route';
 import { MAX_RECEIPT_BYTES } from '../lib/firebase/receipt-security';
+import { RATE_LIMITS } from '../lib/security/rate-limit';
+import { exhaustRateLimit, resetRateLimitStore } from './fixtures/rate-limit-store';
 
 const owner = 'receipt-onboarding-owner';
 const accountPath = `user_profiles/${owner}/accounts/manual`;
@@ -48,6 +51,7 @@ function request(fields: Record<string, string> = {}, file = new File([PNG], 're
 
 beforeEach(() => {
   vi.resetAllMocks();
+  resetRateLimitStore();
   vi.spyOn(console, 'log').mockImplementation(() => undefined);
   vi.spyOn(console, 'error').mockImplementation(() => undefined);
   vi.stubEnv('FIREBASE_STORAGE_BUCKET', 'demo-receipts.appspot.com');
@@ -213,6 +217,17 @@ describe('receipt onboarding without a connected bank', () => {
   it('rejects cross-site cookie requests before OCR or storage', async () => {
     expect((await POST(request({}, undefined, { origin: 'https://attacker.example' }))).status).toBe(403);
     expect(mocks.processReceipt).not.toHaveBeenCalled();
+  });
+
+  it('refuses scans over the durable per-owner window before OCR, storage or account creation', async () => {
+    await exhaustRateLimit(RATE_LIMITS.receiptProcess, owner);
+    const response = await POST(request());
+    expect(response.status).toBe(429);
+    expect(Number(response.headers.get('retry-after'))).toBeGreaterThan(0);
+    expect(await response.json()).toMatchObject({ code: 'RATE_LIMITED' });
+    expect(mocks.processReceipt).not.toHaveBeenCalled();
+    expect(mocks.storageSave).not.toHaveBeenCalled();
+    expect(mocks.runTransaction).not.toHaveBeenCalled();
   });
 
   it('saves receipt provenance and pending analysis for the durable worker without post-response model work', async () => {
