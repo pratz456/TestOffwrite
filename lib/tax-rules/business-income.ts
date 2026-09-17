@@ -57,6 +57,7 @@ export function reconcileBusinessIncome(taxYear: number, transactions: ReadonlyA
   }
 
   let formCents = 0;
+  let linkedFormCents = 0;
   let unlinkedForms = 0;
   let linkedForms = 0;
   for (const form of forms) {
@@ -70,6 +71,7 @@ export function reconcileBusinessIncome(taxYear: number, transactions: ReadonlyA
         throw new IncomeReconciliationRequiredError('A linked 1099 does not match its original gross receipt. Confirm gross versus net amounts and the original document.');
       }
       linkedForms++;
+      linkedFormCents += cents;
     } else {
       unlinkedForms++;
       formCents += cents;
@@ -87,6 +89,9 @@ export function reconcileBusinessIncome(taxYear: number, transactions: ReadonlyA
   return {
     grossReceipts: (transactionCents + receiptCents + formCents) / 100,
     source: transactionCents > 0 ? 'transactions' : receiptCents > 0 ? 'gross_receipts' : formCents > 0 ? 'income_1099' : 'none',
+    // Receipts documented by NEC/K forms: standalone forms count directly, linked
+    // forms through their matching gross receipt. Never additive to grossReceipts.
+    form1099Receipts: (formCents + linkedFormCents) / 100,
     linkedDocumentCount: linkedForms,
     unclassifiedCreditCount,
     warnings,

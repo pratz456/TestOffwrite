@@ -95,8 +95,8 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
       const income = tax1040.income;
       if (Number(tax1040.taxYear) !== Number(year) || ![
         federalEstimate?.totalIncome, federalEstimate?.totalTax, federalEstimate?.balanceDue, federalEstimate?.refund,
-        income?.grossReceipts, income?.scheduleCNetProfit, income?.totalDeductible, income?.w2Wages,
-        tax1040.seCalc?.totalSETax, tax1040.w2?.withheld,
+        income?.grossReceipts, income?.income1099, income?.scheduleCNetProfit, income?.totalDeductible, income?.w2Wages,
+        tax1040.seCalc?.totalSETax, tax1040.w2?.withheld, tax1040.payments?.estimatedPayments,
       ].every(value => typeof value === "number" && Number.isFinite(value))) {
         throw new Error("The federal estimate is incomplete or belongs to another year. Open Tax Preview to retry.");
       }
@@ -109,7 +109,9 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
       const seTax = tax1040.seCalc.totalSETax;
 
       setSummary({
-        grossReceipts: income.grossReceipts, income1099: 0,
+        grossReceipts: income.grossReceipts,
+        // Receipts documented by NEC/K forms in the reconciled estimate, not a second income source.
+        income1099: income.income1099,
         w2Wages: income.w2Wages,
         w2Withheld: tax1040.w2.withheld,
         totalIncome: federalEstimate.totalIncome,
@@ -117,7 +119,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
         totalExpenses, netProfit, seTax,
         hasHomeOffice: !!(txData.hasHomeOffice),
         hasVehicle: !!(txData.hasVehicle),
-        quarterlyPaid: 0,
+        quarterlyPaid: tax1040.payments.estimatedPayments,
         hasDeductions: Object.values(tax1040.deductions || {}).some(value => typeof value === "number" && value > 0),
         hasW2: income.w2Wages > 0,
         aboveLineDeductions: federalEstimate.adjustments || 0,
@@ -145,7 +147,9 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
       label: "Income recorded",
       description: "Income reconciled in the federal planning estimate",
       status: summary.totalIncome > 0 ? "complete" : "missing",
-      detail: summary.totalIncome > 0 ? `${fmt(summary.totalIncome)} total income` : "No income recorded yet",
+      detail: summary.totalIncome > 0
+        ? `${fmt(summary.totalIncome)} total income${summary.income1099 > 0 ? ` · ${fmt(summary.income1099)} documented on 1099 forms` : ""}`
+        : "No income recorded yet",
       action: "Add Income",
       actionScreen: "income-tracking",
     },
@@ -188,8 +192,10 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
       id: "quarterly",
       label: "Quarterly payments logged",
       description: "Estimated tax payments made during the year",
-      status: "partial",
-      detail: "Review if you made quarterly payments",
+      status: summary.quarterlyPaid > 0 ? "complete" : "partial",
+      detail: summary.quarterlyPaid > 0
+        ? `${fmt(summary.quarterlyPaid)} in recorded estimated payments · credited in the federal estimate`
+        : "Review if you made quarterly payments",
       action: "Quarterly Payments",
       actionScreen: "quarterly-payments",
     },
@@ -383,6 +389,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
                       <h2 className="text-sm font-medium">{summary.refund > 0 ? "Estimated refund" : "Estimated balance due"}</h2>
                       <p className="text-2xl font-semibold tracking-tight tabular-nums">{hasTaxEstimate ? fmt(summary.refund > 0 ? summary.refund : summary.balanceDue) : "Unavailable"}</p>
                     </div>
+                    {hasTaxEstimate && <p className="mt-1 text-xs text-muted-foreground">After {fmt(summary.quarterlyPaid)} in recorded estimated payments and {fmt(summary.w2Withheld)} in W-2 withholding.</p>}
                   </div>
                   <div className="grid grid-cols-3 divide-x divide-border/60 py-3">
                     {[
@@ -394,8 +401,9 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
                       <p className="mt-1 break-words text-sm font-semibold tabular-nums sm:text-base">{hasTaxEstimate ? fmt(metric.value) : "Unavailable"}</p>
                     </div>)}
                   </div>
+                  {/* The refund/balance figure is never shown without its calculation limits. */}
+                  {hasTaxEstimate && <div className="border-t border-border/60 p-3"><TaxCalculationNotice taxYear={year} warnings={calculationWarnings} /></div>}
                 </section>
-                {hasTaxEstimate && <TaxCalculationNotice taxYear={year} warnings={calculationWarnings} />}
                 <Button className="min-h-11 w-full rounded-xl" onClick={() => onNavigate?.("tax-preview")} disabled={!onNavigate}>Open detailed Tax Preview<ChevronRight className="ml-1.5 h-4 w-4" /></Button>
                 <p className="text-xs leading-relaxed text-muted-foreground">Federal planning only. Confirm all income, payments and eligibility with your filing provider; these figures do not include a state return.</p>
               </>

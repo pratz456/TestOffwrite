@@ -62,7 +62,7 @@ const response = (body: unknown, status = 200) => Response.json(body, { status }
 function snapshot(taxYear = year) {
   return {
     taxYear,
-    income: { grossReceipts: 20000, scheduleCNetProfit: 15000, totalDeductible: 5000, w2Wages: 50000, socialSecurityNetBenefits: 0, socialSecurity: 0 },
+    income: { grossReceipts: 20000, income1099: 0, scheduleCNetProfit: 15000, totalDeductible: 5000, w2Wages: 50000, socialSecurityNetBenefits: 0, socialSecurity: 0 },
     w2: { count: 1, withheld: 0 }, seCalc: { totalSETax: 2000, halfSEDeduction: 1000 },
     deductions: { healthInsurancePremiums: 2000 }, payments: { estimatedPayments: 0 },
     form1040: { taxYear, totalIncome: 65000, totalTax: 0, balanceDue: 0, refund: 0, agi: 62000, effectiveRate: 0, marginalRate: 0, enhancedSeniorDeduction: 0, socialSecurityFederalWithheld: 0, calculationWarnings: [] },
@@ -147,6 +147,68 @@ describe('filing hub uses the successful shared tax snapshot', () => {
     expect(content).toContain('Total Tax$0');
     expect(content).not.toContain('$9,999');
     expect(content).not.toContain('$90,000');
+  });
+
+  it('wires recorded quarterly payments and 1099-documented receipts from the snapshot instead of zeros', async () => {
+    harness.request.mockImplementation((url: string) => {
+      if (!url.includes('compute-1040')) return requests(url);
+      const data = snapshot(Number(new URL(url, 'http://localhost').searchParams.get('year')));
+      data.payments.estimatedPayments = 750;
+      data.income.income1099 = 20000;
+      return Promise.resolve(response(data));
+    });
+    render(); await flush(); const tree = render();
+    const quarterlyRow = walk(tree).find(node => node.key === 'quarterly')!;
+    expect(text(quarterlyRow)).toContain('$750 in recorded estimated payments');
+    expect(text(quarterlyRow)).toContain('Recorded');
+    expect(text(quarterlyRow)).not.toContain('Review if you made quarterly payments');
+    expect(text(walk(tree).find(node => node.key === 'income')!)).toContain('$65,000 total income · $20,000 documented on 1099 forms');
+    expect(text(tree)).toContain('After $750 in recorded estimated payments and $0 in W-2 withholding.');
+  });
+
+  it('keeps quarterly payments reviewable when none are recorded and omits a 1099 total of zero', async () => {
+    render(); await flush(); const tree = render();
+    const quarterlyRow = walk(tree).find(node => node.key === 'quarterly')!;
+    expect(text(quarterlyRow)).toContain('Review if you made quarterly payments');
+    expect(text(quarterlyRow)).toContain('Review'); expect(text(quarterlyRow)).not.toContain('Recorded');
+    const incomeRow = text(walk(tree).find(node => node.key === 'income')!);
+    expect(incomeRow).toContain('$65,000 total income'); expect(incomeRow).not.toContain('1099');
+    expect(text(tree)).toContain('After $0 in recorded estimated payments');
+  });
+
+  it.each([{ payments: { estimatedPayments: 'none' } }, { payments: {} }, { income: { income1099: null } }])('treats a snapshot missing payment or 1099 totals %j as unavailable', async override => {
+    harness.request.mockImplementation((url: string) => {
+      if (!url.includes('compute-1040')) return requests(url);
+      const data = snapshot(Number(new URL(url, 'http://localhost').searchParams.get('year')));
+      const merged = { ...data, ...override, income: { ...data.income, ...(override as any).income } };
+      return Promise.resolve(response(merged));
+    });
+    render(); await flush(); const tree = render();
+    expect(text(tree)).toContain('The federal estimate is incomplete or belongs to another year.');
+    expect(text(tree)).not.toContain('$65,000');
+  });
+
+  it('shows the calculation warnings beside every refund or balance figure and hides both on a 422', async () => {
+    harness.request.mockImplementation((url: string) => {
+      if (!url.includes('compute-1040')) return requests(url);
+      const data = snapshot(Number(new URL(url, 'http://localhost').searchParams.get('year')));
+      data.form1040.refund = 1200;
+      data.form1040.calculationWarnings = ['Synthetic limit: refunds reduce confirmed expenses.'];
+      return Promise.resolve(response(data));
+    });
+    render(); await flush(); let tree = render();
+    const estimate = walk(tree).find(node => node.type === 'section' && text(node).includes('federal planning estimate'))!;
+    expect(text(estimate)).toContain('Estimated refund'); expect(text(estimate)).toContain('$1,200');
+    // The notice element is a child component; it renders within the same section as the figure.
+    const notice = walk(estimate).find(node => node.props?.warnings)!;
+    expect(notice.props).toMatchObject({ taxYear: String(year), warnings: ['Synthetic limit: refunds reduce confirmed expenses.'] });
+    harness.request.mockImplementation((url: string) => url.includes('compute-1040')
+      ? Promise.resolve(response({ error: 'Review income sources first.', code: 'INCOME_RECONCILIATION_REQUIRED' }, 422)) : requests(url));
+    walk(tree).find(node => node.props?.onValueChange)!.props.onValueChange(String(year - 1));
+    render(); await flush(); tree = render();
+    const unavailable = walk(tree).find(node => node.type === 'section' && text(node).includes('federal planning estimate'))!;
+    expect(text(unavailable)).toContain('Unavailable'); expect(text(unavailable)).not.toContain('$1,200');
+    expect(walk(unavailable).some(node => node.props?.warnings)).toBe(false);
   });
 
   it('hides prior-year figures if the next year fails and offers an actionable retry', async () => {
