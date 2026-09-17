@@ -95,7 +95,7 @@ export default function PrivacyPolicyPageClient() {
               <ul>
                 <li>Plaid (for bank data aggregation; you connect your bank inside Plaid and we never receive your bank login)</li>
                 <li>Google Firebase and Google Cloud (for authentication, database, file storage, and hosting)</li>
-                <li>OpenAI (for AI analysis of your transactions and of tax documents, bank statements, or receipts you choose to upload for extraction; prompts are sent with storage disabled and are not used to train OpenAI models)</li>
+                <li>OpenAI (for AI analysis of your transactions and of tax documents, bank statements, or receipts you choose to upload for extraction; a W-2, 1099 or platform summary is first read on our own server and sent as text with Social Security, ITIN and employer identification numbers removed, and its full image is sent only with your signed consent; prompts are sent with storage disabled and are not used to train OpenAI models)</li>
                 <li>Stripe (for subscription payments; your card details are entered on Stripe&apos;s payment page and never reach our servers)</li>
                 <li>Resend (for delivering email when you send a question to a tax professional through the app)</li>
                 <li>Google Analytics (only when enabled for a release, for site usage measurement)</li>

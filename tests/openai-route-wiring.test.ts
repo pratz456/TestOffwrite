@@ -9,6 +9,9 @@ vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collection: mocks.collection
 vi.mock('openai', () => ({ default: function MockOpenAI(options: unknown) {
   mocks.constructor(options); return { chat: { completions: { create: mocks.create } } };
 } }));
+// The document import reads the upload with local OCR before the model call; synthetic text keeps this a wiring test.
+vi.mock('@/lib/ocr/document-text', async importOriginal => ({ ...await importOriginal<typeof import('@/lib/ocr/document-text')>(),
+  recognizeDocumentText: async () => ({ text: 'Form W-2 Wage and Tax Statement 2026. 1 Wages, tips, other compensation 20,000.00', confidence: 0.9 }) }));
 import { POST as assistant } from '../app/api/ai/tax-assistant/route';
 import { POST as voice } from '../app/api/ai/parse-voice-command/route';
 import { POST as document } from '../app/api/tax/import-document/route';

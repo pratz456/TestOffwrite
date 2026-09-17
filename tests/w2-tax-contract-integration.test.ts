@@ -42,6 +42,9 @@ vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collection: (name: string) =
   };
 } } }));
 vi.mock('@/lib/openai/client', () => ({ getOpenAIModel: () => 'gpt-4o', getOpenAIClientOrThrow: () => ({ chat: { completions: { create: async () => ({ choices: [{ message: { content: JSON.stringify({ docType: 'platform_summary', taxYear: 2026, platform: 'Synthetic platform', grossEarnings: 100000, form1099KAmount: 100000, confidence: 1 }) } }] }) } } }) }));
+// Local OCR is synthetic here: the importer's redact-first text path is exercised without a Tesseract worker.
+vi.mock('@/lib/ocr/document-text', async importOriginal => ({ ...await importOriginal<typeof import('@/lib/ocr/document-text')>(),
+  recognizeDocumentText: async () => ({ text: 'Synthetic platform 2026 annual summary. Gross earnings $100,000.00. Form 1099-K amount $100,000.00.', confidence: 0.92 }) }));
 
 import { POST as saveW2 } from '../app/api/income/w2/route';
 import { GET as compute1040 } from '../app/api/tax/compute-1040/route';

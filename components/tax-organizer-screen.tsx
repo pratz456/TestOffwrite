@@ -129,6 +129,7 @@ export function TaxOrganizerScreen({ user }: Props) {
   const [switchingYear, setSwitchingYear] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const revision = useRef(0);
   const loadedKey = useRef<string | null>(null);
   const baseline = useRef('');
@@ -167,14 +168,22 @@ export function TaxOrganizerScreen({ user }: Props) {
 
   const save = async (): Promise<boolean> => {
     if (savePending.current || loading || loadFailed || loadedKey.current !== `${user.id}:${year}`) return false;
-    savePending.current = true; setSaving(true); setError(null);
+    savePending.current = true; setSaving(true); setError(null); setNotice(null);
     const operation = revision.current;
-    const savedAnswers = JSON.stringify(answers);
+    let savedAnswers = answers;
     try {
       const res = await makeAuthenticatedRequest('/api/tax/organizer', { method: 'POST', body: JSON.stringify({ ...answers, taxYear: year }) });
-      if (!res.ok) { const data = await res.json().catch(() => ({})); throw new Error(data.error || 'Could not save the organizer. Your edits remain on this page.'); }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Could not save the organizer. Your edits remain on this page.');
       if (revision.current !== operation || currentOwner.current !== user.id) return false;
-      baseline.current = savedAnswers; setSaved(true); return true;
+      // The server removes identifier digits from free text; keep the saved (redacted) copy so they are not resent.
+      if (data.redacted && typeof data.redacted === 'object') {
+        const redacted = Object.fromEntries(Object.entries(data.redacted).filter(([key, value]) => key in EMPTY && typeof value === 'string'));
+        savedAnswers = { ...answers, ...redacted };
+        setAnswers(p => ({ ...p, ...redacted }));
+        if (typeof data.warning === 'string') setNotice(data.warning);
+      }
+      baseline.current = JSON.stringify(savedAnswers); setSaved(true); return true;
     } catch (err) {
       if (revision.current === operation) setError(err instanceof Error ? err.message : 'Could not save the organizer. Your edits remain on this page.');
       return false;
@@ -266,6 +275,7 @@ export function TaxOrganizerScreen({ user }: Props) {
 
       <div className="mx-auto max-w-2xl space-y-3 px-4 py-3 sm:px-6">
         {error && <div role="alert" className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div>}
+        {notice && <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">{notice}</div>}
         <div className="flex items-center gap-3">
           <select aria-label="Organizer section" value={step} disabled={saving || switchingYear}
             onChange={event => setStep(Number(event.target.value))}
@@ -304,7 +314,7 @@ export function TaxOrganizerScreen({ user }: Props) {
             ))}
             {disclosure("Accountant handoff", "Optional · identity, address & refund records", (
               <>
-                <p className="text-xs text-muted-foreground">WriteOff does not submit tax returns or arrange refunds. These optional records may appear in your export. Review before sharing.</p>
+                <p className="text-xs text-muted-foreground">WriteOff does not submit tax returns or arrange refunds. Identification and account numbers are stored encrypted; exports print only their last digits. Review before sharing.</p>
                 <Card className="border-border bg-card">
                   <CardHeader className="pb-3"><CardTitle className="text-sm font-semibold">Identity records</CardTitle></CardHeader>
                   <CardContent className="space-y-3">
@@ -320,7 +330,7 @@ export function TaxOrganizerScreen({ user }: Props) {
                       className="bg-background font-mono"
                       maxLength={9}
                     />
-                    <p className="text-xs text-muted-foreground">Optional for the planning estimate. Included in your exported identity information when provided.</p>
+                    <p className="text-xs text-muted-foreground">Optional for the planning estimate. Stored encrypted; exports show only the last 4 digits.</p>
                   </div>
                 </div>
 
@@ -347,14 +357,15 @@ export function TaxOrganizerScreen({ user }: Props) {
 
                   {parseInt(answers.dependents) > 0 && (
                     <div className="mt-2 space-y-1.5">
-                      <Label className="text-sm font-medium">Dependent Names and SSNs</Label>
+                      <Label htmlFor="organizer-dependent-details" className="text-sm font-medium">Dependent names, dates of birth and relationships</Label>
                       <textarea
+                        id="organizer-dependent-details"
                         value={answers.dependentDetails}
                         onChange={e => set("dependentDetails", e.target.value)}
-                        placeholder={"List each dependent on a new line:\nFirst Last, SSN, Date of Birth, Relationship\nExample: Emma Shah, 123-45-6789, 2018-03-15, Daughter"}
+                        placeholder={"List each dependent on a new line:\nFirst Last, Date of Birth, Relationship\nExample: Emma Shah, 2018-03-15, Daughter"}
                         className="w-full min-h-[96px] text-base rounded-lg border border-border bg-background px-3 py-2 font-mono resize-none focus:outline-none focus:ring-1 focus:ring-primary"
                       />
-                      <p className="text-xs text-muted-foreground">Keep these optional records for your tax preparer. A dependent count or this text does not establish credit eligibility; dependent credits require review before WriteOff can show an annual total or refund.</p>
+                      <p className="text-xs text-muted-foreground">Do not enter Social Security or taxpayer identification numbers here: any identifier typed into this box is removed before saving, and exports print &quot;Provided to preparer separately&quot; for dependents. Give dependent SSNs to your preparer directly. A dependent count or this text does not establish credit eligibility; dependent credits require review before WriteOff can show an annual total or refund.</p>
                     </div>
                   )}
                   </CardContent>
@@ -409,7 +420,7 @@ export function TaxOrganizerScreen({ user }: Props) {
                     className="bg-background font-mono"
                     maxLength={6}
                   />
-                  <p className="text-xs text-muted-foreground">If the IRS assigned you an IP PIN, confirm the current PIN with your tax preparer. This optional record does not authorize WriteOff to file a return.</p>
+                  <p className="text-xs text-muted-foreground">If the IRS assigned you an IP PIN, confirm the current PIN with your tax preparer. Stored encrypted and never printed on exports. This optional record does not authorize WriteOff to file a return.</p>
                 </div>
               </CardContent>
             </Card>
@@ -452,7 +463,7 @@ export function TaxOrganizerScreen({ user }: Props) {
                     </Select>
                   </div>
                 </div>
-                <p className="text-xs text-muted-foreground">These details may appear in your PDF export. Verify them with your preparer; WriteOff does not submit refund instructions or predict IRS refund timing.</p>
+                <p className="text-xs text-muted-foreground">Stored encrypted; your PDF export shows only the last 4 digits of each number. Verify them with your preparer; WriteOff does not submit refund instructions or predict IRS refund timing.</p>
               </CardContent>
             </Card>
               </>

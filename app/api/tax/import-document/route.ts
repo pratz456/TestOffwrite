@@ -1,15 +1,29 @@
 /**
  * Tax Document Import API
- * Uses GPT-4o vision to extract structured data from:
+ * Extracts structured data from:
  *   - W-2 forms (photo or PDF scan)
  *   - 1099-NEC, 1099-K, 1099-MISC forms
  *   - Platform annual summaries (Uber, DoorDash, Etsy, Upwork, etc.)
+ *
+ * Redact-first pipeline (IRC §7216 review, docs/compliance/SECTION_7216_CONSENT_REVIEW_2026-09-17.md row 2):
+ *   1. The image is read by local Tesseract OCR on this server.
+ *   2. SSN/ITIN/EIN-shaped numbers and bare nine-digit runs are replaced with
+ *      [redacted-id]; only the taxpayer's own SSN keeps its last four digits
+ *      (***-**-1234) so the document can be matched to the organizer.
+ *   3. The redacted TEXT, not the image, goes to the model with the extraction schema.
+ *   4. The whole image is sent only when OCR is unusable or the model asks for it,
+ *      and then only when the request carries documentImageConsent=true AND the
+ *      account holds a signed, current §7216 consent (consents.document_import).
+ *      Otherwise the route answers 403 DOCUMENT_IMAGE_CONSENT_REQUIRED.
+ * Employer/payer EINs are read locally from the OCR text and never disclosed.
+ * No identifier from the document is stored or logged.
  *
  * POST multipart/form-data:
  *   file: image/pdf file
  *   docType: 'w2' | '1099' | 'platform_summary' | 'auto'
  *   taxYear: number (optional, defaults to last year)
  *   commit: 'true' | 'false' (whether to save to Firestore)
+ *   documentImageConsent: 'true' when the person authorized the image fallback for this document
  */
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -20,10 +34,20 @@ import { adminDb } from '@/lib/firebase/admin';
 import { getOpenAIClientOrThrow, getOpenAIModel } from '@/lib/openai/client';
 import { MAX_RECEIPT_BYTES, ReceiptRequestError, receiptFormData, receiptMimeType, receiptSignatureMatches } from '@/lib/firebase/receipt-security';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
+import { documentOcrUsable, recognizeDocumentText } from '@/lib/ocr/document-text';
+import { redactIdentifierText } from '@/lib/security/identifier-redaction';
+import { DOCUMENT_IMAGE_CONSENT_REQUIRED } from '@/lib/onboarding/document-import-consent';
+import { documentImportConsentOnFile } from '@/lib/onboarding/document-import-consent-server';
+import { readOrganizerDocument } from '@/lib/tax-organizer/organizer-server';
 
 // ── Extraction prompts per document type ─────────────────────────────────────
 
-const W2_PROMPT = `You are a tax document parser. Extract data from this W-2 form image with EXTREME precision — errors affect someone's actual tax return.
+type DocumentSource = 'text' | 'image';
+
+/** Prepended when the model receives redacted OCR text instead of the image. */
+const TEXT_SOURCE_RULES = `The document is provided below as TEXT produced by local OCR, not as an image. Before this text was produced, Social Security numbers, ITINs and employer identification numbers were removed and appear as [redacted-id]; the taxpayer's own SSN may appear as ***-**-1234. Return null for every SSN, TIN or EIN field and never reconstruct or guess an identification number. OCR text can contain misread characters, so confirm each amount against its box label. If the text is too incomplete or garbled to read the box amounts, return exactly {"needs_image": true, "reason": "<short reason>"} instead of the schema.`;
+
+const W2_PROMPT = `You are a tax document parser. Extract data from this W-2 form with EXTREME precision — errors affect someone's actual tax return.
 Return ONLY valid JSON, no markdown, no explanation.
 
 CRITICAL RULES:
@@ -60,7 +84,7 @@ CRITICAL RULES:
 
 taxYear should be inferred from the YEAR field on the form. confidence = 0 means illegible, 1 means crystal clear.`;
 
-const FORM_1099_PROMPT = `You are a tax document parser. Extract data from this 1099 form image with EXTREME precision.
+const FORM_1099_PROMPT = `You are a tax document parser. Extract data from this 1099 form with EXTREME precision.
 Return ONLY valid JSON, no markdown, no explanation.
 
 CRITICAL RULES:
@@ -119,7 +143,7 @@ Extract:
 
 Use null for fields not present in the document. taxYear should be inferred from the document.`;
 
-const AUTO_DETECT_PROMPT = `You are a tax document classifier and parser. Look at this document and:
+const AUTO_DETECT_PROMPT = `You are a tax document classifier and parser. Read this document and:
 1. Identify what type of tax document it is: W-2, 1099-NEC, 1099-K, 1099-MISC, platform summary, or unknown
 2. Extract all relevant financial data
 
@@ -243,6 +267,81 @@ async function savePlatformSummary(uid: string, data: Record<string, any>) {
   return { id: ref.id, action: 'created', incomeAdded: incomeRecord.amount };
 }
 
+// ── Redact-first extraction ───────────────────────────────────────────────────
+
+const PROMPTS: Record<string, string> = {
+  w2: W2_PROMPT,
+  '1099': FORM_1099_PROMPT,
+  platform_summary: PLATFORM_SUMMARY_PROMPT,
+  auto: AUTO_DETECT_PROMPT,
+};
+
+type ImageFallbackReason = 'ocr_unavailable' | 'ocr_low_confidence' | 'model_requested_image';
+
+/** Parses the model's JSON (markdown fences stripped); null when it is not JSON. */
+function parseModelJson(rawText: string): Record<string, any> | null {
+  try {
+    const parsed = JSON.parse(rawText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim());
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** One extraction call. Text mode sends the redacted OCR text; image mode sends the whole image (consent verified by the caller). */
+async function extractDocument(source: DocumentSource, docType: string, payload: { text?: string; dataUrl?: string }) {
+  const prompt = PROMPTS[docType] || AUTO_DETECT_PROMPT;
+  const content = source === 'text'
+    ? [{ type: 'text' as const, text: `${TEXT_SOURCE_RULES}\n\n${prompt}\n\nDOCUMENT TEXT (identification numbers removed):\n${payload.text}` }]
+    : [{ type: 'text' as const, text: prompt }, { type: 'image_url' as const, image_url: { url: payload.dataUrl!, detail: 'high' as const } }];
+  const response = await getOpenAIClientOrThrow().chat.completions.create({
+    model: getOpenAIModel('document'),
+    max_tokens: 1500,
+    store: false,
+    messages: [{ role: 'user', content }],
+  });
+  const rawText = response.choices[0]?.message?.content || '{}';
+  return { rawText, extracted: parseModelJson(rawText) };
+}
+
+/** Formats a locally captured EIN as XX-XXXXXXX; the model never sees it. */
+function formatEIN(ein: string): string {
+  const digits = ein.replace(/\D/g, '');
+  return digits.length === 9 ? `${digits.slice(0, 2)}-${digits.slice(2)}` : ein;
+}
+
+/**
+ * Matches the document's SSN last four against the owner's organizer (decrypted
+ * server-side through the Gap 1 read path). Advisory only; nothing is stored.
+ */
+async function matchDocumentOwner(uid: string, taxYear: number, ssnLast4: string | null): Promise<'taxpayer' | 'spouse' | 'unmatched' | 'unknown'> {
+  if (!ssnLast4) return 'unknown';
+  try {
+    const snap = await adminDb.collection('tax_organizers').where('userId', '==', uid).where('taxYear', '==', taxYear).limit(1).get();
+    if (snap.empty) return 'unknown';
+    const organizer = await readOrganizerDocument(snap.docs[0]);
+    const last4 = (value: unknown) => typeof value === 'string' && value ? value.replace(/\D/g, '').slice(-4) : '';
+    const taxpayer = last4(organizer.taxpayerSSN), spouse = last4(organizer.spouseSSN);
+    if (!taxpayer && !spouse) return 'unknown';
+    if (taxpayer === ssnLast4) return 'taxpayer';
+    if (spouse === ssnLast4) return 'spouse';
+    return 'unmatched';
+  } catch {
+    return 'unknown';
+  }
+}
+
+function consentRequired(reason: ImageFallbackReason, consentOnFile: boolean) {
+  return NextResponse.json({
+    error: reason === 'model_requested_image' || reason === 'ocr_low_confidence'
+      ? 'WriteOff could not read this document reliably as text on its own server. Reading the full image requires your signed consent to disclose it to OpenAI.'
+      : 'WriteOff cannot read this file type as text on its own server. Reading the full document requires your signed consent to disclose it to OpenAI.',
+    code: DOCUMENT_IMAGE_CONSENT_REQUIRED,
+    reason,
+    consentOnFile,
+  }, { status: 403 });
+}
+
 // ── Main handler ──────────────────────────────────────────────────────────────
 
 const DOC_TYPES = ['w2', '1099', 'platform_summary', 'auto'] as const;
@@ -277,6 +376,7 @@ export async function POST(request: NextRequest) {
     const commit = formData.get('commit') !== 'false';
     const taxYearRaw = formData.get('taxYear');
     const taxYear = taxYearRaw ? parseInt(String(taxYearRaw), 10) : null;
+    const documentImageConsent = formData.get('documentImageConsent') === 'true';
     // User-edited field overrides (from inline editing in the UI)
     const overrideFields = parseOverrideFields(formData.get('overrideFields'));
 
@@ -290,59 +390,60 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Upload a JPEG, PNG, GIF or WebP photo of the document.' }, { status: 415 });
     }
 
-    // Convert to base64 for GPT-4o vision
     const bytes = Buffer.from(await file.arrayBuffer());
     if (!receiptSignatureMatches(bytes, mediaType)) return NextResponse.json({ error: 'The file contents do not match its image type.' }, { status: 415 });
-    const base64 = bytes.toString('base64');
 
-    // Select prompt
-    const prompts: Record<string, string> = {
-      w2: W2_PROMPT,
-      '1099': FORM_1099_PROMPT,
-      platform_summary: PLATFORM_SUMMARY_PROMPT,
-      auto: AUTO_DETECT_PROMPT,
-    };
-    const systemPrompt = prompts[docType] || AUTO_DETECT_PROMPT;
+    // Step 1-3: local OCR, redaction, text extraction.
+    const ocr = await recognizeDocumentText(bytes, mediaType);
+    let fallbackReason: ImageFallbackReason | null = ocr === null ? 'ocr_unavailable' : documentOcrUsable(ocr) ? null : 'ocr_low_confidence';
+    let disclosure: DocumentSource = 'text';
+    let extracted: Record<string, any> | null = null;
+    let rawText = '';
+    let ssnLast4: string | null = null;
+    let localEINs: string[] = [];
+    let identifiersRedacted = 0;
+    if (fallbackReason === null) {
+      const redaction = redactIdentifierText(ocr!.text, { keepPrimarySSNLast4: true });
+      ssnLast4 = redaction.ssnLast4;
+      localEINs = redaction.eins.map(formatEIN);
+      identifiersRedacted = redaction.count;
+      ({ rawText, extracted } = await extractDocument('text', docType, { text: redaction.text }));
+      if (extracted?.needs_image === true) { fallbackReason = 'model_requested_image'; extracted = null; }
+    }
 
-    // Call GPT-4o vision
-    const openai = getOpenAIClientOrThrow();
-    const response = await openai.chat.completions.create({
-      model: getOpenAIModel('document'),
-      max_completion_tokens: 1500,
-      store: false,
-      messages: [
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: systemPrompt },
-            {
-              type: 'image_url',
-              image_url: {
-                url: `data:${mediaType};base64,${base64}`,
-                detail: 'high',
-              },
-            },
-          ],
-        },
-      ],
-    });
+    // Step 4: the image leaves this server only with the request flag AND the signed consent on file.
+    if (fallbackReason !== null) {
+      const consentOnFile = await documentImportConsentOnFile(user.uid);
+      if (!documentImageConsent || !consentOnFile) return consentRequired(fallbackReason, consentOnFile);
+      disclosure = 'image';
+      ({ rawText, extracted } = await extractDocument('image', docType, { dataUrl: `data:${mediaType};base64,${bytes.toString('base64')}` }));
+    }
 
-    const rawText = response.choices[0]?.message?.content || '{}';
-
-    // Parse JSON response (strip any markdown fences)
-    let extracted: Record<string, any>;
-    try {
-      const cleaned = rawText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      extracted = JSON.parse(cleaned);
-    } catch {
+    if (!extracted || extracted.needs_image === true) {
       return NextResponse.json({
         error: 'Failed to parse document — image may be unclear or unsupported format',
         rawResponse: rawText.slice(0, 500),
+        disclosure,
       }, { status: 422 });
     }
 
     // Override taxYear if provided
     if (taxYear) extracted.taxYear = taxYear;
+
+    // Text path: identifiers were removed before the model saw the document, so the
+    // employer/payer EIN comes from the local OCR read and the SSN is matched, not stored.
+    const einNotes: string[] = [];
+    if (disclosure === 'text') {
+      const einField = extracted.docType === 'w2' || docType === 'w2' ? 'employerEIN' : extracted.docType === '1099' || docType === '1099' ? 'payerEIN' : null;
+      if (einField) {
+        extracted[einField] = localEINs[0] ?? null;
+        if (localEINs.length > 1) einNotes.push(`Verify ${einField} — more than one EIN-shaped number was read from the document`);
+      }
+    }
+    const documentOwner = await matchDocumentOwner(user.uid, extracted.taxYear || taxYear || new Date().getFullYear() - 1, ssnLast4);
+    if (documentOwner === 'unmatched') {
+      einNotes.push(`The Social Security number on this document (***-**-${ssnLast4}) does not match the taxpayer or spouse SSN saved in your Tax Organizer — confirm this document is yours before saving`);
+    }
 
     // Low confidence warning
     // Check for quality issues
@@ -367,6 +468,7 @@ export async function POST(request: NextRequest) {
         extracted,
         imageIssues,
         committed: false,
+        disclosure,
       }, { status: 422 });
     }
 
@@ -375,6 +477,7 @@ export async function POST(request: NextRequest) {
       ...warnings,
       ...lowConfFields.map((f: string) => `Verify ${f} — low read confidence`),
       ...imageIssues.length > 0 ? [`Image issues detected: ${imageIssues.join(', ')}`] : [],
+      ...einNotes,
     ];
 
     // Merge user edits into extracted data before saving
@@ -413,6 +516,10 @@ export async function POST(request: NextRequest) {
       committed: commit,
       saveResult,
       summary: buildSummary(extracted),
+      // What left this server: redacted OCR text, or the whole image under the signed consent.
+      disclosure,
+      identifiersRedacted,
+      documentOwner,
     });
   } catch (error) {
     if (error instanceof ReceiptRequestError) return NextResponse.json({ error: error.message }, { status: error.status });

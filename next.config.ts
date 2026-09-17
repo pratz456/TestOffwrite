@@ -47,6 +47,11 @@ const nextConfig: NextConfig = {
       './node_modules/tesseract.js/src/**/*',
       './node_modules/tesseract.js-core/*',
     ],
+    // Tax-document import runs the same local OCR before anything reaches a model.
+    '/api/tax/import-document': [
+      './node_modules/tesseract.js/src/**/*',
+      './node_modules/tesseract.js-core/*',
+    ],
   },
 
   // Compiler optimizations

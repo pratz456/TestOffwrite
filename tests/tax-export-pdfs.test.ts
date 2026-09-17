@@ -86,6 +86,15 @@ describe('Schedule C real PDF and request integrity', () => {
     expect(view.text()).toContain('Not determined'); expect(view.text()).toContain('27b'); expect(view.text()).toContain('NOT FOR FILING');
     expect(response.headers.get('cache-control')).toContain('no-store'); view.checkBounds(); saveArtifact('schedule-c-2026', bytes);
   });
+  it('prints the organizer SSN masked to its last four digits and never the decrypted value', async () => {
+    const { encryptSensitive } = await import('../lib/security/utils');
+    state.records.tax_organizers = [record({ taxpayerSSN: encryptSensitive('900000001') })];
+    const view = inspectText(); expect((await scheduleC(request({ year: 2026, includeAppendix: false }))).status).toBe(200);
+    expect(view.text()).toContain('***-**-0001'); expect(view.text()).not.toMatch(/900000001|900-00-0001/);
+    state.records.tax_organizers = [record({ taxpayerSSN: '900000001' })];
+    const legacy = inspectText(); expect((await scheduleC(request({ year: 2026, includeAppendix: false }))).status).toBe(200);
+    expect(legacy.text()).toContain('***-**-0001'); expect(legacy.text()).not.toMatch(/900000001|900-00-0001/);
+  });
   it('honors a summary-only request without silently including transaction details', async () => {
     state.transactions = [{ merchant_name: 'PRIVATE-DETAIL-MARKER', amount: 100, date: '2026-03-01', category: 'unknown', is_deductible: true }];
     const view = inspectText(); expect((await scheduleC(request({ year: 2026, includeAppendix: false }))).status).toBe(200);
@@ -190,6 +199,23 @@ describe('Form 1040 planning PDF prints its review notes', () => {
     expect(text).toContain('[U+2192]'); expect(text).not.toContain('→');
     expect((await PDFDocument.load(bytes)).getPageCount()).toBeGreaterThan(3);
     checkFormBounds(view.spy);
+  });
+
+  it('prints only masked identifiers, decrypting stored ciphertext and tolerating legacy plaintext, and never the full values', async () => {
+    const { encryptSensitive } = await import('../lib/security/utils');
+    state.records.tax_organizers = [record({ ...reviewedPersonalDeductionOrganizer(), spouseName: 'Synthetic Spouse',
+      taxpayerSSN: encryptSensitive('900000001'), spouseSSN: '900000002', bankAccount: encryptSensitive('000123456789'), bankRouting: '071000013',
+      bankAccountType: 'savings', ipPin: encryptSensitive('123456'), dependentDetails: 'Emma Shah, 900-00-0003, 2018-03-15, Daughter' })];
+    const view = inspectText(); const response = await form1040(request1040());
+    expect(response.status).toBe(200);
+    const text = view.text();
+    expect(text).toContain('***-**-0001'); expect(text).toContain('***-**-0002');
+    expect(text).toContain('*****0013 / ****6789 (savings)');
+    expect(text).toContain('Provided to preparer separately');
+    expect(text).not.toContain('Emma Shah');
+    expect(text).not.toMatch(/900000001|900-00-0001|900000002|900-00-0002|000123456789|071000013|123456|900-00-0003/);
+    expect(text).not.toContain('SSN not filled in');
+    checkFormBounds(view.spy); saveArtifact('form-1040-2026-masked-identifiers', new Uint8Array(await response.arrayBuffer()));
   });
 
   it('never prints a refund/balance page without its review notes block', async () => {

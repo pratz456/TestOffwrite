@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
 const mock = vi.hoisted(() => ({ verifyIdToken: vi.fn(), verifySessionCookie: vi.fn(), createSessionCookie: vi.fn(), get: vi.fn(), set: vi.fn(), transaction: vi.fn() }));
-vi.mock('@/lib/firebase/admin', () => ({ adminAuth: mock, adminDb: { doc: vi.fn(() => ({ get: mock.get })), runTransaction: mock.transaction }, FieldValue: { serverTimestamp: () => 'server-time' } }));
+vi.mock('@/lib/firebase/admin', () => ({ adminAuth: mock, adminDb: { doc: vi.fn(() => ({ get: mock.get })), runTransaction: mock.transaction }, FieldValue: { serverTimestamp: () => 'server-time', delete: () => 'delete-field' } }));
 vi.mock('@/lib/plaid/connections', () => ({ migrateLegacyPlaidConnection: vi.fn() }));
 vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
@@ -134,9 +134,23 @@ describe('server profile API boundaries', () => {
       const response = await profilePost(request({ authorization: 'Bearer id' }, 'POST', { consents }));
       expect(response.status).toBe(200);
       expect(mock.set).toHaveBeenCalledExactlyOnceWith(expect.anything(), {
-        consents: { ...consents, accepted_at: '2026-09-17T12:00:00.000Z' },
+        consents: { ...consents, accepted_at: '2026-09-17T12:00:00.000Z', document_import: false },
         consents_recorded_at: 'server-time', updated_at: 'server-time', created_at: 'server-time',
       }, { merge: true });
+    });
+    it('stores a signed §7216 document consent and removes the signature again on withdrawal', async () => {
+      const signature = { version: '2026-09-17', signed_name: 'Synthetic Signer', signed_at: '2026-09-18T09:00:00.000Z' };
+      mock.get.mockResolvedValue({ exists: true, data: () => ({ consents }) });
+      expect((await profilePost(request({ authorization: 'Bearer id' }, 'POST', { consents: { ...consents, document_import: true, document_import_signature: signature } }))).status).toBe(200);
+      expect(mock.set).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({
+        consents: { ...consents, accepted_at: '2026-09-17T12:00:00.000Z', document_import: true, document_import_signature: signature },
+      }), { merge: true });
+      expect((await profilePost(request({ authorization: 'Bearer id' }, 'POST', { consents: { ...consents, document_import: true } }))).status).toBe(400);
+      mock.get.mockResolvedValue({ exists: true, data: () => ({ consents: { ...consents, document_import: true, document_import_signature: signature } }) });
+      expect((await profilePost(request({ authorization: 'Bearer id' }, 'POST', { consents: { ...consents, document_import: false } }))).status).toBe(200);
+      expect(mock.set).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({
+        consents: { ...consents, accepted_at: '2026-09-17T12:00:00.000Z', document_import: false, document_import_signature: 'delete-field' },
+      }), { merge: true });
     });
     it.each([
       ['a missing required acknowledgment', { ...consents, ai_review: undefined }],

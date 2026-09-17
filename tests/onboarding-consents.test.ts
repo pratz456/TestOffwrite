@@ -53,9 +53,10 @@ vi.mock('react', async importOriginal => {
 });
 
 import {
-  buildConsentRecord, CONSENT_TERMS_VERSION, hasAcknowledgedRequiredConsents, parseConsentRecord, PENDING_CONSENTS_KEY,
-  PENDING_CONSENTS_TTL_MS, readPendingConsents, stashPendingConsents, type ConsentRecord,
+  buildConsentRecord, CONSENT_TERMS_VERSION, hasAcknowledgedRequiredConsents, hasDocumentImportConsent, parseConsentRecord, PENDING_CONSENTS_KEY,
+  PENDING_CONSENTS_TTL_MS, readPendingConsents, signDocumentImportConsent, stashPendingConsents, withdrawDocumentImportConsent, type ConsentRecord,
 } from '../lib/onboarding/consents';
+import { DOCUMENT_IMPORT_CONSENT_TEXT, DOCUMENT_IMPORT_CONSENT_VERSION } from '../lib/onboarding/document-import-consent';
 import { CONSENT_SAVE_ERROR } from '../lib/onboarding/consents-client';
 import { ProfileSetupScreen } from '../components/profile-setup-screen';
 import { SignUpForm } from '../components/sign-up-form';
@@ -87,7 +88,7 @@ function memoryStorage(): Storage {
 
 const validRecord: ConsentRecord = {
   version: CONSENT_TERMS_VERSION, source: 'sign-up', accepted_at: '2026-09-17T12:00:00.000Z',
-  bank_data: true, ai_review: true, communications: true,
+  bank_data: true, ai_review: true, communications: true, document_import: false,
 };
 
 describe('consent record allowlist', () => {
@@ -113,9 +114,61 @@ describe('consent record allowlist', () => {
   });
   it('builds a record only once both required acknowledgments are checked', () => {
     const now = new Date('2026-09-17T15:30:00.000Z');
-    expect(buildConsentRecord({ bank_data: true, ai_review: false, communications: true }, 'sign-up', now)).toBeNull();
-    expect(buildConsentRecord({ bank_data: true, ai_review: true, communications: false }, 'profile-setup', now))
-      .toEqual({ version: CONSENT_TERMS_VERSION, source: 'profile-setup', accepted_at: now.toISOString(), bank_data: true, ai_review: true, communications: false });
+    expect(buildConsentRecord({ bank_data: true, ai_review: false, communications: true, document_import: false }, 'sign-up', now)).toBeNull();
+    expect(buildConsentRecord({ bank_data: true, ai_review: true, communications: false, document_import: false }, 'profile-setup', now))
+      .toEqual({ version: CONSENT_TERMS_VERSION, source: 'profile-setup', accepted_at: now.toISOString(), bank_data: true, ai_review: true, communications: false, document_import: false });
+  });
+  it('never records the §7216 document consent from sign-up choices alone', () => {
+    const record = buildConsentRecord({ bank_data: true, ai_review: true, communications: false, document_import: true }, 'sign-up');
+    expect(record).toMatchObject({ document_import: false });
+    expect(record).not.toHaveProperty('document_import_signature');
+  });
+});
+
+describe('§7216 document-image consent inside the consent record', () => {
+  const signedAt = new Date('2026-09-18T09:00:00.000Z');
+  it('is signed by typing a name, read back as consent, and withdrawn without touching the other acknowledgments', () => {
+    expect(hasDocumentImportConsent(validRecord)).toBe(false);
+    expect(signDocumentImportConsent(validRecord, '   ', signedAt)).toBeNull();
+    expect(signDocumentImportConsent({ ...validRecord, version: '2025-01-01' }, 'Synthetic Signer', signedAt)).toBeNull();
+    const signed = signDocumentImportConsent(validRecord, '  Synthetic Signer  ', signedAt)!;
+    expect(signed).toEqual({ ...validRecord, document_import: true,
+      document_import_signature: { version: DOCUMENT_IMPORT_CONSENT_VERSION, signed_name: 'Synthetic Signer', signed_at: signedAt.toISOString() } });
+    expect(parseConsentRecord(signed)).toEqual(signed);
+    expect(hasDocumentImportConsent(signed)).toBe(true);
+    expect(hasAcknowledgedRequiredConsents(signed)).toBe(true);
+    const withdrawn = withdrawDocumentImportConsent(signed)!;
+    expect(withdrawn).toEqual(validRecord);
+    expect(hasDocumentImportConsent(withdrawn)).toBe(false);
+    expect(withdrawDocumentImportConsent(null)).toBeNull();
+  });
+  it.each([
+    ['no signature', { ...validRecord, document_import: true }],
+    ['a blank signed name', { ...validRecord, document_import: true, document_import_signature: { version: DOCUMENT_IMPORT_CONSENT_VERSION, signed_name: ' ', signed_at: signedAt.toISOString() } }],
+    ['a non-date signing time', { ...validRecord, document_import: true, document_import_signature: { version: DOCUMENT_IMPORT_CONSENT_VERSION, signed_name: 'Synthetic Signer', signed_at: 'today' } }],
+    ['an unknown signature field', { ...validRecord, document_import: true, document_import_signature: { version: DOCUMENT_IMPORT_CONSENT_VERSION, signed_name: 'Synthetic Signer', signed_at: signedAt.toISOString(), ip: '10.0.0.1' } }],
+    ['a non-boolean document_import', { ...validRecord, document_import: 'yes' }],
+  ])('rejects document_import: true with %s', (_label, input) => {
+    expect(parseConsentRecord(input)).toBeNull();
+    expect(hasDocumentImportConsent(input)).toBe(false);
+  });
+  it('reads a signature of an earlier consent text as no consent, not as a broken record', () => {
+    const stale = { ...validRecord, document_import: true, document_import_signature: { version: '2026-01-01', signed_name: 'Synthetic Signer', signed_at: signedAt.toISOString() } };
+    expect(parseConsentRecord(stale)).toEqual(validRecord);
+    expect(hasAcknowledgedRequiredConsents(stale)).toBe(true);
+    expect(hasDocumentImportConsent(stale)).toBe(false);
+    const inert = { ...validRecord, document_import: false, document_import_signature: { version: DOCUMENT_IMPORT_CONSENT_VERSION, signed_name: 'Synthetic Signer', signed_at: signedAt.toISOString() } };
+    expect(parseConsentRecord(inert)).toEqual(validRecord);
+  });
+  it('keeps the drafted Rev. Proc. 2013-14 wording verbatim with the mandatory statements and blanks', () => {
+    expect(DOCUMENT_IMPORT_CONSENT_TEXT.startsWith('CONSENT TO DISCLOSURE OF TAX RETURN INFORMATION')).toBe(true);
+    expect(DOCUMENT_IMPORT_CONSENT_TEXT).toContain('Federal law requires this consent form be provided to you.');
+    expect(DOCUMENT_IMPORT_CONSENT_TEXT).toContain('You are not required to complete this form.');
+    expect(DOCUMENT_IMPORT_CONSENT_TEXT).toContain('Duration: this consent is valid until you delete your WriteOff account or\nwithdraw it in Settings, whichever is earlier.');
+    expect(DOCUMENT_IMPORT_CONSENT_TEXT).toContain('Treasury Inspector General for Tax Administration (TIGTA)');
+    expect(DOCUMENT_IMPORT_CONSENT_TEXT).toContain('[type your full name]');
+    expect(DOCUMENT_IMPORT_CONSENT_TEXT).toContain("[today's date]");
+    expect(DOCUMENT_IMPORT_CONSENT_TEXT).not.toMatch(/maximi[sz]e|guarantee|file your taxes/i);
   });
 });
 
@@ -247,7 +300,7 @@ describe('profile setup collects acknowledgments before any answer is saved', ()
     renderSetup(); await flush();
     const tree = renderSetup();
     expect(text(tree)).toContain('A few acknowledgments first');
-    expect(checkboxes(tree).props.values).toEqual({ bank_data: true, ai_review: true, communications: true });
+    expect(checkboxes(tree).props.values).toEqual({ bank_data: true, ai_review: true, communications: true, document_import: false });
     expect(text(walk(tree).find(node => node.props?.role === 'alert')!)).toBe(CONSENT_SAVE_ERROR);
   });
 

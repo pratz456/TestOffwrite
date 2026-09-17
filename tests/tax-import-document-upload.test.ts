@@ -8,6 +8,12 @@ import { NextRequest } from 'next/server';
 import { CONTRACT_OWNER, installApiRouteMocks, OWNER_ID_TOKEN, SITE_URL } from './fixtures/api-route-harness';
 import { exhaustRateLimit } from './fixtures/rate-limit-store';
 
+// The merged route runs local OCR before any model call; give it usable text so the provider is reached with redacted text.
+vi.mock('@/lib/ocr/document-text', async importOriginal => ({
+  ...await importOriginal<typeof import('@/lib/ocr/document-text')>(),
+  recognizeDocumentText: async () => ({ text: 'Form W-2 Wage and Tax Statement 2025 Employer Acme Corp EIN 12-3456789 Employee SSN 123-45-6789 Box 1 Wages 54000.00 Box 2 Federal income tax withheld 6200.00', confidence: 0.93 }),
+}));
+
 const harness = installApiRouteMocks();
 const route = () => import('../app/api/tax/import-document/route');
 
@@ -88,9 +94,12 @@ describe('POST /api/tax/import-document', () => {
     expect(status).toBe(400);
   });
 
-  it('sends a valid photo to the model and reports a provider failure generically', async () => {
+  it('sends redacted OCR text (never the photo) to the model and reports a provider failure generically', async () => {
     const { status, body } = await upload({ docType: 'w2', taxYear: '2025', overrideFields: JSON.stringify({ employerName: 'Acme' }) }, { name: 'w2.jpg', type: 'image/jpeg', bytes: JPEG });
     expect(harness.fetch).toHaveBeenCalled();
+    const sent = JSON.stringify(harness.fetch.mock.calls.map(call => call[1]?.body ?? ''));
+    expect(sent).not.toContain('image_url');
+    expect(sent).not.toContain('123-45-6789');
     expect(status).toBe(500);
     expect(body).toEqual({ error: 'Document processing failed' });
   });
