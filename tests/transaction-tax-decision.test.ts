@@ -39,15 +39,23 @@ describe('explicit tax decisions resolve server-owned review state', () => {
     expect(transactionNeedsTaxReview(h.record)).toBe(false);
     expect(aggregateScheduleC([h.record as any], '2026', undefined, { mode: 'confirmed-only' }).totalDeductible).toBe(decision ? 100 : 0);
   });
+  it('stamps the server review decision so a post-cutoff record counts as confirmed', async () => {
+    h.record = { ...h.record, review_status: undefined, created_at: new Date('2026-12-01T00:00:00Z') };
+    expect(aggregateScheduleC([{ ...h.record, is_deductible: true, tax_review_required: false } as any], '2026', undefined, { mode: 'confirmed-only' }).totalDeductible).toBe(0);
+    await updateTransactionServerWithUserId('owner', 'tx', { is_deductible: true });
+    expect(h.update).toHaveBeenCalledWith(expect.objectContaining({ review_status: 'confirmed', review_source: 'user_decision', reviewed_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/) }));
+    expect(aggregateScheduleC([h.record as any], '2026', undefined, { mode: 'confirmed-only' }).totalDeductible).toBe(100);
+  });
   it('applies the same state change through the account fallback lookup', async () => {
     h.queryGet.mockResolvedValue({ empty: true, docs: [] });
     const result = await updateTransactionServerWithUserId('owner', 'tx', { is_deductible: true });
-    expect(result.error).toBeNull(); expect(h.update).toHaveBeenCalledWith(expect.objectContaining({ is_deductible: true, tax_review_required: false }));
+    expect(result.error).toBeNull(); expect(h.update).toHaveBeenCalledWith(expect.objectContaining({ is_deductible: true, tax_review_required: false, review_status: 'confirmed' }));
   });
   it('returns a deduction to review when the user clears its decision', async () => {
     h.record.is_deductible = true; h.record.tax_review_required = false;
     await updateTransactionServerWithUserId('owner', 'tx', { is_deductible: null });
     expect(h.record.tax_review_required).toBe(true); expect(transactionNeedsTaxReview(h.record)).toBe(true);
+    expect(h.update.mock.calls[0][0]).not.toHaveProperty('review_status');
     expect(aggregateScheduleC([h.record as any], '2026', undefined, { mode: 'confirmed-only' }).totalDeductible).toBe(0);
   });
   it('notes-only updates preserve the existing unresolved tax flag', async () => {
@@ -59,7 +67,10 @@ describe('explicit tax decisions resolve server-owned review state', () => {
     { category: 'VEHICLE_REVIEW_REQUIRED' }, { transaction_kind: 'refund' }, { transaction_kind: 'transfer' }, { pending: true },
   ])('does not allow the legacy detail toggle to bypass a separate tax method/reconciliation', record => {
     expect(() => taxDecisionUpdate(record, { is_deductible: true })).toThrow('requires tax-method or refund reconciliation');
-    expect(taxDecisionUpdate(record, { is_deductible: false })).toEqual({ tax_review_required: false });
+    const at = new Date('2026-09-17T12:00:00.000Z');
+    expect(taxDecisionUpdate(record, { is_deductible: false }, at)).toEqual({ tax_review_required: false, review_status: 'confirmed', review_source: 'user_decision', reviewed_at: at.toISOString() });
+    expect(taxDecisionUpdate(record, { is_deductible: null })).toEqual({ tax_review_required: true });
+    expect(taxDecisionUpdate(record, {})).toEqual({});
   });
   it('keeps quarterly, dashboard and preparer records consistent for an unresolved tax decision', () => {
     const unresolved = { ...h.record, amount: 100, iso_currency_code: 'USD', is_deductible: true, tax_review_required: true };

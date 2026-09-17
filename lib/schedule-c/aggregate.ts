@@ -7,11 +7,15 @@
  * - Deductible: is_deductible === true OR (is_deductible == null AND category in business list AND amount > 0). Refunds (negative) excluded.
  * - Meals (line 24b): 50% deductible.
  * - Year filter: transaction date year === selected year.
+ * - confirmed-only: posted records whose deduction the server confirmed
+ *   (review_status === 'confirmed', or a legacy pre-cutoff decision; see
+ *   lib/transactions/confirmed-deduction.ts), excluding tax-method placeholders.
  *
  * PDF generation path: route → getTransactionsServer(uid) → aggregateScheduleC → pdf-lib.
  */
 
 import { safeTaxYear } from './taxDate';
+import { isServerConfirmedDeduction } from '@/lib/transactions/confirmed-deduction';
 
 export type CategoryMapEntry = { line: string; name: string; code: string };
 
@@ -143,6 +147,13 @@ export function isBusinessExpense(tx: ScheduleCTransactionLike): boolean {
   return false;
 }
 
+/** confirmed-only filter: posted, server-confirmed, and not a tax-method placeholder category. */
+export function isConfirmedScheduleCExpense(tx: ScheduleCTransactionLike): boolean {
+  return tx.pending !== true
+    && !(typeof tx.category === 'string' && tx.category.endsWith('_REVIEW_REQUIRED'))
+    && isServerConfirmedDeduction(tx);
+}
+
 export interface LineItemSummary {
   lineCode: string;
   lineName: string;
@@ -184,12 +195,12 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
 
   // CPA-grade logic:
   // - default mode preserves current "confirmed or potential" behavior
-  // - confirmed-only counts only explicitly confirmed deductible transactions
+  // - confirmed-only counts only server-confirmed deductible transactions
   //   and nets credits/refunds (negative amounts) against their mapped lines
   // - pending transactions are excluded when present
   const deductibleTransactions =
     mode === 'confirmed-only'
-      ? yearTransactions.filter((t) => t.pending !== true && t.tax_review_required !== true && t.is_deductible === true && !t.category.endsWith('_REVIEW_REQUIRED'))
+      ? yearTransactions.filter(isConfirmedScheduleCExpense)
       : yearTransactions.filter(isBusinessExpense);
 
   const lineItems: Record<string, LineItemSummary> = {};

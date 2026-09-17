@@ -11,6 +11,8 @@ service cloud.firestore {
                       || resource.data.get('userId', '') == request.auth.uid);
       // Allow updates to specific user-editable fields for transactions in top-level or other collections
       // This is a fallback for transactions not under user_profiles/{uid}/accounts/{accountId}/transactions
+      // Once the server has recorded a review (review_status), is_deductible changes
+      // must go through the API so confirmed totals keep a server-stamped decision.
       allow update: if request.auth != null
                     && (resource.data.get('user_id', '') == request.auth.uid
                         || resource.data.get('userId', '') == request.auth.uid)
@@ -32,7 +34,9 @@ service cloud.firestore {
                          'meeting_notes',
                          'mileage_details',
                          'updated_at'
-                       ]);
+                       ])
+                    && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['is_deductible'])
+                        || !resource.data.keys().hasAny(['review_status']));
       // Prevent creates/deletes from client (server-only)
       allow create, delete: if false;
     }
@@ -157,7 +161,8 @@ service cloud.firestore {
           allow read: if request.auth != null && request.auth.uid == uid
                   && (resource == null || !resource.data.keys().hasAny(['plaid_token', 'access_token']));
 
-          // Allow user updates to transaction fields
+          // Allow user updates to transaction fields. Server-reviewed records
+          // (review_status present) keep is_deductible server-owned; use the API.
           allow update: if request.auth != null
                         && request.auth.uid == uid
                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
@@ -178,7 +183,9 @@ service cloud.firestore {
                              'meeting_notes',
                              'mileage_details',
                              'updated_at'
-                           ]);
+                           ])
+                        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['is_deductible'])
+                            || !resource.data.keys().hasAny(['review_status']));
 
           // Prevent arbitrary creates/deletes from client
           // Server-side analysis updates use Admin SDK (bypasses these rules)

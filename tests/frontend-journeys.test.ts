@@ -160,9 +160,10 @@ describe('manual dashboard entry and review actions', () => {
   });
 
   it('keeps manually confirmed records done and skipped records eligible for analysis', () => {
+    // Server-saved decisions carry review_status; a legacy pre-cutoff record has only the date.
     const records = [
-      { amount: 100, is_deductible: true },
-      { amount: 50, is_deductible: false },
+      { amount: 100, is_deductible: true, review_status: 'confirmed', date: '2026-03-01' },
+      { amount: 50, is_deductible: false, date: '2026-03-02' },
       { amount: 20, is_deductible: null, user_classification_reason: 'Skipped by user' },
     ];
     const actions = generateActionItems(profile, records);
@@ -170,6 +171,12 @@ describe('manual dashboard entry and review actions', () => {
     expect(generateActionItems(profile, records.slice(0, 2)).some(action => action.id === 'analyze-transactions' || action.id === 'review-analyzed')).toBe(false);
     expect(generateActionItems(profile, [...records, { amount: 25, is_deductible: null }])
       .find(action => action.id === 'analyze-transactions')).toMatchObject({ screen: 'review-transactions' });
+  });
+
+  it('keeps an unstamped deduction flag on a post-cutoff record in the review queue', () => {
+    const unstamped = [{ amount: 100, is_deductible: true, date: '2026-12-01', created_at: '2026-12-01T10:00:00.000Z' }];
+    expect(generateActionItems(profile, unstamped).find(action => action.id === 'analyze-transactions')).toMatchObject({ screen: 'review-transactions' });
+    expect(generateActionItems(profile, [{ ...unstamped[0], review_status: 'confirmed' }]).some(action => action.id === 'analyze-transactions')).toBe(false);
   });
 
   it('routes a missing-income prompt to the saved income records', () => {

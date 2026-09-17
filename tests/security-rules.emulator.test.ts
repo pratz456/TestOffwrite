@@ -106,6 +106,20 @@ async function seed(path: string, values: Record<string, string | number | boole
     await expect(updateDoc(tx, { amount: deleteField() })).rejects.toMatchObject({ code: 'permission-denied' });
     await expect(deleteDoc(tx)).rejects.toMatchObject({ code: 'permission-denied' });
   });
+  it('keeps is_deductible owner-editable only until the server records a review', async () => {
+    // Pre-review records keep the current client flow, on both storage paths.
+    await updateDoc(doc(alice, 'user_profiles/alice_uid/accounts/account/transactions/tx'), { is_deductible: true, expense_type: 'business' });
+    await updateDoc(doc(alice, 'transactions/legacy'), { is_deductible: false });
+    for (const path of ['user_profiles/alice_uid/accounts/account/transactions/reviewed', 'transactions/legacy-reviewed']) {
+      await seed(path, { userId: owner, amount: 100, is_deductible: true, review_status: 'confirmed', notes: 'before' });
+      const reviewed = doc(alice, path);
+      await updateDoc(reviewed, { notes: 'notes stay editable', business_purpose: 'Client meeting' });
+      await expect(updateDoc(reviewed, { is_deductible: false })).rejects.toMatchObject({ code: 'permission-denied' });
+      await expect(updateDoc(reviewed, { is_deductible: deleteField() })).rejects.toMatchObject({ code: 'permission-denied' });
+      await expect(updateDoc(reviewed, { review_status: deleteField() })).rejects.toMatchObject({ code: 'permission-denied' });
+      await expect(updateDoc(doc(bob, path), { is_deductible: false })).rejects.toMatchObject({ code: 'permission-denied' });
+    }
+  });
   it('retains owner-filtered collection-group transaction reads', async () => {
     const documents = await getDocs(query(collectionGroup(alice, 'transactions'), where('userId', '==', owner)));
     expect(documents.size).toBe(1);
