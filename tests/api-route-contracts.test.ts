@@ -83,9 +83,7 @@ const EMPTY_BODY_ACCEPTED: Record<string, Expectation> = {
  * an echoed exception message.
  */
 interface KnownGap { anonymous?: number[]; mutating?: number[]; throws?: true; leaksDatabaseError?: true; reason: string }
-const KNOWN_GAPS: Record<string, KnownGap> = {
-  'POST /api/tax/import-document': { mutating: [500], reason: 'Non-multipart body answers 500; upload lacks size, MIME and signature checks and a rate limit.' },
-};
+const KNOWN_GAPS: Record<string, KnownGap> = {};
 
 /** Findings in files owned by another branch: reported in docs/API_SECURITY_AUDIT_2026-09-17.md, not asserted here. */
 const REPORTED_OUT_OF_SCOPE: Record<string, string> = {

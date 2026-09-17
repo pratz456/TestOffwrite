@@ -18,6 +18,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { adminDb } from '@/lib/firebase/admin';
 import { getOpenAIClientOrThrow, getOpenAIModel } from '@/lib/openai/client';
+import { MAX_RECEIPT_BYTES, ReceiptRequestError, receiptFormData, receiptMimeType, receiptSignatureMatches } from '@/lib/firebase/receipt-security';
+import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 
 // ── Extraction prompts per document type ─────────────────────────────────────
 
@@ -243,26 +245,55 @@ async function savePlatformSummary(uid: string, data: Record<string, any>) {
 
 // ── Main handler ──────────────────────────────────────────────────────────────
 
+const DOC_TYPES = ['w2', '1099', 'platform_summary', 'auto'] as const;
+/** The vision model reads photos; a PDF scan must be exported as an image first. */
+const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'] as const;
+const MAX_OVERRIDE_JSON_BYTES = 16 * 1024;
+
+/** Inline edits from the UI: a small flat JSON object of scalar fields. */
+function parseOverrideFields(raw: FormDataEntryValue | null): Record<string, string | number | boolean | null> | null {
+  if (raw === null || raw === '') return {};
+  if (typeof raw !== 'string' || raw.length > MAX_OVERRIDE_JSON_BYTES) return null;
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw); } catch { return null; }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const entries = Object.entries(parsed as Record<string, unknown>);
+  if (entries.length > 64 || entries.some(([key, value]) => key.length > 64 || (value !== null && !['string', 'number', 'boolean'].includes(typeof value)) || (typeof value === 'string' && value.length > 500))) return null;
+  return Object.fromEntries(entries) as Record<string, string | number | boolean | null>;
+}
+
 export async function POST(request: NextRequest) {
   const { user, error: authError } = await getAuthenticatedUser(request);
   if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
-    const formData = await request.formData();
-    const file = formData.get('file') as File | null;
+    // One vision-model call per upload; bound it per owner before the body is read.
+    const limit = await enforceRateLimit({ ...RATE_LIMITS.taxDocumentImport, key: user.uid });
+    if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many document scans. Please wait a few minutes and try again.' });
+    // Bounded multipart read (10 MB) that refuses non-multipart bodies with 400.
+    const formData = await receiptFormData(request);
+    const file = formData.get('file');
     const docType = String(formData.get('docType') || 'auto');
     const commit = formData.get('commit') !== 'false';
-    const taxYear = formData.get('taxYear') ? parseInt(String(formData.get('taxYear')), 10) : null;
+    const taxYearRaw = formData.get('taxYear');
+    const taxYear = taxYearRaw ? parseInt(String(taxYearRaw), 10) : null;
     // User-edited field overrides (from inline editing in the UI)
-    const overrideFieldsRaw = formData.get('overrideFields');
-    const overrideFields: Record<string, any> = overrideFieldsRaw ? JSON.parse(String(overrideFieldsRaw)) : {};
+    const overrideFields = parseOverrideFields(formData.get('overrideFields'));
 
-    if (!file) return NextResponse.json({ error: 'No file provided' }, { status: 400 });
+    if (!file || typeof file === 'string') return NextResponse.json({ error: 'No file provided' }, { status: 400 });
+    if (!DOC_TYPES.includes(docType as typeof DOC_TYPES[number])) return NextResponse.json({ error: 'docType must be w2, 1099, platform_summary or auto' }, { status: 400 });
+    if (taxYear !== null && (!Number.isInteger(taxYear) || taxYear < 2000 || taxYear > 2100)) return NextResponse.json({ error: 'taxYear must be a four-digit year' }, { status: 400 });
+    if (!overrideFields) return NextResponse.json({ error: 'overrideFields must be a small JSON object of edited values' }, { status: 400 });
+    if (!file.size || file.size > MAX_RECEIPT_BYTES) return NextResponse.json({ error: 'Upload a nonempty file under 10 MB.' }, { status: 413 });
+    const mediaType = receiptMimeType(file.type);
+    if (!mediaType || !IMAGE_TYPES.includes(mediaType as typeof IMAGE_TYPES[number])) {
+      return NextResponse.json({ error: 'Upload a JPEG, PNG, GIF or WebP photo of the document.' }, { status: 415 });
+    }
 
     // Convert to base64 for GPT-4o vision
-    const arrayBuffer = await file.arrayBuffer();
-    const base64 = Buffer.from(arrayBuffer).toString('base64');
-    const mediaType = file.type || 'image/jpeg';
+    const bytes = Buffer.from(await file.arrayBuffer());
+    if (!receiptSignatureMatches(bytes, mediaType)) return NextResponse.json({ error: 'The file contents do not match its image type.' }, { status: 415 });
+    const base64 = bytes.toString('base64');
 
     // Select prompt
     const prompts: Record<string, string> = {
@@ -383,7 +414,8 @@ export async function POST(request: NextRequest) {
       saveResult,
       summary: buildSummary(extracted),
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof ReceiptRequestError) return NextResponse.json({ error: error.message }, { status: error.status });
     return NextResponse.json({ error: 'Document processing failed' }, { status: 500 });
   }
 }

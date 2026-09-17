@@ -79,6 +79,8 @@ export const RATE_LIMITS = {
   sessionCreate: { scope: 'auth.session', limit: 30, windowMs: 10 * 60_000, onUnavailable: 'memory' },
   receiptUpload: { scope: 'receipt.upload', limit: 60, windowMs: 10 * 60_000, onUnavailable: 'deny' },
   receiptProcess: { scope: 'receipt.process', limit: 60, windowMs: 10 * 60_000, onUnavailable: 'deny' },
+  /** W-2 / 1099 / platform-summary photo extraction: one vision-model call per upload. */
+  taxDocumentImport: { scope: 'tax.import-document', limit: 30, windowMs: 10 * 60_000, onUnavailable: 'deny' },
   aiAnalyzeTransaction: { scope: 'ai.analyze-transaction', limit: 60, windowMs: 60 * 60_000, onUnavailable: 'deny' },
   /** Completed archives; a failed attempt is refunded so recovery is not locked out. */
   userExport: { scope: 'user.export', limit: 1, windowMs: 60 * 60_000, onUnavailable: 'deny' },
