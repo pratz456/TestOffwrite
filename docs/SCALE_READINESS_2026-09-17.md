@@ -460,5 +460,11 @@ volume (120M writes). Any duplicate-call rate above about 1% is material.
   prefix rules, plus structural checks (well-formed entries, no duplicates, <= 200) and the
   single-field override scopes.
 
+Two existing suites were adapted to the new read paths without changing what they assert:
+`tests/analyze-transaction-availability.test.ts` stubs `loadTaxpayerContext` with a profile-only
+context (its route-level `collectionGroup` spy otherwise also counts the confirmed-history query), and
+the hand-rolled Firestore fake in `tests/transaction-receipt-metadata.test.ts` now implements
+`Query.count()` and `select()`.
+
 Run: `npx vitest run tests/transactions-server-pagination.test.ts tests/taxpayer-context-memo.test.ts tests/user-profile-batch.test.ts tests/plaid-scheduled-sync-scheduler.test.ts tests/firestore-indexes.test.ts tests/plaid-scheduled-sync.test.ts tests/bank-analysis-jobs.test.ts tests/taxpayer-context.test.ts tests/analyze-transaction-availability.test.ts`,
 `npx tsc --noEmit --incremental false -p tsconfig.json`, `npx tsc --noEmit -p functions/tsconfig.json`.
