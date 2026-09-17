@@ -45,7 +45,7 @@ const tutorialSteps = [
         <div className="space-y-3 text-left">
           <div className="flex items-start space-x-3">
             <div className="w-2 h-2 bg-green-500 rounded-full mt-2 flex-shrink-0"></div>
-            <p className="text-gray-600">Securely connect using Plaid (bank-level security)</p>
+            <p className="text-gray-600">Securely connect using Plaid (read-only, encrypted connection)</p>
           </div>
           <div className="flex items-start space-x-3">
             <div className="w-2 h-2 bg-green-500 rounded-full mt-2 flex-shrink-0"></div>

@@ -4,12 +4,12 @@ import AboutUsPageClient from "./about-page-client";
 export const metadata: Metadata = {
   title: "About Us",
   description:
-    "Learn about WriteOff  - the AI-powered tax deduction tracker that helps freelancers and small business owners automatically find, categorize, and maximize tax savings.",
+    "Learn about WriteOff  - the expense and deduction records app that helps freelancers and small business owners organize receipts, review suggested deductions, and hand clean records to a tax preparer.",
   alternates: { canonical: "/about" },
   openGraph: {
     title: "About WriteOff | AI Tax Deduction Tracker",
     description:
-      "AI-powered tax optimization for freelancers. Automatically categorize expenses, identify deductions, and generate tax reports.",
+      "Expense and deduction records for freelancers. Organize receipts, review suggested deductions, and export Schedule C-ready summaries.",
     type: "website",
     url: "/about",
   },
@@ -17,7 +17,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "About WriteOff | AI Tax Deduction Tracker",
     description:
-      "AI-powered tax optimization for freelancers and small business owners.",
+      "Expense and deduction records for freelancers and small business owners.",
   },
 };
 

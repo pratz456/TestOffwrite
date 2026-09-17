@@ -776,7 +776,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
               <div className="flex items-center gap-2 p-3 bg-muted/30 rounded-lg">
                 <Shield className="w-4 h-4 text-primary" />
                 <div>
-                  <p className="font-medium text-foreground text-xs">Bank-level security</p>
+                  <p className="font-medium text-foreground text-xs">Read-only, encrypted connection</p>
                   <p className="text-xs text-muted-foreground">256-bit encryption</p>
                 </div>
               </div>
@@ -865,7 +865,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
 
           <div className="text-center">
             <p className="text-xs text-muted-foreground max-w-md mx-auto">
-              By connecting your bank account, you agree to Plaid's Privacy Policy and Terms of Service. WriteOff uses bank-level security and never stores your banking credentials.
+              By connecting your bank account, you agree to Plaid's Privacy Policy and Terms of Service. WriteOff receives read-only access through Plaid and never stores your banking credentials.
             </p>
           </div>
         </div>
