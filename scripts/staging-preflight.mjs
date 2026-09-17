@@ -40,6 +40,7 @@ export function validateStagingConfiguration(env, { project, hosting, firebaseCo
   } catch { errors.push('NEXT_PUBLIC_SITE_URL must use an HTTPS staging site'); }
   if (env.PLAID_ENV !== 'sandbox') errors.push('PLAID_ENV must explicitly select sandbox');
   if (!env.PLAID_CLIENT_ID || !env.PLAID_SECRET) pending.push('Plaid sandbox client ID/secret pending; bank journeys are unavailable');
+  else if (!/^[a-fA-F0-9]{64}$/.test(env.PLAID_TOKEN_ENCRYPTION_KEY || '')) errors.push('PLAID_TOKEN_ENCRYPTION_KEY must be configured before bank connections are enabled');
   for (const [name, value] of Object.entries(env)) {
     if (/^(?:NEXT_PUBLIC_)?STRIPE_/.test(name) && /^(?:sk|rk|pk)_live_/.test(value || '')) errors.push(`${name} contains a live Stripe credential`);
   }

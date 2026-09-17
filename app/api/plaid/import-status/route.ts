@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
+import { listPlaidConnectionSummaries } from '@/lib/plaid/connections';
 import { adminDb } from '@/lib/firebase/admin';
 
 /**
@@ -19,7 +20,7 @@ export async function GET(req: Request) {
     const profileDoc = await adminDb.doc(`user_profiles/${uid}`).get();
     const data = profileDoc.data();
 
-    const hasConnection = !!(data?.plaid_token || data?.plaid_item_id);
+    const hasConnection = (await listPlaidConnectionSummaries(uid)).some(item => item.status === 'active');
     if (!hasConnection) {
       return NextResponse.json({ status: 'idle' });
     }

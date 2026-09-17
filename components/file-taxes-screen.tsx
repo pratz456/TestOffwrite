@@ -53,7 +53,7 @@ export function FileTaxesScreen() {
 
   const aggregation: AggregateScheduleCResult | null = useMemo(() => {
     if (!transactions || transactions.length === 0) return null;
-    return aggregateScheduleC(transactions, selectedYear);
+    return aggregateScheduleC(transactions, selectedYear, undefined, { mode: 'confirmed-only' });
   }, [transactions, selectedYear]);
 
   useEffect(() => {

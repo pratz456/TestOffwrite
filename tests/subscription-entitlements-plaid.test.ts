@@ -5,7 +5,12 @@ vi.mock('@/app/api/_lib/auth', () => ({ getUserFromReqOrThrow: mock.auth }));
 vi.mock('@/lib/subscriptions/trial-manager', () => ({ startFreeTrial: mock.trial }));
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: { doc: () => ({ get: async () => ({ exists: true, data: () => mock.profile }), update: vi.fn(), set: vi.fn() }) } }));
 vi.mock('plaid', () => ({ Configuration: function Configuration() {}, PlaidApi: function PlaidApi() { return { linkTokenCreate: mock.link }; }, PlaidEnvironments: { sandbox: 'https://sandbox.plaid.test' }, Products: { Transactions: 'transactions' }, CountryCode: { Us: 'US' } }));
-vi.mock('@/lib/plaid/client', () => ({ plaidClient: { accountsGet: mock.accounts } }));
+vi.mock('@/lib/plaid/client', () => ({ plaidClient: { accountsGet: mock.accounts, linkTokenCreate: mock.link } }));
+vi.mock('@/lib/plaid/connections', () => {
+  const connection = { uid: 'u1', itemId: 'item_1', accessToken: 'owned-token', accountIds: ['acc_1'] };
+  return { listPlaidConnections: async () => [connection], getPlaidConnection: async () => connection,
+    withPlaidConnection: async (_uid: string, _item: string, work: any) => work(connection, 'lease'), updatePlaidConnection: vi.fn() };
+});
 vi.mock('@/lib/plaid/pagination', () => ({ fetchAllPlaidTransactions: mock.fetchTransactions }));
 import { POST as createLink } from '@/app/api/plaid/create-link-token/route';
 import { POST as importTransactions } from '@/app/api/plaid/import-transactions/route';
@@ -32,12 +37,12 @@ describe('Plaid API uses server plan rather than a requested timeframe', () => {
   });
   it.each([[{}, '2026-06-17'], [paid, '2024-09-15'], [{ ...paid, subscriptionPlan: 'basic' }, '2024-09-15']] as const)('caps direct import even if the caller requests 2years %j', async (profile, startDate) => {
     mock.profile = { ...mock.profile, ...profile };
-    await importTransactions(req({ account_id: 'acc_1', access_token: 'owned-token', import_timeframe: '2years' }));
+    await importTransactions(req({ account_id: 'acc_1', import_timeframe: '2years' }));
     expect(mock.fetchTransactions).toHaveBeenCalled();
     expect(mock.fetchTransactions.mock.calls[0][1].start_date).toBe(startDate);
   });
   it('rejects another bank token before sending it to Plaid', async () => {
-    expect((await importTransactions(req({ account_id: 'acc_1', access_token: 'someone-elses-token' }))).status).toBe(403);
+    expect((await importTransactions(req({ account_id: 'acc_1', access_token: 'someone-elses-token' }))).status).toBe(400);
     expect(mock.accounts).not.toHaveBeenCalled(); expect(mock.fetchTransactions).not.toHaveBeenCalled();
   });
 });

@@ -35,7 +35,7 @@ export function TutorialManager({ userId, userProfile, onProfileUpdate }: Tutori
           setShowIntroTutorial(true);
         }
         // Show Plaid guide if intro is completed but Plaid guide is not
-        else if (userProfile.onboardingIntroCompleted === true && !userProfile.onboardingPlaidGuideCompleted && userProfile.plaid_token) {
+        else if (userProfile.onboardingIntroCompleted === true && !userProfile.onboardingPlaidGuideCompleted && userProfile.bankConnected) {
           setShowPlaidGuide(true);
         }
       }, 500); // Increased delay to ensure page is fully interactive
@@ -57,7 +57,7 @@ export function TutorialManager({ userId, userProfile, onProfileUpdate }: Tutori
       onProfileUpdate();
 
       // If user has Plaid token, show Plaid guide next
-      if (userProfile?.plaid_token && !userProfile?.onboardingPlaidGuideCompleted) {
+      if (userProfile?.bankConnected && !userProfile?.onboardingPlaidGuideCompleted) {
         setShowPlaidGuide(true);
       }
     } catch (error) {
@@ -72,7 +72,7 @@ export function TutorialManager({ userId, userProfile, onProfileUpdate }: Tutori
       onProfileUpdate();
 
       // If user has Plaid token, show Plaid guide next
-      if (userProfile?.plaid_token && !userProfile?.onboardingPlaidGuideCompleted) {
+      if (userProfile?.bankConnected && !userProfile?.onboardingPlaidGuideCompleted) {
         setShowPlaidGuide(true);
       }
     } catch (error) {

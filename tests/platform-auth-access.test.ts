@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server';
 
 const mock = vi.hoisted(() => ({ verifyIdToken: vi.fn(), verifySessionCookie: vi.fn(), createSessionCookie: vi.fn(), get: vi.fn(), transaction: vi.fn() }));
 vi.mock('@/lib/firebase/admin', () => ({ adminAuth: mock, adminDb: { doc: vi.fn(() => ({ get: mock.get })), runTransaction: mock.transaction }, FieldValue: { serverTimestamp: () => 'server-time' } }));
+vi.mock('@/lib/plaid/connections', () => ({ migrateLegacyPlaidConnection: vi.fn() }));
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import { POST as session } from '@/app/api/auth/session/route';

@@ -52,12 +52,13 @@ not restart an expired trial.
 
 ## Build validation
 
-The combined Basic and bank-payment implementation passed 2,284 unit, route,
+The final Basic, bank-payment, and billing-navigation implementation passed 2,301 unit, route,
 and component tests. All 11 opt-in Firestore/Storage security tests passed in a
 separate emulator instance. TypeScript validation and the production build passed.
 
 ## Remaining verification
 
-The final Basic locked-feature button is being changed to manage existing billing
-instead of offering a duplicate subscription. Production rollout is separate.
-Plaid Sandbox linking remains untested because Sandbox access is unavailable.
+The deployed Basic report gate showed “Manage billing” and opened the expanded
+Subscription section with Basic, $7.99/month, and history-only benefits. The repeat
+test subscription was canceled after verification. Production rollout is separate.
+Plaid Sandbox access is now available; bank-link and import verification is in progress.

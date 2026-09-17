@@ -11,9 +11,7 @@ export interface UserProfile {
   income: string;
   state: string;
   filing_status: string;
-  plaid_token?: string;
-  plaid_item_id?: string;
-  plaid_transactions_cursor?: string;
+  bankConnected?: boolean;
   last_sync_source?: 'incremental' | 'full';
   plaid_connected_at?: Date | any;
   plaid_requested_start_date?: string;
@@ -132,9 +130,7 @@ export async function getUserProfileServer(userId: string): Promise<{ data: User
           income: data.income || '',
           state: data.state || '',
           filing_status: data.filing_status || '',
-          plaid_token: data.plaid_token,
-          plaid_item_id: data.plaid_item_id,
-          plaid_transactions_cursor: data.plaid_transactions_cursor,
+          bankConnected: data.bankConnected === true,
           plaid_connected_at: data.plaid_connected_at,
           plaid_requested_start_date: data.plaid_requested_start_date,
           plaid_earliest_returned_tx_date: data.plaid_earliest_returned_tx_date,
@@ -242,9 +238,7 @@ export async function upsertUserProfileServer(
           income: data.income || '',
           state: data.state || '',
           filing_status: data.filing_status || '',
-          plaid_token: data.plaid_token,
-          plaid_item_id: data.plaid_item_id,
-          plaid_transactions_cursor: data.plaid_transactions_cursor,
+          bankConnected: data.bankConnected === true,
           last_sync_source: data.last_sync_source,
           created_at: data.created_at,
           updated_at: data.updated_at,

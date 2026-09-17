@@ -22,9 +22,10 @@ interface PlaidLinkScreenProps {
   onSuccess: () => void;
   onBack: () => void;
   fromSettings?: boolean; // If true, hide subscription options and connect directly
+  updateItemId?: string;
 }
 
-export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess, onBack, fromSettings = false }) => {
+export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess, onBack, fromSettings = false, updateItemId }) => {
   const router = useRouter();
   // Capture the app origin from the top-level page. Some Plaid callbacks can run
   // in a different browsing context (e.g. iframe), where relative URLs might
@@ -221,6 +222,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`,
           },
+          body: JSON.stringify(updateItemId ? { itemId: updateItemId } : {}),
         });
 
         if (!response.ok) {
@@ -262,7 +264,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
     };
 
     createLinkToken();
-  }, [user.id]);
+  }, [user.id, updateItemId]);
 
   const onPlaidSuccess = useCallback(async (public_token: string) => {
     setLoading(true);
@@ -272,6 +274,16 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
     // No need to pass subscription info - trial is app-managed
 
     try {
+      // Link update repairs an existing item; it does not exchange a new public token.
+      if (updateItemId) {
+        const response = await makeAuthenticatedRequest('/api/plaid/sync-transactions', {
+          method: 'POST', body: JSON.stringify({ itemId: updateItemId, incremental: true }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || 'Bank sign-in was updated, but sync needs another try.');
+        onSuccess();
+        return;
+      }
       // Guard Plaid public_token early
       if (!public_token) {
         console.error('Plaid returned empty public_token');
@@ -300,7 +312,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
         },
         body: JSON.stringify({
           public_token,
-          // Backend always requests 24 months (730 days); import_timeframe is display/filter only.
+          // The server chooses the permitted history window for the current plan.
         }),
       });
 
@@ -353,7 +365,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
     } finally {
       setLoading(false);
     }
-  }, [user.id, onSuccess]);
+  }, [user.id, onSuccess, updateItemId, router]);
 
   const onPlaidExit = useCallback((err: any) => {
     if (err) {
@@ -779,7 +791,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
                 ) : (
                   <>
                     <Building2 className="w-4 h-4" />
-                    <span>{fromSettings ? 'Connect Bank Account' : 'Connect Bank Account (Start Free Trial)'}</span>
+                    <span>{updateItemId ? 'Repair bank connection' : fromSettings ? 'Connect Bank Account' : 'Connect Bank Account (Start Free Trial)'}</span>
                   </>
                 )}
               </Button>

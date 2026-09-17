@@ -126,6 +126,31 @@ async function seed(path: string, values: Record<string, string | number | boole
     await expect(updateDoc(doc(bob, 'user_profiles/bob'), { subscriptionPlan: deleteField() })).rejects.toMatchObject({ code: 'permission-denied' });
     await expect(setDoc(doc(alice, 'user_profiles/somebody-else'), { name: 'Wrong owner' })).rejects.toMatchObject({ code: 'permission-denied' });
   });
+  it('denies all client reads and writes of private Plaid connections, including the owner', async () => {
+    await seed('plaid_connections/bank-synthetic', { uid: owner, encryptedAccessToken: 'synthetic-ciphertext', cursor: 'cursor' });
+    for (const db of [alice, bob, anonymous]) {
+      await expect(getDoc(doc(db, 'plaid_connections/bank-synthetic'))).rejects.toMatchObject({ code: 'permission-denied' });
+      await expect(getDocs(query(collection(db, 'plaid_connections'), where('uid', '==', owner)))).rejects.toMatchObject({ code: 'permission-denied' });
+      await expect(setDoc(doc(db, 'plaid_connections/forged'), { uid: owner, accessToken: 'synthetic' })).rejects.toMatchObject({ code: 'permission-denied' });
+      await expect(updateDoc(doc(db, 'plaid_connections/bank-synthetic'), { uid: 'bob' })).rejects.toMatchObject({ code: 'permission-denied' });
+    }
+  });
+  it('requires server migration before a legacy public token document can be read', async () => {
+    await seed(`user_profiles/${owner}`, { name: 'Alice', plaid_token: 'synthetic-legacy-secret' });
+    await expect(getDoc(doc(alice, `user_profiles/${owner}`))).rejects.toMatchObject({ code: 'permission-denied' });
+    await expect(updateDoc(doc(alice, `user_profiles/${owner}`), { plaid_token: deleteField() })).rejects.toMatchObject({ code: 'permission-denied' });
+    await seed(`user_profiles/${owner}`, { name: 'Alice', bankConnected: true });
+    expect((await getDoc(doc(alice, `user_profiles/${owner}`))).data()?.bankConnected).toBe(true);
+    for (const field of ['plaid_token', 'access_token', 'plaid_item_id', 'plaid_transactions_cursor', 'bankConnected', 'plaid_credentials_migrated']) {
+      await expect(updateDoc(doc(alice, `user_profiles/${owner}`), { [field]: 'forged' })).rejects.toMatchObject({ code: 'permission-denied' });
+    }
+    await seed(`user_profiles/${owner}/accounts/secret-account`, { user_id: owner, access_token: 'synthetic' });
+    await expect(getDoc(doc(alice, `user_profiles/${owner}/accounts/secret-account`))).rejects.toMatchObject({ code: 'permission-denied' });
+    await seed(`user_profiles/${owner}/accounts/secret-account`, { user_id: owner, name: 'Clean account', plaid_item_id: 'bank' });
+    expect((await getDoc(doc(alice, `user_profiles/${owner}/accounts/secret-account`))).data()?.name).toBe('Clean account');
+    expect((await getDocs(collection(alice, `user_profiles/${owner}/accounts`))).docs.some(account => account.id === 'secret-account')).toBe(true);
+    await expect(updateDoc(doc(alice, `user_profiles/${owner}/accounts/secret-account`), { plaid_item_id: 'other-bank' })).rejects.toMatchObject({ code: 'permission-denied' });
+  });
   it('allows valid owner receipt uploads, reads, replacements and deletes', async () => {
     const receipt = ref(aliceStorage, `receipts/${owner}/tx/rules-valid.png`);
     await uploadBytes(receipt, png, { contentType: 'image/png' });

@@ -156,7 +156,7 @@ describe('manual dashboard entry and review actions', () => {
     expect(actions[manual]).toMatchObject({ priority: 'high', screen: 'add-manual-transaction' });
     expect(actions[bank]).toMatchObject({ priority: 'low', screen: 'plaid-link' });
     expect(manual).toBeLessThan(bank);
-    expect(generateActionItems({ ...profile, plaid_accounts: [{}] }, []).some(action => action.id === 'connect-bank')).toBe(false);
+    expect(generateActionItems({ ...profile, bankConnected: true }, []).some(action => action.id === 'connect-bank')).toBe(false);
   });
 
   it('keeps manually confirmed records done and skipped records eligible for analysis', () => {

@@ -8,6 +8,14 @@ import {
 } from "firebase/firestore";
 import { db } from "./client";
 import { waitForAuth } from "./auth";
+import { makeAuthenticatedRequest } from "./api-client";
+
+// Admin migration runs before SDK reads: Firestore cannot redact a secret field.
+async function prepareProfileRead() {
+  const response = await makeAuthenticatedRequest("/api/database/profiles", { cache: "no-store" });
+  if (!response.ok) throw new Error("Profile could not be prepared securely. Please retry.");
+}
+
 
 export interface UserProfile {
   id: string;
@@ -20,7 +28,7 @@ export interface UserProfile {
   income: string;
   state: string;
   filing_status: string;
-  plaid_token?: string;
+  bankConnected?: boolean;
   onboardingIntroCompleted?: boolean;
   onboardingPlaidGuideCompleted?: boolean;
   year_of_birth?: string;
@@ -113,6 +121,7 @@ export interface UserProfile {
 export async function getUserProfileSafe(): Promise<{ data: UserProfile | null; error: any }> {
   try {
     const uid = await waitForAuth(); // gate by auth
+    await prepareProfileRead();
     const docRef = doc(db, "user_profiles", uid);
     const docSnap = await getDoc(docRef);
 
@@ -130,7 +139,7 @@ export async function getUserProfileSafe(): Promise<{ data: UserProfile | null; 
             income: data.income || '',
             state: data.state || '',
             filing_status: data.filing_status || '',
-            plaid_token: data.plaid_token,
+            bankConnected: data.bankConnected === true,
             onboardingIntroCompleted: data.onboardingIntroCompleted,
             onboardingPlaidGuideCompleted: data.onboardingPlaidGuideCompleted,
             created_at: data.created_at,
@@ -203,6 +212,7 @@ export async function getUserProfileSafe(): Promise<{ data: UserProfile | null; 
 // Backward-compatible function (deprecated - use getUserProfileSafe instead)
 export async function getUserProfile(userId: string): Promise<{ data: UserProfile | null; error: any }> {
   try {
+    await prepareProfileRead();
     const docRef = doc(db, "user_profiles", userId);
     const docSnap = await getDoc(docRef);
 
@@ -220,7 +230,7 @@ export async function getUserProfile(userId: string): Promise<{ data: UserProfil
           income: data.income || '',
           state: data.state || '',
           filing_status: data.filing_status || '',
-          plaid_token: data.plaid_token,
+          bankConnected: data.bankConnected === true,
           onboardingIntroCompleted: data.onboardingIntroCompleted || false,
           onboardingPlaidGuideCompleted: data.onboardingPlaidGuideCompleted || false,
           created_at: data.created_at,
@@ -298,6 +308,7 @@ export async function upsertUserProfile(
     console.log('🔄 [Firebase Profile] Upserting profile for user:', userId);
     console.log('🔄 [Firebase Profile] Profile data:', profileData);
 
+    await prepareProfileRead();
     const docRef = doc(db, "user_profiles", userId);
 
     // Filter out undefined values as Firebase doesn't allow them (including nested objects)
@@ -366,7 +377,7 @@ export async function upsertUserProfile(
           income: data.income || '',
           state: data.state || '',
           filing_status: data.filing_status || '',
-          plaid_token: data.plaid_token,
+          bankConnected: data.bankConnected === true,
           onboardingIntroCompleted: data.onboardingIntroCompleted,
           onboardingPlaidGuideCompleted: data.onboardingPlaidGuideCompleted,
           created_at: data.created_at,
@@ -439,6 +450,7 @@ export async function updateUserProfile(
     console.log('🔄 [Firebase Profile] Updating profile for user:', userId);
     console.log('🔄 [Firebase Profile] Updates:', updates);
 
+    await prepareProfileRead();
     const docRef = doc(db, "user_profiles", userId);
     const updateData = {
       ...updates,
@@ -461,7 +473,7 @@ export async function updateUserProfile(
           income: data.income || '',
           state: data.state || '',
           filing_status: data.filing_status || '',
-          plaid_token: data.plaid_token,
+          bankConnected: data.bankConnected === true,
           onboardingIntroCompleted: data.onboardingIntroCompleted,
           onboardingPlaidGuideCompleted: data.onboardingPlaidGuideCompleted,
           created_at: data.created_at,

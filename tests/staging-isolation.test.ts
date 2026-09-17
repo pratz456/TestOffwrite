@@ -65,17 +65,16 @@ describe('staging Plaid configuration', () => {
   });
   it('does not recover missing sandbox credentials from legacy config', () => {
     const legacy = vi.fn(() => ({ secret: 'legacy-secret', env: 'production' }));
-    expect(getPlaidConfig({ WRITEOFF_ENV: 'staging' }, legacy)).toEqual({ plaidClientId: undefined, plaidSecret: undefined, plaidEnv: 'sandbox' });
+    expect(getPlaidConfig({ WRITEOFF_ENV: 'staging', PLAID_ENV: 'sandbox' }, legacy)).toEqual({ plaidClientId: undefined, plaidSecret: undefined, plaidEnv: 'sandbox' });
     expect(legacy).not.toHaveBeenCalled();
   });
   it.each(['production', 'development', 'unexpected'])('rejects staging Plaid environment %s', env => {
     expect(() => getPlaidConfig({ WRITEOFF_ENV: 'staging', PLAID_ENV: env }, vi.fn())).toThrow('PLAID_ENV must be sandbox');
   });
-  it('preserves both existing production precedence strategies', () => {
+  it('uses only explicit credentials regardless of the obsolete precedence argument', () => {
     const env = { PLAID_CLIENT_ID: 'explicit-id', PLAID_SECRET: 'explicit-secret', PLAID_ENV: 'sandbox' };
     const legacy = vi.fn(() => ({ client_id: 'legacy-id', secret: 'legacy-secret', env: 'production' }));
-    expect(getPlaidConfig(env, legacy)).toEqual({ plaidClientId: 'legacy-id', plaidSecret: 'legacy-secret', plaidEnv: 'production' });
-    legacy.mockClear();
+    expect(getPlaidConfig(env, legacy)).toEqual({ plaidClientId: 'explicit-id', plaidSecret: 'explicit-secret', plaidEnv: 'sandbox' });
     expect(getPlaidConfig(env, legacy, true)).toEqual({ plaidClientId: 'explicit-id', plaidSecret: 'explicit-secret', plaidEnv: 'sandbox' });
     expect(legacy).not.toHaveBeenCalled();
   });
@@ -109,7 +108,7 @@ describe('staging deployment preflight', () => {
   it('accepts test credentials but requires provider verification of price and webhook ownership', () => {
     const result = validateStagingConfiguration({ ...safeEnv, STRIPE_SECRET_KEY: 'sk_test_synthetic', NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: 'pk_test_synthetic',
       STRIPE_PRICE_ID_MONTHLY: 'price_monthly', STRIPE_PRICE_ID_YEARLY: 'price_yearly', STRIPE_WEBHOOK_SECRET: 'whsec_synthetic',
-      PLAID_CLIENT_ID: 'synthetic', PLAID_SECRET: 'synthetic', OPENAI_API_KEY: 'synthetic' }, deploy);
+      PLAID_CLIENT_ID: 'synthetic', PLAID_SECRET: 'synthetic', PLAID_TOKEN_ENCRYPTION_KEY: '2'.repeat(64), OPENAI_API_KEY: 'synthetic' }, deploy);
     expect(result.errors).toEqual([]);
     expect(result.pending).toEqual(['Stripe price and webhook test-mode ownership still requires provider verification', 'In-app tax filing remains disabled pending provider onboarding']);
   });

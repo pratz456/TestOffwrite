@@ -103,7 +103,6 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
     income: '',
     state: '',
     filingStatus: '',
-    plaidToken: '',
     businessStartDate: '',
     businessPurpose: '',
     ein: '',

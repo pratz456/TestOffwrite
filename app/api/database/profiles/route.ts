@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { adminDb, FieldValue } from '@/lib/firebase/admin';
+import { migrateLegacyPlaidConnection } from '@/lib/plaid/connections';
 import { EDITABLE_PROFILE_FIELDS, publicProfile } from '@/lib/firebase/profile-fields';
 
 export async function GET(request: NextRequest) {
   const { user } = await getAuthenticatedUser(request);
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
+    await migrateLegacyPlaidConnection(user.uid);
     const snapshot = await adminDb.doc(`user_profiles/${user.uid}`).get();
     return NextResponse.json({ success: true, profile: snapshot.exists ? publicProfile(snapshot.data()!, user.uid) : null },
       { headers: { 'Cache-Control': 'private, no-store' } });

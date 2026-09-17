@@ -41,11 +41,7 @@ interface UserProfile {
   business_income?: number;
   w2_income?: number;
   annual_gross_income_usd?: number;
-  plaidToken?: string;
-  // This is the field name returned by our profile loader.
-  // Keep `plaidToken` for backward compatibility with older data/code.
-  plaid_token?: string;
-  plaid_accounts?: any[];
+  bankConnected?: boolean;
   [key: string]: any;
 }
 
@@ -87,10 +83,7 @@ export function generateActionItems(
 
   // ── Setup & Onboarding ──────────────────────────────────────
 
-  const hasPlaidConnected =
-    !!profile?.plaid_token ||
-    !!profile?.plaidToken ||
-    (Array.isArray(profile?.plaid_accounts) && profile.plaid_accounts.length > 0);
+  const hasPlaidConnected = profile?.bankConnected === true;
 
   if (transactions.length === 0) {
     items.push({

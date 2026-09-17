@@ -106,7 +106,6 @@ interface UserProfile {
   income: string;
   state: string;
   filingStatus: string;
-  plaidToken?: string;
 }
 
 // Use Transaction type from firebase library
@@ -174,10 +173,10 @@ export default function ProtectedPage() {
   // Check bank connection and fetch transactions
   const checkBankConnectionAndFetchTransactions = async (currentUser: any) => {
     try {
-      // Check if user has a Plaid token in their profile
+      // Check the server-managed bank connection status
       const { data: profile, error } = await getUserProfile(currentUser.id);
 
-      if (profile?.plaid_token) {
+      if (profile?.bankConnected) {
         setBankConnected(true);
         // Only sync transactions if explicitly requested, not on every page load
         // This prevents the massive slowdown on home screen
@@ -219,7 +218,7 @@ export default function ProtectedPage() {
         }
         setHasProfile(state === 'existing');
         setUserProfile(profile);
-        setBankConnected(Boolean(profile?.plaid_token));
+        setBankConnected(Boolean(profile?.bankConnected));
       } catch {
         if (current) setProfileLoadError(true);
       } finally {
@@ -307,7 +306,7 @@ export default function ProtectedPage() {
 
           // If this is the first Plaid connection and Plaid guide hasn't been shown,
           // trigger the Plaid guide tutorial
-          if (userProfile.plaid_token && !userProfile.onboardingPlaidGuideCompleted) {
+          if (userProfile.bankConnected && !userProfile.onboardingPlaidGuideCompleted) {
             // Small delay to ensure the profile update is processed
             setTimeout(() => {
               const plaidGuideButton = document.getElementById('open-plaid-guide');
@@ -644,9 +643,8 @@ export default function ProtectedPage() {
         <BanksDetailScreen
           user={safeUser}
           onBack={handleGoBack}
-          onConnectBank={() => {
-            // You can implement Plaid connection here or navigate to a connect screen
-            router.push('/protected');
+          onConnectBank={(itemId) => {
+            router.push(`/protected?screen=plaid-link&from=settings${itemId ? `&itemId=${encodeURIComponent(itemId)}` : ''}`);
           }}
         />
       );
@@ -691,6 +689,7 @@ export default function ProtectedPage() {
           onSuccess={handlePlaidConnectionSuccess}
           onBack={handleGoBack}
           fromSettings={isFromSettings || false}
+          updateItemId={searchParams.get('itemId') || undefined}
         />
       );
     }

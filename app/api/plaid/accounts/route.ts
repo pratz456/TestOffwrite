@@ -1,51 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Configuration, PlaidApi, PlaidEnvironments } from 'plaid';
-import { getUserProfileServer } from '@/lib/firebase/profiles-server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
-import { getPlaidConfig } from '@/lib/plaid/config';
-
-const { plaidClientId, plaidSecret, plaidEnv } = getPlaidConfig(process.env, () => ({}), true);
-
-const configuration = new Configuration({
-  basePath: PlaidEnvironments[plaidEnv as keyof typeof PlaidEnvironments] || PlaidEnvironments.sandbox,
-  baseOptions: {
-    headers: {
-      'PLAID-CLIENT-ID': plaidClientId,
-      'PLAID-SECRET': plaidSecret,
-    },
-  },
-});
-
-const client = new PlaidApi(configuration);
-
+import { plaidClient } from '@/lib/plaid/client';
+import { listPlaidConnections } from '@/lib/plaid/connections';
 export async function GET(request: NextRequest) {
+  const { user, error } = await getAuthenticatedUser(request);
+  if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
-    const { user, error: authError } = await getAuthenticatedUser(request);
-    if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-    // Users can only fetch their own Plaid accounts
-    const userId = user.uid;
-
-    // Get user's Plaid access token from Firebase
-    const { data: userProfile, error: userError } = await getUserProfileServer(userId);
-
-    if (userError || !userProfile?.plaid_token) {
-      return NextResponse.json({ error: 'No Plaid token found for user' }, { status: 404 });
+    const connections = await listPlaidConnections(user.uid);
+    const accounts = [];
+    for (const connection of connections) {
+      const response = await plaidClient.accountsGet({ access_token: connection.accessToken });
+      accounts.push(...response.data.accounts.filter(account => connection.accountIds.includes(account.account_id))
+        .map(account => ({ ...account, plaid_item_id: connection.itemId })));
     }
-
-    // Get accounts from Plaid
-    const accountsResponse = await client.accountsGet({
-      access_token: userProfile.plaid_token,
-    });
-
-    return NextResponse.json({
-      accounts: accountsResponse.data.accounts,
-    });
-  } catch (error) {
-    console.error('Error fetching accounts:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch accounts' },
-      { status: 500 }
-    );
-  }
+    return NextResponse.json({ accounts }, { headers: { 'Cache-Control': 'private, no-store' } });
+  } catch { return NextResponse.json({ error: 'Unable to load bank accounts' }, { status: 503 }); }
 }

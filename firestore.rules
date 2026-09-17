@@ -87,10 +87,16 @@ service cloud.firestore {
       allow write: if false; // server-only via Admin SDK
     }
 
+    // Bank tokens and cursors are encrypted/server-only. Admin SDK bypasses rules.
+    match /plaid_connections/{itemId} {
+      allow read, write: if false;
+    }
+
     // ── User Profiles ──────────────────────────────────────────────────────
     // User profile can only be read by the owner, written via Admin/API only
     match /user_profiles/{uid} {
-      allow read: if request.auth != null && request.auth.uid == uid;
+      allow read: if request.auth != null && request.auth.uid == uid
+                  && (resource == null || !resource.data.keys().hasAny(['plaid_token', 'access_token']));
 
       // Allow the user to create their own profile doc if id === uid
       allow create: if request.auth != null
@@ -100,7 +106,9 @@ service cloud.firestore {
                     && !request.resource.data.keys().hasAny([
                          'hasHistoricalAccess', 'subscriptionStatus', 'trialStart', 'trialEnd',
                          'subscriptionEnd', 'stripeCustomerId', 'stripeSubscriptionId',
-                         'stripeSubscriptionStatus', 'subscriptionPlan'
+                         'stripeSubscriptionStatus', 'subscriptionPlan',
+                         'plaid_token', 'access_token', 'plaid_item_id', 'plaid_transactions_cursor',
+                         'bankConnected', 'plaid_credentials_migrated'
                        ]);
 
       // Allow the user to update their own profile doc, but restrict subscription fields
@@ -116,7 +124,9 @@ service cloud.firestore {
                          'subscriptionEnd', // Stripe subscription period end
                          'stripeCustomerId',
                          'stripeSubscriptionId',
-                         'stripeSubscriptionStatus', 'subscriptionPlan'
+                         'stripeSubscriptionStatus', 'subscriptionPlan',
+                         'plaid_token', 'access_token', 'plaid_item_id', 'plaid_transactions_cursor',
+                         'bankConnected', 'plaid_credentials_migrated'
                        ]);
 
       // No client deletes
@@ -129,13 +139,15 @@ service cloud.firestore {
 
       // Accounts subcollection
       match /accounts/{accountId} {
-        allow read: if request.auth != null && request.auth.uid == uid;
+        allow read: if request.auth != null && request.auth.uid == uid
+                  && (resource == null || !resource.data.keys().hasAny(['plaid_token', 'access_token']));
         allow write: if false; // write via Admin/API only
 
         // Transactions
         match /transactions/{txId} {
           // Allow reading transactions
-          allow read: if request.auth != null && request.auth.uid == uid;
+          allow read: if request.auth != null && request.auth.uid == uid
+                  && (resource == null || !resource.data.keys().hasAny(['plaid_token', 'access_token']));
 
           // Allow user updates to transaction fields
           allow update: if request.auth != null

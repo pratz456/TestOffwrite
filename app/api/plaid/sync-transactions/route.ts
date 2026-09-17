@@ -15,7 +15,7 @@ export async function POST(req: Request) {
 
     const body = await req.json().catch(() => ({}));
     // import_timeframe is display-only; the server plan determines the history window.
-    const { userId = uid, import_timeframe = '2years', incremental = false } = body;
+    const { userId = uid, import_timeframe = '2years', incremental = false, itemId } = body;
 
     if (!userId) {
       return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
@@ -57,8 +57,8 @@ export async function POST(req: Request) {
     let syncResult;
     try {
       syncResult = incremental
-        ? await syncUserTransactionsIncremental(uid)
-        : await syncUserTransactions(uid, import_timeframe);
+        ? await syncUserTransactionsIncremental(uid, itemId)
+        : await syncUserTransactions(uid, import_timeframe, itemId);
     } finally {
       if (!incremental) {
         try {
@@ -81,7 +81,7 @@ export async function POST(req: Request) {
       console.log(`✅ [Plaid Sync] Successfully synced ${syncResult.transactionsSaved} transactions for user ${uid}`);
       return NextResponse.json({
         success: true,
-        accounts_processed: 1,
+        accounts_processed: syncResult.accountsProcessed ?? 0,
         transactions_saved: syncResult.transactionsSaved,
         message: `Successfully synced ${syncResult.transactionsSaved} transactions`
       });

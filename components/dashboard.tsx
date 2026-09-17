@@ -300,7 +300,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate = () => {
               </div>
               <div>
                 <p className="text-sm text-slate-600">Connected Banks</p>
-                <p className="text-2xl font-bold text-slate-900">{profile?.plaid_token ? '1+' : '0'}</p>
+                <p className="text-2xl font-bold text-slate-900">{profile?.bankConnected ? '1+' : '0'}</p>
               </div>
             </div>
           </Card>
@@ -442,8 +442,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate = () => {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-sm text-slate-600">Bank Connected</span>
-                  <span className={`text-sm font-medium ${profile?.plaid_token ? 'text-emerald-600' : 'text-slate-400'}`}>
-                    {profile?.plaid_token ? 'Yes' : 'No'}
+                  <span className={`text-sm font-medium ${profile?.bankConnected ? 'text-emerald-600' : 'text-slate-400'}`}>
+                    {profile?.bankConnected ? 'Yes' : 'No'}
                   </span>
                 </div>
               </div>

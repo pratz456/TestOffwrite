@@ -12,7 +12,6 @@ export interface ProfileSetupData {
   income: string;
   state: string;
   filingStatus: string;
-  plaidToken?: string;
   businessStartDate?: string;
   homeOfficeSqft?: number;
   totalHomeSqft?: number;

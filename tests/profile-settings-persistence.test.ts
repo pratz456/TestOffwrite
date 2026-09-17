@@ -7,6 +7,7 @@ const firestore = vi.hoisted(() => ({
   updateDoc: vi.fn(),
   setDoc: vi.fn(),
   waitForAuth: vi.fn(),
+  prepare: vi.fn(),
 }));
 
 vi.mock('firebase/firestore', () => ({
@@ -18,6 +19,7 @@ vi.mock('firebase/firestore', () => ({
 }));
 vi.mock('@/lib/firebase/client', () => ({ db: 'synthetic-database' }));
 vi.mock('@/lib/firebase/auth', () => ({ waitForAuth: firestore.waitForAuth }));
+vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: firestore.prepare }));
 
 import { getUserProfile, getUserProfileSafe, upsertUserProfile } from '../lib/firebase/profiles';
 
@@ -51,6 +53,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   vi.spyOn(console, 'log').mockImplementation(() => {});
   firestore.record = structuredClone(profile);
+  firestore.prepare.mockResolvedValue(new Response('{}'));
   firestore.doc.mockImplementation((_db, collection, id) => ({ collection, id }));
   firestore.waitForAuth.mockResolvedValue('profile-owner');
   firestore.getDoc.mockImplementation(async () => {
@@ -62,6 +65,25 @@ beforeEach(() => {
   });
 });
 afterEach(() => { vi.restoreAllMocks(); });
+
+describe('secure profile preparation before SDK access', () => {
+  it.each(readers)('prepares the authenticated profile before the $label SDK read', async ({ read }) => {
+    firestore.record.bankConnected = true;
+    firestore.record.plaid_token = 'synthetic-legacy-secret';
+    const result = await read();
+    expect(firestore.prepare).toHaveBeenCalledWith('/api/database/profiles', { cache: 'no-store' });
+    expect(firestore.prepare.mock.invocationCallOrder[0]).toBeLessThan(firestore.getDoc.mock.invocationCallOrder[0]);
+    expect(result.data?.bankConnected).toBe(true);
+    expect(result.data).not.toHaveProperty('plaid_token');
+  });
+  it.each(readers)('fails closed before the $label SDK read when secure preparation fails', async ({ read }) => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    firestore.prepare.mockResolvedValue(new Response('{}', { status: 503 }));
+    const result = await read();
+    expect(result.error).toBeTruthy();
+    expect(firestore.getDoc).not.toHaveBeenCalled();
+  });
+});
 
 describe.each(readers)('profile settings persistence through $label', ({ read }) => {
   it('retains every saved tax amount and mailing address when another profile field changes', async () => {

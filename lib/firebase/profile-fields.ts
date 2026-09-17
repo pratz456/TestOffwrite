@@ -16,5 +16,5 @@ export const EDITABLE_PROFILE_FIELDS = new Set([
 
 export function publicProfile(data: Record<string, unknown>, uid: string) {
   return { ...Object.fromEntries(Object.entries(data).filter(([key]) =>
-    EDITABLE_PROFILE_FIELDS.has(key) || ['created_at', 'updated_at'].includes(key))), id: uid };
+    EDITABLE_PROFILE_FIELDS.has(key) || ['created_at', 'updated_at', 'bankConnected'].includes(key))), id: uid };
 }
