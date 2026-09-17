@@ -387,7 +387,7 @@ These counts are not verified account correspondence, record quality or absence 
 Required work:
 
 1. Preserve a private recoverable backup and existing encryption material.
-2. Establish exact legacy profile/account mapping and any unusually large (>400-account) migration cases.
+2. Establish exact legacy profile/account mapping and any unusually large (>400-account) migration cases. `scripts/production-migration-inventory.mjs` now provides a deliberately read-only, private inventory and exact-match overlap-candidate report; it has not been run against production and does not complete the human review.
 3. Define and implement historical-overlap reconciliation. New Plaid IDs can represent old purchases; relink must not double-count expenses or overwrite confirmations. A matching/reconciliation workflow is still needed, not just a flag in a manifest.
 4. Arrange migration of legacy public tokens to the encrypted private store and mark old-provider connections for relink; never silently discard tax records.
 5. Coordinate app/rules/scheduler rollout. New rules block legacy token-bearing profile reads; old clients do not do the new migration handshake. Rules-first or app-first in isolation can respectively interrupt access or leave private stores exposed. Choose a controlled maintenance window or implement a verified compatibility sequence.
@@ -454,11 +454,11 @@ It also runs as production Hosting/Functions predeploy. It rejects mixed env fil
 - Resolve/record the genuine OAuth completion gap and receipt-upload/deletion uncertainty before describing those flows as confirmed. Do not silently convert them to passes.
 - Establish error/queue/webhook/AI-cost monitoring and a support path for failed provider recovery. No complete load test, universal bank matrix or security certification was completed.
 
-### F. Repair automated promotion before relying on CI
+### F. Manual production promotion
 
-`.github/workflows/deploy.yml` currently triggers on `main`/`master`, while the earlier repo default was `march-branch` and this work lives on `codex/staging-readiness`. It selects Hosting plus changed rules/storage, lacks the new full environment/review preparation, and does not promote both Functions codebases. New preflight intentionally prevents an unprepared deployment.
+`.github/workflows/deploy.yml` no longer deploys production from a normal branch push. It is a manual exact-commit workflow using the protected GitHub `production` environment, private prepared configuration/review inputs and the coordinated release script. Configure required reviewers and environment secrets before using it.
 
-Choose the intended release branch deliberately, provision secure configuration and reviewed migration artifacts, and update the workflow around the isolated-release process. Do not blindly merge to a deployment-triggering branch expecting a complete safe rollout.
+The workflow and `scripts/deploy-production-release.mjs` prepare/build the exact reviewed commit and select Hosting, Firestore rules/indexes, Storage rules, the analysis workers and the default scheduler together. Legacy partial-deploy helpers fail closed. The workflow remains blocked until the Plaid/provider, migration, Secret Manager, rules/index and rollback evidence fields are genuinely completed; no production deployment was performed by this continuation.
 
 ## 13. Local preview and access handover
 

@@ -60,6 +60,21 @@ It reruns the preflight, builds the app and both Functions packages, reruns the 
 
 Account deletion keeps a private durable gate outside the profile. New bank exchanges and checkout customer creation cannot start after that gate is set; unresolved operations prevent identity/record erasure. Ambiguous Stripe creation or failed customer compensation needs support review of the retained billing operation (including its customer identifier when known); it never expires automatically. An old-provider bank cannot be considered revoked merely by clicking Disconnect: its encrypted recovery record remains in `revocation_required` until manual revocation is verified. The old credentials are never tried with the replacement provider account.
 
+### Read-only migration inventory
+
+After obtaining authorized production read access, create the private per-user/account inventory without writing to Firestore or calling Plaid:
+
+```sh
+npm run production:migration-inventory -- \
+  --project writeoff-23910 \
+  --output /absolute/private/path/production-migration-inventory.json \
+  --confirm read-only:writeoff-23910
+```
+
+The command pins the production project, refuses emulators, writes a new mode-0600 file outside the checkout, and prints aggregate totals/digest only. It inventories legacy credential locations, account/transaction counts, saved confirmations/tax decisions, private connection states, and exact cross-account date/amount/merchant/currency matches. Raw tokens, Item IDs, merchant text and amounts are never written to the report.
+
+Every overlap is labeled `human_review_required`; the command never chooses a canonical record, changes a confirmation, merges data or marks the release review complete. Exact-match candidates can miss real duplicates and can include legitimate repeated purchases. Use the private record references for the documented human reconciliation and retain separate evidence of the decision.
+
 ## Can the code ship with banking unavailable?
 
 Missing Plaid credentials fail closed and lazy initialization keeps unrelated routes from crashing. That alone is not a complete disabled-bank launch: the current UI can still offer Connect Bank, and migration still needs the encryption key. A limited release needs explicit unavailable-state UI, preserved record access, migration/rules coordination and accurate marketing. The current production preflight intentionally requires complete banking configuration for a full-platform launch.
