@@ -1,5 +1,4 @@
 import type { Metadata, Viewport } from "next";
-import Script from "next/script";
 import { Geist } from "next/font/google";
 import { AuthProvider } from "@/lib/firebase/auth-context";
 import { ReactQueryProvider } from "@/lib/react-query/provider";
@@ -8,6 +7,7 @@ import { PwaInstallPrompt } from "@/components/pwa-install-prompt";
 import { PwaRegisterSw } from "@/components/pwa-register-sw";
 import { Toaster } from "@/ui/sonner";
 import { gaMeasurementId } from "@/lib/analytics/ga-measurement-id";
+import { GoogleTag } from "@/components/analytics/google-tag";
 import "./globals.css";
 
 const defaultUrl = process.env.NEXT_PUBLIC_SITE_URL
@@ -100,18 +100,7 @@ export default function RootLayout({
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
         />
-        {measurementId && <><Script
-          src={`https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(measurementId)}`}
-          strategy="afterInteractive"
-        />
-        <Script id="google-analytics" strategy="afterInteractive">
-          {`
-            window.dataLayer = window.dataLayer || [];
-            function gtag(){dataLayer.push(arguments);}
-            gtag('js', new Date());
-            gtag('config', ${JSON.stringify(measurementId)});
-          `}
-        </Script></>}
+        {measurementId && <GoogleTag measurementId={measurementId} />}
         <ThemeProvider attribute="class" defaultTheme="light" forcedTheme="light" disableTransitionOnChange>
           <ReactQueryProvider>
             <AuthProvider>

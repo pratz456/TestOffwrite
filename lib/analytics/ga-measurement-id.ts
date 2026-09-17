@@ -25,6 +25,19 @@ export function gaMeasurementId(env: AnalyticsEnv = {
   return GA4_MEASUREMENT_ID.test(value) ? value : null;
 }
 
+/**
+ * Routes where a third-party tag may never load. Signed-in screens carry tax return
+ * information (§7216; the FTC's 2023 tax-preparer pixel notices), and sign-in and
+ * checkout pages carry credentials and payment context. Only public marketing,
+ * blog, tools and legal pages report to analytics.
+ */
+const PRIVATE_ROUTE = /^\/(?:protected|auth|login|onboarding|stripe|plaid|api|account|settings)(?:\/|$)/;
+
+export function analyticsAllowedOnPath(pathname: string | null | undefined): boolean {
+  if (typeof pathname !== 'string' || !pathname.startsWith('/')) return false;
+  return !PRIVATE_ROUTE.test(pathname);
+}
+
 /** Origins gtag.js needs (Google's published CSP guidance for GA4), grouped by CSP directive. */
 export const GOOGLE_TAG_CSP_SOURCES = {
   scriptSrc: ['https://*.googletagmanager.com'],

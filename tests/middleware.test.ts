@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { NextRequest } from 'next/server';
 import { middleware } from '../middleware';
-import { gaMeasurementId, GOOGLE_TAG_CSP_SOURCES } from '../lib/analytics/ga-measurement-id';
+import { analyticsAllowedOnPath, gaMeasurementId, GOOGLE_TAG_CSP_SOURCES } from '../lib/analytics/ga-measurement-id';
 
 function sources(response: ReturnType<typeof middleware>, directive: string) {
   const policy = response.headers.get('Content-Security-Policy') || '';
@@ -77,13 +77,23 @@ describe('Google tag origins follow the analytics configuration', () => {
     expect(gaMeasurementId(env)).toBe(expected);
   });
 
-  it('renders no hard-coded measurement ID in the root layout', () => {
+  it('renders no hard-coded measurement ID in the root layout and loads the tag only through the route-aware component', () => {
     const layout = readFileSync(new URL('../app/layout.tsx', import.meta.url), 'utf8');
     expect(layout).not.toMatch(/['"`]G-[A-Z0-9]{4,}/);
     expect(layout).toContain('gaMeasurementId()');
-    expect(layout).toMatch(/\{measurementId && </);
-    // Both the script URL and the inline config use the validated value, never a literal.
-    expect(layout).toContain('gtag/js?id=${encodeURIComponent(measurementId)}');
-    expect(layout).toContain("gtag('config', ${JSON.stringify(measurementId)})");
+    expect(layout).toMatch(/\{measurementId && <GoogleTag measurementId=\{measurementId\} \/>\}/);
+    expect(layout).not.toContain('googletagmanager');
+    const tag = readFileSync(new URL('../components/analytics/google-tag.tsx', import.meta.url), 'utf8');
+    // Both the script URL and the inline config use the validated value, never a literal; automatic page views are off.
+    expect(tag).toContain('gtag/js?id=${encodeURIComponent(measurementId)}');
+    expect(tag).toContain("gtag('config', ${JSON.stringify(measurementId)}, { send_page_view: false");
+    expect(tag).toContain('if (!allowed) return null;');
+  });
+  it.each([
+    ['/', true], ['/blog/quarterly-taxes', true], ['/tools/1099-tax-calculator', true], ['/privacy', true], ['/resources/freelance-expense-reset', true],
+    ['/protected', false], ['/protected/settings', false], ['/auth/login', false], ['/login', false], ['/stripe/success', false], ['/onboarding', false],
+    ['/plaid/oauth', false], ['/api/tax/compute-1040', false], ['/protectedish', true], [null, false], ['relative', false],
+  ])('analytics on %s → %s', (pathname, expected) => {
+    expect(analyticsAllowedOnPath(pathname)).toBe(expected);
   });
 });
