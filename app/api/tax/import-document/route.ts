@@ -17,7 +17,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { adminDb } from '@/lib/firebase/admin';
-import { getOpenAIClientOrThrow } from '@/lib/openai/client';
+import { getOpenAIClientOrThrow, getOpenAIModel } from '@/lib/openai/client';
 
 // ── Extraction prompts per document type ─────────────────────────────────────
 
@@ -276,8 +276,9 @@ export async function POST(request: NextRequest) {
     // Call GPT-4o vision
     const openai = getOpenAIClientOrThrow();
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: getOpenAIModel('document'),
       max_tokens: 1500,
+      store: false,
       messages: [
         {
           role: 'user',
@@ -382,8 +383,7 @@ export async function POST(request: NextRequest) {
       saveResult,
       summary: buildSummary(extracted),
     });
-  } catch (err) {
-    console.error('[Document Import]', err);
+  } catch {
     return NextResponse.json({ error: 'Document processing failed' }, { status: 500 });
   }
 }

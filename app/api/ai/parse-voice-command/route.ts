@@ -3,13 +3,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import OpenAI from 'openai';
-
-function getOpenAIOrNull() {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return null;
-  return new OpenAI({ apiKey });
-}
+import { getOpenAIClientOrThrow, getOpenAIModel, hasOpenAIAPIKey } from '@/lib/openai/client';
 
 interface VoiceCommand {
   type: 'add_expense' | 'add_mileage' | 'question' | 'unknown';
@@ -29,8 +23,7 @@ export async function POST(request: NextRequest) {
   if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
-    const openai = getOpenAIOrNull();
-    if (!openai) {
+    if (!hasOpenAIAPIKey()) {
       return NextResponse.json(
         { error: 'OpenAI is not configured (missing OPENAI_API_KEY)' },
         { status: 500 }
@@ -42,8 +35,7 @@ export async function POST(request: NextRequest) {
     if (!text || typeof text !== 'string') {
       return NextResponse.json({ error: 'Text is required' }, { status: 400 });
     }
-
-    console.log('🎤 [Voice Command] Processing:', text);
+    const openai = getOpenAIClientOrThrow();
 
     const systemPrompt = `You are a voice command parser for a tax expense tracking app. Parse the user's spoken text into structured commands.
 
@@ -87,13 +79,14 @@ Examples:
 - "Hello there" → {"type": "unknown", "data": {}, "confidence": 0.1}`;
 
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: getOpenAIModel('voice'),
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: text }
       ],
       temperature: 0.1,
-      max_tokens: 200
+      max_tokens: 200,
+      store: false,
     });
 
     const responseText = completion.choices[0]?.message?.content;
@@ -105,10 +98,7 @@ Examples:
     let command: VoiceCommand;
     try {
       command = JSON.parse(responseText);
-    } catch (parseError) {
-      console.error('❌ [Voice Command] JSON parse error:', parseError);
-      console.error('❌ [Voice Command] Raw response:', responseText);
-      
+    } catch {
       // Fallback parsing
       command = {
         type: 'unknown',
@@ -126,19 +116,15 @@ Examples:
       };
     }
 
-    console.log('✅ [Voice Command] Parsed command:', command);
-
     return NextResponse.json({
       success: true,
       command
     });
 
-  } catch (error) {
-    console.error('❌ [Voice Command] Error:', error);
+  } catch {
     return NextResponse.json(
       { 
-        error: 'Failed to parse voice command',
-        details: error instanceof Error ? error.message : 'Unknown error'
+        error: 'Failed to parse voice command'
       },
       { status: 500 }
     );

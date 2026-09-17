@@ -1,18 +1,9 @@
-import OpenAI from 'openai';
 import { APIConnectionError } from 'openai/error';
+import { getOpenAIClientOrThrow } from '@/lib/openai/client';
 import { z } from 'zod';
 import { aiLearningEngine } from './learning-engine';
 import { getAIProviderStatus } from './provider-status';
 import { groundTransactionAnalysis, transactionTaxPolicyPrompt, TRANSACTION_EVIDENCE_IDS, TRANSACTION_KINDS, type TransactionTaxMetadata } from './transaction-tax-policy';
-
-function getOpenAIOrThrow() {
-  const apiKey = process.env.OPENAI_API_KEY?.trim();
-  if (!apiKey) {
-    throw new Error('OpenAI is not configured (missing OPENAI_API_KEY)');
-  }
-  // Retry policy is owned by analyzeTransactionWithRetry, not nested SDK retries.
-  return new OpenAI({ apiKey, timeout: 25_000, maxRetries: 0 });
-}
 
 const OutputSchema = z.object({
   status: z.enum(['ok', 'needs_more_info', 'blocked']),
@@ -573,7 +564,8 @@ Do not infer self-employment from a profession, a deduction from a merchant, or 
   };
 
   try {
-    const openai = getOpenAIOrThrow();
+    // Retry policy is owned by analyzeTransactionWithRetry, not nested SDK retries.
+    const openai = getOpenAIClientOrThrow({ timeout: 25_000, maxRetries: 0 });
     const completion = await openai.chat.completions.create({
       model: provider.model,
       store: false,
@@ -601,7 +593,7 @@ Do not infer self-employment from a profession, a deduction from a merchant, or 
       return analysisFailure('AI_INVALID_OUTPUT');
     }
 
-    const validated = parseProviderOutput(parsed, transaction, userContext, provider.model);
+    const validated = parseProviderOutput(parsed, transaction, userContext, completion.model?.trim() || provider.model);
     if (!validated) return analysisFailure('AI_INVALID_OUTPUT');
     return { success: true, result: validated };
   } catch (error) {

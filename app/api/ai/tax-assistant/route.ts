@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import OpenAI from 'openai';
+import { getOpenAIClientOrThrow, getOpenAIModel, hasOpenAIAPIKey } from '@/lib/openai/client';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { assistantRequestSchema, isSupportedImage, readAssistantBody } from '@/lib/tax-assistant/contract';
 import { buildGuidanceMessages, guidanceResponse, validateAssessment } from '@/lib/tax-assistant/guidance';
@@ -23,14 +23,14 @@ export async function POST(request: NextRequest) {
   if (input.imageDataUrl && !isSupportedImage(input.imageDataUrl)) {
     return NextResponse.json({ error: 'Attach a valid JPEG, PNG, or WebP photo under 2 MB.' }, { status: 400 });
   }
-  if (!process.env.OPENAI_API_KEY) {
+  if (!hasOpenAIAPIKey()) {
     return NextResponse.json({ error: 'The tax assistant is not configured yet. Your question has not been sent for analysis.' }, { status: 503 });
   }
 
   try {
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 45000, maxRetries: 0 });
+    const openai = getOpenAIClientOrThrow({ timeout: 45000, maxRetries: 0 });
     const completion = await openai.chat.completions.create({
-      model: process.env.OPENAI_MODEL || 'gpt-4o',
+      model: getOpenAIModel('assistant'),
       messages: buildGuidanceMessages(input),
       response_format: { type: 'json_object' },
       max_completion_tokens: 1800,

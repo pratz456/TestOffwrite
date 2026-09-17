@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { DocumentReference } from 'firebase-admin/firestore';
 import { adminDb } from '@/lib/firebase/admin';
 import type { OutputType } from './analyzeTransaction';
+import { getOpenAIModel } from '@/lib/openai/client';
 import { reviewCategory, type AiReviewSuggestion, type TransactionKind } from '@/lib/transactions/ai-review-contract';
 
 export const ANALYSIS_LEASE_MS = 240_000;
@@ -62,7 +63,8 @@ export async function claimAnalysisLease(ref: DocumentReference) {
 /** Only suggestions and workflow state; no user classification, category, amount, or reason fields. */
 export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), canonicalData?: Record<string, unknown>, profileHash?: string) {
   const evidence = result as OutputType & { transaction_kind?: TransactionKind; tax_year?: number | null;
-    policy_version?: string; sources?: AiReviewSuggestion['sources']; provenance?: unknown };
+    policy_version?: string; sources?: AiReviewSuggestion['sources'] };
+  const model = result.provenance?.model?.trim() || getOpenAIModel('transaction');
   const transactionKind = evidence.transaction_kind ?? (canonicalData && Number(canonicalData.amount) > 0 ?
     result.expense_type === 'personal' ? 'personal' : 'expense' : 'unknown');
   const suggestion: AiReviewSuggestion = {
@@ -71,7 +73,7 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), c
     reasoning: result.customized_reason ?? result.reasoning_summary ?? result.reason ?? '',
     questions: result.questions ?? [], documentationRequired: result.documentation_required ?? [],
     irsReferences: result.irs_refs ?? [], sources: evidence.sources ?? [], taxYear: evidence.tax_year ?? null,
-    policyVersion: evidence.policy_version ?? null, model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    policyVersion: evidence.policy_version ?? null, model,
     analyzedAt: now, inputHash: canonicalData ? analysisInputHash(canonicalData) : '',
     profileHash: profileHash ?? '',
     categoryReady: result.status !== 'blocked' || result.missing_fields?.some(field => ['supported_tax_year', 'entity_tax_treatment'].includes(field)) === true,
@@ -106,7 +108,7 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), c
     ai_audit_risk_rationale: result.audit_risk_rationale ?? null, ai_confidence: result.confidence ?? null,
     ai_missing_fields: result.missing_fields ?? [], ai_questions: suggestion.questions,
     ai_documentation_required: result.documentation_required ?? [], ai_reason_hash: result.reason_hash ?? null,
-    ai_model: process.env.OPENAI_MODEL || 'gpt-4o-mini', ai_last_analyzed_at: now,
+    ai_model: model, ai_last_analyzed_at: now,
     deductionStatus: label, confidence: result.confidence ?? null,
     reasoning: result.customized_reason ?? result.reasoning_summary ?? null,
     irsPublication: result.irs_refs?.[0] ?? null, irsSection: null,
@@ -118,7 +120,7 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), c
       irs_refs: result.irs_refs ?? [], audit_risk: result.audit_risk ?? null,
       deductible_percent: suggestion.deductiblePercent, questions: suggestion.questions,
       missing_fields: result.missing_fields ?? [], documentation_required: result.documentation_required ?? [],
-      model: process.env.OPENAI_MODEL || 'gpt-4o-mini', last_analyzed_at: now,
+      model, last_analyzed_at: now,
     },
     analyzed: true, analysis_status: 'completed', analysisStatus: 'completed', analysisErrorCode: null,
     analysisCompletedAt: new Date(now), analysisUpdatedAt: new Date(now).toISOString(),

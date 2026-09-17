@@ -35,12 +35,12 @@ interface UploadedFile {
   error?: string;
 }
 
-const SUPPORTED_PDF_TYPES = [
+const SUPPORTED_IMAGE_TYPES = [
   {
     icon: '🏦',
     title: 'Bank Statements',
     desc: 'Chase, Bank of America, Wells Fargo, etc.',
-    examples: 'Monthly or quarterly PDF statements',
+    examples: 'Clear PNG, JPEG, or WebP images',
     color: 'blue',
   },
   {
@@ -53,16 +53,9 @@ const SUPPORTED_PDF_TYPES = [
   {
     icon: '🧾',
     title: 'Receipts & Invoices',
-    desc: 'Photos or PDFs of business receipts',
+    desc: 'Clear photos of business receipts',
     examples: 'Restaurant, supplies, subscriptions',
     color: 'emerald',
-  },
-  {
-    icon: '📊',
-    title: 'Expense Reports',
-    desc: 'Spreadsheet exports or PDF summaries',
-    examples: 'Expense tracker exports',
-    color: 'orange',
   },
 ];
 
@@ -115,13 +108,13 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
 
   function handleFiles(files: FileList | File[]) {
     const arr = Array.from(files);
-    const valid = arr.filter(f =>
-      f.type.startsWith('image/') ||
-      f.type === 'application/pdf' ||
-      f.name.endsWith('.pdf')
-    );
-    if (valid.length === 0) return;
-    valid.forEach(uploadFile);
+    for (const file of arr) {
+      if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+        setUploadedFiles(prev => [...prev, { name: file.name, type: file.type, error: 'Use a PNG, JPEG, or WebP image. Export PDF pages as images before uploading.' }]);
+      } else {
+        void uploadFile(file);
+      }
+    }
   }
 
   const totalImported = uploadedFiles.reduce((sum, f) => sum + (f.result?.transactionsImported || 0), 0);
@@ -209,7 +202,7 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
               </div>
             </button>
 
-            {/* Option 2: Upload PDFs */}
+            {/* Option 2: Upload document images */}
             <button
               type="button"
               onClick={() => setSelected('upload')}
@@ -221,9 +214,9 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
                 </div>
                 <div className="flex-1 min-w-0">
                   <span className="text-sm font-semibold text-foreground block mb-0.5">Upload Bank Statements or Receipts</span>
-                  <p className="text-xs text-muted-foreground">Upload supported documents and review the extracted records. Manual entry is available if import cannot complete.</p>
+                  <p className="text-xs text-muted-foreground">Upload statement or receipt images with explicit USD currency and review the extracted records. Manual entry is available if import cannot complete.</p>
                   <div className="flex flex-wrap gap-1 mt-2">
-                    {['Bank statements', 'Credit card PDFs', 'Receipt photos', 'Expense reports'].map(t => (
+                    {['Bank statement images', 'Credit card images', 'Receipt photos'].map(t => (
                       <span key={t} className="text-xs bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 px-1.5 py-0.5 rounded text-emerald-700 dark:text-emerald-400">{t}</span>
                     ))}
                   </div>
@@ -311,7 +304,7 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
           </div>
         )}
 
-        {/* ── PDF UPLOAD DETAIL ── */}
+        {/* ── IMAGE UPLOAD DETAIL ── */}
         {selected === 'upload' && (
           <div className="space-y-4 py-2">
             <div className="text-center">
@@ -324,7 +317,7 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
 
             {/* What works */}
             <div className="grid grid-cols-2 gap-2">
-              {SUPPORTED_PDF_TYPES.map(item => (
+              {SUPPORTED_IMAGE_TYPES.map(item => (
                 <div key={item.title} className="rounded-xl border border-border bg-card p-3">
                   <div className="text-xl mb-1">{item.icon}</div>
                   <p className="text-xs font-semibold text-foreground">{item.title}</p>
@@ -348,7 +341,7 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
                 ref={fileInputRef}
                 type="file"
                 multiple
-                accept=".pdf,image/*"
+                accept="image/png,image/jpeg,image/webp"
                 className="hidden"
                 onChange={e => {
                   if (e.target.files) handleFiles(e.target.files);
@@ -366,7 +359,7 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
                     <Upload className="w-5 h-5 text-muted-foreground" />
                   </div>
                   <p className="text-sm font-medium text-foreground">Drop files here or tap to upload</p>
-                  <p className="text-xs text-muted-foreground">PDF, JPG, PNG  -  bank statements, credit card statements, receipts</p>
+                  <p className="text-xs text-muted-foreground">PNG, JPEG, WebP up to 10 MB — bank statements, credit cards, receipts with explicit USD currency</p>
                 </div>
               )}
             </div>

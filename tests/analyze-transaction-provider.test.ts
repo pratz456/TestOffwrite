@@ -98,6 +98,8 @@ describe('AI provider request and result contract', () => {
     expect(result.success).toBe(true);
     expect(mocks.construct).toHaveBeenCalledExactlyOnceWith({
       apiKey: 'synthetic-no-network-key', timeout: 25000, maxRetries: 0,
+      baseURL: 'https://api.openai.com/v1', organization: null, project: null,
+      dangerouslyAllowBrowser: false, logLevel: 'off',
     });
     const request = mocks.create.mock.calls[0][0];
     expect(request).toMatchObject({ model: 'gpt-4o-mini', store: false, response_format: { type: 'json_schema' } });
@@ -115,6 +117,16 @@ describe('AI provider request and result contract', () => {
       sources: [{ id: 'business-162', url: expect.stringContaining('uscode.house.gov'), edition: expect.any(String) }],
       provenance: { provider: 'openai', model: 'gpt-4o-mini', kind: 'model_with_curated_tax_policy' },
       reason_hash: expect.stringMatching(/^[a-f0-9]{16}$/),
+    } });
+  });
+
+  it('uses the trimmed configured model and records the model returned by the provider', async () => {
+    vi.stubEnv('OPENAI_MODEL', ' configured-model-alias ');
+    mocks.create.mockResolvedValue({ ...completion(), model: 'provider-model-snapshot' });
+    const result = await analyzeTransaction(transaction, context);
+    expect(mocks.create.mock.calls[0][0].model).toBe('configured-model-alias');
+    expect(result).toMatchObject({ success: true, result: {
+      provenance: { provider: 'openai', model: 'provider-model-snapshot', kind: 'model_with_curated_tax_policy' },
     } });
   });
 

@@ -39,7 +39,7 @@ vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collection: (name: string) =
     },
   };
 } } }));
-vi.mock('@/lib/openai/client', () => ({ getOpenAIClientOrThrow: () => ({ chat: { completions: { create: async () => ({ choices: [{ message: { content: JSON.stringify({ docType: 'platform_summary', taxYear: 2026, platform: 'Synthetic platform', grossEarnings: 100000, form1099KAmount: 100000, confidence: 1 }) } }] }) } } }) }));
+vi.mock('@/lib/openai/client', () => ({ getOpenAIModel: () => 'gpt-4o', getOpenAIClientOrThrow: () => ({ chat: { completions: { create: async () => ({ choices: [{ message: { content: JSON.stringify({ docType: 'platform_summary', taxYear: 2026, platform: 'Synthetic platform', grossEarnings: 100000, form1099KAmount: 100000, confidence: 1 }) } }] }) } } }) }));
 
 import { POST as saveW2 } from '../app/api/income/w2/route';
 import { GET as compute1040 } from '../app/api/tax/compute-1040/route';

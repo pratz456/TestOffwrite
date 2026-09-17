@@ -1,4 +1,4 @@
-import { getOpenAIClientOrThrow } from './client'
+import { getOpenAIClientOrThrow, getOpenAIModel } from './client'
 import { getTransactionsServer, updateTransactionServerWithUserId } from '../firebase/transactions-server'
 
 export type AIAnalysis = {
@@ -95,9 +95,10 @@ Transaction:
 }
 
 export async function analyzeTransaction(tx: any, userContext?: any): Promise<AIAnalysis> {
-
+  const model = getOpenAIModel('transaction');
   const res = await getOpenAIClientOrThrow().chat.completions.create({
-    model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    model,
+    store: false,
     temperature: 0,
     response_format: { type: 'json_object' },
     messages: [
@@ -144,7 +145,7 @@ export async function analyzeTransaction(tx: any, userContext?: any): Promise<AI
       reasoning_summary: typeof parsed.key_analysis_factors.reasoning_summary === 'string' ? parsed.key_analysis_factors.reasoning_summary : '',
       irs_reference: typeof parsed.key_analysis_factors.irs_reference === 'string' ? parsed.key_analysis_factors.irs_reference : '',
     } : undefined,
-    model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    model: res.model?.trim() || model,
   };
 
   // fallback for missing label: derive from score
@@ -201,9 +202,8 @@ export async function analyzeAllTransactions(userId: string) {
     }
 
     return { success: true, analyzed: successful, total: transactions.length }
-  } catch (error) {
-    console.error('Error analyzing all transactions:', error)
-    return { success: false, error }
+  } catch {
+    return { success: false, error: 'Transaction analysis could not be completed.' }
   }
 }
 
@@ -231,7 +231,8 @@ export async function generateTaxSummary(userId: string) {
     `
 
     const response = await getOpenAIClientOrThrow().chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: getOpenAIModel('transaction'),
+      store: false,
       messages: [
         {
           role: 'system',
@@ -252,8 +253,7 @@ export async function generateTaxSummary(userId: string) {
       totalDeductible,
       deductibleCount: deductibleTransactions.length,
     }
-  } catch (error) {
-    console.error('Error generating tax summary:', error)
-    return { success: false, error }
+  } catch {
+    return { success: false, error: 'Tax summary could not be generated.' }
   }
-} 
+}
