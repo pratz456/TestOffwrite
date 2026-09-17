@@ -15,7 +15,9 @@ vi.mock('@/lib/firebase/admin', () => {
     ...reference(),
     collectionGroup: () => {
       const query: any = { get: mocks.groupGet };
-      for (const method of ['where', 'limit', 'orderBy', 'startAfter']) query[method] = () => query;
+      for (const method of ['where', 'limit', 'orderBy', 'startAfter', 'select']) query[method] = () => query;
+      // Query.count(): the aggregate mirrors whatever the fake snapshot would return.
+      query.count = () => ({ get: async () => { const { size } = await mocks.groupGet(); return { data: () => ({ count: size }) }; } });
       return query;
     },
   } };
