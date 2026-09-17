@@ -28,7 +28,8 @@ import { ExportDataUnavailableError } from '@/lib/reports/export-records';
 import { getUserProfileServer } from '@/lib/firebase/profiles-server';
 import { getRecordedQuarterlyPayments, totalRecordedPayments } from '@/lib/firebase/quarterly-payments-server';
 import { getFederalTaxRules, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
-import { getAssetsSettings } from '@/lib/firebase/settings-server';
+import { getScheduleCSettings } from '@/lib/firebase/settings-server';
+import { scheduleCReviewCode } from '@/lib/tax-rules/schedule-c-profit';
 
 const PW = 612, PH = 792, ML = 36, MR = 576, MT = 756;
 const BLACK  = rgb(0, 0, 0);
@@ -279,7 +280,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `Supported tax years: ${SUPPORTED_TAX_YEARS.join(', ')}` }, { status: 400 });
     }
 
-    const [txResult, profileResult, grossSnap, income1099Snap, w2Snap, deductionsSnap, quarterlySnap, organizerSnap, assetsResult] = await Promise.all([
+    const [txResult, profileResult, grossSnap, income1099Snap, w2Snap, deductionsSnap, quarterlySnap, organizerSnap, settingsResult] = await Promise.all([
       readTaxExportTransactions(uid, taxYear),
       getUserProfileServer(uid),
       adminDb.collection('gross_receipts').where('userId', '==', uid).where('taxYear', '==', taxYear).get(),
@@ -288,12 +289,13 @@ export async function POST(request: NextRequest) {
       adminDb.collection('tax_deductions').where('userId', '==', uid).where('taxYear', '==', taxYear).limit(1).get(),
       getRecordedQuarterlyPayments(uid, taxYear),
       adminDb.collection('tax_organizers').where('userId', '==', uid).where('taxYear', '==', taxYear).limit(1).get(),
-      getAssetsSettings(uid),
+      getScheduleCSettings(uid),
     ]);
 
-    if (profileResult.error || assetsResult.error) {
+    if (profileResult.error || settingsResult.error || !settingsResult.data) {
       return NextResponse.json({ error: 'Could not load the information needed for this calculation. Please retry.' }, { status: 503 });
     }
+    const settings = settingsResult.data;
     const transactions = txResult;
     const profile = (profileResult.data || {}) as Record<string, any>;
     const ded = deductionsSnap.empty ? {} as Record<string, any> : deductionsSnap.docs[0].data();
@@ -336,7 +338,8 @@ export async function POST(request: NextRequest) {
       taxYear, transactions, profile, organizer: org, deductions: ded,
       grossReceipts: grossSnap.docs.map(d => ({ ...d.data(), id: d.id })),
       forms1099: income1099Snap.docs.map(d => ({ ...d.data(), id: d.id })),
-      w2Entries: w2Snap.docs.map(d => d.data()), assets: assetsResult.data || [],
+      w2Entries: w2Snap.docs.map(d => d.data()),
+      assets: settings.assets, homeOffice: settings.homeOffice, depreciationElections: settings.depreciationElections,
       estimatedPayments: totalRecordedPayments(quarterlySnap),
     });
     const { result } = snapshot;
@@ -351,7 +354,8 @@ export async function POST(request: NextRequest) {
     const displayData: Record<string, any> = {
       ...result, ...snapshot.income,
       socialSecurityLivedApartAllYear: snapshot.socialSecurityWorksheet?.livedApartAllYear,
-      schedule1Income: Math.max(0, snapshot.income.scheduleCNetProfit - snapshot.depreciationDeduction) + snapshot.income.rental + snapshot.income.otherOrdinaryIncome,
+      // Schedule C line 31 after de minimis items, Form 4562 depreciation and the line 30 home office amount.
+      schedule1Income: Math.max(0, snapshot.income.scheduleCLine31NetProfit) + snapshot.income.rental + snapshot.income.otherOrdinaryIncome,
       w2FederalWithheld: snapshot.w2.withheld, w2StateWithheld: snapshot.w2.stateWithheld, estimatedPayments: snapshot.payments.estimatedPayments,
     };
 
@@ -393,7 +397,8 @@ export async function POST(request: NextRequest) {
     });
   } catch (err) {
     if (err instanceof ExportReviewRequiredError || err instanceof IncomeReconciliationRequiredError || err instanceof FilingStatusReviewRequiredError || err instanceof SocialSecurityReviewRequiredError || err instanceof PersonalDeductionReviewRequiredError || err instanceof DependentCreditReviewRequiredError) return NextResponse.json({ error: err.message, code: err.code }, { status: 422 });
-    if (err && typeof err === 'object' && 'code' in err && err.code === 'DEPRECIATION_REVIEW_REQUIRED') return NextResponse.json({ error: err instanceof Error ? err.message : 'Asset depreciation needs review', code: err.code }, { status: 422 });
+    const reviewCode = scheduleCReviewCode(err);
+    if (reviewCode) return NextResponse.json({ error: err instanceof Error ? err.message : 'Schedule C records need review', code: reviewCode }, { status: 422 });
     if (err instanceof ExportDataUnavailableError) return NextResponse.json({ error: err.message, code: err.code }, { status: 503 });
     console.error('[1040 Export]', err);
     return NextResponse.json({ error: 'Failed to generate Form 1040' }, { status: 500 });

@@ -21,9 +21,10 @@ import { ExportReviewRequiredError } from '@/lib/reports/transaction-export';
 import { getUserProfileServer } from '@/lib/firebase/profiles-server';
 import { adminDb } from '@/lib/firebase/admin';
 import { calculateStateTax, STATE_TAX_CONFIG } from '@/lib/tax/state-tax-data';
-import { getAssetsSettings } from '@/lib/firebase/settings-server';
+import { getScheduleCSettings } from '@/lib/firebase/settings-server';
 import { describeUnsupportedTaxYear, getFederalTaxRules, SUPPORTED_TAX_YEARS, TAX_YEAR_2027_STATUS } from '@/lib/tax-rules/federal-year-rules';
 import { getRecordedQuarterlyPayments, totalRecordedPayments } from '@/lib/firebase/quarterly-payments-server';
+import { scheduleCReviewCode } from '@/lib/tax-rules/schedule-c-profit';
 
 export async function GET(request: NextRequest) {
   const { user, error } = await getAuthenticatedUser(request);
@@ -52,7 +53,7 @@ export async function GET(request: NextRequest) {
     deductionsSnap,
     quarterlySnap,
     organizerSnap,
-    assetsResult,
+    settingsResult,
   ] = await Promise.all([
     readTaxExportTransactions(user.uid, year),
     getUserProfileServer(user.uid),
@@ -62,13 +63,14 @@ export async function GET(request: NextRequest) {
     adminDb.collection('tax_deductions').where('userId', '==', user.uid).where('taxYear', '==', year).limit(1).get(),
     getRecordedQuarterlyPayments(user.uid, year),
     adminDb.collection('tax_organizers').where('userId', '==', user.uid).where('taxYear', '==', year).limit(1).get(),
-    getAssetsSettings(user.uid),
+    getScheduleCSettings(user.uid),
   ]);
 
-  if (profileResult.error || assetsResult.error) {
+  if (profileResult.error || settingsResult.error || !settingsResult.data) {
     return NextResponse.json({ error: 'Could not load the information needed for this calculation. Please retry.' }, { status: 503 });
   }
   const profile = (profileResult.data || {}) as any;
+  const settings = settingsResult.data;
 
   const snapshot = buildFederalTaxSnapshot({
     taxYear: year, transactions, profile,
@@ -77,7 +79,8 @@ export async function GET(request: NextRequest) {
     w2Entries: w2Snap.docs.map(d => d.data()),
     organizer: organizerSnap.empty ? {} : organizerSnap.docs[0].data(),
     deductions: deductionsSnap.empty ? {} : deductionsSnap.docs[0].data(),
-    assets: assetsResult.data || [], estimatedPayments: totalRecordedPayments(quarterlySnap),
+    assets: settings.assets, homeOffice: settings.homeOffice, depreciationElections: settings.depreciationElections,
+    estimatedPayments: totalRecordedPayments(quarterlySnap),
   });
   const { result, filingStatus } = snapshot;
 
@@ -107,7 +110,12 @@ export async function GET(request: NextRequest) {
     totalTax: result.totalTax,
     agi: result.agi,
     effectiveRate: result.effectiveRate,
-    depreciation: { totalDepreciation: snapshot.depreciationDeduction, assetCount: assetsResult.data?.length || 0 },
+    depreciation: {
+      totalDepreciation: snapshot.depreciationDeduction, assetCount: settings.assets.length,
+      deMinimisExpense: snapshot.deMinimisExpense, section179: snapshot.scheduleC.assetCalculation?.section179 ?? null,
+    },
+    // Schedule C line 30 planning worksheet (Rev. Proc. 2013-13); null when no home office is claimed.
+    homeOffice: { deduction: snapshot.homeOfficeDeduction, worksheet: snapshot.scheduleC.homeOffice.calculation },
     stateTax: stateTaxResult ? {
       state: userState,
       stateName: stateConfig?.name || userState,
@@ -124,9 +132,8 @@ export async function GET(request: NextRequest) {
   }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (error) {
     if (error instanceof ExportReviewRequiredError || error instanceof IncomeReconciliationRequiredError || error instanceof FilingStatusReviewRequiredError || error instanceof SocialSecurityReviewRequiredError || error instanceof PersonalDeductionReviewRequiredError || error instanceof DependentCreditReviewRequiredError) return NextResponse.json({ error: error.message, code: error.code }, { status: 422 });
-    if (error && typeof error === 'object' && 'code' in error && error.code === 'DEPRECIATION_REVIEW_REQUIRED') {
-      return NextResponse.json({ error: error instanceof Error ? error.message : 'Asset depreciation needs review', code: error.code }, { status: 422 });
-    }
+    const reviewCode = scheduleCReviewCode(error);
+    if (reviewCode) return NextResponse.json({ error: error instanceof Error ? error.message : 'Schedule C records need review', code: reviewCode }, { status: 422 });
     return NextResponse.json({ error: 'Could not complete the tax calculation. Please retry.' }, { status: 503 });
   }
 }
