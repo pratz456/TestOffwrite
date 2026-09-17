@@ -17,6 +17,7 @@ vi.mock('@/lib/firebase/profiles-server', () => ({ getUserProfileServer: mock.ta
 import { POST as exportForms } from '@/app/api/reports/export/route';
 import { POST as reportPDF } from '@/app/api/reports/generate-pdf/route';
 import { GET as profitLossPDF, POST as profitLoss } from '@/app/api/reports/profit-loss/route';
+import { GET as auditSupportPDF } from '@/app/api/reports/audit-support/route';
 import { GET as transactionsCSV } from '@/app/api/transactions/export-csv/route';
 import { POST as scheduleC } from '@/app/api/tax/schedule-c/export/route';
 import { POST as form1040 } from '@/app/api/tax/form-1040/route';
@@ -30,6 +31,7 @@ const routes = [
   { name: 'reports/generate-pdf', handler: reportPDF, method: 'POST', allowedStatus: 400 },
   { name: 'reports/profit-loss', handler: profitLoss, method: 'POST', allowedStatus: 200, feature: 'reports' },
   { name: 'reports/profit-loss?format=pdf&year=2026', handler: profitLossPDF, method: 'GET', allowedStatus: 200 },
+  { name: 'reports/audit-support?format=pdf&year=2026', handler: auditSupportPDF, method: 'GET', allowedStatus: 200, feature: 'reports' },
   { name: 'transactions/export-csv?year=2026', handler: transactionsCSV, method: 'GET', allowedStatus: 200 },
   { name: 'tax/schedule-c/export', handler: scheduleC, method: 'POST', allowedStatus: 400 },
   { name: 'tax/form-1040', handler: form1040, method: 'POST', allowedStatus: 400 },
@@ -81,6 +83,6 @@ describe.each(routes)('$method /api/$name feature boundary', (route) => {
     expect(mock.lookup).toHaveBeenCalledWith('user_profiles/u1');
     if (response.status === 400) expect(await response.text()).not.toContain('SUBSCRIPTION_REQUIRED');
     if (route.handler === transactionsCSV) expect(response.headers.get('content-type')).toContain('text/csv');
-    if (route.handler === profitLossPDF) expect(response.headers.get('content-type')).toContain('application/pdf');
+    if (route.handler === profitLossPDF || route.handler === auditSupportPDF) expect(response.headers.get('content-type')).toContain('application/pdf');
   });
 });
