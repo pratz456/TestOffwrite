@@ -2,8 +2,9 @@
 export const PREMIUM_FEATURES = ['reports', 'exports', 'extended_history'] as const;
 export type PremiumFeature = typeof PREMIUM_FEATURES[number];
 export type SubscriptionStatus = 'trial' | 'active' | 'expired' | 'none';
+export type PaidSubscriptionPlan = 'basic' | 'premium';
 export interface Entitlements {
-  plan: 'free' | 'trial' | 'premium';
+  plan: 'free' | 'trial' | PaidSubscriptionPlan;
   status: SubscriptionStatus;
   reason: 'free' | 'trial_active' | 'paid_active' | 'trial_expired' | 'subscription_expired' | 'payment_required' | 'invalid_subscription';
   hasAccess: boolean;
@@ -32,6 +33,7 @@ export function evaluateEntitlements(profile: Record<string, unknown> | null | u
   const subscriptionEnd = subscriptionDate(data.subscriptionEnd);
   const stripeStatus = typeof data.stripeSubscriptionStatus === 'string' && data.stripeSubscriptionStatus ? data.stripeSubscriptionStatus : undefined;
   const hasStripeSubscription = typeof data.stripeSubscriptionId === 'string' && data.stripeSubscriptionId.length > 0;
+  const paidPlan = data.subscriptionPlan === 'basic' || data.subscriptionPlan === 'premium' ? data.subscriptionPlan : null;
   let reason: Entitlements['reason'] = 'free';
   let plan: Entitlements['plan'] = 'free';
   let status: SubscriptionStatus = data.subscriptionStatus === 'expired' ? 'expired' : 'none';
@@ -42,9 +44,10 @@ export function evaluateEntitlements(profile: Record<string, unknown> | null | u
   } else if (stripeStatus === 'active' || data.subscriptionStatus === 'active') {
     status = 'expired';
     reason = 'invalid_subscription';
-    if (hasStripeSubscription && stripeStatus === 'active' && subscriptionEnd) {
+    // Older profiles need a fresh Stripe reconciliation before their paid tier is known.
+    if (hasStripeSubscription && stripeStatus === 'active' && subscriptionEnd && paidPlan) {
       reason = subscriptionEnd > now ? 'paid_active' : 'subscription_expired';
-      if (subscriptionEnd > now) { plan = 'premium'; status = 'active'; }
+      if (subscriptionEnd > now) { plan = paidPlan; status = 'active'; }
     }
   } else if (stripeStatus === 'trialing' || data.subscriptionStatus === 'trial') {
     status = 'expired';
@@ -57,8 +60,9 @@ export function evaluateEntitlements(profile: Record<string, unknown> | null | u
     reason = 'invalid_subscription';
   }
   const hasAccess = plan !== 'free';
-  return { plan, status, reason, hasAccess, isTrial: plan === 'trial', isPaid: plan === 'premium',
-    features: { reports: hasAccess, exports: hasAccess, extended_history: hasAccess }, trialStart, trialEnd, subscriptionEnd };
+  const fullAccess = plan === 'trial' || plan === 'premium';
+  return { plan, status, reason, hasAccess, isTrial: plan === 'trial', isPaid: plan === 'premium' || plan === 'basic',
+    features: { reports: fullAccess, exports: fullAccess, extended_history: hasAccess }, trialStart, trialEnd, subscriptionEnd };
 }
 
 /** A trial can be claimed once, even after cancellation or a failed payment. */

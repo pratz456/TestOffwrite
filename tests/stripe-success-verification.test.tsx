@@ -15,18 +15,19 @@ vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: mocks.re
 import StripeSuccessPage from '../app/stripe/success/page';
 
 const future = '2099-01-01T00:00:00.000Z';
-function response(plan: 'premium' | 'trial' | 'free' = 'premium') {
-  const paid = plan === 'premium';
+function response(plan: 'premium' | 'basic' | 'trial' | 'free' = 'premium') {
+  const paid = plan === 'premium' || plan === 'basic';
   const trial = plan === 'trial';
+  const fullAccess = plan === 'premium' || trial;
   return { success: true, data: {
     hasAccess: paid || trial, isPaid: paid, isTrial: trial,
     subscriptionEnd: paid ? future : null, trialEnd: trial ? future : null,
     entitlements: { plan, hasAccess: paid || trial, isPaid: paid, isTrial: trial,
       status: paid ? 'active' : trial ? 'trial' : 'expired', reason: 'test',
-      features: { reports: paid || trial, exports: paid || trial, extended_history: paid || trial },
+      features: { reports: fullAccess, exports: fullAccess, extended_history: paid || trial },
       subscriptionEnd: paid ? future : null, trialEnd: trial ? future : null },
-    subscription: paid ? { id: 'sub_synthetic', status: 'active', currentPeriodStart: null, currentPeriodEnd: future,
-      cancelAtPeriodEnd: false, canceledAt: null, planInterval: 'month', planAmount: 14.99, planCurrency: 'usd' } : null,
+    subscription: paid ? { id: 'sub_synthetic', plan, status: 'active', currentPeriodStart: null, currentPeriodEnd: future,
+      cancelAtPeriodEnd: false, canceledAt: null, planInterval: 'month', planAmount: plan === 'basic' ? 7.99 : 14.99, planCurrency: 'usd' } : null,
   } };
 }
 const render = () => renderToStaticMarkup(<StripeSuccessPage />);
@@ -43,6 +44,42 @@ beforeEach(() => {
 });
 
 describe('Checkout return verifies server paid status', () => {
+  it('confirms verified Basic history access without claiming Premium reports or exports', () => {
+    mocks.query.data = parseSubscriptionStatus(response('basic'));
+    const html = render();
+    expect(html).toContain('Basic is active');
+    expect(html).toContain('Extended bank history is included');
+    expect(html).toContain('Reports and exports require Premium');
+    expect(html).toContain('View transactions');
+    expect(html).not.toContain('Premium is active');
+    expect(html).not.toContain('Reports and exports are available');
+  });
+
+  it.each(['history-locked', 'expired', 'unpaid', 'stale'] as const)('withholds Basic activation for %s state', state => {
+    const status = parseSubscriptionStatus(response('basic'));
+    if (state === 'history-locked') status.entitlements.features.extended_history = false;
+    if (state === 'expired') status.entitlements.subscriptionEnd = new Date(0);
+    if (state === 'unpaid') status.subscription!.status = 'past_due';
+    if (state === 'stale') mocks.query.isFetchedAfterMount = false;
+    mocks.query.data = status;
+    expect(render()).not.toContain('Basic is active');
+    expect(render()).not.toContain('Extended bank history is included');
+  });
+
+  it('keeps Basic active through a scheduled cancellation without expanding its features', () => {
+    mocks.query.data = parseSubscriptionStatus(response('basic')); mocks.query.data.cancelAtPeriodEnd = true;
+    const html = render();
+    expect(html).toContain('Basic is active');
+    expect(html).toContain('through the end of your billing period');
+    expect(html).toContain('Reports and exports require Premium');
+  });
+
+  it('does not announce reports and exports when a paid Premium response lacks export access', () => {
+    mocks.query.data = parseSubscriptionStatus(response()); mocks.query.data.entitlements.features.exports = false;
+    expect(render()).toContain('Confirmation is pending');
+    expect(render()).not.toContain('Reports and exports are available');
+  });
+
   it('requests fresh authenticated server state and scopes it to the signed-in account', async () => {
     render();
     const options = mocks.useQuery.mock.calls[0][0];

@@ -16,7 +16,7 @@ const accessSchema = z.object({
   daysRemaining: z.number().finite().optional(),
   subscriptionStatus: z.enum(['trial', 'active', 'expired', 'none']).optional(),
   entitlements: z.object({
-    plan: z.enum(['free', 'trial', 'premium']),
+    plan: z.enum(['free', 'trial', 'basic', 'premium']),
     features: z.object({ reports: z.boolean(), exports: z.boolean(), extended_history: z.boolean() }),
     reason: z.string(),
     status: z.enum(['trial', 'active', 'expired', 'none']),
@@ -28,6 +28,7 @@ const accessSchema = z.object({
   }),
   subscription: z.object({
     id: z.string(),
+    plan: z.enum(['basic', 'premium']).nullish(),
     status: z.string(),
     currentPeriodStart: nullableDate,
     currentPeriodEnd: nullableDate,

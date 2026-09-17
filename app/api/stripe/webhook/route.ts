@@ -21,10 +21,10 @@ export async function POST(req: Request) {
       const payload = event.data.object as Stripe.Subscription;
       subscriptionId = payload.id;
       if (event.type === 'customer.subscription.deleted') deleted = payload;
-    } else if (['checkout.session.completed', 'checkout.session.async_payment_succeeded'].includes(event.type)) {
+    } else if (['checkout.session.completed', 'checkout.session.async_payment_succeeded', 'checkout.session.async_payment_failed'].includes(event.type)) {
       const session = event.data.object as Stripe.Checkout.Session;
       if (session.mode === 'subscription') subscriptionId = typeof session.subscription === 'string' ? session.subscription : session.subscription?.id ?? null;
-    } else if (['invoice.payment_succeeded', 'invoice.payment_failed'].includes(event.type)) {
+    } else if (['invoice.paid', 'invoice.payment_succeeded', 'invoice.payment_failed', 'invoice.voided', 'invoice.marked_uncollectible'].includes(event.type)) {
       const invoice = event.data.object as Stripe.Invoice;
       const linked = invoice.parent?.subscription_details?.subscription;
       subscriptionId = typeof linked === 'string' ? linked : linked?.id ?? null;

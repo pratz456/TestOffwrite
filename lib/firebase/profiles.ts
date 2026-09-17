@@ -104,6 +104,7 @@ export interface UserProfile {
   stripeCustomerId?: string;
   stripeSubscriptionId?: string;
   stripeSubscriptionStatus?: string; // Stripe's subscription status (only set when paid)
+  subscriptionPlan?: 'basic' | 'premium' | null; // Verified by server from the configured Stripe price.
 
   // Tax filing partner integration (external providers).
 }

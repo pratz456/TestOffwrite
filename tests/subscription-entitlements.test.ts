@@ -17,12 +17,12 @@ vi.mock('@/lib/firebase/admin', () => {
 });
 import { startFreeTrial } from '@/lib/subscriptions/trial-manager';
 import { requireFeatureAccess } from '@/lib/subscriptions/feature-access';
-import { subscriptionProfileUpdate, assertSubscriptionOwner, syncSubscriptionForUser, reconcileUserSubscription, getSubscriptionSyncRevision } from '@/lib/stripe/subscription-sync';
+import { subscriptionProfileUpdate, subscriptionDetails, subscriptionPlanForPrice, configuredPriceIds, assertSubscriptionOwner, syncSubscriptionForUser, reconcileUserSubscription, getSubscriptionSyncRevision } from '@/lib/stripe/subscription-sync';
 
 const now = new Date('2026-09-15T12:00:00Z');
 const past = new Date('2026-09-01T12:00:00Z');
 const future = new Date('2026-10-01T12:00:00Z');
-const paid = { subscriptionStatus: 'active', stripeSubscriptionStatus: 'active', stripeSubscriptionId: 'sub_1', subscriptionEnd: future };
+const paid = { subscriptionStatus: 'active', subscriptionPlan: 'premium', stripeSubscriptionStatus: 'active', stripeSubscriptionId: 'sub_1', subscriptionEnd: future };
 const trial = { subscriptionStatus: 'trial', trialStart: past, trialEnd: future };
 function subscription(status: string = 'active', id = 'sub_1'): Stripe.Subscription {
   return { id, status, customer: 'cus_1', metadata: { firebase_uid: 'u1' }, trial_start: past.getTime() / 1000, trial_end: future.getTime() / 1000,
@@ -32,6 +32,24 @@ beforeEach(() => { documents.clear(); writes.mockClear(); unavailable.value = fa
 afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); });
 
 describe('shared trusted subscription policy', () => {
+  it('does not infer Premium from an old paid record without a verified price tier', () => {
+    expect(evaluateEntitlements({ ...paid, subscriptionPlan: undefined }, now)).toMatchObject({
+      plan: 'free', isPaid: false, reason: 'invalid_subscription', features: { reports: false, exports: false, extended_history: false },
+    });
+  });
+  it.each([false, true])('retains Basic history but not reports or exports with cancellation scheduled=%s', cancelAtPeriodEnd => {
+    const basic = { ...paid, subscriptionPlan: 'basic', cancelAtPeriodEnd };
+    expect(evaluateEntitlements(basic, now)).toMatchObject({ plan: 'basic', status: 'active', isPaid: true, hasAccess: true,
+      features: { reports: false, exports: false, extended_history: true } });
+    expect(transactionHistoryWindow(basic, now).days).toBe(730);
+    expect(evaluateEntitlements(basic, future).hasAccess).toBe(false);
+    expect(transactionHistoryWindow(basic, future).days).toBe(90);
+  });
+  it.each(['canceled', 'past_due', 'unpaid', 'paused'])('revokes Basic features on %s before period end', stripeSubscriptionStatus => {
+    expect(evaluateEntitlements({ ...paid, subscriptionPlan: 'basic', stripeSubscriptionStatus }, now)).toMatchObject({
+      plan: 'free', isPaid: false, features: { reports: false, exports: false, extended_history: false },
+    });
+  });
   it.each([{}, null, { hasHistoricalAccess: true }, { subscriptionStatus: 'starter' }, { subscriptionStatus: 'active' }, { ...paid, subscriptionEnd: undefined }, { ...paid, subscriptionEnd: 'invalid' }, { ...paid, stripeSubscriptionId: undefined }])('fails closed on absent, forged booleans, and malformed profiles %j', (profile) => {
     expect(evaluateEntitlements(profile, now).hasAccess).toBe(false);
   });
@@ -87,6 +105,62 @@ describe('server feature enforcement', () => {
 });
 
 describe('Stripe lifecycle persistence', () => {
+  it.each([null, 'in_unexpanded', { status: 'open' }, { status: 'draft' }, { status: 'void' }, { status: 'uncollectible' }])(
+    'does not grant an active bank-capable subscription before confirmed payment: %j', invoice => {
+      const bank = subscription();
+      bank.metadata.payment_policy = 'settled_invoice';
+      bank.latest_invoice = invoice as Stripe.Subscription['latest_invoice'];
+      const update = subscriptionProfileUpdate(bank, now);
+      expect(evaluateEntitlements(update, now).isPaid).toBe(false);
+      expect(update.hasHistoricalAccess).toBe(false);
+      expect(subscriptionDetails(bank)?.status).not.toBe('active');
+    },
+  );
+  it('grants after settlement and revokes after a failed asynchronous renewal', async () => {
+    documents.set('user_profiles/u1', { stripeCustomerId: 'cus_1' });
+    const bank = subscription();
+    bank.metadata.payment_policy = 'settled_invoice';
+    bank.latest_invoice = { status: 'paid' } as Stripe.Invoice;
+    const retrieve = vi.fn().mockResolvedValue(bank);
+    const stripe = { subscriptions: { retrieve, list: vi.fn().mockResolvedValue({ data: [bank] }) } } as unknown as Stripe;
+    await reconcileUserSubscription('u1', stripe);
+    expect(evaluateEntitlements(documents.get('user_profiles/u1'), now).isPaid).toBe(true);
+    bank.latest_invoice = { status: 'void' } as Stripe.Invoice;
+    await reconcileUserSubscription('u1', stripe);
+    expect(retrieve).toHaveBeenLastCalledWith('sub_1', { expand: ['latest_invoice'] });
+    expect(evaluateEntitlements(documents.get('user_profiles/u1'), now).isPaid).toBe(false);
+  });
+  it.each(['STRIPE_PRICE_ID_BASIC_MONTHLY', 'NEXT_PUBLIC_STRIPE_PRICE_ID_BASIC_MONTHLY', 'STRIPE_PRICE_ID_BASIC_YEARLY',
+    'NEXT_PUBLIC_STRIPE_PRICE_ID_BASIC_YEARLY', 'STRIPE_PRICE_ID_BASIC', 'NEXT_PUBLIC_STRIPE_PRICE_ID_BASIC'])(
+    'recognizes %s as Basic without promoting it to Premium', alias => {
+      vi.stubEnv(alias, 'price_basic');
+      const basic = subscription(); basic.items.data[0].price.id = 'price_basic';
+      const update = subscriptionProfileUpdate(basic, now);
+      expect(configuredPriceIds()).toContain('price_basic');
+      expect(subscriptionPlanForPrice('price_month')).toBe('premium');
+      expect(update).toMatchObject({ subscriptionPlan: 'basic', stripeSubscriptionStatus: 'active', subscriptionStatus: 'active',
+        subscriptionEnd: future, hasHistoricalAccess: true });
+      expect(evaluateEntitlements(update, now).features).toEqual({ reports: false, exports: false, extended_history: true });
+    },
+  );
+  it('keeps an ambiguous Basic/Premium alias at Basic and preserves the provider price', () => {
+    vi.stubEnv('STRIPE_PRICE_ID_BASIC_MONTHLY', 'price_month');
+    expect(subscriptionPlanForPrice('price_month')).toBe('basic');
+    const basic = subscription(); basic.items.data[0].price.unit_amount = 799; basic.items.data[0].price.currency = 'usd';
+    expect(subscriptionDetails(basic)).toMatchObject({ plan: 'basic', planAmount: 7.99, planCurrency: 'usd' });
+  });
+  it.each(['unverified', 'unsupported_product'])('recovers an active Basic subscriber from %s to its distinct server-verified tier', async previous => {
+    vi.stubEnv('STRIPE_PRICE_ID_BASIC_MONTHLY', 'price_basic');
+    documents.set('user_profiles/u1', { ...paid, stripeCustomerId: 'cus_1', subscriptionPlan: undefined,
+      ...(previous === 'unsupported_product' ? { subscriptionStatus: 'expired', stripeSubscriptionStatus: 'unsupported_product', subscriptionEnd: null } : {}) });
+    const basic = subscription(); basic.items.data[0].price.id = 'price_basic'; basic.cancel_at_period_end = true;
+    const stripe = { subscriptions: { retrieve: vi.fn().mockResolvedValue(basic), list: vi.fn() } } as unknown as Stripe;
+    await reconcileUserSubscription('u1', stripe);
+    expect(evaluateEntitlements(documents.get('user_profiles/u1'), now)).toMatchObject({ plan: 'basic', isPaid: true,
+      features: { reports: false, exports: false, extended_history: true } });
+    expect(subscriptionDetails(basic)).toMatchObject({ plan: 'basic', cancelAtPeriodEnd: true, currentPeriodEnd: future });
+    expect(stripe.subscriptions.list).not.toHaveBeenCalled();
+  });
   it('accepts configured products only and includes Stripe trial dates', () => {
     expect(subscriptionProfileUpdate(subscription('active')).hasHistoricalAccess).toBe(true);
     expect(subscriptionProfileUpdate(subscription('trialing'))).toMatchObject({ subscriptionStatus: 'trial', trialStart: past, trialEnd: future, hasHistoricalAccess: true });

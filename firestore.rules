@@ -100,7 +100,7 @@ service cloud.firestore {
                     && !request.resource.data.keys().hasAny([
                          'hasHistoricalAccess', 'subscriptionStatus', 'trialStart', 'trialEnd',
                          'subscriptionEnd', 'stripeCustomerId', 'stripeSubscriptionId',
-                         'stripeSubscriptionStatus'
+                         'stripeSubscriptionStatus', 'subscriptionPlan'
                        ]);
 
       // Allow the user to update their own profile doc, but restrict subscription fields
@@ -116,7 +116,7 @@ service cloud.firestore {
                          'subscriptionEnd', // Stripe subscription period end
                          'stripeCustomerId',
                          'stripeSubscriptionId',
-                         'stripeSubscriptionStatus'
+                         'stripeSubscriptionStatus', 'subscriptionPlan'
                        ]);
 
       // No client deletes

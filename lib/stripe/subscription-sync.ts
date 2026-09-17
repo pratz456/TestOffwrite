@@ -1,32 +1,64 @@
 import Stripe from 'stripe';
 import { adminDb } from '@/lib/firebase/admin';
-import { evaluateEntitlements } from '@/lib/subscriptions/entitlements';
+import { evaluateEntitlements, type PaidSubscriptionPlan } from '@/lib/subscriptions/entitlements';
 
 export function getStripeClient(): Stripe | null {
   const key = process.env.STRIPE_SECRET_KEY;
   return key ? new Stripe(key, { apiVersion: '2025-10-29.clover', timeout: 15000, maxNetworkRetries: 1 }) : null;
 }
 
-export function configuredPriceIds(): string[] {
-  return [...new Set([process.env.STRIPE_PRICE_ID_MONTHLY, process.env.NEXT_PUBLIC_STRIPE_PRICE_ID_MONTHLY,
+function premiumPriceIds(): string[] {
+  return [process.env.STRIPE_PRICE_ID_MONTHLY, process.env.NEXT_PUBLIC_STRIPE_PRICE_ID_MONTHLY,
     process.env.STRIPE_PRICE_ID_YEARLY, process.env.NEXT_PUBLIC_STRIPE_PRICE_ID_YEARLY,
-    process.env.STRIPE_PRICE_ID, process.env.NEXT_PUBLIC_STRIPE_PRICE_ID].filter((id): id is string => Boolean(id)))];
+    process.env.STRIPE_PRICE_ID, process.env.NEXT_PUBLIC_STRIPE_PRICE_ID].filter((id): id is string => Boolean(id));
+}
+
+function basicPriceIds(): string[] {
+  return [process.env.STRIPE_PRICE_ID_BASIC_MONTHLY, process.env.NEXT_PUBLIC_STRIPE_PRICE_ID_BASIC_MONTHLY,
+    process.env.STRIPE_PRICE_ID_BASIC_YEARLY, process.env.NEXT_PUBLIC_STRIPE_PRICE_ID_BASIC_YEARLY,
+    process.env.STRIPE_PRICE_ID_BASIC, process.env.NEXT_PUBLIC_STRIPE_PRICE_ID_BASIC].filter((id): id is string => Boolean(id));
+}
+
+export function configuredPriceIds(): string[] {
+  return [...new Set([...premiumPriceIds(), ...basicPriceIds()])];
+}
+
+export function subscriptionPlanForPrice(priceId: string): PaidSubscriptionPlan | null {
+  // A conflicting alias must not promote a legacy Basic price to Premium.
+  if (basicPriceIds().includes(priceId)) return 'basic';
+  return premiumPriceIds().includes(priceId) ? 'premium' : null;
+}
+
+function subscriptionItem(subscription: Stripe.Subscription) {
+  return subscription.items.data.find(item => subscriptionPlanForPrice(item.price.id) === 'premium')
+    ?? subscription.items.data.find(item => subscriptionPlanForPrice(item.price.id) === 'basic');
 }
 
 export function customerIdFor(subscription: Stripe.Subscription): string {
   return typeof subscription.customer === 'string' ? subscription.customer : subscription.customer.id;
 }
 
+/** ACH subscriptions can be active before the debit settles, even after failure. */
+export function subscriptionPaymentStatus(subscription: Stripe.Subscription): string {
+  if (subscription.status !== 'active' || subscription.metadata?.payment_policy !== 'settled_invoice') return subscription.status;
+  const invoice = subscription.latest_invoice;
+  if (invoice && typeof invoice !== 'string' && invoice.status === 'paid') return 'active';
+  if (invoice && typeof invoice !== 'string' && ['void', 'uncollectible'].includes(invoice.status ?? '')) return 'payment_required';
+  return 'payment_pending';
+}
+
 export function subscriptionProfileUpdate(subscription: Stripe.Subscription, now = new Date()): Record<string, unknown> {
   const configured = configuredPriceIds();
   if (!configured.length) throw new Error('Subscription prices not configured');
-  const item = subscription.items.data.find((candidate) => configured.includes(candidate.price.id));
+  const item = subscriptionItem(subscription);
   const accepted = Boolean(item);
   const subscriptionEnd = item?.current_period_end ? new Date(item.current_period_end * 1000) : null;
+  const paymentStatus = subscriptionPaymentStatus(subscription);
   const update: Record<string, unknown> = {
     stripeCustomerId: customerIdFor(subscription), stripeSubscriptionId: subscription.id,
-    stripeSubscriptionStatus: accepted ? subscription.status : 'unsupported_product',
-    subscriptionStatus: accepted && subscription.status === 'active' ? 'active' : accepted && subscription.status === 'trialing' ? 'trial' : 'expired',
+    subscriptionPlan: item ? subscriptionPlanForPrice(item.price.id) : null,
+    stripeSubscriptionStatus: accepted ? paymentStatus : 'unsupported_product',
+    subscriptionStatus: accepted && paymentStatus === 'active' ? 'active' : accepted && subscription.status === 'trialing' ? 'trial' : 'expired',
     subscriptionEnd,
   };
   if (subscription.status === 'trialing') {
@@ -93,7 +125,7 @@ export async function refreshSubscriptionForUser(uid: string, stripe: Stripe, su
   for (let attempt = 0; attempt < 3; attempt++) {
     const revision = await getSubscriptionSyncRevision(uid);
     let subscription: Stripe.Subscription;
-    try { subscription = await stripe.subscriptions.retrieve(subscriptionId); }
+    try { subscription = await stripe.subscriptions.retrieve(subscriptionId, { expand: ['latest_invoice'] }); }
     catch (error) {
       if (deletedFallback && error instanceof Stripe.errors.StripeInvalidRequestError && error.code === 'resource_missing') subscription = deletedFallback;
       else throw error;
@@ -123,14 +155,14 @@ export async function reconcileUserSubscription(uid: string, stripe: Stripe): Pr
     let subscription: Stripe.Subscription | null = null;
     let missing = false;
     if (typeof profile.stripeSubscriptionId === 'string' && profile.stripeSubscriptionId) {
-      try { subscription = await stripe.subscriptions.retrieve(profile.stripeSubscriptionId); }
+      try { subscription = await stripe.subscriptions.retrieve(profile.stripeSubscriptionId, { expand: ['latest_invoice'] }); }
       catch (error) {
         if (!(error instanceof Stripe.errors.StripeInvalidRequestError) || error.code !== 'resource_missing') throw error;
         missing = true;
       }
     }
     if ((!subscription || !['active', 'trialing'].includes(subscription.status)) && typeof profile.stripeCustomerId === 'string' && profile.stripeCustomerId) {
-      const list = await stripe.subscriptions.list({ customer: profile.stripeCustomerId, status: 'all', limit: 100 });
+      const list = await stripe.subscriptions.list({ customer: profile.stripeCustomerId, status: 'all', limit: 100, expand: ['data.latest_invoice'] });
       const prices = configuredPriceIds();
       subscription = list.data.find((sub) => ['active', 'trialing'].includes(sub.status) &&
         sub.items.data.some((item) => prices.includes(item.price.id))) ?? subscription;
@@ -144,9 +176,8 @@ export async function reconcileUserSubscription(uid: string, stripe: Stripe): Pr
 
 export function subscriptionDetails(subscription: Stripe.Subscription | null) {
   if (!subscription) return null;
-  const configured = configuredPriceIds();
-  const item = subscription.items.data.find((candidate) => configured.includes(candidate.price.id)) ?? subscription.items.data[0];
-  return { id: subscription.id, status: subscription.status,
+  const item = subscriptionItem(subscription) ?? subscription.items.data[0];
+  return { id: subscription.id, plan: item ? subscriptionPlanForPrice(item.price.id) : null, status: subscriptionPaymentStatus(subscription),
     currentPeriodStart: item?.current_period_start ? new Date(item.current_period_start * 1000) : null,
     currentPeriodEnd: item?.current_period_end ? new Date(item.current_period_end * 1000) : null,
     cancelAtPeriodEnd: subscription.cancel_at_period_end,

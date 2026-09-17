@@ -84,7 +84,7 @@ describe('server profile API boundaries', () => {
     const response = await profileGet(request({ authorization: 'Bearer id' }));
     expect(await response.json()).toEqual({ success: true, profile: { id: 'owner', name: 'Owner' } });
   });
-  it.each(['subscriptionStatus', 'stripeSubscriptionStatus', 'trialEnd', 'hasHistoricalAccess', 'plaid_token', 'userId'])('rejects client edits to %s before writes', async field => {
+  it.each(['subscriptionStatus', 'subscriptionPlan', 'stripeSubscriptionStatus', 'trialEnd', 'hasHistoricalAccess', 'plaid_token', 'userId'])('rejects client edits to %s before writes', async field => {
     expect((await profilePost(request({ authorization: 'Bearer id' }, 'POST', { [field]: 'attacker-value' }))).status).toBe(400);
     expect(mock.transaction).not.toHaveBeenCalled();
   });

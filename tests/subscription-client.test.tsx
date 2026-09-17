@@ -17,25 +17,28 @@ vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: vi.fn() 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 const end = '2099-01-01T00:00:00.000Z';
-function payload(plan: 'free' | 'trial' | 'premium' = 'premium') {
+function payload(plan: 'free' | 'trial' | 'basic' | 'premium' = 'premium') {
   const allowed = plan !== 'free';
+  const paid = plan === 'premium' || plan === 'basic';
+  const fullAccess = plan === 'premium' || plan === 'trial';
   return {
     success: true,
     data: {
-      hasAccess: allowed, isTrial: plan === 'trial', isPaid: plan === 'premium',
-      subscriptionStatus: plan === 'premium' ? 'active' : plan === 'trial' ? 'trial' : 'expired',
+      hasAccess: allowed, isTrial: plan === 'trial', isPaid: paid,
+      subscriptionStatus: paid ? 'active' : plan === 'trial' ? 'trial' : 'expired',
       trialEnd: plan === 'trial' ? end : undefined,
-      subscriptionEnd: plan === 'premium' ? end : undefined,
+      subscriptionEnd: paid ? end : undefined,
       entitlements: {
-        plan, hasAccess: allowed, isTrial: plan === 'trial', isPaid: plan === 'premium', reason: 'test',
-        status: plan === 'premium' ? 'active' : plan === 'trial' ? 'trial' : 'expired',
-        features: { reports: allowed, exports: allowed, extended_history: allowed },
+        plan, hasAccess: allowed, isTrial: plan === 'trial', isPaid: paid, reason: 'test',
+        status: paid ? 'active' : plan === 'trial' ? 'trial' : 'expired',
+        features: { reports: fullAccess, exports: fullAccess, extended_history: allowed },
         trialEnd: plan === 'trial' ? end : undefined,
-        subscriptionEnd: plan === 'premium' ? end : undefined,
+        subscriptionEnd: paid ? end : undefined,
       },
-      subscription: plan === 'premium' ? {
+      subscription: paid ? {
+        plan,
         id: 'sub_test', status: 'active', currentPeriodStart: '2026-01-01T00:00:00.000Z', currentPeriodEnd: end,
-        cancelAtPeriodEnd: true, canceledAt: null, planInterval: 'month', planAmount: 14.99, planCurrency: 'usd',
+        cancelAtPeriodEnd: true, canceledAt: null, planInterval: 'month', planAmount: plan === 'basic' ? 7.99 : 14.99, planCurrency: 'usd',
       } : null,
     },
   };
@@ -48,13 +51,21 @@ function renderGate(client: QueryClient, feature: 'reports' | 'exports' = 'repor
     </QueryClientProvider>,
   );
 }
-function seed(client: QueryClient, userId: string, plan: 'free' | 'trial' | 'premium') {
+function seed(client: QueryClient, userId: string, plan: 'free' | 'trial' | 'basic' | 'premium') {
   client.setQueryData(['subscription-status', userId], parseSubscriptionStatus(payload(plan)));
 }
 
 beforeEach(() => { auth.user = { id: 'paid-user' }; auth.loading = false; });
 
 describe('subscription status response validation', () => {
+  it('keeps Basic paid/history status separate from Premium feature access', () => {
+    const status = parseSubscriptionStatus(payload('basic'));
+    expect(status).toMatchObject({ isPaid: true, hasAccess: true, entitlements: { plan: 'basic' }, subscription: { plan: 'basic', planAmount: 7.99 } });
+    expect(canUseSubscriptionFeature(status, 'extended_history')).toBe(true);
+    expect(canUseSubscriptionFeature(status, 'reports')).toBe(false);
+    expect(canUseSubscriptionFeature(status, 'exports')).toBe(false);
+    expect(canUseSubscriptionFeature(status, 'extended_history', Date.parse(end))).toBe(false);
+  });
   it('parses server entitlement and billing dates, including pending cancellation', () => {
     const status = parseSubscriptionStatus(payload());
     expect(status.subscription?.currentPeriodEnd).toBeInstanceOf(Date);
@@ -132,6 +143,13 @@ describe('feature navigation boundaries', () => {
 });
 
 describe('account scoped feature gate renders', () => {
+  it.each(['reports', 'exports'] as const)('does not unlock %s for a paid Basic account', feature => {
+    const client = new QueryClient(); seed(client, 'paid-user', 'basic');
+    const html = renderGate(client, feature);
+    expect(html).toContain(`Unlock ${feature}`);
+    expect(html).not.toContain('PRIVATE PREMIUM VIEW');
+    client.clear();
+  });
   it.each(['premium', 'trial'] as const)('renders the protected feature for %s', (plan) => {
     const client = new QueryClient(); seed(client, 'paid-user', plan);
     expect(renderGate(client)).toContain('PRIVATE PREMIUM VIEW'); client.clear();

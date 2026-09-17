@@ -103,6 +103,7 @@ export interface UserProfile {
   stripeCustomerId?: string;
   stripeSubscriptionId?: string;
   stripeSubscriptionStatus?: string; // Stripe's subscription status (only set when paid)
+  subscriptionPlan?: 'basic' | 'premium' | null; // Verified by server from the configured Stripe price.
 
   // NOTE: Legacy tax provider fields may still exist in Firestore documents for existing users,
   // but WriteOff should not depend on them after provider migration.

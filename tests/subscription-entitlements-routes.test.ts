@@ -10,7 +10,8 @@ vi.mock('@/lib/stripe/subscription-sync', () => ({
   getStripeClient: () => mock.configured ? { customers: { retrieve: mock.customersRetrieve, create: mock.customersCreate },
     subscriptions: { list: mock.subscriptionsList, retrieve: mock.subscriptionsRetrieve }, checkout: { sessions: { create: mock.checkoutCreate } },
     webhooks: { constructEvent: mock.constructEvent } } : null,
-  configuredPriceIds: () => ['price_month'], reconcileUserSubscription: mock.reconcile, refreshSubscriptionForUser: mock.sync,
+  configuredPriceIds: () => ['price_month', 'price_basic_month'], reconcileUserSubscription: mock.reconcile, refreshSubscriptionForUser: mock.sync,
+  subscriptionPlanForPrice: (price: string) => price === 'price_month' ? 'premium' : price === 'price_basic_month' ? 'basic' : null,
   subscriptionDetails: () => null,
 }));
 import { GET as checkAccess } from '@/app/api/subscriptions/check-access/route';
@@ -33,6 +34,13 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); });
 
 describe('plan status and repair APIs', () => {
+  it('serializes Basic as paid with history only after server reconciliation', async () => {
+    mock.profile = { subscriptionStatus: 'active', subscriptionPlan: 'basic', stripeSubscriptionStatus: 'active',
+      stripeSubscriptionId: 'sub_basic', subscriptionEnd: future };
+    const response = await checkAccess(req());
+    expect(await response.json()).toMatchObject({ data: { hasAccess: true, isPaid: true, isTrial: false,
+      entitlements: { plan: 'basic', features: { reports: false, exports: false, extended_history: true } } } });
+  });
   it.each([checkAccess, fixAccess, checkout])('returns 401 before profile/provider access', async (handler) => {
     mock.auth.mockRejectedValue(Error('invalidtoken'));
     expect((await handler(req())).status).toBe(401);
@@ -61,6 +69,22 @@ describe('plan status and repair APIs', () => {
 });
 
 describe('checkout creation', () => {
+  it('does not sell a legacy Basic price through a misconfigured Premium checkout alias', async () => {
+    vi.stubEnv('STRIPE_PRICE_ID_MONTHLY', 'price_basic_month');
+    expect((await checkout(req({ interval: 'monthly' }))).status).toBe(503);
+    expect(mock.checkoutCreate).not.toHaveBeenCalled();
+    expect(mock.customersRetrieve).not.toHaveBeenCalled();
+  });
+  it.each(['active', 'trialing', 'past_due', 'unpaid', 'incomplete', 'paused'])('prevents duplicate checkout for a legacy Basic subscription in %s', async status => {
+    mock.profile.stripeCustomerId = 'cus_1';
+    mock.subscriptionsList.mockResolvedValue({ data: [{ status, cancel_at_period_end: true, items: { data: [{ price: { id: 'price_basic_month' } }] } }] });
+    const response = await checkout(req({ interval: 'monthly' }));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: 'SUBSCRIPTION_EXISTS' });
+    expect(mock.checkoutCreate).not.toHaveBeenCalled();
+    expect(mock.customersCreate).not.toHaveBeenCalled();
+    expect(mock.profileUpdate).not.toHaveBeenCalled();
+  });
   it.each([{ interval: 'free' }, { interval: 'yearly', priceId: 'attacker_price' }, { subscriptionStatus: 'active' }])('rejects untrusted billing fields %j', async (body) => {
     expect((await checkout(req(body))).status).toBe(400);
     expect(mock.customersCreate).not.toHaveBeenCalled(); expect(mock.checkoutCreate).not.toHaveBeenCalled();
@@ -74,12 +98,28 @@ describe('checkout creation', () => {
     mock.profile.stripeCustomerId = 'cus_1';
     mock.subscriptionsList.mockResolvedValue({ data: [{ status: 'canceled', items: { data: [{ price: { id: 'price_month' } }] } }] });
     expect((await checkout(req({ interval: 'monthly' }))).status).toBe(200);
-    expect(mock.checkoutCreate.mock.calls[0][0]).toMatchObject({ customer: 'cus_1', line_items: [{ price: 'price_month', quantity: 1 }], success_url: expect.stringMatching(/^https:\/\/writeoffapp.com\//) });
+    expect(mock.checkoutCreate.mock.calls[0][0]).toMatchObject({ customer: 'cus_1', line_items: [{ price: 'price_month', quantity: 1 }], success_url: expect.stringMatching(/^https:\/\/writeoffapp.com\//),
+      payment_method_types: ['card', 'us_bank_account'],
+      payment_method_options: { us_bank_account: { financial_connections: { permissions: ['payment_method'] } } },
+      subscription_data: { metadata: { firebase_uid: 'u1', payment_policy: 'settled_invoice' } },
+    });
     expect(mock.checkoutCreate.mock.calls[0][1].idempotencyKey).toMatch(/^writeoff-checkout-u1-monthly-/);
   });
 });
 
 describe('signed Stripe lifecycle notifications', () => {
+  it.each(['checkout.session.async_payment_failed', 'checkout.session.async_payment_succeeded', 'invoice.paid', 'invoice.payment_failed', 'invoice.voided', 'invoice.marked_uncollectible'])(
+    'reconciles current provider state for %s', type => {
+      const object = type.startsWith('checkout.') ? { mode: 'subscription', subscription: 'sub_bank' }
+        : { parent: { subscription_details: { subscription: 'sub_bank' } } };
+      mock.constructEvent.mockReturnValue({ id: 'evt_bank', created: 6, type, data: { object } });
+      mock.subscriptionsRetrieve.mockResolvedValue({ id: 'sub_bank', status: 'active', metadata: { firebase_uid: 'u1' } });
+      return webhook(req({}, true)).then(response => {
+        expect(response.status).toBe(200);
+        expect(mock.sync).toHaveBeenCalledWith('u1', expect.any(Object), 'sub_bank', { id: 'evt_bank', created: 6 }, undefined);
+      });
+    },
+  );
   it('rejects missing/bad signatures before granting anything', async () => {
     expect((await webhook(req())).status).toBe(400);
     mock.constructEvent.mockImplementation(() => { throw Error('bad signature'); });

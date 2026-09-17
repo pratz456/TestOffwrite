@@ -11,7 +11,7 @@ import { POST as createLink } from '@/app/api/plaid/create-link-token/route';
 import { POST as importTransactions } from '@/app/api/plaid/import-transactions/route';
 const now = new Date('2026-09-15T12:00:00Z');
 const future = new Date('2026-10-01T12:00:00Z');
-const paid = { subscriptionStatus: 'active', stripeSubscriptionStatus: 'active', stripeSubscriptionId: 'sub_1', subscriptionEnd: future };
+const paid = { subscriptionStatus: 'active', subscriptionPlan: 'premium', stripeSubscriptionStatus: 'active', stripeSubscriptionId: 'sub_1', subscriptionEnd: future };
 const trial = { subscriptionStatus: 'trial', trialStart: new Date('2026-09-01'), trialEnd: future };
 const req = (body: unknown = {}) => new NextRequest('http://localhost/api/test', { method: 'POST', body: JSON.stringify(body) });
 beforeEach(() => {
@@ -25,12 +25,12 @@ beforeEach(() => {
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 describe('Plaid API uses server plan rather than a requested timeframe', () => {
-  it.each([[{}, 90], [trial, 730], [paid, 730], [{ ...paid, stripeSubscriptionStatus: 'past_due' }, 90]] as const)('creates a link with the allowed history window %j', async (profile, days) => {
+  it.each([[{}, 90], [trial, 730], [paid, 730], [{ ...paid, subscriptionPlan: 'basic' }, 730], [{ ...paid, stripeSubscriptionStatus: 'past_due' }, 90]] as const)('creates a link with the allowed history window %j', async (profile, days) => {
     mock.profile = { ...mock.profile, ...profile };
     expect((await createLink(req({ days_requested: 7300 }))).status).toBe(200);
     expect(mock.link.mock.calls[0][0].transactions.days_requested).toBe(days);
   });
-  it.each([[{}, '2026-06-17'], [paid, '2024-09-15']] as const)('caps direct import even if the caller requests 2years %j', async (profile, startDate) => {
+  it.each([[{}, '2026-06-17'], [paid, '2024-09-15'], [{ ...paid, subscriptionPlan: 'basic' }, '2024-09-15']] as const)('caps direct import even if the caller requests 2years %j', async (profile, startDate) => {
     mock.profile = { ...mock.profile, ...profile };
     await importTransactions(req({ account_id: 'acc_1', access_token: 'owned-token', import_timeframe: '2years' }));
     expect(mock.fetchTransactions).toHaveBeenCalled();

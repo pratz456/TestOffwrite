@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { useSubscription } from '@/lib/hooks/use-subscription';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,7 @@ import { Sparkles, Calendar, TrendingUp, Loader2 } from 'lucide-react';
 import { TrialCountdown } from '@/components/trial-countdown';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
+import { canUseSubscriptionFeature } from '@/lib/subscriptions/client-status';
 
 export function HistoricalAccessUpgradeCard({ variant = 'default' }: { variant?: 'default' | 'slim' | 'square' }) {
   const { user } = useAuth();
@@ -134,8 +135,32 @@ export function HistoricalAccessUpgradeCard({ variant = 'default' }: { variant?:
     );
   }
 
+  const basicPlan = accessStatus?.entitlements.plan === 'basic' ||
+    (accessStatus?.entitlements.plan === 'free' && accessStatus.subscription?.plan === 'basic');
+  const historyIncluded = canUseSubscriptionFeature(accessStatus, 'extended_history');
+  const reportsIncluded = canUseSubscriptionFeature(accessStatus, 'reports');
+  const exportsIncluded = canUseSubscriptionFeature(accessStatus, 'exports');
+
+  // Existing Basic subscriptions are managed in billing, never by starting a
+  // second subscription. Paid status alone does not grant Premium features.
+  if (basicPlan) {
+    const basicActive = historyIncluded && accessStatus?.entitlements.isPaid && accessStatus.subscription?.status === 'active';
+    const subscription = accessStatus?.subscription;
+    return (
+      <Card className={variant === 'default' ? 'p-5 space-y-3' : 'p-3 space-y-2'}>
+        <p className="font-semibold">{basicActive ? 'WriteOff Basic is active' : 'WriteOff Basic is inactive'}</p>
+        <p className="text-sm text-muted-foreground">{historyIncluded ? 'Extended bank history is included.' : 'Extended bank history is not active.'} Reports and exports require Premium.</p>
+        {subscription?.planAmount != null && <p className="text-sm tabular-nums">
+          {subscription.planCurrency?.toLowerCase() === 'usd' ? '$' : `${subscription.planCurrency?.toUpperCase() || ''} `}{subscription.planAmount.toFixed(2)}{subscription.planInterval ? `/${subscription.planInterval}` : ''}
+        </p>}
+        {basicActive && accessStatus?.cancelAtPeriodEnd && <p className="text-sm">Basic access continues until {accessStatus.currentPeriodEnd?.toLocaleDateString() || 'the current period ends'}. Renewal is off.</p>}
+        <Button variant="outline" className="min-h-11" onClick={() => router.push('/protected/settings?tab=account')}>Manage billing</Button>
+      </Card>
+    );
+  }
+
   // Compact dashboard cards are unnecessary when Premium is active.
-  if (accessStatus?.hasAccess && accessStatus.isPaid && !accessStatus.cancelAtPeriodEnd) {
+  if (accessStatus?.entitlements.plan === 'premium' && reportsIncluded && exportsIncluded && historyIncluded && !accessStatus.cancelAtPeriodEnd) {
     if (variant !== 'default') return null;
     return (
       <Card className="p-5 space-y-3">

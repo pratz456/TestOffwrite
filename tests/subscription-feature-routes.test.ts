@@ -24,7 +24,7 @@ import { POST as quarterlyVouchers } from '@/app/api/tax/generate-1040es/route';
 const now = new Date('2026-09-15T12:00:00Z');
 const past = new Date('2026-09-01T12:00:00Z');
 const future = new Date('2026-10-01T12:00:00Z');
-const premium = { subscriptionStatus: 'active', stripeSubscriptionStatus: 'active', stripeSubscriptionId: 'sub_fixture', subscriptionEnd: future };
+const premium = { subscriptionStatus: 'active', subscriptionPlan: 'premium', stripeSubscriptionStatus: 'active', stripeSubscriptionId: 'sub_fixture', subscriptionEnd: future };
 const routes = [
   { name: 'reports/export', handler: exportForms, method: 'POST', allowedStatus: 400 },
   { name: 'reports/generate-pdf', handler: reportPDF, method: 'POST', allowedStatus: 400 },
@@ -57,8 +57,8 @@ describe.each(routes)('$method /api/$name feature boundary', (route) => {
     expect(mock.lookup).not.toHaveBeenCalled(); expect(mock.collection).not.toHaveBeenCalled();
     expect(mock.transactions).not.toHaveBeenCalled(); expect(PDFDocument.create).not.toHaveBeenCalled();
   });
-  it.each(['free', 'expired-trial', 'past-due', 'canceled'])('rejects %s before consuming export data or generating files', async (state) => {
-    mock.profile = state === 'free' ? {} : state === 'expired-trial'
+  it.each(['free', 'basic', 'expired-trial', 'past-due', 'canceled'])('rejects %s before consuming export data or generating files', async (state) => {
+    mock.profile = state === 'free' ? {} : state === 'basic' ? { ...premium, subscriptionPlan: 'basic' } : state === 'expired-trial'
       ? { subscriptionStatus: 'trial', trialStart: past, trialEnd: now }
       : { ...premium, stripeSubscriptionStatus: state === 'past-due' ? 'past_due' : 'canceled' };
     const response = await route.handler(request(route, { subscriptionStatus: 'active', userId: 'another-user', hasHistoricalAccess: true }));

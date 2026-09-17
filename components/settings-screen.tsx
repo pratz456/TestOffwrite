@@ -26,12 +26,22 @@ import { TrialCountdown } from '@/components/trial-countdown';
 import { toast } from 'sonner';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { Badge } from '@/components/ui/badge';
+import { canUseSubscriptionFeature } from '@/lib/subscriptions/client-status';
 
 // Payment Settings Tab Component
-const PaymentSettingsTab: React.FC<{ beforeNavigate: (action: () => void) => void }> = ({ beforeNavigate }) => {
+export const PaymentSettingsTab: React.FC<{ beforeNavigate: (action: () => void) => void }> = ({ beforeNavigate }) => {
   const { status: accessStatus, isLoading: planLoading, error: planError, refetch } = useSubscription();
   const [syncLoading, setLoading] = useState(false);
   const loading = planLoading || syncLoading;
+  const plan = accessStatus?.entitlements.plan === 'basic' || accessStatus?.entitlements.plan === 'premium'
+    ? accessStatus.entitlements.plan : accessStatus?.subscription?.plan;
+  const planName = plan === 'basic' ? 'Basic' : plan === 'premium' ? 'Premium' : 'Subscription';
+  const historyIncluded = canUseSubscriptionFeature(accessStatus, 'extended_history');
+  const reportsIncluded = canUseSubscriptionFeature(accessStatus, 'reports');
+  const exportsIncluded = canUseSubscriptionFeature(accessStatus, 'exports');
+  const inactiveStatus = accessStatus?.subscription?.status;
+  const inactiveLabel = inactiveStatus && !['active', 'trialing'].includes(inactiveStatus)
+    ? inactiveStatus.replaceAll('_', ' ') : 'Inactive';
   const [cancelLoading, setCancelLoading] = useState(false);
   const [portalLoading, setPortalLoading] = useState(false);
   const billingAction = useRef(false);
@@ -138,10 +148,10 @@ const PaymentSettingsTab: React.FC<{ beforeNavigate: (action: () => void) => voi
             <div className="p-4 bg-accent/5 border border-accent/20 rounded-lg space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="font-medium text-foreground text-sm">Status</p>
+                  <p className="font-medium text-foreground text-sm">{accessStatus.isTrial ? 'WriteOff trial' : `WriteOff ${planName}`}</p>
                   <div className="flex items-center gap-2 mt-1">
                     <Badge variant={accessStatus.isTrial ? 'default' : 'default'}>
-                      {accessStatus.isTrial ? 'Trial Active' : accessStatus.hasAccess ? 'Active' : accessStatus.subscription?.status?.replaceAll('_', ' ') || 'Inactive'}
+                      {accessStatus.isTrial ? 'Trial Active' : accessStatus.hasAccess ? 'Active' : inactiveLabel}
                     </Badge>
                     {accessStatus.subscription?.cancelAtPeriodEnd && (
                       <Badge variant="secondary" className="bg-yellow-500/20 text-yellow-700 dark:text-yellow-300">
@@ -150,9 +160,9 @@ const PaymentSettingsTab: React.FC<{ beforeNavigate: (action: () => void) => voi
                     )}
                   </div>
                 </div>
-                {!accessStatus.isTrial && accessStatus.daysRemaining !== undefined && (
+                {accessStatus.hasAccess && !accessStatus.isTrial && accessStatus.daysRemaining !== undefined && (
                   <div className="text-right">
-                    <p className="text-xs text-muted-foreground">Renews in</p>
+                    <p className="text-xs text-muted-foreground">{accessStatus.cancelAtPeriodEnd ? 'Access ends in' : 'Renews in'}</p>
                     <p className="text-lg font-semibold text-foreground">
                       {accessStatus.daysRemaining} day{accessStatus.daysRemaining !== 1 ? 's' : ''}
                     </p>
@@ -166,10 +176,10 @@ const PaymentSettingsTab: React.FC<{ beforeNavigate: (action: () => void) => voi
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Plan</span>
                     <span className="font-medium text-foreground">
-                      {accessStatus.subscription.planInterval === 'year' ? 'Yearly' : 'Monthly'} Plan
-                      {accessStatus.subscription.planAmount && (
+                      {planName} · {accessStatus.subscription.planInterval === 'year' ? 'Yearly' : 'Monthly'}
+                      {accessStatus.subscription.planAmount != null && (
                         <span className="ml-2">
-                          ${accessStatus.subscription.planAmount.toFixed(2)}/{accessStatus.subscription.planInterval === 'year' ? 'year' : 'month'}
+                          {accessStatus.subscription.planCurrency?.toLowerCase() === 'usd' ? '$' : `${accessStatus.subscription.planCurrency?.toUpperCase() || ''} `}{accessStatus.subscription.planAmount.toFixed(2)}/{accessStatus.subscription.planInterval === 'year' ? 'year' : 'month'}
                         </span>
                       )}
                     </span>
@@ -185,16 +195,20 @@ const PaymentSettingsTab: React.FC<{ beforeNavigate: (action: () => void) => voi
                 </div>
               )}
 
-              {accessStatus.trialEnd && !accessStatus.isTrial && (
+              {plan === 'basic' ? <p className="text-sm text-muted-foreground">{historyIncluded ? 'Extended bank history is included.' : 'Extended bank history is not active.'} Reports and exports require Premium.</p>
+                : reportsIncluded && exportsIncluded && historyIncluded ? <p className="text-sm text-muted-foreground">Reports, exports and extended bank history are included.</p> : null}
+
+              {accessStatus.subscriptionEnd && !accessStatus.isTrial && (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Calendar className="w-4 h-4" />
                   <span>
-                    Next billing: {accessStatus.subscriptionEnd ? new Date(accessStatus.subscriptionEnd).toLocaleDateString() : 'N/A'}
+                    {accessStatus.hasAccess ? accessStatus.cancelAtPeriodEnd ? 'Access ends' : 'Next billing'
+                      : new Date(accessStatus.subscriptionEnd).getTime() <= Date.now() ? 'Period ended' : 'Period ends'}: {new Date(accessStatus.subscriptionEnd).toLocaleDateString()}
                   </span>
                 </div>
               )}
 
-              {accessStatus.subscription?.cancelAtPeriodEnd && (
+              {accessStatus.hasAccess && accessStatus.subscription?.cancelAtPeriodEnd && (
                 <div className="p-3 bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
                   <div className="flex items-start gap-2">
                     <AlertTriangle className="w-4 h-4 text-yellow-600 dark:text-yellow-400 mt-0.5 flex-shrink-0" />

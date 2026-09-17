@@ -3,6 +3,9 @@
  * Start Firebase emulators with this repo's rules, then run:
  * WRITEOFF_RULES_EMULATOR_TESTS=1 npx vitest run tests/security-rules.emulator.test.ts
  * Defaults: Firestore 127.0.0.1:8180, Storage 127.0.0.1:9299.
+ * These tests clear their emulator database. For an independent run, set
+ * WRITEOFF_RULES_PROJECT_ID (must start demo-), WRITEOFF_RULES_FIRESTORE_PORT
+ * and WRITEOFF_RULES_STORAGE_PORT to a dedicated emulator instance.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { initializeApp, deleteApp, type FirebaseApp } from 'firebase/app';
@@ -10,8 +13,14 @@ import { collection, collectionGroup, connectFirestoreEmulator, deleteDoc, delet
 import { connectStorageEmulator, deleteObject, getBytes, getStorage, ref, uploadBytes, type FirebaseStorage } from 'firebase/storage';
 
 const enabled = process.env.WRITEOFF_RULES_EMULATOR_TESTS === '1';
-const projectId = 'demo-writeoff-security';
-const databaseUrl = `http://127.0.0.1:8180/v1/projects/${projectId}/databases/(default)/documents`;
+const projectId = process.env.WRITEOFF_RULES_PROJECT_ID || 'demo-writeoff-security';
+const firestorePort = Number(process.env.WRITEOFF_RULES_FIRESTORE_PORT || 8180);
+const storagePort = Number(process.env.WRITEOFF_RULES_STORAGE_PORT || 9299);
+if (enabled && (!/^demo-[a-z0-9-]+$/.test(projectId) ||
+    [firestorePort, storagePort].some(port => !Number.isInteger(port) || port < 1024 || port > 65535))) {
+  throw new Error('Rules tests require a demo project and valid local emulator ports.');
+}
+const databaseUrl = `http://127.0.0.1:${firestorePort}/v1/projects/${projectId}/databases/(default)/documents`;
 const apps: FirebaseApp[] = [];
 let alice: Firestore;
 let bob: Firestore;
@@ -27,8 +36,8 @@ function client(uid?: string) {
   const db = getFirestore(app);
   const storage = getStorage(app);
   const options = uid ? { mockUserToken: { sub: uid, user_id: uid } } : undefined;
-  connectFirestoreEmulator(db, '127.0.0.1', 8180, options);
-  connectStorageEmulator(storage, '127.0.0.1', 9299, options);
+  connectFirestoreEmulator(db, '127.0.0.1', firestorePort, options);
+  connectStorageEmulator(storage, '127.0.0.1', storagePort, options);
   return { db, storage };
 }
 async function seed(path: string, values: Record<string, string | number | boolean>) {
@@ -40,7 +49,7 @@ async function seed(path: string, values: Record<string, string | number | boole
 // No network requests, SDK initialization or production configuration when disabled.
 (enabled ? describe : describe.skip)('Firebase security rules with synthetic emulator records', () => {
   beforeAll(async () => {
-    const response = await fetch(`http://127.0.0.1:8180/emulator/v1/projects/${projectId}/databases/(default)/documents`, { method: 'DELETE' });
+    const response = await fetch(`http://127.0.0.1:${firestorePort}/emulator/v1/projects/${projectId}/databases/(default)/documents`, { method: 'DELETE' });
     expect(response.ok).toBe(true);
     ({ db: alice, storage: aliceStorage } = client(owner));
     ({ db: bob, storage: bobStorage } = client('bob'));
@@ -103,13 +112,18 @@ async function seed(path: string, values: Record<string, string | number | boole
     await expect(getDoc(doc(alice, 'transactions/top-bob'))).rejects.toMatchObject({ code: 'permission-denied' });
   });
   it('allows ordinary profile creation and edits, denies subscription escalation on create/update', async () => {
+    await expect(setDoc(doc(bob, 'user_profiles/bob'), { name: 'Bob', subscriptionPlan: 'premium' })).rejects.toMatchObject({ code: 'permission-denied' });
     await expect(setDoc(doc(bob, 'user_profiles/bob'), { name: 'Bob', subscriptionStatus: 'active', hasHistoricalAccess: true })).rejects.toMatchObject({ code: 'permission-denied' });
     await setDoc(doc(bob, 'user_profiles/bob'), { name: 'Bob', onboardingIntroCompleted: false });
     await updateDoc(doc(bob, 'user_profiles/bob'), { name: 'Bob Updated', profession: 'Designer' });
     await expect(updateDoc(doc(bob, 'user_profiles/bob'), { subscriptionStatus: 'active' })).rejects.toMatchObject({ code: 'permission-denied' });
+    await expect(updateDoc(doc(bob, 'user_profiles/bob'), { subscriptionPlan: 'premium' })).rejects.toMatchObject({ code: 'permission-denied' });
     // Admin/server writers bypass client rules, as do the real trial manager/webhook.
     await seed('user_profiles/bob', { name: 'Bob', subscriptionStatus: 'trial', hasHistoricalAccess: true });
     expect((await getDoc(doc(bob, 'user_profiles/bob'))).data()?.subscriptionStatus).toBe('trial');
+    await seed('user_profiles/bob', { name: 'Bob', subscriptionPlan: 'basic' });
+    await expect(updateDoc(doc(bob, 'user_profiles/bob'), { subscriptionPlan: 'premium' })).rejects.toMatchObject({ code: 'permission-denied' });
+    await expect(updateDoc(doc(bob, 'user_profiles/bob'), { subscriptionPlan: deleteField() })).rejects.toMatchObject({ code: 'permission-denied' });
     await expect(setDoc(doc(alice, 'user_profiles/somebody-else'), { name: 'Wrong owner' })).rejects.toMatchObject({ code: 'permission-denied' });
   });
   it('allows valid owner receipt uploads, reads, replacements and deletes', async () => {

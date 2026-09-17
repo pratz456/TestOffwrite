@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import { adminDb } from '@/lib/firebase/admin';
-import { getStripeClient, configuredPriceIds } from '@/lib/stripe/subscription-sync';
+import { getStripeClient, configuredPriceIds, subscriptionPlanForPrice } from '@/lib/stripe/subscription-sync';
 import { z } from 'zod';
 
 const checkoutRequest = z.object({ interval: z.enum(['monthly', 'yearly']).default('monthly') }).strict();
@@ -26,7 +26,10 @@ export async function POST(req: Request) {
   const priceId = interval === 'yearly'
     ? process.env.STRIPE_PRICE_ID_YEARLY || process.env.NEXT_PUBLIC_STRIPE_PRICE_ID_YEARLY
     : process.env.STRIPE_PRICE_ID_MONTHLY || process.env.NEXT_PUBLIC_STRIPE_PRICE_ID_MONTHLY || process.env.STRIPE_PRICE_ID || process.env.NEXT_PUBLIC_STRIPE_PRICE_ID;
-  if (!stripe || !priceId) return NextResponse.json({ error: 'Billing is temporarily unavailable' }, { status: 503 });
+  // Checkout sells Premium only; Basic prices are recognized for existing subscriptions.
+  if (!stripe || !priceId || subscriptionPlanForPrice(priceId) !== 'premium') {
+    return NextResponse.json({ error: 'Billing is temporarily unavailable' }, { status: 503 });
+  }
   try {
     const ref = adminDb.doc(`user_profiles/${uid}`);
     const snapshot = await ref.get();
@@ -54,11 +57,12 @@ export async function POST(req: Request) {
       await ref.update({ stripeCustomerId: customerId });
     }
     const session = await stripe.checkout.sessions.create({ customer: customerId, mode: 'subscription',
-      payment_method_types: ['card'], line_items: [{ price: priceId, quantity: 1 }],
-      subscription_data: { metadata: { firebase_uid: uid, feature: 'historical_transactions' } },
+      payment_method_types: ['card', 'us_bank_account'], line_items: [{ price: priceId, quantity: 1 }],
+      payment_method_options: { us_bank_account: { financial_connections: { permissions: ['payment_method'] } } },
+      subscription_data: { metadata: { firebase_uid: uid, feature: 'historical_transactions', payment_policy: 'settled_invoice' } },
       success_url: `${origin}/stripe/success?session_id={CHECKOUT_SESSION_ID}`, cancel_url: `${origin}/stripe/cancel`,
       metadata: { firebase_uid: uid, feature: 'historical_transactions' },
-    }, { idempotencyKey: `writeoff-checkout-${uid}-${interval}-${customerId}-${Math.floor(Date.now() / 300000)}` });
+    }, { idempotencyKey: `writeoff-checkout-${uid}-${interval}-${customerId}-bank-v1-${Math.floor(Date.now() / 300000)}` });
     return NextResponse.json({ success: true, sessionId: session.id, url: session.url }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch {
     return NextResponse.json({ error: 'Unable to create checkout. Please try again.' }, { status: 503 });

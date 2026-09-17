@@ -27,23 +27,27 @@ export default function StripeSuccessPage() {
   });
   const checking = authLoading || Boolean(user?.id && (query.isPending || query.isFetching || !query.isFetchedAfterMount));
   const status = user?.id && !checking && !query.isError ? query.data : null;
-  const paid = Boolean(status?.isPaid && status.entitlements.isPaid && !status.entitlements.isTrial
-    && status.entitlements.plan === 'premium' && status.subscription?.status === 'active'
-    && canUseSubscriptionFeature(status, 'reports'));
+  const verifiedPaid = Boolean(status?.isPaid && status.entitlements.isPaid && !status.entitlements.isTrial
+    && status.subscription?.status === 'active');
+  const basic = verifiedPaid && status?.entitlements.plan === 'basic' && canUseSubscriptionFeature(status, 'extended_history');
+  const premium = verifiedPaid && status?.entitlements.plan === 'premium' && canUseSubscriptionFeature(status, 'reports')
+    && canUseSubscriptionFeature(status, 'exports');
+  const paid = basic || premium;
   const failed = Boolean(user?.id && !checking && query.isError);
 
   const title = checking ? 'Checking your subscription…'
     : !user ? 'Sign in to verify your plan'
-      : paid ? 'Premium is active'
+      : basic ? 'Basic is active' : premium ? 'Premium is active'
         : failed ? 'We could not verify your plan' : 'Confirmation is pending';
   const description = checking ? 'Checking your latest billing status with the server.'
     : !user ? 'Use the same WriteOff account you used at checkout.'
-      : paid ? (status?.cancelAtPeriodEnd
-        ? 'Your paid plan remains active through the end of your billing period.'
-        : 'Your paid subscription is verified. Reports and exports are available.')
+      : paid ? (basic
+        ? `Your Basic subscription is verified. Extended bank history is included. Reports and exports require Premium.${status?.cancelAtPeriodEnd ? ' Basic remains active through the end of your billing period.' : ''}`
+        : status?.cancelAtPeriodEnd ? 'Your paid plan remains active through the end of your billing period.'
+          : 'Your paid subscription is verified. Reports and exports are available.')
         : failed ? 'Please retry, or open billing to review your subscription.'
           : status?.isTrial ? 'Your trial is active, but a paid subscription has not been confirmed. Check again or review billing.'
-            : 'Your paid plan is not confirmed yet. Confirmation may take a moment; check again or review billing.';
+            : 'Your paid plan is not confirmed yet. Bank payments can take 4–5 business days to clear. Check again or review billing.';
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
