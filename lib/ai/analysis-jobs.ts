@@ -211,7 +211,7 @@ export async function processAnalysisTask(taskId: string, generation: string): P
     const now = Date.now();
     tx.update(taskRef, { status, lastErrorCode: code, nextAttemptAt: retry ? now + Math.min(60_000 * (2 ** (claim.attempts - 1)), 300_000) : null,
       leaseToken: null, finishedAt: retry ? null : now });
-    if (current && result.success) tx.update(ref.transaction, analysisSuggestionUpdate(result.result, now, data, claim.profileHash));
+    if (current && result.success) tx.update(ref.transaction, analysisSuggestionUpdate(result.result, now, data, claim.profileHash, claim.context));
     else if (data?.analysisLeaseToken === claim.lease.token) tx.update(ref.transaction, {
       analysisLeaseToken: null, analysisLeaseExpiresAt: null, analysis_status: retry ? 'pending' : 'failed',
       analysisStatus: retry ? 'pending' : 'failed', analysisErrorCode: code,

@@ -19,6 +19,7 @@ import { BulkConfirmOffer, bulkOutcomeMessage, type BulkConfirmOutcome } from '@
 import { MerchantGroupList, type GroupDecisionResult } from '@/components/review/merchant-groups';
 import { QuestionChips } from '@/components/review/question-chips';
 import { ExplanationCard } from '@/components/ai/explanation-card';
+import { normalizeExplanation } from '@/lib/ai/explanation';
 
 interface ReviewTransactionsScreenProps {
   user: { id: string; email?: string; user_metadata?: { name?: string } };
@@ -388,7 +389,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
               <section className="space-y-2 rounded-xl border border-primary/20 bg-primary/5 p-3" aria-labelledby="suggestion-heading">
                 <div className="flex items-center gap-1.5 text-xs font-medium text-primary"><Sparkles className="h-3.5 w-3.5 shrink-0" /><span>{mayConfirm && presentation!.needsTaxFacts ? 'AI suggested category' : presentation!.label}</span></div>
                 <h3 id="suggestion-heading" className="text-xl font-semibold leading-tight">{presentation!.categoryLabel}</h3>
-                {current.ai_explanation ? <ExplanationCard explanation={current.ai_explanation} />
+                {current.ai_explanation ? <ExplanationCard explanation={normalizeExplanation(current.ai_explanation)} />
                   : <p className={suggestion ? 'line-clamp-2 text-sm leading-5' : 'text-sm leading-5'}>{presentation!.reasoning}</p>}
               </section>
 

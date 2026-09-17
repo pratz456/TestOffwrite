@@ -2,21 +2,15 @@
  * Client-safe helpers for the one-tap review flow. Everything here reads saved
  * analysis output; nothing decides tax treatment. The user's tap is the decision.
  */
+import type { TransactionExplanation } from '@/lib/ai/explanation';
 import type { Transaction } from '@/lib/firebase/transactions';
 import { learningMerchantKey } from '@/lib/ai/merchant-key';
 import { reviewCategory, type AiReviewSuggestion, type ReviewCategory } from './ai-review-contract';
 import { AI_PROPOSAL_CONFIRMED_REASON, AI_PROPOSAL_REJECTED_REASON } from './tax-decision';
 
 /** Plain-language explanation saved on a transaction by the explanation writer. */
-export interface AiExplanation {
-  headline: string;
-  why: string;
-  yourFacts: string[];
-  scheduleCLine: string;
-  estimatedTaxEffect: string | null;
-  strengthen: string[];
-  nextQuestion: string | null;
-}
+/** The server-composed explanation saved as `ai_explanation` (see lib/ai/explanation). */
+export type AiExplanation = TransactionExplanation;
 
 /** Fields the analyzer may add to a saved suggestion; older suggestions lack them. */
 type SuggestionWithProposal = AiReviewSuggestion & {

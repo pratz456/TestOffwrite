@@ -2,9 +2,10 @@
 
 import React, { useEffect, useId, useRef, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Bot, ChevronDown, ExternalLink, ImagePlus, Loader2, Send, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Bot, ChevronDown, ExternalLink, ImagePlus, Loader2, Send, X } from "lucide-react";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 
 interface TaxAssistantScreenProps {
@@ -22,12 +23,19 @@ interface Assessment {
   yearNotice: string | null;
 }
 
+/** Server-composed from the signed-in user's saved profile and their own transactions. */
+interface ForYou {
+  paragraph: string;
+  action: { screen: "transactions"; merchantKey: string; count: number; label: string } | null;
+}
+
 interface Message {
   role: "user" | "assistant";
   content: string;
   contextContent?: string;
   imageDataUrl?: string;
   assessment?: Assessment;
+  forYou?: ForYou | null;
 }
 
 interface PhotoAttachment {
@@ -58,6 +66,25 @@ function safeSourceUrl(value: string): string | null {
   } catch {
     return null;
   }
+}
+
+/** Only the transactions screen is a valid target; the merchant key is a plain search term. */
+function forYouHref(action: ForYou["action"]): string | null {
+  if (!action || action.screen !== "transactions" || typeof action.merchantKey !== "string" || !action.merchantKey.trim()) return null;
+  return `/protected/transactions?merchant=${encodeURIComponent(action.merchantKey.trim().slice(0, 80))}`;
+}
+
+function normalizeForYou(value: unknown): ForYou | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as { paragraph?: unknown; action?: unknown };
+  if (typeof candidate.paragraph !== "string" || !candidate.paragraph.trim()) return null;
+  const action = candidate.action && typeof candidate.action === "object" ? candidate.action as Record<string, unknown> : null;
+  return {
+    paragraph: candidate.paragraph,
+    action: action && action.screen === "transactions" && typeof action.merchantKey === "string" && typeof action.label === "string"
+      ? { screen: "transactions", merchantKey: action.merchantKey, count: typeof action.count === "number" ? action.count : 0, label: action.label }
+      : null,
+  };
 }
 
 function renderMarkdown(text: string): React.ReactNode {
@@ -238,7 +265,7 @@ export function TaxAssistantScreen({ user, onBack }: TaxAssistantScreenProps) {
       const contextContent = lastAssistantTurn?.role === "assistant" && typeof lastAssistantTurn.content === "string" && lastAssistantTurn.content.trim()
         ? lastAssistantTurn.content
         : fallbackContext;
-      setMessages([...history, userMessage, { role: "assistant", content: data.reply, contextContent: contextContent.slice(0, 6000), assessment }]);
+      setMessages([...history, userMessage, { role: "assistant", content: data.reply, contextContent: contextContent.slice(0, 6000), assessment, forYou: normalizeForYou(data.forYou) }]);
       setInputValue("");
       setAnsweringQuestion(null);
       removePhoto();
@@ -315,6 +342,20 @@ export function TaxAssistantScreen({ user, onBack }: TaxAssistantScreenProps) {
                   {message.imageDataUrl && <Image src={message.imageDataUrl} alt="Photo included with your question" width={200} height={140} unoptimized className="mb-3 max-h-40 rounded-lg object-contain" />}
                   {message.assessment && <p className="mb-2 text-xs font-semibold text-primary">{STATUS_LABELS[message.assessment.status]} · {message.assessment.taxYear}</p>}
                   {message.role === "user" ? <p className="whitespace-pre-wrap">{message.content}</p> : renderMarkdown(message.content)}
+                  {message.forYou && (() => {
+                    const href = forYouHref(message.forYou.action);
+                    return (
+                      <section aria-label="For you" className="mt-3 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2.5">
+                        <h3 className="text-xs font-semibold text-primary">For you</h3>
+                        <p className="mt-1 text-sm leading-relaxed">{message.forYou.paragraph}</p>
+                        {href && message.forYou.action && (
+                          <Link href={href} className="mt-2 inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                            {message.forYou.action.label}<ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                          </Link>
+                        )}
+                      </section>
+                    );
+                  })()}
                   {message.assessment?.yearNotice && <p className="mt-2 rounded-lg bg-muted px-2 py-1.5 text-xs text-muted-foreground">{message.assessment.yearNotice}</p>}
                   {!!message.assessment?.questions?.length && (
                     <div className="mt-3 space-y-1.5">

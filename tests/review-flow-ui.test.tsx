@@ -145,17 +145,18 @@ describe('One question at a time', () => {
 });
 
 describe('Explanation card', () => {
-  it('renders the saved plain-language explanation defensively', () => {
-    const markup = html(<ExplanationCard explanation={{ headline: 'Likely an ordinary software expense', why: 'Design software is ordinary for a design business.', yourFacts: ['Design business', ''],
+  it('renders the server-composed explanation and nothing for a null payload', () => {
+    const markup = html(<ExplanationCard explanation={{ headline: 'Likely an ordinary software expense', why: 'Design software is ordinary for a design business.', yourFacts: ['Design business', 'Purpose: client design work'],
       scheduleCLine: 'Line 18 Office expense', estimatedTaxEffect: null, strengthen: ['Keep the subscription invoice'], nextQuestion: 'Which clients is it used for?' }} />);
-    expect(markup).toContain('aria-label="AI explanation"');
+    expect(markup).toContain('aria-label="Why this transaction was analyzed this way"');
     expect(markup).toContain('Likely an ordinary software expense');
-    expect(markup).toContain('Schedule C: Line 18 Office expense');
+    expect(markup).toContain('Where it goes:');
+    expect(markup).toContain('Line 18 Office expense');
     expect(markup).toContain('Keep the subscription invoice');
     expect(markup).toContain('Which clients is it used for?');
-    expect(count(markup, /<li>/g)).toBe(2);
-    const sparse = html(<ExplanationCard explanation={{ headline: '', why: '', yourFacts: [], scheduleCLine: '', estimatedTaxEffect: null, strengthen: [], nextQuestion: null }} />);
-    expect(decode(sparse).trim()).toBe('');
+    expect(count(markup, /<li>/g)).toBe(3);
+    expect(markup).not.toMatch(/maximi[sz]e|guarantee|file your taxes|fully deductible/i);
+    expect(decode(html(<ExplanationCard explanation={null} />)).trim()).toBe('');
   });
 });
 

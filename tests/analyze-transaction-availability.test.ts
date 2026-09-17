@@ -160,6 +160,8 @@ describe('transaction analysis availability', () => {
       expect.objectContaining({ status: 'ok', is_deductible: true }),
       expect.objectContaining({ token: 'synthetic-lease' }),
       'synthetic-profile-hash',
+      // The taxpayer profile feeds the explanation's estimated federal tax effect.
+      expect.objectContaining({ profession: 'Designer' }),
     );
     expect(mocks.release).not.toHaveBeenCalled();
   });
