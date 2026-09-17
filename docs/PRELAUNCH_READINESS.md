@@ -67,6 +67,7 @@ Target path: landing page → signup → email verification or Google sign-in �
 - Verify Plaid cancellation, reconnect, account selection and asynchronous import states.
 - Provide an actionable empty dashboard and a clear completion state after the first reviewed expense.
 - Verify mobile layouts, keyboard access, password managers, expired sessions and slow-network behavior.
+- Sign-up acknowledgments (Plaid data use, AI suggestions for review, optional communications) are now recorded per account (2026-09-17). The sign-up form and the Google path both end in a consent record on `user_profiles/{uid}.consents` (`lib/onboarding/consents.ts`, `CONSENT_TERMS_VERSION`), written only through `POST /api/database/profiles`, which validates the shape and stamps `consents_recorded_at`; `firestore.rules` rejects client writes to both fields. Profile setup shows the acknowledgments step first whenever the profile has no record of the current terms, so Google sign-ins acknowledge the same terms before any answer is saved. Boxes checked on the sign-up form are carried to setup in `localStorage`, bound to the sign-up email, for seven days. Accounts created before this date have no record; if a re-acknowledgment campaign is needed, bump `CONSENT_TERMS_VERSION` and add a dashboard prompt (setup only runs for new profiles).
 
 **Done when:** a new test user can complete that path without intervention, and cancellation/failure paths recover without losing progress.
 

@@ -115,12 +115,14 @@ service cloud.firestore {
                     && request.auth.uid == uid
                     && request.resource.id == uid
                     // Trial manager and Stripe webhook own these fields on create too.
+                    // Sign-up acknowledgments are recorded only through the profile API.
                     && !request.resource.data.keys().hasAny([
                          'hasHistoricalAccess', 'subscriptionStatus', 'trialStart', 'trialEnd',
                          'subscriptionEnd', 'stripeCustomerId', 'stripeSubscriptionId',
                          'stripeSubscriptionStatus', 'subscriptionPlan',
                          'plaid_token', 'access_token', 'plaid_item_id', 'plaid_transactions_cursor',
-                         'bankConnected', 'plaid_credentials_migrated'
+                         'bankConnected', 'plaid_credentials_migrated',
+                         'consents', 'consents_recorded_at'
                        ]);
 
       // Allow the user to update their own profile doc, but restrict subscription fields
@@ -138,7 +140,8 @@ service cloud.firestore {
                          'stripeSubscriptionId',
                          'stripeSubscriptionStatus', 'subscriptionPlan',
                          'plaid_token', 'access_token', 'plaid_item_id', 'plaid_transactions_cursor',
-                         'bankConnected', 'plaid_credentials_migrated'
+                         'bankConnected', 'plaid_credentials_migrated',
+                         'consents', 'consents_recorded_at' // validated and stamped by /api/database/profiles
                        ]);
 
       // No client deletes

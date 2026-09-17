@@ -80,10 +80,25 @@ export function profileWriteData(data: ProfileSetupData, skipBusiness: boolean):
 export const PROFILE_COMPLETE_SCREEN = 'dashboard';
 export const PROFILE_COMPLETE_URL = '/protected?screen=dashboard';
 
+/** Answers only the setup form records; a document holding just the consent record has none. */
+const SETUP_ANSWER_FIELDS = ['name', 'profession', 'state', 'filing_status', 'income'] as const;
+
+function hasSetupAnswers(profile: Record<string, unknown>): boolean {
+  return SETUP_ANSWER_FIELDS.some(field => {
+    const value = profile[field];
+    return typeof value === 'string' ? value.trim() !== '' : value != null;
+  });
+}
+
 export function profileLookupState(profile: unknown, error: unknown): 'existing' | 'missing' | 'error' {
   if (error) {
     const code = typeof error === 'object' && 'code' in error ? error.code : undefined;
     return code === 'PROFILE_NOT_FOUND' || code === 'PGRST116' ? 'missing' : 'error';
   }
-  return profile ? 'existing' : 'missing';
+  if (!profile) return 'missing';
+  // Consents are recorded before the setup answers, so a consent-only document
+  // still needs onboarding. Profiles without a consent record are untouched.
+  const record = profile as Record<string, unknown>;
+  if (typeof profile === 'object' && record.consents && !hasSetupAnswers(record)) return 'missing';
+  return 'existing';
 }

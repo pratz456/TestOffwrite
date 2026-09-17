@@ -3,13 +3,17 @@ import { makeAuthenticatedRequest } from '../lib/firebase/api-client';
 import { uploadOnboardingDocument } from '../components/data-source-screen';
 import { protectedScreen, protectedScreenUrl, previousProtectedScreen } from '../lib/navigation/protected-screens';
 import { profileLookupState } from '../lib/onboarding/profile';
-import { Children, isValidElement, type ReactElement, type ReactNode } from 'react';
+import React, { Children, isValidElement, type ReactElement, type ReactNode } from 'react';
 import { generateActionItems } from '../lib/guidance/action-engine';
 import { QuickActionsBar } from '../components/dashboard/QuickActionsBar';
 import { AiAdvisoryCard } from '../components/dashboard/AiAdvisoryCard';
+import LoginPage from '../app/auth/login/page';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 const firebase = vi.hoisted(() => ({ currentUser: { getIdToken: vi.fn() } as { getIdToken: ReturnType<typeof vi.fn> } | null }));
 vi.mock('@/lib/firebase/client', () => ({ auth: firebase }));
+vi.mock('@/components/login-form', () => ({ LoginForm: () => null }));
 
 beforeEach(() => { firebase.currentUser = { getIdToken: vi.fn().mockResolvedValue('test-id-token') }; });
 afterEach(() => vi.unstubAllGlobals());
@@ -133,6 +137,34 @@ describe('returning-customer profile decisions', () => {
   it('allows onboarding only for a confirmed missing profile and restores the existing customer after retry', () => {
     expect(profileLookupState(null, { code: 'PROFILE_NOT_FOUND' })).toBe('missing');
     expect(profileLookupState({ name: 'Existing customer' }, null)).toBe('existing');
+  });
+  it('keeps onboarding open for a document that only records the sign-up acknowledgments', () => {
+    const consents = { version: '2026-09-17', source: 'profile-setup', accepted_at: '2026-09-17T12:00:00.000Z', bank_data: true, ai_review: true, communications: false };
+    // getUserProfile maps absent answers to empty strings.
+    expect(profileLookupState({ id: 'new', email: '', name: '', profession: '', income: '', state: '', filing_status: '', consents }, null)).toBe('missing');
+    expect(profileLookupState({ id: 'new', name: 'Finished setup', consents }, null)).toBe('existing');
+    // Customers from before consent records never had the field and stay existing.
+    expect(profileLookupState({ id: 'legacy', email: '', name: '', profession: '', income: '', state: '', filing_status: '' }, null)).toBe('existing');
+  });
+});
+
+describe('accessibility quick wins', () => {
+  it('gives every receipt-upload select an accessible name', () => {
+    const source = readFileSync(resolve(__dirname, '../components/receipt-upload-screen.tsx'), 'utf8');
+    const selects = [...source.matchAll(/<select\b([^>]*)>/gs)].map(match => match[1]);
+    expect(selects).toHaveLength(3);
+    for (const attributes of selects) {
+      const id = attributes.match(/\bid="([^"]+)"/)?.[1];
+      const labeled = Boolean(id) && source.includes(`htmlFor="${id}"`);
+      expect(labeled || /\baria-label="[^"]+"/.test(attributes)).toBe(true);
+    }
+    expect(source).toContain('aria-label="Transaction to attach this receipt to"');
+  });
+  it('announces the login page fallback as a status', () => {
+    vi.stubGlobal('React', React); // the app compiles JSX with the automatic runtime; vitest uses the classic one
+    const page = (LoginPage as () => ReactElement<{ fallback: ReactElement<{ role?: string; children?: ReactNode }> }>)();
+    expect(page.props.fallback.props.role).toBe('status');
+    expect(nodeText(page.props.fallback)).toMatch(/Loading/);
   });
 });
 

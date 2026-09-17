@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
-const mock = vi.hoisted(() => ({ verifyIdToken: vi.fn(), verifySessionCookie: vi.fn(), createSessionCookie: vi.fn(), get: vi.fn(), transaction: vi.fn() }));
+const mock = vi.hoisted(() => ({ verifyIdToken: vi.fn(), verifySessionCookie: vi.fn(), createSessionCookie: vi.fn(), get: vi.fn(), set: vi.fn(), transaction: vi.fn() }));
 vi.mock('@/lib/firebase/admin', () => ({ adminAuth: mock, adminDb: { doc: vi.fn(() => ({ get: mock.get })), runTransaction: mock.transaction }, FieldValue: { serverTimestamp: () => 'server-time' } }));
 vi.mock('@/lib/plaid/connections', () => ({ migrateLegacyPlaidConnection: vi.fn() }));
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
@@ -94,5 +94,37 @@ describe('server profile API boundaries', () => {
     expect(await (await profileGet(request({ authorization: 'Bearer id' }))).json()).toEqual({ success: true, profile: null });
     mock.get.mockRejectedValue(new Error('private error'));
     expect((await profileGet(request({ authorization: 'Bearer id' }))).status).toBe(503);
+  });
+
+  describe('sign-up consent record', () => {
+    const consents = { version: '2026-09-17', source: 'profile-setup', accepted_at: '2026-09-17T12:00:00Z', bank_data: true, ai_review: true, communications: false };
+    beforeEach(() => {
+      mock.transaction.mockImplementation(async (callback: (transaction: unknown) => Promise<void>) => callback({ get: mock.get, set: mock.set }));
+    });
+    it('stores a validated record with a server timestamp on a first-time profile', async () => {
+      mock.get.mockResolvedValue({ exists: false });
+      const response = await profilePost(request({ authorization: 'Bearer id' }, 'POST', { consents }));
+      expect(response.status).toBe(200);
+      expect(mock.set).toHaveBeenCalledExactlyOnceWith(expect.anything(), {
+        consents: { ...consents, accepted_at: '2026-09-17T12:00:00.000Z' },
+        consents_recorded_at: 'server-time', updated_at: 'server-time', created_at: 'server-time',
+      }, { merge: true });
+    });
+    it.each([
+      ['a missing required acknowledgment', { ...consents, ai_review: undefined }],
+      ['a declined required acknowledgment', { ...consents, bank_data: false }],
+      ['an unknown nested field', { ...consents, marketing_partner: true }],
+      ['a stale terms version', { ...consents, version: '2025-01-01' }],
+      ['a non-object value', 'agreed'],
+    ])('rejects %s before any write', async (_label, value) => {
+      expect((await profilePost(request({ authorization: 'Bearer id' }, 'POST', { consents: value }))).status).toBe(400);
+      expect(mock.transaction).not.toHaveBeenCalled();
+    });
+    it('never accepts the server timestamp from a client and returns the record with it', async () => {
+      expect((await profilePost(request({ authorization: 'Bearer id' }, 'POST', { consents, consents_recorded_at: 'forged' }))).status).toBe(400);
+      mock.get.mockResolvedValue({ exists: true, data: () => ({ name: 'Owner', consents, consents_recorded_at: 'stamped', stripeCustomerId: 'secret-customer' }) });
+      expect(await (await profileGet(request({ authorization: 'Bearer id' }))).json())
+        .toEqual({ success: true, profile: { id: 'owner', name: 'Owner', consents, consents_recorded_at: 'stamped' } });
+    });
   });
 });

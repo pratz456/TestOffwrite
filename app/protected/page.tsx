@@ -496,6 +496,7 @@ export default function ProtectedPage() {
     return (
       <ProfileSetupScreen
         user={user}
+        existingConsents={userProfile?.consents}
         onBack={handleBack}
         onComplete={handleProfileComplete}
       />
