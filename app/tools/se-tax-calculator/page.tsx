@@ -2,22 +2,22 @@ import type { Metadata } from "next";
 import { SETaxCalculatorClient } from "./se-tax-calculator-client";
 
 export const metadata: Metadata = {
-  title: "Free Self-Employment Tax Calculator (2025)",
+  title: "Free Self-Employment Tax Calculator (2025–2026)",
   description:
-    "Calculate your self-employment tax for 2025 instantly. See Social Security tax (12.4%), Medicare tax (2.9%), and your deductible half of SE tax. Free tool for freelancers and 1099 contractors.",
+    "Estimate your self-employment tax for 2025 or 2026 instantly. See Social Security tax (12.4% up to the annual wage base), Medicare tax (2.9%), and your deductible half of SE tax. Free tool for freelancers and 1099 contractors.",
   alternates: { canonical: "/tools/se-tax-calculator" },
   openGraph: {
-    title: "Free Self-Employment Tax Calculator (2025) | WriteOff",
+    title: "Free Self-Employment Tax Calculator (2025–2026) | WriteOff",
     description:
-      "Instantly calculate your self-employment tax. See Social Security, Medicare, and deductible amounts for freelancers and 1099 contractors.",
+      "Instantly estimate your self-employment tax for 2025 or 2026. See Social Security, Medicare, and deductible amounts for freelancers and 1099 contractors.",
     type: "website",
     url: "/tools/se-tax-calculator",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Free Self-Employment Tax Calculator (2025)",
+    title: "Free Self-Employment Tax Calculator (2025–2026)",
     description:
-      "Calculate your self-employment tax instantly  - Social Security, Medicare, and deductible amounts.",
+      "Estimate your 2025 or 2026 self-employment tax instantly  - Social Security, Medicare, and deductible amounts.",
   },
 };
 
@@ -28,7 +28,7 @@ const calculatorJsonLd = {
   applicationCategory: "FinanceApplication",
   operatingSystem: "Web",
   description:
-    "Free 2025 self-employment tax calculator for freelancers, contractors, and sole proprietors. Calculates Social Security tax, Medicare tax, additional Medicare tax, and the deductible half of SE tax.",
+    "Free self-employment tax calculator for freelancers, contractors, and sole proprietors with a 2025 or 2026 tax-year selector. Estimates Social Security tax, Medicare tax, additional Medicare tax, and the deductible half of SE tax.",
   url: "https://writeoffapp.com/tools/se-tax-calculator",
   offers: {
     "@type": "Offer",
