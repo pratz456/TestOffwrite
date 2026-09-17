@@ -158,6 +158,13 @@ section_firestore_protection() {
   run gcloud firestore databases update --database "$DATABASE" --enable-pitr --delete-protection --project "$PROJECT" --quiet
 }
 
+section_ttl_policies() {
+  heading "Firestore TTL policies for self-expiring documents"
+  note "rate_limits windows carry an expiresAt Timestamp written by lib/security/rate-limit.ts; without a TTL"
+  note "policy every throttle window stays forever. TTL deletion is free and asynchronous (within ~24 h)."
+  run gcloud firestore fields ttls update expiresAt --collection-group=rate_limits --enable-ttl --database "$DATABASE" --project "$PROJECT" --quiet
+}
+
 section_bucket() {
   heading "Private backup bucket gs://$BUCKET"
   note "Uniform bucket-level access (no per-object ACLs), public access prevention enforced, 400-day retention"
@@ -593,6 +600,7 @@ verify_all() {
 
   heading "VERIFY: managed backups"
   read_cmd gcloud firestore backups schedules list --database "$DATABASE" --project "$PROJECT"
+  read_cmd gcloud firestore fields ttls list --collection-group=rate_limits --database "$DATABASE" --project "$PROJECT"
   read_cmd gcloud firestore backups list --project "$PROJECT" --format 'table(name.basename(),database,state,expireTime)'
 
   heading "VERIFY: weekly export job"
@@ -626,6 +634,7 @@ if [[ "$MODE" == verify ]]; then
 fi
 section_apis
 section_firestore_protection
+section_ttl_policies
 section_bucket
 section_backups
 section_export_job

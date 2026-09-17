@@ -78,13 +78,25 @@ export function planProductionDeployment({
  * Firebase target releases are coordinated but not transactional; the operator
  * must retain the compatible rollback details required by the release review.
  */
+/** The SSR runtime Firebase provisions follows the Node major that runs the deploy; it must match package.json engines. */
+export function assertDeployNodeVersion(cwd, nodeVersion = process.version) {
+  const engines = JSON.parse(fs.readFileSync(path.join(cwd, 'package.json'), 'utf8')).engines?.node;
+  const required = String(engines ?? '').match(/\d+/)?.[0];
+  const actual = nodeVersion.replace(/^v/, '').split('.')[0];
+  if (!required || actual !== required) {
+    throw new Error(`Production deployment requires Node ${required ?? '(engines.node)'} (the SSR runtime follows the deploying Node major); current is ${nodeVersion}`);
+  }
+}
+
 export function deployProductionRelease({
   cwd = process.cwd(),
   confirmation,
   inheritedEnv = process.env,
   execute = execFileSync,
+  nodeVersion = process.version,
 } = {}) {
   const plan = planProductionDeployment({ cwd, confirmation, inheritedEnv });
+  assertDeployNodeVersion(plan.cwd, nodeVersion);
   const run = (file, args, env, workingDirectory = plan.cwd) =>
     execute(file, args, { cwd: workingDirectory, env, stdio: 'inherit' });
   // Next reads .env.production.local from disk; the shell needs no secrets to build.

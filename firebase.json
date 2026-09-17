@@ -25,7 +25,7 @@
     ],
     "frameworksBackend": {
       "region": "us-central1",
-      "memory": "1GiB",
+      "memory": "2GiB",
       "cpu": 1,
       "minInstances": 1,
       "maxInstances": 20,

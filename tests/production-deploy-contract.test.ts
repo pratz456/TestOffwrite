@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  assertDeployNodeVersion,
   deployProductionRelease,
   planProductionDeployment,
   productionDeployConfirmation,
@@ -31,6 +32,8 @@ function preparedRelease() {
   directories.push(cwd);
   fs.mkdirSync(path.join(cwd, 'functions'));
   fs.mkdirSync(path.join(cwd, 'functions-analysis'));
+  // A prepared release is a git archive of the commit, so package.json (with engines.node) is always present.
+  fs.writeFileSync(path.join(cwd, 'package.json'), JSON.stringify({ name: 'writeoff-release-fixture', engines: { node: '22' } }));
   const env = {
     WRITEOFF_ENV: 'production',
     NEXT_PUBLIC_APP_ENV: 'production',
@@ -119,6 +122,7 @@ describe('coordinated production deployment', () => {
       confirmation: productionDeployConfirmation(commit),
       inheritedEnv,
       execute,
+      nodeVersion: 'v22.23.2',
     });
     for (const [, , options] of execute.mock.calls.slice(0, 6)) {
       expect(options.env).toEqual({ PATH: '/usr/bin' });
@@ -164,6 +168,19 @@ describe('production workflow contract', () => {
     }
   });
 
+  it('refuses to deploy from a Node major other than package.json engines, before any install or build', () => {
+    const cwd = preparedRelease();
+    const execute = vi.fn();
+    const serviceAccount = path.join(cwd, '..', `writeoff-sa-node-${path.basename(cwd)}.json`);
+    fs.writeFileSync(serviceAccount, JSON.stringify({ project_id: project, client_email: `deploy@${project}.iam.gserviceaccount.com` }), { mode: 0o600 });
+    directories.push(serviceAccount);
+    const inheritedEnv = { PATH: '/usr/bin', GOOGLE_APPLICATION_CREDENTIALS: serviceAccount, STRIPE_SECRET_KEY: 'sk_live_syntheticvalue', PLAID_SECRET: 'synthetic-plaid-private-value' };
+    expect(() => deployProductionRelease({ cwd, confirmation: productionDeployConfirmation(commit), inheritedEnv, execute, nodeVersion: 'v20.20.2' }))
+      .toThrow(/requires Node 22/);
+    expect(execute).not.toHaveBeenCalled();
+    expect(() => assertDeployNodeVersion(cwd, 'v22.23.2')).not.toThrow();
+    expect(() => assertDeployNodeVersion(cwd, 'v24.1.0')).toThrow(/requires Node 22/);
+  });
   it('routes package deploy commands through the prepared-release orchestrator', () => {
     const root = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8'));
     for (const name of ['deploy', 'deploy:firebase', 'firebase:deploy-indexes', 'production:deploy']) {

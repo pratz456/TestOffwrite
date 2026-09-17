@@ -129,37 +129,61 @@ firebase auth:export /private/release/auth-export-$(date -u +%Y%m%dT%H%MZ).json 
 
 **Satisfies:** `legacyProfileMigration`, `historicalOverlapReconciliation`, `oldClientCompatibility`.
 
-There is **no offline migration command** in this commit. The migration is
-`migrateLegacyPlaidConnection()` in `lib/plaid/connections.ts`, called on every
-authenticated `GET /api/database/profiles` (`app/api/database/profiles/route.ts`),
-i.e. it runs lazily the first time each legacy user opens the app after the
-deploy. Per profile, in one Firestore transaction: the plaintext `plaid_token` /
-`access_token` is encrypted with `PLAID_TOKEN_ENCRYPTION_KEY` into
-`plaid_connections/{itemId}` with `status: relink_required`, the plaintext fields
-(`plaid_token`, `access_token`, `plaid_item_id`, `plaid_transactions_cursor`) are
-deleted from the profile and its `accounts/*`, and `plaid_credentials_migrated: true`
-is set. Old-account tokens are never sent to the new Plaid client; users relink.
+The migration runs as an operator command **before** the deploy:
+`npm run production:plaid-migration` (`scripts/production-plaid-credential-migration.mjs`),
+which shares its transaction core with the lazy per-user path in
+`lib/plaid/legacy-migration.ts`. Per profile, in one Firestore transaction: the
+plaintext `plaid_token` / `access_token` is encrypted with
+`PLAID_TOKEN_ENCRYPTION_KEY` into `plaid_connections/{itemId}` with
+`status: relink_required`, the plaintext fields (`plaid_token`, `access_token`,
+`plaid_item_id`, `plaid_transactions_cursor`) are deleted from the profile and its
+`accounts/*`, and `plaid_credentials_migrated: true` is set. Profiles with more
+than 400 accounts take the paginated path. Old-account tokens are never sent to
+the new Plaid client; users relink. Because no profile carries a token when the
+new rules land, old browser bundles keep working (verified by
+`tests/plaid-migration.emulator.test.ts`).
 
-What you do before the deploy:
+What you do before the deploy (export `PLAID_TOKEN_ENCRYPTION_KEY` in the shell first; the backup directory must be absolute, outside the checkout, and private):
 
 1. Generate the new Plaid key and preserve it (password manager entry named for
    the project; losing it makes every encrypted connection unreadable):
    `openssl rand -hex 32` → `PLAID_TOKEN_ENCRYPTION_KEY` (64 hex). It must differ
    from `SSN_ENCRYPTION_KEY`, which must be the **existing** production value.
-2. Human overlap reconciliation: open the inventory JSON from step 1, and for
-   every `potentialHistoricalOverlaps` group decide which record is canonical and
-   which confirmations survive. Record decisions (record references + decision +
-   who) in a private document; cite it in `historicalOverlapReconciliation.evidence`.
-   The inventory never decides, and nothing in the release merges records.
-3. Old clients: browsers with the previous bundle (including the PWA service
-   worker registered by `PwaRegisterSw`, `@ducanh2912/next-pwa`) keep calling the
-   old routes until they reload. The new rules deny the legacy token fields, so an
-   old client that writes a profile with `plaid_token` gets `permission-denied`
-   until reload. Accepted mitigation for today: deploy all surfaces together
-   (step 10), keep a maintenance banner ready, and tell support "hard reload /
-   reinstall the PWA". Write that acknowledgment into `oldClientCompatibility.evidence`.
-4. Decide the maintenance window: rules and app go out in one `firebase deploy`
-   but not atomically (seconds apart). Choose a low-traffic time and announce it.
+2. Dry run — writes `plaid-credential-migration-plan-<timestamp>.json` (0600) and prints its sha256:
+
+   ```sh
+   npm run production:plaid-migration -- --project writeoff-23910 \
+     --backup /absolute/private/path/plaid-migration --confirm plan:writeoff-23910
+   ```
+
+3. Read the plan (one entry per legacy profile), then apply with its digest. Apply
+   writes and digest-verifies a full backup of every affected document before the
+   first transaction, refuses if production changed since the plan, and is idempotent:
+
+   ```sh
+   npm run production:plaid-migration -- --project writeoff-23910 \
+     --backup /absolute/private/path/plaid-migration \
+     --apply --confirm apply:writeoff-23910:<sha256 printed by the dry run>
+   ```
+
+4. Verify — exits nonzero while any profile or account still carries a token.
+   Run it again immediately before step 10:
+
+   ```sh
+   npm run production:plaid-migration -- --project writeoff-23910 \
+     --backup /absolute/private/path/plaid-migration --verify --confirm verify:writeoff-23910
+   ```
+
+   Cite the plan digest, backup digest and verify output in
+   `legacyProfileMigration.evidence` and `oldClientCompatibility.evidence`.
+5. Historical overlap reconciliation happens **after** users relink with the new
+   client (new Item ids can duplicate old purchases). The reviewed decisions file
+   and `npm run production:overlap-reconcile` (dry run → `--apply`) are described
+   in `docs/PRODUCTION_CUTOVER_2026-09-16.md`; until relinks exist, record in
+   `historicalOverlapReconciliation.evidence` that the inventory showed the
+   candidate groups and that the apply command is staged for the relink day.
+6. Rules and app go out in one `firebase deploy` but not atomically (seconds
+   apart). Choose a low-traffic time and announce it.
 
 Post-deploy verification of the migration is in step 11.6.
 
@@ -169,7 +193,7 @@ Post-deploy verification of the migration is in step 11.6.
 
 | Check | Where | Expected |
 | --- | --- | --- |
-| Plaid production access | Plaid dashboard → Team Settings → the **new** team (client `6aab263acbddc2000d721272`) → Production access | Approved for Transactions. If still pending, see the `BANK_CONNECTIONS_MODE` note in step 8 |
+| Plaid production access | Plaid dashboard → Team Settings → the **new** team (client `6aab263acbddc2000d721272`) → Production access | Approved for Transactions. The release waits for this approval; bank linking is not shipped disabled |
 | Plaid redirect URI | Plaid dashboard → Team Settings → API → Allowed redirect URIs | Contains exactly `https://writeoffapp.com/plaid/oauth` |
 | Plaid webhook | after deploy `curl -s https://writeoffapp.com/api/plaid/webhook` | `{"status":"healthy",...}`; the URL you put in `PLAID_WEBHOOK_URL` is `https://writeoffapp.com/api/plaid/webhook` |
 | Stripe live keys | Stripe dashboard (live mode toggled) → Developers → API keys | `sk_live_`/`rk_live_` secret, `pk_live_` publishable; the preflight rejects `_test_` anywhere |
@@ -410,13 +434,7 @@ RESEND_API_KEY=<re_…>                        (S)   # CPA-question e-mail; logg
 SUPPORT_ADMIN_UIDS=<uid,uid>                       # support routes allowlist; also needs the admin custom claim
 ```
 
-**If launching before Plaid approval** — a parallel branch adds
-`BANK_CONNECTIONS_MODE=relink_pending` (bank linking shows an unavailable
-state while records stay readable). Two facts about *this* commit: the name is
-not read anywhere in it, and the preflight still requires the complete Plaid
-block above (`PLAID_SECRET`, key, redirect URI). Only include the variable if
-that branch is part of `<release-sha>`; otherwise it is inert and the preflight
-still demands production Plaid credentials.
+Bank connections require the production Plaid credentials above; this release does not launch with bank linking disabled.
 
 **Validate the file before it goes anywhere** (from the release checkout, after `npm ci --include=dev`; prints only rule names):
 
@@ -627,9 +645,8 @@ Expected: that profile shows `credentialMigrationMarked: true`,
 `legacyProfileCredentialPresent: false`, `privateConnectionStates: ["relink_required"]`;
 `totals.privateConnections` increased by one; `totals.legacyProfiles` decreased
 by one. The UI shows the bank as "relink required" and Connect Bank works
-against the new client (or shows the unavailable state under
-`BANK_CONNECTIONS_MODE=relink_pending`). Remaining legacy users migrate on their
-first visit; re-run the inventory at the end of day one.
+against the new client. The `--verify` run before the deploy already proved no
+profile carries a token; re-run the inventory at the end of day one to confirm.
 
 ### 11.7 Alerts armed
 
