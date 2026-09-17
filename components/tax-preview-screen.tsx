@@ -238,7 +238,7 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
                         <p>AGI <span className="font-semibold text-foreground tabular-nums">{fmt(f1040.agi)}</span></p>
                         <p>Total Tax <span className="font-semibold text-foreground tabular-nums">{fmt(f1040.totalTax)}</span></p>
-                        <p>Income tax rate <span className="font-semibold text-foreground tabular-nums">{pct(f1040.effectiveRate)}</span></p>
+                        <p>Effective federal rate (incl. SE tax) <span className="font-semibold text-foreground tabular-nums">{pct(f1040.effectiveRate)}</span></p>
                       </div>
                       <p>The rate is federal income tax divided by total income. Total Tax also includes modeled self-employment and other federal taxes.</p>
                       <p>Estimated — based on your current data. Review with a tax professional before filing.</p>

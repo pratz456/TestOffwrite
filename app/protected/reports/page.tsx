@@ -37,7 +37,7 @@ interface ReportsData {
     avgMonthly: number;
     monthsWithData: number;
     yearToDateTotal: number;
-    estimatedRefund: number;
+    estimatedTaxSavingsFromMarkedDeductions: number;
   };
   /** Years that have transaction activity (for year selector); may be absent from older API */
   availableYears?: number[];

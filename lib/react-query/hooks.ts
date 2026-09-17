@@ -93,7 +93,7 @@ async function computeMonthlyDeductionsClient(userId: string, year?: number) {
         avgMonthly,
         monthsWithData: monthsWithData.length,
         yearToDateTotal,
-        estimatedRefund: yearToDateTotal,
+        estimatedTaxSavingsFromMarkedDeductions: yearToDateTotal,
       },
       availableYears,
     },

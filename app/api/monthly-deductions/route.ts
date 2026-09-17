@@ -77,7 +77,7 @@ export async function GET(request: NextRequest) {
             avgMonthly: 0,
             monthsWithData: 0,
             yearToDateTotal: 0,
-            estimatedRefund: 0
+            estimatedTaxSavingsFromMarkedDeductions: 0
           },
           availableYears,
           diagnostics: {
@@ -164,8 +164,8 @@ export async function GET(request: NextRequest) {
     // Calculate year-to-date total tax savings
     const yearToDateTotal = monthlyData.reduce((sum, m) => sum + m.total, 0);
 
-    // Estimated federal refund is now the same as year-to-date total since we're already calculating tax savings
-    const estimatedRefund = yearToDateTotal;
+    // This is the planning tax-savings estimate for marked deductions, never a Form 1040 refund.
+    const estimatedTaxSavingsFromMarkedDeductions = yearToDateTotal;
 
     const responseData = {
       monthlyData,
@@ -175,7 +175,7 @@ export async function GET(request: NextRequest) {
         avgMonthly,
         monthsWithData: monthsWithData.length,
         yearToDateTotal,
-        estimatedRefund
+        estimatedTaxSavingsFromMarkedDeductions
       },
       availableYears,
       diagnostics: {
@@ -189,7 +189,7 @@ export async function GET(request: NextRequest) {
       totalTransactions: transactions.length,
       deductibleTransactions: totalDeductibleTransactions,
       yearToDateTotal,
-      estimatedRefund
+      estimatedTaxSavingsFromMarkedDeductions
     });
 
     return NextResponse.json({

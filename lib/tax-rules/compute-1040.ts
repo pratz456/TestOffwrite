@@ -119,7 +119,7 @@ export interface Form1040Result {
   // Result
   balanceDue: number;              // Line 37 (positive = you owe)
   refund: number;                  // Line 35a (positive = you get back)
-  effectiveRate: number;           // Effective federal income tax rate (%)
+  effectiveRate: number;           // Total federal tax (income + SE + Additional Medicare) as % of total income
   marginalRate: number;            // Marginal rate on last dollar of income
 
   // Safe harbor
@@ -172,14 +172,31 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
   const totalIncome = adjustedScheduleC + w2Wages + otherIncome;
 
   // ── Step 2: Above-the-line adjustments (Schedule 1) ──
+  // §162(l)(2)(A): the self-employed health insurance deduction cannot exceed the
+  // business's earned income after the deductible half of SE tax and retirement
+  // contributions (Form 7206 limit). Employer-plan eligibility months are not modeled.
+  const retirementContributions = sepIraContribution + solo401kContribution + simpleIraContribution;
+  const healthInsuranceLimit = Math.max(0, adjustedScheduleC - halfSEDeduction - retirementContributions);
+  const healthInsuranceDeduction = Math.min(Math.max(0, healthInsurancePremiums), healthInsuranceLimit);
+  if (healthInsurancePremiums > healthInsuranceDeduction) {
+    calculationWarnings.push('The self-employed health insurance deduction is limited to business earned income after the SE-tax and retirement deductions; the excess is not applied here and may only be usable as an itemized medical expense.');
+  }
+  // §221(b)(1) caps student loan interest at $2,500; §221(e)(2) denies it to married filing separately.
+  // The income phaseout is not modeled and is flagged for review when any amount is claimed.
+  let studentLoanInterestDeduction = Math.min(Math.max(0, studentLoanInterest), 2500);
+  if (studentLoanInterest > 2500) calculationWarnings.push('Student loan interest is limited to $2,500 per return.');
+  if (studentLoanInterestDeduction > 0 && filingStatus === 'married_filing_separately') {
+    studentLoanInterestDeduction = 0;
+    calculationWarnings.push('Student loan interest is not deductible when married filing separately.');
+  } else if (studentLoanInterestDeduction > 0) {
+    calculationWarnings.push('Student loan interest phases out above the annual modified-AGI thresholds and requires a qualified loan; confirm eligibility before relying on this deduction.');
+  }
   const adjustments = Math.max(0,
     halfSEDeduction +
-    healthInsurancePremiums +
-    sepIraContribution +
-    solo401kContribution +
-    simpleIraContribution +
+    healthInsuranceDeduction +
+    retirementContributions +
     hsaContribution +
-    studentLoanInterest
+    studentLoanInterestDeduction
   );
 
   // ── Step 3: AGI (Line 11) ──
@@ -210,7 +227,7 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
   if (adjustedScheduleC > 0) {
     // QBI = Schedule C net profit (after depreciation) reduced by SE tax deduction, health insurance, retirement
     const qualifiedBusinessIncome = Math.max(0,
-      adjustedScheduleC - halfSEDeduction - healthInsurancePremiums - sepIraContribution - solo401kContribution - simpleIraContribution
+      adjustedScheduleC - halfSEDeduction - healthInsuranceDeduction - retirementContributions
     );
     // Cap: 20% of (taxable income before QBI, minus net capital gains)
     // The caller must separately identify net long-term capital gains.
@@ -309,7 +326,8 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
   const refund = net > 0 ? net : 0;
 
   // ── Effective and marginal rates ──
-  const effectiveRate = totalIncome > 0 ? (incomeTax / totalIncome) * 100 : 0;
+  // Freelancers pay SE tax as well; the effective rate reflects total federal tax on total income.
+  const effectiveRate = totalIncome > 0 ? (totalTax / totalIncome) * 100 : 0;
   const brackets = yearRules.brackets[filingStatus];
   let marginalRate = brackets[0].rate * 100;
   for (const bracket of brackets) {
