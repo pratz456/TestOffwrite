@@ -36,7 +36,7 @@ export function TopCategoriesCard({ categories, totalMagnitude, onViewAll, revie
   return (
     <Card className="h-full">
       <CardHeader className="pb-2 px-5">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-sm font-medium">Marked Expense Categories</CardTitle>
           <Button
             variant="ghost"
@@ -66,7 +66,7 @@ export function TopCategoriesCard({ categories, totalMagnitude, onViewAll, revie
                   onClick={onViewAll}
                   onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onViewAll(); } }}
                 >
-                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2 gap-2 mb-1.5">
                     <div className="flex items-center gap-2.5 min-w-0 flex-1">
                       <div className="w-7 h-7 bg-muted rounded-md flex items-center justify-center shrink-0">
                         <Icon className="h-3.5 w-3.5 text-muted-foreground" />

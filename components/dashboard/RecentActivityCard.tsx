@@ -3,7 +3,6 @@
 import { formatTransactionDate } from '@/lib/transactions/calendar-date';
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ChevronRight, FileText } from 'lucide-react';
 import { consolidateCategory } from '@/lib/utils';
@@ -16,27 +15,27 @@ interface RecentActivityCardProps {
 }
 
 export function RecentActivityCard({ transactions, onTransactionClick, onViewAll }: RecentActivityCardProps) {
-  const recent = transactions.slice(0, 5);
+  const recent = transactions.slice(0, 3);
 
   return (
-    <Card className="h-full">
-      <CardHeader className="pb-2 px-5">
+    <Card className="overflow-hidden rounded-2xl border-border/70 shadow-none">
+      <CardHeader className="px-4 py-0">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-medium">Recent Activity</CardTitle>
+          <CardTitle className="text-sm font-medium">Latest transactions</CardTitle>
           <Button
             variant="ghost"
             size="sm"
             onClick={onViewAll}
             className="text-primary hover:text-primary hover:bg-primary/5 min-h-[44px] h-9 sm:h-8 px-2 text-xs no-tap-highlight focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
-            View All
+            View all
             <ChevronRight className="h-3.5 w-3.5 ml-0.5" />
           </Button>
         </div>
       </CardHeader>
-      <CardContent className="px-3 sm:px-5 pb-4">
+      <CardContent className="px-2 pb-1">
         {recent.length > 0 ? (
-          <div className="space-y-0.5">
+          <div className="divide-y divide-border/50">
             {recent.map((tx) => {
               const isCredit = tx.amount < 0;
               const amount = Math.abs(tx.amount);
@@ -44,18 +43,12 @@ export function RecentActivityCard({ transactions, onTransactionClick, onViewAll
               const needsReview = status === 'pending' || status === 'review';
               const isMarkedExpense = status === 'deductible';
               const tagLabel = { pending: 'Pending', income: 'Income', deductible: 'Marked deductible', personal: 'Personal', review: 'Needs review', skipped: 'Skipped' }[status];
-              const tagVariant = needsReview ? 'outline' : isMarkedExpense ? 'default' : 'secondary';
-              const tagClass = isMarkedExpense
-                ? 'text-[10px] px-1.5 py-0 ml-0.5 bg-primary/15 text-primary border border-primary/25'
-                : needsReview
-                  ? 'text-[10px] px-1.5 py-0 ml-0.5'
-                  : 'text-[10px] px-1.5 py-0 ml-0.5 bg-muted text-muted-foreground';
               return (
                 <div
                   key={tx.id}
                   role="button"
                   tabIndex={0}
-                  className="flex items-center justify-between min-h-[44px] py-2 px-2 sm:py-2 sm:px-2 hover:bg-muted rounded-lg cursor-pointer group transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  className="flex items-center justify-between min-h-[52px] py-2 px-2 hover:bg-muted rounded-lg cursor-pointer group transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                   onClick={() => onTransactionClick({ ...tx, _source: 'dashboard' })}
                   onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onTransactionClick({ ...tx, _source: 'dashboard' }); } }}
                 >
@@ -69,26 +62,19 @@ export function RecentActivityCard({ transactions, onTransactionClick, onViewAll
                       <p className="text-sm font-medium text-foreground truncate group-hover:text-primary transition-colors">
                         {tx.merchant_name || tx.description || 'Unknown'}
                       </p>
-                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground flex-wrap">
-                        <span className="truncate max-w-[80px] sm:max-w-none">
-                          {consolidateCategory(tx.category).displayName}
-                          {isCredit && !['income', 'revenue'].includes(String(tx.category).toLowerCase()) ? ' · Credit / refund' : ''}
-                        </span>
-                        <span className="hidden sm:inline">&middot;</span>
-                        <span className="hidden sm:inline">
-                          {formatTransactionDate(tx.date, 'en-US', { month: 'short', day: 'numeric' })}
-                        </span>
-                        <Badge variant={tagVariant} className={tagClass}>
-                          {tagLabel}
-                        </Badge>
-                      </div>
+                      <p className="truncate text-xs text-muted-foreground" title={`${consolidateCategory(tx.category).displayName} · ${tagLabel}`}>
+                        {isCredit && !['income', 'revenue'].includes(String(tx.category).toLowerCase()) ? 'Credit / refund' : tagLabel}
+                        <span aria-hidden="true"> · </span>
+                        {consolidateCategory(tx.category).displayName}
+                        {isCredit && !['income', 'revenue'].includes(String(tx.category).toLowerCase()) && <span className="sr-only"> · {tagLabel}</span>}
+                      </p>
                     </div>
                   </div>
                   <div className="text-right shrink-0 ml-2">
-                    <span className={`text-sm font-semibold tabular-nums ${isCredit ? 'text-success' : 'text-destructive/90'}`}>
+                    <span className={`text-sm font-semibold tabular-nums ${isCredit ? 'text-success' : 'text-foreground'}`}>
                       {isCredit ? '+' : '-'}${amount.toFixed(2)}
                     </span>
-                    <span className="block text-[10px] text-muted-foreground sm:hidden">
+                    <span className="block text-xs text-muted-foreground">
                       {formatTransactionDate(tx.date, 'en-US', { month: 'short', day: 'numeric' })}
                     </span>
                   </div>
@@ -97,10 +83,9 @@ export function RecentActivityCard({ transactions, onTransactionClick, onViewAll
             })}
           </div>
         ) : (
-          <div className="text-center py-8 text-muted-foreground">
-            <FileText className="h-8 w-8 mx-auto mb-2 opacity-40" />
-            <p className="text-sm">No transactions yet</p>
-            <p className="text-xs mt-1">Add an expense manually to get started. Bank connection is optional.</p>
+          <div className="flex items-center gap-3 px-2 py-4 text-muted-foreground">
+            <FileText className="h-5 w-5 shrink-0 opacity-50" aria-hidden="true" />
+            <div><p className="text-sm">No transactions yet</p><p className="mt-0.5 text-xs">Add an expense above to get started.</p></div>
           </div>
         )}
       </CardContent>

@@ -4,6 +4,7 @@ import { formatTransactionDate } from '@/lib/transactions/calendar-date';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/card';
+import * as DetailTabs from '@radix-ui/react-tabs';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/ui/textarea';
 import { Badge } from '@/components/ui/badge';
@@ -27,9 +28,7 @@ import {
   ChevronDown,
   CheckCircle,
   Bot,
-  Building2,
   Upload,
-  FileText,
   Trash2,
   Camera
 } from 'lucide-react';
@@ -190,6 +189,16 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
   // AI Analysis state
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [detailSection, setDetailSection] = useState('summary');
+  const changeDetailSection = useCallback((section: string) => {
+    if (section !== 'receipt') {
+      // Cancel permission requests as well as an already visible camera preview.
+      cameraCapture.current.stop();
+      setCameraStream(null);
+      setShowCamera(false);
+    }
+    setDetailSection(section);
+  }, []);
 
   // Get current user for optimistic updates
   const currentUser = auth.currentUser;
@@ -206,11 +215,12 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
   useEffect(() => {
     const requests = analysisRequest;
     setAnalysisError(null);
+    changeDetailSection('summary');
     setAnalysisUnavailable(false);
     setIsAnalyzing(false);
     isAnalyzingRef.current = false;
     return () => { ++requests.current; };
-  }, [analysisContext]);
+  }, [analysisContext, changeDetailSection]);
 
   const checkAiAvailability = async () => {
     if (isAnalyzingRef.current) return;
@@ -661,6 +671,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
         };
 
         onSave(updatedTransaction);
+        changeDetailSection('summary');
       } else {
         throw new Error(result.error || 'Analysis failed');
       }
@@ -714,12 +725,12 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
         </div>
       </header>
 
-      <div className="mx-auto grid max-w-4xl gap-3 px-3 py-3 sm:px-5 sm:py-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] lg:items-start">
-        <Card className="min-w-0 overflow-hidden rounded-xl shadow-sm motion-safe:hover:translate-y-0">
-          <div className="border-b border-border p-4">
+      <div className="mx-auto max-w-2xl space-y-3 px-3 py-3 sm:px-5">
+        <Card className="overflow-hidden rounded-xl shadow-none motion-safe:hover:translate-y-0">
+          <div className="p-3.5">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <h2 className="break-words text-lg font-semibold leading-snug">{transaction.merchant_name || 'Transaction'}</h2>
+                <h2 className="break-words text-base font-semibold leading-snug">{transaction.merchant_name || 'Transaction'}</h2>
                 <p className="mt-1 text-xs text-muted-foreground">{formatTransactionDate(transaction.date, 'en-US', { month: 'short', day: 'numeric', year: 'numeric' })}{transaction.amount < 0 ? ' · Money in' : ' · Money out'}</p>
               </div>
               <p className="shrink-0 text-xl font-semibold tabular-nums">${Math.abs(transaction.amount).toFixed(2)}</p>
@@ -730,6 +741,15 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
             </div>
           </div>
 
+        </Card>
+        <DetailTabs.Root value={detailSection} onValueChange={changeDetailSection} className="space-y-3">
+          <DetailTabs.List aria-label="Transaction sections" className="grid grid-cols-3 gap-1 rounded-xl bg-muted/70 p-1">
+            {[{ value: 'summary', label: 'Summary' }, { value: 'details', label: 'Details' }, { value: 'receipt', label: 'Receipt' }].map(tab =>
+              <DetailTabs.Trigger key={tab.value} value={tab.value} className="min-h-11 rounded-lg px-2 text-sm font-medium text-muted-foreground data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{tab.label}{tab.value === 'receipt' && (receiptFile || transaction.receipt_url) && <span className="ml-1 text-primary" aria-label={receiptFile ? 'selected, not uploaded' : 'attached'}>•</span>}</DetailTabs.Trigger>
+            )}
+          </DetailTabs.List>
+          <DetailTabs.Content value="summary" className="space-y-3 focus-visible:outline-none">
+            <Card className="overflow-hidden rounded-xl shadow-none motion-safe:hover:translate-y-0">
           <div className="space-y-3 p-4">
             <div className="flex items-center justify-between gap-2">
               <h3 className="flex items-center gap-2 text-sm font-semibold"><Bot className="h-4 w-4 text-primary" />AI review</h3>
@@ -744,12 +764,12 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
             {analysisError && <div className="rounded-lg bg-red-500/10 p-3 text-sm text-red-800 dark:text-red-200" role="alert">
               <p className="font-medium">{analysisUnavailable ? 'AI unavailable' : 'Analysis incomplete'}</p>
               <p className="mt-1">{analysisError}</p>
-              <p className="mt-2 text-xs">Retry when service is restored. The configuration check does not verify funding.</p>
+              <p className="mt-2 text-xs">No new AI assessment was saved. Try again when AI is available.</p>
             </div>}
             {(analysisUnavailable || aiAvailability.status === 'unavailable') && <Button variant="outline" size="sm" className="h-11" onClick={checkAiAvailability} disabled={isAnalyzing || aiAvailability.status === 'checking'}>Check AI availability</Button>}
 
             {isAnalyzing ? <div className="space-y-3 py-2" role="status"><p className="text-sm text-muted-foreground">Analyzing transaction…</p><div className="h-4 animate-pulse rounded bg-muted" /><div className="h-4 w-3/4 animate-pulse rounded bg-muted" /></div>
-              : transaction.ai_suggestion ? <AiTaxExplanation suggestion={transaction.ai_suggestion} compact />
+              : transaction.ai_suggestion ? <AiTaxExplanation key={transaction.ai_suggestion.id} suggestion={transaction.ai_suggestion} compact onAddContext={() => changeDetailSection('details')} />
               : <div className="space-y-2 text-sm text-muted-foreground">
                 <p>{transaction.deductionStatus || transaction.ai ? 'Run analysis again for a current category, tax explanation and sources.' : 'No AI suggestion yet. Add a business purpose, then run analysis.'}</p>
                 {(transaction.ai || transaction.ai_analysis || transaction.deductible_reason || transaction.reasoning) && <details className="group rounded-lg border border-border">
@@ -759,17 +779,48 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
               </div>}
             {transaction.ai_suggestion && <Button className="h-11 w-full" onClick={() => navigateFromTransaction(protectedScreenUrl(`review-transactions?transactionId=${encodeURIComponent(getTransactionId(transaction))}`))}>Confirm or change category<ArrowRight className="h-4 w-4" /></Button>}
           </div>
-        </Card>
-
-        <div className="min-w-0 space-y-2">
-          <details className="group rounded-xl border border-border bg-card" open={showCamera || receiptFile !== null ? true : undefined} onToggle={event => { if (!event.currentTarget.open && showCamera) stopCamera(); }}>
-            <summary className="flex min-h-[52px] cursor-pointer list-none items-center gap-3 px-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
-              <FileText aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <span className="flex-1 text-sm font-medium">Receipt</span>
-              <span className="text-xs text-muted-foreground">{transaction.receipt_url ? 'Attached' : 'Add receipt'}</span>
-              <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" />
-            </summary>
+            </Card>
+          <details className="group rounded-xl border border-border bg-card">
+            <summary className="flex min-h-11 cursor-pointer list-none items-center gap-3 px-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden"><CheckCircle aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" /><span className="flex-1 text-sm font-medium">Tax treatment</span><ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" /></summary>
             <div className="space-y-3 border-t border-border p-4">
+              <p className="text-sm text-muted-foreground">Confirm business use and tax eligibility before including a deduction. Category confirmation is separate.</p>
+              <div className="grid grid-cols-2 gap-2">
+                <Button onClick={() => handleClassificationChange('business')} disabled={isSaving} aria-label="Mark as business expense" aria-pressed={classification === 'business'} variant={classification === 'business' ? 'default' : 'outline'} className="h-auto min-h-11 whitespace-normal px-2 py-2">Business deduction</Button>
+                <Button onClick={() => handleClassificationChange('personal')} disabled={isSaving} aria-label="Exclude from deductions" aria-pressed={classification === 'personal'} variant={classification === 'personal' ? 'default' : 'outline'} className="h-auto min-h-11 whitespace-normal px-2 py-2">No deduction</Button>
+              </div>
+              <p className="text-xs text-muted-foreground">Unsure? Leave unresolved for your preparer.</p>
+              <Button variant="ghost" onClick={() => navigateFromTransaction(protectedScreenUrl('tax-preview'))} className="h-11 w-full justify-between px-0">Open Tax Preview<ArrowRight className="h-4 w-4" /></Button>
+            </div>
+          </details>
+          </DetailTabs.Content>
+          <DetailTabs.Content value="details" className="rounded-xl border border-border bg-card focus-visible:outline-none">
+            <div className="space-y-3 p-4">
+              <p className="text-xs text-muted-foreground">Saved automatically. Add the business purpose or answer AI’s questions here.</p>
+
+              {transaction.ai_suggestion?.questions?.length ? <details className="group rounded-lg bg-muted/60">
+                <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 px-3 text-sm font-medium [&::-webkit-details-marker]:hidden"><span>{transaction.ai_suggestion.questions.length} questions from AI</span><ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 group-open:rotate-180" /></summary>
+                <ul className="list-disc space-y-2 px-4 pb-3 pl-7 text-sm">{transaction.ai_suggestion.questions.map(question => <li key={question}>{question}</li>)}</ul>
+              </details> : null}
+              <div><label htmlFor="business-purpose" className="mb-1 block text-sm font-medium">Business Purpose</label><Textarea id="business-purpose" placeholder="Why was this expense necessary for your business?" value={businessPurpose} onChange={e => { const next = e.target.value; setBusinessPurpose(next); debouncedSave({ business_purpose: next }); }} className="min-h-20 rounded-lg bg-background" maxLength={500} /></div>
+              <Button onClick={handleAnalyzeTransaction} disabled={isAnalyzing || analysisBlocked} className="min-h-11 w-full">{isAnalyzing ? 'Analyzing…' : 'Update AI review'}<ArrowRight className="h-4 w-4" /></Button>
+              {analysisError && <p role="alert" className="text-sm text-destructive">{analysisError}</p>}
+              {analysisBlocked && !analysisError && <p role="status" className="text-xs text-muted-foreground">{aiAvailability.status === 'checking' ? 'Checking AI availability…' : 'AI is unavailable. Your details still save.'}</p>}
+              <details className="group border-t border-border">
+                <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between text-sm font-medium [&::-webkit-details-marker]:hidden">More details & notes<ChevronDown aria-hidden="true" className="h-4 w-4 group-open:rotate-180" /></summary>
+                <div className="space-y-3 pb-2">
+              <div><label htmlFor="client-project" className="mb-1 block text-sm font-medium">Client/Project</label><input id="client-project" type="text" placeholder="Associated client or project name" value={clientProject} onChange={e => { const next = e.target.value; setClientProject(next); debouncedSave({ client_project: next }); }} className="min-h-11 w-full rounded-lg border border-border bg-background px-3 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:text-sm" maxLength={100} /></div>
+              <div><label htmlFor="transaction-notes" className="mb-1 block text-sm font-medium">Notes</label><Textarea id="transaction-notes" placeholder="Tell us more about this purchase..." value={additionalContext} onChange={e => { const next = e.target.value; setAdditionalContext(next); debouncedSave({ notes: next }); }} className="min-h-20 rounded-lg bg-background" /></div>
+              <div><label htmlFor="documentation-status" className="mb-1 block text-sm font-medium">Documentation Status</label><select id="documentation-status" value={documentationStatus || 'missing'} onChange={e => { const next = e.target.value as 'complete' | 'partial' | 'missing'; setDocumentationStatus(next); debouncedSave({ documentation_status: next }); }} className="min-h-11 w-full rounded-lg border border-border bg-background px-3 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:text-sm"><option value="missing">Missing</option><option value="partial">Partial</option><option value="complete">Complete</option></select></div>
+              <div><label htmlFor="meeting-notes" className="mb-1 block text-sm font-medium">Meeting Notes</label><Textarea id="meeting-notes" placeholder="Notes about business meetings or discussions" value={meetingNotes} onChange={e => { const next = e.target.value; setMeetingNotes(next); debouncedSave({ meeting_notes: next }); }} className="min-h-20 rounded-lg bg-background" maxLength={500} /></div>
+              {(transaction.description || transaction.datetime) && <div className="space-y-1 rounded-lg bg-muted p-3 text-xs text-muted-foreground"><p className="font-medium text-foreground">Original transaction details</p>{transaction.description && <p className="break-words">{transaction.description}</p>}{transaction.datetime && <p>{new Date(transaction.datetime).toLocaleString()}</p>}</div>}
+                </div>
+              </details>
+
+            </div>
+          </DetailTabs.Content>
+          <DetailTabs.Content value="receipt" className="rounded-xl border border-border bg-card focus-visible:outline-none">
+            <div className="flex items-center justify-between border-b border-border px-4 py-3"><h2 className="text-sm font-semibold">Receipt</h2><span className="text-xs text-muted-foreground">{transaction.receipt_url ? 'Attached' : 'No receipt yet'}</span></div>
+            <div className="space-y-3 p-4">
               {transaction.receipt_url ? <div className="space-y-2">
                 <p className="break-words text-sm">{transaction.receipt_filename || 'Receipt attached'}</p>
                 <div className="flex flex-wrap items-center gap-2"><ReceiptPreview key={transaction.receipt_url} url={transaction.receipt_url} filename={transaction.receipt_filename} /><Button variant="outline" size="sm" onClick={handleReceiptDelete} className="h-11 text-destructive"><Trash2 className="h-4 w-4" />Delete</Button></div>
@@ -783,36 +834,8 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                 {receiptFile && <div className="space-y-2 rounded-lg bg-muted p-3"><p className="break-words text-sm">{receiptFile.name}</p><Button onClick={handleReceiptUpload} disabled={isUploadingReceipt} className="h-11 w-full">{isUploadingReceipt ? 'Uploading…' : 'Upload receipt'}</Button></div>}
               </>}
             </div>
-          </details>
-
-          <details className="group rounded-xl border border-border bg-card">
-            <summary className="flex min-h-[52px] cursor-pointer list-none items-center gap-3 px-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
-              <Building2 aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" /><span className="flex-1 text-sm font-medium">Business purpose & notes</span><ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" />
-            </summary>
-            <div className="space-y-3 border-t border-border p-4">
-              <p className="text-xs text-muted-foreground">Add the facts AI needs. Changes save automatically; run analysis again to update the suggestion.</p>
-              {(transaction.description || transaction.datetime) && <div className="space-y-1 rounded-lg bg-muted p-3 text-xs text-muted-foreground"><p className="font-medium text-foreground">Original transaction details</p>{transaction.description && <p className="break-words">{transaction.description}</p>}{transaction.datetime && <p>{new Date(transaction.datetime).toLocaleString()}</p>}</div>}
-              <div><label htmlFor="business-purpose" className="mb-1 block text-sm font-medium">Business Purpose</label><Textarea id="business-purpose" placeholder="Why was this expense necessary for your business?" value={businessPurpose} onChange={e => { const next = e.target.value; setBusinessPurpose(next); debouncedSave({ business_purpose: next }); }} className="min-h-20 rounded-lg bg-background" maxLength={500} /></div>
-              <div><label htmlFor="client-project" className="mb-1 block text-sm font-medium">Client/Project</label><input id="client-project" type="text" placeholder="Associated client or project name" value={clientProject} onChange={e => { const next = e.target.value; setClientProject(next); debouncedSave({ client_project: next }); }} className="min-h-11 w-full rounded-lg border border-border bg-background px-3 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:text-sm" maxLength={100} /></div>
-              <div><label htmlFor="transaction-notes" className="mb-1 block text-sm font-medium">Notes</label><Textarea id="transaction-notes" placeholder="Tell us more about this purchase..." value={additionalContext} onChange={e => { const next = e.target.value; setAdditionalContext(next); debouncedSave({ notes: next }); }} className="min-h-20 rounded-lg bg-background" /></div>
-              <div><label htmlFor="documentation-status" className="mb-1 block text-sm font-medium">Documentation Status</label><select id="documentation-status" value={documentationStatus || 'missing'} onChange={e => { const next = e.target.value as 'complete' | 'partial' | 'missing'; setDocumentationStatus(next); debouncedSave({ documentation_status: next }); }} className="min-h-11 w-full rounded-lg border border-border bg-background px-3 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:text-sm"><option value="missing">Missing</option><option value="partial">Partial</option><option value="complete">Complete</option></select></div>
-              <div><label htmlFor="meeting-notes" className="mb-1 block text-sm font-medium">Meeting Notes</label><Textarea id="meeting-notes" placeholder="Notes about business meetings or discussions" value={meetingNotes} onChange={e => { const next = e.target.value; setMeetingNotes(next); debouncedSave({ meeting_notes: next }); }} className="min-h-20 rounded-lg bg-background" maxLength={500} /></div>
-            </div>
-          </details>
-
-          <details className="group rounded-xl border border-border bg-card">
-            <summary className="flex min-h-[52px] cursor-pointer list-none items-center gap-3 px-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden"><CheckCircle aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" /><span className="flex-1 text-sm font-medium">Tax treatment</span><ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" /></summary>
-            <div className="space-y-3 border-t border-border p-4">
-              <p className="text-sm text-muted-foreground">Only record a business deduction after confirming eligibility, business use and applicable limits. This is separate from confirming the category.</p>
-              <div className="grid grid-cols-2 gap-2">
-                <Button onClick={() => handleClassificationChange('business')} disabled={isSaving} aria-label="Mark as business expense" aria-pressed={classification === 'business'} variant={classification === 'business' ? 'default' : 'outline'} className="h-auto min-h-11 whitespace-normal px-2 py-2">Business deduction</Button>
-                <Button onClick={() => handleClassificationChange('personal')} disabled={isSaving} aria-label="Exclude from deductions" aria-pressed={classification === 'personal'} variant={classification === 'personal' ? 'default' : 'outline'} className="h-auto min-h-11 whitespace-normal px-2 py-2">No deduction</Button>
-              </div>
-              <p className="text-xs text-muted-foreground">Unsure? Leave tax treatment unresolved and keep your receipt for your preparer.</p>
-              <Button variant="ghost" onClick={() => navigateFromTransaction(protectedScreenUrl('tax-preview'))} className="h-11 w-full justify-between px-0">Open Tax Preview<ArrowRight className="h-4 w-4" /></Button>
-            </div>
-          </details>
-        </div>
+          </DetailTabs.Content>
+        </DetailTabs.Root>
       </div>
 
       {hasUnsavedChanges && <div className="sticky bottom-0 z-20 border-t border-border bg-background/95 px-3 py-2 backdrop-blur" style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}>

@@ -3,11 +3,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useBeforeUnload } from '@/lib/hooks/use-before-unload';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { User, Briefcase, ArrowRight, ArrowLeft, ChevronDown, ChevronUp } from '@/lib/icons';
+import { ArrowRight, ArrowLeft, ChevronDown, ChevronUp } from '@/lib/icons';
 import { upsertUserProfile } from '@/lib/firebase/profiles';
 import type { AuthUser } from '@/lib/firebase/auth';
 import { PlaidLinkScreen } from './plaid-link-screen';
@@ -76,7 +73,9 @@ const workRelatedTravelPatterns = [
 
 export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, onBack, onComplete }) => {
   const [currentStep, setCurrentStep] = useState<'profile' | 'data-source' | 'plaid'>('profile');
-  const [currentSlide, setCurrentSlide] = useState<'about' | 'business'>('about');
+  const [currentSlide, setCurrentSlide] = useState<'about' | 'work' | 'business'>('about');
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { scrollAreaRef.current?.scrollTo({ top: 0 }); }, [currentSlide]);
   const [showMoreDetails, setShowMoreDetails] = useState(false);
   const [skipBusiness, setSkipBusiness] = useState(false);
   const [identity, setIdentity] = useState<{ userId: string; loading: boolean; email?: string; error?: string } | null>(null);
@@ -135,7 +134,7 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
     setFormData(prev => ({
       ...prev,
       profession: checked
-        ? [...prev.profession, profession]
+        ? Array.from(new Set([...prev.profession, profession]))
         : prev.profession.filter(p => p !== profession),
       customProfession: profession === 'Other' && !checked ? '' : prev.customProfession
     }));
@@ -189,78 +188,38 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
     );
   }
 
-  const slides = ['about', 'business'] as const;
-  const slideLabels = { about: 'About You', business: 'Your Business' };
+  const slides = ['about', 'work', 'business'] as const;
+  const slideLabels = { about: 'About you', work: 'Your work', business: 'Details' };
   const slideIndex = slides.indexOf(currentSlide);
+  const personalMissing = aboutYouMissing.filter(label => ['email address', 'full name', 'state', 'filing status'].includes(label));
+  const currentMissing = currentSlide === 'about' ? personalMissing : currentSlide === 'work' ? aboutYouMissing : [];
+  const canContinue = currentSlide === 'about' ? personalMissing.length === 0 : isAboutYouValid;
+  const previousStep = () => currentSlide === 'about' ? onBack() : setCurrentSlide(slides[slideIndex - 1]);
 
   return (
-    <div className="h-dvh flex flex-col bg-background overflow-hidden">
-      {/* Header */}
-      <div className="bg-background/80 backdrop-blur-sm border-b border-border z-50 shadow-sm flex-shrink-0">
-        <div className="flex items-center justify-between px-4 py-3 max-w-3xl mx-auto">
-          <button
-            disabled={isSubmitting}
-            aria-label={currentSlide === 'about' ? 'Back' : 'Previous step'}
-            onClick={currentSlide === 'about' ? onBack : () => setCurrentSlide('about')}
-            className="w-9 h-9 bg-card border border-border rounded-xl flex items-center justify-center text-foreground hover:bg-muted transition-all duration-200 shadow-sm"
-          >
-            <ArrowLeft className="w-4 h-4" />
+    <div className="flex h-dvh min-h-0 flex-col overflow-hidden bg-background">
+      <header className="shrink-0 border-b border-border bg-background">
+        <div className="mx-auto flex max-w-xl items-center justify-between gap-3 px-4 py-2">
+          <button type="button" disabled={isSubmitting} aria-label={currentSlide === 'about' ? 'Back' : 'Previous step'} onClick={previousStep} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl hover:bg-muted">
+            <ArrowLeft className="h-4 w-4" />
           </button>
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-blue-700 rounded-lg flex items-center justify-center shadow-sm">
-              <span className="text-white font-bold text-sm">W</span>
-            </div>
-            <span className="font-bold text-foreground">WriteOff</span>
-          </div>
-          <div className="w-9 h-9"></div>
+          <h1 className="text-base font-semibold">Set up WriteOff</h1>
+          <span className="text-xs text-muted-foreground">{slideIndex + 1} of 3</span>
         </div>
+      </header>
+
+      <div className="mx-auto w-full max-w-xl shrink-0 px-4 pb-3 pt-4">
+        <ol className="flex gap-3 text-xs" aria-label="Profile setup progress">
+          {slides.map((slide, index) => <li key={slide} aria-current={currentSlide === slide ? 'step' : undefined} className={`flex-1 border-t-2 pt-2 ${slideIndex >= index ? 'border-primary text-foreground' : 'border-border text-muted-foreground'}`}>{slideLabels[slide]}</li>)}
+        </ol>
+        <h2 className="mt-4 text-xl font-semibold">{currentSlide === 'business' ? 'Anything else to add?' : slideLabels[currentSlide]}</h2>
+        <p className="mt-1 text-sm text-muted-foreground">{currentSlide === 'about' ? 'Start with your personal and tax details.' : currentSlide === 'work' ? 'Help us understand your business expenses.' : 'Optional. You can update these in Settings later.'}</p>
       </div>
 
-      {/* Title + Progress */}
-      <div className="flex-shrink-0 pt-3 pb-2 px-4 max-w-3xl mx-auto w-full">
-        <h1 className="text-xl font-bold text-foreground text-center mb-1">Complete Your Profile</h1>
-        <p className="text-muted-foreground text-sm text-center mb-3">Helps us personalize your deduction analysis</p>
-
-        <div className="flex items-center justify-center gap-3">
-          {slides.map((slide, index) => (
-            <React.Fragment key={slide}>
-              <div className="flex items-center gap-1.5">
-                <div className={`w-7 h-7 rounded-full flex items-center justify-center transition-all duration-300 ${
-                  slideIndex >= index ? 'bg-primary shadow-md shadow-primary/20' : 'bg-muted'
-                }`}>
-                  <span className={`font-semibold text-xs ${
-                    slideIndex >= index ? 'text-primary-foreground' : 'text-muted-foreground'
-                  }`}>{index + 1}</span>
-                </div>
-                <span className={`text-xs font-medium transition-colors duration-300 ${
-                  currentSlide === slide ? 'text-foreground' : 'text-muted-foreground'
-                }`}>{slideLabels[slide]}</span>
-              </div>
-              {index < slides.length - 1 && <div className="w-8 h-0.5 bg-muted"></div>}
-            </React.Fragment>
-          ))}
-        </div>
-      </div>
-
-      {/* Scrollable card area */}
-      <div className="flex-1 overflow-y-auto px-4 pb-2">
-        <div className="max-w-3xl mx-auto">
-          <fieldset disabled={isSubmitting} className="min-w-0">
-            <div>
-
-              {/* ===== STEP 1: About You ===== */}
-              {currentSlide === 'about' && <div className="w-full">
-                <Card className="p-4 bg-card/70 backdrop-blur-sm border border-border shadow-xl">
-                  <div className="flex items-center gap-2.5 mb-4">
-                    <div className="w-9 h-9 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg">
-                      <User className="w-4 h-4 text-white" />
-                    </div>
-                    <div>
-                      <h2 className="text-lg font-bold text-card-foreground">About You</h2>
-                      <p className="text-xs text-muted-foreground">Personal details, profession & income</p>
-                    </div>
-                  </div>
-
+      <div ref={scrollAreaRef} className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+        <fieldset disabled={isSubmitting} className="mx-auto min-w-0 max-w-xl">
+          <legend className="sr-only">{slideLabels[currentSlide]}</legend>
+          {currentSlide === 'about' && <div>
                   {/* Row 1: Email + Name */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
                     <div>
@@ -271,12 +230,12 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                         <Input id="profile-email"
                           type="email"
                           value={formData.email}
-                          className="h-9 text-sm rounded-xl border-2 border-border bg-background pr-10 shadow-sm"
+                          className="min-h-11 text-base rounded-xl border border-border bg-background pr-10 shadow-sm"
                           disabled
                         />
                         {formData.email && <div className="absolute right-3 top-1/2 -translate-y-1/2">
                           <div className="w-5 h-5 bg-green-500 rounded-full flex items-center justify-center">
-                            <span className="text-white text-[10px] font-bold">✓</span>
+                            <span className="text-white text-xs font-bold">✓</span>
                           </div>
                         </div>}
                       </div>
@@ -296,7 +255,7 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                         value={formData.name}
                         onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
                         placeholder="Enter your full name"
-                        className="h-9 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm"
+                        className="min-h-11 text-base rounded-xl border border-border focus:border-blue-500 bg-background shadow-sm"
                       />
                     </div>
                   </div>
@@ -307,56 +266,48 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                       <label htmlFor="profile-state" className="block text-xs font-semibold text-foreground mb-1">
                         State <span className="text-red-500">*</span>
                       </label>
-                      <Select value={formData.state} onValueChange={(value: string) => setFormData(prev => ({ ...prev, state: value }))}>
-                        <SelectTrigger id="profile-state" className="h-9 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm">
-                          <SelectValue placeholder="Select state" />
-                        </SelectTrigger>
-                        <SelectContent>
+                      <select id="profile-state" value={formData.state} onChange={event => { const value = event.target.value; setFormData(prev => ({ ...prev, state: value })); }} className="h-11 w-full min-w-0 rounded-xl border border-border bg-background px-3 text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                          <option value="" disabled>Select state</option>
                           {usStates.map((state) => (
-                            <SelectItem key={state} value={state}>{state}</SelectItem>
+                            <option key={state} value={state}>{state}</option>
                           ))}
-                        </SelectContent>
-                      </Select>
+
+                      </select>
                     </div>
                     <div>
                       <label htmlFor="profile-filingStatus" className="block text-xs font-semibold text-foreground mb-1">
                         Filing Status <span className="text-red-500">*</span>
                       </label>
-                      <Select value={formData.filingStatus} onValueChange={(value: string) => setFormData(prev => ({ ...prev, filingStatus: value }))}>
-                        <SelectTrigger id="profile-filingStatus" className="h-9 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm">
-                          <SelectValue placeholder="Select filing status" />
-                        </SelectTrigger>
-                        <SelectContent>
+                      <select id="profile-filingStatus" value={formData.filingStatus} onChange={event => { const value = event.target.value; setFormData(prev => ({ ...prev, filingStatus: value })); }} className="h-11 w-full min-w-0 rounded-xl border border-border bg-background px-3 text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                          <option value="" disabled>Select filing status</option>
                           {filingStatuses.map((status) => (
-                            <SelectItem key={status} value={status}>{status}</SelectItem>
+                            <option key={status} value={status}>{status}</option>
                           ))}
-                        </SelectContent>
-                      </Select>
+
+                      </select>
                     </div>
                   </div>
 
+
+          </div>}
+          {currentSlide === 'work' && <div>
                   {/* Professions */}
                   <div className="mb-3">
-                    <label className="block text-xs font-semibold text-foreground mb-1">
+                    <label htmlFor="profile-profession" className="block text-xs font-semibold text-foreground mb-1">
                       Profession(s) <span className="text-red-500">*</span>
-                      <span className="font-normal text-muted-foreground ml-1">select all that apply</span>
+                      <span className="font-normal text-muted-foreground ml-1">add all that apply</span>
                     </label>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-1 max-h-32 overflow-y-auto border-2 border-border rounded-xl p-2 bg-muted/30 shadow-sm">
-                      {professions.map((profession) => (
-                        <label key={profession} className="flex items-center space-x-1.5 cursor-pointer hover:bg-muted px-2 py-1.5 rounded-lg transition-colors">
-                          <Checkbox
-                            aria-label={profession}
-                            checked={formData.profession.includes(profession)}
-                            onCheckedChange={(checked) => handleProfessionChange(profession, checked as boolean)}
-                            className="text-blue-600"
-                          />
-                          <span className="text-xs text-foreground">{profession}</span>
-                        </label>
+                    <select id="profile-profession" value="" onChange={event => { if (event.target.value) handleProfessionChange(event.target.value, true); }} disabled={formData.profession.length === professions.length} className="h-11 w-full min-w-0 rounded-xl border border-border bg-background px-3 text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                      <option value="" disabled>{formData.profession.length ? 'Add another profession' : 'Choose your profession'}</option>
+                      {professions.filter(profession => !formData.profession.includes(profession)).map(profession => (
+                        <option key={profession} value={profession}>{profession}</option>
                       ))}
-                    </div>
-                    {formData.profession.length > 0 && (
-                      <p className="text-xs text-blue-600 font-medium mt-1">Selected: {formData.profession.join(', ')}</p>
-                    )}
+                    </select>
+                    {formData.profession.length > 0 && <div className="mt-2 flex flex-wrap gap-2" aria-label="Selected professions">
+                      {formData.profession.map(profession => <button key={profession} type="button" aria-label={`Remove ${profession}`} onClick={() => handleProfessionChange(profession, false)} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 text-sm">
+                        {profession}<span aria-hidden="true">×</span>
+                      </button>)}
+                    </div>}
                     {formData.profession.includes('Other') && (
                       <Input
                         type="text"
@@ -364,7 +315,7 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                         value={formData.customProfession || ''}
                         onChange={(e) => setFormData(prev => ({ ...prev, customProfession: e.target.value }))}
                         placeholder="Enter your profession"
-                        className="h-9 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm mt-2"
+                        className="min-h-11 text-base rounded-xl border border-border focus:border-blue-500 bg-background shadow-sm mt-2"
                       />
                     )}
                   </div>
@@ -375,58 +326,52 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                       <label htmlFor="profile-businessEntityType" className="block text-xs font-semibold text-foreground mb-1">
                         Business Entity <span className="text-red-500">*</span>
                       </label>
-                      <Select value={formData.businessEntityType} onValueChange={(value: string) => setFormData(prev => ({ ...prev, businessEntityType: value }))}>
-                        <SelectTrigger id="profile-businessEntityType" className="h-9 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm">
-                          <SelectValue placeholder="Select type" />
-                        </SelectTrigger>
-                        <SelectContent>
+                      <select id="profile-businessEntityType" value={formData.businessEntityType} onChange={event => { const value = event.target.value; setFormData(prev => ({ ...prev, businessEntityType: value })); }} className="h-11 w-full min-w-0 rounded-xl border border-border bg-background px-3 text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                          <option value="" disabled>Select type</option>
                           {businessEntityTypeOptions.map((opt) => (
-                            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
                           ))}
-                        </SelectContent>
-                      </Select>
+
+                      </select>
                     </div>
                     <div>
                       <label htmlFor="profile-primaryWorkLocation" className="block text-xs font-semibold text-foreground mb-1">
                         Work Location <span className="text-red-500">*</span>
                       </label>
-                      <Select value={formData.primaryWorkLocation} onValueChange={(value: string) => setFormData(prev => ({ ...prev, primaryWorkLocation: value }))}>
-                        <SelectTrigger id="profile-primaryWorkLocation" className="h-9 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm">
-                          <SelectValue placeholder="Where you work" />
-                        </SelectTrigger>
-                        <SelectContent>
+                      <select id="profile-primaryWorkLocation" value={formData.primaryWorkLocation} onChange={event => { const value = event.target.value; setFormData(prev => ({ ...prev, primaryWorkLocation: value })); }} className="h-11 w-full min-w-0 rounded-xl border border-border bg-background px-3 text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                          <option value="" disabled>Where you work</option>
                           {primaryWorkLocations.map((location) => (
-                            <SelectItem key={location} value={location}>{location}</SelectItem>
+                            <option key={location} value={location}>{location}</option>
                           ))}
-                        </SelectContent>
-                      </Select>
+
+                      </select>
                     </div>
                     <div>
                       <label htmlFor="profile-income" className="block text-xs font-semibold text-foreground mb-1">
                         Income Range <span className="text-red-500">*</span>
                       </label>
-                      <Select value={formData.income} onValueChange={(value: string) => setFormData(prev => ({ ...prev, income: value }))}>
-                        <SelectTrigger id="profile-income" className="h-9 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm">
-                          <SelectValue placeholder="Annual income" />
-                        </SelectTrigger>
-                        <SelectContent>
+                      <select id="profile-income" value={formData.income} onChange={event => { const value = event.target.value; setFormData(prev => ({ ...prev, income: value })); }} className="h-11 w-full min-w-0 rounded-xl border border-border bg-background px-3 text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                          <option value="" disabled>Annual income</option>
                           {incomeRanges.map((range) => (
-                            <SelectItem key={range} value={range}>{range}</SelectItem>
+                            <option key={range} value={range}>{range}</option>
                           ))}
-                        </SelectContent>
-                      </Select>
+
+                      </select>
                     </div>
                   </div>
 
+
+          </div>}
+          {currentSlide === 'business' && <div>
                   {/* Expandable: More Details */}
                   <button
                     type="button"
                     aria-expanded={showMoreDetails}
                     onClick={() => setShowMoreDetails(!showMoreDetails)}
-                    className="flex items-center gap-1.5 text-xs font-medium text-blue-600 hover:text-blue-700 transition-colors mb-2"
+                    className="flex min-h-11 items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700 transition-colors mb-2"
                   >
                     {showMoreDetails ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                    {showMoreDetails ? 'Hide' : 'Add more details'} (optional)
+                    {showMoreDetails ? 'Hide income & personal details' : 'Add income & personal details'}
                   </button>
 
                   {showMoreDetails && (
@@ -441,22 +386,19 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                           value={formData.yearOfBirth || ''}
                           onChange={(e) => setFormData(prev => ({ ...prev, yearOfBirth: e.target.value }))}
                           placeholder="e.g., 1990"
-                          className="h-9 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm"
+                          className="min-h-11 text-base rounded-xl border border-border focus:border-blue-500 bg-background shadow-sm"
                         />
-                        <p className="text-[10px] text-muted-foreground mt-0.5">Age-specific tax advice (retirement limits, etc.)</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">Age-specific tax advice (retirement limits, etc.)</p>
                       </div>
                       <div>
                         <label htmlFor="profile-workRelatedTravelPattern" className="block text-xs font-semibold text-foreground mb-1">Travel Pattern</label>
-                        <Select value={formData.workRelatedTravelPattern} onValueChange={(value: string) => setFormData(prev => ({ ...prev, workRelatedTravelPattern: value }))}>
-                          <SelectTrigger id="profile-workRelatedTravelPattern" className="h-9 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm">
-                            <SelectValue placeholder="Work travel frequency" />
-                          </SelectTrigger>
-                          <SelectContent>
+                        <select id="profile-workRelatedTravelPattern" value={formData.workRelatedTravelPattern} onChange={event => { const value = event.target.value; setFormData(prev => ({ ...prev, workRelatedTravelPattern: value })); }} className="h-11 w-full min-w-0 rounded-xl border border-border bg-background px-3 text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                          <option value="">Work travel frequency</option>
                             {workRelatedTravelPatterns.map((pattern) => (
-                              <SelectItem key={pattern} value={pattern}>{pattern}</SelectItem>
+                              <option key={pattern} value={pattern}>{pattern}</option>
                             ))}
-                          </SelectContent>
-                        </Select>
+
+                      </select>
                       </div>
                       <div>
                         <label htmlFor="profile-w2Income" className="block text-xs font-semibold text-foreground mb-1">W-2 / Salary Income</label>
@@ -467,9 +409,9 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                           value={formData.w2Income ?? ''}
                           onChange={(e) => setFormData(prev => ({ ...prev, w2Income: e.target.value === '' ? undefined : Number(e.target.value) }))}
                           placeholder="e.g., 65000"
-                          className="h-9 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm"
+                          className="min-h-11 text-base rounded-xl border border-border focus:border-blue-500 bg-background shadow-sm"
                         />
-                        <p className="text-[10px] text-muted-foreground mt-0.5">From traditional employment, if any</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">From traditional employment, if any</p>
                       </div>
                       <div>
                         <label htmlFor="profile-businessIncome" className="block text-xs font-semibold text-foreground mb-1">Self-Employment Income</label>
@@ -480,30 +422,15 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                           value={formData.businessIncome ?? ''}
                           onChange={(e) => setFormData(prev => ({ ...prev, businessIncome: e.target.value === '' ? undefined : Number(e.target.value) }))}
                           placeholder="e.g., 40000"
-                          className="h-9 text-sm rounded-xl border-2 border-border focus:border-blue-500 bg-background shadow-sm"
+                          className="min-h-11 text-base rounded-xl border border-border focus:border-blue-500 bg-background shadow-sm"
                         />
-                        <p className="text-[10px] text-muted-foreground mt-0.5">Freelance, 1099, or business revenue</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">Freelance, 1099, or business revenue</p>
                       </div>
                     </div>
                   )}
-                </Card>
-              </div>}
-
-              {/* ===== STEP 2: Your Business ===== */}
-              {currentSlide === 'business' && <div className="w-full">
-                <Card className="p-4 bg-card/70 backdrop-blur-sm border border-border shadow-xl mx-1">
-                  <div className="flex items-center gap-2.5 mb-4">
-                    <div className="w-9 h-9 bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl flex items-center justify-center shadow-lg">
-                      <Briefcase className="w-4 h-4 text-white" />
-                    </div>
-                    <div>
-                      <h2 className="text-lg font-bold text-card-foreground">Your Business</h2>
-                      <p className="text-xs text-muted-foreground">Business details & deduction info</p>
-                    </div>
-                  </div>
-
+            <div className="mt-2 border-t border-border pt-3">
                   {/* Skip option */}
-                  <div className="flex items-center space-x-2 mb-4 p-2.5 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                  <div className="flex min-h-11 items-center space-x-2 mb-3 p-2.5 bg-blue-500/10 border border-blue-500/20 rounded-lg">
                     <input
                       type="checkbox"
                       id="skipBusiness"
@@ -511,13 +438,15 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                       onChange={(e) => setSkipBusiness(e.target.checked)}
                       className="w-4 h-4 text-blue-600 border-border rounded focus:ring-blue-500"
                     />
-                    <label htmlFor="skipBusiness" className="text-xs font-medium text-blue-600">
-                      Skip — I&apos;ll fill this in later (you can update anytime in Settings)
+                    <label htmlFor="skipBusiness" className="flex min-h-11 flex-1 items-center text-sm font-medium text-blue-600">
+                      Skip business details for now
                     </label>
                   </div>
 
                   {!skipBusiness && (
-                    <div className="space-y-3">
+                    <details className="group">
+                      <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between text-sm font-medium [&::-webkit-details-marker]:hidden">Business, home office & vehicle <span aria-hidden="true" className="text-muted-foreground group-open:rotate-45">+</span></summary>
+                    <div className="space-y-3 pt-3">
                       {/* Business Purpose + Start Date */}
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div>
@@ -527,7 +456,7 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                             value={formData.businessPurpose || ''}
                             onChange={(e) => setFormData(prev => ({ ...prev, businessPurpose: e.target.value }))}
                             placeholder="e.g., Freelance web design"
-                            className="h-9 text-sm rounded-xl border-2 border-border focus:border-orange-500 bg-background shadow-sm"
+                            className="min-h-11 text-base rounded-xl border border-border focus:border-orange-500 bg-background shadow-sm"
                           />
                         </div>
                         <div>
@@ -536,7 +465,7 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                             type="date"
                             value={formData.businessStartDate || ''}
                             onChange={(e) => setFormData(prev => ({ ...prev, businessStartDate: e.target.value }))}
-                            className="h-9 text-sm rounded-xl border-2 border-border focus:border-orange-500 bg-background shadow-sm"
+                            className="min-h-11 text-base rounded-xl border border-border focus:border-orange-500 bg-background shadow-sm"
                           />
                         </div>
                       </div>
@@ -550,7 +479,7 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                             value={formData.ein || ''}
                             onChange={(e) => setFormData(prev => ({ ...prev, ein: e.target.value }))}
                             placeholder="XX-XXXXXXX"
-                            className="h-9 text-sm rounded-xl border-2 border-border focus:border-orange-500 bg-background shadow-sm"
+                            className="min-h-11 text-base rounded-xl border border-border focus:border-orange-500 bg-background shadow-sm"
                           />
                         </div>
                       </div>
@@ -567,9 +496,9 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                               value={formData.homeOfficeSqft ?? ''}
                               onChange={(e) => setFormData(prev => ({ ...prev, homeOfficeSqft: e.target.value === '' ? undefined : Number(e.target.value) }))}
                               placeholder="e.g., 150"
-                              className="h-9 text-sm rounded-xl border-2 border-border focus:border-orange-500 bg-background shadow-sm"
+                              className="min-h-11 text-base rounded-xl border border-border focus:border-orange-500 bg-background shadow-sm"
                             />
-                            <p className="text-[10px] text-muted-foreground mt-0.5">Dedicated workspace only</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">Dedicated workspace only</p>
                           </div>
                           <div>
                             <label htmlFor="profile-totalHomeSqft" className="block text-xs font-semibold text-foreground mb-1">Total Home Sq Ft</label>
@@ -579,9 +508,9 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                               value={formData.totalHomeSqft ?? ''}
                               onChange={(e) => setFormData(prev => ({ ...prev, totalHomeSqft: e.target.value === '' ? undefined : Number(e.target.value) }))}
                               placeholder="e.g., 1200"
-                              className="h-9 text-sm rounded-xl border-2 border-border focus:border-orange-500 bg-background shadow-sm"
+                              className="min-h-11 text-base rounded-xl border border-border focus:border-orange-500 bg-background shadow-sm"
                             />
-                            <p className="text-[10px] text-muted-foreground mt-0.5">Calculates deduction %</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">Calculates deduction %</p>
                           </div>
                         </div>
                       </div>
@@ -600,74 +529,34 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                               value={formData.vehicleBusinessUsePercentage ?? ''}
                               onChange={(e) => setFormData(prev => ({ ...prev, vehicleBusinessUsePercentage: e.target.value === '' ? undefined : Number(e.target.value) }))}
                               placeholder="e.g., 75"
-                              className="h-9 text-sm rounded-xl border-2 border-border focus:border-orange-500 bg-background shadow-sm"
+                              className="min-h-11 text-base rounded-xl border border-border focus:border-orange-500 bg-background shadow-sm"
                             />
                           </div>
                         </div>
                       </div>
                     </div>
+                    </details>
                   )}
-                </Card>
-              </div>}
-
             </div>
-          </fieldset>
-        </div>
+          </div>}
+        </fieldset>
       </div>
 
-      {/* Sticky bottom nav bar */}
-      <div className="flex-shrink-0 border-t border-border bg-background/90 backdrop-blur-sm px-4 py-3">
-        <div className="max-w-3xl mx-auto flex items-center justify-between">
-          <Button
-            onClick={currentSlide === 'about' ? onBack : () => setCurrentSlide('about')}
-            disabled={isSubmitting}
-            variant="outline"
-            className="h-9 px-4 rounded-xl border-2 border-border hover:bg-muted bg-background shadow-sm"
-          >
-            <ArrowLeft className="w-4 h-4 mr-1.5" />
-            {currentSlide === 'about' ? 'Back' : 'Previous'}
-          </Button>
-
-          {aboutYouMissing.length > 0 && currentSlide === 'about' && (
-            <p className="text-[10px] text-muted-foreground max-w-[200px] text-center">
-              Complete: {aboutYouMissing.slice(0, 3).join(', ')}{aboutYouMissing.length > 3 ? '...' : ''}
-            </p>
-          )}
-
-          {currentSlide === 'about' ? (
-            <Button
-              onClick={() => setCurrentSlide('business')}
-              disabled={!isAboutYouValid || !!profileDetailsError(formData, true)}
-              className="h-9 px-5 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-lg shadow-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Next
-              <ArrowRight className="w-4 h-4 ml-1.5" />
+      <div className="shrink-0 border-t border-border bg-background px-4 py-3">
+        <div className="mx-auto max-w-xl">
+          {currentMissing.length > 0 && <p className="mb-2 text-xs text-muted-foreground" role="status">Still needed: {currentMissing.join(', ')}.</p>}
+          {(error || detailsError) && <p role="alert" className="mb-2 rounded-lg bg-destructive/10 p-2 text-xs text-destructive">{error || detailsError}</p>}
+          <div className="flex items-center justify-between gap-3">
+            <Button onClick={previousStep} disabled={isSubmitting} variant="outline" className="min-h-11 rounded-xl px-4">
+              {currentSlide === 'about' ? 'Back' : 'Previous'}
             </Button>
-          ) : (
-            <Button
-              onClick={handleSubmit}
-              disabled={!isFormValid || isSubmitting}
-              className="h-9 px-5 rounded-xl bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white font-medium shadow-md shadow-green-500/20 disabled:opacity-50 transition-all duration-200"
-            >
-              {isSubmitting ? (
-                <>
-                  <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin mr-1.5"></div>
-                  Saving...
-                </>
-              ) : (
-                <>
-                  Save and continue
-                  <ArrowRight className="w-4 h-4 ml-1.5" />
-                </>
-              )}
-            </Button>
-          )}
-        </div>
-        {(error || detailsError) && (
-          <div className="max-w-3xl mx-auto mt-2 p-2 bg-red-500/10 border border-red-500/20 rounded-lg">
-            <p role="alert" className="text-red-600 text-xs font-medium">{error || detailsError}</p>
+            {currentSlide !== 'business' ? <Button onClick={() => { if (canContinue) setCurrentSlide(slides[slideIndex + 1]); }} disabled={!canContinue || isSubmitting} className="min-h-11 rounded-xl px-5">
+              Next <ArrowRight className="h-4 w-4" />
+            </Button> : <Button onClick={handleSubmit} disabled={!isFormValid || isSubmitting} className="min-h-11 rounded-xl px-5">
+              {isSubmitting ? 'Saving...' : 'Save and continue'}<ArrowRight className="h-4 w-4" />
+            </Button>}
           </div>
-        )}
+        </div>
       </div>
     </div>
   );

@@ -1,12 +1,12 @@
 /**
- * WriteOff Dashboard - Premium Fintech Corporate
+ * WriteOff Home — review first, financial summary second.
  *
  * All data fetching and computation stays in this parent component.
  * Presentation is delegated to components/dashboard/*.
  */
 
 import React, { useState, useEffect } from 'react';
-import { ArrowRight, CheckCircle2, ChevronDown, ClipboardCheck, Loader2, Plus } from 'lucide-react';
+import { ArrowRight, ChevronDown, Loader2, Plus } from 'lucide-react';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import { useTransactions } from '@/lib/firebase/hooks';
 import { getUserTaxRateDisplay } from '@/lib/tax-rules/federal-brackets';
@@ -202,7 +202,7 @@ export default function DashboardScreen({
     <>
       <ToastContainer toasts={toasts} onClose={removeToast} />
 
-      <div className="min-h-screen bg-background safe-area-inset-bottom overflow-x-hidden">
+      <div className="min-h-full bg-background safe-area-inset-bottom">
         {/* Header */}
         <DashboardHeader
           userName={profile?.name?.split(' ')[0] || 'there'}
@@ -212,24 +212,21 @@ export default function DashboardScreen({
           analysisInProgress={isAnalyzing}
         />
 
-        <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 py-3 sm:py-4 space-y-3 sm:space-y-4">
-          <section aria-label="Your next step" className="flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 p-3 sm:p-4">
-            <div className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary sm:flex">
-              {categoryReviews.length > 0 || taxQuestions.length > 0 ? <ClipboardCheck className="h-5 w-5" /> : <CheckCircle2 className="h-5 w-5" />}
-            </div>
+        <div className="max-w-6xl mx-auto px-3 sm:px-4 md:px-6 pt-2 pb-4 space-y-2.5 sm:space-y-3">
+          <section aria-label="Your next step" className="flex items-center gap-3 rounded-2xl bg-primary/5 px-3 py-2">
             <div className="min-w-0 flex-1">
               <h2 className="text-sm font-semibold leading-snug">
                 {transactions.length === 0 ? 'Start with your first expense' : categoryReviews.length > 0
-                  ? `${categoryReviews.length} ${categoryReviews.length === 1 ? 'category needs' : 'categories need'} review`
-                  : taxQuestions.length > 0 ? `${taxQuestions.length} ${taxQuestions.length === 1 ? 'transaction needs' : 'transactions need'} tax details`
-                  : recordSummary.pendingCount > 0 ? 'Waiting for transactions to post' : 'Your transaction review is up to date'}
+                  ? `Review ${categoryReviews.length} ${categoryReviews.length === 1 ? 'category' : 'categories'}`
+                  : taxQuestions.length > 0 ? `${taxQuestions.length} ${taxQuestions.length === 1 ? 'transaction needs' : 'transactions need'} details`
+                  : recordSummary.pendingCount > 0 ? 'Waiting for transactions to post' : 'Transaction review is up to date'}
               </h2>
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                {transactions.length === 0 ? 'Add a receipt or expense. Connecting a bank is optional.' : categoryReviews.length > 0
-                  ? 'Confirm or correct your transaction categories.'
-                  : taxQuestions.length > 0 ? 'Categories are saved. Add the facts needed to resolve deductions.'
-                  : recordSummary.pendingCount > 0 ? `${recordSummary.pendingCount} pending. Review them once your bank posts them.`
-                    : 'Keep receipts and business details with your records.'}
+              <p className="mt-0.5 text-xs leading-snug text-muted-foreground">
+                {transactions.length === 0 ? 'Add an expense or receipt to get started.' : categoryReviews.length > 0
+                  ? 'Confirm or correct each category.'
+                  : taxQuestions.length > 0 ? 'Add the facts needed to resolve deductions.'
+                  : recordSummary.pendingCount > 0 ? `${recordSummary.pendingCount} pending bank confirmation.`
+                    : 'Your saved records are ready to view.'}
               </p>
               {isAnalyzing && <p className="mt-1 flex items-center gap-1 text-xs text-primary" role="status"><Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />AI analysis in progress</p>}
             </div>
@@ -249,26 +246,27 @@ export default function DashboardScreen({
             needsAnalysisCount={categoriesNeedingAnalysis}
           />
 
-          <KpiGrid
-            state={taxState}
-            taxYear={taxYear}
-            onRetry={() => setTaxRetry(value => value + 1)}
-            onReview={onNavigate}
-          />
+          <div className="grid items-start gap-2.5 sm:gap-3 lg:grid-cols-2">
+            <KpiGrid
+              state={taxState}
+              taxYear={taxYear}
+              onRetry={() => setTaxRetry(value => value + 1)}
+              onReview={onNavigate}
+            />
+            <RecentActivityCard
+              transactions={transactions}
+              onTransactionClick={onTransactionClick}
+              onViewAll={() => onNavigate('transactions')}
+            />
+          </div>
 
-          <RecentActivityCard
-            transactions={transactions}
-            onTransactionClick={onTransactionClick}
-            onViewAll={() => onNavigate('transactions')}
-          />
-
-          <div className="space-y-2">
-            <details className="group rounded-xl border bg-card">
-              <summary className="flex min-h-[48px] cursor-pointer list-none items-center justify-between gap-3 px-4 text-sm font-medium [&::-webkit-details-marker]:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-xl">
-                Tax checklist & next steps
-                <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
-              </summary>
-              <div className="space-y-3 border-t p-3 [&_button]:min-h-[44px] [&_button[aria-label]]:min-w-[44px]">
+          <details className="group rounded-xl border border-border/70 bg-card">
+            <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-4 text-sm font-medium [&::-webkit-details-marker]:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-xl">
+              More insights & tax checklist
+              <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
+            </summary>
+            <div className="grid gap-3 border-t p-3 lg:grid-cols-2 [&_button]:min-h-11 [&_button[aria-label]]:min-w-11">
+              <div className="space-y-3">
                 <ActionItemsBanner
                   profile={profile}
                   transactions={transactions}
@@ -284,16 +282,9 @@ export default function DashboardScreen({
                   onNavigate={onNavigate}
                 />}
               </div>
-            </details>
-
-            <details className="group rounded-xl border bg-card">
-              <summary className="flex min-h-[48px] cursor-pointer list-none items-center justify-between gap-3 px-4 text-sm font-medium [&::-webkit-details-marker]:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-xl">
-                Cash flow & category breakdown
-                <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
-              </summary>
-              <div className="space-y-3 border-t p-3 [&_button]:min-h-[44px]">
+              <div className="space-y-3 min-w-0">
                 <AnalyticsPanel transactions={transactions} />
-                <div className="grid gap-3 lg:grid-cols-2">
+                <div className="grid gap-3">
                   <TopCategoriesCard
                     categories={recordSummary.categoryEntries}
                     totalMagnitude={recordSummary.categoryMagnitude}
@@ -309,8 +300,8 @@ export default function DashboardScreen({
                   />
                 </div>
               </div>
-            </details>
-          </div>
+            </div>
+          </details>
 
           <div className="[&_button]:min-h-[44px]">
             <HistoricalAccessUpgradeCard variant="slim" />

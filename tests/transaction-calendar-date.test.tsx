@@ -33,7 +33,7 @@ describe('transaction calendar dates', () => {
 
   it.each([['2026-09-02T00:00:00.000Z', 'Sep 2', 'Sep 1'], ['2026-01-01T00:00:00.000Z', 'Jan 1', 'Dec 31']])('renders %s correctly in desktop and mobile recent activity', (date, expected, previous) => {
     const html = renderToStaticMarkup(<RecentActivityCard transactions={[{ id: 'synthetic-receipt', merchant_name: 'Synthetic receipt', amount: 25, category: 'office_expense', date }]} onTransactionClick={() => {}} onViewAll={() => {}} />);
-    expect(html.split(expected)).toHaveLength(3);
+    expect(html).toContain(expected);
     expect(html).not.toContain(previous);
   });
 });

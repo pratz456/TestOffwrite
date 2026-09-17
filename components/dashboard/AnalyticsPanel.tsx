@@ -115,13 +115,13 @@ export function AnalyticsPanel({ transactions }: AnalyticsPanelProps) {
       <CardHeader className="pb-2 px-4 sm:px-5">
         <div className="flex flex-col gap-2">
           {/* Row 1: Title + year | Monthly/Quarterly */}
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <CardTitle className="text-sm font-medium">{titleText}</CardTitle>
               <select
                 value={selectedYear}
                 onChange={(e) => setSelectedYear(Number(e.target.value))}
-                className="min-h-[36px] sm:min-h-0 px-2 py-1 text-xs font-medium rounded-lg border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-primary/30 transition-colors"
+                className="min-h-[44px] px-2 py-1 text-xs font-medium rounded-lg border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-primary/30 transition-colors"
                 aria-label="Select year"
               >
                 {availableYears.map((y) => (
@@ -164,7 +164,7 @@ export function AnalyticsPanel({ transactions }: AnalyticsPanelProps) {
                 key={mode}
                 type="button"
                 onClick={() => setDataMode(mode)}
-                className={`min-h-[36px] min-w-[44px] sm:min-w-0 px-3 py-1.5 sm:py-1 text-xs font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+                className={`min-h-[44px] min-w-[44px] sm:min-w-0 px-3 py-1.5 sm:py-1 text-xs font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
                   dataMode === mode
                     ? 'bg-primary text-primary-foreground'
                     : 'bg-card text-muted-foreground hover:bg-muted'
@@ -204,13 +204,13 @@ export function AnalyticsPanel({ transactions }: AnalyticsPanelProps) {
                   dataKey="name"
                   tickLine={false}
                   axisLine={false}
-                  tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                  tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
                   interval={viewMode === 'monthly' ? 1 : 0}
                 />
                 <YAxis
                   tickLine={false}
                   axisLine={false}
-                  tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                  tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
                   tickFormatter={(v: number) => {
                     const abs = Math.abs(v);
                     if (abs >= 1000) return `${v < 0 ? '-' : ''}$${(abs / 1000).toFixed(0)}k`;

@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Button } from '@/components/ui/button';
-import { RefreshCw, Loader2 } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { HistoricalAccessNotification } from '@/components/historical-access-notification';
 
 interface DashboardHeaderProps {
@@ -27,28 +27,20 @@ function formatLastSync(ms: number): string {
   return date.toLocaleDateString();
 }
 
-export function DashboardHeader({ userName, isRefreshing, onRefresh, lastSync, analysisInProgress }: DashboardHeaderProps) {
+export function DashboardHeader({ isRefreshing, onRefresh, lastSync }: DashboardHeaderProps) {
   const year = new Date().getFullYear();
 
   return (
-    <div className="bg-background sticky top-0 z-10 border-b border-border/50 backdrop-blur-sm bg-background/95">
-      <div className="max-w-7xl mx-auto px-4 md:px-6 py-3 sm:py-4">
+    <div className="bg-background">
+      <div className="max-w-6xl mx-auto px-3 sm:px-4 md:px-6 pt-3 pb-1">
         <HistoricalAccessNotification />
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h1 className="text-xl sm:text-2xl font-semibold text-foreground">Dashboard</h1>
-            <p className="text-sm text-muted-foreground">
-              Financial overview - {year}
-              {lastSync != null && (
-                <span className="ml-2">· Data last refreshed {formatLastSync(lastSync)}</span>
-              )}
-              {analysisInProgress && (
-                <span className="ml-2 inline-flex items-center gap-1 text-primary">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  Analysis in progress
-                </span>
-              )}
-            </p>
+            <div className="flex items-baseline gap-2">
+              <h1 className="text-xl font-semibold tracking-tight text-foreground">Home</h1>
+              <span className="text-xs text-muted-foreground">{year}</span>
+            </div>
+            {lastSync != null && <p className="text-xs text-muted-foreground">Bank sync {formatLastSync(lastSync)}</p>}
           </div>
           <Button
             variant="outline"

@@ -32,7 +32,13 @@ vi.mock('react', async importOriginal => {
         if (typeof cleanup === 'function') harness.effectCleanups.set(index, cleanup);
       });
     },
-    useCallback<T>(callback: T) { return callback; },
+    useCallback<T>(callback: T, dependencies: unknown[]) {
+      const index = harness.cursor++;
+      const previous = harness.slots[index] as { callback: T; dependencies: unknown[] } | undefined;
+      if (previous?.dependencies.length === dependencies.length && previous.dependencies.every((value, position) => Object.is(value, dependencies[position]))) return previous.callback;
+      harness.slots[index] = { callback, dependencies };
+      return callback;
+    },
   };
   return { ...actual, ...hooks, default: { ...actual.default, ...hooks } };
 });
@@ -59,6 +65,7 @@ type Props = {
   onConfirm?: () => void;
   onCancel?: () => void;
   onChange?: (event: { target: { value: string } }) => void;
+  onValueChange?: (value: string) => void;
   onSubmit?: (event: { preventDefault(): void }) => Promise<void>;
 };
 type Element = ReactElement<Props>;
@@ -290,7 +297,7 @@ describe('transaction detail preserves manual work without guessed tax impact or
     await action(detail(), 'Check AI availability').props.onClick!();
     expect(harness.fetch).toHaveBeenCalledOnce();
     expect(action(detail(), 'Run AI Analysis').props.disabled).toBe(false);
-    expect(text(detail())).toContain('configuration check does not verify funding');
+    expect(text(detail())).toContain('No new AI assessment was saved. Try again when AI is available.');
   });
 
   it('notes and business classification save without scheduling an AI/provider request', async () => {
@@ -567,6 +574,60 @@ describe('transaction detail preserves manual work without guessed tax impact or
     detail({ id: 'another-transaction', trans_id: 'another-transaction' });
     complete(analyzed()); await pending;
     expect(harness.save).not.toHaveBeenCalled(); expect(harness.success).not.toHaveBeenCalled();
+  });
+
+  it.each(['summary', 'details'])('cancels a pending camera permission request when leaving Receipt for %s', async destination => {
+    harness.runEffects = true;
+    const stop = vi.fn();
+    const stream = { getTracks: () => [{ stop }] } as unknown as MediaStream;
+    let allowCamera!: (stream: MediaStream) => void;
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: vi.fn(() => new Promise<MediaStream>(resolve => { allowCamera = resolve; })) } });
+    const tabs = () => walk(detail()).find(node => node.props.onValueChange)!;
+    tabs().props.onValueChange!('receipt');
+    const permission = action(detail(), 'Photo').props.onClick!();
+    tabs().props.onValueChange!(destination);
+    allowCamera(stream);
+    await permission;
+    expect(stop).toHaveBeenCalledOnce();
+    expect(tabs().props.value).toBe(destination);
+    expect(walk(detail()).some(node => node.type === 'video')).toBe(false);
+    expect(harness.error).not.toHaveBeenCalled();
+  });
+
+  it('stops the camera when analysis completion returns Receipt to Summary programmatically', async () => {
+    harness.runEffects = true;
+    const stop = vi.fn();
+    const stream = { getTracks: () => [{ stop }] } as unknown as MediaStream;
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: vi.fn().mockResolvedValue(stream) } });
+    let complete!: (response: Response) => void;
+    harness.fetch.mockReturnValueOnce(new Promise<Response>(resolve => { complete = resolve; }));
+    const analysis = action(detail(), 'Run AI Analysis').props.onClick!();
+    await vi.advanceTimersByTimeAsync(0);
+    walk(detail()).find(node => node.props.onValueChange)!.props.onValueChange!('receipt');
+    await action(detail(), 'Photo').props.onClick!();
+    expect(walk(detail()).some(node => node.type === 'video')).toBe(true);
+    expect(stop).not.toHaveBeenCalled();
+    complete(analyzed());
+    await analysis;
+    expect(stop).toHaveBeenCalledOnce();
+    expect(walk(detail()).find(node => node.props.onValueChange)!.props.value).toBe('summary');
+    expect(walk(detail()).some(node => node.type === 'video')).toBe(false);
+    expect(harness.save).toHaveBeenCalledOnce();
+  });
+
+  it('stops the active receipt camera when transaction identity changes', async () => {
+    harness.runEffects = true;
+    const stop = vi.fn();
+    const stream = { getTracks: () => [{ stop }] } as unknown as MediaStream;
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: vi.fn().mockResolvedValue(stream) } });
+    walk(detail()).find(node => node.props.onValueChange)!.props.onValueChange!('receipt');
+    await action(detail(), 'Photo').props.onClick!();
+    expect(stop).not.toHaveBeenCalled();
+    detail({ id: 'next-record', trans_id: 'next-record' });
+    const next = detail({ id: 'next-record', trans_id: 'next-record' });
+    expect(stop).toHaveBeenCalledOnce();
+    expect(walk(next).find(node => node.props.onValueChange)!.props.value).toBe('summary');
+    expect(walk(next).some(node => node.type === 'video')).toBe(false);
   });
 
   it('preserves receipt unlink through the authenticated mutation', async () => {

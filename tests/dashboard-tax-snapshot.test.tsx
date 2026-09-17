@@ -70,7 +70,15 @@ function render() {
     recordStatus: walk(tree).find(n => n.type === ('OptimizationCard' as any))!.props,
     categories: walk(tree).find(n => n.type === ('TopCategoriesCard' as any))!.props };
 }
-function cards(props: Record<string, any>) { return walk(KpiGrid(props as any)).filter(n => typeof n.props.title === 'string' && 'value' in n.props).map(n => n.props); }
+function cards(props: Record<string, any>) {
+  return walk(KpiGrid(props as any)).flatMap(node => {
+    const children = Array.isArray(node.props?.children) ? node.props.children : [];
+    const term = children.find(child => child?.type === 'dt');
+    const value = children.find(child => child?.type === 'dd');
+    return term && value && /^-?\$[\d,.]+$/.test(text(value)) ? [{ title: text(term), value: text(value) }] : [];
+  });
+}
+function valueFor(props: Record<string, any>, title: string) { return cards(props).find(card => card.title === title)?.value; }
 async function transport(url: string) {
   if (!url.includes('compute-1040')) return Response.json({ data: {} });
   const response = await GET(new NextRequest(`http://localhost${url}`));
@@ -118,9 +126,11 @@ describe('dashboard tax cards share the federal server calculation', () => {
       expense(10, { id: 'skipped', merchant_name: 'Skipped expense', is_deductible: null, user_classification_reason: 'Skipped by user' }),
     ];
     const click = vi.fn();
-    const tree = RecentActivityCard({ transactions: tx, onTransactionClick: click, onViewAll() {} });
-    const row = (merchant: string) => walk(tree).find(n => n.props?.role === 'button' && text(n).includes(merchant))!;
-    expect(text(row('Office refund'))).toContain('Office & Equipment · Credit / refund');
+    const row = (merchant: string) => {
+      const tree = RecentActivityCard({ transactions: tx.filter(record => record.merchant_name === merchant), onTransactionClick: click, onViewAll() {} });
+      return walk(tree).find(n => n.props?.role === 'button' && text(n).includes(merchant))!;
+    };
+    expect(text(row('Office refund'))).toContain('Credit / refund · Office & Equipment');
     expect(text(row('Office refund'))).toContain('+$20.00');
     expect(text(row('Office refund'))).not.toContain('Income');
     expect(text(row('Client receipt'))).toContain('Income'); expect(text(row('Client receipt'))).not.toContain('Personal');
@@ -162,7 +172,7 @@ describe('dashboard tax cards share the federal server calculation', () => {
     const pending = render(); expect(pending.state).toEqual({ status: 'loading' }); expect(cards(pending)).toEqual([]);
     await flush(); const ready = render();
     expect(ready.state.snapshot.income).toEqual({ grossReceipts: 0, scheduleCNetProfit: 0, totalDeductible: 0 });
-    expect(cards(ready)[0].value).toBe('$0.00');
+    expect(valueFor(ready, 'Schedule C profit')).toBe('$0.00');
     expect(h.request).toHaveBeenCalledWith('/api/tax/compute-1040?year=2026', expect.objectContaining({ cache: 'no-store', signal: expect.any(AbortSignal) }));
   });
   it('uses actual route year/confirmation/pending/category/refund rules and exact JSON totals', async () => {
@@ -177,17 +187,17 @@ describe('dashboard tax cards share the federal server calculation', () => {
     expect(income).toEqual({ grossReceipts: 100000, totalDeductible: 65, scheduleCNetProfit: 99935 });
     expect(h.lastJson.income).toMatchObject(income);
     expect(props.state.snapshot.form1040.totalTax).toBe(h.lastJson.form1040.totalTax);
-    expect(cards(props).map(c => c.title)).toEqual(['Schedule C Profit', 'Confirmed Business Expenses', 'Federal Tax Estimate', 'Estimated Federal Balance']);
-    expect(cards(props)[2].value).toBe(h.lastJson.form1040.totalTax.toLocaleString('en-US', { style: 'currency', currency: 'USD' }));
-    expect(cards(props)[3].value).toBe(h.lastJson.form1040.balanceDue.toLocaleString('en-US', { style: 'currency', currency: 'USD' }));
+    expect(cards(props).map(c => c.title)).toEqual(['Estimated federal balance', 'Schedule C profit', 'Confirmed expenses', 'Annual federal tax estimate']);
+    expect(valueFor(props, 'Annual federal tax estimate')).toBe(h.lastJson.form1040.totalTax.toLocaleString('en-US', { style: 'currency', currency: 'USD' }));
+    expect(valueFor(props, 'Estimated federal balance')).toBe(h.lastJson.form1040.balanceDue.toLocaleString('en-US', { style: 'currency', currency: 'USD' }));
     expect(props.state.snapshot.form1040.calculationWarnings.some((s: string) => s.includes('inflow'))).toBe(true);
   });
   it('includes recorded withholding/payments in the exact federal refund card', async () => {
     h.records.w2_income = [{ wages: 30000, federalWithheld: 5000, socialSecurityWages: 30000, medicareWages: 30000 }];
     h.paid = 100;
     render(); await flush(); const props = render();
-    expect(cards(props)[3].title).toBe('Estimated Federal Refund');
-    expect(cards(props)[3].value).toBe(h.lastJson.form1040.refund.toLocaleString('en-US', { style: 'currency', currency: 'USD' }));
+    expect(cards(props).some(card => card.title === 'Estimated federal balance')).toBe(false);
+    expect(valueFor(props, 'Estimated federal refund')).toBe(h.lastJson.form1040.refund.toLocaleString('en-US', { style: 'currency', currency: 'USD' }));
   });
   it.each(['income', 'status', 'personal', 'dependent'])('422 %s review cannot become zero tax or stale previous totals', async kind => {
     render(); await flush(); render();

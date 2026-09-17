@@ -31,7 +31,7 @@ describe('source-backed AI explanation', () => {
   it.each(['javascript:alert(1)', 'http://irs.gov/a', 'https://irs.gov.attacker.example/a', 'https://user:password@irs.gov/a', '/publications/p463'])('rejects unsafe/non-authoritative source URL %s', url => {
     expect(trustedTaxSourceUrl(url)).toBe(false);
   });
-  it.each(['https://www.irs.gov/publications/p463', 'https://irs.gov/taxtopics/tc511', 'https://uscode.house.gov/view.xhtml?req=granuleid:USC-prelim-title26-section162'])('allows a vetted official HTTPS host %s', url => {
+  it.each(['https://www.irs.gov/publications/p463', 'https://irs.gov/taxtopics/tc511', 'https://www.govinfo.gov/content/pkg/USCODE-2025-title26/pdf/USCODE-2025-title26.pdf', 'https://uscode.house.gov/view.xhtml?req=granuleid:USC-prelim-title26-section162'])('allows a vetted official HTTPS host %s', url => {
     expect(trustedTaxSourceUrl(url)).toBe(true);
   });
 });

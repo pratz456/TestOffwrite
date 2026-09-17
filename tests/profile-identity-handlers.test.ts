@@ -51,8 +51,9 @@ function text(node: any): string {
 function field(tree: Element, id: string) { return walk(tree).find(node => node.props.id === id)!; }
 function button(tree: Element, label: string) { return walk(tree).find(node => node.props.onClick && text(node).trim() === label)!; }
 function select(tree: Element, id: string, value: string) {
-  const control = walk(tree).find(node => node.props.onValueChange && walk(node).some(child => child.props.id === id))!;
-  control.props.onValueChange(value);
+  const control = field(tree, id);
+  expect(control.type).toBe('select');
+  control.props.onChange({ target: { value } });
 }
 const tick = async () => { for (let i = 0; i < 6; i++) await Promise.resolve(); };
 beforeEach(() => { harness.slots = []; harness.cursor = 0; harness.effects = []; vi.clearAllMocks(); harness.upsert.mockResolvedValue({ error: null }); harness.reload.mockImplementation(() => new Promise(() => {})); });
@@ -114,16 +115,107 @@ describe('profile setup uses the hydrated authenticated email', () => {
     const empty = render(null);
     field(empty, 'profile-name').props.onChange({ target: { value: 'My preferred name' } });
     select(empty, 'profile-state', 'California'); select(empty, 'profile-filingStatus', 'Single');
-    select(empty, 'profile-businessEntityType', 'Sole Proprietor / Independent Contractor');
-    select(empty, 'profile-primaryWorkLocation', 'Home Office'); select(empty, 'profile-income', 'Under $11,600');
-    const profession = walk(empty).find(node => node.props.onCheckedChange)!; profession.props.onCheckedChange(true);
     expect(button(render(null), 'Next').props.disabled).toBe(true);
     const hydrated = render('google-owner@example.test');
     expect(button(hydrated, 'Next').props.disabled).toBe(false);
     button(hydrated, 'Next').props.onClick();
+    const work = render('google-owner@example.test');
+    select(work, 'profile-businessEntityType', 'Sole Proprietor / Independent Contractor');
+    select(work, 'profile-primaryWorkLocation', 'Home Office'); select(work, 'profile-income', 'Under $11,600');
+    select(work, 'profile-profession', 'Software Developer');
+    button(render('google-owner@example.test'), 'Next').props.onClick();
     await button(render('google-owner@example.test'), 'Save and continue').props.onClick();
     expect(harness.upsert).toHaveBeenCalledWith('google-user', expect.objectContaining({
       email: 'google-owner@example.test', name: 'My preferred name', state: 'California', filing_status: 'Single',
+      primary_work_location: 'Home Office', income: 'Under $11,600',
+    }));
+  });
+});
+
+
+describe('short profile setup steps preserve required facts', () => {
+  const email = 'owner@example.test';
+  function completePersonal() {
+    const tree = render(email);
+    select(tree, 'profile-state', 'California'); select(tree, 'profile-filingStatus', 'Single');
+    button(render(email), 'Next').props.onClick();
+    return render(email);
+  }
+  function completeWork() {
+    const tree = completePersonal();
+    select(tree, 'profile-businessEntityType', 'Sole Proprietor / Independent Contractor');
+    select(tree, 'profile-primaryWorkLocation', 'Home Office'); select(tree, 'profile-income', 'Under $11,600');
+    select(tree, 'profile-profession', 'Software Developer');
+    button(render(email), 'Next').props.onClick();
+    return render(email);
+  }
+  it('uses native pickers with empty initial tax facts and resets profession add after each selection', () => {
+    const initial = render(email);
+    for (const id of ['profile-state', 'profile-filingStatus']) {
+      const picker = field(initial, id);
+      expect(picker.type).toBe('select');
+      expect(picker.props.value).toBe('');
+    }
+    const work = completePersonal();
+    for (const id of ['profile-businessEntityType', 'profile-primaryWorkLocation', 'profile-income', 'profile-profession']) {
+      expect(field(work, id).type).toBe('select');
+      expect(field(work, id).props.value).toBe('');
+    }
+    select(work, 'profile-profession', 'Software Developer');
+    const updated = render(email);
+    expect(field(updated, 'profile-profession').props.value).toBe('');
+    expect(walk(field(updated, 'profile-profession')).some(node => node.type === 'option' && node.props.value === 'Software Developer')).toBe(false);
+    expect(walk(updated).some(node => node.props['aria-label'] === 'Remove Software Developer')).toBe(true);
+  });
+  it('requires the current personal facts before showing work, with no assumed filing status', () => {
+    const initial = render(email);
+    expect(field(initial, 'profile-businessEntityType')).toBeUndefined();
+    expect(button(initial, 'Next').props.disabled).toBe(true);
+    button(initial, 'Next').props.onClick();
+    expect(field(render(email), 'profile-name')).toBeDefined();
+    select(initial, 'profile-state', 'California');
+    expect(button(render(email), 'Next').props.disabled).toBe(true);
+    select(render(email), 'profile-filingStatus', 'Single');
+    button(render(email), 'Next').props.onClick();
+    const work = render(email);
+    expect(field(work, 'profile-businessEntityType')).toBeDefined();
+    expect(field(work, 'profile-name')).toBeUndefined();
+    expect(button(work, 'Next').props.disabled).toBe(true);
+    expect(harness.upsert).not.toHaveBeenCalled();
+  });
+  it('supports multiple professions and still requires custom profession text', () => {
+    const work = completePersonal();
+    select(work, 'profile-businessEntityType', 'Sole Proprietor / Independent Contractor');
+    select(work, 'profile-primaryWorkLocation', 'Home Office'); select(work, 'profile-income', 'Under $11,600');
+    select(work, 'profile-profession', 'Software Developer'); select(render(email), 'profile-profession', 'Other');
+    expect(button(render(email), 'Next').props.disabled).toBe(true);
+    const custom = walk(render(email)).find(node => node.props['aria-label'] === 'Your profession')!;
+    custom.props.onChange({ target: { value: 'Mural artist' } });
+    expect(button(render(email), 'Next').props.disabled).toBe(false);
+    walk(render(email)).find(node => node.props['aria-label'] === 'Remove Software Developer')!.props.onClick();
+    expect(button(render(email), 'Next').props.disabled).toBe(false);
+    walk(render(email)).find(node => node.props['aria-label'] === 'Remove Other')!.props.onClick();
+    expect(button(render(email), 'Next').props.disabled).toBe(true);
+  });
+  it('retains prior answers when moving backward and validates optional details before saving', async () => {
+    let details = completeWork();
+    button(details, 'Add income & personal details').props.onClick();
+    field(render(email), 'profile-yearOfBirth').props.onChange({ target: { value: '18' } });
+    details = render(email);
+    expect(button(details, 'Save and continue').props.disabled).toBe(true);
+    await button(details, 'Save and continue').props.onClick();
+    expect(harness.upsert).not.toHaveBeenCalled();
+    field(details, 'profile-yearOfBirth').props.onChange({ target: { value: '1990' } });
+    button(render(email), 'Previous').props.onClick();
+    expect(walk(render(email)).some(node => node.props['aria-label'] === 'Remove Software Developer')).toBe(true);
+    button(render(email), 'Previous').props.onClick();
+    expect(field(render(email), 'profile-name').props.value).toBe('Original Google Name');
+    button(render(email), 'Next').props.onClick(); button(render(email), 'Next').props.onClick();
+    expect(field(render(email), 'profile-yearOfBirth').props.value).toBe('1990');
+    await button(render(email), 'Save and continue').props.onClick();
+    expect(harness.upsert).toHaveBeenCalledExactlyOnceWith('google-user', expect.objectContaining({
+      email, name: 'Original Google Name', year_of_birth: '1990', profession: 'Software Developer',
+      state: 'California', filing_status: 'Single', business_entity_type: 'Sole Proprietor / Independent Contractor',
       primary_work_location: 'Home Office', income: 'Under $11,600',
     }));
   });

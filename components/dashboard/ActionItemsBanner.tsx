@@ -180,18 +180,18 @@ export function ActionItemsBanner({ profile, transactions, onNavigate, options, 
     return (
       <div className={`rounded-lg border ${style.border} ${style.bg} px-3 py-2 flex items-center gap-2.5 min-w-0`}>
         <Icon className={`h-4 w-4 shrink-0 ${style.text}`} />
-        <Badge variant={style.badge} className="text-[10px] uppercase tracking-wider shrink-0">
+        <Badge variant={style.badge} className="text-xs uppercase tracking-wider shrink-0">
           {top.priority === 'critical' ? 'Action Required' : top.priority === 'high' ? 'Recommended' : 'Review'}
         </Badge>
         <span className="text-xs font-medium text-foreground truncate">{top.title}</span>
         {remainingCount > 0 && (
-          <span className="text-[10px] text-muted-foreground shrink-0">+{remainingCount} more</span>
+          <span className="text-xs text-muted-foreground shrink-0">+{remainingCount} more</span>
         )}
         <Button
           variant="ghost"
           size="sm"
           onClick={() => onNavigate(top.screen)}
-          className={`ml-auto shrink-0 h-7 px-2.5 text-[11px] font-medium ${style.text}`}
+          className={`ml-auto shrink-0 h-7 px-2.5 text-xs font-medium ${style.text}`}
         >
           Review
           <ArrowRight className="h-3 w-3 ml-1" />
@@ -209,10 +209,10 @@ export function ActionItemsBanner({ profile, transactions, onNavigate, options, 
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
-            <Badge variant={style.badge} className="text-[10px] uppercase tracking-wider">
+            <Badge variant={style.badge} className="text-xs uppercase tracking-wider">
               {top.priority === 'critical' ? 'Action Required' : top.priority === 'high' ? 'Recommended' : 'Suggestion'}
             </Badge>
-            <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">
+            <span className="text-xs text-muted-foreground uppercase tracking-wider font-medium">
               {top.category.replace('_', ' ')}
             </span>
           </div>
@@ -235,7 +235,7 @@ export function ActionItemsBanner({ profile, transactions, onNavigate, options, 
             <button
               type="button"
               onClick={() => handleDismiss(top.id)}
-              className="h-8 w-8 inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+              className="h-11 w-11 shrink-0 inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
               aria-label="Dismiss this action item"
             >
               <X className="h-3.5 w-3.5" />

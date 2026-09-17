@@ -1,11 +1,12 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Check, CheckCircle, ChevronDown, ChevronRight, Edit3, ExternalLink, FileText, Loader2, RefreshCw, Sparkles } from 'lucide-react';
+import { ArrowLeft, Check, CheckCircle, ChevronDown, ChevronRight, Edit3, Loader2, RefreshCw, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import type { Transaction } from '@/lib/firebase/transactions';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
+import { AiTaxAnalysisDialog } from '@/components/ai-tax-explanation';
 import { useAiAvailability } from '@/lib/hooks/use-ai-availability';
 import { transactionNeedsCategoryReview, transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 import { REVIEW_CATEGORIES, canConfirmSuggestion, type TransactionKind } from '@/lib/transactions/ai-review-contract';
@@ -218,9 +219,12 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
   );
 
   const analysisControls = current.pending !== true && !analysisRunning && !editing && (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
       <Button variant="outline" className="min-h-11" disabled={busy || availability.status !== 'configured' || providerFailed} onClick={runAnalysis}>{operation === 'analyzing' ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}{operation === 'analyzing' ? 'Analyzing…' : availability.status === 'checking' ? 'Checking AI…' : availability.status !== 'configured' || providerFailed ? 'AI unavailable' : suggestion ? 'Reanalyze' : 'Run AI analysis'}</Button>
       {(availability.status === 'unavailable' || providerFailed) && <Button variant="ghost" className="min-h-11" disabled={busy} onClick={async () => { if (await availability.refresh()) setProviderFailed(false); }}>Check AI availability</Button>}
+      </div>
+      {suggestion && message && <p role="alert" className="rounded-lg bg-amber-500/10 p-3 text-sm">{message}</p>}
     </div>
   );
 
@@ -237,6 +241,12 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
         <article className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm" aria-label="Transaction to review"
           style={{ transform: `translateX(${Math.max(-70, Math.min(70, touchOffset))}px)`, touchAction: 'pan-y' }}
           onTouchStart={event => {
+            // Portaled analysis dialogs share this React ancestor, but are not swipe cards.
+            if (!event.currentTarget.contains(event.target as Node)) {
+              touchStart.current = null;
+              setTouchOffset(0);
+              return;
+            }
             if (editing || operationLock.current || (event.target as HTMLElement).closest('button, a, input, textarea, select, details')) return;
             touchStart.current = { x: event.touches[0].clientX, y: event.touches[0].clientY }; setTouchOffset(0);
           }}
@@ -265,16 +275,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
 
               {presentation!.questions.length > 0 && onTransactionClick && <button className="flex min-h-11 w-full items-center justify-between gap-3 text-left text-sm" onClick={() => onTransactionClick({ ...current, _source: 'review-transactions' })}><span className="min-w-0"><span className="block font-medium">{presentation!.questions.length} tax detail{presentation!.questions.length === 1 ? '' : 's'} needed</span><span className="block truncate text-xs text-muted-foreground">{presentation!.questions[0]}</span></span><span className="inline-flex shrink-0 items-center gap-1 text-primary">Add details<ChevronRight className="h-4 w-4" /></span></button>}
 
-              {suggestion && <details key={currentKey} className="group rounded-xl border border-border">
-                <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 px-3 text-sm font-medium [&::-webkit-details-marker]:hidden"><span>Why this category &amp; tax guidance</span><ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" /></summary>
-                <div className="space-y-4 border-t border-border px-3 pb-3 pt-3">
-                  <div className="space-y-1.5"><p className="text-sm leading-6">{presentation!.reasoning}</p>{suggestion.transactionKind && suggestion.transactionKind !== 'unknown' && <p className="text-xs text-muted-foreground">{kindLabels[suggestion.transactionKind]}{suggestion.isDeductible === true ? ' · Potential business deduction' : ''}</p>}{presentation!.taxYear && <p className="text-xs text-muted-foreground">Tax year {presentation!.taxYear} · U.S. federal self-employed guidance</p>}{suggestion.isDeductible === true && typeof suggestion.deductiblePercent === 'number' && <p className="text-xs text-muted-foreground">Suggested deductible portion: {suggestion.deductiblePercent}%. Category rules and your documented business use still apply.</p>}</div>
-                  {presentation!.questions.length > 0 && <section className="space-y-1.5"><h3 className="text-sm font-semibold">What AI needs from you</h3><ul className="list-disc space-y-1 pl-4 text-sm text-muted-foreground">{presentation!.questions.map(question => <li key={question}>{question}</li>)}</ul></section>}
-                  {presentation!.documentation.length > 0 && <section className="space-y-1.5"><h3 className="flex items-center gap-1.5 text-sm font-semibold"><FileText className="h-4 w-4" />Keep these records</h3><ul className="list-disc space-y-1 pl-4 text-sm text-muted-foreground">{presentation!.documentation.map(item => <li key={item}>{item}</li>)}</ul></section>}
-                  {presentation!.sources.length > 0 && <section><h3 className="text-sm font-semibold">Tax guidance used</h3><ul>{presentation!.sources.map(source => <li key={source.url} className="py-1"><a href={source.url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center gap-1.5 text-sm text-primary underline underline-offset-4">{source.title}<ExternalLink className="h-3 w-3 shrink-0" /></a><p className="text-xs text-muted-foreground">{source.edition}{source.reviewed_at ? ` · Checked ${source.reviewed_at}` : ''}</p></li>)}</ul></section>}
-                  {analysisControls}
-                </div>
-              </details>}
+              {suggestion && <AiTaxAnalysisDialog key={currentKey} suggestion={suggestion}>{analysisControls}</AiTaxAnalysisDialog>}
 
               {!suggestion && analysisControls}
               {analysisQueued && <p role="status" className="text-xs leading-5 text-muted-foreground">Queued for automatic analysis. Run it now or wait for the result.</p>}

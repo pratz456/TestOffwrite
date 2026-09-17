@@ -17,6 +17,7 @@ vi.mock('react', async importOriginal => {
 vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: harness.request }));
 vi.mock('@/lib/hooks/use-ai-availability', () => ({ useAiAvailability: () => ({ status: harness.availability, refresh: harness.refresh, message: 'AI configuration unavailable.' }) }));
 vi.mock('sonner', () => ({ toast: { success: harness.toast } }));
+import { AiTaxAnalysisDialog, AiTaxExplanation } from '../components/ai-tax-explanation';
 import { ReviewTransactionsScreen } from '../components/review-transactions-screen';
 
 type Props = { children?: unknown; id?: string; disabled?: boolean; value?: unknown; 'aria-label'?: string; onClick?: () => unknown; onChange?: (event: { target: { value: string; checked?: boolean } }) => void; onTouchStart?: (event: unknown) => void; onTouchMove?: (event: unknown) => void; onTouchEnd?: () => void };
@@ -34,9 +35,15 @@ beforeEach(() => { harness.slots = []; harness.cursor = 0; records = [base()]; h
 describe('AI category swipe review', () => {
   it('shows actual reasoning, tax year, official sources and records without fabricated service promises', () => {
     const view = page();
-    expect(text(view)).toContain(suggestion.reasoning); expect(text(view)).toContain('Tax year 2026');
-    expect(text(view)).toContain('Itemized receipt and project note'); expect(text(view)).toContain('Business expenses');
-    expect(text(view)).not.toMatch(/Ask a CPA|within 24 hours|ready for filing|Swipe right to deduct/);
+    expect(text(view)).toContain(suggestion.reasoning);
+    const evidence = walk(view).find(node => node.type === AiTaxAnalysisDialog) as ReactElement<{ suggestion: AiReviewSuggestion }>;
+    expect(evidence.props.suggestion).toBe(suggestion);
+    const explanation = AiTaxExplanation({ suggestion: evidence.props.suggestion });
+    expect(text(explanation)).toContain('2026');
+    expect(text(explanation)).toContain('Itemized receipt and project note');
+    expect(text(explanation)).toContain('Business expenses');
+    expect(text(explanation)).toContain('Suggested deductible portion: 100%');
+    expect(text(view) + text(explanation)).not.toMatch(/Ask a CPA|within 24 hours|ready for filing|Swipe right to deduct/);
   });
 
   it('confirms the saved suggestion identity through the review endpoint and advances to the immediate next card', async () => {
@@ -184,6 +191,30 @@ describe('AI category swipe review', () => {
     expect(harness.updated).not.toHaveBeenCalled();
   });
 
+  it.each(['server', 'network', 'provider'])('keeps a %s reanalysis failure visible in the open evidence dialog', async failure => {
+    if (failure === 'network') harness.request.mockRejectedValueOnce(new Error('Synthetic network failure'));
+    else harness.request.mockResolvedValueOnce(Response.json({ error: 'Synthetic analysis failure' }, { status: failure === 'provider' ? 503 : 500 }));
+    const evidence = (view: ReturnType<typeof page>) => walk(view).find(node => node.type === AiTaxAnalysisDialog)!;
+    await action(evidence(page()), 'Reanalyze').props.onClick!();
+    const dialog = evidence(page());
+    expect(text(dialog)).toContain(failure === 'network' ? 'Could not complete or refresh analysis' : failure === 'provider' ? 'AI is temporarily unavailable' : 'Synthetic analysis failure');
+    expect(walk(dialog).some(node => (node.props as Props & { role?: string }).role === 'alert')).toBe(true);
+    expect(harness.updated).not.toHaveBeenCalled();
+    expect(harness.toast).not.toHaveBeenCalled();
+  });
+
+  it('does not confirm or change the transaction from a swipe on portaled analysis text', async () => {
+    const card = () => walk(page()).find(node => node.type === 'article')!;
+    card().props.onTouchStart!({ currentTarget: { contains: () => false }, target: { closest: () => null }, touches: [{ clientX: 0, clientY: 0 }] });
+    card().props.onTouchMove!({ touches: [{ clientX: 150, clientY: 10 }] });
+    card().props.onTouchEnd!();
+    await Promise.resolve();
+    expect(harness.request).not.toHaveBeenCalled();
+    expect(harness.updated).not.toHaveBeenCalled();
+    expect(text(page())).not.toContain('Correct the categorization');
+    expect(text(page())).toContain('1 needs review');
+  });
+
   it('honors a fresh bank snapshot that invalidates an earlier confirmed suggestion', async () => {
     harness.request.mockResolvedValue(serverReview());
     await action(page(), 'Confirm category').props.onClick!();
@@ -202,11 +233,11 @@ describe('AI category swipe review', () => {
 
   it('uses real horizontal swipe gestures for confirm and does not treat vertical scroll as review', async () => {
     const card = () => walk(page()).find(node => node.type === 'article')!;
-    card().props.onTouchStart!({ target: { closest: () => null }, touches: [{ clientX: 0, clientY: 0 }] });
+    card().props.onTouchStart!({ currentTarget: { contains: () => true }, target: { closest: () => null }, touches: [{ clientX: 0, clientY: 0 }] });
     card().props.onTouchMove!({ touches: [{ clientX: 150, clientY: 75 }] }); card().props.onTouchEnd!();
     expect(harness.request).not.toHaveBeenCalled();
     harness.request.mockResolvedValue(serverReview());
-    card().props.onTouchStart!({ target: { closest: () => null }, touches: [{ clientX: 0, clientY: 0 }] });
+    card().props.onTouchStart!({ currentTarget: { contains: () => true }, target: { closest: () => null }, touches: [{ clientX: 0, clientY: 0 }] });
     card().props.onTouchMove!({ touches: [{ clientX: 150, clientY: 10 }] }); card().props.onTouchEnd!();
     await Promise.resolve(); expect(harness.request).toHaveBeenCalledOnce();
   });
