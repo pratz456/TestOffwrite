@@ -66,8 +66,8 @@ export function KpiGrid({ state, taxYear, onRetry, onReview }: KpiGridProps) {
       <div className="space-y-3 border-t border-border/60 px-4 py-3">
         <dl className="space-y-3 text-xs">
           <div className="flex flex-wrap items-center justify-between gap-2"><dt className="font-medium">Annual federal tax estimate</dt><dd className="font-semibold tabular-nums">{formatUSD(form1040.totalTax)}</dd></div>
-          <div><dt className="font-medium">Schedule C profit</dt><dd className="mt-1 leading-relaxed">{formatUSD(income.grossReceipts)} receipts minus {formatUSD(income.totalDeductible)} confirmed expenses, before depreciation.</dd></div>
-          <div><dt className="font-medium">Confirmed business expenses</dt><dd className="mt-1 leading-relaxed">Posted, confirmed deductions for {taxYear}, after category limits and refunds. Depreciation is separate.</dd></div>
+          <div><dt className="font-medium">Schedule C profit</dt><dd className="mt-1 leading-relaxed">{formatUSD(income.grossReceipts)} receipts minus {formatUSD(income.totalDeductible)} confirmed expenses, before depreciation and any home office deduction.</dd></div>
+          <div><dt className="font-medium">Confirmed business expenses</dt><dd className="mt-1 leading-relaxed">Posted, confirmed deductions for {taxYear}, after category limits and refunds. Depreciation and the home office deduction are separate.</dd></div>
         </dl>
         <p className="text-xs leading-relaxed text-muted-foreground">Federal only, based on saved records. This balance is not a quarterly payment schedule. Review assumptions before filing or paying.</p>
         <TaxCalculationNotice warnings={form1040.calculationWarnings} taxYear={taxYear} />
