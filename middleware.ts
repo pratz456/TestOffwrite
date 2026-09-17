@@ -26,11 +26,16 @@ import { gaMeasurementId, GOOGLE_TAG_CSP_SOURCES } from './lib/analytics/ga-meas
 const ipRateMap   = new Map<string, { count: number; windowStart: number }>();
 const userRateMap = new Map<string, { count: number; windowStart: number }>();
 
+// These counters live in one instance's memory, so they are a per-IP flood ceiling,
+// not the abuse control: costly routes enforce durable per-user limits in
+// lib/security/rate-limit.ts. A single dashboard load fans out to a dozen API calls
+// and many customers share one NAT address, so the ceilings must sit well above
+// legitimate bursts.
 const WINDOW_MS  = 60_000; // 1 minute window
-const IP_LIMIT   = 120;    // 120 requests/min per IP (normal browsing)
-const API_LIMIT  = 60;     // 60 requests/min per IP for /api/* routes
-const AUTH_LIMIT = 10;     // 10 auth attempts/min per IP (brute force protection)
-const UPLOAD_LIMIT = 5;    // 5 document uploads/min per IP
+const IP_LIMIT   = 600;    // page and RSC/prefetch requests per minute per IP
+const API_LIMIT  = 600;    // /api/* requests per minute per IP
+const AUTH_LIMIT = 30;     // session create/renew per minute per IP (Firebase Auth throttles credential guessing itself)
+const UPLOAD_LIMIT = 10;   // document-import (vision) uploads per minute per IP
 
 function rateLimit(map: Map<string, { count: number; windowStart: number }>, key: string, limit: number): boolean {
   const now = Date.now();
