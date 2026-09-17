@@ -106,6 +106,11 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Scheduled-job progress markers (functions/src/index.ts cursor). Server-only via the Admin SDK.
+    match /scheduled_jobs/{jobId} {
+      allow read, write: if false;
+    }
+
     // Support access audit trail (lib/support/access.ts). Server-only.
     match /support_audit/{entryId} {
       allow read, write: if false;
