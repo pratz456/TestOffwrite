@@ -52,7 +52,7 @@ Positioning: the honest, review-first tax records platform for freelancers — A
 ### Tier 2 — differentiation
 1. iOS app to TestFlight: reverse-geocoded trips, vehicle attribution, push reminders, Face ID, Sign in with Apple.
 2. Prior-return upload analysis (1040/Schedule C PDF → variance report vs current records) with strict PII handling.
-3. Audit-defense packet: per-deduction evidence bundle (receipt, purpose, attendees, mileage log) exportable per Pub 583/463 retention rules.
+3. Audit support records packet: per-deduction evidence bundle (receipt, purpose, attendees, mileage log) exportable per Pub 583/463 retention rules. Call it "audit support" or "records"; "audit defense/representation" is reserved for credentialed practitioners (Circular 230).
 4. Preparer handoff: shareable, expiring accountant links and a CPA review marketplace (partner, not in-house filing).
 5. Embedded filing (Column Tax or similar) only after partner acceptance, ATS testing and a separate consent/security review — remains `COLUMN_TAX_MODE=disabled` until then.
 6. FinanceKit import for Apple Card users; email receipt ingestion.
@@ -60,7 +60,11 @@ Positioning: the honest, review-first tax records platform for freelancers — A
 ## 4. Claims policy (marketing and in-app)
 
 Allowed: "tracks", "suggests", "flags for your review", "records your preparer can use", "planning estimate", "supported situations".
-Not allowed until the capability exists and is validated: "finds every deduction", "maximize", "guaranteed savings/refund", "file your taxes", "e-file", "audit protection", "accurate for all states", "2027 estimates", and any use of "free" that is not free for everyone (16 CFR 251; FTC v. Intuit and H&R Block history).
+Not allowed until the capability exists and is validated: "finds every deduction", "maximize", "guaranteed savings/refund", "file your taxes", "e-file", "audit protection/defense", "accurate for all states", "2027 estimates", "SEC/FINRA compliant", and any use of "free" that is not free for everyone (16 CFR 251; FTC v. Intuit and H&R Block history).
+
+Data use: §7216 regulations treat tax software developers as tax return preparers for disclosure purposes. Any marketing or analytics use of return information needs Rev. Proc. 2013-14-style consent; keep marketing pixels and third-party SDKs off pages that carry tax data, and maintain a written information security program under the FTC Safeguards Rule. Details and sources: `docs/research/reporting-state-compliance-2026.md` §4.
+
+Other research-driven specifics to encode when the related features ship: 2026 §179 limits $2,560,000 / $4,090,000 and §280F auto caps $20,300 / $12,300 (Rev. Proc. 2025-32, 2026-15); 100% bonus for property acquired after Jan 19, 2025; excess business loss threshold $256,000 / $512,000 (2026); Q2 2026 underpayment rate 6% versus 7% in other 2025–2026 quarters; 2026 IRS special per diem $319/$225 high-low (Notice 2025-54); Ohio Business Income Deduction ($250,000 at 0%, 3% above) and NYC UBT / MCTMT as the first state-local rules that make a federal-only estimate materially wrong.
 
 ## 5. Known gaps still open after this batch
 
