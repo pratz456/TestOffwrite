@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { readJsonObject } from "@/app/api/_lib/body";
 
 const SUPPORT_EMAIL = "writeoffapp@gmail.com";
 
@@ -28,7 +29,7 @@ function validateBody(body: unknown): body is ContactRequestBody {
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as unknown;
+    const body = await readJsonObject(request);
     if (!validateBody(body)) {
       return NextResponse.json(
         { error: "Invalid or missing fields: name, email, subject, category, message are required." },

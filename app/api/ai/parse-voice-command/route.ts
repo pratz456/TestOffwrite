@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getOpenAIClientOrThrow, getOpenAIModel, hasOpenAIAPIKey } from '@/lib/openai/client';
+import { invalidJsonResponse, readJsonObject } from '@/app/api/_lib/body';
 
 interface VoiceCommand {
   type: 'add_expense' | 'add_mileage' | 'question' | 'unknown';
@@ -30,10 +31,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { text } = await request.json();
+    const body = await readJsonObject(request);
+    if (!body) return invalidJsonResponse();
+    const { text } = body;
 
-    if (!text || typeof text !== 'string') {
-      return NextResponse.json({ error: 'Text is required' }, { status: 400 });
+    if (!text || typeof text !== 'string' || text.length > 2_000) {
+      return NextResponse.json({ error: 'Text is required (at most 2000 characters)' }, { status: 400 });
     }
     const openai = getOpenAIClientOrThrow();
 

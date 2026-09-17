@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { adminDb, FieldValue } from '@/lib/firebase/admin';
 import { getEstimatedTaxDeadline } from '@/lib/tax-provider/payment-deadlines';
+import { invalidJsonResponse, readJsonObject } from '@/app/api/_lib/body';
 
 const QUARTER_DEADLINES: { quarter: number; month: number; day: number; nextYear?: boolean }[] = [
   { quarter: 1, month: 3, day: 15 },   // April 15
@@ -137,7 +138,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const body = await request.json();
+    const body = await readJsonObject(request);
+    if (!body) return invalidJsonResponse();
     const {
       quarter,
       year,
@@ -211,7 +213,8 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const body = await request.json();
+    const body = await readJsonObject(request);
+    if (!body) return invalidJsonResponse();
     const { quarter, year, estimatedAmount } = body;
 
     if (quarter == null || year == null || estimatedAmount == null) {

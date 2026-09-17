@@ -4,6 +4,10 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server'
 import { getAccountsServer, createAccountServer, updateAccountServer, deleteAccountServer } from '@/lib/firebase/accounts-server'
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth'
+import { invalidJsonResponse, readJsonObject } from '@/app/api/_lib/body'
+
+const isAccountId = (value: unknown): value is string =>
+  typeof value === 'string' && value.length > 0 && value.length <= 256 && !/[\/\\\x00-\x1f\x7f]/.test(value);
 
 export async function GET(request: NextRequest) {
   try {
@@ -82,11 +86,17 @@ export async function POST(request: NextRequest) {
 
     console.log('✅ [Database Accounts API] User authenticated:', user.uid);
 
-    const accountData = await request.json()
+    const accountData = await readJsonObject(request)
+    if (!accountData) return invalidJsonResponse()
 
-    if (!accountData.account_id) {
+    if (!isAccountId(accountData.account_id)) {
       console.error('❌ [Database Accounts API] Missing account_id');
       return NextResponse.json({ error: 'Account ID is required' }, { status: 400 })
+    }
+    const allowedFields = ['account_id', 'name', 'mask', 'type', 'subtype', 'institution_id'];
+    if (Object.keys(accountData).some(key => !allowedFields.includes(key))
+      || Object.values(accountData).some(value => typeof value !== 'string' || value.length > 500)) {
+      return NextResponse.json({ error: 'Account fields must be strings: account_id, name, mask, type, subtype, institution_id' }, { status: 400 })
     }
 
     console.log('📝 [Database Accounts API] Creating account:', {
@@ -95,7 +105,10 @@ export async function POST(request: NextRequest) {
       institution_id: accountData.institution_id
     });
 
-    const result = await createAccountServer(user.uid, accountData)
+    const result = await createAccountServer(user.uid, accountData as Parameters<typeof createAccountServer>[1])
+    if (result.error instanceof Error && result.error.message === 'Account already exists') {
+      return NextResponse.json({ error: 'Account already exists' }, { status: 409 })
+    }
 
     if (result.error) {
       console.error('❌ [Database Accounts API] Error creating account:', result.error);
@@ -130,11 +143,17 @@ export async function PUT(request: NextRequest) {
 
     console.log('✅ [Database Accounts API] User authenticated:', user.uid);
 
-    const { accountId, updates } = await request.json()
+    const body = await readJsonObject(request)
+    if (!body) return invalidJsonResponse()
+    const { accountId, updates } = body
 
-    if (!accountId) {
+    if (!isAccountId(accountId)) {
       console.error('❌ [Database Accounts API] Missing account ID');
       return NextResponse.json({ error: 'Account ID is required' }, { status: 400 })
+    }
+    if (!updates || typeof updates !== 'object' || Array.isArray(updates)
+      || Object.keys(updates).some(key => !['name', 'usageType', 'businessUsePercent'].includes(key))) {
+      return NextResponse.json({ error: 'Updates may only set name, usageType and businessUsePercent' }, { status: 400 })
     }
 
     console.log('📝 [Database Accounts API] Updating account:', {
@@ -142,7 +161,7 @@ export async function PUT(request: NextRequest) {
       updates
     });
 
-    const result = await updateAccountServer(user.uid, accountId, updates)
+    const result = await updateAccountServer(user.uid, accountId, updates as Parameters<typeof updateAccountServer>[2])
 
     if (result.error) {
       console.error('❌ [Database Accounts API] Error updating account:', result.error);
@@ -177,9 +196,11 @@ export async function DELETE(request: NextRequest) {
 
     console.log('✅ [Database Accounts API] User authenticated:', user.uid);
 
-    const { accountId } = await request.json();
+    const body = await readJsonObject(request);
+    if (!body) return invalidJsonResponse();
+    const { accountId } = body;
 
-    if (!accountId) {
+    if (!isAccountId(accountId)) {
       console.error('❌ [Database Accounts API] Missing account ID');
       return NextResponse.json({ error: 'Account ID is required' }, { status: 400 });
     }

@@ -4,12 +4,14 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase/admin';
+import { invalidJsonResponse, readJsonObject } from '@/app/api/_lib/body';
 
 export async function POST(request: NextRequest) {
   try {
     const { user } = await getAuthenticatedUser(request);
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    const body = await request.json();
+    const body = await readJsonObject(request);
+    if (!body) return invalidJsonResponse();
     const { userId, transactionId, merchantName, amount, date, category, question } = body;
 
     // Validate required fields
@@ -27,8 +29,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const amountValue = Number(amount);
     if (typeof question !== 'string' || !question.trim() || question.length > 5000 ||
-      !Number.isFinite(Number(amount)) || typeof merchantName !== 'string') {
+      !Number.isFinite(amountValue) || typeof merchantName !== 'string' || merchantName.length > 500 ||
+      typeof transactionId !== 'string' || transactionId.length > 256 ||
+      typeof date !== 'string' || date.length > 64 || typeof category !== 'string' || category.length > 128) {
       return NextResponse.json({ error: 'Invalid question or transaction details' }, { status: 400 });
     }
 
@@ -37,7 +42,7 @@ export async function POST(request: NextRequest) {
       userId,
       transactionId,
       merchantName,
-      amount: parseFloat(amount),
+      amount: amountValue,
       date,
       category,
       question: question.trim(),
@@ -61,7 +66,7 @@ export async function POST(request: NextRequest) {
         `Date: ${new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })}`,
         ``,
         `Transaction: ${merchantName}`,
-        `Amount: $${parseFloat(amount).toFixed(2)}`,
+        `Amount: $${amountValue.toFixed(2)}`,
         `Category: ${category}`,
         `Transaction Date: ${date}`,
         ``,
@@ -83,7 +88,7 @@ export async function POST(request: NextRequest) {
           body: JSON.stringify({
             from: 'WriteOff Notifications <notifications@writeoffapp.com>',
             to: ['writeoffapp@gmail.com'],
-            subject: `CPA Question: ${merchantName} ($${parseFloat(amount).toFixed(2)}) - ${user.email || 'User'}`,
+            subject: `CPA Question: ${merchantName} ($${amountValue.toFixed(2)}) - ${user.email || 'User'}`,
             text: emailBody,
           }),
         });

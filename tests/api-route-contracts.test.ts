@@ -84,30 +84,9 @@ const EMPTY_BODY_ACCEPTED: Record<string, Expectation> = {
  */
 interface KnownGap { anonymous?: number[]; mutating?: number[]; throws?: true; leaksDatabaseError?: true; reason: string }
 const KNOWN_GAPS: Record<string, KnownGap> = {
-  'POST /api/contact': { anonymous: [500], mutating: [500], reason: 'Unguarded request.json(): malformed or empty body answers 500.' },
-  'PATCH /api/accounts/[accountId]/usage': { mutating: [500], reason: 'Unguarded request.json() and the parse error text is echoed.' },
-  'POST /api/income/1099': { mutating: [500], reason: 'Unguarded request.json().' },
-  'POST /api/income/gross-receipts': { mutating: [500], reason: 'Unguarded request.json(); non-string source throws.' },
-  'POST /api/analysis-status': { mutating: [500], reason: 'Unguarded request.json().' },
-  'PUT /api/analysis-status': { mutating: [500], reason: 'Unguarded request.json().' },
-  'POST /api/settings/assets': { mutating: [500], reason: 'Unguarded request.json(); parse error echoed in details.' },
-  'DELETE /api/settings/assets': { mutating: [500], reason: 'Unguarded request.json(); parse error echoed in details.' },
-  'POST /api/settings/tax-summary': { mutating: [500], reason: 'Unguarded request.json(); parse error echoed in details.' },
-  'PATCH /api/categories': { mutating: [500], reason: 'Unguarded request.json().' },
-  'POST /api/cpa-question': { mutating: [500], reason: 'Unguarded request.json().' },
-  'POST /api/tax/quarterly-payments': { mutating: [500], reason: 'Unguarded request.json().' },
-  'PUT /api/tax/quarterly-payments': { mutating: [500], reason: 'Unguarded request.json().' },
-  'POST /api/database/accounts': { mutating: [500], reason: 'Unguarded request.json(); parse error echoed in details.' },
-  'PUT /api/database/accounts': { mutating: [500], reason: 'Unguarded request.json(); parse error echoed in details.' },
-  'DELETE /api/database/accounts': { mutating: [500], reason: 'Unguarded request.json(); parse error echoed in details.' },
-  'POST /api/ai/parse-voice-command': { mutating: [500], reason: 'Unguarded request.json().' },
-  'POST /api/tax/form-1040': { mutating: [500], reason: 'Body parsed inside the generation try block: malformed JSON answers 500.' },
-  'POST /api/tax/deductions': { mutating: [500], throws: true, reason: 'Unguarded request.json() and no error handling: a malformed body or database failure escapes as an exception.' },
+  'POST /api/tax/deductions': { throws: true, reason: 'No error handling: a database failure escapes as an exception.' },
   'GET /api/tax/deductions': { throws: true, reason: 'No error handling: a database failure escapes as an exception.' },
   'POST /api/transactions/reset-unreviewed-classifications': { throws: true, reason: 'No error handling: a database failure escapes as an exception.' },
-  'POST /api/plaid/import-transactions': { mutating: [503], reason: 'Unguarded request.json() reports a provider outage for a malformed body.' },
-  'POST /api/plaid/exchange-public-token': { mutating: [502], reason: 'Body parsed inside the provider try block: malformed JSON answers 502.' },
-  'POST /api/plaid/get-accounts': { mutating: [502], reason: 'Legacy alias of POST /api/plaid/exchange-public-token.' },
   'POST /api/tax/import-document': { mutating: [500], reason: 'Non-multipart body answers 500; upload lacks size, MIME and signature checks and a rate limit.' },
   'DELETE /api/plaid/items/[itemId]': { mutating: [500], leaksDatabaseError: true, reason: 'Unknown connection answers 500 and the failure message is echoed.' },
   'POST /api/plaid/sync-transactions': { mutating: [500], reason: 'A missing bank connection answers 500.' },
@@ -139,9 +118,9 @@ interface Operation { key: string; method: string; route: DiscoveredRoute; handl
 
 const routes = discoverApiRoutes();
 const operations: Operation[] = (await Promise.all(routes.map(async route => {
-  const module = await import(/* @vite-ignore */ route.importPath) as Record<string, unknown>;
-  return exportedMethods(module).map(method => ({
-    key: `${method} ${route.pattern}`, method, route, handler: module[method] as Operation['handler'],
+  const routeModule = await import(/* @vite-ignore */ route.importPath) as Record<string, unknown>;
+  return exportedMethods(routeModule).map(method => ({
+    key: `${method} ${route.pattern}`, method, route, handler: routeModule[method] as Operation['handler'],
   }));
 }))).flat();
 const exercised = operations.filter(operation => !(operation.key in SKIPPED));

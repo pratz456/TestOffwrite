@@ -24,6 +24,7 @@ import { createPlanningPDF } from '@/lib/reports/planning-pdf';
 import { PDFDocument, StandardFonts, rgb, PDFFont, PDFPage } from 'pdf-lib';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
+import { invalidJsonResponse, readJsonObject } from '@/app/api/_lib/body';
 import { adminDb } from '@/lib/firebase/admin';
 import { readTaxExportTransactions } from '@/lib/reports/tax-export-transactions';
 import { ExportReviewRequiredError } from '@/lib/reports/transaction-export';
@@ -339,8 +340,10 @@ export async function POST(request: NextRequest) {
     const denied = await requireFeatureAccess(uid, 'exports');
     if (denied) return denied;
 
-    const { year } = await request.json();
-    if (!year) return NextResponse.json({ error: 'Year required' }, { status: 400 });
+    const body = await readJsonObject(request);
+    if (!body) return invalidJsonResponse();
+    const { year } = body;
+    if (!year || (typeof year !== 'number' && typeof year !== 'string')) return NextResponse.json({ error: 'Year required' }, { status: 400 });
     const taxYear = Number(year);
     try { getFederalTaxRules(taxYear); } catch {
       return NextResponse.json({ error: `Supported tax years: ${SUPPORTED_TAX_YEARS.join(', ')}` }, { status: 400 });
