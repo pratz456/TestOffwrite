@@ -90,7 +90,23 @@ export function allocateQuarterly(totalCents: number): [number, number, number, 
 
 // ── Installment due dates ───────────────────────────────────────────────────
 
-export interface InstallmentDueDate { quarter: Quarter; dueDate: IsoDate }
+export interface InstallmentDueDate {
+  quarter: Quarter;
+  /** Payment deadline: the statutory date moved to the next business day when it falls on a weekend or DC/federal holiday (§7503). */
+  dueDate: IsoDate;
+  /**
+   * §6654(c)(2) statutory due date (April 15, June 15, September 15, January 15). Form 2210
+   * starts the underpayment period here even when the payment deadline moved: the 2024
+   * Penalty Worksheet uses 06/15/24 (a Saturday) and 09/15/24 (a Sunday) as computation
+   * starting dates while treating payments made by 06/17/24 and 09/16/24 as timely.
+   */
+  statutoryDueDate: IsoDate;
+}
+
+/** §6654(c)(2) due dates before any weekend/holiday shift. */
+export function getStatutoryDueDate(taxYear: number, quarter: Quarter): IsoDate {
+  return [`${taxYear}-04-15`, `${taxYear}-06-15`, `${taxYear}-09-15`, `${taxYear + 1}-01-15`][quarter - 1];
+}
 
 /**
  * Standard individual due dates (Apr 15, Jun 15, Sep 15, Jan 15 of the following
@@ -98,7 +114,11 @@ export interface InstallmentDueDate { quarter: Quarter; dueDate: IsoDate }
  * handled by the shared deadline helper. Disaster postponements are separate.
  */
 export function getInstallmentDueDates(taxYear: number): InstallmentDueDate[] {
-  return QUARTERS.map(quarter => ({ quarter, dueDate: getEstimatedTaxDeadline(taxYear, quarter).toISOString().slice(0, 10) }));
+  return QUARTERS.map(quarter => ({
+    quarter,
+    dueDate: getEstimatedTaxDeadline(taxYear, quarter).toISOString().slice(0, 10),
+    statutoryDueDate: getStatutoryDueDate(taxYear, quarter),
+  }));
 }
 
 /** Return due date used as the end of the Form 2210 penalty period ("or April 15, whichever is earlier"). */
@@ -127,9 +147,12 @@ export function getUnderpaymentRate(year: number, quarter: Quarter): number | nu
 
 export interface RatePeriod {
   label: string;
-  /** Inclusive first day of the rate period. */
+  /**
+   * Form 2210 "computation starting date" for the period (worksheet lines 2, 5, 8, 11):
+   * the day before the first day counted, so days in the period are `end − start`.
+   */
   start: IsoDate;
-  /** Exclusive end (the day after the last day in the period). */
+  /** Last day counted in the period (worksheet: "or {end}, whichever is earlier"). */
   end: IsoDate;
   rateYear: number;
   rateQuarter: Quarter;
@@ -140,6 +163,12 @@ export interface RatePeriod {
  * Form 2210 Penalty Worksheet rate periods for a calendar tax year. Under
  * §6621(b)(2)(B) the first-quarter rate of the following year also applies to the
  * first 15 days of April, so the final period runs January 1 through April 15.
+ *
+ * Day counts follow the worksheet: days late = payment date − due date, so the day
+ * of the due date is not counted and the payment day is. A period therefore owns the
+ * days after its computation starting date through its end date: Table 2 of the
+ * instructions shows 76 days for 04/15–06/30, 92 for 06/30–09/30, 92 for 09/30–12/31
+ * and 105 for 12/31–04/15 (15 days for 06/15–06/30 and 09/15–09/30, 90 for 01/15–04/15).
  */
 export function getPenaltyRatePeriods(taxYear: number): RatePeriod[] {
   const next = taxYear + 1;
@@ -147,10 +176,10 @@ export function getPenaltyRatePeriods(taxYear: number): RatePeriod[] {
     label, start, end, rateYear, rateQuarter, rate: getUnderpaymentRate(rateYear, rateQuarter),
   });
   return [
-    period(`April 16 – June 30, ${taxYear}`, `${taxYear}-04-01`, `${taxYear}-07-01`, taxYear, 2),
-    period(`July 1 – September 30, ${taxYear}`, `${taxYear}-07-01`, `${taxYear}-10-01`, taxYear, 3),
-    period(`October 1 – December 31, ${taxYear}`, `${taxYear}-10-01`, `${next}-01-01`, taxYear, 4),
-    period(`January 1 – April 15, ${next}`, `${next}-01-01`, `${next}-04-16`, next, 1),
+    period(`April 16 – June 30, ${taxYear}`, `${taxYear}-04-15`, `${taxYear}-06-30`, taxYear, 2),
+    period(`July 1 – September 30, ${taxYear}`, `${taxYear}-06-30`, `${taxYear}-09-30`, taxYear, 3),
+    period(`October 1 – December 31, ${taxYear}`, `${taxYear}-09-30`, `${taxYear}-12-31`, taxYear, 4),
+    period(`January 1 – April 15, ${next}`, `${taxYear}-12-31`, `${next}-04-15`, next, 1),
   ];
 }
 
@@ -234,7 +263,7 @@ export interface WithholdingAllocation {
   quarter: Quarter;
   dueDate: IsoDate;
   amount: number;
-  /** Dates the withholding is treated as paid: the due date (even method) or the actual withholding dates. */
+  /** Dates the withholding is treated as paid: the statutory due date (even method, §6654(g)(1)) or the actual withholding dates. */
   creditedOn: DatedAmount[];
 }
 
@@ -247,9 +276,9 @@ export function allocateWithholding(schedule: WithholdingSchedule, taxYear: numb
   const due = getInstallmentDueDates(taxYear);
   if (schedule.kind === 'even') {
     const parts = allocateQuarterly(requireAmount(schedule.total, 'full-year federal withholding'));
-    return due.map(({ quarter, dueDate }) => {
+    return due.map(({ quarter, dueDate, statutoryDueDate }) => {
       const amount = fromCents(parts[quarter - 1]);
-      return { quarter, dueDate, amount, creditedOn: amount > 0 ? [{ date: dueDate, amount }] : [] };
+      return { quarter, dueDate, amount, creditedOn: amount > 0 ? [{ date: statutoryDueDate, amount }] : [] };
     });
   }
   const cents = [0, 0, 0, 0];
@@ -317,7 +346,10 @@ export type InstallmentStatus = 'upcoming' | 'payment_recorded' | 'no_payment_re
 
 export interface InstallmentPlan {
   quarter: Quarter;
+  /** Payment deadline after any weekend/holiday shift. */
   dueDate: IsoDate;
+  /** §6654(c)(2) date the underpayment period runs from (Form 2210 computation starting date). */
+  statutoryDueDate: IsoDate;
   /** Line 10: 25% of the required annual payment. */
   requiredInstallment: number;
   /** Withholding credited to this period (line 11 component). */
@@ -345,7 +377,7 @@ export function computeInstallments(input: {
   const requiredCents = input.estimatedPaymentsRequired === 0 ? [0, 0, 0, 0] : allocateQuarterly(toCents(input.requiredAnnualPayment));
   let carriedOver = 0;
   let carriedUnder = 0;
-  return due.map(({ quarter, dueDate }, index) => {
+  return due.map(({ quarter, dueDate, statutoryDueDate }, index) => {
     const required = requiredCents[index];
     const withholdingCredited = toCents(input.withholding.find(w => w.quarter === quarter)?.amount ?? 0);
     const matched = input.payments.filter(payment => payment.matchedQuarter === quarter);
@@ -362,7 +394,7 @@ export function computeInstallments(input: {
     carriedUnder = line16 + underpayment;
     const status: InstallmentStatus = compareIso(dueDate, input.asOf) >= 0 ? 'upcoming' : paymentsTotal > 0 ? 'payment_recorded' : 'no_payment_recorded';
     return {
-      quarter, dueDate,
+      quarter, dueDate, statutoryDueDate,
       requiredInstallment: fromCents(required), withholdingCredited: fromCents(withholdingCredited),
       plannedEstimatedPayment: fromCents(Math.max(0, required - withholdingCredited)),
       paymentsMatched: matched, paymentsMatchedTotal: fromCents(paymentsTotal),
@@ -376,6 +408,7 @@ export function computeInstallments(input: {
 
 export interface InterestSegment {
   amount: number;
+  /** Statutory due date of the installment (Form 2210 computation starting date). */
   from: IsoDate;
   to: IsoDate;
   days: number;
@@ -406,10 +439,15 @@ export interface InterestIllustration {
   notes: string[];
 }
 
-/** Interest on `amountCents` from `from` to `to` (half-open days) across the published rate periods. */
+/**
+ * Interest on `amountCents` from `from` to `to` (days = `to − from`, as Form 2210 counts
+ * them) across the published rate periods. Each rate-period piece is rounded to cents
+ * separately, matching worksheet lines 4, 7, 10 and 13 (underpayment × days ÷ 365 or
+ * 366 × rate), which are then added on line 14.
+ */
 export function illustrateInterestForSegment(amountCents: number, from: IsoDate, to: IsoDate, taxYear: number): { interest: number | null; unpublishedRatePeriods: string[] } {
   if (compareIso(to, from) <= 0 || amountCents <= 0) return { interest: 0, unpublishedRatePeriods: [] };
-  let interest = 0;
+  let interestCents = 0;
   const unpublished: string[] = [];
   for (const period of getPenaltyRatePeriods(taxYear)) {
     const start = compareIso(from, period.start) > 0 ? from : period.start;
@@ -417,17 +455,20 @@ export function illustrateInterestForSegment(amountCents: number, from: IsoDate,
     const days = daysBetween(start, end);
     if (days <= 0) continue;
     if (period.rate === null) { unpublished.push(`${period.rateYear}-Q${period.rateQuarter}`); continue; }
-    interest += amountCents * period.rate * days / daysInYear(period.rateYear);
+    interestCents += Math.round(amountCents * period.rate * days / daysInYear(period.rateYear));
   }
-  return { interest: unpublished.length ? null : Math.round(interest) / 100, unpublishedRatePeriods: unpublished };
+  return { interest: unpublished.length ? null : interestCents / 100, unpublishedRatePeriods: unpublished };
 }
 
 /**
  * Applies withholding (on due dates) and dated payments to the earliest unpaid
  * installment first, then accrues interest on each late-paid or still-unpaid piece
- * from its due date to the payment date, the illustration date, or April 15 of the
- * following year, whichever is earliest. Not a penalty determination: waivers,
- * annualized income, and IRS payment posting rules are outside this illustration.
+ * from its statutory due date to the payment date, the illustration date, or April 15
+ * of the following year, whichever is earliest. A payment made by the shifted
+ * (weekend/holiday) deadline is timely under §7503 and accrues nothing; a later
+ * payment runs from the statutory date, as the Form 2210 Penalty Worksheet does.
+ * Not a penalty determination: waivers, annualized income, and IRS payment posting
+ * rules are outside this illustration.
  */
 export function illustrateUnderpaymentInterest(input: {
   taxYear: number; installments: InstallmentPlan[]; withholding: WithholdingAllocation[]; payments: MatchedPayment[]; asOf: IsoDate; deMinimisApplies: boolean;
@@ -441,6 +482,7 @@ export function illustrateUnderpaymentInterest(input: {
     ...input.payments.map(p => ({ date: p.effectiveDate, amount: toCents(p.amount) })),
   ].filter(event => event.amount > 0 && compareIso(event.date, horizon) <= 0).sort((a, b) => compareIso(a.date, b.date));
   const ledger = input.installments.map(installment => ({ installment, remaining: toCents(installment.requiredInstallment), segments: [] as InterestSegment[] }));
+  const accrualStart = (installment: InstallmentPlan): IsoDate => installment.statutoryDueDate;
   for (const event of events) {
     let available = event.amount;
     for (const entry of ledger) {
@@ -450,16 +492,18 @@ export function illustrateUnderpaymentInterest(input: {
       entry.remaining -= applied;
       available -= applied;
       if (compareIso(event.date, entry.installment.dueDate) > 0) {
+        const from = accrualStart(entry.installment);
         const to = minIso(event.date, end);
-        const { interest, unpublishedRatePeriods } = illustrateInterestForSegment(applied, entry.installment.dueDate, to, input.taxYear);
-        entry.segments.push({ amount: fromCents(applied), from: entry.installment.dueDate, to, days: daysBetween(entry.installment.dueDate, to), stillUnpaid: false, interest, unpublishedRatePeriods });
+        const { interest, unpublishedRatePeriods } = illustrateInterestForSegment(applied, from, to, input.taxYear);
+        entry.segments.push({ amount: fromCents(applied), from, to, days: daysBetween(from, to), stillUnpaid: false, interest, unpublishedRatePeriods });
       }
     }
   }
   const byInstallment: InstallmentInterest[] = ledger.map(entry => {
     if (entry.remaining > 0 && compareIso(entry.installment.dueDate, horizon) < 0) {
-      const { interest, unpublishedRatePeriods } = illustrateInterestForSegment(entry.remaining, entry.installment.dueDate, horizon, input.taxYear);
-      entry.segments.push({ amount: fromCents(entry.remaining), from: entry.installment.dueDate, to: horizon, days: daysBetween(entry.installment.dueDate, horizon), stillUnpaid: true, interest, unpublishedRatePeriods });
+      const from = accrualStart(entry.installment);
+      const { interest, unpublishedRatePeriods } = illustrateInterestForSegment(entry.remaining, from, horizon, input.taxYear);
+      entry.segments.push({ amount: fromCents(entry.remaining), from, to: horizon, days: daysBetween(from, horizon), stillUnpaid: true, interest, unpublishedRatePeriods });
     }
     const unpublished = [...new Set(entry.segments.flatMap(segment => segment.unpublishedRatePeriods))];
     const interest = unpublished.length ? null : Math.round(entry.segments.reduce((sum, segment) => sum + (segment.interest ?? 0) * 100, 0)) / 100;
@@ -471,6 +515,7 @@ export function illustrateUnderpaymentInterest(input: {
   if (unpublished.length) notes.push(`The IRS has not published the §6621 underpayment rate for ${unpublished.join(', ')}. Interest for days in that period cannot be illustrated yet and is shown as unavailable rather than estimated.`);
   if (compareIso(input.asOf, end) > 0) notes.push(`Interest is illustrated only through ${end}, the return due date used by Form 2210. Later interest on an unpaid balance follows different rules.`);
   notes.push('Illustration only. It applies recorded payments to the earliest unpaid installment, treats withholding as paid evenly on the due dates unless dated withholding was supplied, and ignores waivers, annualized income and IRS posting dates. The IRS figures any penalty when the return is filed.');
+  notes.push('Payments made by a deadline that moved to the next business day are timely; a later payment accrues from the statutory due date (April 15, June 15, September 15, January 15), which is how the Form 2210 Penalty Worksheet counts days.');
   return { label: 'Underpayment interest illustration (Form 2210 regular method) — not a penalty determination', asOf: input.asOf, penaltyPeriodEnd: end, ratePeriods, byInstallment, total, unpublishedRatePeriods: unpublished, notes };
 }
 

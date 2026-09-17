@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ANNUALIZED_INCOME_METHOD_NOTE, allocateQuarterly, allocateWithholding, assignInstallmentPeriod, buildQuarterlyPlan,
   calculateNextDue, calculateRequiredAnnualPayment, computeInstallments, daysBetween, daysInYear, getInstallmentDueDates,
-  getNextDueDate, getPenaltyRatePeriods, getUnderpaymentRate, illustrateInterestForSegment, illustrateUnderpaymentInterest,
+  getNextDueDate, getPenaltyRatePeriods, getStatutoryDueDate, getUnderpaymentRate, illustrateInterestForSegment, illustrateUnderpaymentInterest,
   isIsoDate, matchPaymentsToPeriods, penaltyPeriodEnd, resolveQuarterlyPlannerFacts, type PriorYearFacts, type RecordedEstimatedPayment,
 } from '@/lib/tax-provider/quarterly-planner';
 import { QuarterlyReviewRequiredError } from '@/lib/tax-provider/regular-estimated-payments';
@@ -59,12 +59,34 @@ describe('§6621 underpayment rates by calendar quarter', () => {
   it('returns null for the unpublished first quarter of 2027 rather than guessing', () => {
     expect(getUnderpaymentRate(2027, 1)).toBeNull(); expect(getUnderpaymentRate(2027, 2)).toBeNull();
   });
-  it('builds the four Form 2210 rate periods and flags the unpublished one', () => {
+  it('builds the four Form 2210 rate periods on the worksheet computation dates and flags the unpublished one', () => {
     const periods = getPenaltyRatePeriods(2026);
     expect(periods.map(period => [period.start, period.end, period.rate])).toEqual([
-      ['2026-04-01', '2026-07-01', 0.06], ['2026-07-01', '2026-10-01', 0.07], ['2026-10-01', '2027-01-01', 0.07], ['2027-01-01', '2027-04-16', null],
+      ['2026-04-15', '2026-06-30', 0.06], ['2026-06-30', '2026-09-30', 0.07], ['2026-09-30', '2026-12-31', 0.07], ['2026-12-31', '2027-04-15', null],
     ]);
     expect(getPenaltyRatePeriods(2025).every(period => period.rate === 0.07)).toBe(true);
+  });
+  it('reproduces Table 2 (chart of total days) of the 2025 Form 2210 instructions', () => {
+    // https://www.irs.gov/pub/irs-pdf/i2210.pdf (2025), page 5, Table 2: 76 / 92 / 92 / 105 days for a column (a)
+    // underpayment; 15 / 92 / 92 / 105 for column (b); 15 / 92 / 105 for column (c); 90 for column (d).
+    const periods = getPenaltyRatePeriods(2025);
+    const daysIn = (from: string) => periods.map(period => Math.max(0, daysBetween(from > period.start ? from : period.start, period.end)));
+    expect(daysIn('2025-04-15')).toEqual([76, 92, 92, 105]);
+    expect(daysIn('2025-06-15')).toEqual([15, 92, 92, 105]);
+    expect(daysIn('2025-09-15')).toEqual([0, 15, 92, 105]);
+    expect(daysIn('2026-01-15')).toEqual([0, 0, 0, 90]);
+  });
+});
+
+describe('statutory versus shifted due dates', () => {
+  it('keeps the §6654(c)(2) dates next to the shifted payment deadlines', () => {
+    expect(getInstallmentDueDates(2024).map(item => [item.statutoryDueDate, item.dueDate])).toEqual([
+      ['2024-04-15', '2024-04-15'], ['2024-06-15', '2024-06-17'], ['2024-09-15', '2024-09-16'], ['2025-01-15', '2025-01-15'],
+    ]);
+    expect(getStatutoryDueDate(2028, 1)).toBe('2028-04-15'); expect(getStatutoryDueDate(2028, 4)).toBe('2029-01-15');
+  });
+  it('moves the 2028 first installment past Saturday April 15 and observed Emancipation Day to Tuesday April 18 (leap year)', () => {
+    expect(dueDates(2028)[0]).toBe('2028-04-18'); expect(daysInYear(2028)).toBe(366);
   });
 });
 
@@ -127,11 +149,13 @@ describe('required annual payment (Form 2210 Part I / Pub 505 Worksheet 2-1)', (
 });
 
 describe('withholding allocation (Form 2210 line 11)', () => {
-  it('credits even withholding in four equal parts on the due dates', () => {
+  it('credits even withholding in four equal parts on the statutory due dates (§6654(g)(1))', () => {
     const result = evenWithholding(4000);
     expect(result.map(item => item.amount)).toEqual([1000, 1000, 1000, 1000]);
     expect(result[1].creditedOn).toEqual([{ date: '2026-06-15', amount: 1000 }]);
     expect(evenWithholding(0.03).map(item => item.amount)).toEqual([0.01, 0.01, 0.01, 0]); expect(evenWithholding(0)[0].creditedOn).toEqual([]);
+    const shifted = evenWithholding(4000, 2025)[1];
+    expect(shifted.dueDate).toBe('2025-06-16'); expect(shifted.creditedOn).toEqual([{ date: '2025-06-15', amount: 1000 }]);
   });
   it('credits dated withholding to the period in which it was withheld, on that date', () => {
     const result = allocateWithholding({ kind: 'dated', entries: [{ date: '2026-03-01', amount: 1000 }, { date: '2026-04-16', amount: 300 }, { date: '2026-07-04', amount: 500 }, { date: '2026-12-31', amount: 200 }, { date: '2026-02-01', amount: 0 }] }, 2026);
@@ -196,8 +220,16 @@ describe('underpayment interest illustration (Form 2210 Penalty Worksheet)', () 
   it('uses the 6% rate for the second quarter of 2026', () => {
     expect(illustrateInterestForSegment(100000, '2026-04-15', '2026-06-15', 2026)).toEqual({ interest: 10.03, unpublishedRatePeriods: [] });
   });
-  it('splits a segment across rate periods (16 days at 6%, 76 days at 7%)', () => {
-    expect(illustrateInterestForSegment(100000, '2026-06-15', '2026-09-15', 2026)).toEqual({ interest: 17.21, unpublishedRatePeriods: [] });
+  it('splits a segment across rate periods the way Table 2 does (15 days at 6% through June 30, 77 days at 7%)', () => {
+    // $1,000 × 15/365 × 6% = $2.47 plus $1,000 × 77/365 × 7% = $14.77 → $17.24 when each worksheet line is rounded separately.
+    expect(illustrateInterestForSegment(100000, '2026-06-15', '2026-09-15', 2026)).toEqual({ interest: 17.24, unpublishedRatePeriods: [] });
+  });
+  it('rounds each rate-period line to cents before adding, and uses 366 days in a leap year (2024 instructions, Example 5)', () => {
+    // https://www.irs.gov/pub/irs-prior/i2210--2024.pdf, Example 5: $2,000 × (15 ÷ 366) × 0.08 = $6.56 and $2,000 × (61 ÷ 366) × 0.08 = $26.67.
+    expect(illustrateInterestForSegment(200000, '2024-04-15', '2024-04-30', 2024).interest).toBe(6.56);
+    expect(illustrateInterestForSegment(200000, '2024-04-15', '2024-06-15', 2024).interest).toBe(26.67);
+    // Column (c) of the same example: 15 days in 2024 Q3, 92 days in 2024 Q4 (÷366), 15 days in 2025 Q1 (÷365) = $9.84 + $60.33 + $8.63.
+    expect(illustrateInterestForSegment(300000, '2024-09-15', '2025-01-15', 2024).interest).toBe(78.80);
   });
   it('returns null when any day falls in an unpublished rate period', () => {
     expect(illustrateInterestForSegment(100000, '2027-01-15', '2027-04-15', 2026)).toEqual({ interest: null, unpublishedRatePeriods: ['2027-Q1'] });
@@ -206,12 +238,38 @@ describe('underpayment interest illustration (Form 2210 Penalty Worksheet)', () 
   it('returns zero for empty or reversed segments', () => {
     expect(illustrateInterestForSegment(100000, '2026-06-15', '2026-06-15', 2026).interest).toBe(0); expect(illustrateInterestForSegment(0, '2026-04-15', '2026-06-15', 2026).interest).toBe(0);
   });
-  it('accrues a full year at 7% on an unpaid 2025 first installment through April 15, 2026', () => {
+  it('accrues a full year at 7% on an unpaid 2025 first installment through April 15, 2026, from the statutory dates', () => {
     const installments = installmentsFor([], '2026-04-15', 10000, 0, 2025);
     const result = illustrateUnderpaymentInterest({ taxYear: 2025, installments, withholding: evenWithholding(0, 2025), payments: [], asOf: '2026-04-15', deMinimisApplies: false });
-    expect(result.byInstallment.map(item => item.interest)).toEqual([175, 145.27, 101.64, 43.15]); expect(result.total).toBe(465.06);
+    // Q2 runs 304 days from June 15, 2025 (the Form 2210 computation starting date), not 303 from the shifted June 16 deadline:
+    // $2,500 × 7% × (15 + 92 + 92)/365 + $2,500 × 7% × 105/365 = $95.41 + $50.34 = $145.75.
+    expect(result.byInstallment.map(item => item.interest)).toEqual([175, 145.75, 101.64, 43.15]); expect(result.total).toBe(465.54);
     expect(result.byInstallment[0].segments[0]).toMatchObject({ amount: 2500, from: '2025-04-15', to: '2026-04-15', days: 365, stillUnpaid: true });
+    expect(result.byInstallment[1].segments[0]).toMatchObject({ from: '2025-06-15', days: 304 });
     expect(result.unpublishedRatePeriods).toEqual([]); expect(result.label).toContain('illustration'); expect(result.label).toContain('not a penalty determination');
+  });
+  it('treats a payment made by the shifted deadline as timely and runs a later payment from the statutory date', () => {
+    const plan = (paidDate: string) => {
+      const payments = matchPaymentsToPeriods([dated(2500, '2025-04-15', 1), dated(2500, paidDate, 2)], 2025);
+      const installments = computeInstallments({ taxYear: 2025, requiredAnnualPayment: 10000, estimatedPaymentsRequired: 10000, withholding: evenWithholding(0, 2025), payments, asOf: '2025-07-01' });
+      return illustrateUnderpaymentInterest({ taxYear: 2025, installments, withholding: evenWithholding(0, 2025), payments, asOf: '2025-07-01', deMinimisApplies: false }).byInstallment[1];
+    };
+    expect(plan('2025-06-16')).toMatchObject({ interest: 0, segments: [] });
+    // Paid June 17: two days late counted from June 15 → $2,500 × 7% × 2/365 = $0.96.
+    expect(plan('2025-06-17')).toMatchObject({ interest: 0.96 }); expect(plan('2025-06-17').segments[0]).toMatchObject({ from: '2025-06-15', to: '2025-06-17', days: 2 });
+  });
+  it('reproduces Examples 3 and 5 of the 2024 Form 2210 instructions column by column', () => {
+    // https://www.irs.gov/pub/irs-prior/i2210--2024.pdf, pages 6–7. Required installments $4,000; payments 04/30 $2,000,
+    // 06/15 $3,000, 09/15 $4,000, 01/15/25 $4,000. Column (a): $6.56 + $26.67. Column (b): $3,000 for 15 days (÷366, 8%) and
+    // 77 days = $9.84 + $50.49. Column (c): 15 + 92 days at 8%/366 then 15 days at 7%/365 = $9.84 + $60.33 + $8.63.
+    // Column (d): $3,000 × 90/365 × 7% = $51.78 through April 15, 2025.
+    const payments = matchPaymentsToPeriods([dated(2000, '2024-04-30', 1), dated(3000, '2024-06-15', 2), dated(4000, '2024-09-15', 3), dated(4000, '2025-01-15', 4)], 2024);
+    const installments = computeInstallments({ taxYear: 2024, requiredAnnualPayment: 16000, estimatedPaymentsRequired: 16000, withholding: evenWithholding(0, 2024), payments, asOf: '2025-04-15' });
+    expect(installments.map(item => item.underpayment)).toEqual([4000, 3000, 3000, 3000]);
+    const result = illustrateUnderpaymentInterest({ taxYear: 2024, installments, withholding: evenWithholding(0, 2024), payments, asOf: '2025-04-15', deMinimisApplies: false });
+    expect(result.byInstallment[0].segments.map(segment => [segment.days, segment.interest])).toEqual([[15, 6.56], [61, 26.67]]);
+    expect(result.byInstallment.map(item => item.interest)).toEqual([33.23, 60.33, 78.80, 51.78]);
+    expect(result.total).toBe(224.14);
   });
   it('charges 30 days at 6% on a first installment paid May 15, 2026 and nothing on later installments not yet due', () => {
     const payments = matchPaymentsToPeriods([dated(2500, '2026-05-15', 1)], 2026);
