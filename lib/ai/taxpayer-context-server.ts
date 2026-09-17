@@ -1,15 +1,19 @@
 import { adminDb } from '@/lib/firebase/admin';
+import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import type { UserContext } from './analyzeTransaction';
 import { buildTaxpayerContext, summarizeConfirmedMerchants, type ConfirmedTransactionRecord, type HomeOfficeFacts, type TaxpayerAnalysisContext } from './taxpayer-context';
 
 const CONFIRMED_PER_ACCOUNT = 150;
 
-/** Reads only user-confirmed rows; AI suggestions and pending records never become priors. */
+/**
+ * Reads only user-confirmed rows; AI suggestions and pending records never become
+ * priors, and a superseded duplicate never repeats the canonical record's history.
+ */
 export async function loadConfirmedTransactionRecords(uid: string): Promise<ConfirmedTransactionRecord[]> {
   const accounts = await adminDb.collection('user_profiles').doc(uid).collection('accounts').get();
   const snapshots = await Promise.all(accounts.docs.map(account =>
     account.ref.collection('transactions').where('review_status', '==', 'confirmed').limit(CONFIRMED_PER_ACCOUNT).get()));
-  return snapshots.flatMap(snapshot => snapshot.docs.map(doc => {
+  return snapshots.flatMap(snapshot => snapshot.docs.filter(doc => !isSupersededRecord(doc.data())).map(doc => {
     const data = doc.data();
     return {
       merchant_name: data.merchant_name ?? null, name: data.name ?? null, category: data.category ?? null,

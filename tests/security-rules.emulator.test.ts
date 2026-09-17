@@ -120,9 +120,26 @@ async function seed(path: string, values: Record<string, string | number | boole
       await expect(updateDoc(doc(bob, path), { is_deductible: false })).rejects.toMatchObject({ code: 'permission-denied' });
     }
   });
+  it('keeps historical-overlap fields Admin SDK only on both storage paths', async () => {
+    const canonical = 'user_profiles/alice_uid/accounts/old/transactions/original';
+    for (const path of ['user_profiles/alice_uid/accounts/account/transactions/relinked', 'transactions/legacy-relinked']) {
+      await seed(path, { userId: owner, amount: 100, notes: 'before' });
+      const tx = doc(alice, path);
+      await expect(updateDoc(tx, { superseded_by: canonical })).rejects.toMatchObject({ code: 'permission-denied' });
+      await expect(updateDoc(tx, { overlap_reviewed: true })).rejects.toMatchObject({ code: 'permission-denied' });
+      // Once the operator command has superseded a record, the owner can still annotate it but never clear the marker.
+      await seed(path, { userId: owner, amount: 100, notes: 'before', superseded_by: canonical, superseded_reason: 'historical_overlap', superseded_decision_id: 'decision' });
+      await updateDoc(tx, { notes: 'still editable' });
+      await expect(updateDoc(tx, { superseded_by: deleteField() })).rejects.toMatchObject({ code: 'permission-denied' });
+      await expect(updateDoc(tx, { superseded_by: 'user_profiles/alice_uid/accounts/old/transactions/other' })).rejects.toMatchObject({ code: 'permission-denied' });
+      await expect(updateDoc(tx, { superseded_decision_id: deleteField() })).rejects.toMatchObject({ code: 'permission-denied' });
+    }
+  });
   it('retains owner-filtered collection-group transaction reads', async () => {
     const documents = await getDocs(query(collectionGroup(alice, 'transactions'), where('userId', '==', owner)));
-    expect(documents.size).toBe(1);
+    // Earlier tests seed more owner records; the boundary under test is that only the owner's come back.
+    expect(documents.docs.map(snapshot => snapshot.ref.path)).toContain('user_profiles/alice_uid/accounts/account/transactions/tx');
+    expect(documents.docs.every(snapshot => snapshot.get('userId') === owner)).toBe(true);
     await expect(getDoc(doc(alice, 'transactions/top-bob'))).rejects.toMatchObject({ code: 'permission-denied' });
   });
   it('allows ordinary profile creation and edits, denies subscription escalation on create/update', async () => {

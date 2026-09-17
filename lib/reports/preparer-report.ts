@@ -1,8 +1,10 @@
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import { exportDate, transactionAmount, selectExportYear, recordedDeductibility, ExportReviewRequiredError, type ExportRecord } from './transaction-export';
 
 export function preparerMonthlySummary(records: ExportRecord[], year: number) {
-  const selected = selectExportYear(records, year);
+  // Superseded duplicates of an earlier bank record are not part of the handoff totals.
+  const selected = selectExportYear(records.filter(record => !isSupersededRecord(record)), year);
   if (selected.some(record => transactionAmount(record) === null)) throw new ExportReviewRequiredError('Some saved amounts are invalid. Correct them or download all records for review.');
   const seen = new Set<string>();
   for (const record of selected) {

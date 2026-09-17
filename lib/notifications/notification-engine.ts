@@ -1,5 +1,6 @@
 import { adminDb } from '@/lib/firebase/admin';
 import { getUserTaxRateDisplay } from '@/lib/tax-rules/federal-brackets';
+import { isCountableRecord, isSupersededRecord } from '@/lib/transactions/record-scope';
 
 export interface Notification {
   id: string;
@@ -304,7 +305,8 @@ export class NotificationEngine {
         
         const unreviewed = await this.transactionsAcrossAccounts(userId, transactions =>
           transactions.where('analysis_status', '==', 'pending'));
-        const unreviewedCount = unreviewed.length;
+        // Superseded duplicates are hidden from review, so they are not "waiting".
+        const unreviewedCount = unreviewed.filter(doc => !isSupersededRecord(doc.data())).length;
 
         if (unreviewedCount >= 5) {
           await this.sendNotification({
@@ -383,8 +385,8 @@ export class NotificationEngine {
 
         for (const doc of confirmedDeductions) {
           const data = doc.data();
-          // Unresolved tax facts do not count toward confirmed totals.
-          if (data.tax_review_required === true || data.pending === true) continue;
+          // Unresolved tax facts and non-countable records do not count toward confirmed totals.
+          if (data.tax_review_required === true || !isCountableRecord(data)) continue;
           totalDeductions += Math.abs(data.amount || 0);
         }
 

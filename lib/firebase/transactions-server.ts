@@ -1,5 +1,6 @@
 import { taxDecisionUpdate } from '@/lib/transactions/tax-decision';
 import { recordedTransactionType, reviewHydrationFields, type AiReviewSuggestion, type TransactionKind } from '@/lib/transactions/ai-review-contract';
+import { isSupersededRecord } from '@/lib/transactions/record-scope';
 // lib/firebase/transactions-server.ts
 import { adminDb } from './admin';
 
@@ -50,6 +51,8 @@ export interface Transaction {
   pending_transaction_id?: string;
   account_owner?: string;
   transaction_code?: string;
+  /** Server-only: path of the earlier reviewed record this bank import duplicates. */
+  superseded_by?: string | null;
 
   account_id?: string;
   accountId?: string;
@@ -172,6 +175,9 @@ function normalizeDoc(doc: FirebaseFirestore.QueryDocumentSnapshot): Transaction
  *  4) collectionGroup('transactions') where 'user_id' == userId
  *  5) Fallback: iterate user_profiles/{userId}/accounts/{accountId}/transactions
  *
+ * Records superseded by historical-overlap reconciliation are omitted unless
+ * `options.includeSuperseded` is set; getTransactionServer still returns one by id.
+ *
  * Returns { data: Transaction[], error }
  */
 export async function getTransactionServer(
@@ -210,9 +216,15 @@ export async function getTransactionServer(
   }
 }
 
+export interface GetTransactionsServerOptions {
+  /** Include records superseded by historical-overlap reconciliation; lists, totals and analysis never want them. */
+  includeSuperseded?: boolean;
+}
+
 export async function getTransactionsServer(
   userId: string,
-  fields?: string[]
+  fields?: string[],
+  options: GetTransactionsServerOptions = {}
 ): Promise<{ data: Transaction[]; error: any }> {
   try {
     console.log('🔍 [getTransactionsServer] Fetching transactions for user:', userId);
@@ -226,6 +238,7 @@ export async function getTransactionsServer(
       arr.forEach((doc: FirebaseFirestore.QueryDocumentSnapshot) => {
         try {
           const data: any = doc.data() || {};
+          if (!options.includeSuperseded && isSupersededRecord(data)) return;
           const transId: string | undefined = data?.trans_id || data?.transId || doc.id;
           const accountId: string | undefined = data?.account_id || data?.accountId;
 

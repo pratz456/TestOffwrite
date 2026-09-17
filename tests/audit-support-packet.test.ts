@@ -131,12 +131,13 @@ describe('inclusion, exclusion and review provenance', () => {
       confirmed({ merchant_name: 'REVIEW-CATEGORY', category: 'VEHICLE_REVIEW_REQUIRED' }),
       confirmed({ merchant_name: 'PENDING', pending: true }),
       confirmed({ merchant_name: 'REMOVED', bank_removed: true }),
+      confirmed({ merchant_name: 'SUPERSEDED', superseded_by: `user_profiles/${uid}/accounts/old/transactions/original` }),
       confirmed({ merchant_name: 'PERSONAL', is_deductible: false }),
       confirmed({ merchant_name: 'PRIOR-YEAR', date: '2025-12-31' }),
     ]);
     expect(result.deductions.map(record => record.merchant)).toEqual(['INCLUDED']);
-    expect(result.summary.excluded).toEqual({ notConfirmed: 1, reviewRequired: 2, pending: 1, bankRemoved: 1 });
-    expect(JSON.stringify(result)).not.toMatch(/AI_SUGGESTION_TEXT|SUGGESTED-ONLY|PRIOR-YEAR|PERSONAL/);
+    expect(result.summary.excluded).toEqual({ notConfirmed: 1, reviewRequired: 2, pending: 1, bankRemoved: 1, superseded: 1 });
+    expect(JSON.stringify(result)).not.toMatch(/AI_SUGGESTION_TEXT|SUGGESTED-ONLY|PRIOR-YEAR|PERSONAL|SUPERSEDED/);
   });
   it('shares the Schedule C confirmation contract: legacy pre-cutoff decisions count, unstamped post-cutoff ones do not', () => {
     const legacy = confirmed({ merchant_name: 'LEGACY', review_status: undefined, review_source: undefined, reviewed_at: undefined, created_at: '2026-03-10T09:00:00.000Z' });

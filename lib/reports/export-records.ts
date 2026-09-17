@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { adminDb } from '@/lib/firebase/admin';
+import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import type { ExportRecord } from './transaction-export';
 
 export class ExportDataUnavailableError extends Error {
@@ -24,7 +25,14 @@ export async function readOwnedYearRecords(uid: string, collection: string, taxY
     return snapshot.docs.map(doc => ownedExportRecord(doc, uid));
   } catch { throw new ExportDataUnavailableError(); }
 }
-export async function readOwnedTransactions(uid: string): Promise<ExportRecord[]> {
+export interface ReadOwnedTransactionsOptions {
+  /**
+   * Also return records superseded by historical-overlap reconciliation. Only the
+   * complete owner archive and exclusion counters want them; totals never do.
+   */
+  includeSuperseded?: boolean;
+}
+export async function readOwnedTransactions(uid: string, options: ReadOwnedTransactionsOptions = {}): Promise<ExportRecord[]> {
   try {
     const accounts = await adminDb.collection('user_profiles').doc(uid).collection('accounts').get();
     const queried = await Promise.all(['userId', 'user_id'].map(field => adminDb.collectionGroup('transactions').where(field, '==', uid).get()));
@@ -35,7 +43,8 @@ export async function readOwnedTransactions(uid: string): Promise<ExportRecord[]
     const records = new Map<string, ExportRecord>();
     queried.forEach(snapshot => snapshot.docs.forEach(doc => records.set(doc.ref.path, ownedExportRecord(doc, uid))));
     nested.forEach(snapshot => snapshot.docs.forEach(doc => records.set(doc.ref.path, ownedExportRecord(doc, uid, true))));
-    return [...records.values()].sort((a, b) => String(a.recordPath).localeCompare(String(b.recordPath))).map(record => ({
+    const selected = [...records.values()].filter(record => options.includeSuperseded || !isSupersededRecord(record));
+    return selected.sort((a, b) => String(a.recordPath).localeCompare(String(b.recordPath))).map(record => ({
       ...record, exportReference: exportReference('transaction', `${uid}/${record.recordPath}`),
       accountReference: exportReference('account', `${uid}/${record.account_id ?? record.accountId ?? String(record.recordPath).split('/')[3] ?? 'unknown'}`),
     }));

@@ -1,10 +1,13 @@
 import { consolidateCategory } from '@/lib/utils';
 import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
+import { isSupersededRecord } from '@/lib/transactions/record-scope';
 
 export interface DashboardRecord {
   amount?: number;
   category?: string;
   pending?: boolean;
+  /** Server-only: duplicate of an earlier reviewed bank record; never counted or shown. */
+  superseded_by?: string | null;
   is_deductible?: boolean | null;
   tax_review_required?: boolean;
   review_status?: string;
@@ -26,7 +29,8 @@ export function dashboardRecordStatus(record: DashboardRecord) {
 }
 
 /** All-date record overview, not deductions after tax limits or a tax-savings calculation. */
-export function summarizeDashboardRecords(records: readonly DashboardRecord[]) {
+export function summarizeDashboardRecords(allRecords: readonly DashboardRecord[]) {
+  const records = allRecords.filter(record => !isSupersededRecord(record));
   const marked = records.filter(record => dashboardRecordStatus(record) === 'deductible');
   const categories = new Map<string, number>();
   let categoryIssue: string | null = null;

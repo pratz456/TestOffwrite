@@ -14,7 +14,7 @@ const packet: AuditSupportSummary = {
   ],
   summary: { deductionCount: 2, recordedAmount: 210, byStatus: { complete: { count: 1, amount: 30 }, needs_records: { count: 1, amount: 180 } },
     byCategory: [], missingItems: [{ item: 'receipt (required for lodging at any amount)', count: 1 }, { item: 'travel dates (departure and return)', count: 1 }],
-    excluded: { notConfirmed: 2, reviewRequired: 0, pending: 0, bankRemoved: 0 },
+    excluded: { notConfirmed: 2, reviewRequired: 0, pending: 0, bankRemoved: 0, superseded: 0 },
     mileage: { tripCount: 3, ratedMiles: 120, unratedMiles: 0, unratedTrips: 0, standardMileageAmount: 87, ratesApplied: [0.725], tripsNeedingRecords: 1 } },
 };
 const noop = () => {};
@@ -37,7 +37,7 @@ describe('audit support records card', () => {
     expect(loading).toContain('Checking your confirmed deductions for 2026'); expect(loading).not.toContain('Need records');
   });
   it('labels the PDF as available when the plan allows it and reports a clean year plainly', () => {
-    const html = render({ canDownloadPdf: true, packet: { ...packet, deductions: [packet.deductions[1]], summary: { ...packet.summary, deductionCount: 1, byStatus: { complete: { count: 1, amount: 30 }, needs_records: { count: 0, amount: 0 } }, missingItems: [], excluded: { notConfirmed: 0, reviewRequired: 0, pending: 0, bankRemoved: 0 } } } });
+    const html = render({ canDownloadPdf: true, packet: { ...packet, deductions: [packet.deductions[1]], summary: { ...packet.summary, deductionCount: 1, byStatus: { complete: { count: 1, amount: 30 }, needs_records: { count: 0, amount: 0 } }, missingItems: [], excluded: { notConfirmed: 0, reviewRequired: 0, pending: 0, bankRemoved: 0, superseded: 0 } } } });
     expect(html).not.toContain('Premium'); expect(html).toContain('Every confirmed deduction has the records its category requires on file.');
     expect(html).not.toContain('Items that still need records');
   });

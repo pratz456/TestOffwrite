@@ -3,6 +3,7 @@ import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { requireFeatureAccess } from '@/lib/subscriptions/feature-access';
 import { readOwnedTransactions } from '@/lib/reports/export-records';
 import { exportDate, exportYear, selectExportYear, transactionAmount, ExportReviewRequiredError, type ExportRecord } from '@/lib/reports/transaction-export';
+import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import { createPlanningPDF, formatExportMoney } from '@/lib/reports/planning-pdf';
 
 export const runtime = 'nodejs';
@@ -57,7 +58,8 @@ function summarize(records: ExportRecord[]) {
     transactionCount: posted.length, excludedPendingCount: records.length - posted.length };
 }
 async function dataFor(uid: string, year: number, month?: number) {
-  const records = await readOwnedTransactions(uid);
+  // The reader already drops superseded duplicates; filtering again keeps the summary safe if a caller passes raw records.
+  const records = (await readOwnedTransactions(uid)).filter(record => !isSupersededRecord(record));
   const current = summarize(recordsInPeriod(records, year, month));
   const priorYear = month && month > 1 ? year : year - 1;
   const priorMonth = month === undefined ? undefined : month === 1 ? 12 : month - 1;

@@ -13,6 +13,9 @@ service cloud.firestore {
       // This is a fallback for transactions not under user_profiles/{uid}/accounts/{accountId}/transactions
       // Once the server has recorded a review (review_status), is_deductible changes
       // must go through the API so confirmed totals keep a server-stamped decision.
+      // Historical-overlap fields (superseded_by, superseded_at, superseded_reason,
+      // superseded_decision_id, overlap_reviewed*) are Admin SDK only: they are
+      // outside this allow-list, so a client can neither add, change nor remove them.
       allow update: if request.auth != null
                     && (resource.data.get('user_id', '') == request.auth.uid
                         || resource.data.get('userId', '') == request.auth.uid)
@@ -177,6 +180,9 @@ service cloud.firestore {
 
           // Allow user updates to transaction fields. Server-reviewed records
           // (review_status present) keep is_deductible server-owned; use the API.
+          // Historical-overlap fields (superseded_by, superseded_at, superseded_reason,
+          // superseded_decision_id, overlap_reviewed*) stay outside this allow-list:
+          // only the operator command's Admin SDK writes ever set or clear them.
           allow update: if request.auth != null
                         && request.auth.uid == uid
                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([

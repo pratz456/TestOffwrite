@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { adminDb } from '@/lib/firebase/admin';
+import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import { analyzeTransactionWithRetry, convertToEnhancedContext, findMissingUserFields, type TransactionInput } from './analyzeTransaction';
 import { getAIProviderStatus } from './provider-status';
 import { analysisProfileHash } from './profile-context';
@@ -31,8 +32,9 @@ function eligibleBankTransaction(data: Data, account: Data, address: AnalysisTas
   const savedRecord = ['manual', 'receipt'].includes(data.source);
   const bankRecord = !['manual', 'receipt'].includes(data.source) &&
     ['depository', 'credit', 'loan', 'investment', 'brokerage', 'other'].includes(account.type);
+  // A superseded duplicate is excluded from totals and review, so it never earns an AI suggestion.
   return owned(account, address.userId) && owned(data, address.userId) && (savedRecord || bankRecord) && Number.isFinite(data.amount) &&
-    data.pending !== true &&
+    data.pending !== true && !isSupersededRecord(data) &&
     [data.account_id, data.accountId].every(value => value == null || value === address.accountId);
 }
 function refs(address: AnalysisTaskAddress) {

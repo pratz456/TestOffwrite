@@ -1,4 +1,5 @@
 import { recordedTransactionType, reviewHydrationFields, type AiReviewSuggestion, type TransactionKind } from '@/lib/transactions/ai-review-contract';
+import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import {
   collection,
   doc,
@@ -88,6 +89,13 @@ export interface Transaction {
   pending_transaction_id?: string;
   account_owner?: string;
   transaction_code?: string;
+
+  /**
+   * Server-only (historical-overlap reconciliation): full path of the earlier
+   * record this bank import duplicates. Superseded records are hidden from
+   * lists and excluded from every total; the detail view explains why.
+   */
+  superseded_by?: string | null;
 
   // AI Analysis Fields from initial analysis
   ai?: {
@@ -314,6 +322,7 @@ export async function getTransactions(userId: string): Promise<{ data: Transacti
 
     querySnapshot.forEach((doc) => {
       const data = doc.data() as DocumentData;
+      if (isSupersededRecord(data)) return; // Duplicate of an earlier reviewed bank record; hidden from lists.
       console.log('🔍 [Firebase] Processing transaction:', {
         id: data.trans_id || doc.id,
         merchant: data.merchant_name,

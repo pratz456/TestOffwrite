@@ -3,6 +3,7 @@ import { validateReceiptPreviewPath } from '@/lib/receipts/preview-path';
 import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { BUSINESS_STANDARD_MILEAGE_RATES, businessMileageRateForDate, summarizeBusinessMileage } from '@/lib/tax-rules/mileage-rates';
 import { isServerConfirmedDeduction } from '@/lib/transactions/confirmed-deduction';
+import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import { ExportDataUnavailableError, exportReference, ownedExportRecord, readOwnedTransactions } from './export-records';
 import { createPlanningPDF, formatExportMoney as money } from './planning-pdf';
 import { csvCell, exportDate, selectExportYear, transactionAmount, ExportReviewRequiredError, type ExportRecord } from './transaction-export';
@@ -83,7 +84,8 @@ export interface AuditSupportPacket {
     byStatus: Record<SubstantiationStatus, { count: number; amount: number }>;
     byCategory: Array<{ category: SubstantiationCategory; label: string; count: number; amount: number; complete: number; needsRecords: number }>;
     missingItems: Array<{ item: string; count: number }>;
-    excluded: { notConfirmed: number; reviewRequired: number; pending: number; bankRemoved: number };
+    /** superseded: deductible records a relinked bank re-imported that duplicate an earlier reviewed record. */
+    excluded: { notConfirmed: number; reviewRequired: number; pending: number; bankRemoved: number; superseded: number };
     mileage: { tripCount: number; ratedMiles: number; unratedMiles: number; unratedTrips: number; standardMileageAmount: number; ratesApplied: number[]; tripsNeedingRecords: number };
   };
   retention: RetentionNote;
@@ -274,11 +276,12 @@ function mileageEntries(uid: string, year: number, trips: ExportRecord[]) {
 /** Pure assembly over owner-verified records. Throws ExportReviewRequiredError when records need reconciliation first. */
 export function assembleAuditSupportPacket(uid: string, year: number, inputs: AuditSupportInputs, generatedAt = new Date()): AuditSupportPacket {
   const inYear = selectExportYear(inputs.transactions, year);
-  const excluded = { notConfirmed: 0, reviewRequired: 0, pending: 0, bankRemoved: 0 };
+  const excluded = { notConfirmed: 0, reviewRequired: 0, pending: 0, bankRemoved: 0, superseded: 0 };
   const confirmed: ExportRecord[] = [];
   for (const record of inYear) {
     if (record.is_deductible !== true) continue;
-    if (record.pending === true) excluded.pending += 1;
+    if (isSupersededRecord(record)) excluded.superseded += 1;
+    else if (record.pending === true) excluded.pending += 1;
     else if (record.bank_removed === true) excluded.bankRemoved += 1;
     else if (record.tax_review_required === true || (typeof record.category === 'string' && record.category.endsWith('_REVIEW_REQUIRED'))) excluded.reviewRequired += 1;
     // Same confirmation contract as Schedule C totals, so the packet never lists fewer
@@ -332,7 +335,7 @@ export function assembleAuditSupportPacket(uid: string, year: number, inputs: Au
     coverNote: [
       `This packet lists the deductions you confirmed in WriteOff for tax year ${year}, the records on file for each one, and the substantiation elements the IRS asks for that are still missing.`,
       'It is a records packet, not audit representation, legal or tax advice, or a guarantee that any deduction will be allowed. Only a credentialed practitioner (attorney, CPA or enrolled agent) can represent you before the IRS. Review this packet with your preparer.',
-      'Only confirmed deductions are included. Pending, bank-removed and review-required records and unconfirmed AI suggestions are excluded; AI analysis is never treated as evidence.',
+      'Only confirmed deductions are included. Pending, bank-removed, review-required and superseded duplicate bank records and unconfirmed AI suggestions are excluded; AI analysis is never treated as evidence.',
       'Receipts are referenced by private, sign-in-only links and filenames. Receipt images and PDFs are not attached. Amounts are recorded amounts, not calculated deductions.',
     ],
     deductions,
@@ -352,7 +355,8 @@ export function assembleAuditSupportPacket(uid: string, year: number, inputs: Au
 
 /** Owner-scoped loader. Transactions, mileage trips and receipt metadata are all ownership-checked before assembly. */
 export async function readAuditSupportPacket(uid: string, year: number): Promise<AuditSupportPacket> {
-  const transactions = await readOwnedTransactions(uid);
+  // Superseded records are read so the packet can count them as excluded; assembly never lists them.
+  const transactions = await readOwnedTransactions(uid, { includeSuperseded: true });
   let trips: ExportRecord[], receipts: ExportRecord[];
   try {
     const [tripSnapshot, ...receiptSnapshots] = await Promise.all([
@@ -395,7 +399,7 @@ export async function generateAuditSupportPDF(packet: AuditSupportPacket): Promi
   const pdf = await createPlanningPDF(`${AUDIT_SUPPORT_TITLE} - Tax year ${year}`, year);
   pdf.paragraph(packet.coverNote[0], true);
   for (const note of packet.coverNote.slice(1)) pdf.paragraph(note);
-  pdf.paragraph(`Generated ${packet.packetInfo.generatedAt.slice(0, 10)}. Confirmed deductions: ${packet.summary.deductionCount}. Mileage log trips: ${packet.summary.mileage.tripCount}. Excluded: ${packet.summary.excluded.notConfirmed} deductible records not yet confirmed through review, ${packet.summary.excluded.reviewRequired} awaiting tax review, ${packet.summary.excluded.pending} pending, ${packet.summary.excluded.bankRemoved} removed by the bank.`);
+  pdf.paragraph(`Generated ${packet.packetInfo.generatedAt.slice(0, 10)}. Confirmed deductions: ${packet.summary.deductionCount}. Mileage log trips: ${packet.summary.mileage.tripCount}. Excluded: ${packet.summary.excluded.notConfirmed} deductible records not yet confirmed through review, ${packet.summary.excluded.reviewRequired} awaiting tax review, ${packet.summary.excluded.pending} pending, ${packet.summary.excluded.bankRemoved} removed by the bank, ${packet.summary.excluded.superseded} superseded duplicate bank records.`);
   pdf.section('Substantiation summary');
   pdf.table(['Status', 'Records', 'Recorded amount'], [
     ['Complete - every element required for the category is on file', String(packet.summary.byStatus.complete.count), money(packet.summary.byStatus.complete.amount)],
