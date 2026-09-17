@@ -48,6 +48,8 @@ npm run production:deploy -- --confirm "deploy:writeoff-23910:<exact-40-characte
 
 It reruns the preflight, builds the app and both Functions packages, reruns the preflight immediately before release, and asks Firebase to deploy Hosting, Firestore rules/indexes, Storage rules, and both Functions codebases together. It intentionally omits `--force`. Firebase target releases are coordinated but not transactional; retain the reviewed compatible rollback plan.
 
+Release integrity guards: the manifest records the git blob ID of every reviewed source file and the preflight rejects any edit or deletion made after preparation; Firebase predeploy hooks require the coordinated-deploy token that only the release script supplies, so a direct partial `firebase deploy --only …` fails; and dependency install/build scripts run without deployment credentials or provider secrets in their environment. The prepared `.env.production.local` is still readable on disk during the build, so keep lockfiles pinned and review dependency changes.
+
 ## Existing-user migration and rollout order
 
 1. Inspect production rules/indexes and count legacy bank profiles/accounts without exporting tokens or taxpayer records. Check for users with more than 400 account documents, which need a paginated administrative migration. Preserve a private recoverable backup and existing encryption keys.

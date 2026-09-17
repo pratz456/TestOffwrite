@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { PRODUCTION_PROJECT, RELEASE_MANIFEST } from './production-preflight.mjs';
@@ -44,6 +44,18 @@ function fingerprint(value) {
   return createHash('sha256').update(value).digest('hex');
 }
 
+/** Group labels are keyed with a per-run secret so the report cannot confirm guessed facts offline. */
+function groupLabeler() {
+  const salt = randomBytes(32);
+  return key => createHmac('sha256', salt).update(key).digest('hex').slice(0, 24);
+}
+
+const hasSavedTaxDecision = data => typeof data?.is_deductible === 'boolean' || typeof data?.deductible === 'boolean';
+const isConfirmed = data => data?.review_status === 'confirmed';
+/** Any account that carried bank credentials or an Item is a bank account for overlap purposes. */
+const isBankAccountData = data => data?.source === 'plaid' || hasValue(data?.plaid_item_id)
+  || hasValue(data?.plaid_token) || hasValue(data?.access_token) || hasValue(data?.institution_id);
+
 /**
  * Build a private, read-only migration inventory. Potential overlaps are exact
  * candidate matches for human review; this function never chooses, merges, or
@@ -65,6 +77,7 @@ export function buildProductionMigrationInventory({
   }
 
   const profileReports = [];
+  const label = groupLabeler();
   let accountDocuments = 0;
   let transactionDocuments = 0;
   let confirmedTransactions = 0;
@@ -75,6 +88,8 @@ export function buildProductionMigrationInventory({
     const uid = profile.uid;
     const profileData = profile.data || {};
     const accounts = profile.accounts || [];
+    // Records written before the account model lived at the root `transactions` collection.
+    const legacyRootTransactions = profile.legacyTransactions || [];
     accountDocuments += accounts.length;
     const candidateGroups = new Map();
     let profileTransactions = 0;
@@ -83,39 +98,36 @@ export function buildProductionMigrationInventory({
     let accountLegacyCredentials = false;
     const accountReports = [];
 
+    const tally = (data, accountScope, reference, isBankAccount) => {
+      profileTransactions++;
+      transactionDocuments++;
+      const confirmed = isConfirmed(data);
+      const savedTaxDecision = hasSavedTaxDecision(data);
+      if (confirmed) { profileConfirmed++; confirmedTransactions++; }
+      if (savedTaxDecision) { profileTaxDecisions++; savedTaxDecisions++; }
+      if (!isBankAccount) return { confirmed, savedTaxDecision };
+      const key = overlapKey(data || {});
+      if (key) {
+        const matches = candidateGroups.get(key) || [];
+        matches.push({ accountScope, reference, confirmed, savedTaxDecision });
+        candidateGroups.set(key, matches);
+      }
+      return { confirmed, savedTaxDecision };
+    };
+
     for (const account of accounts) {
       const accountData = account.data || {};
       const legacyCredentialPresent = hasValue(accountData.plaid_token) || hasValue(accountData.access_token);
       if (legacyCredentialPresent) {
         accountLegacyCredentials = true;
       }
-      const isBankAccount = accountData.source === 'plaid' || hasValue(accountData.plaid_item_id);
+      const isBankAccount = isBankAccountData(accountData);
       let accountConfirmed = 0;
       let accountTaxDecisions = 0;
       for (const transaction of account.transactions || []) {
-        profileTransactions++;
-        transactionDocuments++;
-        if (transaction.data?.review_status === 'confirmed') {
-          accountConfirmed++;
-          profileConfirmed++;
-          confirmedTransactions++;
-        }
-        if (typeof transaction.data?.is_deductible === 'boolean') {
-          accountTaxDecisions++;
-          profileTaxDecisions++;
-          savedTaxDecisions++;
-        }
-        if (!isBankAccount) continue;
-        const key = overlapKey(transaction.data || {});
-        if (!key) continue;
-        const matches = candidateGroups.get(key) || [];
-        matches.push({
-          accountId: account.id,
-          reference: transactionReference(uid, account.id, transaction.id),
-          confirmed: transaction.data?.review_status === 'confirmed',
-          savedTaxDecision: typeof transaction.data?.is_deductible === 'boolean',
-        });
-        candidateGroups.set(key, matches);
+        const result = tally(transaction.data || {}, account.id, transactionReference(uid, account.id, transaction.id), isBankAccount);
+        if (result.confirmed) accountConfirmed++;
+        if (result.savedTaxDecision) accountTaxDecisions++;
       }
       accountReports.push({
         reference: accountReference(uid, account.id),
@@ -127,12 +139,22 @@ export function buildProductionMigrationInventory({
         savedTaxDecisionCount: accountTaxDecisions,
       });
     }
+    let legacyRootConfirmed = 0;
+    let legacyRootTaxDecisions = 0;
+    for (const transaction of legacyRootTransactions) {
+      const data = transaction.data || {};
+      // Root records have no account document; treat bank-sourced ones as their own scope.
+      const bankSourced = data.source !== 'manual' && data.source !== 'receipt';
+      const result = tally(data, `root:${data.account_id || 'unknown'}`, `transactions/${transaction.id}`, bankSourced);
+      if (result.confirmed) legacyRootConfirmed++;
+      if (result.savedTaxDecision) legacyRootTaxDecisions++;
+    }
 
     const overlaps = [...candidateGroups.entries()]
-      .filter(([, records]) => new Set(records.map(record => record.accountId)).size > 1)
+      .filter(([, records]) => new Set(records.map(record => record.accountScope)).size > 1)
       .map(([key, records]) => ({
-        fingerprint: fingerprint(key),
-        records: records.map(({ accountId: _accountId, ...record }) => record),
+        group: label(key),
+        records: records.map(({ accountScope: _accountScope, ...record }) => record),
         resolution: 'human_review_required',
       }));
     potentialOverlapGroups += overlaps.length;
@@ -151,6 +173,11 @@ export function buildProductionMigrationInventory({
       privateConnectionCount: privateConnections.length,
       privateConnectionStates: [...new Set(privateConnections.map(connection => connection.status || 'unknown'))].sort(),
       accounts: accountReports,
+      legacyRootTransactions: {
+        count: legacyRootTransactions.length,
+        confirmedTransactionCount: legacyRootConfirmed,
+        savedTaxDecisionCount: legacyRootTaxDecisions,
+      },
       potentialHistoricalOverlaps: overlaps,
     });
   }
@@ -186,12 +213,16 @@ export function buildProductionMigrationInventory({
 
 export function writePrivateMigrationInventory(output, report, cwd = process.cwd()) {
   if (!path.isAbsolute(output)) throw new Error('The private inventory output path must be absolute');
-  const relative = path.relative(path.resolve(cwd), output);
+  // Resolve symlinks on both sides so a linked parent cannot redirect the report into the checkout.
+  const parent = fs.realpathSync(path.dirname(output));
+  if (fs.existsSync(output) && fs.lstatSync(output).isSymbolicLink()) throw new Error('The inventory output must not be a symlink');
+  const resolvedOutput = path.join(parent, path.basename(output));
+  const relative = path.relative(fs.realpathSync(cwd), resolvedOutput);
   if (!relative.startsWith(`..${path.sep}`) && relative !== '..') {
     throw new Error('Write the private inventory outside the repository checkout');
   }
-  fs.writeFileSync(output, `${JSON.stringify(report, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
-  return fingerprint(fs.readFileSync(output));
+  fs.writeFileSync(resolvedOutput, `${JSON.stringify(report, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
+  return fingerprint(fs.readFileSync(resolvedOutput));
 }
 
 async function mapWithConcurrency(values, limit, work) {
@@ -206,6 +237,11 @@ async function mapWithConcurrency(values, limit, work) {
   return results;
 }
 
+const TRANSACTION_FIELDS = [
+  'date', 'amount', 'merchant_name', 'name', 'description', 'iso_currency_code', 'unofficial_currency_code',
+  'pending', 'bank_removed', 'review_status', 'is_deductible', 'deductible', 'source', 'account_id',
+];
+
 export async function loadProductionMigrationRecords(db) {
   const profileSnapshot = await db.collection('user_profiles')
     .select('plaid_token', 'access_token', 'plaid_item_id', 'plaid_credentials_migrated')
@@ -215,31 +251,24 @@ export async function loadProductionMigrationRecords(db) {
     .get();
   const profiles = await mapWithConcurrency(profileSnapshot.docs, 5, async profileDoc => {
     const accountsSnapshot = await profileDoc.ref.collection('accounts')
-      .select('source', 'plaid_item_id', 'plaid_token', 'access_token')
+      .select('source', 'plaid_item_id', 'plaid_token', 'access_token', 'institution_id')
       .get();
     const accounts = await mapWithConcurrency(accountsSnapshot.docs, 5, async accountDoc => {
-      const transactions = await accountDoc.ref.collection('transactions')
-        .select(
-          'date',
-          'amount',
-          'merchant_name',
-          'name',
-          'description',
-          'iso_currency_code',
-          'unofficial_currency_code',
-          'pending',
-          'bank_removed',
-          'review_status',
-          'is_deductible',
-        )
-        .get();
+      const transactions = await accountDoc.ref.collection('transactions').select(...TRANSACTION_FIELDS).get();
       return {
         id: accountDoc.id,
         data: accountDoc.data(),
         transactions: transactions.docs.map(doc => ({ id: doc.id, data: doc.data() })),
       };
     });
-    return { uid: profileDoc.id, data: profileDoc.data(), accounts };
+    // Legacy root-level records use either owner field spelling.
+    const [byUserId, byUnderscore] = await Promise.all([
+      db.collection('transactions').where('userId', '==', profileDoc.id).select(...TRANSACTION_FIELDS).get(),
+      db.collection('transactions').where('user_id', '==', profileDoc.id).select(...TRANSACTION_FIELDS).get(),
+    ]);
+    const legacyById = new Map();
+    for (const doc of [...byUserId.docs, ...byUnderscore.docs]) legacyById.set(doc.id, { id: doc.id, data: doc.data() });
+    return { uid: profileDoc.id, data: profileDoc.data(), accounts, legacyTransactions: [...legacyById.values()] };
   });
   return {
     profiles,

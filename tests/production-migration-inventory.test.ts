@@ -52,7 +52,13 @@ describe('read-only production migration inventory', () => {
             data: { source: 'manual' },
             transactions: [transaction('manual-match')],
           },
+          {
+            id: 'credential-only-legacy',
+            data: { access_token: 'another-secret' },
+            transactions: [transaction('legacy-shape', { deductible: true })],
+          },
         ],
+        legacyTransactions: [transaction('root-legacy', { user_id: 'legacy-user', deductible: false, review_status: 'confirmed' })],
       }],
     });
 
@@ -64,13 +70,14 @@ describe('read-only production migration inventory', () => {
     expect(report.totals).toMatchObject({
       profiles: 1,
       legacyProfiles: 1,
-      accountDocuments: 3,
-      transactionDocuments: 3,
-      confirmedTransactions: 1,
-      savedTaxDecisions: 1,
+      accountDocuments: 4,
+      transactionDocuments: 5,
+      confirmedTransactions: 2,
+      savedTaxDecisions: 3,
       privateConnections: 1,
       potentialHistoricalOverlapGroups: 1,
     });
+    expect(report.profiles[0].legacyRootTransactions).toEqual({ count: 1, confirmedTransactionCount: 1, savedTaxDecisionCount: 1 });
     expect(report.profiles[0]).toMatchObject({
       uid: 'legacy-user',
       legacyProfileCredentialPresent: true,
@@ -78,7 +85,7 @@ describe('read-only production migration inventory', () => {
       credentialMigrationMarked: false,
       privateConnectionStates: ['relink_required'],
     });
-    expect(report.profiles[0].accounts).toHaveLength(3);
+    expect(report.profiles[0].accounts).toHaveLength(4);
     expect(report.profiles[0].potentialHistoricalOverlaps[0]).toMatchObject({
       resolution: 'human_review_required',
       records: [
@@ -92,8 +99,17 @@ describe('read-only production migration inventory', () => {
           confirmed: false,
           savedTaxDecision: false,
         },
+        {
+          reference: 'user_profiles/legacy-user/accounts/credential-only-legacy/transactions/legacy-shape',
+          confirmed: false,
+          savedTaxDecision: true,
+        },
+        { reference: 'transactions/root-legacy', confirmed: true, savedTaxDecision: true },
       ],
     });
+    expect(report.profiles[0].potentialHistoricalOverlaps[0].group).toMatch(/^[a-f\d]{24}$/);
+    const rerun = buildProductionMigrationInventory({ sourceCommit: 'a'.repeat(40), profiles: [] });
+    expect(rerun.totals.profiles).toBe(0);
     const serialized = JSON.stringify(report);
     for (const value of [
       'old-provider-secret',
@@ -134,5 +150,8 @@ describe('read-only production migration inventory', () => {
     expect(fs.statSync(output).mode & 0o077).toBe(0);
     expect(() => writePrivateMigrationInventory(output, report, checkout)).toThrow();
     expect(() => writePrivateMigrationInventory(path.join(checkout, 'report.json'), report, checkout)).toThrow('outside');
+    const linkedParent = path.join(root, 'linked-parent');
+    fs.symlinkSync(checkout, linkedParent, 'dir');
+    expect(() => writePrivateMigrationInventory(path.join(linkedParent, 'report.json'), report, checkout)).toThrow('outside');
   });
 });

@@ -9,8 +9,10 @@ import {
   PRODUCTION_DEPLOY_TARGETS,
 } from '../scripts/deploy-production-release.mjs';
 import {
+  COORDINATED_DEPLOY_VARIABLE,
   environmentDigest,
   EXPECTED_PRODUCTION_PLAID_CLIENT_ID,
+  gitBlobDigest,
   MIGRATION_REVIEW,
   RELEASE_ENV,
   RELEASE_MANIFEST,
@@ -72,12 +74,6 @@ function preparedRelease() {
   const reviewContents = JSON.stringify(review);
   fs.writeFileSync(path.join(cwd, RELEASE_ENV), environmentContents, { mode: 0o600 });
   fs.writeFileSync(path.join(cwd, MIGRATION_REVIEW), reviewContents, { mode: 0o600 });
-  fs.writeFileSync(path.join(cwd, RELEASE_MANIFEST), JSON.stringify({
-    project,
-    commit,
-    environmentDigest: environmentDigest(environmentContents),
-    migrationReviewDigest: environmentDigest(reviewContents),
-  }), { mode: 0o600 });
   fs.writeFileSync(path.join(cwd, 'firebase.json'), JSON.stringify({
     hosting: { source: '.', site: project },
     functions: [
@@ -85,6 +81,13 @@ function preparedRelease() {
       { source: 'functions-analysis', codebase: 'analysis' },
     ],
   }));
+  fs.writeFileSync(path.join(cwd, RELEASE_MANIFEST), JSON.stringify({
+    project,
+    commit,
+    environmentDigest: environmentDigest(environmentContents),
+    migrationReviewDigest: environmentDigest(reviewContents),
+    sourceTree: { 'firebase.json': gitBlobDigest(path.join(cwd, 'firebase.json')) },
+  }), { mode: 0o600 });
   return cwd;
 }
 
@@ -107,12 +110,21 @@ describe('coordinated production deployment', () => {
   it('builds every package and deploys every Firebase surface without force', () => {
     const cwd = preparedRelease();
     const execute = vi.fn();
+    const serviceAccount = path.join(cwd, '..', `writeoff-sa-${path.basename(cwd)}.json`);
+    fs.writeFileSync(serviceAccount, JSON.stringify({ project_id: project, client_email: `deploy@${project}.iam.gserviceaccount.com` }), { mode: 0o600 });
+    directories.push(serviceAccount);
+    const inheritedEnv = { PATH: '/usr/bin', GOOGLE_APPLICATION_CREDENTIALS: serviceAccount, STRIPE_SECRET_KEY: 'sk_live_syntheticvalue', PLAID_SECRET: 'synthetic-plaid-private-value' };
     deployProductionRelease({
       cwd,
       confirmation: productionDeployConfirmation(commit),
-      inheritedEnv: {},
+      inheritedEnv,
       execute,
     });
+    for (const [, , options] of execute.mock.calls.slice(0, 6)) {
+      expect(options.env).toEqual({ PATH: '/usr/bin' });
+    }
+    const deployOptions = execute.mock.calls.at(-1)![2];
+    expect(deployOptions.env).toMatchObject({ ...inheritedEnv, [COORDINATED_DEPLOY_VARIABLE]: commit });
     expect(execute.mock.calls.slice(0, 6).map(([file, args, options]) => [
       file,
       args,

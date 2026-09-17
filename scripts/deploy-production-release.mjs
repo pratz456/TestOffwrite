@@ -3,10 +3,18 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import {
+  COORDINATED_DEPLOY_VARIABLE,
   PRODUCTION_PROJECT,
   RELEASE_MANIFEST,
   runProductionPreflight,
 } from './production-preflight.mjs';
+
+const SECRET_ENVIRONMENT_NAME = /^(?:GOOGLE_APPLICATION_CREDENTIALS$|FIREBASE_|PLAID_|STRIPE_|ANALYSIS_WORKER_|CLOUD_FUNCTION_|SSN_|OPENAI_|COLUMN_TAX_|WRITEOFF_)/;
+
+/** Dependency install and build scripts never receive deployment credentials or provider secrets. */
+export function buildEnvironment(inheritedEnv) {
+  return Object.fromEntries(Object.entries(inheritedEnv).filter(([name]) => !SECRET_ENVIRONMENT_NAME.test(name)));
+}
 
 export const PRODUCTION_DEPLOY_TARGETS = Object.freeze([
   'hosting',
@@ -77,20 +85,22 @@ export function deployProductionRelease({
   execute = execFileSync,
 } = {}) {
   const plan = planProductionDeployment({ cwd, confirmation, inheritedEnv });
-  const options = { cwd: plan.cwd, env: inheritedEnv, stdio: 'inherit' };
-  const run = (file, args, workingDirectory = plan.cwd) =>
-    execute(file, args, { ...options, cwd: workingDirectory });
+  const run = (file, args, env, workingDirectory = plan.cwd) =>
+    execute(file, args, { cwd: workingDirectory, env, stdio: 'inherit' });
+  // Next reads .env.production.local from disk; the shell needs no secrets to build.
+  const buildEnv = buildEnvironment(inheritedEnv);
 
-  run('npm', ['ci', '--include=dev']);
-  run('npm', ['run', 'build']);
+  run('npm', ['ci', '--include=dev'], buildEnv);
+  run('npm', ['run', 'build'], buildEnv);
   for (const directory of ['functions', 'functions-analysis']) {
     const workingDirectory = path.join(plan.cwd, directory);
-    run('npm', ['ci', '--include=dev'], workingDirectory);
-    run('npm', ['run', 'build'], workingDirectory);
+    run('npm', ['ci', '--include=dev'], buildEnv, workingDirectory);
+    run('npm', ['run', 'build'], buildEnv, workingDirectory);
   }
 
   // Recheck digests and configuration immediately before the irreversible call.
   assertPreflight(plan.cwd, inheritedEnv);
+  const deployEnv = { ...inheritedEnv, [COORDINATED_DEPLOY_VARIABLE]: plan.commit };
   run(process.platform === 'win32' ? 'npx.cmd' : 'npx', [
     '--no-install',
     'firebase-tools',
@@ -102,7 +112,7 @@ export function deployProductionRelease({
     '--config',
     'firebase.json',
     '--non-interactive',
-  ]);
+  ], deployEnv);
   return plan;
 }
 

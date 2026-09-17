@@ -44,18 +44,15 @@ If `Remove-Item` fails with "Access denied", close every app using this folder a
 
 ## 3. Deploy to Firebase Hosting
 
-```powershell
-$env:FUNCTIONS_DISCOVERY_TIMEOUT = "60"
-firebase deploy --only hosting
-```
+> **Superseded for production.** Hosting-only deploys are blocked by the production preflight. Ship image/metadata changes through the coordinated release in [PRODUCTION_CUTOVER_2026-09-16.md](PRODUCTION_CUTOVER_2026-09-16.md) (`npm run production:deploy`). Staging still uses `firebase.staging.json`.
 
-- Wait until the command finishes **without** errors.
+- Wait until the release command finishes **without** errors.
 - If you see "Could not determine the web framework", run the same from a terminal opened **outside** Cursor (e.g. Windows Terminal or PowerShell), after closing Cursor.
 
 ## 4. Confirm the new image
 
 - **Image:** Meta tags use **`/og-image.png`** (static file from `public/`). After deploy, open **https://writeoffapp.com/og-image.png** in a private window to confirm the image loads.
-- You should see the WriteOff image (dark card, “WriteOff”, “Stop overpaying taxes…”, CTA).
+- You should see the WriteOff image (dark card, “WriteOff”, “Know your write-offs…”, CTA).
 - **Metadata:** Set `NEXT_PUBLIC_SITE_URL=https://writeoffapp.com` (or your production URL) in the build/deploy environment so `metadataBase` is correct and crawlers get an absolute image URL.
 - Then use [LinkedIn Post Inspector](https://www.linkedin.com/post-inspector/) for `https://www.writeoffapp.com` and re-share the link so the preview updates.
 

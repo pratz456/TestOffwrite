@@ -78,12 +78,13 @@ jobs:
           test -n "$FIREBASE_SERVICE_ACCOUNT_JSON"
           umask 077
           printf '%s' "$FIREBASE_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/writeoff-production-service-account.json"
-          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/writeoff-production-service-account.json" >> "$GITHUB_ENV"
 
       - name: Build and deploy the coordinated release
         working-directory: ${{ runner.temp }}/writeoff-production-release
         env:
           RELEASE_COMMIT: ${{ inputs.release_commit }}
+          # Scoped to this step only; the deploy script also withholds it from install/build scripts.
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/writeoff-production-service-account.json
         run: npm run production:deploy -- --confirm "deploy:writeoff-23910:$RELEASE_COMMIT"
 
       - name: Remove private release material

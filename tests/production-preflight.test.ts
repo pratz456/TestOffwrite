@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { afterEach, describe, expect, it } from 'vitest';
-import { environmentDigest, EXPECTED_PRODUCTION_PLAID_CLIENT_ID, RELEASE_ENV, RELEASE_MANIFEST, MIGRATION_REVIEW, REQUIRED_RELEASE_REVIEWS, runProductionPreflight, validateMigrationReview, validateProductionConfiguration } from '../scripts/production-preflight.mjs';
+import { COORDINATED_DEPLOY_VARIABLE, environmentDigest, EXPECTED_PRODUCTION_PLAID_CLIENT_ID, gitBlobDigest, RELEASE_ENV, RELEASE_MANIFEST, MIGRATION_REVIEW, REQUIRED_RELEASE_REVIEWS, runProductionPreflight, validateMigrationReview, validateProductionConfiguration } from '../scripts/production-preflight.mjs';
 import { prepareProductionRelease } from '../scripts/prepare-production-release.mjs';
 
 const project = 'writeoff-23910';
@@ -48,8 +48,11 @@ function prepared() {
   const migrationContents = JSON.stringify(review());
   fs.writeFileSync(path.join(cwd, RELEASE_ENV), contents, { mode: 0o600 });
   fs.writeFileSync(path.join(cwd, MIGRATION_REVIEW), migrationContents);
-  fs.writeFileSync(path.join(cwd, RELEASE_MANIFEST), JSON.stringify({ project, commit: 'a'.repeat(40), environmentDigest: environmentDigest(contents), migrationReviewDigest: environmentDigest(migrationContents) }));
   fs.writeFileSync(path.join(cwd, 'firebase.json'), JSON.stringify(config));
+  fs.mkdirSync(path.join(cwd, 'lib'));
+  fs.writeFileSync(path.join(cwd, 'lib', 'reviewed.ts'), 'export const reviewed = true;\n');
+  const sourceTree = { 'firebase.json': gitBlobDigest(path.join(cwd, 'firebase.json')), 'lib/reviewed.ts': gitBlobDigest(path.join(cwd, 'lib', 'reviewed.ts')) };
+  fs.writeFileSync(path.join(cwd, RELEASE_MANIFEST), JSON.stringify({ project, commit: 'a'.repeat(40), environmentDigest: environmentDigest(contents), migrationReviewDigest: environmentDigest(migrationContents), sourceTree }));
   return cwd;
 }
 
@@ -106,6 +109,27 @@ describe('isolated production release preflight', () => {
     fs.appendFileSync(path.join(cwd, RELEASE_ENV), 'UNREVIEWED_CHANGE=true\n');
     expect(() => runProductionPreflight({ cwd, inheritedEnv: {}, args: ['--project', project] })).toThrow('manifest does not match');
   });
+  it('rejects source edits made after preparation, including deleted reviewed files', () => {
+    const cwd = prepared();
+    fs.appendFileSync(path.join(cwd, 'lib', 'reviewed.ts'), '// unreviewed change\n');
+    expect(() => runProductionPreflight({ cwd, inheritedEnv: {}, args: ['--project', project] })).toThrow('differ from the released commit');
+    fs.unlinkSync(path.join(cwd, 'lib', 'reviewed.ts'));
+    expect(() => runProductionPreflight({ cwd, inheritedEnv: {}, args: ['--project', project] })).toThrow('differ from the released commit');
+    const legacy = prepared();
+    const manifest = JSON.parse(fs.readFileSync(path.join(legacy, RELEASE_MANIFEST), 'utf8'));
+    delete manifest.sourceTree;
+    fs.writeFileSync(path.join(legacy, RELEASE_MANIFEST), JSON.stringify(manifest));
+    expect(() => runProductionPreflight({ cwd: legacy, inheritedEnv: {}, args: ['--project', project] })).toThrow('missing the reviewed source tree');
+  });
+  it('allows build outputs but requires the coordinated deploy token inside Firebase predeploy hooks', () => {
+    const cwd = prepared();
+    fs.mkdirSync(path.join(cwd, '.next')); fs.writeFileSync(path.join(cwd, '.next', 'BUILD_ID'), 'built');
+    const predeploy = { PROJECT_DIR: cwd, RESOURCE_DIR: cwd, GCLOUD_PROJECT: project };
+    expect(() => runProductionPreflight({ cwd, inheritedEnv: predeploy, args: ['--project', project] })).toThrow('together through npm run production:deploy');
+    expect(runProductionPreflight({ cwd, inheritedEnv: { ...predeploy, [COORDINATED_DEPLOY_VARIABLE]: 'a'.repeat(40) }, args: ['--project', project] }).errors).toEqual([]);
+    expect(() => runProductionPreflight({ cwd, inheritedEnv: { ...predeploy, [COORDINATED_DEPLOY_VARIABLE]: 'b'.repeat(40) }, args: ['--project', project] })).toThrow('together through');
+    expect(runProductionPreflight({ cwd, inheritedEnv: {}, args: ['--project', project] }).errors).toEqual([]);
+  });
   it('rejects inherited staging values even when the prepared file is production', () => {
     const result = runProductionPreflight({ cwd: prepared(), inheritedEnv: { PLAID_ENV: 'sandbox' }, args: ['--project', project] });
     expect(result.errors).toContain('PLAID_ENV conflicts with the prepared production env file');
@@ -120,6 +144,10 @@ describe('isolated production release preflight', () => {
   });
   it('rejects missing production Functions codebase configuration', () => {
     const cwd = prepared(); fs.writeFileSync(path.join(cwd, 'firebase.json'), JSON.stringify({ hosting: config.hosting }));
+    // Re-prepare the manifest so this test exercises the codebase rule, not source tampering.
+    const manifest = JSON.parse(fs.readFileSync(path.join(cwd, RELEASE_MANIFEST), 'utf8'));
+    manifest.sourceTree['firebase.json'] = gitBlobDigest(path.join(cwd, 'firebase.json'));
+    fs.writeFileSync(path.join(cwd, RELEASE_MANIFEST), JSON.stringify(manifest));
     expect(runProductionPreflight({ cwd, inheritedEnv: {}, args: ['--project', project] }).errors).toContain('The production scheduled-sync Functions codebase must be included');
     expect(runProductionPreflight({ cwd, inheritedEnv: {}, args: ['--project', project] }).errors).toContain('The production analysis Functions codebase must be included');
   });

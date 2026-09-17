@@ -3,7 +3,19 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { parse } from 'dotenv';
-import { PRODUCTION_PROJECT, RELEASE_ENV, RELEASE_MANIFEST, MIGRATION_REVIEW, environmentDigest, validateMigrationReview, validateProductionConfiguration } from './production-preflight.mjs';
+import { PRODUCTION_PROJECT, RELEASE_ENV, RELEASE_MANIFEST, MIGRATION_REVIEW, environmentDigest, validateMigrationReview, validateProductionConfiguration, verifySourceTree } from './production-preflight.mjs';
+
+/** Path → git blob id for every file in the reviewed commit. */
+export function committedSourceTree(source, commit) {
+  const listing = execFileSync('git', ['ls-tree', '-r', '-z', commit], { cwd: source, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  const tree = {};
+  for (const entry of listing.split('\0').filter(Boolean)) {
+    const [meta, relativePath] = entry.split('\t');
+    const [, type, blob] = meta.split(' ');
+    if (type === 'blob') tree[relativePath] = blob;
+  }
+  return tree;
+}
 
 /** Export a clean committed snapshot. This does not install, build, call providers, or deploy. */
 export function prepareProductionRelease({ source, output, envFile, migrationReviewFile }) {
@@ -30,10 +42,13 @@ export function prepareProductionRelease({ source, output, envFile, migrationRev
     const archive = execFileSync('git', ['archive', '--format=tar', commit], { cwd: source, maxBuffer: 128 * 1024 * 1024 });
     execFileSync('tar', ['-xf', '-', '-C', output], { input: archive });
     if (fs.readdirSync(output).some(name => name.startsWith('.env'))) throw new Error('Committed env files must not be included in a release');
+    const sourceTree = committedSourceTree(source, commit);
+    const treeErrors = verifySourceTree(output, sourceTree);
+    if (treeErrors.length) throw new Error(`Exported release does not match the commit: ${treeErrors.join('; ')}`);
     fs.writeFileSync(path.join(output, RELEASE_ENV), contents, { mode: 0o600, flag: 'wx' });
     fs.writeFileSync(path.join(output, MIGRATION_REVIEW), migrationContents, { mode: 0o600, flag: 'wx' });
     fs.writeFileSync(path.join(output, RELEASE_MANIFEST), JSON.stringify({ project: PRODUCTION_PROJECT, commit,
-      environmentDigest: environmentDigest(contents), migrationReviewDigest: environmentDigest(migrationContents) }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+      environmentDigest: environmentDigest(contents), migrationReviewDigest: environmentDigest(migrationContents), sourceTree }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
     // Only non-secret routing parameters go into Functions env files. Both
     // Functions secrets must be separately provisioned in production Secret Manager.
     fs.writeFileSync(path.join(output, 'functions-analysis', `.env.${PRODUCTION_PROJECT}`), `ANALYSIS_WORKER_ORIGIN=${env.ANALYSIS_WORKER_ORIGIN}\n`, { mode: 0o600, flag: 'wx' });

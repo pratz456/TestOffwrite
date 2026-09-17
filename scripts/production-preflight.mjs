@@ -25,6 +25,29 @@ export const REQUIRED_RELEASE_REVIEWS = Object.freeze([
 const buckets = [`${PRODUCTION_PROJECT}.firebasestorage.app`, `${PRODUCTION_PROJECT}.appspot.com`];
 const protectedEnvironmentName = name => /^(?:NEXT_PUBLIC_|FIREBASE_|GOOGLE_CLOUD_PROJECT$|GCLOUD_PROJECT$|GCP_PROJECT$|WRITEOFF_ENV$|PLAID_|STRIPE_|ANALYSIS_WORKER_|CLOUD_FUNCTION_|SSN_|OPENAI_|COLUMN_TAX_|ENABLE_TRANSACTION_RESET$)/.test(name);
 export const environmentDigest = contents => createHash('sha256').update(contents).digest('hex');
+export const COORDINATED_DEPLOY_VARIABLE = 'WRITEOFF_COORDINATED_DEPLOY';
+
+/** Git blob identity of a file on disk, so a prepared release can be compared with the reviewed commit. */
+export function gitBlobDigest(filePath) {
+  const contents = fs.lstatSync(filePath).isSymbolicLink() ? Buffer.from(fs.readlinkSync(filePath)) : fs.readFileSync(filePath);
+  return createHash('sha1').update(`blob ${contents.length}\0`).update(contents).digest('hex');
+}
+
+/** Every reviewed source file must still match its committed blob; extra build outputs are allowed. */
+export function verifySourceTree(cwd, sourceTree) {
+  const errors = [];
+  if (!sourceTree || typeof sourceTree !== 'object' || !Object.keys(sourceTree).length) {
+    return ['Production release manifest is missing the reviewed source tree'];
+  }
+  let changed = 0;
+  for (const [relativePath, expected] of Object.entries(sourceTree)) {
+    const filePath = path.join(cwd, relativePath);
+    if (!fs.existsSync(filePath) && !fs.lstatSync(filePath, { throwIfNoEntry: false })) { changed++; continue; }
+    if (gitBlobDigest(filePath) !== expected) changed++;
+  }
+  if (changed) errors.push(`${changed} reviewed source file(s) differ from the released commit; prepare a new release`);
+  return errors;
+}
 
 /** An operator review is required in addition to valid secrets and static config. */
 export function validateMigrationReview(review, commit) {
@@ -143,6 +166,13 @@ export function runProductionPreflight({ cwd = process.cwd(), args = process.arg
   catch { throw new Error('Prepare an isolated production release before deployment'); }
   if (manifest.project !== PRODUCTION_PROJECT || !/^[a-f\d]{40}$/.test(manifest.commit || '') || manifest.environmentDigest !== environmentDigest(contents)) throw new Error('Production release manifest does not match the prepared configuration');
   if (manifest.migrationReviewDigest !== environmentDigest(migrationContents)) throw new Error('Production migration review does not match the prepared release');
+  const sourceErrors = verifySourceTree(cwd, manifest.sourceTree);
+  if (sourceErrors.length) throw new Error(sourceErrors.join('; '));
+  // Firebase predeploy hooks expose these; a direct partial `firebase deploy` lacks the coordinated token.
+  const predeployContext = Boolean(inheritedEnv.PROJECT_DIR && inheritedEnv.RESOURCE_DIR);
+  if (predeployContext && inheritedEnv[COORDINATED_DEPLOY_VARIABLE] !== manifest.commit) {
+    throw new Error('Deploy every production surface together through npm run production:deploy');
+  }
   const env = parse(contents);
   const mismatches = Object.entries(inheritedEnv).filter(([name, value]) => protectedEnvironmentName(name) && env[name] !== undefined && value !== env[name]).map(([name]) => `${name} conflicts with the prepared production env file`);
   Object.assign(env, inheritedEnv);
