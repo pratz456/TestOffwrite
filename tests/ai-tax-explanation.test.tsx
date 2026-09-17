@@ -18,6 +18,17 @@ describe('source-backed AI explanation', () => {
     for (const text of ['Vehicle', '2026', suggestion.reasoning, suggestion.questions[0], suggestion.documentationRequired[0], 'https://www.irs.gov/publications/p463', 'no deduction has been approved']) expect(html).toContain(text);
     expect(html).not.toContain('100% deductible');
   });
+  it('puts the first concrete question in the compact next step without approving a deduction', () => {
+    const html = renderToStaticMarkup(<AiTaxExplanation suggestion={suggestion} compact onAddContext={() => {}} />);
+    expect(html).toContain(suggestion.questions[0]);
+    expect(html).toContain('Deduction unresolved');
+    expect(html).toContain('Add details');
+    expect(html).not.toContain('100% deductible');
+  });
+  it('keeps unresolved treatment actionable when no specific question is saved', () => {
+    const html = renderToStaticMarkup(<AiTaxExplanation suggestion={{ ...suggestion, questions: [] }} compact />);
+    expect(html).toContain('Add the facts needed to review tax treatment.');
+  });
   it('does not turn a missing source or untrusted model URL into authority', () => {
     const html = renderToStaticMarkup(<AiTaxExplanation suggestion={{ ...suggestion, sources: [{ ...suggestion.sources[0], url: 'https://irs.gov.attacker.example/fake' }] }} />);
     expect(html).toContain('No verified source is attached');

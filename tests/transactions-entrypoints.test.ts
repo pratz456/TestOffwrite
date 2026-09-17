@@ -324,7 +324,8 @@ describe('transaction detail preserves manual work without guessed tax impact or
     await action(detail(), 'Check AI availability').props.onClick!();
     expect(harness.fetch).toHaveBeenCalledOnce();
     expect(action(detail(), 'Run AI Analysis').props.disabled).toBe(false);
-    expect(text(detail())).toContain('No new AI assessment was saved. Try again when AI is available.');
+    expect(text(detail())).toContain('No new AI assessment was saved.');
+    expect(text(detail())).not.toContain('Try again when AI is available.');
   });
 
   it('notes and business classification save without scheduling an AI/provider request', async () => {

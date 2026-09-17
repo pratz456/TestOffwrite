@@ -111,12 +111,12 @@ export function AnalyticsPanel({ transactions }: AnalyticsPanelProps) {
       : 'Net Cash Flow Trends';
 
   return (
-    <Card className="h-full">
-      <CardHeader className="pb-2 px-4 sm:px-5">
+    <Card className="min-w-0">
+      <CardHeader className="p-3 pb-2 sm:p-4 sm:pb-2 md:p-4 md:pb-2 lg:p-4 lg:pb-2">
         <div className="flex flex-col gap-2">
           {/* Row 1: Title + year | Monthly/Quarterly */}
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
               <CardTitle className="text-sm font-medium">{titleText}</CardTitle>
               <select
                 value={selectedYear}
@@ -176,7 +176,7 @@ export function AnalyticsPanel({ transactions }: AnalyticsPanelProps) {
           </div>
         </div>
       </CardHeader>
-      <CardContent className="px-4 sm:px-5 pb-4">
+      <CardContent className="p-3 pt-0 sm:p-4 sm:pt-0 md:p-4 md:pt-0 lg:p-4 lg:pt-0">
         {hasData ? (
           <div className="h-[160px] sm:h-[190px] w-full min-w-0 chart-bar-hover">
             <ResponsiveContainer width="100%" height="100%">

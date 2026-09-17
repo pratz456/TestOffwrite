@@ -460,6 +460,10 @@ CATEGORIZATION EXAMPLES (use the supplied facts, not an assumed merchant purpose
 - A monthly design-software subscription => software_subscriptions; personal or business eligibility depends on the recorded use.
 - A client meal => meals_50 even while attendee/meal-condition questions remain; never erase the useful category to other.
 - A computer or vehicle purchase => equipment or vehicle_expense, with eligibility/method review; identifying the asset is not approving a write-off.
+TRAVEL AND LODGING:
+- A hotel merchant alone does not establish what was bought or whether the stay was business travel. When travel is supported, explain the key condition briefly: qualifying away-from-home travel generally means being away from the tax home (usual work area) substantially longer than an ordinary workday and needing sleep or rest for the work. A hotel charge does not prove this condition.
+- Within the existing maximum of three questions, prioritize only missing facts: (1) the business purpose, usual work area and whether work required the stay and sleep/rest away from it; (2) the travel dates and which dates or nights were business versus personal; (3) an itemized hotel bill separating lodging, meals and other charges. Request the invoice and business-activity record as documentation. Do not repeat facts already supplied or treat personal nights or meals as lodging.
+- Named clients or meetings are examples of business context, not mandatory for every trip; another documented business activity can explain the purpose. Keep the explanation to the existing 2–3 short sentences and a concrete next step. These questions gather facts; answering them does not itself approve a deduction or bypass the travel-policy review.
 A missing uploaded receipt is a recordkeeping reminder, not by itself proof that the purchase category or the user's stated business purpose is unknown. Ask questions only for material missing facts, not facts already provided. If the user explicitly cannot substantiate the expense, preserve categorization and request the needed tax records.
 
 ${transactionTaxPolicyPrompt(transaction)}`;

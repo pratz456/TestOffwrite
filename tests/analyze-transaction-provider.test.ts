@@ -143,6 +143,42 @@ describe('AI provider request and result contract', () => {
     expect(prompt).toContain('Ask questions only for material missing facts, not facts already provided');
   });
 
+  it('gives lodging analysis the key travel condition and three focused fact groups without requiring named clients', async () => {
+    mocks.create.mockResolvedValue(completion(output({ status: 'needs_more_info', category: 'travel', evidence_ids: ['travel-463'],
+      is_deductible: null, expense_type: null, questions: ['What was the purpose of this stay?'],
+      customized_reason: 'This appears to be a hotel-related charge. Confirm the business purpose and trip details.',
+      key_analysis_factor: 'The hotel charge needs trip context.' })));
+    const result = await analyzeTransaction({ ...transaction, merchant: 'Synthetic hotel', notes: undefined,
+      business_purpose: undefined, travel_destination: 'Sample city' }, context);
+    const prompt = mocks.create.mock.calls[0][0].messages[0].content;
+    for (const instruction of [
+      'A hotel merchant alone does not establish what was bought',
+      'tax home (usual work area) substantially longer than an ordinary workday and needing sleep or rest',
+      'maximum of three questions',
+      'business purpose, usual work area',
+      'which dates or nights were business versus personal',
+      'itemized hotel bill separating lodging, meals and other charges',
+      'Do not repeat facts already supplied',
+      'Named clients or meetings are examples of business context, not mandatory for every trip',
+      'answering them does not itself approve a deduction',
+    ]) expect(prompt).toContain(instruction);
+    expect(sentContext().tx.travel_destination).toBe('Sample city');
+    expect(result).toMatchObject({ success: true, result: { category: 'travel', status: 'needs_more_info' } });
+    expect(result.success && result.result.is_deductible).toBeUndefined();
+  });
+
+  it('keeps the travel eligibility gate when the saved trip context already supplies the requested facts', async () => {
+    const purpose = 'Attended a design conference away from my usual work area for two business days. The work required sleep at the hotel. No personal nights. Invoice separates room and meals.';
+    mocks.create.mockResolvedValue(completion(output({ category: 'travel', evidence_ids: ['travel-463'],
+      customized_reason: 'The hotel stay supported the recorded design conference.', key_analysis_factor: 'Hotel for the design conference.' })));
+    const result = await analyzeTransaction({ ...transaction, business_purpose: purpose,
+      notes: 'Business trip September 14–16; no client meeting was involved.', documentation_status: 'complete' }, context);
+    expect(sentContext().tx.business_purpose).toBe(purpose);
+    expect(result).toMatchObject({ success: true, result: { category: 'travel', status: 'needs_more_info', missing_fields: ['travel_eligibility'] } });
+    expect(result.success && result.result.is_deductible).toBeUndefined();
+    expect(result.success && result.result.deductible_percent).toBeUndefined();
+  });
+
   it.each(['income', 'transfer'])('accepts supported %s with inapplicable expense fields null', async transaction_kind => {
     mocks.create.mockResolvedValue(completion(output({ transaction_kind, is_deductible: false, expense_type: null, category: null,
       deductible_percent: 0, evidence_ids: ['records-334'] })));

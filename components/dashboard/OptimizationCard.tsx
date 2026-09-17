@@ -21,8 +21,8 @@ export function OptimizationCard({
   onNavigate,
 }: OptimizationCardProps) {
   return (
-    <Card className="h-full">
-      <CardContent className="p-5 space-y-4">
+    <Card className="min-w-0">
+      <CardContent className="space-y-3 p-3 sm:p-4 md:p-4 lg:p-4">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-foreground">Transaction Status</h3>
           <span className="text-xs text-muted-foreground">{totalTransactions} total</span>

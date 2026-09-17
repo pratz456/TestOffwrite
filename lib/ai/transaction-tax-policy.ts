@@ -58,17 +58,30 @@ function text(value: unknown) { return typeof value === 'string' ? value.trim() 
 function contextText(tx: TransactionInput) {
   return [tx.business_purpose, tx.note, tx.notes, tx.description, tx.client_project, tx.meeting_notes].map(text).filter(Boolean).join(' ');
 }
-function requireInfo(result: OutputType, field: string, question: string, reason: string, blocked = false) {
-  result.status = blocked ? 'blocked' : 'needs_more_info';
-  delete result.is_deductible;
-  delete result.expense_type;
-  delete result.deductible_percent;
-  result.missing_fields = [field];
-  result.questions = [question];
-  result.customized_reason = reason;
-  result.key_analysis_factor = reason.slice(0, 400);
-  result.reasoning_summary = reason;
-  result.reason = reason;
+/** Retain a little item context, never an earlier model tax conclusion, after a policy gate. */
+function categoryContext(input: OutputType, transaction: TransactionInput): string | null {
+  if (input.transaction_kind !== 'expense' || !input.category || input.category === 'other' ||
+      !(transaction.amount_usd > 0)) return null;
+  const genericWords = new Set(['this', 'that', 'these', 'your', 'their', 'from', 'with', 'which', 'have', 'been',
+    'business', 'purchase', 'purchased', 'expense', 'transaction', 'recorded', 'notes', 'purpose', 'used', 'work']);
+  const words = (value: string) => value.toLowerCase().match(/[a-z]{4,}/g)?.filter(word => !genericWords.has(word)) ?? [];
+  // This overlap is only a relevance filter, not a factual or tax-eligibility verification.
+  const recordedWords = new Set(words(contextText(transaction)));
+  if (recordedWords.size < 2) return null;
+  const taxOrOutcome = /\b(?:tax\w*|deduct\w*|write\w*|writing|written|wrote|expens\w*|claim\w*|eligib\w*|qualif\w*|approv\w*|allow\w*|permit\w*|entitl\w*|complian\w*|exempt\w*|credit\w*|sav(?:e|es|ed|ing|ings)|refund\w*|reduc\w*|offset\w*|income|profit\w*|earnings|liabilit\w*|limit\w*|percent\w*|portion|allocat\w*|basis|capitaliz\w*|deprecia\w*|bonus|election\w*|irs|audit\w*|section|publication|schedule|federal|state|return\w*|guarantee\w*|definite\w*|certain\w*|always|never|automatic\w*|completely|fully|entire\w*|exclusiv\w*|only|all|ordinary|necessary|dollars?|cents?|usd|meets?|satisf\w*|requirements?|tests?|legal\w*|lawful\w*|authoriz\w*|substantiat\w*|verified|validated|establish\w*|proof|proves?|protect\w*|safe\w*|risk\w*|conclusiv\w*)\b|[\p{N}$€£¥%§]/iu;
+  for (const explanation of [input.customized_reason, input.key_analysis_factor, input.reasoning_summary]) {
+    for (const part of text(explanation).split(/(?<=[.!?])\s+|\n+/u)) {
+      const sentence = part.replace(/^About this purchase:\s*/i, '').trim();
+      const normalized = sentence.normalize('NFKC').replace(/[\u2010-\u2015]/g, '-');
+      // Keep one short, declarative sentence. Ambiguous claims and numerical/legal
+      // statements use the existing policy-only explanation instead.
+      if (sentence.length < 16 || sentence.length > 240 || /\?/.test(sentence) || taxOrOutcome.test(normalized) ||
+          /^(?:keep|save|attach|upload|confirm|review|provide|add|check|record|retain|ensure|consider|please|answer)\b/i.test(normalized)) continue;
+      const sharedWords = new Set(words(sentence).filter(word => recordedWords.has(word)));
+      if (sharedWords.size >= 2) return sentence;
+    }
+  }
+  return null;
 }
 function percentage(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100 ? value : null;
@@ -100,6 +113,23 @@ export function groundTransactionAnalysis(
       kind === 'personal' && (result.expense_type !== 'personal' || result.is_deductible !== false) ||
       ['income', 'transfer'].includes(kind) && result.is_deductible !== false)) return null;
   const saved = contextText(transaction);
+  const itemContext = categoryContext(input, transaction);
+  function requireInfo(result: OutputType, field: string, question: string, reason: string, blocked = false) {
+    result.status = blocked ? 'blocked' : 'needs_more_info';
+    delete result.is_deductible;
+    delete result.expense_type;
+    delete result.deductible_percent;
+    result.missing_fields = [field];
+    result.questions = [question];
+    // The policy limitation leads, including in compact two-line summaries.
+    // Do not retain an expense rationale after the money-movement kind was rejected.
+    const explanation = itemContext && result.transaction_kind === 'expense'
+      ? `${reason} About this purchase: ${itemContext}` : reason;
+    result.customized_reason = explanation;
+    result.key_analysis_factor = reason.slice(0, 400);
+    result.reasoning_summary = explanation;
+    result.reason = reason;
+  }
   const savedCategory = text(transaction.category).toUpperCase();
   const assetPurchase = /\b(bought|purchased?|acquired|financed|down payment|vehicle purchase|car purchase)\b/i.test(saved) || !!transaction.equipment_details;
   // Different provisions can support different aspects of the same bookkeeping

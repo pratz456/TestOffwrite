@@ -265,8 +265,8 @@ export default function DashboardScreen({
               More insights & tax checklist
               <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
             </summary>
-            <div className="grid gap-3 border-t p-3 lg:grid-cols-2 [&_button]:min-h-11 [&_button[aria-label]]:min-w-11">
-              <div className="space-y-3">
+            <div className="grid items-start gap-3 border-t p-3 lg:grid-cols-2 [&_button]:min-h-11 [&_button[aria-label]]:min-w-11">
+              <div className="min-w-0 space-y-3">
                 <ActionItemsBanner
                   profile={profile}
                   transactions={transactions}
@@ -281,24 +281,22 @@ export default function DashboardScreen({
                   taxSavings={taxSavings}
                   onNavigate={onNavigate}
                 />}
+                <OptimizationCard
+                  needsReviewCount={needsReviewCount}
+                  totalTransactions={transactions.length}
+                  deductibleCount={recordSummary.deductibleCount}
+                  pendingCount={recordSummary.pendingCount}
+                  onNavigate={onNavigate}
+                />
               </div>
               <div className="space-y-3 min-w-0">
                 <AnalyticsPanel transactions={transactions} />
-                <div className="grid gap-3">
-                  <TopCategoriesCard
-                    categories={recordSummary.categoryEntries}
-                    totalMagnitude={recordSummary.categoryMagnitude}
-                    reviewMessage={recordSummary.categoryIssue}
-                    onViewAll={() => onNavigate('categories')}
-                  />
-                  <OptimizationCard
-                    needsReviewCount={needsReviewCount}
-                    totalTransactions={transactions.length}
-                    deductibleCount={recordSummary.deductibleCount}
-                    pendingCount={recordSummary.pendingCount}
-                    onNavigate={onNavigate}
-                  />
-                </div>
+                <TopCategoriesCard
+                  categories={recordSummary.categoryEntries}
+                  totalMagnitude={recordSummary.categoryMagnitude}
+                  reviewMessage={recordSummary.categoryIssue}
+                  onViewAll={() => onNavigate('categories')}
+                />
               </div>
             </div>
           </details>

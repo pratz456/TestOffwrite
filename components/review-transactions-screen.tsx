@@ -9,7 +9,7 @@ import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import { AiTaxAnalysisDialog } from '@/components/ai-tax-explanation';
 import { useAiAvailability } from '@/lib/hooks/use-ai-availability';
 import { transactionNeedsCategoryReview, transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
-import { REVIEW_CATEGORIES, canConfirmSuggestion, type TransactionKind } from '@/lib/transactions/ai-review-contract';
+import { REVIEW_CATEGORIES, canConfirmSuggestion, reviewCategory, type TransactionKind } from '@/lib/transactions/ai-review-contract';
 import { reviewPresentation, transactionReviewKey } from '@/lib/transactions/review-presentation';
 
 interface ReviewTransactionsScreenProps {
@@ -82,6 +82,17 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
   const analysisRunning = current?.analysisStatus === 'running' || current?.analysis_status === 'running';
   const analysisQueued = !!current?.analysisJobId && (current.analysisStatus === 'pending' || current.analysis_status === 'pending');
   const mayConfirm = !!current && current.pending !== true && !analysisRunning && !analysisQueued && canConfirmSuggestion(suggestion);
+  const suggestedCategory = reviewCategory(suggestion?.category);
+  // Describe the existing review endpoint's supported deduction cases, not just the model's status.
+  const recordsDeduction = mayConfirm && suggestion?.status === 'ok' && suggestion.transactionKind === 'expense' &&
+    suggestion.isDeductible === true && !!suggestedCategory && !suggestedCategory.recordedCategory.endsWith('_REVIEW_REQUIRED') &&
+    suggestion.deductiblePercent === (suggestedCategory.value === 'meals_50' ? 50 : 100);
+  const needsTaxFacts = presentation?.needsTaxFacts || suggestion?.transactionKind === 'refund' ||
+    (mayConfirm && suggestion?.isDeductible === true && !recordsDeduction);
+  const confirmationLabel = recordsDeduction ? 'Confirm deduction' : 'Confirm category';
+  const confirmationHint = !mayConfirm ? presentation?.confirmationHint : recordsDeduction
+    ? `Confirm saves this category and marks it deductible. ${suggestedCategory?.value === 'meals_50' ? 'Verify business use; the 50% meal limit applies.' : 'Verify business use first.'}`
+    : suggestion?.transactionKind === 'expense' ? 'Confirm also marks this expense not deductible.' : 'No expense deduction will be recorded.';
   const busy = operation !== null;
 
   useEffect(() => {
@@ -273,10 +284,10 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
                 <p className={suggestion ? 'line-clamp-2 text-sm leading-5' : 'text-sm leading-5'}>{presentation!.reasoning}</p>
               </section>
 
-              {presentation!.needsTaxFacts ? <div className="flex items-center justify-between gap-3 rounded-lg bg-amber-500/10 px-3 py-1.5 text-amber-900 dark:text-amber-200">
-                <div className="min-w-0"><p className="text-xs font-medium">Deduction unresolved</p><p className="text-xs leading-4">{mayConfirm ? 'Confirm saves the category only.' : presentation!.confirmationHint}</p></div>
+              {needsTaxFacts ? <div className="flex items-center justify-between gap-3 rounded-lg bg-amber-500/10 px-3 py-1.5 text-amber-900 dark:text-amber-200">
+                <div className="min-w-0"><p className="text-xs font-medium">Deduction unresolved</p><p id="review-confirmation-hint" className="text-xs leading-4">{mayConfirm ? 'Confirm saves the category only.' : presentation!.confirmationHint}</p></div>
                 {onTransactionClick && <button type="button" className="inline-flex min-h-11 shrink-0 items-center gap-1 text-xs font-medium underline underline-offset-2" onClick={() => onTransactionClick({ ...current, _source: 'review-transactions' }, 'details')}>Add details<ChevronRight aria-hidden="true" className="h-3.5 w-3.5" /></button>}
-              </div> : !mayConfirm && <p className="text-xs leading-5 text-muted-foreground">{presentation!.confirmationHint}</p>}
+              </div> : <p id="review-confirmation-hint" className="text-xs leading-4 text-muted-foreground">{confirmationHint}</p>}
 
               {(suggestion || onTransactionClick) && <div className="flex items-center gap-3 border-t border-border">
                 {suggestion && <div className="min-w-0 flex-1"><AiTaxAnalysisDialog key={currentKey} suggestion={suggestion} triggerLabel="Why this category?">{analysisControls}</AiTaxAnalysisDialog></div>}
@@ -304,7 +315,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
           </div>
           {!editing && <div className="grid grid-cols-2 gap-2 border-t border-border bg-card p-3">
             <Button variant="outline" disabled={busy || current.pending === true} onClick={() => swipe('left')} className="min-h-11 px-3"><Edit3 className="h-4 w-4" /><span>Change</span></Button>
-            <Button disabled={busy || !mayConfirm} onClick={() => saveReview('confirm')} className="min-h-11 gap-1.5 whitespace-normal px-2 leading-4">{operation === 'saving' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}<span>{operation === 'saving' ? 'Saving…' : 'Confirm category'}</span></Button>
+            <Button aria-describedby="review-confirmation-hint" disabled={busy || !mayConfirm} onClick={() => saveReview('confirm')} className="min-h-11 gap-1.5 whitespace-normal px-2 leading-4">{operation === 'saving' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}<span>{operation === 'saving' ? 'Saving…' : confirmationLabel}</span></Button>
           </div>}
         </article>
         {!editing && <p className="mt-2 text-center text-xs text-muted-foreground">Swipe left to change · right to confirm</p>}

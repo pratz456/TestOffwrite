@@ -201,14 +201,14 @@ export function ActionItemsBanner({ profile, transactions, onNavigate, options, 
   }
 
   return (
-    <div className={`rounded-xl border ${style.border} ${style.bg} backdrop-blur-sm p-3 sm:p-4 shadow-sm h-full`}>
+    <div className={`min-w-0 rounded-xl border ${style.border} ${style.bg} backdrop-blur-sm p-3 sm:p-4 shadow-sm`}>
       {/* Top item */}
       <div className="flex items-start gap-3.5">
         <div className={`w-9 h-9 rounded-lg ${style.bg} flex items-center justify-center shrink-0`}>
           <Icon className={`h-4.5 w-4.5 ${style.text}`} />
         </div>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
+          <div className="mb-1 flex flex-wrap items-center gap-2">
             <Badge variant={style.badge} className="text-xs uppercase tracking-wider">
               {top.priority === 'critical' ? 'Action Required' : top.priority === 'high' ? 'Recommended' : 'Suggestion'}
             </Badge>

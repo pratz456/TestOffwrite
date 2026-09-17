@@ -760,7 +760,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
             {analysisError && <div className="rounded-lg bg-red-500/10 p-3 text-sm text-red-800 dark:text-red-200" role="alert">
               <p className="font-medium">{analysisUnavailable ? 'AI unavailable' : 'Analysis incomplete'}</p>
               <p className="mt-1">{analysisError}</p>
-              <p className="mt-2 text-xs">No new AI assessment was saved. Try again when AI is available.</p>
+              <p className="mt-2 text-xs">No new AI assessment was saved.{analysisUnavailable ? ' Try again when AI is available.' : ''}</p>
             </div>}
             {(analysisUnavailable || aiAvailability.status === 'unavailable') && <Button variant="outline" size="sm" className="h-11" onClick={checkAiAvailability} disabled={isAnalyzing || aiAvailability.status === 'checking'}>Check AI availability</Button>}
 

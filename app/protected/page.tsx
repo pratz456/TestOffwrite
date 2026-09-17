@@ -153,6 +153,8 @@ export default function ProtectedPage() {
   // One-time incremental sync when user lands on protected app with bank connected
   const hasSyncedOnVisitRef = useRef(false);
   useEffect(() => {
+    // A real-data local preview can opt out of importing new bank activity on login.
+    if (process.env.NEXT_PUBLIC_AUTO_SYNC_ON_VISIT === 'false') return;
     if (!bankConnected || !user?.id || hasSyncedOnVisitRef.current) return;
     hasSyncedOnVisitRef.current = true;
     makeAuthenticatedRequest('/api/plaid/sync-transactions', {

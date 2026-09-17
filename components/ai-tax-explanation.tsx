@@ -43,7 +43,7 @@ export function AiTaxExplanation({ suggestion, compact = false, onAddContext }: 
     </div>
     <p className="line-clamp-2 text-sm leading-5 text-foreground/85">{suggestion.reasoning || 'Add the business purpose and rerun analysis for an explanation.'}</p>
     {needsFacts && <div className="flex items-center justify-between gap-2 rounded-lg bg-amber-500/10 px-3 text-xs text-amber-900 dark:text-amber-200">
-      <span className="py-2">Tax details needed · deduction unresolved</span>
+      <div className="min-w-0 py-2"><p className="font-medium">Deduction unresolved</p><p className="mt-0.5 line-clamp-2 leading-4">{questions[0] || 'Add the facts needed to review tax treatment.'}</p></div>
       {onAddContext && <button type="button" onClick={onAddContext} className="flex min-h-11 shrink-0 items-center gap-1 font-medium underline underline-offset-2">Add details<ArrowRight aria-hidden="true" className="h-3 w-3" /></button>}
     </div>}
     <AiTaxAnalysisDialog suggestion={suggestion} />

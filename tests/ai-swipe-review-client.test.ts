@@ -49,10 +49,52 @@ describe('AI category swipe review', () => {
   it('confirms the saved suggestion identity through the review endpoint and advances to the immediate next card', async () => {
     records.push(base({ id: 'tx-2', trans_id: 'tx-2', merchant_name: 'Immediate next transaction' }));
     harness.request.mockResolvedValue(serverReview());
-    await action(page(), 'Confirm category').props.onClick!();
+    await action(page(), 'Confirm deduction').props.onClick!();
     expect(harness.request).toHaveBeenCalledExactlyOnceWith('/api/transactions/tx-1/review', expect.objectContaining({ method: 'POST', body: JSON.stringify({ action: 'confirm', accountId: 'account-1', suggestionId: 'suggestion-1' }) }));
     expect(harness.updated).toHaveBeenCalledWith(expect.objectContaining({ category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES' }));
     expect(text(page())).toContain('Immediate next transaction'); expect(text(page())).toContain('1 confirmed this session');
+  });
+
+  it.each([
+    { category: 'supplies_small_tools', deductiblePercent: 100 },
+    { category: 'meals_50', deductiblePercent: 50 },
+  ] as const)('discloses that confirming $category records a deduction as well as the category', ({ category, deductiblePercent }) => {
+    records = [base({ ai_suggestion: { ...suggestion, category, deductiblePercent } })];
+    const view = page();
+    const confirm = action(view, 'Confirm deduction');
+    expect(confirm.props.disabled).toBe(false);
+    expect((confirm.props as Props & { 'aria-describedby': string })['aria-describedby']).toBe('review-confirmation-hint');
+    expect(text(view)).toContain('Confirm saves this category and marks it deductible.');
+    expect(text(view)).toContain('Verify business use');
+    if (category === 'meals_50') expect(text(view)).toContain('50% meal limit applies');
+    expect(text(view)).not.toContain('category only');
+    expect(harness.request).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { category: 'equipment', deductiblePercent: 100 },
+    { category: 'vehicle_expense', deductiblePercent: 100 },
+    { category: 'home_office', deductiblePercent: 100 },
+    { category: 'software_subscriptions', deductiblePercent: 25 },
+    { category: 'meals_50', deductiblePercent: 100 },
+  ] as const)('keeps $category at $deductiblePercent percent category-only when the server withholds its deduction', ({ category, deductiblePercent }) => {
+    records = [base({ ai_suggestion: { ...suggestion, category, deductiblePercent } })];
+    const view = page();
+    expect(action(view, 'Confirm category').props.disabled).toBe(false);
+    expect(text(view)).toContain('Deduction unresolved');
+    expect(text(view)).toContain('Confirm saves the category only.');
+    expect(text(view)).not.toContain('marks it deductible');
+    expect(action(view, 'Confirm deduction')).toBeUndefined();
+  });
+
+  it('discloses a definite non-deductible decision and keeps a refund unresolved', () => {
+    records = [base({ ai_suggestion: { ...suggestion, isDeductible: false, deductiblePercent: 0 } })];
+    expect(text(page())).toContain('Confirm also marks this expense not deductible.');
+    expect(action(page(), 'Confirm category').props.disabled).toBe(false);
+    records = [base({ amount: -25, ai_suggestion: { ...suggestion, transactionKind: 'refund', isDeductible: false, deductiblePercent: 0 } })];
+    expect(text(page())).toContain('Confirm saves the category only.');
+    expect(text(page())).toContain('Deduction unresolved');
+    expect(text(page())).not.toContain('marks this expense not deductible');
   });
 
   it('lets a known category be confirmed while showing that missing tax facts remain unresolved', async () => {
@@ -110,7 +152,7 @@ describe('AI category swipe review', () => {
     records = [base({ merchant_name: 'Ordinary queue record' }), { ...selected }];
     expect(text(page('owner', 'confirmed-bank-id'))).not.toContain('Selected confirmed record');
     harness.request.mockResolvedValue(serverReview(records[0]));
-    await action(page('owner', 'confirmed-bank-id'), 'Confirm category').props.onClick!();
+    await action(page('owner', 'confirmed-bank-id'), 'Confirm deduction').props.onClick!();
     expect(text(page('owner', 'confirmed-bank-id'))).toContain('Categories reviewed');
     expect(text(page('owner', 'confirmed-bank-id'))).not.toContain('Selected confirmed record');
   });
@@ -150,14 +192,14 @@ describe('AI category swipe review', () => {
 
   it('a failed save leaves the card visible and never updates the parent or shows success', async () => {
     harness.request.mockResolvedValue(Response.json({ error: 'Saved record unavailable' }, { status: 500 }));
-    await action(page(), 'Confirm category').props.onClick!();
+    await action(page(), 'Confirm deduction').props.onClick!();
     expect(text(page())).toContain('Synthetic supplies'); expect(text(page())).toContain('Saved record unavailable');
     expect(harness.updated).not.toHaveBeenCalled(); expect(harness.toast).not.toHaveBeenCalled();
   });
 
   it('refreshes a stale suggestion and requires the user to review the replacement', async () => {
     harness.request.mockResolvedValueOnce(Response.json({ error: 'stale' }, { status: 409 })).mockResolvedValueOnce(Response.json({ transaction: base({ ai_suggestion: { ...suggestion, id: 'replacement', analyzedAt: 2, reasoning: 'Updated details change this suggestion.' } }) }));
-    await action(page(), 'Confirm category').props.onClick!();
+    await action(page(), 'Confirm deduction').props.onClick!();
     expect(text(page())).toContain('Updated details change this suggestion.'); expect(text(page())).toContain('changed. Review the latest');
     expect(harness.toast).not.toHaveBeenCalled();
   });
@@ -165,7 +207,7 @@ describe('AI category swipe review', () => {
   it('serializes repeated confirmation clicks', async () => {
     let resolve!: (response: Response) => void;
     harness.request.mockReturnValue(new Promise<Response>(done => { resolve = done; }));
-    const confirm = action(page(), 'Confirm category');
+    const confirm = action(page(), 'Confirm deduction');
     const first = confirm.props.onClick!(); await confirm.props.onClick!();
     expect(harness.request).toHaveBeenCalledOnce();
     resolve(serverReview()); await first;
@@ -239,7 +281,7 @@ describe('AI category swipe review', () => {
 
   it('honors a fresh bank snapshot that invalidates an earlier confirmed suggestion', async () => {
     harness.request.mockResolvedValue(serverReview());
-    await action(page(), 'Confirm category').props.onClick!();
+    await action(page(), 'Confirm deduction').props.onClick!();
     expect(text(page())).toContain('Categories reviewed');
     records = [base({ ai_suggestion: null, amount: 40, is_deductible: null, review_status: undefined, analysisStatus: 'pending' })];
     expect(text(page())).toContain('$40.00'); expect(text(page())).toContain('No AI suggestion yet');
@@ -249,7 +291,7 @@ describe('AI category swipe review', () => {
   it('ignores a response after the account changes', async () => {
     let resolve!: (response: Response) => void;
     harness.request.mockReturnValue(new Promise<Response>(done => { resolve = done; }));
-    const pending = action(page(), 'Confirm category').props.onClick!(); page('another-owner'); resolve(serverReview()); await pending;
+    const pending = action(page(), 'Confirm deduction').props.onClick!(); page('another-owner'); resolve(serverReview()); await pending;
     expect(harness.updated).not.toHaveBeenCalled(); expect(harness.toast).not.toHaveBeenCalled();
   });
 
