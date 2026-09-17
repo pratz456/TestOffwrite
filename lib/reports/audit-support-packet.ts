@@ -2,6 +2,7 @@ import { adminDb } from '@/lib/firebase/admin';
 import { validateReceiptPreviewPath } from '@/lib/receipts/preview-path';
 import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { BUSINESS_STANDARD_MILEAGE_RATES, businessMileageRateForDate, summarizeBusinessMileage } from '@/lib/tax-rules/mileage-rates';
+import { isServerConfirmedDeduction } from '@/lib/transactions/confirmed-deduction';
 import { ExportDataUnavailableError, exportReference, ownedExportRecord, readOwnedTransactions } from './export-records';
 import { createPlanningPDF, formatExportMoney as money } from './planning-pdf';
 import { csvCell, exportDate, selectExportYear, transactionAmount, ExportReviewRequiredError, type ExportRecord } from './transaction-export';
@@ -280,7 +281,9 @@ export function assembleAuditSupportPacket(uid: string, year: number, inputs: Au
     if (record.pending === true) excluded.pending += 1;
     else if (record.bank_removed === true) excluded.bankRemoved += 1;
     else if (record.tax_review_required === true || (typeof record.category === 'string' && record.category.endsWith('_REVIEW_REQUIRED'))) excluded.reviewRequired += 1;
-    else if (record.review_status !== 'confirmed') excluded.notConfirmed += 1;
+    // Same confirmation contract as Schedule C totals, so the packet never lists fewer
+    // deductions than the estimate counts (legacy pre-cutoff confirmations included).
+    else if (!isServerConfirmedDeduction(record)) excluded.notConfirmed += 1;
     else confirmed.push(record);
   }
   const seen = new Set<string>();

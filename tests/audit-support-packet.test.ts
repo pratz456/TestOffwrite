@@ -18,6 +18,7 @@ import { assembleAuditSupportPacket, auditSupportPacketCSV, buildEvidenceRecord,
   RECEIPT_THRESHOLD, type AuditSupportInputs } from '@/lib/reports/audit-support-packet';
 import { ExportDataUnavailableError } from '@/lib/reports/export-records';
 import { ExportReviewRequiredError, type ExportRecord } from '@/lib/reports/transaction-export';
+import { isServerConfirmedDeduction } from '@/lib/transactions/confirmed-deduction';
 
 const uid = 'owner';
 let sequence = 0;
@@ -136,6 +137,16 @@ describe('inclusion, exclusion and review provenance', () => {
     expect(result.deductions.map(record => record.merchant)).toEqual(['INCLUDED']);
     expect(result.summary.excluded).toEqual({ notConfirmed: 1, reviewRequired: 2, pending: 1, bankRemoved: 1 });
     expect(JSON.stringify(result)).not.toMatch(/AI_SUGGESTION_TEXT|SUGGESTED-ONLY|PRIOR-YEAR|PERSONAL/);
+  });
+  it('shares the Schedule C confirmation contract: legacy pre-cutoff decisions count, unstamped post-cutoff ones do not', () => {
+    const legacy = confirmed({ merchant_name: 'LEGACY', review_status: undefined, review_source: undefined, reviewed_at: undefined, created_at: '2026-03-10T09:00:00.000Z' });
+    const unstamped = confirmed({ merchant_name: 'UNSTAMPED', review_status: undefined, review_source: undefined, reviewed_at: undefined, created_at: '2026-09-20T09:00:00.000Z' });
+    const result = packet([legacy, unstamped]);
+    expect(isServerConfirmedDeduction(legacy)).toBe(true);
+    expect(isServerConfirmedDeduction(unstamped)).toBe(false);
+    expect(result.deductions.map(record => record.merchant)).toEqual(['LEGACY']);
+    expect(result.deductions[0].review.label).toBe('Owner confirmation (source not recorded)');
+    expect(result.summary.excluded.notConfirmed).toBe(1);
   });
   it('records the review timestamp and whether the owner confirmed an AI suggestion or classified directly', () => {
     const [ai, owner, legacy] = packet([
