@@ -321,6 +321,14 @@ describe('fact resolution from saved records', () => {
     expect(result.status).toBe('ready'); if (result.status !== 'ready') throw new Error('expected ready');
     expect(result.facts.priorYear).toEqual({ available: true, totalTax: 8000, agi: 90000, coveredTwelveMonths: true });
   });
+  it('treats the Deductions API default of 0 as not entered while honoring an explicit organizer 0', () => {
+    const blank = resolveQuarterlyPlannerFacts({ taxYear: 2026, annual, profile: { filing_status: 'Single' }, organizer: { priorReturnCoveredTwelveMonths: 'yes' }, deductions: { priorYearTotalTax: 0, priorYearAGI: 0 } });
+    expect(blank.status).toBe('review_required'); if (blank.status !== 'review_required') throw new Error('expected review');
+    expect(blank.missingFacts.map(fact => fact.key)).toEqual(['prior_year_total_tax', 'prior_year_agi']);
+    const explicit = resolveQuarterlyPlannerFacts({ taxYear: 2026, annual, profile: { filing_status: 'Single' }, organizer: { priorReturnCoveredTwelveMonths: 'yes', priorYearTax: '0', priorYearAGI: '0' }, deductions: { priorYearTotalTax: 0, priorYearAGI: 0 } });
+    expect(explicit.status).toBe('ready'); if (explicit.status !== 'ready') throw new Error('expected ready');
+    expect(explicit.facts.priorYear).toEqual({ available: true, totalTax: 0, agi: 0, coveredTwelveMonths: true });
+  });
   it('prefers the Tax Organizer value and records a conflict with Deductions as an assumption', () => {
     const result = resolveQuarterlyPlannerFacts({ taxYear: 2026, annual, profile: { filing_status: 'Single' }, organizer, deductions: { priorYearTotalTax: 12000, priorYearAGI: 100000 } });
     expect(result.status).toBe('ready'); if (result.status !== 'ready') throw new Error('expected ready');

@@ -26,8 +26,10 @@ export interface TaxDeductions {
   simpleIraContribution: number;
   // Schedule 1, Line 13 — HSA contributions
   hsaContribution: number;
-  // For safe harbor quarterly estimate calculation
+  // Prior-year facts for the quarterly planner (Pub 505 prior-year safe harbor).
+  // 0 means "not entered"; the planner treats it as missing rather than as $0.
   priorYearTotalTax: number;
+  priorYearAGI: number;
   // Student loan interest — Schedule 1, Line 21
   studentLoanInterest: number;
   // Schedule A — Charitable contributions (itemized)
@@ -87,10 +89,15 @@ export async function POST(request: NextRequest) {
     simpleIraContribution = 0,
     hsaContribution = 0,
     priorYearTotalTax = 0,
+    priorYearAGI = 0,
     studentLoanInterest = 0,
     charitableCashDonations = 0,
     charitableNonCashDonations = 0,
   } = body;
+  for (const [field, label] of [[priorYearTotalTax, 'Prior-year total tax'], [priorYearAGI, 'Prior-year adjusted gross income']] as const) {
+    const value = Number(field);
+    if (!Number.isFinite(value) || value < 0) return NextResponse.json({ error: `${label} must be a number of at least 0` }, { status: 400 });
+  }
 
   const year = taxYear ? parseInt(String(taxYear), 10) : new Date().getFullYear();
 
@@ -104,6 +111,7 @@ export async function POST(request: NextRequest) {
     simpleIraContribution: Number(simpleIraContribution),
     hsaContribution: Number(hsaContribution),
     priorYearTotalTax: Number(priorYearTotalTax),
+    priorYearAGI: Number(priorYearAGI),
     studentLoanInterest: Number(studentLoanInterest),
     charitableCashDonations: Number(charitableCashDonations),
     charitableNonCashDonations: Number(charitableNonCashDonations),

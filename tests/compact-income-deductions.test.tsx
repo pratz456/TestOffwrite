@@ -82,12 +82,16 @@ describe('compact record forms preserve saved values and input actions', () => {
   it('keeps every saved deduction in a disclosure and saves edits without clearing other groups', async () => {
     const saved = { healthInsurancePremiums: 1400, sepIraContribution: 2000, solo401kEmployeeContribution: 3000,
       solo401kEmployerContribution: 4000, simpleIraContribution: 5000, hsaContribution: 600,
-      studentLoanInterest: 700, priorYearTotalTax: 8000, charitableCashDonations: 900, charitableNonCashDonations: 1000 };
+      studentLoanInterest: 700, priorYearTotalTax: 8000, priorYearAGI: 150000.01, charitableCashDonations: 900, charitableNonCashDonations: 1000 };
     state.request.mockResolvedValueOnce(Response.json({ deductions: saved }));
     await mount(deductions);
     for (const [key, value] of Object.entries(saved)) {
       expect(walk(render(deductions)).find(node => node.props.id === `deduction-${key}`)?.props.value).toBe(String(value));
     }
+    // Prior-year tax and AGI are reference facts, not a deduction subtotal.
+    const priorYear = walk(render(deductions)).find(node => node.type === 'details' && text(node).includes('Prior-year tax and AGI'))!;
+    expect(text(priorYear)).toContain('2 of 2 entered'); expect(text(priorYear)).not.toContain('$158,000');
+    expect(text(priorYear)).toContain('Form 1040, line 11');
     change(deductions, 'deduction-hsaContribution', '625');
     state.request.mockResolvedValueOnce(Response.json({ success: true }));
     await click(deductions, 'Save deductions');

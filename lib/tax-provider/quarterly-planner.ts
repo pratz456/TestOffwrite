@@ -674,7 +674,9 @@ export function resolveQuarterlyPlannerFacts(sources: PlannerFactSources): Plann
       assumptions.push(`Tax Organizer (${money(organizerTax)}) and Deductions (${money(deductionsTax)}) list different ${year - 1} total tax amounts; the Tax Organizer value was used.`);
     }
     const organizerAgi = readNumber(org.priorYearAGI);
-    const deductionsAgi = readNumber(ded.priorYearAGI);
+    // The Deductions API stores 0 for fields never entered, so only a positive value counts there.
+    const deductionsAgiRaw = readNumber(ded.priorYearAGI);
+    const deductionsAgi = deductionsAgiRaw !== null && deductionsAgiRaw > 0 ? deductionsAgiRaw : null;
     const priorAgi = organizerAgi ?? deductionsAgi;
     if (priorAgi === null) {
       missing.push({ key: 'prior_year_agi', label: `${year - 1} adjusted gross income`, detail: `Enter the adjusted gross income from your ${year - 1} Form 1040 (line 11). It decides whether the prior-year safe harbor is 100% or 110% of prior-year tax.`, enterAt: [PLANNER_FACT_SCREENS.taxOrganizer, PLANNER_FACT_SCREENS.deductions] });

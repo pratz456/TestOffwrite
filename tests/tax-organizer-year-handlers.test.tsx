@@ -72,7 +72,7 @@ describe('organizer personal facts and safe tax-year changes', () => {
     const saved = JSON.parse(harness.request.mock.calls.find(call => call[1]?.method === 'POST')![1].body);
     expect(saved).toMatchObject({ personalDeductionFacts: fact, dateOfBirth: '1955-06-01' });
     expect(Object.keys(saved).length - 1).toBeLessThanOrEqual(80);
-    expect(Object.keys(EMPTY_ORGANIZER_ANSWERS)).toHaveLength(66);
+    expect(Object.keys(EMPTY_ORGANIZER_ANSWERS)).toHaveLength(67);
   });
   it('keeps edited facts and the old year when automatic saving fails, without loading another year', async () => {
     personal(await load()).props.onChange('dateOfBirth', '1955-06-01');
@@ -175,5 +175,30 @@ describe('compact organizer sections', () => {
     await button(tree, 'Save').props.onClick();
     const saved = JSON.parse(harness.request.mock.calls.find(call => call[1]?.method === 'POST')![1].body);
     expect(saved).toMatchObject({ hasRentalIncome: 'no', hasOtherIncome: 'yes', has1099INT: '' });
+  });
+
+  it('collects the three quarterly-planner prior-year facts in the Prior year step and saves them as entered', async () => {
+    const year = new Date().getFullYear(), prior = Math.min(2026, Math.max(2024, year)) - 1;
+    sectionSelect(await load()).props.onChange({ target: { value: '4' } });
+    let tree = render();
+    const copy = text(tree);
+    expect(copy).toMatch(new RegExp(`Prior year total tax \\(\\s*${prior}\\s+Form 1040, Line 24\\)`)); expect(copy).toMatch(new RegExp(`Prior year adjusted gross income \\(\\s*${prior}\\s+Form 1040, Line 11\\)`));
+    expect(copy).toContain(`Did your ${prior} federal return cover a full 12 months?`);
+    expect(copy).not.toMatch(/you owe/i);
+    const input = (id: string) => walk(tree).find(node => node.props.id === id)!;
+    expect(input('organizer-priorYearTax').props.value).toBe(''); expect(input('organizer-priorYearAGI').props.value).toBe('');
+    input('organizer-priorYearTax').props.onChange({ target: { value: '10000' } });
+    tree = render(); input('organizer-priorYearAGI').props.onChange({ target: { value: '150000.01' } });
+    choose(render(), `Did your ${prior} federal return cover a full 12 months?`, 'yes');
+    tree = render();
+    expect(input('organizer-priorYearAGI').props.value).toBe('150000.01');
+    const group = walk(tree).find(node => node.props['aria-label'] === `Did your ${prior} federal return cover a full 12 months?`)!;
+    expect(button(group, 'yes').props['aria-pressed']).toBe(true); expect(button(group, 'no').props['aria-pressed']).toBe(false);
+    // Personal facts shows the same AGI reference record, so the value must be shared, not duplicated.
+    sectionSelect(tree).props.onChange({ target: { value: '0' } });
+    expect(personal(render()).props.answers.priorYearAGI).toBe('150000.01');
+    await button(render(), 'Save').props.onClick();
+    const saved = JSON.parse(harness.request.mock.calls.find(call => call[1]?.method === 'POST')![1].body);
+    expect(saved).toMatchObject({ priorYearTax: '10000', priorYearAGI: '150000.01', priorReturnCoveredTwelveMonths: 'yes' });
   });
 });
