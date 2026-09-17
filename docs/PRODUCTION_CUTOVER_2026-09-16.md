@@ -77,6 +77,45 @@ The command pins the production project, refuses emulators, writes a new mode-06
 
 Every overlap is labeled `human_review_required`; the command never chooses a canonical record, changes a confirmation, merges data or marks the release review complete. Exact-match candidates can miss real duplicates and can include legitimate repeated purchases. Use the private record references for the documented human reconciliation and retain separate evidence of the decision.
 
+### Historical overlap reconciliation
+
+The old record keeps the owner's confirmations, so a relinked bank's re-import of the same purchase is marked **superseded** and excluded from every total. Nothing is deleted or merged, and neither record's `is_deductible` or `review_status` changes.
+
+1. **Decisions file.** For each `potentialHistoricalOverlaps` group, an authorized reviewer compares the referenced records and writes one decision per pair: `canonical` is the record carrying the owner's history (the old Item's account, or a legacy root `transactions/{id}` record), `candidate` is the relinked account's record. `duplicate` supersedes the candidate; `distinct` records `overlap_reviewed: true` on the candidate so it leaves later inventories; `defer` writes nothing. Copy the inventory command's printed digest into `inventoryDigest` and keep the file outside the checkout with mode 0600. Notes may describe the reasoning; they never reach the records or the evidence file.
+
+```json
+{ "schemaVersion": 1, "project": "writeoff-23910", "inventoryDigest": "<sha256 printed by the inventory command>",
+  "reviewedBy": "<name>", "reviewedAt": "2026-09-18T15:00:00Z",
+  "decisions": [{ "group": "<inventory group label>",
+    "canonical": "user_profiles/<uid>/accounts/<old account>/transactions/<id>",
+    "candidate": "user_profiles/<uid>/accounts/<relinked account>/transactions/<id>",
+    "decision": "duplicate", "note": "Same purchase re-imported after relink" }] }
+```
+
+2. **Dry run (default).** Validates every decision against the records as they exist now and prints counts plus the plan digest; nothing is written.
+
+```sh
+npm run production:overlap-reconcile -- --project writeoff-23910 \
+  --decisions /absolute/private/path/overlap-decisions.json \
+  --inventory /absolute/private/path/production-migration-inventory.json
+```
+
+It refuses a pair whose date, amount, merchant text or currency no longer match, a pending or bank-removed record, a canonical that is itself superseded, a candidate already superseded by another record, records with different owners or the same account scope, and decision sets that contradict each other (a candidate is superseded by exactly one canonical and is never also `distinct`). Fix the file or the records and rerun; no partial plan is ever applied.
+
+3. **Apply.** Confirm the printed plan digest. The command writes a mode-0600 JSON backup of every record it will touch to `--backup` first, then stamps candidates in Firestore transactions of at most 400 records that re-read and re-validate each pair, and finally writes a mode-0600 evidence file listing the decision ids applied and the record paths changed (no amounts or merchants). Rerunning with the same confirmation writes nothing. Emulators are refused unless `--allow-emulator` is passed for a local rehearsal.
+
+```sh
+npm run production:overlap-reconcile -- --project writeoff-23910 \
+  --decisions /absolute/private/path/overlap-decisions.json \
+  --apply --confirm apply:writeoff-23910:<plan digest from the dry run> \
+  --backup /absolute/private/path/overlap-backups \
+  --evidence /absolute/private/path/overlap-evidence-<date>.json
+```
+
+4. **What `superseded_by` means.** A superseded record carries the full path of its canonical record in `superseded_by`, plus `superseded_at`, `superseded_reason: "historical_overlap"` and `superseded_decision_id`. These fields (and `overlap_reviewed*`) are Admin SDK only; both client update rules keep them outside the editable allow-lists. Superseded records are excluded from Schedule C totals, tax exports, the audit support packet (counted under `excluded.superseded`), income candidates, AI taxpayer context, dashboard counts, notifications and the transactions list and tabs; a detail opened by direct link explains the exclusion. The complete owner data export still includes them with a hashed reference to the canonical record. Reversal is not automated: undoing a decision needs a separate review and an Admin SDK write that clears the fields.
+
+5. **Release review evidence.** The decisions file (its digest), the inventory digest it was reviewed against, and the apply command's evidence file path and digest are the evidence for `historicalOverlapReconciliation` in the release review. If the inventory reports zero groups, record that inventory digest instead.
+
 ## Application behavior changes that reach existing users at rollout
 
 These are code-level effects of the 2026-09-17 merges, separate from the banking migration above. None writes to customer records on its own.
@@ -85,6 +124,7 @@ These are code-level effects of the 2026-09-17 merges, separate from the banking
 - **Home office.** A profile with a legacy `home_office_method` but no saved `settings/homeOffice` facts now receives `HOME_OFFICE_REVIEW_REQUIRED` from the annual estimate, Form 1040 PDF, Schedule C/SE and worksheet routes until the Settings questions are answered. The dashboard and Tax Preview link straight to the section. Previously the method was silently ignored.
 - **Confirmed deductions.** Schedule C totals, the dashboard and the audit support packet count `is_deductible === true` only with a server-stamped `review_status` or a legacy decision created before `2026-09-18T00:00:00Z` with no review-pipeline fields. Records confirmed through the API after the cutoff are stamped automatically; direct client edits of `is_deductible` on stamped records are rejected by the rules.
 - **Income reconciliation.** Overlapping bank/receipt/1099 income still returns `INCOME_RECONCILIATION_REQUIRED`, now with candidates and an owner decision flow instead of a bare 422. No existing income record is merged or edited.
+- **Superseded bank records.** Only records the operator command stamps with `superseded_by` (see "Historical overlap reconciliation") change behavior: they leave every total, list and review queue, and their detail view shows a short exclusion note. Until decisions are applied, nothing is hidden and duplicates from a relink still double-count.
 - **Consents.** New sign-ups (including Google) record acknowledgments on the profile through the profile API. Accounts created before 2026-09-17 have no record; a re-acknowledgment prompt outside profile setup is not built.
 - **Analytics.** The GA tag and its CSP origins render only when `NEXT_PUBLIC_GA_MEASUREMENT_ID` is set. The measurement-ID ownership decision (`G-1P3GNBHB9J` vs `G-LE26KP7E9N`) and the static CSP in `firebase.json` for `/auth/**` and `/login` are still open operator items.
 - **State estimates.** A saved state now produces an informational, year-labeled planning estimate for the encoded states or an explicit `supported: false`; it is never added to the federal total. CA 2026 and OH 2026 schedules are unpublished and correctly unsupported.
