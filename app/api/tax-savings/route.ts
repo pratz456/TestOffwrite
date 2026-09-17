@@ -5,6 +5,8 @@ import { getUserProfileServer } from '@/lib/firebase/profiles-server';
 import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
 import { FilingStatusReviewRequiredError } from '@/lib/tax-rules/filing-status';
 
+const OWNER_DATA_CACHE_CONTROL = 'private, no-store';
+
 export async function GET(request: NextRequest) {
   try {
     // Get the authenticated user
@@ -25,8 +27,9 @@ export async function GET(request: NextRequest) {
     const startOfMonth = new Date(currentYear, currentMonth, 1);
     const endOfMonth = new Date(currentYear, currentMonth + 1, 0);
 
-    // Fetch all transactions for the user using Firebase
-    const { data: allTransactions, error } = await getTransactionsServer(user.uid);
+    // Only the aggregate inputs (plus `category` for the sample log) are projected; reads are billed
+    // per document regardless, but the payload and SSR memory shrink to a few fields per row.
+    const { data: allTransactions, error } = await getTransactionsServer(user.uid, { fields: ['date', 'amount', 'is_deductible', 'category'] });
 
     if (error) {
       console.error('❌ [Tax Savings API] Error fetching transactions:', error);
@@ -126,7 +129,7 @@ export async function GET(request: NextRequest) {
           currentMonth: currentMonthTransactions.length
         }
       }
-    });
+    }, { headers: { 'Cache-Control': OWNER_DATA_CACHE_CONTROL } });
   } catch (error) {
     if (error instanceof FilingStatusReviewRequiredError) return NextResponse.json({ error: error.message, code: error.code }, { status: 422 });
     console.error('❌ [Tax Savings API] Error in tax savings API:', error);
