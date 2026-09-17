@@ -15,6 +15,7 @@ import { useSubscription } from '@/lib/hooks/use-subscription';
 import { PremiumFeatureGate } from '@/components/premium-feature-gate';
 import { getUserProfile } from '@/lib/firebase/profiles';
 import { getUserTaxRateDisplay } from '@/lib/tax-rules/federal-brackets';
+import { AuditSupportRecordsCard } from './components/AuditSupportRecordsCard';
 
 interface MonthlyData {
   month: number;
@@ -1023,6 +1024,9 @@ export default function ReportsPage() {
         )}
         </Card>
       </div>
+
+      {/* Audit support records: confirmed deductions with the records on file and what is still missing */}
+      <AuditSupportRecordsCard year={chartYear} enabled={Boolean(user?.id)} />
 
       {/* Monthly Breakdown Modal */}
       {showMonthlyModal && selectedMonth && (

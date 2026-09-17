@@ -118,6 +118,7 @@ export function generateDataPackage(data: UserDataExport) {
     'Assets, settings and profile are current all-year snapshots; transaction, mileage, payment and tax-year records honor the selected year when supplied.',
     'Authentication credentials, Plaid/Stripe connection details, SSN ciphertexts, bank account/routing numbers and legacy authorization PINs are excluded. Provide needed filing identity details separately through a secure preparer workflow.',
     'Only records saved in WriteOff are included. Missing W2/1099 forms, basis, carryovers, credits and other tax facts must be supplied separately.',
+    'Audit support records (each confirmed deduction with its records on file, missing substantiation elements, mileage log and Pub 583 retention note) are a separate owner export from Reports > Audit support records; JSON and CSV are included on every plan.',
   ];
   return { json: data, csv: convertTransactionsToCSV(data.transactions), summary: { exportInfo: data.exportInfo, counts,
     dateRange: { earliest: dates[0] ?? null, latest: dates.at(-1) ?? null }, receiptBinariesIncluded: false, limitations },
