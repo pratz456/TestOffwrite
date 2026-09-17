@@ -11,6 +11,8 @@ import { getFederalTaxRules, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { generateScheduleCCSV } from '@/lib/reports/schedule-c-csv';
 import { generateScheduleCPlanningPDF } from '@/lib/reports/schedule-c-pdf';
+import { readIncomeReconciliationDecisions } from '@/lib/firebase/income-reconciliations-server';
+import { incomeReconciliationReviewBody } from '@/lib/tax-rules/income-reconciliation-response';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -27,13 +29,13 @@ export async function POST(request: NextRequest) {
   if (body.includeAppendix !== undefined && typeof body.includeAppendix !== 'boolean') return NextResponse.json({ error: 'includeAppendix must be true or false' }, { status: 400 });
   try {
     const query = (name: string) => adminDb.collection(name).where('userId', '==', user.uid).where('taxYear', '==', year);
-    const [tx, profile, orgSnap, gross, forms] = await Promise.all([
+    const [tx, profile, orgSnap, gross, forms, decisions] = await Promise.all([
       readTaxExportTransactions(user.uid, year), getUserProfileServer(user.uid), query('tax_organizers').limit(1).get(),
-      query('gross_receipts').get(), query('income_1099').get(),
+      query('gross_receipts').get(), query('income_1099').get(), readIncomeReconciliationDecisions(user.uid, year),
     ]);
     if (profile.error) return NextResponse.json({ error: 'Could not load all export records. Please retry.' }, { status: 503 });
     const transactions = tx;
-    const receipts = reconcileBusinessIncome(year, transactions.map(row => ({ ...row })), gross.docs.map(doc => ({ ...doc.data(), id: doc.id })), forms.docs.map(doc => ({ ...doc.data(), id: doc.id })));
+    const receipts = reconcileBusinessIncome(year, transactions.map(row => ({ ...row })), gross.docs.map(doc => ({ ...doc.data(), id: doc.id })), forms.docs.map(doc => ({ ...doc.data(), id: doc.id })), decisions);
     const aggregate = aggregateScheduleC(transactions, String(year), CATEGORY_MAP, { mode: 'confirmed-only' });
     if (body.format === 'csv') return new NextResponse(generateScheduleCCSV(aggregate.lineItemsArray, year), {
       headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="Schedule_C_${year}_WriteOff.csv"`, 'Cache-Control': 'private, no-store' },
@@ -46,7 +48,8 @@ export async function POST(request: NextRequest) {
       naicsCode: profile.data?.naics_code, ein: profile.data?.ein, includeAppendix: body.includeAppendix !== false });
     return new NextResponse(Buffer.from(bytes), { headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="Schedule_C_${year}_WriteOff.pdf"`, 'Cache-Control': 'private, no-store' } });
   } catch (error) {
-    if (error instanceof IncomeReconciliationRequiredError || error instanceof ExportReviewRequiredError) return NextResponse.json({ error: error.message, code: error.code }, { status: 422 });
+    if (error instanceof IncomeReconciliationRequiredError) return NextResponse.json(incomeReconciliationReviewBody(error, year), { status: 422 });
+    if (error instanceof ExportReviewRequiredError) return NextResponse.json({ error: error.message, code: error.code }, { status: 422 });
     return NextResponse.json({ error: 'Could not create the Schedule C preparer summary. Please retry.' }, { status: 503 });
   }
 }

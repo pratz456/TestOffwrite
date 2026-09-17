@@ -82,6 +82,23 @@ describe('Form1040 API integration', () => {
     expect(await result.json()).toMatchObject({ code: 'EXPORT_REVIEW_REQUIRED' });
   });
 
+  it('names the overlapping records by reference and deep-links the reconciliation workflow in the income 422', async () => {
+    state.collections.gross_receipts = [{ amount: 12000, source: 'Synthetic platform', date: '2026-01-31' }];
+    state.collections.income_1099 = [{ amount: 12000, formType: '1099-K', payerName: 'Synthetic platform' }];
+    const response = await GET(request());
+    expect(response.status).toBe(422);
+    const body = await response.json();
+    expect(body).toMatchObject({ code: 'INCOME_RECONCILIATION_REQUIRED', taxYear: 2026, reviewPath: '/protected?screen=income-tracking&tab=reconcile&year=2026', explainerPath: '/api/income/reconciliation?year=2026' });
+    expect(body.conflicts).toEqual([expect.objectContaining({ reason: 'overlapping_sources', sources: [
+      expect.objectContaining({ kind: 'gross_receipt', amount: 12000, label: 'Direct income · Synthetic platform' }),
+      expect.objectContaining({ kind: 'form_1099', amount: 12000, label: '1099-K · Synthetic platform' }),
+    ] })]);
+    expect(Object.keys(body.conflicts[0].sources[0]).sort()).toEqual(['amount', 'id', 'kind', 'label']);
+    expect(body.error).toContain('Income → Reconcile');
+    expect(body).not.toHaveProperty('form1040');
+    expect(state.reads).toContain('income_reconciliations');
+  });
+
   it('requires authentication before financial reads', async () => {
     state.uid = null;
     expect((await GET(request())).status).toBe(401);

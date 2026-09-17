@@ -17,6 +17,13 @@ export function ownedExportRecord(doc: Doc, uid: string, inheritedOwner = false)
 export function exportReference(kind: string, value: string): string {
   return `${kind}-${createHash('sha256').update(value).digest('hex').slice(0, 16)}`;
 }
+/** Owner-verified top-level tax records for one year (gross_receipts, income_1099, income_reconciliations, ...). */
+export async function readOwnedYearRecords(uid: string, collection: string, taxYear: number): Promise<ExportRecord[]> {
+  try {
+    const snapshot = await adminDb.collection(collection).where('userId', '==', uid).where('taxYear', '==', taxYear).get();
+    return snapshot.docs.map(doc => ownedExportRecord(doc, uid));
+  } catch { throw new ExportDataUnavailableError(); }
+}
 export async function readOwnedTransactions(uid: string): Promise<ExportRecord[]> {
   try {
     const accounts = await adminDb.collection('user_profiles').doc(uid).collection('accounts').get();

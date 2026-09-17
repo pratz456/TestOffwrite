@@ -1,9 +1,14 @@
+import { resolveIncomeSources, type FeeExpenseCandidate, type IncomeReconciliationConflict, type IncomeSourceCandidate } from './income-reconciliation';
+
 export type IncomeRecord = Record<string, unknown>;
 
 export class IncomeReconciliationRequiredError extends Error {
   readonly code = 'INCOME_RECONCILIATION_REQUIRED';
-  constructor(detail: string) {
-    super(`Review income sources before calculating tax: ${detail} No tax total has been calculated. Check Income Tracking and imported documents with your records to resolve overlapping or unsupported income.`);
+  /** Conflicting records by reference, for the reconciliation workflow. Empty for malformed/unsupported records. */
+  readonly conflicts: IncomeReconciliationConflict[];
+  constructor(detail: string, conflicts: IncomeReconciliationConflict[] = []) {
+    super(`Review income sources before calculating tax: ${detail} No tax total has been calculated. Use Income → Reconcile to record how overlapping records relate, or review imported documents against your records. WriteOff never merges or deletes records automatically.`);
+    this.conflicts = conflicts;
   }
 }
 
@@ -13,16 +18,13 @@ const money = (value: unknown): number => {
   }
   return Math.round(value * 100);
 };
+const text = (value: unknown): string => typeof value === 'string' ? value.trim() : '';
+const recordId = (value: unknown): string => typeof value === 'string' ? value : typeof value === 'number' ? String(value) : '';
 
-/**
- * Receipts, bank entries and information returns are alternative evidence of
- * receipts, not automatically additive income. Existing records have no shared
- * payment ID. Never deduplicate by payer/amount or choose a source silently.
- * Only a server-created grossReceiptId can establish a documentary 1099 link.
- */
-export function reconcileBusinessIncome(taxYear: number, transactions: ReadonlyArray<IncomeRecord>, receipts: ReadonlyArray<IncomeRecord>, forms: ReadonlyArray<IncomeRecord>) {
+/** The reconcilable records of a tax year, labelled only with what the owner already sees. */
+export function listIncomeSourceCandidates(taxYear: number, transactions: ReadonlyArray<IncomeRecord>, receipts: ReadonlyArray<IncomeRecord>, forms: ReadonlyArray<IncomeRecord>) {
+  const candidates: IncomeSourceCandidate[] = [];
   const txById = new Set<string>();
-  let transactionCents = 0;
   let unclassifiedCreditCount = 0;
   for (const tx of transactions) {
     if (tx.pending === true || typeof tx.date !== 'string' || Number(tx.date.slice(0, 4)) !== taxYear) continue;
@@ -38,57 +40,85 @@ export function reconcileBusinessIncome(taxYear: number, transactions: ReadonlyA
     if (typeof tx.amount !== 'number' || !Number.isFinite(tx.amount) || tx.amount >= 0) {
       throw new IncomeReconciliationRequiredError('A transaction classified as business income must be a posted receipt; reversals require review.');
     }
-    const id = tx.trans_id ?? tx.id;
-    const key = id ? `${tx.account_id ?? ''}:${id}` : undefined;
+    const id = recordId(tx.trans_id ?? tx.id);
+    const key = id ? `${recordId(tx.account_id)}:${id}` : undefined;
     if (key && txById.has(key)) continue;
     if (key) txById.add(key);
-    transactionCents += money(-tx.amount);
+    const name = text(tx.merchant_name) || text(tx.name) || 'Bank deposit';
+    candidates.push({ kind: 'transaction', id, amount: money(-tx.amount) / 100, label: `Bank income · ${name}`, date: tx.date.slice(0, 10) });
   }
 
   const receiptsById = new Map<string, number>();
-  let receiptCents = 0;
   for (const receipt of receipts) {
     if (receipt.type === 'rental' || receipt.type === 'interest_dividends') {
       throw new IncomeReconciliationRequiredError('Rental or investment income cannot be treated automatically as Schedule C business receipts.');
     }
     const cents = money(receipt.amount);
-    if (typeof receipt.id === 'string') receiptsById.set(receipt.id, cents);
-    receiptCents += cents;
+    const id = recordId(receipt.id);
+    if (id) receiptsById.set(id, cents);
+    candidates.push({ kind: 'gross_receipt', id, amount: cents / 100, label: `Direct income · ${text(receipt.source) || 'Unnamed payer'}`, ...(typeof receipt.date === 'string' ? { date: receipt.date.slice(0, 10) } : {}) });
   }
 
-  let formCents = 0;
-  let unlinkedForms = 0;
   let linkedForms = 0;
   for (const form of forms) {
     if (form.formType !== '1099-NEC' && form.formType !== '1099-K') {
       throw new IncomeReconciliationRequiredError('Confirm the tax treatment of this 1099. Only business NEC/K income is included automatically; MISC, interest, dividends and securities require separate review.');
     }
     const cents = money(form.amount);
+    const candidate: IncomeSourceCandidate = { kind: 'form_1099', id: recordId(form.id), amount: cents / 100, formType: form.formType, label: `${form.formType} · ${text(form.payerName) || text(form.payer) || 'Unknown payer'}` };
     if (form.grossReceiptId !== undefined) {
       const receiptAmount = typeof form.grossReceiptId === 'string' ? receiptsById.get(form.grossReceiptId) : undefined;
       if (form.source !== 'document_import' || receiptAmount === undefined || receiptAmount !== cents) {
         throw new IncomeReconciliationRequiredError('A linked 1099 does not match its original gross receipt. Confirm gross versus net amounts and the original document.');
       }
       linkedForms++;
-    } else {
-      unlinkedForms++;
-      formCents += cents;
+      candidate.linkedImport = true;
     }
+    candidates.push(candidate);
   }
-  // A K and NEC (even from different named payers) can describe the same receipts.
-  // The current form schema has no fields to certify that multiple forms are distinct.
-  const sourceCount = Number(transactionCents > 0) + Number(receiptCents > 0) + Number(formCents > 0);
-  if (sourceCount > 1 || unlinkedForms > 1) {
-    throw new IncomeReconciliationRequiredError('Transactions, gross receipts or 1099 forms may describe the same payments. They have no verified matching link and cannot be added safely.');
+  return { candidates, unclassifiedCreditCount, linkedForms };
+}
+
+export interface BusinessIncomeReconciliation {
+  grossReceipts: number;
+  source: 'transactions' | 'gross_receipts' | 'income_1099' | 'reconciled' | 'none';
+  linkedDocumentCount: number;
+  unclassifiedCreditCount: number;
+  reconciledDecisionCount: number;
+  /** Platform fees recorded with a 1099-K decision: review candidates, not recorded expenses. */
+  feeExpenseCandidates: FeeExpenseCandidate[];
+  warnings: string[];
+}
+
+/**
+ * Receipts, bank entries and information returns are alternative evidence of
+ * receipts, not automatically additive income. Existing records have no shared
+ * payment ID. Never deduplicate by payer/amount or choose a source silently.
+ * Only a server-created grossReceiptId or an owner-recorded reconciliation
+ * decision can establish that two records describe the same payments.
+ */
+export function reconcileBusinessIncome(taxYear: number, transactions: ReadonlyArray<IncomeRecord>, receipts: ReadonlyArray<IncomeRecord>, forms: ReadonlyArray<IncomeRecord>, decisions: ReadonlyArray<IncomeRecord> = []): BusinessIncomeReconciliation {
+  const { candidates, unclassifiedCreditCount, linkedForms } = listIncomeSourceCandidates(taxYear, transactions, receipts, forms);
+  const resolution = resolveIncomeSources(taxYear, candidates, decisions);
+  if (resolution.conflicts.length) {
+    throw new IncomeReconciliationRequiredError(resolution.conflicts[0].message, resolution.conflicts);
   }
+  const { unclaimedCents } = resolution;
   const warnings = unclassifiedCreditCount
     ? [`${unclassifiedCreditCount} posted inflow(s) are excluded from business receipts until classified as income/revenue. A bank credit alone may be a transfer, loan or refund.`]
     : [];
+  for (const fee of resolution.feeExpenseCandidates) {
+    warnings.push(`Platform fees of $${fee.amount.toFixed(2)} recorded with ${fee.label} are an expense candidate for your review. Gross receipts use the 1099-K gross amount; the fee is not recorded as a deductible expense until you add and confirm it.`);
+  }
+  const unclaimedTotal = unclaimedCents.transaction + unclaimedCents.gross_receipt + unclaimedCents.form_1099;
   return {
-    grossReceipts: (transactionCents + receiptCents + formCents) / 100,
-    source: transactionCents > 0 ? 'transactions' : receiptCents > 0 ? 'gross_receipts' : formCents > 0 ? 'income_1099' : 'none',
+    grossReceipts: (resolution.reconciledCents + unclaimedTotal) / 100,
+    source: resolution.appliedDecisionIds.length ? 'reconciled'
+      : unclaimedCents.transaction > 0 ? 'transactions' : unclaimedCents.gross_receipt > 0 ? 'gross_receipts' : unclaimedCents.form_1099 > 0 ? 'income_1099' : 'none',
     linkedDocumentCount: linkedForms,
     unclassifiedCreditCount,
+    reconciledDecisionCount: resolution.appliedDecisionIds.length,
+    feeExpenseCandidates: resolution.feeExpenseCandidates,
     warnings,
   };
 }

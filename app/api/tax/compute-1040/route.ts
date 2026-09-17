@@ -24,6 +24,8 @@ import { calculateStateTax, STATE_TAX_CONFIG } from '@/lib/tax/state-tax-data';
 import { getAssetsSettings } from '@/lib/firebase/settings-server';
 import { describeUnsupportedTaxYear, getFederalTaxRules, SUPPORTED_TAX_YEARS, TAX_YEAR_2027_STATUS } from '@/lib/tax-rules/federal-year-rules';
 import { getRecordedQuarterlyPayments, totalRecordedPayments } from '@/lib/firebase/quarterly-payments-server';
+import { readIncomeReconciliationDecisions } from '@/lib/firebase/income-reconciliations-server';
+import { incomeReconciliationReviewBody } from '@/lib/tax-rules/income-reconciliation-response';
 
 export async function GET(request: NextRequest) {
   const { user, error } = await getAuthenticatedUser(request);
@@ -53,6 +55,7 @@ export async function GET(request: NextRequest) {
     quarterlySnap,
     organizerSnap,
     assetsResult,
+    reconciliationDecisions,
   ] = await Promise.all([
     readTaxExportTransactions(user.uid, year),
     getUserProfileServer(user.uid),
@@ -63,6 +66,7 @@ export async function GET(request: NextRequest) {
     getRecordedQuarterlyPayments(user.uid, year),
     adminDb.collection('tax_organizers').where('userId', '==', user.uid).where('taxYear', '==', year).limit(1).get(),
     getAssetsSettings(user.uid),
+    readIncomeReconciliationDecisions(user.uid, year),
   ]);
 
   if (profileResult.error || assetsResult.error) {
@@ -74,6 +78,7 @@ export async function GET(request: NextRequest) {
     taxYear: year, transactions, profile,
     grossReceipts: grossSnap.docs.map(d => ({ ...d.data(), id: d.id })),
     forms1099: income1099Snap.docs.map(d => ({ ...d.data(), id: d.id })),
+    reconciliationDecisions,
     w2Entries: w2Snap.docs.map(d => d.data()),
     organizer: organizerSnap.empty ? {} : organizerSnap.docs[0].data(),
     deductions: deductionsSnap.empty ? {} : deductionsSnap.docs[0].data(),
@@ -123,7 +128,8 @@ export async function GET(request: NextRequest) {
     dataSource: 'auto',
   }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (error) {
-    if (error instanceof ExportReviewRequiredError || error instanceof IncomeReconciliationRequiredError || error instanceof FilingStatusReviewRequiredError || error instanceof SocialSecurityReviewRequiredError || error instanceof PersonalDeductionReviewRequiredError || error instanceof DependentCreditReviewRequiredError) return NextResponse.json({ error: error.message, code: error.code }, { status: 422 });
+    if (error instanceof IncomeReconciliationRequiredError) return NextResponse.json(incomeReconciliationReviewBody(error, year), { status: 422 });
+    if (error instanceof ExportReviewRequiredError || error instanceof FilingStatusReviewRequiredError || error instanceof SocialSecurityReviewRequiredError || error instanceof PersonalDeductionReviewRequiredError || error instanceof DependentCreditReviewRequiredError) return NextResponse.json({ error: error.message, code: error.code }, { status: 422 });
     if (error && typeof error === 'object' && 'code' in error && error.code === 'DEPRECIATION_REVIEW_REQUIRED') {
       return NextResponse.json({ error: error instanceof Error ? error.message : 'Asset depreciation needs review', code: error.code }, { status: 422 });
     }

@@ -13,6 +13,8 @@ interface FederalTaxSnapshotInput {
   transactions: ReadonlyArray<IncomeRecord>;
   grossReceipts: ReadonlyArray<IncomeRecord>;
   forms1099: ReadonlyArray<IncomeRecord>;
+  /** Owner-recorded income reconciliation decisions for the same tax year. */
+  reconciliationDecisions?: ReadonlyArray<IncomeRecord>;
   w2Entries: ReadonlyArray<IncomeRecord>;
   profile: IncomeRecord;
   organizer: IncomeRecord;
@@ -33,7 +35,7 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
     return parsed;
   };
   const filingStatus = normalizeFilingStatus(profile.filing_status);
-  const reconciliation = reconcileBusinessIncome(taxYear, transactions, input.grossReceipts, input.forms1099);
+  const reconciliation = reconcileBusinessIncome(taxYear, transactions, input.grossReceipts, input.forms1099, input.reconciliationDecisions ?? []);
   const w2 = summarizeW2Income(input.w2Entries);
   const w2FederalWithheld = input.w2Entries.length ? w2.federalWithheld : amount(profile.w2_federal_withheld);
   const { totalDeductible } = aggregateScheduleC([...transactions] as Parameters<typeof aggregateScheduleC>[0], String(taxYear), CATEGORY_MAP, { mode: 'confirmed-only' });
