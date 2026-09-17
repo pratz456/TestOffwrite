@@ -103,7 +103,7 @@ Two GA4 measurement IDs exist in the repository history and neither has been cho
 Current behavior, enforced by `tests/middleware.test.ts`:
 
 - `lib/analytics/ga-measurement-id.ts` is the single decision point. `gaMeasurementId()` returns the validated `G-…` value from `NEXT_PUBLIC_GA_MEASUREMENT_ID`, or `null` when the variable is unset, malformed, or `NEXT_PUBLIC_APP_ENV=staging`.
-- `app/layout.tsx` renders the gtag.js `<Script>` tags only when that value is non-null. Unset means no tag, no `dataLayer`, no request to Google.
+- `app/layout.tsx` renders `components/analytics/google-tag.tsx` only when that value is non-null. Unset means no tag, no `dataLayer`, no request to Google. Since 2026-09-17 the component itself loads the tag only on public routes (`analyticsAllowedOnPath`: never `/protected`, `/auth`, `/login`, `/onboarding`, `/stripe`, `/plaid`, `/api`), configures it with `send_page_view: false`, and sends page views solely for allowed paths, so a client-side navigation into the signed-in app is never reported. Signed-in screens carry tax return information (§7216; the FTC's 2023 tax-preparer pixel notices), so this exclusion is policy, not a gap.
 - `middleware.ts` adds the Google tag origins (`https://*.googletagmanager.com` to `script-src`; `https://*.google-analytics.com https://*.googletagmanager.com` to `img-src`; `https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com` to `connect-src`) under the same condition, so the CSP never admits analytics origins for a build that renders no tag.
 - `firebase.json` is untouched. Its static `Content-Security-Policy` headers for `/auth/**` and `/login` cannot be conditional on a build variable and still omit the Google origins. Browsers enforce every CSP header they receive, so the tag stays blocked on those two paths even after the variable is set, which is the intended state until consent handling is decided.
 
@@ -113,7 +113,7 @@ Resolution steps, in order:
 2. Decide which stream the web app reports to. If it is the Firebase-linked stream, set `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID` and `NEXT_PUBLIC_GA_MEASUREMENT_ID` to the same value; if it is the standalone stream, set `NEXT_PUBLIC_GA_MEASUREMENT_ID` and plan a separate change to drop the fallback ID from `lib/firebase/client.ts`.
 3. Settle consent and data-handling behavior for analytics (what loads before consent, what is sent) before any production value is set. Keep financial details and credentials out of event payloads.
 4. Set `NEXT_PUBLIC_GA_MEASUREMENT_ID` in the production build environment only. The value is inlined at build time for both the layout and the middleware, so a redeploy is required after changing it. Leave it unset for staging; staging is excluded regardless.
-5. If analytics should also run on `/auth/**` and `/login`, add the same three origin groups to both `firebase.json` CSP values in the same deploy that sets the variable. Otherwise leave `firebase.json` as is and note that the auth pages are intentionally excluded.
+5. Leave `firebase.json` as is: `/auth/**` and `/login` are excluded from analytics by the route policy above, so their static CSP correctly omits the Google origins. Resolved 2026-09-17.
 6. Verify after deploy: the response CSP contains the Google origins, the page loads exactly one gtag.js script with the chosen ID, and the staging smoke check (`scripts/smoke-staging.mjs`) still finds no gtag script on the testing site.
 
 ### 5. Run a focused GTM pilot, then scale what works
