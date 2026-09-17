@@ -4,7 +4,9 @@ export type OpenAITask = 'transaction' | 'assistant' | 'voice' | 'document';
 export interface OpenAIRequestPolicy { timeout?: number; maxRetries?: number }
 
 const DEFAULT_MODELS: Record<OpenAITask, string> = {
-  transaction: 'gpt-4o-mini',
+  // Live evaluation 2026-09-17 (docs/AI_LIVE_EVAL_2026-09-17_round2.md): gpt-4.1-mini approved 23/26 approvable
+  // descriptors with zero provider failures at $0.0011 per transaction; gpt-4o-mini approved 5/26.
+  transaction: 'gpt-4.1-mini',
   assistant: 'gpt-4o',
   voice: 'gpt-4o-mini',
   document: 'gpt-4o',

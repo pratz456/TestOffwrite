@@ -101,6 +101,14 @@ function parseProviderOutput(value: unknown, transaction: TransactionInput, cont
   if (Array.isArray(normalized.evidence_ids)) {
     normalized.evidence_ids = [...new Set(normalized.evidence_ids.filter(id => typeof id === 'string'))].slice(0, 3);
   }
+  // Models leave evidence_ids empty on blocked/unknown answers; rejecting those discarded correct
+  // tax-payment and health-premium blocks in live evaluation. Default to the server's own citation
+  // for the kind; an approved expense with no citation still falls to the off-category review path.
+  if (!Array.isArray(normalized.evidence_ids) || !normalized.evidence_ids.length) {
+    const kind = normalized.transaction_kind;
+    normalized.evidence_ids = kind === 'personal' ? ['personal-262']
+      : normalized.status === 'ok' && kind === 'expense' ? ['business-162'] : ['records-334'];
+  }
   // "ok" without a business/personal determination is a request for review, not a decision.
   if (normalized.status === 'ok' && typeof normalized.is_deductible !== 'boolean' && ['expense', 'personal', 'unknown', undefined].includes(normalized.transaction_kind as string | undefined)) {
     normalized.status = 'needs_more_info';

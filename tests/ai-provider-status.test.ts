@@ -18,7 +18,7 @@ describe('authenticated AI configuration status', () => {
     const response = await GET(new NextRequest('http://localhost/api/ai/status'));
     expect(response.status).toBe(200);
     expect(response.headers.get('cache-control')).toBe('no-store');
-    expect(await response.json()).toEqual({ configured: true, provider: 'openai', model: 'gpt-4o-mini', reason: null });
+    expect(await response.json()).toEqual({ configured: true, provider: 'openai', model: 'gpt-4.1-mini', reason: null });
   });
   it.each([undefined, '', ' \n '])('keeps absent or blank credentials unavailable (%j)', key => {
     vi.stubEnv('OPENAI_API_KEY', key);

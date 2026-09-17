@@ -54,7 +54,7 @@ describe('one server OpenAI credential and routing policy', () => {
   });
 
   it.each([
-    ['transaction', 'gpt-4o-mini'], ['voice', 'gpt-4o-mini'],
+    ['transaction', 'gpt-4.1-mini'], ['voice', 'gpt-4o-mini'],
     ['assistant', 'gpt-4o'], ['document', 'gpt-4o'],
   ] as const)('keeps the %s default unless a nonblank global model override is supplied', (task, fallback) => {
     expect(getOpenAIModel(task)).toBe(fallback);

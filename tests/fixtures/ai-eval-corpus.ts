@@ -342,12 +342,12 @@ export const AI_EVAL_CORPUS: EvalCase[] = [
     invariants: OK_DEDUCTION,
   },
   {
-    id: 'desk-as-supplies', title: '$249 desk categorized as supplies stays expensable (under the de minimis ceiling, below the asset review floor)',
+    id: 'desk-as-supplies', title: '$249 desk categorized as supplies gets the de minimis election question (Reg. §1.162-3 $200 supplies limit)',
     transaction: tx('desk-as-supplies', 'The Home Depot', 249, { business_purpose: 'Standing desk purchased for my home office' }),
     context: HOME_OFFICE,
     modelOutput: deduction('supplies_small_tools', ['business-162'], 'The standing desk for the recorded home office is an office furnishing. Keep the receipt.', 'Standing desk for the home office.'),
-    expect: { status: 'ok', transaction_kind: 'expense', is_deductible: true, category: 'supplies_small_tools', deductible_percent: 100 },
-    invariants: OK_DEDUCTION,
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'supplies_small_tools', missing_field: 'asset_treatment', evidence_includes: ['capital-263'] },
+    invariants: GATED_EXPENSE,
   },
 
   // --- Phone / utilities ------------------------------------------------------
@@ -478,7 +478,8 @@ export const AI_EVAL_CORPUS: EvalCase[] = [
     transaction: tx('monitor-model-partial-percent', 'Best Buy', 300, { note: 'Monitor for design work and gaming' }),
     context: SOLE_PROPRIETOR,
     modelOutput: deduction('supplies_small_tools', ['business-162'], 'The monitor is recorded for design work and gaming. Keep the receipt.', 'Monitor for design work and gaming.', { deductible_percent: 50 }),
-    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'supplies_small_tools', missing_field: 'business_use_percentage' },
+    // The $300 durable item hits the de minimis election question first; the percentage question follows once the treatment is settled.
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'supplies_small_tools', missing_field: 'asset_treatment', evidence_includes: ['capital-263'] },
     invariants: GATED_EXPENSE,
   },
 

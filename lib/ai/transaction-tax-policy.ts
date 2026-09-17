@@ -96,11 +96,19 @@ const CLUB_DUES_PATTERN = /\b(?:gym|fitness\s+(?:center|club|membership)|health\
 const HOME_RENT_PATTERN = /\b(?:apartment|apt\.?|home|house|residence|residential|landlord|housing|mortgage|rent\s+for\s+(?:my|our)\s+place)\b/i;
 /** Payments to tax authorities are never Schedule C expenses (federal income and SE tax are nondeductible; state income tax belongs on Schedule A). */
 const TAX_AUTHORITY_PATTERN = /\b(?:IRS|internal revenue|us treasury|u\.s\. treasury|usataxpymt|irs usataxpymt|estimated tax|1040-?es|form 1040|franchise tax board|\bftb\b|dept\.? of revenue|department of revenue|dept\.? of taxation|department of taxation|comptroller of|state tax payment|tax payment|edd|eftps)\b/i;
+/** Vehicle operating costs filed under another category still need the vehicle-method review (Pub 463). */
+const VEHICLE_COST_PATTERN = /\b(?:auto|car|vehicle|truck)\s+(?:insurance|premium|registration|repair|repairs|maintenance|wash|payment|loan)\b|\b(?:geico|progressive|state farm auto|allstate|oil change|jiffy lube|tires?|autozone|o'?reilly auto|pep boys|dmv|smog check|car wash)\b/i;
+/** Parking and tolls on a business trip are deductible in addition to the standard mileage rate (Pub 463) and need no method review. */
+const PARKING_TOLL_PATTERN = /\b(?:parking|parkmobile|spothero|laz parking|impark|toll|tolls|e-?zpass|fastrak|sunpass|turnpike)\b/i;
+/** Tax return preparation is deductible only for the business schedules (Rev. Rul. 92-29; Pub 334). */
+const TAX_PREP_PATTERN = /\b(?:h&r block|hrblock|turbotax|intuit|taxact|taxslayer|jackson hewitt|liberty tax|tax prep(?:aration)?|tax return|cpa|accountant|bookkeep\w*)\b/i;
+/** A saved purpose describing space rented to serve clients is business rent, not club dues. */
+const CLUB_BUSINESS_USE_PATTERN = /\b(?:rent(?:al|ed)?|lease|floor space|train(?:ing)? (?:my |our )?clients|teach|classes? I (?:teach|run)|space for (?:my )?clients)\b/i;
 const LIKELY_ASSET_PATTERN = /\b(?:laptop|computer|macbook|imac|desktop|monitor|camera|lens|drone|printer|tablet|ipad|iphone|smartphone|desk|chair|tripod|microphone|mixer|guitar|piano|keyboard|server|router|projector|television|appliance|machine|equipment|furniture|tools?)\b/i;
 /** Reg. §1.263(a)-1(f)(1)(ii)(D): per-item/per-invoice ceiling for taxpayers without an applicable financial statement. */
 export const DE_MINIMIS_ITEM_CEILING = 2500;
-/** Below this amount an ordinary supply is not second-guessed even when it names a durable item. */
-const ASSET_REVIEW_FLOOR = 500;
+/** Reg. §1.162-3(c)(1)(iv): items costing $200 or less are materials and supplies; a durable item above that needs the de minimis election or depreciation. */
+const ASSET_REVIEW_FLOOR = 200;
 
 /** Certainty claims the model must not make in any displayed field ("it's fully deductible", "would be 100% deductible", "is completely deductible"). */
 const UNCONDITIONAL_CLAIM = /\b(?:(?:is|are|it's|its|was|were|be|being|been|becomes?|remains?|would be|will be|can be|should be|considered|deemed|qualif(?:y|ies) as|treated as|counts? as)\s+(?:\w+\s+){0,2})?(?:fully|100\s?%|completely|entirely|wholly)\s+(?:tax[- ])?deductible\b/i;
@@ -137,7 +145,8 @@ export function groundTransactionAnalysis(
   const saved = contextText(transaction);
   // Saved context, merchant descriptor and the model's own item description. Only review
   // gates read this; nothing here can approve a deduction.
-  const reviewText = `${saved} ${text(transaction.merchant)} ${text(transaction.merchant_name)} ${explanation}`;
+  const savedAndMerchant = `${saved} ${text(transaction.merchant)} ${text(transaction.merchant_name)}`;
+  const reviewText = `${savedAndMerchant} ${explanation}`;
   const itemContext = categoryContext(input, transaction);
   function requireInfo(result: OutputType, field: string, question: string, reason: string, blocked = false) {
     result.status = blocked ? 'blocked' : 'needs_more_info';
@@ -252,11 +261,11 @@ export function groundTransactionAnalysis(
       addEvidence('personal-262');
       requireInfo(result, 'deduction_placement', 'Is this a health, dental or vision premium for you, your spouse or dependents, or coverage you provide to employees?',
         'Self-employed health insurance premiums are an adjustment to income on Schedule 1 (Form 7206), not a Schedule C expense, and they do not reduce self-employment tax. Record them under health insurance in Tax Organizer; only coverage you provide to employees belongs on Schedule C.');
-    } else if (result.is_deductible === true && CLUB_DUES_PATTERN.test(reviewText)) {
+    } else if (result.is_deductible === true && CLUB_DUES_PATTERN.test(savedAndMerchant) && result.category !== 'rent' && !CLUB_BUSINESS_USE_PATTERN.test(saved)) {
       addEvidence('personal-262'); addEvidence('meals-274');
       requireInfo(result, 'club_dues_exception', 'Is this facility used only in your business (for example, space you rent to train clients), or is it a membership for your own use?',
         'Gym, health club and similar membership dues are generally personal and not deductible (§274(a)(3), §262) even when fitness supports your work. Only a facility used exclusively in the business qualifies.');
-    } else if (result.is_deductible === true && result.category === 'rent' && HOME_RENT_PATTERN.test(reviewText)) {
+    } else if (result.is_deductible === true && result.category === 'rent' && HOME_RENT_PATTERN.test(savedAndMerchant)) {
       addEvidence('home-587');
       requireInfo(result, 'home_office_eligibility', 'Is this rent for a separate business location, or for the home where you live? If it is your home, is a space used regularly and exclusively for business?',
         'Rent for the home you live in is not a business rent expense; only a qualifying home office deduction can include part of it. Rent for a separate business location is generally deductible as business rent.');
@@ -266,6 +275,20 @@ export function groundTransactionAnalysis(
       addEvidence('capital-263');
       requireInfo(result, 'asset_treatment', 'What was purchased, when was it first used for business, and have you recorded the de minimis safe harbor election or a depreciation election for this year?',
         `This purchase looks like an asset rather than a supply. Items over $${DE_MINIMIS_ITEM_CEILING.toLocaleString('en-US')} generally must be capitalized and depreciated; items at or under that amount can be expensed only when the de minimis safe harbor election is recorded for the year. Review the asset treatment before deducting it in full.`);
+    } else if (result.is_deductible === true && result.category !== 'vehicle_expense' && VEHICLE_COST_PATTERN.test(savedAndMerchant)) {
+      // Auto insurance, registration or repairs filed as "other" is still a vehicle cost: the method decides whether it is deductible separately.
+      addEvidence('travel-463');
+      result.category = 'vehicle_expense';
+      requireInfo(result, 'vehicle_method', 'Is this cost for a vehicle you drive for business, and do you use the standard mileage rate or actual expenses for it?',
+        'Vehicle insurance, registration and repairs are part of the actual-expense method; under the standard mileage rate they are already included in the per-mile amount and cannot be deducted again. Confirm the vehicle and method before including this cost.');
+    } else if (result.is_deductible === true && TAX_PREP_PATTERN.test(savedAndMerchant) && percentage(transaction.business_use_percentage) === null) {
+      requireInfo(result, 'business_use_percentage', 'What share of this fee was for your business schedules (Schedule C, SE, business forms) rather than your personal return?',
+        'Tax preparation and accounting fees are deductible on Schedule C only for the business portion; the personal-return portion is not deductible. Record the business share before including it.');
+    } else if (result.is_deductible === true && PARKING_TOLL_PATTERN.test(savedAndMerchant) && saved.length >= 8) {
+      // Business-trip parking and tolls are deductible in addition to the standard mileage rate; commuting parking is personal, which the saved purpose establishes.
+      result.category = 'vehicle_expense';
+      addEvidence('travel-463');
+      result.deductible_percent = percentage(transaction.business_use_percentage) ?? 100;
     } else if (result.is_deductible === true && ['equipment', 'home_office', 'vehicle_expense', 'travel'].includes(result.category ?? '')) {
       const questions: Record<string, [string, string]> = {
         equipment: ['asset_treatment', 'What was purchased, when was it first used for business, and what business-use records and depreciation elections apply?'],

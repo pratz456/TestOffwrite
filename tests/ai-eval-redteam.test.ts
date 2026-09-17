@@ -207,6 +207,60 @@ describe('red team: findings from the 2026-09-17 live evaluation', () => {
   });
 });
 
+describe('red team: findings from live evaluation round 2 (category "other" bypass)', () => {
+  it('auto insurance for a rideshare car approved under "other" is routed to the vehicle-method review', () => {
+    const result = ground({ category: 'other', customized_reason: 'Insurance for the car used in the rideshare business.' },
+      { merchant: 'GEICO *AUTO 800-841-3000', amount_usd: 148, business_purpose: 'Car insurance for my rideshare car' });
+    unresolved(result);
+    expect(result!.category).toBe('vehicle_expense');
+    expect(result!.missing_fields).toEqual(['vehicle_method']);
+    expect(result!.evidence_ids).toContain('travel-463');
+  });
+  it('a tax-prep fee covering the personal return and Schedule C needs the business share before any deduction', () => {
+    const result = ground({ category: 'other' }, { merchant: 'H&R BLOCK ONLINE 800-472-5625', amount_usd: 189, business_purpose: 'Tax prep for my 1040 and Schedule C' });
+    unresolved(result);
+    expect(result!.missing_fields).toEqual(['business_use_percentage']);
+    const withShare = ground({ category: 'other', deductible_percent: 40 }, { merchant: 'H&R BLOCK ONLINE', amount_usd: 189, business_purpose: 'Tax prep for my 1040 and Schedule C', business_use_percentage: 40 });
+    expect(withShare).toMatchObject({ status: 'ok', is_deductible: true, deductible_percent: 40 });
+  });
+  it('business-trip parking and tolls with a saved purpose are approved without the vehicle-method question', () => {
+    const parking = ground({ category: 'other' }, { merchant: 'PARKMOBILE 770-818-9036 GA', amount_usd: 6.5, business_purpose: 'Parking at closing' });
+    expect(parking).toMatchObject({ status: 'ok', is_deductible: true, category: 'vehicle_expense', deductible_percent: 100 });
+    expect(parking!.evidence_ids).toContain('travel-463');
+    const tolls = ground({ category: 'vehicle_expense', evidence_ids: ['travel-463'] }, { merchant: 'E-ZPASS REBILL', amount_usd: 40, business_purpose: 'Tolls while driving passengers' });
+    expect(tolls).toMatchObject({ status: 'ok', is_deductible: true, category: 'vehicle_expense' });
+  });
+  it('the home-rent and club-dues gates read the saved facts, never the model\'s own prose', () => {
+    const wework = ground({ category: 'rent', customized_reason: 'A coworking desk is business rent rather than home-office space.' },
+      { merchant: 'WEWORK 415 MISSION ST', amount_usd: 450, business_purpose: 'Monthly hot desk membership for client work' });
+    expect(wework).toMatchObject({ status: 'ok', is_deductible: true, category: 'rent' });
+    const trainer = ground({ category: 'rent', customized_reason: 'Rented gym floor space used to train clients.' },
+      { merchant: 'EQUINOX TRAINER SPACE RENTAL', amount_usd: 400, business_purpose: 'Floor space rental to train my clients at the gym' }, { ...SOLE_PROPRIETOR, profession: ['Personal trainer'] });
+    expect(trainer).toMatchObject({ status: 'ok', is_deductible: true });
+    const gym = ground({ category: 'dues_and_memberships' }, { merchant: 'EQUINOX MEMBERSHIP', amount_usd: 185, business_purpose: 'Gym membership' });
+    unresolved(gym); expect(gym!.missing_fields).toEqual(['club_dues_exception']);
+  });
+  it('a $249 durable item filed as supplies gets the de minimis election question (Reg. §1.162-3 $200 limit); a $120 one does not', () => {
+    const desk = ground({ category: 'supplies_small_tools' }, { merchant: 'THE HOME DEPOT #0652', amount_usd: 249, business_purpose: 'Standing desk for my writing office' });
+    unresolved(desk); expect(desk!.missing_fields).toEqual(['asset_treatment']);
+    const stapler = ground({ category: 'supplies_small_tools' }, { merchant: 'STAPLES', amount_usd: 120, business_purpose: 'Desk chair mat and stapler for the office' });
+    expect(stapler).toMatchObject({ status: 'ok', is_deductible: true });
+  });
+});
+
+describe('red team: empty evidence on blocked answers keeps the block instead of failing the analysis', () => {
+  beforeAll(() => { vi.stubEnv('AI_ANALYSIS_ENABLED', 'true'); mocks.learning.mockResolvedValue(null); });
+  afterAll(() => vi.unstubAllEnvs());
+  beforeEach(() => mocks.create.mockReset());
+  it('an IRS payment blocked by the model with evidence_ids null comes back blocked, not AI_INVALID_OUTPUT', async () => {
+    mocks.create.mockResolvedValueOnce(completion(providerPayload({ status: 'blocked', category: 'other', is_deductible: null, expense_type: null, evidence_ids: null, deductible_percent: null,
+      customized_reason: 'Estimated federal tax payments are not business expenses.', reason: 'Tax payments are outside Schedule C.' })));
+    const outcome = await analyzeTransaction({ ...tx, merchant: 'IRS USATAXPYMT 2260000000', amount_usd: 1500, business_purpose: 'Q3 estimated tax' }, SOLE_PROPRIETOR);
+    expect(outcome.success).toBe(true);
+    if (outcome.success) { expect(outcome.result.status).toBe('blocked'); expect(outcome.result.evidence_ids).toContain('records-334'); expect(outcome.result.sources?.length).toBeGreaterThan(0); }
+  });
+});
+
 describe('red team: live-model output shapes through the provider path', () => {
   beforeAll(() => { vi.stubEnv('AI_ANALYSIS_ENABLED', 'true'); mocks.learning.mockResolvedValue(null); });
   afterAll(() => vi.unstubAllEnvs());
