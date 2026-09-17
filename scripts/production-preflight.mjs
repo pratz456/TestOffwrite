@@ -49,6 +49,8 @@ export function verifySourceTree(cwd, sourceTree) {
   return errors;
 }
 
+const PLACEHOLDER_EVIDENCE = /\bREPLACE\b|<timestamp>|<digest|TODO|TBD|FIXME/i;
+
 /** An operator review is required in addition to valid secrets and static config. */
 export function validateMigrationReview(review, commit) {
   const errors = [];
@@ -58,8 +60,12 @@ export function validateMigrationReview(review, commit) {
     errors.push('Migration review must identify the reviewer, date, exact release commit and production project');
   }
   for (const name of REQUIRED_RELEASE_REVIEWS) {
-    if (review?.[name]?.reviewed !== true || typeof review?.[name]?.evidence !== 'string' || !review[name].evidence.trim()) {
+    const evidence = review?.[name]?.evidence;
+    if (review?.[name]?.reviewed !== true || typeof evidence !== 'string' || !evidence.trim()) {
       errors.push(`${name} requires an explicit completed review and evidence reference`);
+    } else if (PLACEHOLDER_EVIDENCE.test(evidence)) {
+      // The example template ships with instructions in the evidence fields; they are not evidence.
+      errors.push(`${name} evidence still contains template placeholder text`);
     }
   }
   return errors;

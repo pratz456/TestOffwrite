@@ -163,6 +163,7 @@ describe('isolated production release preflight', () => {
     ...REQUIRED_RELEASE_REVIEWS.flatMap(name => [
       { ...review(), [name]: { reviewed: false, evidence: 'not done' } },
       { ...review(), [name]: { reviewed: true, evidence: '' } },
+      { ...review(), [name]: { reviewed: true, evidence: 'REPLACE with the verify output plaid-credential-migration-verify-<timestamp>.json' } },
     ]),
   ])('requires a complete exact-commit migration review: %j', value => {
     expect(validateMigrationReview(value, 'a'.repeat(40)).length).toBeGreaterThan(0);
