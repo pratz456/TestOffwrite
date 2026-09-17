@@ -31,7 +31,14 @@ const ProtectedLayoutContent: React.FC<ProtectedLayoutClientProps> = ({ children
   const userProfile = currentProfile?.data ?? null;
   const isProfileSetup = currentProfile?.setup ?? false;
   const screen = searchParams.get('screen');
+  const transactionId = searchParams.get('transactionId');
+  const mainRef = useRef<HTMLElement>(null);
   const feature = premiumFeatureForLocation(pathname, screen);
+
+  // The app scrolls this pane, not the window. Start each destination at its heading.
+  useEffect(() => {
+    mainRef.current?.scrollTo({ top: 0, left: 0 });
+  }, [pathname, screen, transactionId]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -89,10 +96,10 @@ const ProtectedLayoutContent: React.FC<ProtectedLayoutClientProps> = ({ children
     <>
       <ToastContainer toasts={toasts} onClose={removeToast} />
       <ErrorBoundary>
-        <div className="flex flex-col lg:flex-row h-screen">
+        <div className="flex h-dvh flex-col lg:flex-row">
           {showNavigation && <MobileNav user={{ ...user, email: user.email ?? undefined }} userProfile={userProfile ?? undefined} />}
           {showNavigation && <SidebarNav user={{ ...user, email: user.email ?? undefined }} userProfile={userProfile ?? undefined} />}
-          <main className={`${showNavigation ? 'flex-1' : 'w-full'} overflow-auto`}>
+          <main ref={mainRef} className={`${showNavigation ? 'flex-1' : 'w-full'} min-h-0 min-w-0 overflow-auto`}>
             {currentProfile?.error && (
               <div role="alert" className="m-4 rounded-lg border p-4 flex flex-wrap items-center gap-3">
                 <p className="text-sm">Your profile could not be loaded. Account and billing remain available.</p>

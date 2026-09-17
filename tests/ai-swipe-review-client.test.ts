@@ -27,7 +27,7 @@ function action(page: unknown, label: string) { return walk(page).find(node => n
 const suggestion: AiReviewSuggestion = { id: 'suggestion-1', inputHash: 'saved-input', status: 'ok', category: 'supplies_small_tools', transactionKind: 'expense', isDeductible: true, deductiblePercent: 100, reasoning: 'These supplies support the documented client project.', questions: [], documentationRequired: ['Itemized receipt and project note'], irsReferences: ['IRC 162'], sources: [{ id: '162', title: 'Business expenses', url: 'https://www.irs.gov/publications/p334', edition: '2025 publication; 2026 rule review', reviewed_at: '2026-09-16' }], taxYear: 2026, policyVersion: 'synthetic-test-policy', model: 'synthetic-model', analyzedAt: 1, };
 const base = (changes: Partial<Transaction> = {}): Transaction => ({ id: 'tx-1', trans_id: 'tx-1', account_id: 'account-1', merchant_name: 'Synthetic supplies', amount: 25, category: 'GENERAL_MERCHANDISE', date: '2026-09-16', is_deductible: null, analysisStatus: 'completed', ai_suggestion: suggestion, ...changes });
 let records: Transaction[];
-function page(userId = 'owner') { harness.cursor = 0; return ReviewTransactionsScreen({ user: { id: userId }, onBack() {}, transactions: records, onTransactionUpdate: harness.updated, onTransactionClick: harness.open }); }
+function page(userId = 'owner', focusedTransactionId?: string) { harness.cursor = 0; return ReviewTransactionsScreen({ user: { id: userId }, onBack() {}, transactions: records, focusedTransactionId, onTransactionUpdate: harness.updated, onTransactionClick: harness.open }); }
 function serverReview(transaction = base()) { return Response.json({ success: true, transaction: { ...transaction, category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', is_deductible: true, review_status: 'confirmed', review_source: 'ai_confirmed' } }); }
 beforeEach(() => { harness.slots = []; harness.cursor = 0; records = [base()]; harness.availability = 'configured'; vi.clearAllMocks(); harness.refresh.mockResolvedValue(true); });
 
@@ -57,6 +57,48 @@ describe('AI category swipe review', () => {
     expect(text(page())).toContain('Deductions remain unresolved');
     await action(page(), 'Resolve missing tax details').props.onClick!();
     expect(harness.open).toHaveBeenCalledWith(expect.objectContaining({ is_deductible: null }));
+  });
+
+  it('opens a confirmed transaction selected from details before the ordinary review queue', () => {
+    records = [base({ merchant_name: 'Ordinary queue record' }), base({ id: 'confirmed-id', trans_id: 'confirmed-bank-id', merchant_name: 'Selected confirmed record', review_status: 'confirmed', is_deductible: true })];
+    const view = page('owner', 'confirmed-bank-id');
+    expect(text(view)).toContain('Selected confirmed record');
+    expect(text(view)).not.toContain('Ordinary queue record');
+    expect(action(view, 'Change').props.disabled).toBe(false);
+    expect(harness.request).not.toHaveBeenCalled();
+  });
+
+  it('saves a focused correction and returns to the regular queue without reopening the confirmed target', async () => {
+    const selected = base({ id: 'confirmed-id', trans_id: 'confirmed-bank-id', merchant_name: 'Selected confirmed record', review_status: 'confirmed', is_deductible: true });
+    records = [base({ merchant_name: 'Ordinary queue record' }), selected];
+    await action(page('owner', 'confirmed-bank-id'), 'Change').props.onClick!();
+    harness.request.mockResolvedValue(serverReview(selected));
+    await action(page('owner', 'confirmed-bank-id'), 'Save correction').props.onClick!();
+    expect(harness.request.mock.calls[0][0]).toBe('/api/transactions/confirmed-bank-id/review');
+    expect(text(page('owner', 'confirmed-bank-id'))).toContain('Ordinary queue record');
+    expect(text(page('owner', 'confirmed-bank-id'))).not.toContain('Selected confirmed record');
+    // A fresh parent snapshot must not reinsert a focused record already handled this session.
+    records = [base({ merchant_name: 'Ordinary queue record' }), { ...selected }];
+    expect(text(page('owner', 'confirmed-bank-id'))).not.toContain('Selected confirmed record');
+    harness.request.mockResolvedValue(serverReview(records[0]));
+    await action(page('owner', 'confirmed-bank-id'), 'Confirm category').props.onClick!();
+    expect(text(page('owner', 'confirmed-bank-id'))).toContain('Categories reviewed');
+    expect(text(page('owner', 'confirmed-bank-id'))).not.toContain('Selected confirmed record');
+  });
+
+  it('defers an already confirmed focused record without changing it, then continues the normal queue', async () => {
+    records = [base({ merchant_name: 'Ordinary queue record' }), base({ id: 'confirmed-id', trans_id: 'confirmed-bank-id', merchant_name: 'Selected confirmed record', review_status: 'confirmed', is_deductible: true })];
+    await action(page('owner', 'confirmed-bank-id'), 'Later').props.onClick!();
+    expect(text(page('owner', 'confirmed-bank-id'))).toContain('Ordinary queue record');
+    expect(text(page('owner', 'confirmed-bank-id'))).not.toContain('Selected confirmed record');
+    expect(harness.request).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the regular queue for an unknown focused transaction and does not duplicate a queued target', () => {
+    expect(text(page('owner', 'missing-id'))).toContain('Synthetic supplies');
+    const view = page('owner', 'tx-1');
+    expect(text(view)).toContain('1 needs review');
+    expect(text(view)).not.toContain('2 need review');
   });
 
   it('left/change opens correction and defaults to unresolved tax treatment without saving or marking personal', async () => {

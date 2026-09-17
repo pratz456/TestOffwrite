@@ -3,7 +3,7 @@ import { isValidElement, type ReactElement } from 'react';
 import type { Transaction } from '../lib/firebase/transactions';
 
 // Run the real page/form handlers with controlled hook state and network calls.
-const harness = vi.hoisted(() => ({ slots: [] as unknown[], cursor: 0, push: vi.fn(), request: vi.fn(), transactions: [] as Transaction[], mutate: vi.fn(), save: vi.fn(), success: vi.fn(), error: vi.fn(), fetch: vi.fn(), localPreview: false,
+const harness = vi.hoisted(() => ({ slots: [] as unknown[], cursor: 0, effects: [] as (() => void)[], runEffects: false, push: vi.fn(), back: vi.fn(), routerBack: vi.fn(), request: vi.fn(), transactions: [] as Transaction[], mutate: vi.fn(), save: vi.fn(), success: vi.fn(), error: vi.fn(), fetch: vi.fn(), localPreview: false,
   availability: 'configured' as 'configured' | 'checking' | 'unavailable', refreshAi: vi.fn() }));
 vi.mock('react', async importOriginal => {
   const actual = await importOriginal<typeof import('react')>();
@@ -19,12 +19,19 @@ vi.mock('react', async importOriginal => {
       if (!(index in harness.slots)) harness.slots[index] = { current: initial };
       return harness.slots[index];
     },
-    useEffect() {}, // These assertions exercise explicit detail handlers, not mount lifecycle.
+    useEffect(effect: () => void, dependencies: unknown[]) {
+      if (!harness.runEffects) return; // Most assertions exercise handlers without mount lifecycle.
+      const index = harness.cursor++;
+      const previous = harness.slots[index] as unknown[] | undefined;
+      if (previous?.length === dependencies.length && previous.every((value, position) => Object.is(value, dependencies[position]))) return;
+      harness.slots[index] = dependencies;
+      harness.effects.push(effect);
+    },
     useCallback<T>(callback: T) { return callback; },
   };
   return { ...actual, ...hooks, default: { ...actual.default, ...hooks } };
 });
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push: harness.push }) }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: harness.push, back: harness.routerBack }) }));
 vi.mock('@/lib/firebase/auth-context', () => ({ useAuth: () => ({ user: { id: 'new-accountless-user' } }) }));
 vi.mock('@/lib/firebase/hooks', () => ({ useTransactions: () => ({ transactions: harness.transactions, isLoading: false, error: null }) }));
 vi.mock('@/components/sync-status-indicator', () => ({ SyncStatusIndicator: () => null }));
@@ -41,8 +48,10 @@ import { TransactionDetailScreen } from '../components/transaction-detail-screen
 import { AddExpenseScreen } from '../components/add-expense-screen';
 
 type Props = {
-  children?: unknown; type?: string; placeholder?: string; value?: unknown; 'aria-label'?: string; disabled?: boolean;
+  children?: unknown; type?: string; id?: string; title?: string; open?: boolean; placeholder?: string; value?: unknown; 'aria-label'?: string; disabled?: boolean;
   onClick?: () => void | Promise<void>;
+  onConfirm?: () => void;
+  onCancel?: () => void;
   onChange?: (event: { target: { value: string } }) => void;
   onSubmit?: (event: { preventDefault(): void }) => Promise<void>;
 };
@@ -63,7 +72,7 @@ function enterExpense() {
   walk(render(manualForm)).find(node => node.props?.type === 'number')!.props.onChange!({ target: { value: '42.50' } });
   return walk(render(manualForm)).find(node => node.type === 'form')!;
 }
-beforeEach(() => { harness.slots = []; harness.cursor = 0; harness.transactions = []; harness.localPreview = false; harness.availability = 'configured'; vi.resetAllMocks(); vi.useFakeTimers(); harness.mutate.mockResolvedValue({}); harness.refreshAi.mockResolvedValue(true); vi.stubGlobal('fetch', harness.fetch); });
+beforeEach(() => { harness.slots = []; harness.cursor = 0; harness.effects = []; harness.runEffects = false; harness.transactions = []; harness.localPreview = false; harness.availability = 'configured'; vi.resetAllMocks(); vi.useFakeTimers(); harness.mutate.mockResolvedValue({}); harness.refreshAi.mockResolvedValue(true); vi.stubGlobal('fetch', harness.fetch); });
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('transaction page actions reach working accountless flows', () => {
@@ -191,16 +200,25 @@ describe('transaction list shows record status without inventing tax savings', (
 describe('transaction detail preserves manual work without guessed tax impact or automatic AI', () => {
   const base = { id: 'detail-id', trans_id: 'detail-id', merchant_name: 'Synthetic meal', amount: 100,
     date: '2026-09-16', category: 'FOOD_AND_DRINK_RESTAURANT', is_deductible: true, notes: '' };
-  function detail(changes: Partial<typeof base> & { receipt_url?: string; receipt_filename?: string } = {}) {
+  type DetailTransaction = Parameters<typeof TransactionDetailScreen>[0]['transaction'];
+  const categorySuggestion: NonNullable<DetailTransaction['ai_suggestion']> = {
+    id: 'synthetic-category-suggestion', inputHash: 'synthetic-input', status: 'needs_more_info',
+    transactionKind: 'expense', category: 'meals_50', isDeductible: null, deductiblePercent: null,
+    reasoning: 'Confirm the business purpose.', questions: ['Who attended?'], documentationRequired: [],
+    irsReferences: [], sources: [], taxYear: 2026, policyVersion: 'synthetic-policy', model: 'synthetic-model', analyzedAt: 1,
+  };
+  function detail(changes: Partial<DetailTransaction> = {}) {
     harness.cursor = 0;
-    return TransactionDetailScreen({ transaction: { ...base, ...changes }, onBack() {}, onSave: harness.save }) as Element;
+    const page = TransactionDetailScreen({ transaction: { ...base, ...changes }, onBack: harness.back, onSave: harness.save }) as Element;
+    harness.effects.splice(0).forEach(effect => effect());
+    return page;
   }
   const action = (page: Element, label: string) => walk(page).find(node => typeof node.props.onClick === 'function' && text(node).trim() === label)!;
   const analyzed = () => Response.json({ success: true, analysis: { deductionStatus: 'Possibly Deductible', reasoning: 'Review the saved business purpose.', confidence: 0.7, updatedAt: '2026-09-16T12:00:00Z' } });
 
   it('opens shared Tax Preview and leaves a recorded business classification without a rate, savings calculation or CPA submission', async () => {
     const page = detail();
-    expect(text(page)).toContain('Marked business');
+    expect(text(page)).toContain('Deduction recorded');
     expect(text(page)).not.toMatch(/Estimated Tax Rate|Estimated Tax Savings|100% deductible|25%|our CPA team|within 24 hours/);
     expect(action(page, 'Ask a CPA')).toBeUndefined();
     await action(page, 'Open Tax Preview').props.onClick!();
@@ -214,7 +232,7 @@ describe('transaction detail preserves manual work without guessed tax impact or
     const page = detail();
     expect(text(page)).toContain('AI analysis is not configured for this environment');
     const buttons = walk(page).filter(node => typeof node.props.onClick === 'function' && text(node).trim() === 'AI unavailable');
-    expect(buttons).toHaveLength(2);
+    expect(buttons).toHaveLength(1);
     expect(buttons.every(node => node.props.disabled)).toBe(true);
     await buttons[0].props.onClick!();
     walk(page).find(node => node.props.placeholder === 'Tell us more about this purchase...')!.props.onChange!({ target: { value: 'Manual review remains available' } });
@@ -227,7 +245,7 @@ describe('transaction detail preserves manual work without guessed tax impact or
   it('blocks analysis while the authenticated configuration check is pending', async () => {
     harness.availability = 'checking';
     const buttons = walk(detail()).filter(node => typeof node.props.onClick === 'function' && text(node).trim() === 'Checking AI…');
-    expect(buttons).toHaveLength(2); expect(buttons.every(node => node.props.disabled)).toBe(true);
+    expect(buttons).toHaveLength(1); expect(buttons.every(node => node.props.disabled)).toBe(true);
     await buttons[0].props.onClick!();
     expect(harness.fetch).not.toHaveBeenCalled();
   });
@@ -245,7 +263,7 @@ describe('transaction detail preserves manual work without guessed tax impact or
     expect(text(page)).toContain('AI analysis is unavailable');
     expect(text(page)).toContain('edit notes, attach receipts and record your classification manually');
     const buttons = walk(page).filter(node => typeof node.props.onClick === 'function' && text(node).trim() === 'AI unavailable');
-    expect(buttons).toHaveLength(2); expect(buttons.every(node => node.props.disabled)).toBe(true);
+    expect(buttons).toHaveLength(1); expect(buttons.every(node => node.props.disabled)).toBe(true);
     await buttons[0].props.onClick!();
     expect(harness.fetch).toHaveBeenCalledOnce(); expect(harness.save).not.toHaveBeenCalled();
     expect(harness.success).not.toHaveBeenCalled(); expect(harness.error).toHaveBeenCalledWith('AI unavailable', expect.any(String));
@@ -287,6 +305,142 @@ describe('transaction detail preserves manual work without guessed tax impact or
     await business.props.onClick!();
     await action(detail({ is_deductible: false }), 'Save Changes').props.onClick!();
     expect(harness.save).toHaveBeenCalledWith(expect.objectContaining({ is_deductible: true, tax_review_required: false }));
+  });
+
+  it('merges edits to different context fields made within the same autosave window', async () => {
+    walk(detail()).find(node => node.props.id === 'business-purpose')!.props.onChange!({ target: { value: 'Design project research' } });
+    walk(detail()).find(node => node.props.id === 'client-project')!.props.onChange!({ target: { value: 'Client A' } });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(harness.mutate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ updates: {
+      business_purpose: 'Design project research', client_project: 'Client A',
+    } }));
+    expect(harness.fetch).not.toHaveBeenCalled();
+  });
+
+  it('saves every draft field without approving an unresolved business-category deduction', async () => {
+    const changes = { is_deductible: null, expense_type: 'business' as const };
+    walk(detail(changes)).find(node => node.props.id === 'business-purpose')!.props.onChange!({ target: { value: 'Client meeting' } });
+    walk(detail(changes)).find(node => node.props.id === 'client-project')!.props.onChange!({ target: { value: 'Project One' } });
+    walk(detail(changes)).find(node => node.props.id === 'documentation-status')!.props.onChange!({ target: { value: 'partial' } });
+    walk(detail(changes)).find(node => node.props.id === 'meeting-notes')!.props.onChange!({ target: { value: 'Discussed upcoming design work' } });
+    await action(detail(changes), 'Save Changes').props.onClick!();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(harness.mutate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ updates: {
+      notes: '', business_purpose: 'Client meeting', client_project: 'Project One',
+      documentation_status: 'partial', meeting_notes: 'Discussed upcoming design work',
+    } }));
+    expect(harness.save).toHaveBeenCalledWith(expect.objectContaining({ is_deductible: null, expense_type: 'business' }));
+    expect(harness.fetch).not.toHaveBeenCalled();
+  });
+
+  it('excludes a business expense from deductions without reclassifying it as personal', async () => {
+    const changes = { is_deductible: null, expense_type: 'business' as const };
+    await walk(detail(changes)).find(node => node.props['aria-label'] === 'Exclude from deductions')!.props.onClick!();
+    await action(detail(changes), 'Save Changes').props.onClick!();
+    expect(harness.mutate).toHaveBeenCalledWith(expect.objectContaining({ updates: expect.objectContaining({ is_deductible: false }) }));
+    expect(harness.mutate.mock.calls[0][0].updates).not.toHaveProperty('expense_type');
+    expect(harness.save).toHaveBeenCalledWith(expect.objectContaining({ is_deductible: false, expense_type: 'business' }));
+  });
+
+  it('waits for an older autosave before explicitly saving the latest draft', async () => {
+    let finishOldSave!: () => void;
+    harness.mutate.mockReturnValueOnce(new Promise<void>(resolve => { finishOldSave = resolve; }));
+    walk(detail()).find(node => node.props.id === 'business-purpose')!.props.onChange!({ target: { value: 'Older purpose' } });
+    await vi.advanceTimersByTimeAsync(500);
+    walk(detail()).find(node => node.props.id === 'business-purpose')!.props.onChange!({ target: { value: 'Latest purpose' } });
+    const saving = action(detail(), 'Save Changes').props.onClick!();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(harness.mutate).toHaveBeenCalledOnce();
+    finishOldSave(); await saving;
+    expect(harness.mutate).toHaveBeenCalledTimes(2);
+    expect(harness.mutate).toHaveBeenLastCalledWith(expect.objectContaining({ updates: expect.objectContaining({ business_purpose: 'Latest purpose' }) }));
+    expect(harness.mutate.mock.calls[1][0].updates).not.toHaveProperty('is_deductible');
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(harness.mutate).toHaveBeenCalledTimes(2);
+  });
+
+  it('clears saved notes with an empty string rather than dropping the field', async () => {
+    walk(detail({ notes: 'Old notes' })).find(node => node.props.placeholder === 'Tell us more about this purchase...')!.props.onChange!({ target: { value: '' } });
+    await action(detail({ notes: 'Old notes' }), 'Save Changes').props.onClick!();
+    expect(harness.mutate).toHaveBeenCalledWith(expect.objectContaining({ updates: expect.objectContaining({ notes: '' }) }));
+    expect(harness.save).toHaveBeenCalledWith(expect.objectContaining({ notes: '' }));
+  });
+
+  it('delegates back navigation once without moving browser history a second time', async () => {
+    const back = walk(detail()).find(node => node.props['aria-label'] === 'Back to transactions')!;
+    await back.props.onClick!();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(harness.back).toHaveBeenCalledOnce();
+    expect(harness.routerBack).not.toHaveBeenCalled();
+  });
+
+  it('guards unsaved supporting details and cancels their debounce when the user leaves', async () => {
+    walk(detail()).find(node => node.props.id === 'business-purpose')!.props.onChange!({ target: { value: 'Unsaved client visit' } });
+    const back = walk(detail()).find(node => node.props['aria-label'] === 'Back to transactions')!;
+    await back.props.onClick!();
+    expect(harness.back).not.toHaveBeenCalled();
+    const confirmation = walk(detail()).find(node => node.props.title === 'Unsaved Changes')!;
+    expect(confirmation.props.open).toBe(true);
+    confirmation.props.onConfirm!();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(harness.back).toHaveBeenCalledOnce();
+    expect(harness.mutate).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['Confirm or change category', '/protected?screen=review-transactions&transactionId=plaid%26review%3Done'],
+    ['Open Tax Preview', '/protected?screen=tax-preview'],
+  ])('guards dirty notes before %s and discards the pending autosave only after leaving', async (label, expectedDestination) => {
+    const changes = { id: 'internal-id', trans_id: 'plaid&review=one', ai_suggestion: categorySuggestion };
+    walk(detail(changes)).find(node => node.props.id === 'transaction-notes')!.props.onChange!({ target: { value: 'Unfinished context' } });
+    await action(detail(changes), label).props.onClick!();
+    expect(harness.push).not.toHaveBeenCalled();
+    expect(harness.back).not.toHaveBeenCalled();
+    expect(harness.mutate).not.toHaveBeenCalled();
+    const confirmation = walk(detail(changes)).find(node => node.props.title === 'Unsaved Changes')!;
+    expect(confirmation.props.open).toBe(true);
+    confirmation.props.onConfirm!();
+    expect(harness.push).toHaveBeenCalledExactlyOnceWith(expectedDestination);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(harness.mutate).not.toHaveBeenCalled();
+    expect(harness.fetch).not.toHaveBeenCalled();
+  });
+
+  it('clears a canceled category destination when the user chooses Back instead', async () => {
+    const changes = { ai_suggestion: categorySuggestion };
+    walk(detail(changes)).find(node => node.props.id === 'transaction-notes')!.props.onChange!({ target: { value: 'Unfinished context' } });
+    await action(detail(changes), 'Confirm or change category').props.onClick!();
+    walk(detail(changes)).find(node => node.props.title === 'Unsaved Changes')!.props.onCancel!();
+    expect(harness.push).not.toHaveBeenCalled();
+    expect(walk(detail(changes)).find(node => node.props.title === 'Unsaved Changes')!.props.open).toBe(false);
+    await walk(detail(changes)).find(node => node.props['aria-label'] === 'Back to transactions')!.props.onClick!();
+    const confirmation = walk(detail(changes)).find(node => node.props.title === 'Unsaved Changes')!;
+    expect(confirmation.props.open).toBe(true);
+    confirmation.props.onConfirm!();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(harness.back).toHaveBeenCalledOnce();
+    expect(harness.push).not.toHaveBeenCalled();
+    expect(harness.routerBack).not.toHaveBeenCalled();
+    expect(harness.mutate).not.toHaveBeenCalled();
+  });
+
+  it('preserves a newer local draft when the same record refreshes from an older save', () => {
+    harness.runEffects = true;
+    walk(detail({ business_purpose: 'Original saved purpose' })).find(node => node.props.id === 'business-purpose')!.props.onChange!({ target: { value: 'New unsaved purpose' } });
+    detail({ business_purpose: 'Older in-flight purpose' });
+    const field = walk(detail({ business_purpose: 'Older in-flight purpose' })).find(node => node.props.id === 'business-purpose')!;
+    expect(field.props.value).toBe('New unsaved purpose');
+  });
+
+  it('retains local context when an optimistic update is rolled back after a failed save', async () => {
+    harness.runEffects = true;
+    harness.mutate.mockRejectedValueOnce(new Error('Synthetic storage failure'));
+    walk(detail({ business_purpose: 'Saved purpose' })).find(node => node.props.id === 'business-purpose')!.props.onChange!({ target: { value: 'Keep my draft' } });
+    detail({ business_purpose: 'Keep my draft' }); // Optimistic cache notification.
+    await vi.advanceTimersByTimeAsync(500);
+    detail({ business_purpose: 'Saved purpose' }); // Failed-save rollback.
+    expect(walk(detail({ business_purpose: 'Saved purpose' })).find(node => node.props.id === 'business-purpose')!.props.value).toBe('Keep my draft');
+    expect(harness.error).toHaveBeenCalledWith('Context not saved', expect.any(String));
   });
 
   it('waits for edited context to be saved before explicit analysis reads the canonical record', async () => {

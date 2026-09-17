@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { ArrowRight, CheckCircle2, ChevronDown, ClipboardCheck, Loader2, Plus } from 'lucide-react';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import { useTransactions } from '@/lib/firebase/hooks';
 import { getUserTaxRateDisplay } from '@/lib/tax-rules/federal-brackets';
@@ -16,6 +16,7 @@ import { HistoricalAccessUpgradeCard } from '@/components/historical-access-upgr
 import { dashboardRecordStatus, summarizeDashboardRecords } from '@/lib/dashboard/record-summary';
 import { toast } from 'sonner';
 import { loadDashboardTaxSnapshot, type DashboardTaxState } from '@/lib/tax/dashboard-snapshot';
+import { transactionNeedsCategoryReview, transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 
 import {
   DashboardHeader,
@@ -46,8 +47,6 @@ export default function DashboardScreen({
   analyzingTransactions = false,
   onSignOut,
 }: DashboardScreenProps) {
-  const router = useRouter();
-
   // --- Auth & realtime hooks (unchanged) ---
   const currentUser = auth.currentUser;
   const userId = currentUser?.uid;
@@ -166,6 +165,17 @@ export default function DashboardScreen({
   const recordSummary = summarizeDashboardRecords(transactions);
   const needsReviewCount = recordSummary.needsReviewCount;
   const needsAnalysisCount = transactions.filter(t => (t.deduction_score === undefined || t.deduction_score === null) && dashboardRecordStatus(t) === 'review').length;
+  const categoryReviews = transactions.filter(t => t.pending !== true && transactionNeedsCategoryReview(t));
+  const taxQuestions = transactions.filter(t => t.pending !== true && !transactionNeedsCategoryReview(t) && transactionNeedsTaxReview(t));
+  const categoriesNeedingAnalysis = categoryReviews.filter(t => t.deduction_score === undefined || t.deduction_score === null).length;
+  const isAnalyzing = analyzingTransactions || analysisInProgress;
+
+  const openNextReview = () => {
+    if (transactions.length === 0) onNavigate('add-manual-transaction');
+    else if (categoryReviews.length > 0) onNavigate('review-transactions');
+    else if (taxQuestions.length > 0) onTransactionClick({ ...taxQuestions[0], _source: 'dashboard' });
+    else onNavigate('transactions');
+  };
 
   // Recalculate tax independently of any optional bank-balance refresh.
   const handleRefresh = async () => {
@@ -199,11 +209,46 @@ export default function DashboardScreen({
           isRefreshing={isRefreshingBalances || taxState.status === 'loading'}
           onRefresh={handleRefresh}
           lastSync={lastSync}
-          analysisInProgress={analysisInProgress}
+          analysisInProgress={isAnalyzing}
         />
 
-        <div className="max-w-7xl mx-auto px-4 md:px-6 py-3 sm:py-4 space-y-3 sm:space-y-4">
-          {/* Row 1: KPI Cards */}
+        <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 py-3 sm:py-4 space-y-3 sm:space-y-4">
+          <section aria-label="Your next step" className="flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 p-3 sm:p-4">
+            <div className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary sm:flex">
+              {categoryReviews.length > 0 || taxQuestions.length > 0 ? <ClipboardCheck className="h-5 w-5" /> : <CheckCircle2 className="h-5 w-5" />}
+            </div>
+            <div className="min-w-0 flex-1">
+              <h2 className="text-sm font-semibold leading-snug">
+                {transactions.length === 0 ? 'Start with your first expense' : categoryReviews.length > 0
+                  ? `${categoryReviews.length} ${categoryReviews.length === 1 ? 'category needs' : 'categories need'} review`
+                  : taxQuestions.length > 0 ? `${taxQuestions.length} ${taxQuestions.length === 1 ? 'transaction needs' : 'transactions need'} tax details`
+                  : recordSummary.pendingCount > 0 ? 'Waiting for transactions to post' : 'Your transaction review is up to date'}
+              </h2>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                {transactions.length === 0 ? 'Add a receipt or expense. Connecting a bank is optional.' : categoryReviews.length > 0
+                  ? 'Confirm or correct your transaction categories.'
+                  : taxQuestions.length > 0 ? 'Categories are saved. Add the facts needed to resolve deductions.'
+                  : recordSummary.pendingCount > 0 ? `${recordSummary.pendingCount} pending. Review them once your bank posts them.`
+                    : 'Keep receipts and business details with your records.'}
+              </p>
+              {isAnalyzing && <p className="mt-1 flex items-center gap-1 text-xs text-primary" role="status"><Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />AI analysis in progress</p>}
+            </div>
+            <button
+              type="button"
+              onClick={openNextReview}
+              className="inline-flex min-h-[44px] shrink-0 items-center justify-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              {transactions.length === 0 ? 'Add' : categoryReviews.length > 0 ? 'Review' : taxQuestions.length > 0 ? 'Add details' : 'View'}
+              {transactions.length === 0 ? <Plus className="h-4 w-4" aria-hidden="true" /> : <ArrowRight className="h-4 w-4" aria-hidden="true" />}
+            </button>
+          </section>
+
+          <QuickActionsBar
+            onNavigate={onNavigate}
+            needsReviewCount={categoryReviews.length}
+            needsAnalysisCount={categoriesNeedingAnalysis}
+          />
+
           <KpiGrid
             state={taxState}
             taxYear={taxYear}
@@ -211,63 +256,65 @@ export default function DashboardScreen({
             onReview={onNavigate}
           />
 
-          {/* Row 2: Action Items + Premium - side-by-side square cards */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
-            <ActionItemsBanner
-              profile={profile}
-              transactions={transactions}
-              onNavigate={onNavigate}
-            />
-            <HistoricalAccessUpgradeCard variant="square" />
-          </div>
-
-          {/* Row 3: Quick Actions */}
-          <QuickActionsBar
-            onNavigate={onNavigate}
-            needsReviewCount={needsReviewCount}
-            needsAnalysisCount={needsAnalysisCount}
+          <RecentActivityCard
+            transactions={transactions}
+            onTransactionClick={onTransactionClick}
+            onViewAll={() => onNavigate('transactions')}
           />
 
-          {/* Row 4: Analytics + Optimization */}
-          <div className="grid grid-cols-1 lg:grid-cols-10 gap-4">
-            <div className="lg:col-span-7 relative">
-              <div className="absolute inset-0 rounded-xl bg-[radial-gradient(ellipse_80%_60%_at_50%_0%,hsl(var(--primary)/0.05),transparent)] pointer-events-none" aria-hidden />
-              <AnalyticsPanel transactions={transactions} />
-            </div>
-            <div className="lg:col-span-3 relative">
-              <div className="absolute inset-0 rounded-xl bg-[radial-gradient(ellipse_80%_60%_at_50%_0%,hsl(var(--chart-4)/0.06),transparent)] pointer-events-none" aria-hidden />
-              <OptimizationCard
-                needsReviewCount={needsReviewCount}
-                totalTransactions={transactions.length}
-                deductibleCount={recordSummary.deductibleCount}
-                pendingCount={recordSummary.pendingCount}
-                onNavigate={onNavigate}
-              />
-            </div>
+          <div className="space-y-2">
+            <details className="group rounded-xl border bg-card">
+              <summary className="flex min-h-[48px] cursor-pointer list-none items-center justify-between gap-3 px-4 text-sm font-medium [&::-webkit-details-marker]:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-xl">
+                Tax checklist & next steps
+                <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
+              </summary>
+              <div className="space-y-3 border-t p-3 [&_button]:min-h-[44px] [&_button[aria-label]]:min-w-[44px]">
+                <ActionItemsBanner
+                  profile={profile}
+                  transactions={transactions}
+                  onNavigate={onNavigate}
+                />
+                <button type="button" onClick={() => onNavigate('action-items')} className="flex w-full items-center justify-between gap-2 rounded-lg px-3 text-sm text-primary hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  View full checklist <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                </button>
+                {!taxRateDisplay.reviewMessage && <AiAdvisoryCard
+                  needsReviewCount={needsReviewCount}
+                  needsAnalysisCount={needsAnalysisCount}
+                  taxSavings={taxSavings}
+                  onNavigate={onNavigate}
+                />}
+              </div>
+            </details>
+
+            <details className="group rounded-xl border bg-card">
+              <summary className="flex min-h-[48px] cursor-pointer list-none items-center justify-between gap-3 px-4 text-sm font-medium [&::-webkit-details-marker]:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-xl">
+                Cash flow & category breakdown
+                <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
+              </summary>
+              <div className="space-y-3 border-t p-3 [&_button]:min-h-[44px]">
+                <AnalyticsPanel transactions={transactions} />
+                <div className="grid gap-3 lg:grid-cols-2">
+                  <TopCategoriesCard
+                    categories={recordSummary.categoryEntries}
+                    totalMagnitude={recordSummary.categoryMagnitude}
+                    reviewMessage={recordSummary.categoryIssue}
+                    onViewAll={() => onNavigate('categories')}
+                  />
+                  <OptimizationCard
+                    needsReviewCount={needsReviewCount}
+                    totalTransactions={transactions.length}
+                    deductibleCount={recordSummary.deductibleCount}
+                    pendingCount={recordSummary.pendingCount}
+                    onNavigate={onNavigate}
+                  />
+                </div>
+              </div>
+            </details>
           </div>
 
-          {/* Row 5: Categories + Activity */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <TopCategoriesCard
-              categories={recordSummary.categoryEntries}
-              totalMagnitude={recordSummary.categoryMagnitude}
-              reviewMessage={recordSummary.categoryIssue}
-              onViewAll={() => onNavigate('categories')}
-            />
-            <RecentActivityCard
-              transactions={transactions}
-              onTransactionClick={onTransactionClick}
-              onViewAll={() => onNavigate('transactions')}
-            />
+          <div className="[&_button]:min-h-[44px]">
+            <HistoricalAccessUpgradeCard variant="slim" />
           </div>
-
-          {/* Row 6: AI Advisory */}
-          {!taxRateDisplay.reviewMessage && <AiAdvisoryCard
-            needsReviewCount={needsReviewCount}
-            needsAnalysisCount={needsAnalysisCount}
-            taxSavings={taxSavings}
-            onNavigate={onNavigate}
-          />}
         </div>
       </div>
     </>

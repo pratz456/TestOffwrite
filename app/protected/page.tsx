@@ -587,6 +587,7 @@ export default function ProtectedPage() {
       return (
         <ReviewTransactionsScreen
           user={safeUser}
+          focusedTransactionId={searchParams.get('transactionId')}
           onBack={handleGoBack}
           transactions={transactions as any}
           onTransactionUpdate={handleTransactionUpdate as any}

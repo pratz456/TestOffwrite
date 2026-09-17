@@ -22,12 +22,11 @@ import { attachCaptureVideo, createMediaCapture } from '@/lib/browser/media-capt
 // Using API route instead of direct database access
 import {
   ArrowLeft,
+  ArrowRight,
+  ChevronDown,
   CheckCircle,
-  XCircle,
   Bot,
-  AlertTriangle,
   Building2,
-  User,
   Upload,
   FileText,
   Trash2,
@@ -129,36 +128,35 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
 
   // State for unsaved changes confirmation dialog
   const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
+  const pendingDestination = useRef<string | null>(null);
 
   const performBackNavigation = () => {
-    onBack && onBack();
-    setTimeout(() => {
-      try {
-        router.back();
-      } catch (e) {
-        try { router.push('/protected'); } catch (e) { window.location.href = '/protected'; }
-      }
-    }, 60);
+    if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
+    debounceTimeoutRef.current = null;
+    pendingContextUpdates.current = {};
+    if (pendingDestination.current) router.push(pendingDestination.current);
+    else onBack();
   };
 
   const handleBackNavigation = () => {
+    pendingDestination.current = null;
     if (hasUnsavedChanges) {
       setShowUnsavedDialog(true);
     } else {
       performBackNavigation();
     }
   };
-  // Initialize classification from expense_type (AI classification) or fall back to is_deductible
-  const getInitialClassification = (): 'business' | 'personal' | null => {
-    // Prefer explicit expense_type from AI analysis
-    if (transaction.expense_type) {
-      return transaction.expense_type;
-    }
-    // Fall back to is_deductible if expense_type not available
-    if (typeof transaction.is_deductible !== 'boolean') {
+  const navigateFromTransaction = (destination: string) => {
+    pendingDestination.current = destination;
+    if (hasUnsavedChanges) setShowUnsavedDialog(true);
+    else performBackNavigation();
+  };
+  // A saved business category is not a saved decision to include a deduction.
+  const getInitialClassification = (record = transaction): 'business' | 'personal' | null => {
+    if (typeof record.is_deductible !== 'boolean') {
       return null; // No default for needs review items - user must choose
     }
-    return transaction.is_deductible ? 'business' : 'personal';
+    return record.is_deductible ? 'business' : 'personal';
   };
 
   const [classification, setClassification] = useState<'business' | 'personal' | null>(
@@ -181,8 +179,12 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
 
   // Debounced save for context fields
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const pendingContextUpdates = useRef<Record<string, string>>({});
   const contextSaveTail = useRef<Promise<unknown>>(Promise.resolve());
   const pendingContextSaves = useRef(0);
+  const previousSavedTransaction = useRef(transaction);
+  const localContextDrafts = useRef<Record<string, string>>({});
+  const localClassificationDraft = useRef<'business' | 'personal' | null>(null);
 
   // AI Analysis state
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -219,32 +221,53 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
   const updateTransactionMutation = useUpdateTransaction();
   const { showSuccess, showError } = useToasts();
 
-  // Update local state when transaction prop changes
+  // Refresh saved fields without replacing edits when a background save or analysis arrives.
   useEffect(() => {
-    setClassification(getInitialClassification());
-    setAdditionalContext(transaction.notes || '');
-    setBusinessPurpose(transaction.business_purpose || '');
-    setClientProject(transaction.client_project || '');
-    setDocumentationStatus(transaction.documentation_status || 'missing');
-    setMeetingNotes(transaction.meeting_notes || '');
+    const previous = previousSavedTransaction.current;
+    const changedRecord = getTransactionId(previous) !== getTransactionId(transaction);
+    const syncDraft = <T,>(draft: T, saved: T, next: T, locallyEdited = false) => changedRecord || !locallyEdited && draft === saved ? next : draft;
+    setClassification(draft => syncDraft(draft, getInitialClassification(previous), getInitialClassification(), localClassificationDraft.current !== null));
+    setAdditionalContext(draft => syncDraft(draft, previous.notes || '', transaction.notes || '', 'notes' in localContextDrafts.current));
+    setBusinessPurpose(draft => syncDraft(draft, previous.business_purpose || '', transaction.business_purpose || '', 'business_purpose' in localContextDrafts.current));
+    setClientProject(draft => syncDraft(draft, previous.client_project || '', transaction.client_project || '', 'client_project' in localContextDrafts.current));
+    setDocumentationStatus(draft => syncDraft(draft, previous.documentation_status || 'missing', transaction.documentation_status || 'missing', 'documentation_status' in localContextDrafts.current));
+    setMeetingNotes(draft => syncDraft(draft, previous.meeting_notes || '', transaction.meeting_notes || '', 'meeting_notes' in localContextDrafts.current));
+    if (changedRecord) {
+      if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
+      debounceTimeoutRef.current = null;
+      pendingContextUpdates.current = {};
+      localContextDrafts.current = {};
+      localClassificationDraft.current = null;
+      setReceiptFile(null);
+    }
+    previousSavedTransaction.current = transaction;
   }, [transaction]);
 
   // Check if currently saving
   const isSaving = updateTransactionMutation.isPending;
 
   // Keep older debounced writes ahead of the explicit pre-analysis save.
-  const saveContext = useCallback((updates: Record<string, string>) => {
+  const saveContext = useCallback((updates: Parameters<typeof updateTransactionMutation.mutateAsync>[0]['updates']) => {
     pendingContextSaves.current++;
     const save = contextSaveTail.current.catch(() => undefined).then(() => {
       if (!userId || auth.currentUser?.uid !== userId) throw new Error('Sign in again before saving context.');
       return updateTransactionMutation.mutateAsync({ transactionId: getTransactionId(transaction), userId, updates });
+    }).then(saved => {
+      if (activeAnalysisContext.current === analysisContext) {
+        for (const [field, value] of Object.entries(updates)) {
+          if (localContextDrafts.current[field] === value) delete localContextDrafts.current[field];
+        }
+      }
+      return saved;
     }).finally(() => { pendingContextSaves.current--; });
     contextSaveTail.current = save;
     return save;
-  }, [userId, transaction, updateTransactionMutation]);
+  }, [userId, transaction, updateTransactionMutation, analysisContext]);
 
   // Debounced save function
   const debouncedSave = useCallback((updates: Record<string, string>) => {
+    pendingContextUpdates.current = { ...pendingContextUpdates.current, ...updates };
+    localContextDrafts.current = { ...localContextDrafts.current, ...updates };
     if (debounceTimeoutRef.current) {
       clearTimeout(debounceTimeoutRef.current);
     }
@@ -252,14 +275,15 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
     debounceTimeoutRef.current = setTimeout(async () => {
       debounceTimeoutRef.current = null;
       if (!userId) return;
-      
+      const pendingUpdates = pendingContextUpdates.current;
+      pendingContextUpdates.current = {};
       try {
-        await saveContext(updates);
+        await saveContext(pendingUpdates);
       } catch (error) {
-        console.error('Error saving context field:', error);
+        showError('Context not saved', 'Your edits are still here. Use Save Changes to try again.');
       }
     }, 500);
-  }, [userId, saveContext]);
+  }, [userId, saveContext, showError]);
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -272,6 +296,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
 
   // Handle classification change (but don't auto-save)
   const handleClassificationChange = (newClassification: 'business' | 'personal') => {
+    localClassificationDraft.current = newClassification === getInitialClassification() ? null : newClassification;
     setClassification(newClassification);
   };
 
@@ -282,38 +307,36 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
       return;
     }
 
-    if (classification === null) {
-      showError('Classification Required', 'Please select whether this is a business or personal expense');
-      return;
-    }
-
+    if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
+    debounceTimeoutRef.current = null;
+    pendingContextUpdates.current = {};
+    const classificationChanged = classification !== getInitialClassification() && classification !== null;
     const updates = {
-      is_deductible: classification === 'business',
-      expense_type: classification, // Store explicit classification
-      user_classification_reason: classification === 'business'
-        ? (additionalContext || 'Classified as business expense by user')
-        : 'Classified as personal expense by user',
-      notes: additionalContext || undefined
+      notes: additionalContext,
+      business_purpose: businessPurpose,
+      client_project: clientProject,
+      documentation_status: documentationStatus,
+      meeting_notes: meetingNotes,
+      ...(classificationChanged ? {
+        is_deductible: classification === 'business',
+        ...(classification === 'business' ? { expense_type: 'business' as const } : {}),
+        user_classification_reason: classification === 'business'
+          ? (additionalContext || 'Business deduction included by user after reviewing eligibility')
+          : 'Excluded from deductions by user',
+      } : {}),
     };
 
-    const transactionId = getTransactionId(transaction);
-
     try {
-      // Use React Query mutation with optimistic updates for instant UI feedback
-      const savedTransaction = await updateTransactionMutation.mutateAsync({
-        transactionId,
-        userId,
-        updates
-      });
+      // Wait for older autosaves so a late response cannot overwrite the latest draft.
+      const savedTransaction = await saveContext(updates);
+      if (localClassificationDraft.current === classification) localClassificationDraft.current = null;
 
       showSuccess('Changes Saved', 'Transaction updated successfully');
 
       // Call onSave callback for parent component to update local state
       const updatedTransaction = {
         ...transaction,
-        is_deductible: updates.is_deductible,
-        user_classification_reason: updates.user_classification_reason,
-        notes: updates.notes || undefined,
+        ...updates,
         ...savedTransaction,
       };
 
@@ -527,6 +550,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
         clearTimeout(debounceTimeoutRef.current);
         debounceTimeoutRef.current = null;
       }
+      pendingContextUpdates.current = {};
       const contextFields: [string, string, string][] = [
         ['notes', trimmedAdditionalContext, (transaction.notes || '').trim()],
         ['business_purpose', trimmedBusinessPurpose, (transaction.business_purpose || '').trim()],
@@ -658,731 +682,133 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
   const hasUnsavedChanges =
     classification !== getInitialClassification() ||
     additionalContext !== (transaction.notes || '') ||
+    businessPurpose !== (transaction.business_purpose || '') ||
+    clientProject !== (transaction.client_project || '') ||
+    documentationStatus !== (transaction.documentation_status || 'missing') ||
+    meetingNotes !== (transaction.meeting_notes || '') ||
     receiptFile !== null;
 
-  // Legible category badge colors (matches transactions list)
-  const getCategoryBadgeClass = (category: string) => {
-    const { consolidatedName } = consolidateCategory(category);
-    const map: Record<string, string> = {
-      FOOD_AND_DRINK: 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-200 border-emerald-300 dark:border-emerald-600',
-      TRANSPORTATION: 'bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-200 border-blue-300 dark:border-blue-600',
-      TRAVEL: 'bg-violet-100 dark:bg-violet-900/40 text-violet-800 dark:text-violet-200 border-violet-300 dark:border-violet-600',
-      ENTERTAINMENT: 'bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200 border-amber-300 dark:border-amber-600',
-      PROFESSIONAL_SERVICES: 'bg-teal-100 dark:bg-teal-900/40 text-teal-800 dark:text-teal-200 border-teal-300 dark:border-teal-600',
-      OFFICE_AND_EQUIPMENT: 'bg-sky-100 dark:bg-sky-900/40 text-sky-800 dark:text-sky-200 border-sky-300 dark:border-sky-600',
-      LOAN_AND_FINANCIAL: 'bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-200 border-red-300 dark:border-red-600',
-      GENERAL_MERCHANDISE: 'bg-slate-100 dark:bg-slate-700/50 text-slate-800 dark:text-slate-200 border-slate-300 dark:border-slate-600',
-      INCOME: 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-200 border-green-300 dark:border-green-600',
-    };
-    return map[consolidatedName] || 'bg-muted/50 dark:bg-muted/30 text-foreground border-border';
-  };
-
-
-
-
-
   return (
-    <div className="min-h-screen bg-background safe-area-inset-top safe-area-inset-bottom">
-      {/* Header */}
-      <header className="bg-card border-b border-border sticky top-0 z-50 shadow-sm">
-        <div className="flex items-center justify-between p-4 sm:p-6">
-          <button
-            onClick={handleBackNavigation}
-            className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center text-foreground border border-border bg-muted/50 hover:bg-muted transition-colors no-tap-highlight"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <div className="text-center flex-1 px-2">
-            <h1 className="text-lg sm:text-xl font-semibold text-foreground">
-              Transaction Details
-            </h1>
-            {hasUnsavedChanges && (
-              <div className="flex items-center justify-center gap-2 text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-600/50 rounded-lg px-2 sm:px-3 py-1 mt-2">
-                <AlertTriangle className="w-3 h-3" />
-                <span className="text-xs font-medium">Unsaved</span>
-              </div>
-            )}
-            {isSaving && (
-              <div className="flex items-center justify-center gap-2 text-sm text-green-600 dark:text-green-400 mt-2">
-                <div className="w-3 h-3 border-2 border-green-600 dark:border-green-400 border-t-transparent rounded-full animate-spin" />
-                <span className="text-xs sm:text-sm">Saving...</span>
-              </div>
-            )}
-          </div>
-          <div className="w-11 sm:w-12"></div>
+    <div className="min-h-full bg-background">
+      <header className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur">
+        <div className="mx-auto flex max-w-4xl items-center gap-2 px-3 py-1.5 sm:px-5">
+          <Button onClick={handleBackNavigation} variant="ghost" size="icon" aria-label="Back to transactions" className="h-11 w-11 shrink-0">
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+          <h1 className="flex-1 text-base font-semibold">Transaction details</h1>
+          <span className="text-xs text-muted-foreground" role="status">{isSaving ? 'Saving…' : hasUnsavedChanges ? 'Unsaved changes' : 'Saved'}</span>
         </div>
       </header>
 
-      <div className="p-3 sm:p-4 max-w-6xl mx-auto pb-8">
-        {/* Main Content Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* Left Column - Transaction Info & AI Analysis */}
-          <div className="lg:col-span-2 space-y-4">
-            {/* Transaction Header Card */}
-            <Card className="p-4 sm:p-5 bg-card border border-border rounded-xl shadow-sm">
-              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4 mb-3">
-                <div className="flex items-center gap-3 sm:gap-4">
-                  <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl flex items-center justify-center flex-shrink-0 bg-green-600/15 dark:bg-green-500/20 border border-green-600/30 dark:border-green-500/30">
-                    <span className="text-green-700 dark:text-green-300 font-bold text-lg sm:text-xl">
-                      {transaction.merchant_name ? transaction.merchant_name.charAt(0).toUpperCase() : 'T'}
-                    </span>
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <h2 className="text-lg sm:text-xl font-bold text-foreground truncate">{transaction.merchant_name}</h2>
-                    <p className="text-muted-foreground text-sm">
-                      {formatTransactionDate(transaction.date, 'en-US', {
-                        month: 'numeric',
-                        day: 'numeric',
-                        year: 'numeric'
-                      })}
-                      {transaction.datetime && (
-                        <span className="ml-2 text-xs">
-                          {new Date(transaction.datetime).toLocaleTimeString('en-US', {
-                            hour: 'numeric',
-                            minute: '2-digit',
-                            hour12: true
-                          })}
-                        </span>
-                      )}
-                    </p>
-                  </div>
-                </div>
-                <div className="text-left sm:text-right flex sm:block items-center justify-between sm:justify-end gap-2">
-                  <div className="text-xl sm:text-2xl font-bold text-foreground">
-                    ${Math.abs(transaction.amount).toFixed(2)}
-                  </div>
-                  <div className={`text-sm font-medium ${classification === 'business' ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}`}>
-                    {classification === 'business' ? 'Marked business' : classification === 'personal' ? 'Marked personal' : 'Tax review needed'}
-                  </div>
-                </div>
+      <div className="mx-auto grid max-w-4xl gap-3 px-3 py-3 sm:px-5 sm:py-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] lg:items-start">
+        <Card className="min-w-0 overflow-hidden rounded-xl shadow-sm motion-safe:hover:translate-y-0">
+          <div className="border-b border-border p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="break-words text-lg font-semibold leading-snug">{transaction.merchant_name || 'Transaction'}</h2>
+                <p className="mt-1 text-xs text-muted-foreground">{formatTransactionDate(transaction.date, 'en-US', { month: 'short', day: 'numeric', year: 'numeric' })}{transaction.amount < 0 ? ' · Money in' : ' · Money out'}</p>
               </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge className={`border ${getCategoryBadgeClass(transaction.category)} rounded-lg`}>
-                  {consolidateCategory(transaction.category).displayName}
-                </Badge>
-                {transaction.description && (
-                  <span className="text-muted-foreground text-sm truncate max-w-full">{transaction.description}</span>
-                )}
-              </div>
-            </Card>
-
-            {/* AI Analysis Card */}
-            <Card className="p-4 sm:p-5 bg-card border border-border rounded-xl shadow-sm">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-lg bg-green-600/15 dark:bg-green-500/20 flex items-center justify-center">
-                    <Bot className="w-4 h-4 text-green-700 dark:text-green-300" />
-                  </div>
-                  <span className="font-semibold text-foreground">AI Analysis</span>
-                </div>
-                <Button
-                  onClick={handleAnalyzeTransaction}
-                  disabled={isAnalyzing || analysisBlocked}
-                  variant="outline"
-                  size="sm"
-                  className="text-green-700 dark:text-green-300 border-green-600/50 dark:border-green-500/50 hover:bg-green-600/10 dark:hover:bg-green-500/10"
-                >
-                  {isAnalyzing ? (
-                    <>
-                      <div className="w-3 h-3 border-2 border-green-600 dark:border-green-400 border-t-transparent rounded-full animate-spin mr-2" />
-                      Analyzing...
-                    </>
-                  ) : (
-                    <>
-                      <Bot className="w-3 h-3 mr-2" />
-                      {aiAvailability.status === 'checking' ? 'Checking AI…' : analysisBlocked ? 'AI unavailable' : 'Run AI Analysis'}
-                    </>
-                  )}
-                </Button>
-              </div>
-
-              <div className="mb-4 rounded-lg border border-border bg-muted/50 p-3 text-sm text-muted-foreground" role="status">
-                <p>{aiAvailability.message}</p>
-                {aiAvailability.status === 'unavailable' && <p className="mt-1">You can still edit notes, attach receipts and record your classification manually.</p>}
-                {(analysisUnavailable || aiAvailability.status === 'unavailable') && (
-                  <Button variant="outline" size="sm" className="mt-2" onClick={checkAiAvailability} disabled={isAnalyzing || aiAvailability.status === 'checking'}>
-                    Check AI availability
-                  </Button>
-                )}
-              </div>
-
-              {analysisError && (
-                <div className="mb-4 p-3 rounded-lg bg-red-500/10 dark:bg-red-900/20 border border-red-300 dark:border-red-700">
-                  <div className="flex items-center gap-2 text-red-700 dark:text-red-300">
-                    <AlertTriangle className="w-4 h-4" />
-                    <span className="text-sm font-medium">{analysisUnavailable ? 'AI unavailable' : 'Analysis incomplete'}</span>
-                  </div>
-                  <p className="text-sm text-red-600 dark:text-red-400 mt-1">{analysisError}</p>
-                  <p className="text-sm text-red-600 dark:text-red-400 mt-1">After provider configuration or usage limits change, check availability and explicitly run analysis again. The configuration check does not verify funding.</p>
-                </div>
-              )}
-
-              {isAnalyzing ? (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-3 text-green-600 dark:text-green-400">
-                    <div className="w-4 h-4 border-2 border-green-600 dark:border-green-400 border-t-transparent rounded-full animate-spin" />
-                    <span className="text-sm font-medium">Analyzing transaction...</span>
-                  </div>
-                  <div className="space-y-2">
-                    <div className="h-4 bg-muted rounded animate-pulse" />
-                    <div className="h-4 bg-muted rounded animate-pulse w-3/4" />
-                    <div className="h-4 bg-muted rounded animate-pulse w-1/2" />
-                  </div>
-                </div>
-              ) : transaction.ai_suggestion ? (
-                <div className="space-y-4">
-                  <AiTaxExplanation suggestion={transaction.ai_suggestion} />
-                  <Button variant="outline" onClick={() => router.push(protectedScreenUrl('review-transactions'))}>
-                    Confirm or correct in review
-                  </Button>
-                </div>
-              ) : (transaction.deductionStatus || transaction.ai) ? (
-                <div className="space-y-4">
-                  <div className="space-y-3">
-                    <h4 className="font-semibold text-foreground">Earlier analysis</h4>
-                    <p className="text-sm text-muted-foreground">Run AI analysis again to get a current category suggestion, reviewed tax sources and questions about missing facts.</p>
-                    <div className="p-4 rounded-lg bg-muted/50 dark:bg-muted/30 border border-border">
-                      <ul className="text-sm text-muted-foreground space-y-2">
-                        <li>• <strong>Date:</strong> {formatTransactionDate(transaction.date, 'en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          year: 'numeric'
-                        })}
-                        {transaction.datetime && (
-                          <span className="ml-1 text-xs">
-                            at {new Date(transaction.datetime).toLocaleTimeString('en-US', {
-                              hour: 'numeric',
-                              minute: '2-digit',
-                              hour12: true
-                            })}
-                          </span>
-                        )}
-                        </li>
-                        <li>• <strong>Deduction Status:</strong> {transaction.deductionStatus || transaction.ai?.key_analysis_factors?.deduction_status || transaction.ai?.status_label || 'Not Analyzed'}</li>
-                        <li>• <strong>Reasoning:</strong> {transaction.reasoning || transaction.ai?.key_analysis_factors?.reasoning_summary || transaction.ai?.reasoning || transaction.deductible_reason || 'No saved reasoning'}</li>
-                        {(transaction.ai?.key_analysis_factors?.irs_reference || (transaction.irsPublication || transaction.irsSection) || (transaction.ai?.irs?.publication || transaction.ai?.irs?.section)) && (
-                          <li>• <strong>IRS Reference:</strong> {transaction.ai?.key_analysis_factors?.irs_reference ||
-                            `${transaction.irsPublication || transaction.ai?.irs?.publication ? `Publication ${transaction.irsPublication || transaction.ai?.irs?.publication}` : ''}${(transaction.irsPublication || transaction.ai?.irs?.publication) && (transaction.irsSection || transaction.ai?.irs?.section) ? ', ' : ''}${transaction.irsSection || transaction.ai?.irs?.section ? `Section ${transaction.irsSection || transaction.ai?.irs?.section}` : ''}`
-                          }</li>
-                        )}
-                      </ul>
-                    </div>
-
-                    {/* Additional AI Analysis Info */}
-                    {transaction.ai && (
-                      <>
-                        {/* Suggested Documents */}
-                        {transaction.ai.required_docs && transaction.ai.required_docs.length > 0 && (
-                          <div className="p-3 rounded-lg bg-muted/50 dark:bg-muted/30 border border-border">
-                            <div className="flex items-start gap-2">
-                              <div className="w-2 h-2 rounded-full mt-2 flex-shrink-0 bg-green-600 dark:bg-green-400" />
-                              <div>
-                                <span className="text-sm font-medium text-foreground block mb-1">Suggested Documents</span>
-                                <ul className="text-sm text-muted-foreground space-y-1">
-                                  {transaction.ai.required_docs.map((doc: string, index: number) => (
-                                    <li key={index}>• {doc}</li>
-                                  ))}
-                                </ul>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
-                      </>
-                    )}
-                  </div>
-
-                  {/* Analysis timestamp */}
-                  {(transaction.analysisUpdatedAt || transaction.ai?.last_analyzed_at) && (
-                    <div className="text-xs text-muted-foreground text-center">
-                      Last analyzed: {new Date(transaction.analysisUpdatedAt || transaction.ai?.last_analyzed_at || Date.now()).toLocaleString()}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <p className="text-foreground/90">
-                    {transaction.ai_analysis || transaction.deductible_reason || 'No AI assessment is saved. Review the business purpose and supporting receipt yourself. Optional AI suggestions depend on service availability and do not establish deductibility.'}
-                  </p>
-                  <div className="space-y-3">
-                    <h4 className="font-semibold text-foreground">Key Analysis Factors</h4>
-                    <div className="p-4 rounded-lg bg-muted/50 dark:bg-muted/30 border border-border">
-                      <ul className="text-sm text-muted-foreground space-y-2">
-                        <li>• <strong className="text-foreground">Date:</strong> {formatTransactionDate(transaction.date, 'en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          year: 'numeric'
-                        })}
-                        {transaction.datetime && (
-                          <span className="ml-1 text-xs">
-                            at {new Date(transaction.datetime).toLocaleTimeString('en-US', {
-                              hour: 'numeric',
-                              minute: '2-digit',
-                              hour12: true
-                            })}
-                          </span>
-                        )}
-                        </li>
-                        <li>• <strong className="text-foreground">Deduction Status:</strong> Not yet analyzed</li>
-                        <li>• <strong className="text-foreground">Review:</strong> Record the business purpose and discuss uncertain treatment with your tax preparer.</li>
-                      </ul>
-                    </div>
-                  </div>
-                  <div className="text-center py-4">
-                    <p className="text-sm text-muted-foreground mb-3">No AI analysis available</p>
-                    <Button
-                      onClick={handleAnalyzeTransaction}
-                      disabled={isAnalyzing || analysisBlocked}
-                      className="bg-green-600 hover:bg-green-700 dark:bg-green-700 dark:hover:bg-green-600 text-white"
-                    >
-                      {isAnalyzing ? (
-                        <>
-                          <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
-                          Analyzing...
-                        </>
-                      ) : (
-                        <>
-                          <Bot className="w-4 h-4 mr-2" />
-                          {aiAvailability.status === 'checking' ? 'Checking AI…' : analysisBlocked ? 'AI unavailable' : 'Analyze Transaction'}
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </Card>
-
-            {/* Add Context Card */}
-            <Card className="p-4 sm:p-5 bg-card border border-border rounded-xl shadow-sm">
-              <h3 className="text-lg font-semibold text-foreground mb-3">Add Context</h3>
-              <Textarea
-                placeholder="Tell us more about this purchase..."
-                value={additionalContext}
-                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
-                  const next = e.target.value;
-                  setAdditionalContext(next);
-                  debouncedSave({ notes: next });
-                }}
-                className="min-h-[100px] rounded-lg border-border bg-background text-foreground placeholder:text-muted-foreground"
-              />
-              {additionalContext !== (transaction.notes || '') && (
-                <p className="mt-2 text-sm text-green-600 dark:text-green-400">Notes modified - click Save Changes to save</p>
-              )}
-            </Card>
-
-            {/* Receipt Upload Card */}
-            <Card className="p-4 sm:p-5 bg-card border border-border rounded-xl shadow-sm">
-              <h3 className="text-lg font-semibold text-foreground mb-3">Receipt</h3>
-
-              {transaction.receipt_url ? (
-                <div className="space-y-4">
-                  <div className="flex flex-wrap items-center gap-3 p-4 rounded-lg bg-green-500/10 dark:bg-green-600/20 border border-green-600/30 dark:border-green-500/30">
-                    <div className="w-10 h-10 rounded-full flex items-center justify-center bg-green-600/20 dark:bg-green-500/20">
-                      <FileText className="w-5 h-5 text-green-700 dark:text-green-300" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-foreground truncate">{transaction.receipt_filename}</p>
-                      <p className="text-sm text-muted-foreground">Receipt attached to this transaction</p>
-                    </div>
-                    <div className="flex gap-2">
-                      <ReceiptPreview key={transaction.receipt_url} url={transaction.receipt_url} filename={transaction.receipt_filename} />
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleReceiptDelete}
-                        className="border-red-600/50 text-red-700 dark:text-red-300 hover:bg-red-600/10"
-                      >
-                        <Trash2 className="w-4 h-4 mr-1" />
-                        Delete
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              ) : showCamera ? (
-                // Camera view
-                <div className="space-y-4">
-                  <div className="relative bg-black rounded-lg overflow-hidden">
-                    <video
-                      ref={videoRef}
-                      autoPlay
-                      muted
-                      playsInline
-                      className="w-full h-64 object-cover"
-                    />
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="bg-white/20 backdrop-blur-sm rounded-full p-4">
-                        <div className="w-32 h-32 border-2 border-white border-dashed rounded-lg flex items-center justify-center">
-                          <span className="text-white text-sm">Receipt Area</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex gap-3">
-                    <Button
-                      onClick={takePhoto}
-                      className="flex-1 bg-green-600 hover:bg-green-700 dark:bg-green-700 dark:hover:bg-green-600 text-white"
-                    >
-                      <Camera className="w-4 h-4 mr-2" />
-                      Take Photo
-                    </Button>
-                    <Button
-                      onClick={stopCamera}
-                      variant="outline"
-                      className="flex-1"
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                  <canvas ref={canvasRef} className="hidden" />
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <div className="border-2 border-dashed border-border rounded-xl p-6 text-center bg-muted/20 dark:bg-muted/10">
-                    <div className="w-10 h-10 rounded-full flex items-center justify-center mx-auto mb-3 bg-muted">
-                      <Upload className="w-5 h-5 text-muted-foreground" />
-                    </div>
-                    <h4 className="text-base font-medium text-foreground mb-2">Add Receipt</h4>
-                    <p className="text-sm text-muted-foreground mb-4">
-                      Attach a receipt to support this transaction
-                    </p>
-                    <div className="flex gap-2 justify-center">
-                      <Button onClick={startCamera} variant="outline" size="sm" className="flex-1 max-w-28">
-                        <Camera className="w-4 h-4 mr-1" />
-                        Photo
-                      </Button>
-                      <input type="file" id="receipt-upload" accept="image/*,.pdf" onChange={handleReceiptFileSelect} className="hidden" />
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => document.getElementById('receipt-upload')?.click()}
-                        className="flex-1 max-w-28"
-                      >
-                        <Upload className="w-4 h-4 mr-1" />
-                        Upload
-                      </Button>
-                    </div>
-                    {receiptFile && (
-                      <div className="mt-4 p-3 rounded-lg bg-green-500/10 dark:bg-green-600/20 border border-green-600/30">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <FileText className="w-4 h-4 text-green-700 dark:text-green-300 shrink-0" />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-foreground truncate">{receiptFile.name}</p>
-                            <p className="text-xs text-muted-foreground">{(receiptFile.size / 1024 / 1024).toFixed(2)} MB</p>
-                          </div>
-                          <Button
-                            onClick={handleReceiptUpload}
-                            disabled={isUploadingReceipt}
-                            size="sm"
-                            className="bg-green-600 hover:bg-green-700 dark:bg-green-700 dark:hover:bg-green-600 text-white shrink-0"
-                          >
-                            {isUploadingReceipt ? (
-                              <div className="flex items-center gap-1">
-                                <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                <span className="text-xs">Uploading...</span>
-                              </div>
-                            ) : (
-                              'Upload'
-                            )}
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                    <p className="text-xs text-muted-foreground mt-3">JPG, PNG, GIF, PDF (max 10MB)</p>
-                  </div>
-                </div>
-              )}
-            </Card>
+              <p className="shrink-0 text-xl font-semibold tabular-nums">${Math.abs(transaction.amount).toFixed(2)}</p>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+              <Badge variant="outline" className="max-w-full whitespace-normal rounded-md font-normal">{consolidateCategory(transaction.category).displayName}</Badge>
+              <span className="text-muted-foreground">{transaction.is_deductible === true ? 'Deduction recorded' : transaction.is_deductible === false ? 'No deduction recorded' : 'Tax review needed'}</span>
+            </div>
           </div>
 
-          {/* Right Column - Status & Tax Info */}
-          <div className="space-y-4">
-            {/* Status Card */}
-            <Card className="p-4 sm:p-5 bg-card border border-border rounded-xl shadow-sm">
-              <h3 className="font-semibold text-foreground mb-3">Status</h3>
-
-              <div className="space-y-3 mb-4">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-muted-foreground">Tax classification</span>
-                  <Badge className={`border-0 rounded-full ${classification === null
-                      ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200'
-                      : classification === 'business'
-                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200'
-                        : 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200'
-                    }`}>
-                    {classification === null
-                      ? 'Needs Review'
-                      : classification === 'business'
-                        ? 'Marked business'
-                        : 'Personal'
-                    }
-                  </Badge>
-                </div>
-
-                <p className="text-xs text-muted-foreground">A business classification records your choice. Eligibility, business use and deduction limits require separate review.</p>
-
-                {isSaving && (
-                  <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
-                    <div className="w-3 h-3 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
-                    <span>Saving changes...</span>
-                  </div>
-                )}
-              </div>
-
-              {classification === null && (
-                <div className="mb-2 p-3 rounded-lg bg-green-500/10 dark:bg-green-600/20 border border-green-600/30 dark:border-green-500/30">
-                  <p className="text-sm text-foreground text-center">
-                    Please select whether this is a business or personal expense
-                  </p>
-                </div>
-              )}
-              <div className="space-y-2">
-                <button
-                  onClick={() => handleClassificationChange('business')}
-                  disabled={isSaving}
-                  aria-label="Mark as business expense"
-                  aria-describedby="business-expense-description"
-                  className={`w-full p-3 rounded-lg border-2 transition-all duration-200 ${classification === 'business'
-                      ? 'bg-emerald-50 border-emerald-300 text-emerald-800 dark:bg-emerald-900/30 dark:border-emerald-600/50 dark:text-emerald-200'
-                      : 'bg-muted/50 border-border text-foreground hover:bg-muted dark:bg-muted/30 dark:border-border dark:hover:bg-muted/50'
-                    } ${isSaving ? 'opacity-50 cursor-not-allowed' : ''}`}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center ${classification === 'business' ? 'bg-emerald-600 dark:bg-emerald-500' : 'bg-muted dark:bg-muted/80'
-                      }`}>
-                      {classification === 'business' ? (
-                        <CheckCircle className="w-4 h-4 text-white" />
-                      ) : (
-                        <Building2 className="w-4 h-4 text-muted-foreground" />
-                      )}
-                    </div>
-                    <div className="text-left">
-                      <p className="font-medium text-foreground">Business Expense</p>
-                      <p className="text-sm text-muted-foreground" id="business-expense-description">
-                        Record business use; tax limits still apply
-                      </p>
-                    </div>
-                    {classification === 'business' && classification !== (transaction.is_deductible === null
-                      ? null
-                      : transaction.is_deductible
-                        ? 'business'
-                        : 'personal') && (
-                        <div className="ml-auto">
-                          <span className="text-xs bg-green-500/20 text-green-700 dark:text-green-300 px-2 py-1 rounded-full">
-                            Modified
-                          </span>
-                        </div>
-                      )}
-                  </div>
-                </button>
-
-                <button
-                  onClick={() => handleClassificationChange('personal')}
-                  disabled={isSaving}
-                  aria-label="Mark as personal expense - not tax deductible"
-                  aria-describedby="personal-expense-description"
-                  className={`w-full p-3 rounded-lg border-2 transition-all duration-200 ${classification === 'personal'
-                      ? 'bg-red-50 border-red-300 text-red-800 dark:bg-red-900/30 dark:border-red-600/50 dark:text-red-200'
-                      : 'bg-muted/50 border-border text-foreground hover:bg-muted dark:bg-muted/30 dark:border-border dark:hover:bg-muted/50'
-                    } ${isSaving ? 'opacity-50 cursor-not-allowed' : ''}`}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center ${classification === 'personal' ? 'bg-red-600 dark:bg-red-500' : 'bg-muted dark:bg-muted/80'
-                      }`}>
-                      {classification === 'personal' ? (
-                        <XCircle className="w-4 h-4 text-white" />
-                      ) : (
-                        <User className="w-4 h-4 text-muted-foreground" />
-                      )}
-                    </div>
-                    <div className="text-left">
-                      <p className="font-medium text-foreground">Personal Expense</p>
-                      <p className="text-sm text-muted-foreground" id="personal-expense-description">
-                        Not deductible
-                      </p>
-                    </div>
-                    {classification === 'personal' && classification !== (transaction.is_deductible === null
-                      ? null
-                      : transaction.is_deductible
-                        ? 'business'
-                        : 'personal') && (
-                        <div className="ml-auto">
-                          <span className="text-xs bg-green-500/20 text-green-700 dark:text-green-300 px-2 py-1 rounded-full">
-                            Modified
-                          </span>
-                        </div>
-                      )}
-                  </div>
-                </button>
-              </div>
-            </Card>
-
-            {/* Preparer review and authoritative tax planning */}
-            <Card className="p-4 sm:p-5 bg-card border border-border rounded-xl shadow-sm">
-              <h3 className="font-semibold text-foreground mb-3">Review with your preparer</h3>
-              <p className="text-sm text-muted-foreground">
-                Keep the receipt and business-purpose notes for your own tax preparer. WriteOff does not provide a CPA review service or a promised response time.
-              </p>
-            </Card>
-
-            <Card className="p-4 sm:p-5 bg-card border border-border rounded-xl shadow-sm">
-              <h3 className="font-semibold text-foreground mb-3">Federal tax planning</h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                Tax impact depends on your full-year income and supported tax facts. Review the shared annual estimate in Tax Preview; this record does not establish a tax rate or savings amount.
-              </p>
-              <Button variant="outline" className="w-full" onClick={() => router.push(protectedScreenUrl('tax-preview'))}>
-                Open Tax Preview
+          <div className="space-y-3 p-4">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="flex items-center gap-2 text-sm font-semibold"><Bot className="h-4 w-4 text-primary" />AI review</h3>
+              <Button onClick={handleAnalyzeTransaction} disabled={isAnalyzing || analysisBlocked} variant="ghost" size="sm" className="h-11 shrink-0 px-2 text-primary">
+                {isAnalyzing ? 'Analyzing…' : aiAvailability.status === 'checking' ? 'Checking AI…' : analysisBlocked ? 'AI unavailable' : 'Run AI Analysis'}
               </Button>
-            </Card>
+            </div>
+            {(aiAvailability.status !== 'configured' || analysisUnavailable) && !analysisError && <div className="rounded-lg bg-muted p-3 text-sm" role="status">
+              <p>{aiAvailability.message}</p>
+              {aiAvailability.status === 'unavailable' && <p className="mt-1 text-xs">You can still edit notes, attach receipts and record your classification manually.</p>}
+            </div>}
+            {analysisError && <div className="rounded-lg bg-red-500/10 p-3 text-sm text-red-800 dark:text-red-200" role="alert">
+              <p className="font-medium">{analysisUnavailable ? 'AI unavailable' : 'Analysis incomplete'}</p>
+              <p className="mt-1">{analysisError}</p>
+              <p className="mt-2 text-xs">Retry when service is restored. The configuration check does not verify funding.</p>
+            </div>}
+            {(analysisUnavailable || aiAvailability.status === 'unavailable') && <Button variant="outline" size="sm" className="h-11" onClick={checkAiAvailability} disabled={isAnalyzing || aiAvailability.status === 'checking'}>Check AI availability</Button>}
 
-            {/* Transaction Context Card */}
-            <Card className="p-4 sm:p-5 bg-card border border-border rounded-xl shadow-sm">
-              <h3 className="font-semibold text-foreground mb-3">Transaction Context</h3>
-              <div className="space-y-4">
-                <div>
-                  <label htmlFor="business-purpose" className="block text-sm font-medium text-foreground mb-2">
-                    Business Purpose
-                  </label>
-                  <Textarea
-                    id="business-purpose"
-                    placeholder="Why was this expense necessary for your business?"
-                    value={businessPurpose}
-                    onChange={(e) => {
-                      const next = e.target.value;
-                      setBusinessPurpose(next);
-                      const updates = { business_purpose: next };
-                      debouncedSave(updates);
-                    }}
-                    className="min-h-[80px] rounded-lg border-border bg-background text-foreground placeholder:text-muted-foreground"
-                    maxLength={500}
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="client-project" className="block text-sm font-medium text-foreground mb-2">
-                    Client/Project
-                  </label>
-                  <input
-                    id="client-project"
-                    type="text"
-                    placeholder="Associated client or project name"
-                    value={clientProject}
-                    onChange={(e) => {
-                      const next = e.target.value;
-                      setClientProject(next);
-                      const updates = { client_project: next };
-                      debouncedSave(updates);
-                    }}
-                    className="w-full px-3 py-2 rounded-lg border border-border bg-background text-foreground placeholder:text-muted-foreground focus:ring-2 focus:ring-green-500/50 focus:border-green-500"
-                    maxLength={100}
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="documentation-status" className="block text-sm font-medium text-foreground mb-2">
-                    Documentation Status
-                  </label>
-                  <select
-                    id="documentation-status"
-                    value={documentationStatus || 'missing'}
-                    onChange={(e) => {
-                      const next = e.target.value as 'complete' | 'partial' | 'missing';
-                      setDocumentationStatus(next);
-                      const updates = { documentation_status: next };
-                      debouncedSave(updates);
-                    }}
-                    className="w-full px-3 py-2 rounded-lg border border-border bg-background text-foreground focus:ring-2 focus:ring-green-500/50 focus:border-green-500"
-                  >
-                    <option value="missing">Missing</option>
-                    <option value="partial">Partial</option>
-                    <option value="complete">Complete</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label htmlFor="meeting-notes" className="block text-sm font-medium text-foreground mb-2">
-                    Meeting Notes
-                  </label>
-                  <Textarea
-                    id="meeting-notes"
-                    placeholder="Notes about business meetings or discussions"
-                    value={meetingNotes}
-                    onChange={(e) => {
-                      const next = e.target.value;
-                      setMeetingNotes(next);
-                      const updates = { meeting_notes: next };
-                      debouncedSave(updates);
-                    }}
-                    className="min-h-[80px] rounded-lg border-border bg-background text-foreground placeholder:text-muted-foreground"
-                    maxLength={500}
-                  />
-                </div>
-              </div>
-            </Card>
+            {isAnalyzing ? <div className="space-y-3 py-2" role="status"><p className="text-sm text-muted-foreground">Analyzing transaction…</p><div className="h-4 animate-pulse rounded bg-muted" /><div className="h-4 w-3/4 animate-pulse rounded bg-muted" /></div>
+              : transaction.ai_suggestion ? <AiTaxExplanation suggestion={transaction.ai_suggestion} compact />
+              : <div className="space-y-2 text-sm text-muted-foreground">
+                <p>{transaction.deductionStatus || transaction.ai ? 'Run analysis again for a current category, tax explanation and sources.' : 'No AI suggestion yet. Add a business purpose, then run analysis.'}</p>
+                {(transaction.ai || transaction.ai_analysis || transaction.deductible_reason || transaction.reasoning) && <details className="group rounded-lg border border-border">
+                  <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between px-3 font-medium [&::-webkit-details-marker]:hidden">Earlier analysis<ChevronDown className="h-4 w-4 group-open:rotate-180" /></summary>
+                  <div className="space-y-2 border-t border-border p-3"><p>{transaction.reasoning || transaction.ai?.key_analysis_factors?.reasoning_summary || transaction.ai?.reasoning || transaction.ai_analysis || transaction.deductible_reason || 'No saved explanation.'}</p><p className="text-xs">Earlier guidance has not been verified against the current facts. Run analysis again before relying on it.</p></div>
+                </details>}
+              </div>}
+            {transaction.ai_suggestion && <Button className="h-11 w-full" onClick={() => navigateFromTransaction(protectedScreenUrl(`review-transactions?transactionId=${encodeURIComponent(getTransactionId(transaction))}`))}>Confirm or change category<ArrowRight className="h-4 w-4" /></Button>}
           </div>
-        </div>
+        </Card>
 
-        {/* Action Buttons */}
-        <div className="mt-6">
-          <div className="flex flex-wrap justify-center items-center gap-4">
-            <Button
-              onClick={handleBackNavigation}
-              variant="outline"
-              className="h-12 px-8 rounded-lg border-border bg-card text-foreground hover:bg-muted"
-            >
-              Back to Transactions
-            </Button>
+        <div className="min-w-0 space-y-2">
+          <details className="group rounded-xl border border-border bg-card" open={showCamera || receiptFile !== null ? true : undefined} onToggle={event => { if (!event.currentTarget.open && showCamera) stopCamera(); }}>
+            <summary className="flex min-h-[52px] cursor-pointer list-none items-center gap-3 px-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+              <FileText aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="flex-1 text-sm font-medium">Receipt</span>
+              <span className="text-xs text-muted-foreground">{transaction.receipt_url ? 'Attached' : 'Add receipt'}</span>
+              <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" />
+            </summary>
+            <div className="space-y-3 border-t border-border p-4">
+              {transaction.receipt_url ? <div className="space-y-2">
+                <p className="break-words text-sm">{transaction.receipt_filename || 'Receipt attached'}</p>
+                <div className="flex flex-wrap items-center gap-2"><ReceiptPreview key={transaction.receipt_url} url={transaction.receipt_url} filename={transaction.receipt_filename} /><Button variant="outline" size="sm" onClick={handleReceiptDelete} className="h-11 text-destructive"><Trash2 className="h-4 w-4" />Delete</Button></div>
+              </div> : showCamera ? <div className="space-y-3">
+                <video ref={videoRef} autoPlay muted playsInline className="max-h-64 w-full rounded-lg bg-black object-cover" />
+                <div className="flex gap-2"><Button onClick={takePhoto} className="h-11 flex-1"><Camera className="h-4 w-4" />Take Photo</Button><Button onClick={stopCamera} variant="outline" className="h-11 flex-1">Cancel</Button></div>
+                <canvas ref={canvasRef} className="hidden" />
+              </div> : <>
+                <div className="flex gap-2"><Button onClick={startCamera} variant="outline" className="h-11 flex-1"><Camera className="h-4 w-4" />Photo</Button><input type="file" id="receipt-upload" accept="image/*,.pdf" onChange={handleReceiptFileSelect} className="hidden" /><Button variant="outline" onClick={() => document.getElementById('receipt-upload')?.click()} className="h-11 flex-1"><Upload className="h-4 w-4" />Choose file</Button></div>
+                <p className="text-xs text-muted-foreground">JPG, PNG, GIF or PDF · up to 10 MB</p>
+                {receiptFile && <div className="space-y-2 rounded-lg bg-muted p-3"><p className="break-words text-sm">{receiptFile.name}</p><Button onClick={handleReceiptUpload} disabled={isUploadingReceipt} className="h-11 w-full">{isUploadingReceipt ? 'Uploading…' : 'Upload receipt'}</Button></div>}
+              </>}
+            </div>
+          </details>
 
-            {classification === null && (
-              <div className="flex items-center justify-center gap-2 rounded-lg p-3 bg-amber-500/10 dark:bg-amber-600/20 border border-amber-600/30 dark:border-amber-500/30 text-amber-800 dark:text-amber-200">
-                <AlertTriangle className="w-4 h-4 shrink-0" />
-                <span className="text-sm font-medium">Please select whether this is a business or personal expense</span>
+          <details className="group rounded-xl border border-border bg-card">
+            <summary className="flex min-h-[52px] cursor-pointer list-none items-center gap-3 px-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+              <Building2 aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" /><span className="flex-1 text-sm font-medium">Business purpose & notes</span><ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" />
+            </summary>
+            <div className="space-y-3 border-t border-border p-4">
+              <p className="text-xs text-muted-foreground">Add the facts AI needs. Changes save automatically; run analysis again to update the suggestion.</p>
+              {(transaction.description || transaction.datetime) && <div className="space-y-1 rounded-lg bg-muted p-3 text-xs text-muted-foreground"><p className="font-medium text-foreground">Original transaction details</p>{transaction.description && <p className="break-words">{transaction.description}</p>}{transaction.datetime && <p>{new Date(transaction.datetime).toLocaleString()}</p>}</div>}
+              <div><label htmlFor="business-purpose" className="mb-1 block text-sm font-medium">Business Purpose</label><Textarea id="business-purpose" placeholder="Why was this expense necessary for your business?" value={businessPurpose} onChange={e => { const next = e.target.value; setBusinessPurpose(next); debouncedSave({ business_purpose: next }); }} className="min-h-20 rounded-lg bg-background" maxLength={500} /></div>
+              <div><label htmlFor="client-project" className="mb-1 block text-sm font-medium">Client/Project</label><input id="client-project" type="text" placeholder="Associated client or project name" value={clientProject} onChange={e => { const next = e.target.value; setClientProject(next); debouncedSave({ client_project: next }); }} className="min-h-11 w-full rounded-lg border border-border bg-background px-3 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:text-sm" maxLength={100} /></div>
+              <div><label htmlFor="transaction-notes" className="mb-1 block text-sm font-medium">Notes</label><Textarea id="transaction-notes" placeholder="Tell us more about this purchase..." value={additionalContext} onChange={e => { const next = e.target.value; setAdditionalContext(next); debouncedSave({ notes: next }); }} className="min-h-20 rounded-lg bg-background" /></div>
+              <div><label htmlFor="documentation-status" className="mb-1 block text-sm font-medium">Documentation Status</label><select id="documentation-status" value={documentationStatus || 'missing'} onChange={e => { const next = e.target.value as 'complete' | 'partial' | 'missing'; setDocumentationStatus(next); debouncedSave({ documentation_status: next }); }} className="min-h-11 w-full rounded-lg border border-border bg-background px-3 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:text-sm"><option value="missing">Missing</option><option value="partial">Partial</option><option value="complete">Complete</option></select></div>
+              <div><label htmlFor="meeting-notes" className="mb-1 block text-sm font-medium">Meeting Notes</label><Textarea id="meeting-notes" placeholder="Notes about business meetings or discussions" value={meetingNotes} onChange={e => { const next = e.target.value; setMeetingNotes(next); debouncedSave({ meeting_notes: next }); }} className="min-h-20 rounded-lg bg-background" maxLength={500} /></div>
+            </div>
+          </details>
+
+          <details className="group rounded-xl border border-border bg-card">
+            <summary className="flex min-h-[52px] cursor-pointer list-none items-center gap-3 px-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden"><CheckCircle aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" /><span className="flex-1 text-sm font-medium">Tax treatment</span><ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" /></summary>
+            <div className="space-y-3 border-t border-border p-4">
+              <p className="text-sm text-muted-foreground">Only record a business deduction after confirming eligibility, business use and applicable limits. This is separate from confirming the category.</p>
+              <div className="grid grid-cols-2 gap-2">
+                <Button onClick={() => handleClassificationChange('business')} disabled={isSaving} aria-label="Mark as business expense" aria-pressed={classification === 'business'} variant={classification === 'business' ? 'default' : 'outline'} className="h-auto min-h-11 whitespace-normal px-2 py-2">Business deduction</Button>
+                <Button onClick={() => handleClassificationChange('personal')} disabled={isSaving} aria-label="Exclude from deductions" aria-pressed={classification === 'personal'} variant={classification === 'personal' ? 'default' : 'outline'} className="h-auto min-h-11 whitespace-normal px-2 py-2">No deduction</Button>
               </div>
-            )}
-
-            {classification && hasUnsavedChanges && (
-              <Button
-                onClick={handleSaveChanges}
-                disabled={isSaving}
-                className="h-12 px-8 rounded-lg bg-green-600 hover:bg-green-700 dark:bg-green-700 dark:hover:bg-green-600 text-white font-semibold disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-              >
-                {isSaving ? (
-                  <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    <span>Saving...</span>
-                  </div>
-                ) : (
-                  'Save Changes'
-                )}
-              </Button>
-            )}
-
-            {classification && !hasUnsavedChanges && (
-              <div className="flex items-center justify-center gap-2 rounded-lg p-3 bg-green-500/10 dark:bg-green-600/20 border border-green-600/30 dark:border-green-500/30 text-green-700 dark:text-green-300">
-                <CheckCircle className="w-4 h-4 shrink-0" />
-                <span className="text-sm font-medium">All changes saved</span>
-              </div>
-            )}
-          </div>
+              <p className="text-xs text-muted-foreground">Unsure? Leave tax treatment unresolved and keep your receipt for your preparer.</p>
+              <Button variant="ghost" onClick={() => navigateFromTransaction(protectedScreenUrl('tax-preview'))} className="h-11 w-full justify-between px-0">Open Tax Preview<ArrowRight className="h-4 w-4" /></Button>
+            </div>
+          </details>
         </div>
       </div>
 
-      {/* Unsaved Changes Confirmation Dialog */}
-      <ConfirmationDialog
-        open={showUnsavedDialog}
-        onOpenChange={setShowUnsavedDialog}
-        title="Unsaved Changes"
-        description="You have unsaved changes. Are you sure you want to leave? Your changes will be lost."
-        confirmLabel="Leave"
-        cancelLabel="Stay"
-        variant="destructive"
-        onConfirm={() => {
-          setShowUnsavedDialog(false);
-          performBackNavigation();
-        }}
-        onCancel={() => setShowUnsavedDialog(false)}
-      />
+      {hasUnsavedChanges && <div className="sticky bottom-0 z-20 border-t border-border bg-background/95 px-3 py-2 backdrop-blur" style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}>
+        <div className="mx-auto flex max-w-4xl items-center justify-between gap-3">
+          <span className="text-xs text-muted-foreground">{receiptFile ? 'Upload your selected receipt to attach it.' : isSaving ? 'Saving changes…' : 'Review and save your changes.'}</span>
+          <Button onClick={receiptFile ? handleReceiptUpload : handleSaveChanges} disabled={isSaving || isUploadingReceipt} className="h-11 shrink-0">{isUploadingReceipt ? 'Uploading…' : isSaving ? 'Saving...' : receiptFile ? 'Upload receipt' : 'Save Changes'}</Button>
+        </div>
+      </div>}
 
+      <ConfirmationDialog open={showUnsavedDialog} onOpenChange={setShowUnsavedDialog} title="Unsaved Changes" description="You have unsaved changes. Are you sure you want to leave? Your changes will be lost." confirmLabel="Leave" cancelLabel="Stay" variant="destructive" onConfirm={() => { setShowUnsavedDialog(false); performBackNavigation(); }} onCancel={() => setShowUnsavedDialog(false)} />
     </div>
   );
 };

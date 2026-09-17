@@ -110,6 +110,14 @@ describe('protected browser journey destinations', () => {
     expect(url.searchParams.get('transactionId')).toBe('abc&def');
     expect(url.searchParams.get('from')).toBe('review-transactions');
   });
+  it('preserves the selected record when opening review from transaction details', () => {
+    const url = new URL(protectedScreenUrl('review-transactions?transactionId=abc%26def%2Fghi&from=transaction-detail'), 'https://staging.example');
+    expect(url.searchParams.get('screen')).toBe('review-transactions');
+    expect(url.searchParams.get('transactionId')).toBe('abc&def/ghi');
+    expect(url.searchParams.get('from')).toBe('transaction-detail');
+    expect(protectedScreenUrl('review-transactions')).toBe('/protected?screen=review-transactions');
+    expect(protectedScreenUrl('receipt-upload?transactionId=unexpected')).toBe('/protected?screen=receipt-upload');
+  });
   it.each(['javascript:alert(1)', '//example.com', 'unknown-screen'])('keeps unknown destination %s inside the dashboard', value => {
     expect(protectedScreenUrl(value)).toBe('/protected');
     expect(protectedScreenUrl(previousProtectedScreen('transaction-detail', [], value).screen)).toBe('/protected');
