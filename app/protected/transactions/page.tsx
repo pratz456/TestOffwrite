@@ -1,7 +1,7 @@
 "use client";
 
 import { formatTransactionDate, transactionCalendarDate } from '@/lib/transactions/calendar-date';
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { Search, Filter, Camera, Plus, X, FileText, ChevronDown, ChevronRight, ArrowRight } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -76,6 +76,13 @@ export default function TransactionsPage() {
 
   // Use real-time transactions hook for instant updates
   const { transactions, isLoading: loading, error } = useTransactions(user?.id || '');
+
+  // Deep link from the assistant's "Review these charges" button: /protected/transactions?merchant=<name>.
+  // Read once on mount (no Suspense boundary needed); the value only seeds the search box.
+  useEffect(() => {
+    const merchant = new URLSearchParams(window.location.search).get('merchant')?.trim();
+    if (merchant) setSearchTerm(merchant.slice(0, 80));
+  }, []);
 
   // Handle error state
   if (error) {

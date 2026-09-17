@@ -1,5 +1,6 @@
 import type OpenAI from 'openai';
 import { GUIDANCE_TOPICS, modelSelectionSchema, priorMessages, type AssistantRequest, type GuidanceTopic, type ModelAssessment } from './contract';
+import { assistantContextForModel, composeForYou, type AssistantContext } from './context';
 import { guidanceSource, SELECTABLE_TOPICS, sourcesForYear, yearNotice, type SelectableTopic } from './knowledge';
 
 /**
@@ -52,8 +53,9 @@ const ROUTING_RULES = `Routing rules for confusable questions:
 - Equipment: a laptop, camera or monitor purchase -> computer-equipment; a recurring app or SaaS charge -> software-subscriptions; a website build, hosting or domain -> website-domain; phone bills -> cell-phone; internet bills -> home-internet.
 - Use business-expenses only when no specific packet fits an operating business cost.`;
 
-export function buildGuidanceMessages(input: AssistantRequest): OpenAI.Chat.ChatCompletionMessageParam[] {
+export function buildGuidanceMessages(input: AssistantRequest, context?: AssistantContext | null): OpenAI.Chat.ChatCompletionMessageParam[] {
   const packets = sourcesForYear(input.taxYear).filter(source => isSelectable(source.id));
+  const userContext = assistantContextForModel(context);
   return [
     {
       role: 'system',
@@ -70,7 +72,10 @@ Select up to five missingFactIds from the selected topic's REQUIRED FACTS below,
 ${ROUTING_RULES}
 
 Choose not-supported for W-2 employee deduction eligibility, detailed exceptions not in these packets, state/international taxes, credits, S corporation or partnership questions, rental real estate, investments or crypto, whole-return tax due, specific deductible amounts or savings, and unsupported entity issues. Never calculate an amount. For not-supported, missingFactIds must be empty.
-
+${userContext ? `
+USER CONTEXT (server-verified saved facts; use only to pick the packet and skip facts already known; the server writes every sentence the user reads):
+${userContext}
+` : ''}
 GUIDANCE PACKETS:
 ${JSON.stringify(packets.map(source => ({ id: source.id, title: source.title, summary: source.summary })))}
 REQUIRED FACTS:
@@ -88,6 +93,7 @@ ${JSON.stringify(packets.map(source => ({ topic: source.id, facts: topicFacts(so
 
 function fallback(input: AssistantRequest): ModelAssessment {
   return {
+    topic: 'business-expenses',
     status: 'needs_details',
     answer: 'I could not reliably match this question to the reviewed guidance. Please clarify the item and your work situation. A photo or merchant name alone cannot establish a deduction.',
     photoObservations: [],
@@ -107,6 +113,7 @@ export function validateAssessment(raw: unknown, input: AssistantRequest): Model
   // A photo does not confirm any of the required tax facts. Always surface the full checklist.
   const questions = (input.imageDataUrl ? facts : missing).map(fact => fact.question);
   return {
+    topic: selection.topic,
     status: selection.topic === 'not-supported' ? 'not_supported' : questions.length ? 'needs_details' : 'conditional',
     answer: `${topicAnswer(selection.topic, input.taxYear)}\n\n${selection.topic === 'not-supported' ? '' : 'This is conditional guidance, not a determination that your expense qualifies. '}No deduction amount or tax savings is calculated here.`,
     photoObservations: input.imageDataUrl
@@ -117,7 +124,7 @@ export function validateAssessment(raw: unknown, input: AssistantRequest): Model
   };
 }
 
-export function guidanceResponse(input: AssistantRequest, assessment: ModelAssessment) {
+export function guidanceResponse(input: AssistantRequest, assessment: ModelAssessment, context?: AssistantContext | null) {
   const reply = assessment.answer;
   // The topic's own source leads; cited supporting sources follow in citation order.
   const available = sourcesForYear(input.taxYear);
@@ -125,8 +132,11 @@ export function guidanceResponse(input: AssistantRequest, assessment: ModelAsses
     .flatMap(id => available.filter(source => source.id === id))
     .map(({ id, title, url, reviewedAt }) => ({ id, title, url, reviewedAt }));
   const historyReply = [reply, ...assessment.photoObservations.map(o => `Unverified photo observation: ${o}`), ...assessment.questions].join('\n');
+  // Personal facts are composed here from the owner's saved profile and rows; the model never sees or writes them.
+  const forYou = composeForYou(context, assessment.topic);
   return {
     reply,
+    forYou,
     conversationHistory: [...priorMessages(input), { role: 'user', content: input.message }, { role: 'assistant', content: historyReply }].slice(-12),
     assessment: {
       status: assessment.status,

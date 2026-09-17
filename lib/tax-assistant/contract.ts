@@ -76,6 +76,7 @@ export const modelSelectionSchema = z.object({
 export type GuidanceTopic = z.infer<typeof modelSelectionSchema>['topic'];
 
 export interface ModelAssessment {
+  topic: GuidanceTopic;
   status: 'needs_details' | 'conditional' | 'not_supported';
   answer: string;
   photoObservations: string[];
