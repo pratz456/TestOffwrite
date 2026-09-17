@@ -64,7 +64,11 @@ export function priorMessages(input: AssistantRequest) {
 }
 
 export const modelSelectionSchema = z.object({
-  topic: z.enum(['business-expenses', 'vehicles-records', 'depreciation', 'home-office', 'meals', 'not-supported']),
+  topic: z.enum([
+    'business-expenses', 'vehicles-records', 'depreciation', 'home-office', 'meals',
+    'tips-overtime', 'vehicle-loan-interest', 'senior-deduction', 'information-returns', 'charitable-non-itemizer',
+    'not-supported',
+  ]),
   missingFactIds: z.array(z.string().max(80)).max(5),
   photoCategories: z.array(z.enum(['vehicle', 'receipt', 'workspace', 'equipment', 'food', 'unclear'])).max(3),
 }).strict();

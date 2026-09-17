@@ -105,6 +105,39 @@ describe('reviewed guidance routing', () => {
     expect(assessment.answer).toContain('Employee exceptions');
   });
 
+  it.each([
+    ['tips-overtime', ['$25,000', '$150,000', 'net income of the business', 'specified service trade or business', 'independent contractor generally has no qualified overtime', 'self-employment tax still applies']],
+    ['vehicle-loan-interest', ['$10,000', 'after December 31, 2024', 'finally assembled in the United States', 'Leases, used vehicles']],
+    ['senior-deduction', ['$6,000', 'age 65', '6% of modified adjusted gross income above $75,000', 'does not make Social Security benefits tax-free']],
+    ['information-returns', ['exceed $20,000 and there are more than 200 transactions', '$600 rule and the IRS phase-in amounts were repealed', '$600 or more made in 2025 and $2,000 or more made in 2026']],
+    ['charitable-non-itemizer', ['Beginning with tax year 2026', '$1,000 ($2,000 on a joint return)', 'not available for tax year 2025', '0.5%']],
+  ] as const)('%s topic states the OBBBA rule with its statutory caveats and asks facts first', (topic, phrases) => {
+    const assessment = validateAssessment({ topic, missingFactIds: [`${topic}:1`], photoCategories: [] }, input);
+    expect(assessment.status).toBe('needs_details');
+    for (const phrase of phrases) expect(assessment.answer).toContain(phrase);
+    expect(assessment.answer).toContain('not a determination that your expense qualifies');
+    expect(assessment.questions).toHaveLength(1);
+    expect(assessment.questions[0]).toMatch(/\?$/);
+    const response = guidanceResponse(input, assessment);
+    expect(response.assessment.deductibleAmount).toBeNull();
+    expect(response.assessment.sources.every(source => /^https:\/\/(www\.irs\.gov|uscode\.house\.gov)\//.test(source.url))).toBe(true);
+    expect(response.assessment.sources.length).toBeGreaterThan(0);
+  });
+
+  it('describes the indexed 2027 1099-NEC threshold as unpublished instead of reusing the 2026 amount', () => {
+    const request = { ...input, taxYear: 2027 as const };
+    const assessment = validateAssessment({ topic: 'information-returns', missingFactIds: [], photoCategories: [] }, request);
+    expect(assessment.answer).toContain('2027 amount has not been published');
+    expect(assessment.answer).not.toContain('$2,000 or more made in 2027');
+    expect(guidanceResponse(request, assessment).assessment.yearNotice).toContain('pending');
+  });
+
+  it('does not describe tips or overtime as tax-free', () => {
+    const assessment = validateAssessment({ topic: 'tips-overtime', missingFactIds: [], photoCategories: [] }, input);
+    expect(assessment.answer).not.toMatch(/tax-free/i);
+    expect(assessment.answer).toContain('"no tax on tips" is a simplification');
+  });
+
   it('keeps 2027 availability explicit without substituting prior-year annual values', () => {
     const request = { ...input, taxYear: 2027 as const };
     const response = guidanceResponse(request, validateAssessment(vehicle, request));

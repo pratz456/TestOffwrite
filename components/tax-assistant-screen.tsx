@@ -284,7 +284,7 @@ export function TaxAssistantScreen({ user, onBack }: TaxAssistantScreenProps) {
             </select>
           </div>
           <p id={`${id}-year-note`} className="mt-1 text-xs leading-snug text-muted-foreground" role="status">
-            {taxYear === 2027 ? "2027 planning only · Annual limits are not verified." : "Guidance depends on your facts."}
+            {taxYear === 2027 ? "2027 planning only · Inflation-indexed 2027 amounts are pending IRS publication." : "Guidance depends on your facts."}
             <span className="sr-only"> Changing years starts a new conversation.</span>
           </p>
         </div>
