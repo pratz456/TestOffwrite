@@ -54,6 +54,7 @@ export function DashboardHeader({ userName, isRefreshing, onRefresh, lastSync, a
             variant="outline"
             size="sm"
             onClick={onRefresh}
+            aria-label={isRefreshing ? 'Refreshing dashboard' : 'Refresh dashboard'}
             disabled={isRefreshing}
             className="gap-2 min-h-[44px] h-9 sm:h-9 px-3 text-sm rounded-lg border border-border bg-card hover:bg-muted text-foreground font-medium transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >

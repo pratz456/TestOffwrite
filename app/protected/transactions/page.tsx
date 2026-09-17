@@ -2,7 +2,7 @@
 
 import { formatTransactionDate, transactionCalendarDate } from '@/lib/transactions/calendar-date';
 import React, { useState, useMemo } from 'react';
-import { Search, Calendar, ArrowUpDown, Filter, Camera, Plus, X, FileText, ChevronDown } from 'lucide-react';
+import { Search, Filter, Camera, Plus, X, FileText, ChevronDown, ChevronRight, ArrowRight } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/firebase/auth-context';
@@ -13,9 +13,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuTrigger,
-  DropdownMenuSeparator,
-  DropdownMenuLabel
+  DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import {
   Select,
@@ -71,6 +69,7 @@ export default function TransactionsPage() {
   const [amountRange, setAmountRange] = useState<'all' | 'under-50' | '50-200' | '200-500' | 'over-500'>('all');
   const [customDateStart, setCustomDateStart] = useState('');
   const [customDateEnd, setCustomDateEnd] = useState('');
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const router = useRouter();
 
   // useAuth() is already called at the top of this component
@@ -224,492 +223,299 @@ export default function TransactionsPage() {
   const getStatusBadge = (transaction: Transaction) => {
     const status = transactionStatus(transaction);
     const labels = { pending: 'Pending', income: 'Income', deductible: 'Marked deductible', personal: 'Personal', review: 'Needs review', skipped: 'Skipped' };
-    return <Badge variant={status === 'deductible' ? 'success' : ['income', 'personal'].includes(status) ? 'secondary' : 'outline'}>{labels[status]}</Badge>;
+    return (
+      <Badge variant="secondary" className={`border-0 rounded-md px-1.5 py-0.5 text-xs font-medium ${status === 'review' ? 'bg-primary/8 text-primary' : 'bg-muted/60 text-muted-foreground'}`}>
+        {labels[status]}
+      </Badge>
+    );
   };
-
-  const getCategoryBadge = (category: string) => {
-    const { consolidatedName, displayName } = consolidateCategory(category);
-    // Premium fintech: low-opacity bg, solid border, hover glow desktop only
-    const categoryColors: { [key: string]: string } = {
-      'FOOD_AND_DRINK': 'bg-[hsl(var(--success)/0.12)] text-[hsl(var(--success))] border-[hsl(var(--success)/0.4)] md:hover:shadow-[0_0_0_1px_hsl(var(--success)/0.25)]',
-      'PROFESSIONAL_SERVICES': 'bg-cyan-500/10 text-cyan-400 border-cyan-500/40 md:hover:shadow-[0_0_0_1px_rgba(34,211,238,0.3)]',
-      'LOAN_AND_FINANCIAL': 'bg-[hsl(var(--destructive)/0.12)] text-[hsl(var(--destructive)/0.95)] border-[hsl(var(--destructive)/0.35)] md:hover:shadow-[0_0_0_1px_hsl(var(--destructive)/0.2)]',
-      'GENERAL_MERCHANDISE': 'bg-slate-500/10 text-slate-400 border-slate-500/35 md:hover:shadow-[0_0_0_1px_rgba(100,116,139,0.3)]',
-      'TRANSFER': 'bg-[hsl(var(--chart-4)/0.15)] text-[hsl(var(--chart-4))] border-[hsl(var(--chart-4)/0.4)] md:hover:shadow-[0_0_0_1px_hsl(var(--chart-4)/0.25)]',
-      'TRANSPORTATION': 'bg-primary/10 text-primary border-primary/40 md:hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.25)]',
-      'TRAVEL': 'bg-[hsl(var(--chart-4)/0.12)] text-[hsl(var(--chart-4)/0.95)] border-[hsl(var(--chart-4)/0.35)] md:hover:shadow-[0_0_0_1px_hsl(var(--chart-4)/0.2)]',
-      'ENTERTAINMENT': 'bg-[hsl(var(--warning)/0.12)] text-[hsl(var(--warning)/0.95)] border-[hsl(var(--warning)/0.35)] md:hover:shadow-[0_0_0_1px_hsl(var(--warning)/0.2)]',
-      'OFFICE_AND_EQUIPMENT': 'bg-sky-500/10 text-sky-400 border-sky-500/35 md:hover:shadow-[0_0_0_1px_rgba(14,165,233,0.25)]',
-      'INCOME': 'bg-[hsl(var(--success)/0.12)] text-[hsl(var(--success))] border-[hsl(var(--success)/0.4)] md:hover:shadow-[0_0_0_1px_hsl(var(--success)/0.25)]',
-    };
-    const colorClass = categoryColors[consolidatedName] || 'bg-muted/50 text-muted-foreground border-border md:hover:shadow-[0_0_0_1px_hsl(var(--border))]';
-    return <Badge className={`${colorClass} border text-[10px] sm:text-xs px-2 py-0.5 transition-shadow duration-150`}>{displayName}</Badge>;
-  };
-
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-lg">Loading transactions...</div>
+      <div className="flex min-h-64 items-center justify-center text-sm text-muted-foreground" role="status">
+        Loading transactions…
       </div>
     );
   }
 
   const filteredTransactions = getFilteredTransactions;
+  const statusTabs = [
+    { value: 'all', label: 'All', count: transactions.length },
+    { value: 'pending', label: 'Review', count: pendingTransactions.length, description: 'Pending or needs review' },
+    { value: 'deductible', label: 'Deductible', count: deductibleTransactions.length, description: 'Posted records marked deductible' },
+    { value: 'personal', label: 'Personal', count: personalTransactions.length },
+  ];
+  const hasFilters = activeFiltersCount > 0 || Boolean(searchTerm) || activeTab !== 'all';
+  const openTransaction = (transaction: Transaction) => router.push(protectedScreenUrl(
+    `transaction-detail?transactionId=${encodeURIComponent(transaction.id)}&from=transactions`
+  ));
 
   return (
-    <div className="bg-background text-foreground min-h-screen overflow-x-hidden">
-      {/* Header */}
-      <div className="bg-background">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <div>
-              <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-foreground mb-1">Transactions</h1>
-              <p className="text-sm sm:text-base text-muted-foreground">Your transaction management and categorization overview</p>
-            </div>
-          </div>
+    <div className="mx-auto w-full max-w-6xl space-y-3 px-4 pb-6 pt-3 text-foreground sm:px-6 sm:pt-5">
+      <header className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-semibold tracking-tight">Transactions</h1>
+          <p className="mt-0.5 text-xs text-muted-foreground">{transactions.length} records · Your money, organized</p>
         </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button className="min-h-11 shrink-0 gap-1.5 rounded-xl px-3">
+              <Plus className="h-4 w-4" /> Add <ChevronDown className="h-3.5 w-3.5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-52 rounded-xl p-1.5">
+            <DropdownMenuItem
+              className="min-h-11 gap-2 rounded-lg"
+              aria-label="Add transaction"
+              onClick={() => router.push(protectedScreenUrl('add-manual-transaction'))}
+            >
+              <Plus className="h-4 w-4" /> Add transaction
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="min-h-11 gap-2 rounded-lg"
+              aria-label="Upload receipt"
+              onClick={() => router.push(protectedScreenUrl('receipt-upload'))}
+            >
+              <Camera className="h-4 w-4" /> Upload receipt
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </header>
+
+      <div className="flex items-center justify-between gap-2 rounded-xl border border-border/70 bg-card px-3 py-1">
+        <button
+          type="button"
+          className="flex min-h-11 min-w-0 items-center gap-2 text-left text-sm font-medium text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={() => router.push(protectedScreenUrl('review-transactions'))}
+        >
+          Review transactions <ArrowRight className="h-4 w-4 shrink-0" />
+        </button>
+        <button
+          type="button"
+          className="min-h-11 shrink-0 rounded-lg px-2 text-xs font-medium text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={() => router.push(protectedScreenUrl('tax-preview'))}
+        >
+          Tax Preview
+        </button>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 space-y-3 sm:space-y-4">
-        {/* Summary Cards - semantic accents, premium fintech */}
-        <div className="grid grid-cols-1 min-[480px]:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-5">
-          <div
-            className="bg-card rounded-xl p-4 sm:p-5 border border-border border-l-[3px] border-l-[hsl(var(--success)/0.8)] shadow-[0_0_0_1px_hsl(var(--success)/0.06),0_2px_8px_-2px_hsl(var(--success)/0.12)] cursor-pointer hover:shadow-[0_0_0_1px_hsl(var(--success)/0.1),0_4px_12px_-2px_hsl(var(--success)/0.15)] active:scale-[0.99] transition-all duration-150 min-h-[44px] flex flex-col justify-center"
-            onClick={() => setActiveTab('deductible')}
-          >
-            <div className="text-xl sm:text-2xl font-semibold text-foreground tabular-nums">{deductibleTransactions.length}</div>
-            <div className="text-xs sm:text-sm text-muted-foreground/90 mt-0.5">Posted records marked deductible</div>
+      {error && (
+        <div role="alert" className="rounded-xl border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          Transactions could not be loaded. Refresh the page to try again.
+        </div>
+      )}
+
+      <section aria-label="Find transactions" className="space-y-2">
+        <div className="flex items-center gap-2">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="search"
+              aria-label="Search transactions"
+              placeholder="Search merchant, category, notes…"
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              className="h-11 w-full rounded-xl border border-border/70 bg-card pl-9 pr-3 text-base text-foreground sm:text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            />
           </div>
-          <div
-            className="bg-card rounded-xl p-4 sm:p-5 border border-border border-l-[3px] border-l-[hsl(var(--warning)/0.75)] shadow-[0_0_0_1px_hsl(var(--warning)/0.06),0_2px_8px_-2px_hsl(var(--warning)/0.1)] cursor-pointer hover:shadow-[0_0_0_1px_hsl(var(--warning)/0.1),0_4px_12px_-2px_hsl(var(--warning)/0.14)] active:scale-[0.99] transition-all duration-150 min-h-[44px] flex flex-col justify-center"
-            onClick={() => setActiveTab('pending')}
-          >
-            <div className="text-xl sm:text-2xl font-semibold text-foreground tabular-nums">{pendingTransactions.length}</div>
-            <div className="text-xs sm:text-sm text-muted-foreground/90 mt-0.5">Pending or needs review</div>
-          </div>
-          <button
+          <Button
             type="button"
-            className="bg-card rounded-xl p-4 sm:p-5 text-left border border-border border-l-[3px] border-l-primary/70 shadow-[0_0_0_1px_hsl(var(--primary)/0.06),0_2px_8px_-2px_hsl(var(--primary)/0.1)] cursor-pointer hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.1),0_4px_12px_-2px_hsl(var(--primary)/0.14)] active:scale-[0.99] transition-all duration-150 min-h-[44px] flex flex-col justify-center"
-            onClick={() => router.push(protectedScreenUrl('tax-preview'))}
+            variant="outline"
+            aria-expanded={filtersOpen}
+            aria-controls="transaction-filters"
+            onClick={() => setFiltersOpen(open => !open)}
+            className={`h-11 shrink-0 gap-1.5 rounded-xl px-3 text-xs ${filtersOpen || activeFiltersCount > 0 ? 'border-primary/30 bg-primary/5 text-primary' : 'bg-card'}`}
           >
-            <div className="text-xl sm:text-2xl font-semibold text-foreground">Tax Preview</div>
-            <div className="text-xs sm:text-sm text-muted-foreground/90 mt-0.5">Review supported federal estimates</div>
-          </button>
-          <div
-            className="bg-card rounded-xl p-4 sm:p-5 border border-border border-l-[3px] border-l-muted-foreground/50 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.08)] cursor-pointer hover:bg-muted/30 hover:shadow-[0_4px_12px_-2px_rgba(0,0,0,0.1)] active:scale-[0.99] transition-all duration-150 min-h-[44px] flex flex-col justify-center"
-            onClick={() => setActiveTab('all')}
-          >
-            <div className="text-xl sm:text-2xl font-semibold text-foreground tabular-nums">{transactions.length}</div>
-            <div className="text-xs sm:text-sm text-muted-foreground/90 mt-0.5">Total transactions</div>
-          </div>
+            <Filter className="h-4 w-4" /> Filters{activeFiltersCount > 0 ? ` (${activeFiltersCount})` : ''}
+          </Button>
         </div>
 
-        {/* Search and Filter Bar - premium fintech: stack on mobile, pill controls */}
-        <div className="bg-card rounded-xl p-3 sm:p-4 shadow-sm border border-border">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-            {/* Search Input - full-width on mobile, soft inner shadow, 44px tap */}
-            <div className="w-full sm:flex-1 relative min-w-0 order-1 sm:order-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4 pointer-events-none" />
-              <input
-                type="text"
-                placeholder="Search merchant, category, notes..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-9 pr-3 py-2.5 min-h-[44px] text-sm border border-border rounded-xl bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-primary/30 shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-[inset_0_1px_2px_rgba(0,0,0,0.2)] transition-all duration-150"
-              />
-            </div>
-
-            {/* Filters row - horizontally scrollable on mobile, pill-style */}
-            <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 scrollbar-none min-h-[44px] shrink-0 order-2 sm:order-2">
-            {/* Date Range Selector */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="flex items-center gap-1.5 px-3 py-2 min-h-[44px] rounded-xl shrink-0 no-tap-highlight border-border bg-muted/30 hover:bg-muted/60 hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.08)] focus-visible:ring-2 focus-visible:ring-ring transition-all duration-150">
-                  <Calendar className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-xs sm:text-sm text-muted-foreground whitespace-nowrap">
-                    {dateRange === 'all' ? 'All' :
-                      dateRange === 'today' ? 'Today' :
-                        dateRange === 'week' ? 'Week' :
-                          dateRange === 'month' ? 'Month' :
-                            dateRange === 'quarter' ? 'Quarter' :
-                              dateRange === 'year' ? 'Year' :
-                                dateRange === 'custom' ? 'Custom' : 'All'}
-                  </span>
-                  <ChevronDown className="w-3 h-3 shrink-0" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuLabel>Date Range</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => setDateRange('all')}>
-                  All time
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setDateRange('today')}>
-                  Today
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setDateRange('week')}>
-                  This week
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setDateRange('month')}>
-                  This month
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setDateRange('quarter')}>
-                  This quarter
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setDateRange('year')}>
-                  This year
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => setDateRange('custom')}>
-                  Custom range
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            {/* Sort Dropdown */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="flex items-center gap-1.5 px-3 py-2 min-h-[44px] rounded-xl shrink-0 no-tap-highlight border-border bg-muted/30 hover:bg-muted/60 hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.08)] focus-visible:ring-2 focus-visible:ring-ring transition-all duration-150">
-                  <ArrowUpDown className="w-4 h-4" />
-                  <span className="text-xs sm:text-sm whitespace-nowrap">Sort</span>
-                  <ChevronDown className="w-3 h-3 shrink-0" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuLabel>Sort by</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => { setSortBy('date'); setSortOrder('desc'); }}>
-                  Date (Newest first)
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => { setSortBy('date'); setSortOrder('asc'); }}>
-                  Date (Oldest first)
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => { setSortBy('amount'); setSortOrder('desc'); }}>
-                  Amount (Highest first)
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => { setSortBy('amount'); setSortOrder('asc'); }}>
-                  Amount (Lowest first)
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => { setSortBy('merchant'); setSortOrder('asc'); }}>
-                  Merchant (A-Z)
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => { setSortBy('merchant'); setSortOrder('desc'); }}>
-                  Merchant (Z-A)
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            {/* Filter Dropdown */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="relative flex items-center gap-1.5 px-3 py-2 min-h-[44px] rounded-xl shrink-0 no-tap-highlight border-border bg-muted/30 hover:bg-muted/60 hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.08)] focus-visible:ring-2 focus-visible:ring-ring transition-all duration-150">
-                  <Filter className="w-4 h-4" />
-                  <span className="text-xs sm:text-sm whitespace-nowrap">Filter</span>
-                  {activeFiltersCount > 0 && (
-                    <Badge className="absolute -top-0.5 -right-0.5 bg-primary text-primary-foreground text-[10px] px-1.5 py-0 min-w-[18px] h-[18px] flex items-center justify-center rounded-full">
-                      {activeFiltersCount}
-                    </Badge>
-                  )}
-                  <ChevronDown className="w-3 h-3 shrink-0" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-64">
-                <DropdownMenuLabel>Filters</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-
-                {/* Category Filter */}
-                <div className="px-2 py-1">
-                  <div className="text-xs font-medium text-muted-foreground mb-1">Category</div>
-                  <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue placeholder="All categories" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All categories</SelectItem>
-                      {uniqueCategories.map(category => (
-                        <SelectItem key={category} value={category}>
-                          {consolidateCategory(category).displayName}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <DropdownMenuSeparator />
-
-                {/* Amount Range Filter */}
-                <div className="px-2 py-1">
-                  <div className="text-xs font-medium text-muted-foreground mb-1">Amount Range</div>
-                  <Select value={amountRange} onValueChange={val => setAmountRange(val as typeof amountRange)}>
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue placeholder="All amounts" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All amounts</SelectItem>
-                      <SelectItem value="under-50">Under $50</SelectItem>
-                      <SelectItem value="50-200">$50 - $200</SelectItem>
-                      <SelectItem value="200-500">$200 - $500</SelectItem>
-                      <SelectItem value="over-500">Over $500</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <DropdownMenuSeparator />
-
-                <DropdownMenuItem onClick={clearAllFilters} className="text-red-600">
-                  Clear all filters
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            </div>
+        {filtersOpen && (
+          <div id="transaction-filters" className="grid grid-cols-2 gap-3 rounded-xl border border-border/70 bg-card p-3 sm:grid-cols-4">
+            <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground">
+              <span>Date</span>
+              <Select value={dateRange} onValueChange={value => setDateRange(value as typeof dateRange)}>
+                <SelectTrigger className="min-h-11 data-[size=default]:h-11 rounded-lg text-sm" aria-label="Date range"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all" className="min-h-11">All time</SelectItem>
+                  <SelectItem value="today" className="min-h-11">Today</SelectItem>
+                  <SelectItem value="week" className="min-h-11">This week</SelectItem>
+                  <SelectItem value="month" className="min-h-11">This month</SelectItem>
+                  <SelectItem value="quarter" className="min-h-11">This quarter</SelectItem>
+                  <SelectItem value="year" className="min-h-11">This year</SelectItem>
+                  <SelectItem value="custom" className="min-h-11">Custom range</SelectItem>
+                </SelectContent>
+              </Select>
+            </label>
+            <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground">
+              <span>Category</span>
+              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                <SelectTrigger className="min-h-11 data-[size=default]:h-11 rounded-lg text-sm" aria-label="Category"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all" className="min-h-11">All categories</SelectItem>
+                  {uniqueCategories.map(category => <SelectItem key={category} value={category} className="min-h-11">{consolidateCategory(category).displayName}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </label>
+            <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground">
+              <span>Amount</span>
+              <Select value={amountRange} onValueChange={value => setAmountRange(value as typeof amountRange)}>
+                <SelectTrigger className="min-h-11 data-[size=default]:h-11 rounded-lg text-sm" aria-label="Amount range"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all" className="min-h-11">All amounts</SelectItem>
+                  <SelectItem value="under-50" className="min-h-11">Under $50</SelectItem>
+                  <SelectItem value="50-200" className="min-h-11">$50 – $200</SelectItem>
+                  <SelectItem value="200-500" className="min-h-11">$200 – $500</SelectItem>
+                  <SelectItem value="over-500" className="min-h-11">$500 and over</SelectItem>
+                </SelectContent>
+              </Select>
+            </label>
+            <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground">
+              <span>Sort</span>
+              <Select value={`${sortBy}-${sortOrder}`} onValueChange={value => {
+                const [field, order] = value.split('-');
+                setSortBy(field as typeof sortBy); setSortOrder(order as typeof sortOrder);
+              }}>
+                <SelectTrigger className="min-h-11 data-[size=default]:h-11 rounded-lg text-sm" aria-label="Sort transactions"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="date-desc" className="min-h-11">Newest first</SelectItem>
+                  <SelectItem value="date-asc" className="min-h-11">Oldest first</SelectItem>
+                  <SelectItem value="amount-desc" className="min-h-11">Highest amount</SelectItem>
+                  <SelectItem value="amount-asc" className="min-h-11">Lowest amount</SelectItem>
+                  <SelectItem value="merchant-asc" className="min-h-11">Merchant A–Z</SelectItem>
+                  <SelectItem value="merchant-desc" className="min-h-11">Merchant Z–A</SelectItem>
+                </SelectContent>
+              </Select>
+            </label>
+            {dateRange === 'custom' && (
+              <div className="col-span-2 grid grid-cols-2 gap-3 sm:col-span-4">
+                <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground">
+                  <span>Start date</span>
+                  <input type="date" value={customDateStart} onChange={event => setCustomDateStart(event.target.value)} className="h-11 w-full min-w-0 rounded-lg border border-border bg-background px-2 text-base text-foreground sm:text-sm" />
+                </label>
+                <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground">
+                  <span>End date</span>
+                  <input type="date" value={customDateEnd} onChange={event => setCustomDateEnd(event.target.value)} className="h-11 w-full min-w-0 rounded-lg border border-border bg-background px-2 text-base text-foreground sm:text-sm" />
+                </label>
+              </div>
+            )}
           </div>
+        )}
 
-          {/* Custom Date Range Inputs - Shows below when custom is selected */}
-          {dateRange === 'custom' && (
-            <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border">
-              <input
-                type="date"
-                value={customDateStart}
-                onChange={(e) => setCustomDateStart(e.target.value)}
-                className="flex-1 px-2 py-1.5 text-xs border border-border rounded bg-background text-foreground"
-                placeholder="Start date"
-              />
-              <span className="text-xs text-muted-foreground">to</span>
-              <input
-                type="date"
-                value={customDateEnd}
-                onChange={(e) => setCustomDateEnd(e.target.value)}
-                className="flex-1 px-2 py-1.5 text-xs border border-border rounded bg-background text-foreground"
-                placeholder="End date"
-              />
-            </div>
-          )}
+        <div className="grid grid-cols-4 gap-1 rounded-xl bg-muted/70 p-1" aria-label="Transaction status">
+          {statusTabs.map(tab => (
+            <button
+              key={tab.value}
+              type="button"
+              aria-pressed={activeTab === tab.value}
+              aria-label={`${tab.description ?? tab.label}: ${tab.count}`}
+              title={tab.description}
+              onClick={() => setActiveTab(tab.value)}
+              className={`flex min-h-11 min-w-0 flex-col items-center justify-center rounded-lg px-1 py-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:flex-row sm:gap-1.5 ${activeTab === tab.value ? 'bg-card font-semibold text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+            >
+              <span>{tab.label}</span><span className="tabular-nums">{tab.count}</span>
+            </button>
+          ))}
+        </div>
+      </section>
 
-          {/* Active Filters Display */}
-          {activeFiltersCount > 0 && (
-            <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border text-xs text-muted-foreground">
-              <span>{activeFiltersCount} filter{activeFiltersCount > 1 ? 's' : ''} active</span>
-              <button
-                type="button"
-                className="min-w-[44px] min-h-[44px] flex items-center justify-center text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted/50 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={clearAllFilters}
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+      <section aria-label="Transaction list" className="overflow-hidden rounded-xl border border-border/70 bg-card">
+        <div className="flex min-h-9 items-center justify-between gap-2 border-b border-border/60 px-3">
+          <p className="text-xs text-muted-foreground" aria-live="polite">
+            {filteredTransactions.length} {hasFilters ? 'matching' : 'total'} transaction{filteredTransactions.length === 1 ? '' : 's'}
+          </p>
+          {hasFilters && (
+            <button type="button" className="-my-1 flex min-h-11 items-center gap-1 text-xs font-medium text-primary" onClick={clearAllFilters}>
+              <X className="h-3.5 w-3.5" /> Clear filters
+            </button>
           )}
         </div>
-
-        {/* Status Tabs - pill-style segmented, hover glow, 44px tap */}
-        <div className="flex gap-1.5 p-1 rounded-xl bg-muted/40 border border-border/50 w-fit max-w-full overflow-x-auto scrollbar-none mb-5 sm:mb-6">
-          <button
-            type="button"
-            onClick={() => setActiveTab('all')}
-            className={`px-4 py-2.5 rounded-lg text-xs sm:text-sm font-medium transition-all duration-150 min-h-[44px] whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${activeTab === 'all'
-              ? 'bg-primary text-primary-foreground shadow-[0_0_0_1px_hsl(var(--primary)/0.2)]'
-              : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.06)] active:bg-muted'
-              }`}
-          >
-            All ({transactions.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('deductible')}
-            className={`px-4 py-2.5 rounded-lg text-xs sm:text-sm font-medium transition-all duration-150 min-h-[44px] whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${activeTab === 'deductible'
-              ? 'bg-primary text-primary-foreground shadow-[0_0_0_1px_hsl(var(--primary)/0.2)]'
-              : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.06)] active:bg-muted'
-              }`}
-          >
-            Marked deductible ({deductibleTransactions.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('personal')}
-            className={`px-4 py-2.5 rounded-lg text-xs sm:text-sm font-medium transition-all duration-150 min-h-[44px] whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${activeTab === 'personal'
-              ? 'bg-primary text-primary-foreground shadow-[0_0_0_1px_hsl(var(--primary)/0.2)]'
-              : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.06)] active:bg-muted'
-              }`}
-          >
-            Personal ({personalTransactions.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('pending')}
-            className={`px-4 py-2.5 rounded-lg text-xs sm:text-sm font-medium transition-all duration-150 min-h-[44px] whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${activeTab === 'pending'
-              ? 'bg-primary text-primary-foreground shadow-[0_0_0_1px_hsl(var(--primary)/0.2)]'
-              : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.06)] active:bg-muted'
-              }`}
-          >
-            Pending / review ({pendingTransactions.length})
-          </button>
-        </div>
-
-        {/* Transaction List */}
-        <div className="bg-card rounded-xl shadow-sm overflow-hidden border border-border">
-          {/* Desktop Table View */}
-          <div className="hidden md:block overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-muted/60 border-b border-border">
-                <tr>
-                  <th className="px-5 py-3.5 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider">
-                    Merchant
-                  </th>
-                  <th className="px-5 py-3.5 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider">
-                    Date
-                  </th>
-                  <th className="px-5 py-3.5 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider">
-                    Category
-                  </th>
-                  <th className="px-5 py-3.5 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-5 py-3.5 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider">
-                    Direction
-                  </th>
-                  <th className="px-5 py-3.5 text-center text-xs font-medium text-muted-foreground/80 uppercase tracking-wider">
-                    Receipt
-                  </th>
-                  <th className="px-5 py-3.5 text-right text-xs font-medium text-muted-foreground/80 uppercase tracking-wider">
-                    Amount
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-card divide-y divide-border">
-                {filteredTransactions.map((transaction) => (
-                  <tr
-                    key={transaction.id}
-                    className="hover:bg-[hsl(var(--primary)/0.04)] cursor-pointer transition-all duration-150 md:hover:-translate-y-px"
-                    onClick={() => {
-                      router.push(`/protected?screen=transaction-detail&transactionId=${transaction.id}&from=transactions`);
-                    }}
-                  >
-                    <td className="px-5 py-4">
-                      <div>
-                        <div className="text-sm font-semibold text-foreground">
-                          {transaction.merchant_name}
-                        </div>
-                        {transaction.notes && (
-                          <div className="text-sm text-muted-foreground">{transaction.notes}</div>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-5 py-4 text-sm text-foreground">
-                      {formatTransactionDate(transaction.date, 'en-US', {
-                        month: 'short',
-                        day: 'numeric'
-                      })}
-                    </td>
-                    <td className="px-5 py-4">
-                      {getCategoryBadge(transaction.category)}
-                    </td>
-                    <td className="px-5 py-4">
-                      {getStatusBadge(transaction)}
-                    </td>
-                    <td className="px-5 py-4 text-sm text-foreground">
-                      {transactionDirection(transaction)}
-                    </td>
-                    <td className="px-5 py-4 text-center">
-                      {transaction.receipt_url ? (
-                        <div className="flex items-center justify-center">
-                          <div className="w-8 h-8 bg-accent/20 rounded-full flex items-center justify-center">
-                            <FileText className="w-4 h-4 text-accent" />
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-center">
-                          <div className="w-8 h-8 bg-muted rounded-full flex items-center justify-center">
-                            <FileText className="w-4 h-4 text-muted-foreground" />
-                          </div>
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-5 py-4 text-right text-sm font-semibold font-tabular-nums transition-colors duration-150">
-                      <span className={(transaction.type ?? (transaction.amount < 0 ? 'income' : 'expense')) === 'income' ? 'text-[hsl(var(--success))]' : 'text-destructive/85'}>
-                        {(transaction.type ?? (transaction.amount < 0 ? 'income' : 'expense')) === 'income' ? '+' : '-'}${Math.abs(transaction.amount).toFixed(2)}
-                      </span>
-                    </td>
+        {filteredTransactions.length === 0 ? (
+          <div className="px-5 py-10 text-center">
+            <p className="text-sm font-semibold">{hasFilters ? 'No matching transactions' : 'Your transactions will appear here'}</p>
+            <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
+              {hasFilters ? 'Try another search or clear your filters.' : 'Connect a bank, add a transaction, or upload a receipt to get started.'}
+            </p>
+            {!hasFilters && <Button variant="outline" className="mt-4 min-h-11 rounded-xl" onClick={() => router.push(protectedScreenUrl('banks-detail'))}>Connect a bank</Button>}
+          </div>
+        ) : (
+          <>
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full text-sm">
+                <thead className="border-b border-border/60 bg-muted/20 text-xs text-muted-foreground">
+                  <tr>
+                    <th scope="col" className="px-4 py-2.5 text-left font-medium">Transaction</th>
+                    <th scope="col" className="px-4 py-2.5 text-left font-medium">Category</th>
+                    <th scope="col" className="px-4 py-2.5 text-left font-medium">Status</th>
+                    <th scope="col" className="px-4 py-2.5 text-right font-medium">Amount</th>
+                    <th scope="col" className="w-10 px-2 py-2.5"><span className="sr-only">Details</span></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Mobile Card View - card layout, no horizontal scroll, 44px tap */}
-          <div className="md:hidden divide-y divide-border">
-            {filteredTransactions.map((transaction) => {
-              const direction = transactionDirection(transaction);
-              const isReceived = (transaction.type ?? (transaction.amount < 0 ? 'income' : 'expense')) === 'income';
-              return (
-                <div
-                  key={transaction.id}
-                  role="button"
-                  tabIndex={0}
-                  className="min-h-[44px] p-4 hover:bg-muted/50 active:bg-muted cursor-pointer transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-                  onClick={() => router.push(`/protected?screen=transaction-detail&transactionId=${transaction.id}&from=transactions`)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); router.push(`/protected?screen=transaction-detail&transactionId=${transaction.id}&from=transactions`); } }}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="text-base font-semibold text-foreground truncate">
-                        {transaction.merchant_name}
-                      </div>
-                      <div className="text-sm text-muted-foreground mt-0.5">
-                        {formatTransactionDate(transaction.date, 'en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                        <span className="mx-1.5">•</span>
-                        {consolidateCategory(transaction.category).displayName}
-                      </div>
-                      <div className="flex items-center gap-2 mt-2 flex-wrap">
-                        {getStatusBadge(transaction)}
-                        <span className={`text-xs font-medium ${isReceived ? 'text-[hsl(var(--success)/0.9)]' : 'text-destructive/70'}`}>
-                          {direction}
-                        </span>
-                      </div>
+                </thead>
+                <tbody className="divide-y divide-border/60">
+                  {filteredTransactions.map(transaction => {
+                    const isReceived = (transaction.type ?? (transaction.amount < 0 ? 'income' : 'expense')) === 'income';
+                    return (
+                      <tr key={transaction.id} className="cursor-pointer hover:bg-muted/30" onClick={() => openTransaction(transaction)}>
+                        <td className="max-w-72 px-4 py-3">
+                          <button type="button" className="-my-1 block min-h-11 w-full rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={event => { event.stopPropagation(); openTransaction(transaction); }}>
+                            <span className="block truncate font-semibold">{transaction.merchant_name}</span>
+                            <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+                              {formatTransactionDate(transaction.date, 'en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                              {transaction.receipt_url && <FileText className="h-3.5 w-3.5" aria-label="Receipt attached" />}
+                            </span>
+                          </button>
+                        </td>
+                        <td className="max-w-52 px-4 py-3 text-muted-foreground"><span className="block truncate">{consolidateCategory(transaction.category).displayName}</span></td>
+                        <td className="px-4 py-3">{getStatusBadge(transaction)}</td>
+                        <td className="whitespace-nowrap px-4 py-3 text-right">
+                          <span className="block font-semibold tabular-nums">{isReceived ? '+' : '-'}${Math.abs(transaction.amount).toFixed(2)}</span>
+                          <span className="mt-0.5 block text-xs text-muted-foreground">{transactionDirection(transaction)}</span>
+                        </td>
+                        <td className="px-2"><ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden="true" /></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="divide-y divide-border/60 md:hidden">
+              {filteredTransactions.map(transaction => {
+                const isReceived = (transaction.type ?? (transaction.amount < 0 ? 'income' : 'expense')) === 'income';
+                return (
+                  <div
+                    key={transaction.id}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`View ${transaction.merchant_name}, ${transactionDirection(transaction).toLowerCase()} $${Math.abs(transaction.amount).toFixed(2)}`}
+                    className="min-h-11 cursor-pointer px-3 py-3 transition-colors hover:bg-muted/30 active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                    onClick={() => openTransaction(transaction)}
+                    onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openTransaction(transaction); } }}
+                  >
+                    <div className="flex items-baseline justify-between gap-3">
+                      <p className="min-w-0 truncate text-sm font-semibold">{transaction.merchant_name}</p>
+                      <span className="shrink-0 text-sm font-semibold tabular-nums">{isReceived ? '+' : '-'}${Math.abs(transaction.amount).toFixed(2)}</span>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className={`text-lg font-bold font-tabular-nums transition-colors duration-150 ${isReceived ? 'text-[hsl(var(--success))]' : 'text-destructive/85'}`}>
-                        {isReceived ? '+' : '-'}${Math.abs(transaction.amount).toFixed(2)}
-                      </span>
-                      <span
-                        className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg bg-muted/50 border border-border/50"
-                        aria-hidden
-                      >
-                        {transaction.receipt_url ? (
-                          <FileText className="w-4 h-4 text-primary" />
-                        ) : (
-                          <FileText className="w-4 h-4 text-muted-foreground" />
-                        )}
+                    <div className="mt-0.5 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                      <p className="min-w-0 truncate">
+                        {formatTransactionDate(transaction.date, 'en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        <span aria-hidden="true"> · </span>{consolidateCategory(transaction.category).displayName}
+                      </p>
+                      <span className="shrink-0">{transactionDirection(transaction)}</span>
+                    </div>
+                    <div className="mt-1.5 flex items-center justify-between gap-2">
+                      {getStatusBadge(transaction)}
+                      <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        {transaction.receipt_url && <FileText className="h-3.5 w-3.5" aria-label="Receipt attached" />}
+                        <ChevronRight className="h-4 w-4" aria-hidden="true" />
                       </span>
                     </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Top Right Action Buttons */}
-        <div className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 flex flex-col sm:flex-row gap-3 z-40">
-          <Button
-            className="bg-card text-foreground border border-border hover:bg-muted active:bg-muted/80 touch-target min-h-[44px] shadow-lg"
-            aria-label="Upload receipt"
-            onClick={() => router.push(protectedScreenUrl('receipt-upload'))}
-          >
-            <Camera className="w-4 h-4 sm:mr-2" />
-            <span className="hidden sm:inline">Receipt</span>
-          </Button>
-          <Button
-            className="bg-primary text-primary-foreground hover:bg-primary-hover active:bg-primary/90 touch-target min-h-[44px] shadow-lg"
-            aria-label="Add transaction"
-            onClick={() => router.push(protectedScreenUrl('add-manual-transaction'))}
-          >
-            <Plus className="w-4 h-4 sm:mr-2" />
-            <span className="hidden sm:inline">+ Add</span>
-            <span className="sm:hidden">Add</span>
-          </Button>
-        </div>
-
-      </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </section>
     </div>
   );
 }

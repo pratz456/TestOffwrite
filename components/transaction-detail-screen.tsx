@@ -17,6 +17,7 @@ import { useAiAvailability } from '@/lib/hooks/use-ai-availability';
 import { consolidateCategory } from '@/lib/utils';
 import { getTransactionId } from '@/lib/utils/transaction-id';
 import { protectedScreenUrl } from '@/lib/navigation/protected-screens';
+import { APP_NAVIGATION_EVENT } from '@/lib/navigation/navigation-guard';
 import { useUpdateTransaction } from '@/lib/firebase/mutations';
 import { attachCaptureVideo, createMediaCapture } from '@/lib/browser/media-capture';
 // Using API route instead of direct database access
@@ -687,6 +688,19 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
     documentationStatus !== (transaction.documentation_status || 'missing') ||
     meetingNotes !== (transaction.meeting_notes || '') ||
     receiptFile !== null;
+
+  // Primary navigation remains visible while editing; keep the same draft guard there.
+  useEffect(() => {
+    const beforeNavigation = (event: Event) => {
+      const href = (event as CustomEvent<{ href?: unknown }>).detail?.href;
+      if (!hasUnsavedChanges || typeof href !== 'string' || !/^\/protected(?:[/?]|$)/.test(href)) return;
+      event.preventDefault();
+      pendingDestination.current = href;
+      setShowUnsavedDialog(true);
+    };
+    window.addEventListener(APP_NAVIGATION_EVENT, beforeNavigation);
+    return () => window.removeEventListener(APP_NAVIGATION_EVENT, beforeNavigation);
+  }, [hasUnsavedChanges]);
 
   return (
     <div className="min-h-full bg-background">

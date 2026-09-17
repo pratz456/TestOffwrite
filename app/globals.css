@@ -58,6 +58,28 @@
 }
 
 @layer base {
+  /* A quiet, native-feeling workspace; marketing pages keep their own theme. */
+  .app-workspace {
+    --background: 240 10% 97%;
+    --foreground: 240 6% 12%;
+    --card-foreground: 240 6% 12%;
+    --muted: 240 6% 94%;
+    --muted-foreground: 240 4% 38%;
+    --primary: 211 100% 44%;
+    --primary-hover: 211 100% 38%;
+    --primary-weak: rgba(0, 112, 224, 0.08);
+    --accent: 240 6% 94%;
+    --accent-foreground: 240 6% 12%;
+    --border: 240 6% 88%;
+    --input: 240 6% 88%;
+    --ring: 211 100% 44%;
+    --shadow-tight: 0 1px 3px rgba(0, 0, 0, 0.035);
+    --shadow-soft: 0 4px 16px rgba(0, 0, 0, 0.05);
+    --sidebar-item-active-bg: var(--primary-weak);
+    --sidebar-item-active-border: rgba(0, 112, 224, 0.12);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+
   html {
     color-scheme: light;
   }

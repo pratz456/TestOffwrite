@@ -3,7 +3,7 @@ import { isValidElement, type ReactElement } from 'react';
 import type { Transaction } from '../lib/firebase/transactions';
 
 // Run the real page/form handlers with controlled hook state and network calls.
-const harness = vi.hoisted(() => ({ slots: [] as unknown[], cursor: 0, effects: [] as (() => void)[], runEffects: false, push: vi.fn(), back: vi.fn(), routerBack: vi.fn(), request: vi.fn(), transactions: [] as Transaction[], mutate: vi.fn(), save: vi.fn(), success: vi.fn(), error: vi.fn(), fetch: vi.fn(), localPreview: false,
+const harness = vi.hoisted(() => ({ slots: [] as unknown[], cursor: 0, effects: [] as (() => void)[], effectCleanups: new Map<number, () => void>(), runEffects: false, push: vi.fn(), back: vi.fn(), routerBack: vi.fn(), request: vi.fn(), transactions: [] as Transaction[], mutate: vi.fn(), save: vi.fn(), success: vi.fn(), error: vi.fn(), fetch: vi.fn(), localPreview: false,
   availability: 'configured' as 'configured' | 'checking' | 'unavailable', refreshAi: vi.fn() }));
 vi.mock('react', async importOriginal => {
   const actual = await importOriginal<typeof import('react')>();
@@ -19,13 +19,18 @@ vi.mock('react', async importOriginal => {
       if (!(index in harness.slots)) harness.slots[index] = { current: initial };
       return harness.slots[index];
     },
-    useEffect(effect: () => void, dependencies: unknown[]) {
+    useEffect(effect: () => void | (() => void), dependencies: unknown[]) {
       if (!harness.runEffects) return; // Most assertions exercise handlers without mount lifecycle.
       const index = harness.cursor++;
       const previous = harness.slots[index] as unknown[] | undefined;
       if (previous?.length === dependencies.length && previous.every((value, position) => Object.is(value, dependencies[position]))) return;
       harness.slots[index] = dependencies;
-      harness.effects.push(effect);
+      harness.effects.push(() => {
+        harness.effectCleanups.get(index)?.();
+        harness.effectCleanups.delete(index);
+        const cleanup = effect();
+        if (typeof cleanup === 'function') harness.effectCleanups.set(index, cleanup);
+      });
     },
     useCallback<T>(callback: T) { return callback; },
   };
@@ -46,6 +51,7 @@ import { AddManualTransactionScreen } from '../components/add-manual-transaction
 import { SyncStatusIndicator } from '../components/sync-status-indicator';
 import { TransactionDetailScreen } from '../components/transaction-detail-screen';
 import { AddExpenseScreen } from '../components/add-expense-screen';
+import { requestAppNavigation } from '../lib/navigation/navigation-guard';
 
 type Props = {
   children?: unknown; type?: string; id?: string; title?: string; open?: boolean; placeholder?: string; value?: unknown; 'aria-label'?: string; disabled?: boolean;
@@ -72,8 +78,13 @@ function enterExpense() {
   walk(render(manualForm)).find(node => node.props?.type === 'number')!.props.onChange!({ target: { value: '42.50' } });
   return walk(render(manualForm)).find(node => node.type === 'form')!;
 }
-beforeEach(() => { harness.slots = []; harness.cursor = 0; harness.effects = []; harness.runEffects = false; harness.transactions = []; harness.localPreview = false; harness.availability = 'configured'; vi.resetAllMocks(); vi.useFakeTimers(); harness.mutate.mockResolvedValue({}); harness.refreshAi.mockResolvedValue(true); vi.stubGlobal('fetch', harness.fetch); });
-afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals(); });
+function unmountDetail() {
+  harness.effectCleanups.forEach(cleanup => cleanup());
+  harness.effectCleanups.clear();
+  harness.effects = [];
+}
+beforeEach(() => { harness.slots = []; harness.cursor = 0; harness.effects = []; harness.effectCleanups.clear(); harness.runEffects = false; harness.transactions = []; harness.localPreview = false; harness.availability = 'configured'; vi.resetAllMocks(); vi.useFakeTimers(); harness.mutate.mockResolvedValue({}); harness.refreshAi.mockResolvedValue(true); vi.stubGlobal('fetch', harness.fetch); vi.stubGlobal('window', new EventTarget()); });
+afterEach(() => { unmountDetail(); vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('transaction page actions reach working accountless flows', () => {
   it('routes the legacy editor through saved-record detail and unsaved entry through the real manual form', () => {
@@ -125,7 +136,7 @@ describe('transaction list shows record status without inventing tax savings', (
   });
   const rows = (page: ReactElement) => walk(page).filter(node => node.type === 'tr' && walk(node).some(child => child.type === 'td'));
   const clickTab = (label: string) => {
-    const node = walk(render(TransactionsPage)).find(node => node.type === 'button' && text(node).startsWith(label));
+    const node = walk(render(TransactionsPage)).find(node => node.type === 'button' && typeof (node.props as { 'aria-pressed'?: boolean })['aria-pressed'] === 'boolean' && text(node).startsWith(label));
     expect(node).toBeDefined(); node!.props.onClick!(); return render(TransactionsPage);
   };
 
@@ -143,8 +154,8 @@ describe('transaction list shows record status without inventing tax savings', (
 
   it('uses record counts and opens the authoritative Tax Preview instead of calculating tax dollars', () => {
     const page = render(TransactionsPage);
-    expect(text(page)).toContain('2Posted records marked deductible');
-    expect(text(page)).toContain('3Pending or needs review');
+    expect(walk(page).some(node => node.props['aria-label'] === 'Posted records marked deductible: 2')).toBe(true);
+    expect(walk(page).some(node => node.props['aria-label'] === 'Pending or needs review: 3')).toBe(true);
     expect(text(page)).not.toContain('Potential savings');
     const action = walk(page).find(node => node.type === 'button' && text(node).startsWith('Tax Preview'))!;
     action.props.onClick!();
@@ -175,12 +186,12 @@ describe('transaction list shows record status without inventing tax savings', (
   });
 
   it('keeps personal, posted-classification and pending/review filters aligned with the displayed status', () => {
-    expect(rows(clickTab('Personal (')).map(text)).toEqual([expect.stringContaining('Personal purchase')]);
-    expect(rows(clickTab('Marked deductible (')).map(text)).toEqual(expect.arrayContaining([
+    expect(rows(clickTab('Personal')).map(text)).toEqual([expect.stringContaining('Personal purchase')]);
+    expect(rows(clickTab('Deductible')).map(text)).toEqual(expect.arrayContaining([
       expect.stringContaining('Posted expense'), expect.stringContaining('Expense refund'),
     ]));
     expect(rows(render(TransactionsPage))).toHaveLength(2);
-    const review = rows(clickTab('Pending / review ('));
+    const review = rows(clickTab('Review'));
     expect(review).toHaveLength(3);
     expect(review.map(text)).toEqual(expect.arrayContaining([
       expect.stringContaining('Pending purchase'), expect.stringContaining('Pending income'), expect.stringContaining('Unreviewed purchase'),
@@ -421,6 +432,68 @@ describe('transaction detail preserves manual work without guessed tax impact or
     expect(harness.back).toHaveBeenCalledOnce();
     expect(harness.push).not.toHaveBeenCalled();
     expect(harness.routerBack).not.toHaveBeenCalled();
+    expect(harness.mutate).not.toHaveBeenCalled();
+  });
+
+  it('blocks shared navigation for a dirty detail until the user confirms leaving', async () => {
+    harness.runEffects = true;
+    walk(detail()).find(node => node.props.id === 'transaction-notes')!.props.onChange!({ target: { value: 'Unfinished details' } });
+    detail();
+    const destination = '/protected/transactions';
+    const allowed = requestAppNavigation(destination);
+    if (allowed) harness.push(destination); // Same contract used by the persistent navigation.
+    expect(allowed).toBe(false);
+    expect(harness.push).not.toHaveBeenCalled();
+    const confirmation = walk(detail()).find(node => node.props.title === 'Unsaved Changes')!;
+    expect(confirmation.props.open).toBe(true);
+    confirmation.props.onConfirm!();
+    expect(harness.push).toHaveBeenCalledExactlyOnceWith(destination);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(harness.mutate).not.toHaveBeenCalled();
+    expect(harness.back).not.toHaveBeenCalled();
+  });
+
+  it('allows shared navigation immediately when the detail has no local changes', () => {
+    harness.runEffects = true;
+    detail();
+    const destination = '/protected?screen=tax-preview';
+    expect(requestAppNavigation(destination)).toBe(true);
+    expect(walk(detail()).find(node => node.props.title === 'Unsaved Changes')!.props.open).toBe(false);
+    expect(harness.mutate).not.toHaveBeenCalled();
+  });
+
+  it('uses the latest shared navigation destination after canceling an earlier request', async () => {
+    harness.runEffects = true;
+    walk(detail()).find(node => node.props.id === 'transaction-notes')!.props.onChange!({ target: { value: 'Keep while choosing' } });
+    detail();
+    expect(requestAppNavigation('/protected')).toBe(false);
+    walk(detail()).find(node => node.props.title === 'Unsaved Changes')!.props.onCancel!();
+    expect(harness.push).not.toHaveBeenCalled();
+    const destination = '/protected?screen=tax-preview';
+    expect(requestAppNavigation(destination)).toBe(false);
+    walk(detail()).find(node => node.props.title === 'Unsaved Changes')!.props.onConfirm!();
+    expect(harness.push).toHaveBeenCalledExactlyOnceWith(destination);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(harness.mutate).not.toHaveBeenCalled();
+  });
+
+  it('removes the previous dirty listener when changes are reverted', () => {
+    harness.runEffects = true;
+    walk(detail()).find(node => node.props.id === 'transaction-notes')!.props.onChange!({ target: { value: 'Temporary edit' } });
+    detail();
+    walk(detail()).find(node => node.props.id === 'transaction-notes')!.props.onChange!({ target: { value: '' } });
+    detail();
+    expect(requestAppNavigation('/protected')).toBe(true);
+    expect(walk(detail()).find(node => node.props.title === 'Unsaved Changes')!.props.open).toBe(false);
+  });
+
+  it('removes a dirty detail navigation listener and pending autosave on unmount', async () => {
+    harness.runEffects = true;
+    walk(detail()).find(node => node.props.id === 'transaction-notes')!.props.onChange!({ target: { value: 'Leaving editor' } });
+    detail();
+    unmountDetail();
+    expect(requestAppNavigation('/protected')).toBe(true);
+    await vi.advanceTimersByTimeAsync(1000);
     expect(harness.mutate).not.toHaveBeenCalled();
   });
 
