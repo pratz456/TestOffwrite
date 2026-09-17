@@ -7,6 +7,7 @@ import { summarizeW2Income } from './w2-income';
 import { normalizeFilingStatus } from './filing-status';
 import { assertGenericDependentCreditScope } from './credit-scope';
 import { readSocialSecurityFacts, calculateSocialSecurityWorksheet, assertSocialSecurityAdjustmentRecords, SocialSecurityReviewRequiredError } from './social-security';
+import { calculateCapitalGainCharacter, hasCapitalGainAmounts, readCapitalGainFacts } from './capital-gains';
 
 interface FederalTaxSnapshotInput {
   taxYear: number;
@@ -45,11 +46,12 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
 
   const interest = amount(org.amount1099INT);
   const dividends = amount(org.amount1099DIV);
-  const capGains = amount(org.amountCapGains);
+  // Any saved gain/loss (legacy total or short/long-term split) keeps the Social
+  // Security gate below; character is resolved only after that gate.
+  const anyCapitalGainAmount = hasCapitalGainAmounts(org);
   const iraDist = amount(org.amountIRADistributions);
   const rental = amount(org.amountRentalIncome);
   const otherOrdinaryIncome = amount(org.amountOtherIncome);
-  const nonBenefitOtherIncome = interest + dividends + capGains + iraDist + rental + otherOrdinaryIncome;
   const healthInsurancePremiums = amount(ded.healthInsurancePremiums ?? profile.health_insurance_premiums);
   const sepIraContribution = amount(ded.sepIraContribution ?? profile.sep_ira_contribution);
   const solo401kContribution = ded.solo401kEmployeeContribution !== undefined || ded.solo401kEmployerContribution !== undefined
@@ -63,7 +65,7 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
     if (iraDist !== 0 && org.socialSecurityRetirementReviewed !== 'yes') {
       throw new SocialSecurityReviewRequiredError('Confirm the retirement amount is the reviewed taxable Box2a amount, with no unresolved basis, rollover or additional early-distribution tax. Otherwise complete the retirement review before this estimate.');
     }
-    if (capGains !== 0 || rental !== 0) {
+    if (anyCapitalGainAmount || rental !== 0) {
       throw new SocialSecurityReviewRequiredError('Capital gain/loss character and allowed rental income/loss must be reviewed before including them in this supported Social Security estimate. These return calculations are not yet fully modeled.');
     }
     assertSocialSecurityAdjustmentRecords(org, { healthInsurancePremiums, sepIraContribution, solo401kContribution, simpleIraContribution, hsaContribution, studentLoanInterest });
@@ -77,6 +79,14 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
     if (filingStatus === 'married_filing_separately' && livedApart !== 'yes' && livedApart !== 'no') {
       throw new SocialSecurityReviewRequiredError('Answer whether you lived apart from your spouse for the entire tax year.');
     }
+  }
+  // Schedule D character (short-term ordinary, long-term preferential, §1211(b) loss limit).
+  // Read after the benefit gates so a nonzero legacy total keeps its existing review code.
+  const capitalGains = calculateCapitalGainCharacter({ taxYear, filingStatus, ...readCapitalGainFacts(org) });
+  const capGains = capitalGains.line7;
+  const nonBenefitOtherIncome = interest + dividends + capGains + iraDist + rental + otherOrdinaryIncome;
+  if (benefitFacts) {
+    const livedApart = org.socialSecurityLivedApartAllYear;
     socialSecurityWorksheet = calculateSocialSecurityWorksheet({
       taxYear, filingStatus, ...benefitFacts,
       otherIncome: scheduleCNetProfit - depreciationDeduction + w2.wages + nonBenefitOtherIncome,
@@ -97,17 +107,24 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
     w2FederalWithheld, socialSecurityFederalWithheld, estimatedPayments: input.estimatedPayments,
     selfEmploymentTax: seCalc.totalSETax, halfSEDeduction: seCalc.halfSEDeduction,
     otherIncome, numDependents: 0, numEITCChildren: 0,
-    investmentIncome: interest + dividends + Math.max(0, capGains), longTermCapGains: Math.max(0, capGains), shortTermCapGains: 0,
+    // Pub 596: EITC investment income includes the positive Form 1040 line 7 amount.
+    investmentIncome: interest + dividends + Math.max(0, capGains),
+    longTermCapGains: capitalGains.preferentialLongTermGain, shortTermCapGains: capitalGains.ordinaryShortTermGain,
     healthInsurancePremiums, sepIraContribution, solo401kContribution, simpleIraContribution, hsaContribution, studentLoanInterest,
     charitableDonations: amount(ded.charitableCashDonations) + amount(ded.charitableNonCashDonations), depreciationDeduction,
   }, priorYearTotalTax > 0 ? priorYearTotalTax : undefined);
-  result.calculationWarnings.push(...reconciliation.warnings);
-  if (dividends || capGains || iraDist || rental) {
-    result.calculationWarnings.push('Organizer income amounts require tax review: dividend/gain character, retirement basis and rental treatment are not fully modeled.');
+  result.calculationWarnings.push(...reconciliation.warnings, ...capitalGains.warnings);
+  if (dividends || iraDist || rental) {
+    result.calculationWarnings.push('Organizer income amounts require tax review: qualified-dividend character, retirement basis and rental treatment are not fully modeled.');
   }
   return {
     filingStatus, result, seCalc, depreciationDeduction, reconciliation, socialSecurityWorksheet, personalDeductions: result.personalDeductions,
-    income: { grossReceipts: reconciliation.grossReceipts, w2Wages: w2.wages, scheduleCNetProfit, totalDeductible, otherIncome, otherOrdinaryIncome, interest, dividends, capGains, socialSecurity, socialSecurityNetBenefits, taxExemptInterest, iraDist, rental },
+    capitalGains, businessLoss: result.businessLoss, obbbaDeductions: result.obbbaDeductions,
+    income: {
+      grossReceipts: reconciliation.grossReceipts, w2Wages: w2.wages, scheduleCNetProfit, scheduleCAllowed: result.scheduleCAllowed, totalDeductible, otherIncome, otherOrdinaryIncome, interest, dividends,
+      capGains, shortTermCapGains: capitalGains.netShortTerm, longTermCapGains: capitalGains.netLongTerm, capitalLossCarryforward: capitalGains.lossCarryforward,
+      socialSecurity, socialSecurityNetBenefits, taxExemptInterest, iraDist, rental,
+    },
     w2: { wages: w2.wages, withheld: w2FederalWithheld, count: input.w2Entries.length, stateWithheld: w2.stateWithheld },
     deductions: { healthInsurancePremiums, sepIraContribution, solo401kContribution, hsaContribution, studentLoanInterest },
     payments: { estimatedPayments: input.estimatedPayments, w2FederalWithheld, socialSecurityFederalWithheld, totalFederalWithheld: w2FederalWithheld + socialSecurityFederalWithheld },

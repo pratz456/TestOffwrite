@@ -105,7 +105,7 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
         {error && (
           <div role="alert" className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
             <div className="flex items-start gap-2"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{error}</div>
-            {onNavigate && ['PERSONAL_DEDUCTION_REVIEW_REQUIRED', 'SOCIAL_SECURITY_REVIEW_REQUIRED', 'DEPENDENT_CREDIT_REVIEW_REQUIRED'].includes(reviewCode ?? '') &&
+            {onNavigate && ['PERSONAL_DEDUCTION_REVIEW_REQUIRED', 'SOCIAL_SECURITY_REVIEW_REQUIRED', 'DEPENDENT_CREDIT_REVIEW_REQUIRED', 'CAPITAL_GAIN_REVIEW_REQUIRED', 'BUSINESS_LOSS_REVIEW_REQUIRED', 'OBBBA_DEDUCTION_REVIEW_REQUIRED'].includes(reviewCode ?? '') &&
               <Button className="mt-3 min-h-11" variant="outline" onClick={() => onNavigate('tax-organizer')}>Review Tax Organizer</Button>}
             {onNavigate && reviewCode === 'FILING_STATUS_REVIEW_REQUIRED' &&
               <Button className="mt-3 min-h-11" variant="outline" onClick={() => onNavigate('settings')}>Review profile</Button>}
@@ -261,6 +261,7 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
                       { num: "1a", label: "W-2 wages", value: data.income.w2Wages },
                       { num: "6a", label: "Net Social Security benefits", value: data.income.socialSecurityNetBenefits },
                       { num: "6b", label: "Taxable Social Security benefits", value: data.income.socialSecurity },
+                      { num: "7", label: "Capital gain or (loss) after the annual loss limit", value: data.income.capGains || undefined },
                       { num: "8", label: "Schedule C net profit", value: data.income.scheduleCNetProfit },
                       { num: "9", label: "Total income", value: f1040.totalIncome, bold: true },
                     ]},
@@ -277,6 +278,10 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
                       { num: "12", label: `${f1040.usingStandardDeduction ? "Standard" : "Itemized"} deduction`, value: f1040.deductionUsed, negative: true },
                       { num: Number(year) >= 2025 ? "13a" : "13", label: "QBI deduction (§199A)", value: f1040.qbiDeduction, negative: true },
                       { num: "1-A", label: "Enhanced senior deduction", value: Number(year) >= 2025 ? f1040.enhancedSeniorDeduction : undefined, negative: true },
+                      { num: "1-A", label: "Qualified tips deduction", value: f1040.qualifiedTipsDeduction || undefined, negative: true },
+                      { num: "1-A", label: "Qualified overtime deduction", value: f1040.qualifiedOvertimeDeduction || undefined, negative: true },
+                      { num: "1-A", label: "Vehicle loan interest deduction", value: f1040.vehicleLoanInterestDeduction || undefined, negative: true },
+                      { num: "12", label: "Non-itemizer charitable deduction (§170(p))", value: f1040.nonItemizerCharitableDeduction || undefined, negative: true },
                       { num: "15", label: "Taxable income", value: f1040.taxableIncome, bold: true },
                     ]},
                     { section: "TAX", lines: [
@@ -308,7 +313,7 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
                             <span className={`text-sm leading-snug ${line.bold ? "font-semibold text-foreground" : "text-muted-foreground"}`}>{line.label}</span>
                           </div>
                           <span className={`text-sm font-mono tabular-nums ml-4 shrink-0 ${line.bold ? "font-bold" : ""} ${line.highlight === 'green' ? "text-foreground" : line.highlight === 'orange' ? "text-foreground" : line.negative ? "text-muted-foreground" : ""}`}>
-                            {(line.value || 0) > 0 ? (line.negative ? `(${fmt(line.value!, { abs: true })})` : fmt(line.value!)) : "$0"}
+                            {(line.value || 0) > 0 ? (line.negative ? `(${fmt(line.value!, { abs: true })})` : fmt(line.value!)) : (line.value || 0) < 0 ? fmt(line.value!) : "$0"}
                           </span>
                         </div>
                       ))}

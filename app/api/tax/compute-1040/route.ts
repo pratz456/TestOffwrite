@@ -15,6 +15,9 @@ import { FilingStatusReviewRequiredError } from '@/lib/tax-rules/filing-status';
 import { SocialSecurityReviewRequiredError } from '@/lib/tax-rules/social-security';
 import { PersonalDeductionReviewRequiredError } from '@/lib/tax-rules/personal-deductions';
 import { DependentCreditReviewRequiredError } from '@/lib/tax-rules/credit-scope';
+import { CapitalGainReviewRequiredError } from '@/lib/tax-rules/capital-gains';
+import { BusinessLossReviewRequiredError } from '@/lib/tax-rules/business-losses';
+import { OBBBADeductionReviewRequiredError } from '@/lib/tax-rules/obbba-deductions';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { readTaxExportTransactions } from '@/lib/reports/tax-export-transactions';
 import { ExportReviewRequiredError } from '@/lib/reports/transaction-export';
@@ -129,7 +132,8 @@ export async function GET(request: NextRequest) {
   }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (error) {
     if (error instanceof IncomeReconciliationRequiredError) return NextResponse.json(incomeReconciliationReviewBody(error, year), { status: 422 });
-    if (error instanceof ExportReviewRequiredError || error instanceof FilingStatusReviewRequiredError || error instanceof SocialSecurityReviewRequiredError || error instanceof PersonalDeductionReviewRequiredError || error instanceof DependentCreditReviewRequiredError) return NextResponse.json({ error: error.message, code: error.code }, { status: 422 });
+    if (error instanceof ExportReviewRequiredError || error instanceof IncomeReconciliationRequiredError || error instanceof FilingStatusReviewRequiredError || error instanceof SocialSecurityReviewRequiredError || error instanceof PersonalDeductionReviewRequiredError || error instanceof DependentCreditReviewRequiredError
+      || error instanceof CapitalGainReviewRequiredError || error instanceof BusinessLossReviewRequiredError || error instanceof OBBBADeductionReviewRequiredError) return NextResponse.json({ error: error.message, code: error.code }, { status: 422 });
     if (error && typeof error === 'object' && 'code' in error && error.code === 'DEPRECIATION_REVIEW_REQUIRED') {
       return NextResponse.json({ error: error instanceof Error ? error.message : 'Asset depreciation needs review', code: error.code }, { status: 422 });
     }

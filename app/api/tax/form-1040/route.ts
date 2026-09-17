@@ -17,6 +17,9 @@ import { FilingStatusReviewRequiredError } from '@/lib/tax-rules/filing-status';
 import { SocialSecurityReviewRequiredError } from '@/lib/tax-rules/social-security';
 import { PersonalDeductionReviewRequiredError } from '@/lib/tax-rules/personal-deductions';
 import { DependentCreditReviewRequiredError } from '@/lib/tax-rules/credit-scope';
+import { CapitalGainReviewRequiredError } from '@/lib/tax-rules/capital-gains';
+import { BusinessLossReviewRequiredError } from '@/lib/tax-rules/business-losses';
+import { OBBBADeductionReviewRequiredError } from '@/lib/tax-rules/obbba-deductions';
 import { createPlanningPDF } from '@/lib/reports/planning-pdf';
 import { PDFDocument, StandardFonts, rgb, PDFFont, PDFPage } from 'pdf-lib';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
@@ -206,9 +209,13 @@ async function page2(doc: PDFDocument, f: PDFFont, bf: PDFFont, d: Record<string
   y = banner(p, 'Standard Deduction or Itemized Deductions', y, f, bf);
   const hasSchedule1A = Number(yr) >= 2025;
   y = row(p, hasSchedule1A ? '12e' : '12', `${d.usingStandardDeduction ? 'Standard deduction (reviewed age, blindness and dependency)' : 'Itemized deductions (Schedule A)'}`, y, d.deductionUsed, f, bf, false);
+  const nonItemizerCharity = d.nonItemizerCharitableDeduction || 0;
+  // §170(p) applies from 2026; the final 2026 form line is not published, so the row is labeled by section.
+  if (nonItemizerCharity > 0) y = row(p, '12*', 'Charitable cash gifts for non-itemizers (section 170(p); line per final 2026 form)', y, nonItemizerCharity, f, bf, false);
   y = row(p, hasSchedule1A ? '13a' : '13', 'Qualified business income deduction (Form 8995 / 8995-A)', y, d.qbiDeduction, f, bf, true);
-  if (hasSchedule1A) y = row(p, '13b', 'Enhanced senior deduction (supported Schedule 1-A amount)', y, d.enhancedSeniorDeduction, f, bf, false);
-  y = row(p, '14', hasSchedule1A ? 'Add lines 12e, 13a and 13b' : 'Add lines 12 and 13', y, d.deductionUsed + d.qbiDeduction + d.enhancedSeniorDeduction, f, bf, false, true);
+  const schedule1ATotal = hasSchedule1A ? (d.scheduleOneADeductions ?? d.enhancedSeniorDeduction) : 0;
+  if (hasSchedule1A) y = row(p, '13b', 'Enhanced senior deduction, qualified tips, overtime and vehicle loan interest (Schedule 1-A line 38)', y, schedule1ATotal, f, bf, false);
+  y = row(p, '14', hasSchedule1A ? (nonItemizerCharity > 0 ? 'Add lines 12e, 12*, 13a and 13b' : 'Add lines 12e, 13a and 13b') : 'Add lines 12 and 13', y, d.deductionUsed + nonItemizerCharity + d.qbiDeduction + schedule1ATotal, f, bf, false, true);
   y -= 4;
   y = hrow(p, '15', 'Taxable income after deductions (not less than zero)', y, d.taxableIncome, f, bf, rgb(0.88, 0.92, 1.0), BLUE);
   y -= 6;
@@ -357,7 +364,8 @@ export async function POST(request: NextRequest) {
     const displayData: Record<string, any> = {
       ...result, ...snapshot.income,
       socialSecurityLivedApartAllYear: snapshot.socialSecurityWorksheet?.livedApartAllYear,
-      schedule1Income: Math.max(0, snapshot.income.scheduleCNetProfit - snapshot.depreciationDeduction) + snapshot.income.rental + snapshot.income.otherOrdinaryIncome,
+      // Schedule 1 line 3 carries the allowed Schedule C result, negative in a reviewed loss year.
+      schedule1Income: snapshot.income.scheduleCAllowed + snapshot.income.rental + snapshot.income.otherOrdinaryIncome,
       w2FederalWithheld: snapshot.w2.withheld, w2StateWithheld: snapshot.w2.stateWithheld, estimatedPayments: snapshot.payments.estimatedPayments,
     };
 
@@ -399,7 +407,8 @@ export async function POST(request: NextRequest) {
     });
   } catch (err) {
     if (err instanceof IncomeReconciliationRequiredError) return NextResponse.json(incomeReconciliationReviewBody(err, requestedYear), { status: 422 });
-    if (err instanceof ExportReviewRequiredError || err instanceof FilingStatusReviewRequiredError || err instanceof SocialSecurityReviewRequiredError || err instanceof PersonalDeductionReviewRequiredError || err instanceof DependentCreditReviewRequiredError) return NextResponse.json({ error: err.message, code: err.code }, { status: 422 });
+    if (err instanceof ExportReviewRequiredError || err instanceof IncomeReconciliationRequiredError || err instanceof FilingStatusReviewRequiredError || err instanceof SocialSecurityReviewRequiredError || err instanceof PersonalDeductionReviewRequiredError || err instanceof DependentCreditReviewRequiredError
+      || err instanceof CapitalGainReviewRequiredError || err instanceof BusinessLossReviewRequiredError || err instanceof OBBBADeductionReviewRequiredError) return NextResponse.json({ error: err.message, code: err.code }, { status: 422 });
     if (err && typeof err === 'object' && 'code' in err && err.code === 'DEPRECIATION_REVIEW_REQUIRED') return NextResponse.json({ error: err instanceof Error ? err.message : 'Asset depreciation needs review', code: err.code }, { status: 422 });
     if (err instanceof ExportDataUnavailableError) return NextResponse.json({ error: err.message, code: err.code }, { status: 503 });
     console.error('[1040 Export]', err);
