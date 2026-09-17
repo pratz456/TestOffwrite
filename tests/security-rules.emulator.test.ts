@@ -122,7 +122,12 @@ async function seed(path: string, values: Record<string, string | number | boole
   });
   it('retains owner-filtered collection-group transaction reads', async () => {
     const documents = await getDocs(query(collectionGroup(alice, 'transactions'), where('userId', '==', owner)));
-    expect(documents.size).toBe(1);
+    // Earlier cases seed additional owner records; every returned document must belong to the owner and Bob's must never appear.
+    expect(documents.size).toBeGreaterThanOrEqual(1);
+    expect(documents.docs.every(snapshot => snapshot.data().userId === owner)).toBe(true);
+    expect(documents.docs.some(snapshot => snapshot.ref.path === 'user_profiles/alice_uid/accounts/account/transactions/tx')).toBe(true);
+    expect(documents.docs.some(snapshot => snapshot.ref.path === 'transactions/top-bob')).toBe(false);
+    await expect(getDocs(query(collectionGroup(alice, 'transactions'), where('userId', '==', 'bob')))).rejects.toMatchObject({ code: 'permission-denied' });
     await expect(getDoc(doc(alice, 'transactions/top-bob'))).rejects.toMatchObject({ code: 'permission-denied' });
   });
   it('allows ordinary profile creation and edits, denies subscription escalation on create/update', async () => {
