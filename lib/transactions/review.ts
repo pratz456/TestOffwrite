@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { adminDb } from '@/lib/firebase/admin';
 import { analysisInputHash } from '@/lib/ai/analysis-persistence';
 import { analysisProfileHash } from '@/lib/ai/profile-context';
+import { invalidateTaxpayerContextCache } from '@/lib/ai/taxpayer-context-server';
 import { transactionIdInput } from './client-updates';
 import { canConfirmAiSuggestion, recordedTransactionType, reviewCategory, reviewHydrationFields,
   type AiReviewSuggestion, type TransactionReviewRequest } from './ai-review-contract';
@@ -40,7 +41,7 @@ export async function reviewTransaction(uid: string, id: string, input: Transact
   const accountRef = adminDb.doc(`user_profiles/${uid}/accounts/${input.accountId}`);
   const ref = accountRef.collection('transactions').doc(id);
   const profileRef = adminDb.doc(`user_profiles/${uid}`);
-  return adminDb.runTransaction(async tx => {
+  const reviewed = await adminDb.runTransaction(async tx => {
     const [account, snapshot, profile] = await Promise.all([tx.get(accountRef), tx.get(ref), tx.get(profileRef)]);
     const data = snapshot.data();
     const matchesOwner = (record: Record<string, unknown>) => [record.userId, record.user_id].some(value => value === uid) &&
@@ -119,4 +120,7 @@ export async function reviewTransaction(uid: string, id: string, input: Transact
     tx.update(ref, update);
     return hydrateReviewTransaction({ ...data, ...update }, id);
   });
+  // A confirmed row is a new prior for this user's later AI analyses; drop the memoized history.
+  invalidateTaxpayerContextCache(uid);
+  return reviewed;
 }

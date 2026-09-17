@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   authenticate: vi.fn(),
   analyze: vi.fn(),
   profile: vi.fn(),
+  taxpayerContext: vi.fn(),
   convertContext: vi.fn(),
   missingFields: vi.fn(),
   collectionGroup: vi.fn(),
@@ -23,6 +24,9 @@ vi.mock('@/lib/ai/analyzeTransaction', () => ({
   findMissingUserFields: mocks.missingFields,
 }));
 vi.mock('@/lib/ai/profile-context', () => ({ getAnalysisProfile: mocks.profile, analysisProfileHash: () => 'synthetic-profile-hash' }));
+// Confirmed-history enrichment has its own read-count coverage (tests/taxpayer-context-memo.test.ts);
+// here it stays profile-only so the collection-group spy below only sees the ownership lookup.
+vi.mock('@/lib/ai/taxpayer-context-server', () => ({ loadTaxpayerContext: mocks.taxpayerContext }));
 vi.mock('@/lib/ai/analysis-persistence', () => ({
   claimAnalysisLease: mocks.claim, persistAnalysisSuggestion: mocks.persist, releaseAnalysisLease: mocks.release,
   analysisSuggestionUpdate: () => ({ ai: { status_label: 'Likely Deductible' }, analysisUpdatedAt: '2026-09-16T12:00:00.000Z' }),
@@ -34,6 +38,8 @@ vi.mock('@/lib/firebase/admin', async () => {
 });
 
 import { POST } from '../app/api/ai/analyze-transaction/route';
+import { buildTaxpayerContext } from '../lib/ai/taxpayer-context';
+import type { UserContext } from '../lib/ai/analyzeTransaction';
 
 const body = {
   transactionId: 'synthetic-office-transaction',
@@ -68,6 +74,8 @@ beforeEach(() => {
   uid = `availability-test-${++nextUser}`;
   mocks.authenticate.mockResolvedValue({ user: { uid }, error: null });
   mocks.profile.mockResolvedValue({ data: { profession: 'Designer' }, error: null });
+  mocks.taxpayerContext.mockImplementation(async (_uid: string, profile: UserContext, merchant: string | null | undefined, transactionDate: string | null) =>
+    buildTaxpayerContext({ profile, homeOffice: null, confirmed: [], merchant, transactionDate }));
   mocks.claim.mockResolvedValue({ status: 'claimed', lease: { token: 'synthetic-lease', inputHash: 'hash', expiresAt: Date.now()+60000 }, data: { ...body.transaction, iso_currency_code: 'USD', pending: false, notes: 'Saved owner context' } });
   mocks.persist.mockResolvedValue({ status: 'saved' });
   mocks.release.mockResolvedValue(undefined);

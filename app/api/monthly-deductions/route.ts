@@ -8,6 +8,8 @@ import { getUserProfileServer } from '@/lib/firebase/profiles-server';
 import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
 import { FilingStatusReviewRequiredError } from '@/lib/tax-rules/filing-status';
 
+const OWNER_DATA_CACHE_CONTROL = 'private, no-store';
+
 export async function GET(request: NextRequest) {
   try {
     console.log('🔄 [Monthly Deductions API] Starting request...');
@@ -38,8 +40,9 @@ export async function GET(request: NextRequest) {
 
     console.log('📅 [Monthly Deductions API] Processing year:', currentYear);
 
-    // Fetch all transactions for the user using Firebase server function
-    const { data: allTransactions, error } = await getTransactionsServer(user.uid);
+    // Every year's rows are needed for `availableYears`; project only the aggregate inputs to keep
+    // payload and SSR memory proportional to three fields per row rather than the full record.
+    const { data: allTransactions, error } = await getTransactionsServer(user.uid, { fields: ['date', 'amount', 'is_deductible'] });
 
     if (error) {
       console.error('❌ [Monthly Deductions API] Error fetching transactions:', error);
@@ -86,7 +89,7 @@ export async function GET(request: NextRequest) {
             unclassifiedInYear: 0,
           },
         }
-      });
+      }, { headers: { 'Cache-Control': OWNER_DATA_CACHE_CONTROL } });
     }
 
     // Filter transactions for current year and positive amounts (expenses)
@@ -195,7 +198,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: responseData
-    });
+    }, { headers: { 'Cache-Control': OWNER_DATA_CACHE_CONTROL } });
   } catch (error) {
     if (error instanceof FilingStatusReviewRequiredError) return NextResponse.json({ error: error.message, code: error.code }, { status: 422 });
     console.error('❌ [Monthly Deductions API] Unexpected error:', error);
