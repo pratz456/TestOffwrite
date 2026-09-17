@@ -29,7 +29,7 @@ Signed `ITEM/ERROR` events with `ITEM_LOGIN_REQUIRED` flag only the current prov
 
 ## Bounded browser OAuth check after this release
 
-This check is **pending**, not a recorded pass.
+The deployed `6993d3b` release reached Platypus OAuth Bank's consent and **Continue to log in**. Link then displayed **Return to institution**, but no provider popup was available in the enabled browser surfaces and no return to `/plaid/oauth` was observed. The flow was canceled through **Exit → Yes, exit**, returning to the app. A genuine OAuth round-trip and successful OAuth import remain **unverified**. The user requested no further testing, so the remaining procedure below was not pursued.
 
 1. Use the existing synthetic staging account and confirm the deployed API returns the registered staging callback.
 2. Start a normal connection and select Plaid's documented Sandbox OAuth institution **Platypus OAuth Bank (`ins_127287`)**.
