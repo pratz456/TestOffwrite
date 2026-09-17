@@ -135,10 +135,10 @@ export function createFakeFirestore(options: FakeFirestoreOptions = {}) {
     const writes: Array<() => void> = [];
     const self: any = {
       set: (target: any, data: Record<string, any>, setOptions?: { merge?: boolean }) => { writes.push(() => write(target.path, data, setOptions)); return self; },
-      update: (target: any, data: Record<string, any>) => { writes.push(() => write(target.path, data, { merge: true })); return self; },
+      update: (target: any, data: Record<string, any>) => { writes.push(() => { if (!records.has(target.path)) throw new Error(`No document at ${target.path}`); write(target.path, data, { merge: true }); }); return self; },
       create: (target: any, data: Record<string, any>) => { writes.push(() => write(target.path, data)); return self; },
       delete: (target: any) => { writes.push(() => { records.delete(target.path); }); return self; },
-      commit: async () => { fail(); writes.forEach(apply => apply()); writes.length = 0; },
+      commit: async () => { fail(); writes.forEach(apply => apply()); writes.length = 0; return []; },
     };
     return self;
   };

@@ -19,6 +19,7 @@ import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 // Types for transaction updates
 export interface TransactionUpdate {
   is_deductible?: boolean | null;
+  expense_type?: 'business' | 'personal';
   deductible_reason?: string;
   deduction_score?: number;
   ai_analysis?: string; // Original AI analysis text - never overwritten

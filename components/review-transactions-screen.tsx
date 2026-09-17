@@ -12,6 +12,13 @@ import { transactionNeedsCategoryReview, transactionNeedsTaxReview } from '@/lib
 import { REVIEW_CATEGORIES, canConfirmSuggestion, reviewCategory, type TransactionKind } from '@/lib/transactions/ai-review-contract';
 import { reviewPresentation, transactionReviewKey } from '@/lib/transactions/review-presentation';
 import { formatTransactionDate } from '@/lib/transactions/calendar-date';
+import { bulkConfirmedLocally, bulkOfferFor, canOfferPurposeConfirmation, confirmPurposeUpdates, firstOpenQuestion, groupUnreviewedByMerchant, proposedBusinessPurpose,
+  questionAnswered, rejectProposalUpdates, type BulkConfirmRequest } from '@/lib/transactions/review-proposals';
+import { PurposeConfirmChip } from '@/components/review/purpose-confirm-chip';
+import { BulkConfirmOffer, bulkOutcomeMessage, type BulkConfirmOutcome } from '@/components/review/bulk-confirm-offer';
+import { MerchantGroupList, type GroupDecisionResult } from '@/components/review/merchant-groups';
+import { QuestionChips } from '@/components/review/question-chips';
+import { ExplanationCard } from '@/components/ai/explanation-card';
 
 interface ReviewTransactionsScreenProps {
   user: { id: string; email?: string; user_metadata?: { name?: string } };
@@ -43,6 +50,11 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
   const [reason, setReason] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [providerFailed, setProviderFailed] = useState(false);
+  // Offered after a saved decision when other unreviewed charges share the merchant.
+  const [bulkOffer, setBulkOffer] = useState<BulkConfirmRequest | null>(null);
+  // The single-card flow stays the default; "By merchant" triages the same queue grouped by merchant key.
+  const [view, setView] = useState<'single' | 'merchant'>('single');
+  const [groupResults, setGroupResults] = useState<GroupDecisionResult[]>([]);
   const [touchOffset, setTouchOffset] = useState(0);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
   const operationLock = useRef(false);
@@ -54,7 +66,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
 
   useEffect(() => {
     setReviewed(new Set()); setDeferred(new Set()); setSnapshots({}); setEditing(false);
-    setMessage(null); setProviderFailed(false);
+    setMessage(null); setProviderFailed(false); setBulkOffer(null); setView('single'); setGroupResults([]);
   }, [user.id]);
 
   const resolved = transactions.map(transaction => {
@@ -95,6 +107,13 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
     ? `Confirm saves this category and marks it deductible. ${suggestedCategory?.value === 'meals_50' ? 'Verify business use; the 50% meal limit applies.' : 'Verify business use first.'}`
     : suggestion?.transactionKind === 'expense' ? 'Confirm also marks this expense not deductible.' : 'No expense deduction will be recorded.';
   const busy = operation !== null;
+  // One-tap purpose confirmation: only offered while the proposal can be recorded through the update API.
+  const proposal = current ? proposedBusinessPurpose(current) : null;
+  const openQuestion = current ? firstOpenQuestion(current) : null;
+  const offerPurpose = !!current && !analysisRunning && !analysisQueued && canOfferPurposeConfirmation(current);
+  // Otherwise the first open question gets suggested-answer chips that save facts only.
+  const offerQuestion = !!current && !!openQuestion && !offerPurpose && current.pending !== true && !analysisRunning && !analysisQueued && !questionAnswered(current, openQuestion);
+  const groups = view === 'merchant' ? groupUnreviewedByMerchant(resolved) : [];
 
   useEffect(() => {
     setEditing(false); setMessage(null); setTouchOffset(0); touchStart.current = null;
@@ -170,11 +189,93 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
       remember(result.transaction);
       setReviewed(previous => new Set([...previous, key]));
       setEditing(false);
+      setBulkOffer(bulkOfferFor(result.transaction as Transaction, resolved));
       toast.success(result.transaction.tax_review_required ? 'Category saved · tax details still need review' : action === 'confirm' ? 'AI categorization confirmed' : 'Your correction was saved');
     } catch {
       if (mounted.current && activeUser.current === owner && activeKey.current === key) setMessage('Your review was not saved. Check your connection and try again.');
     } finally { operationLock.current = false; if (mounted.current) { setOperation(null); setTouchOffset(0); } }
   };
+
+  // Records a tax decision (or, with `fact`, a supporting fact only) through the existing update route;
+  // the server stamps review_status/review_source/reviewed_at for decisions.
+  const saveDecision = async (updates: Record<string, unknown>, successMessage: string, fact = false) => {
+    if (!current || operationLock.current || current.pending) return;
+    operationLock.current = true; setOperation('saving'); setMessage(null);
+    const owner = user.id;
+    const key = currentKey;
+    const record = current;
+    try {
+      const response = await makeAuthenticatedRequest(`/api/transactions/${encodeURIComponent(record.trans_id || record.id)}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates),
+      });
+      const result = await response.json().catch(() => null);
+      if (!mounted.current || activeUser.current !== owner || activeKey.current !== key) return;
+      if (!response.ok || !result?.success || !result.transaction) {
+        setMessage(response.status === 401 ? 'Your session expired. Sign in again to save your review.' : result?.error || 'Your decision was not saved. Please try again.');
+        return;
+      }
+      const saved = { ...record, ...(result.transaction as Partial<Transaction>) } as Transaction;
+      remember(saved);
+      if (!fact) {
+        setReviewed(previous => new Set([...previous, key]));
+        setBulkOffer(bulkOfferFor(saved, resolved));
+      }
+      toast.success(successMessage);
+    } catch {
+      if (mounted.current && activeUser.current === owner && activeKey.current === key) setMessage('Your decision was not saved. Check your connection and try again.');
+    } finally { operationLock.current = false; if (mounted.current) { setOperation(null); setTouchOffset(0); } }
+  };
+
+  // The server has already stamped these rows; mirror the stamps locally so they leave the queue now.
+  const markBulkConfirmed = (outcome: BulkConfirmOutcome, request: BulkConfirmRequest) => {
+    const reviewedAt = new Date().toISOString();
+    const ids = new Set(outcome.transactionIds);
+    const keys: string[] = [];
+    for (const transaction of resolved) {
+      if (!ids.has(transaction.trans_id || transaction.id)) continue;
+      remember(bulkConfirmedLocally(transaction, request, reviewedAt));
+      keys.push(transactionReviewKey(transaction));
+    }
+    if (keys.length) setReviewed(previous => new Set([...previous, ...keys]));
+  };
+  const applyBulkLocally = (outcome: BulkConfirmOutcome, offer: BulkConfirmRequest) => {
+    markBulkConfirmed(outcome, offer);
+    toast.success(bulkOutcomeMessage(offer, outcome));
+  };
+  const applyGroupLocally = (result: GroupDecisionResult) => {
+    markBulkConfirmed(result.outcome, result.request);
+    setGroupResults(previous => [result, ...previous.filter(entry => entry.request.merchantKey !== result.request.merchantKey)]);
+  };
+  const bulkOfferBanner = bulkOffer && <BulkConfirmOffer key={`${bulkOffer.merchantKey}:${bulkOffer.decision}`} offer={bulkOffer} disabled={busy}
+    onApplied={applyBulkLocally} onDismiss={() => setBulkOffer(null)} />;
+  const viewToggle = (
+    <div role="group" aria-label="Review layout" className="mt-2 grid grid-cols-2 gap-1 rounded-lg bg-muted p-1">
+      <button type="button" aria-pressed={view === 'single'} disabled={busy} onClick={() => setView('single')} className={`min-h-11 rounded-md px-3 text-sm font-medium ${view === 'single' ? 'bg-background shadow-sm' : 'text-muted-foreground'}`}>One at a time</button>
+      <button type="button" aria-pressed={view === 'merchant'} disabled={busy} onClick={() => setView('merchant')} className={`min-h-11 rounded-md px-3 text-sm font-medium ${view === 'merchant' ? 'bg-background shadow-sm' : 'text-muted-foreground'}`}>By merchant</button>
+    </div>
+  );
+
+  if (view === 'merchant') {
+    const charges = groups.reduce((sum, group) => sum + group.count, 0);
+    return (
+      <div className="min-h-full bg-background px-3 pb-4 sm:px-4">
+        <div className="mx-auto max-w-xl">
+          <header className="sticky top-0 z-10 mb-3 border-b border-border bg-background/95 py-2 backdrop-blur">
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="icon" className="min-h-11 min-w-11" aria-label="Back to dashboard" onClick={onBack}><ArrowLeft className="h-5 w-5" /></Button>
+              <div className="min-w-0 flex-1"><h1 className="text-lg font-semibold">Review by merchant</h1><p className="text-xs text-muted-foreground">{charges} charge{charges === 1 ? '' : 's'} from {groups.length} merchant{groups.length === 1 ? '' : 's'}{reviewed.size > 0 ? ` · ${reviewed.size} confirmed this session` : ''}</p></div>
+            </div>
+            {viewToggle}
+          </header>
+          {bulkOfferBanner && <div className="mb-3">{bulkOfferBanner}</div>}
+          <MerchantGroupList groups={groups} results={groupResults} disabled={busy} onApplied={applyGroupLocally}
+            onDismissResult={merchantKey => setGroupResults(previous => previous.filter(entry => entry.request.merchantKey !== merchantKey))}
+            onOpen={onTransactionClick ? transaction => onTransactionClick({ ...transaction, _source: 'review-transactions' }) : undefined} />
+          <p className="mt-3 text-center text-xs leading-4 text-muted-foreground">Each group confirmation records the decision for every listed charge. Charges that need their own review stay in the queue.</p>
+        </div>
+      </div>
+    );
+  }
 
   const runAnalysis = async () => {
     if (!current || operationLock.current || current.pending || analysisRunning || availability.status !== 'configured' || providerFailed) return;
@@ -223,8 +324,10 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
           : transactions.length ? 'Your categorization decisions are saved. New transactions will appear here for review.'
           : 'Add a transaction or connect a bank to start building your tax records.'}</p>
         {taxQuestions.length > 0 && <p className="text-sm text-amber-700 dark:text-amber-400">{taxQuestions.length} categorized transaction{taxQuestions.length === 1 ? ' still needs' : 's still need'} tax details. Deductions remain unresolved.</p>}
+        {bulkOfferBanner && <div className="text-left">{bulkOfferBanner}</div>}
         {taxQuestions.length > 0 && onTransactionClick && <Button className="w-full" onClick={() => onTransactionClick({ ...taxQuestions[0], _source: 'review-transactions' }, 'details')}>Resolve missing tax details</Button>}
         {remaining.length > 0 && <Button className="w-full" onClick={() => setDeferred(new Set())}>Review remaining transactions</Button>}
+        {remaining.length > 0 && viewToggle}
         <Button variant="outline" className="w-full" onClick={onBack}>Back to dashboard</Button>
       </div>
     </div>
@@ -249,7 +352,10 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
             <div className="min-w-0 flex-1"><h1 className="text-lg font-semibold">Review</h1><p className="text-xs text-muted-foreground">{remaining.length} {remaining.length === 1 ? 'needs' : 'need'} review{reviewed.size > 0 ? ` · ${reviewed.size} confirmed this session` : ''}</p></div>
             {!editing && <Button variant="ghost" disabled={busy} onClick={later} className="min-h-11 px-3 text-muted-foreground">Later</Button>}
           </div>
+          {!editing && viewToggle}
         </header>
+
+        {bulkOfferBanner && <div className="mb-3">{bulkOfferBanner}</div>}
 
         <article className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm" aria-label="Transaction to review"
           style={{ transform: `translateX(${Math.max(-70, Math.min(70, touchOffset))}px)`, touchAction: 'pan-y' }}
@@ -282,10 +388,22 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
               <section className="space-y-2 rounded-xl border border-primary/20 bg-primary/5 p-3" aria-labelledby="suggestion-heading">
                 <div className="flex items-center gap-1.5 text-xs font-medium text-primary"><Sparkles className="h-3.5 w-3.5 shrink-0" /><span>{mayConfirm && presentation!.needsTaxFacts ? 'AI suggested category' : presentation!.label}</span></div>
                 <h3 id="suggestion-heading" className="text-xl font-semibold leading-tight">{presentation!.categoryLabel}</h3>
-                <p className={suggestion ? 'line-clamp-2 text-sm leading-5' : 'text-sm leading-5'}>{presentation!.reasoning}</p>
+                {current.ai_explanation ? <ExplanationCard explanation={current.ai_explanation} />
+                  : <p className={suggestion ? 'line-clamp-2 text-sm leading-5' : 'text-sm leading-5'}>{presentation!.reasoning}</p>}
               </section>
 
-              {needsTaxFacts ? <div className="flex items-center justify-between gap-3 rounded-lg bg-amber-500/10 px-3 py-1.5 text-amber-900 dark:text-amber-200">
+              {offerPurpose && <PurposeConfirmChip key={currentKey} proposal={proposal} question={openQuestion?.kind === 'business_purpose' ? openQuestion.question : null}
+                busy={operation === 'saving'} disabled={busy}
+                onConfirm={purpose => saveDecision(confirmPurposeUpdates(purpose, proposal), 'Business purpose confirmed and deduction recorded')}
+                onReject={() => saveDecision(rejectProposalUpdates(), 'Marked not business; no deduction recorded')} />}
+
+              {offerQuestion && <QuestionChips key={`${currentKey}:${openQuestion!.kind}`} question={openQuestion!} transaction={current} proposal={proposal}
+                busy={operation === 'saving'} disabled={busy}
+                onSave={(updates, saved) => saveDecision(updates, `${saved}. Run analysis again for an updated suggestion.`, true)}
+                onOpenDetails={onTransactionClick ? () => onTransactionClick({ ...current, _source: 'review-transactions' }, 'details') : undefined} />}
+
+              {offerPurpose ? <p id="review-confirmation-hint" className="text-xs leading-4 text-muted-foreground">{mayConfirm ? `${confirmationLabel} below saves the category${recordsDeduction ? ' and the deduction' : ' only'}; the purpose is saved when you confirm it above.` : presentation!.confirmationHint}</p>
+              : needsTaxFacts ? <div className="flex items-center justify-between gap-3 rounded-lg bg-amber-500/10 px-3 py-1.5 text-amber-900 dark:text-amber-200">
                 <div className="min-w-0"><p className="text-xs font-medium">Deduction unresolved</p><p id="review-confirmation-hint" className="text-xs leading-4">{mayConfirm ? 'Confirm saves the category only.' : presentation!.confirmationHint}</p></div>
                 {onTransactionClick && <button type="button" className="inline-flex min-h-11 shrink-0 items-center gap-1 text-xs font-medium underline underline-offset-2" onClick={() => onTransactionClick({ ...current, _source: 'review-transactions' }, 'details')}>Add details<ChevronRight aria-hidden="true" className="h-3.5 w-3.5" /></button>}
               </div> : <p id="review-confirmation-hint" className="text-xs leading-4 text-muted-foreground">{confirmationHint}</p>}

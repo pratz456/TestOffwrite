@@ -101,6 +101,8 @@ export const RATE_LIMITS = {
   stripePortal: { scope: 'stripe.portal', limit: 10, windowMs: 10 * 60_000, onUnavailable: 'deny' },
   plaidLinkToken: { scope: 'plaid.link-token', limit: 20, windowMs: 10 * 60_000, onUnavailable: 'deny' },
   supportAccountLookup: { scope: 'support.account', limit: 60, windowMs: 10 * 60_000, onUnavailable: 'deny' },
+  /** Each call may stamp up to 200 of the caller's transactions, so the window stays small. */
+  bulkConfirm: { scope: 'transactions.bulk-confirm', limit: 20, windowMs: 10 * 60_000, onUnavailable: 'deny' },
 } as const satisfies Record<string, Omit<RateLimitOptions, 'key'>>;
 
 interface WindowState { windowStart: number; count: number }

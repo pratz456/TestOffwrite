@@ -1,5 +1,6 @@
 import { recordedTransactionType, reviewHydrationFields, type AiReviewSuggestion, type TransactionKind } from '@/lib/transactions/ai-review-contract';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
+import type { AiExplanation } from '@/lib/transactions/review-proposals';
 import {
   collection,
   doc,
@@ -20,10 +21,16 @@ import { db } from "./client";
 
 export interface Transaction {
   ai_suggestion?: AiReviewSuggestion | null;
+  /** Facts the last analysis asked for (for example `business_purpose`); drives the review chips. */
+  ai_missing_fields?: string[];
+  /** The model's tailored reason; a fallback proposed business purpose when the suggestion has none. */
+  ai_customized_reason?: string | null;
+  ai_explanation?: AiExplanation | null;
   transaction_kind?: TransactionKind;
   review_status?: string;
   review_source?: string;
   review_suggestion_id?: string | null;
+  reviewed_at?: string;
   tax_review_required?: boolean;
   analysisErrorCode?: string | null;
   analysisJobId?: string;
