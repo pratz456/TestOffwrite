@@ -1,357 +1,248 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Calculator, Info, MapPin } from "lucide-react";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Calculator,
-  DollarSign,
-  MapPin,
-  TrendingUp,
-  PartyPopper,
-} from "lucide-react";
-import {
+  STATE_REGISTRY_TAX_YEARS,
   US_STATES,
-  STATE_TAX_CONFIG,
-  calculateStateTax,
-  type FilingStatus,
-} from "@/lib/tax/state-tax-data";
-import { calculateFederalIncomeTax } from "@/lib/tax-rules/federal-brackets";
+  businessTaxNotices,
+  estimateStateTax,
+  readProfileLocation,
+  resolveStateCode,
+  type StateFilingStatus,
+  type StateTaxLine,
+} from "@/lib/tax-rules/state";
 
 interface StateTaxCalculatorScreenProps {
   user: { id: string; email?: string };
-  userProfile?: any;
+  userProfile?: Record<string, unknown> | null;
   onBack: () => void;
 }
 
-const STANDARD_DEDUCTIONS_2024: Record<string, number> = {
-  single: 14600,
-  married_filing_jointly: 29200,
-  married_filing_separately: 14600,
-  head_of_household: 21900,
-};
-
-const FILING_STATUS_OPTIONS: { value: FilingStatus; label: string }[] = [
+const FILING_STATUS_OPTIONS: { value: StateFilingStatus; label: string }[] = [
   { value: "single", label: "Single" },
   { value: "married_filing_jointly", label: "Married Filing Jointly" },
   { value: "married_filing_separately", label: "Married Filing Separately" },
   { value: "head_of_household", label: "Head of Household" },
 ];
 
-function parseIncome(value: string | number | undefined): number {
+const LATEST_YEAR = STATE_REGISTRY_TAX_YEARS[STATE_REGISTRY_TAX_YEARS.length - 1];
+
+function parseAmount(value: unknown): number {
   if (value == null || value === "") return 0;
-  if (typeof value === "number") return value;
-  return parseFloat(String(value).replace(/[,$]/g, "")) || 0;
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  if (typeof value !== "string") return 0;
+  const parsed = parseFloat(value.replace(/[,$\s]/g, ""));
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
-export function StateTaxCalculatorScreen({
-  user,
-  userProfile,
-  onBack,
-}: StateTaxCalculatorScreenProps) {
-  const profileIncome = useMemo(() => {
-    const inc = userProfile?.income ?? userProfile?.w2_income ?? userProfile?.business_income;
-    return parseIncome(inc);
-  }, [userProfile]);
+/** Tolerant version of the engine normalizer: unknown labels fall back to Single without throwing. */
+function normalizeFilingStatus(value: unknown): StateFilingStatus {
+  if (typeof value !== "string") return "single";
+  const key = value.trim().toLowerCase().replace(/\s+/g, "_");
+  return FILING_STATUS_OPTIONS.some(option => option.value === key) ? (key as StateFilingStatus) : "single";
+}
 
-  const profileState = userProfile?.state ?? "";
+const fmt = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 });
+const pct = (n: number) => `${n.toFixed(2)}%`;
+const sourceLabel = (url: string) => { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; } };
 
-  const resolveStateCode = (stateVal: string): string => {
-    if (!stateVal) return "";
-    const byCode = US_STATES.find((s) => s.code === stateVal);
-    if (byCode) return byCode.code;
-    const byName = US_STATES.find(
-      (s) => s.name.toLowerCase() === stateVal.toLowerCase()
-    );
-    return byName?.code ?? "";
-  };
+function AmountField({ id, label, value, onChange, hint }: { id: string; label: string; value: string; onChange: (value: string) => void; hint?: string }) {
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={id}>{label}</Label>
+      <Input id={id} type="text" inputMode="numeric" placeholder="0" value={value} onChange={e => onChange(e.target.value.replace(/[^0-9]/g, ""))} className="text-base" />
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
+
+function LineRows({ lines, negative }: { lines: readonly StateTaxLine[]; negative?: boolean }) {
+  return (
+    <>
+      {lines.map(line => (
+        <React.Fragment key={line.label}>
+          <dt className="min-w-0 break-words text-muted-foreground">{line.label}</dt>
+          <dd className="text-right tabular-nums">{negative || line.amount < 0 ? `(${fmt(Math.abs(line.amount))})` : fmt(line.amount)}</dd>
+        </React.Fragment>
+      ))}
+    </>
+  );
+}
+
+export function StateTaxCalculatorScreen({ userProfile }: StateTaxCalculatorScreenProps) {
+  const profileLocation = useMemo(() => readProfileLocation(userProfile ?? null), [userProfile]);
+  const profileStateCode = resolveStateCode(profileLocation.state);
 
   const [stateCode, setStateCode] = useState<string>("");
-  const [incomeStr, setIncomeStr] = useState<string>("");
+  const [taxYear, setTaxYear] = useState<string>(String(LATEST_YEAR));
+  const [filingStatus, setFilingStatus] = useState<StateFilingStatus>(() => normalizeFilingStatus(userProfile?.filing_status));
+  const [businessProfit, setBusinessProfit] = useState<string>(() => { const n = parseAmount(userProfile?.business_income); return n > 0 ? String(Math.round(n)) : ""; });
+  const [wages, setWages] = useState<string>(() => { const n = parseAmount(userProfile?.w2_income); return n > 0 ? String(Math.round(n)) : ""; });
+  const [otherIncome, setOtherIncome] = useState<string>("");
 
-  React.useEffect(() => {
-    if (profileState) {
-      const code = resolveStateCode(profileState);
-      if (code) setStateCode((prev) => prev || code);
-    }
-  }, [profileState]);
+  useEffect(() => {
+    if (profileStateCode) setStateCode(prev => prev || profileStateCode);
+  }, [profileStateCode]);
 
-  React.useEffect(() => {
-    if (profileIncome > 0) {
-      setIncomeStr((prev) => prev || String(Math.round(profileIncome)));
-    }
-  }, [profileIncome]);
-  const normalizeFilingStatus = (s: string | undefined): FilingStatus => {
-    if (!s) return "single";
-    const lower = s.toLowerCase().replace(/\s+/g, "_");
-    if (lower.includes("jointly")) return "married_filing_jointly";
-    if (lower.includes("separately")) return "married_filing_separately";
-    if (lower.includes("head") || lower.includes("household")) return "head_of_household";
-    return "single";
-  };
+  const profit = parseAmount(businessProfit);
+  const w2Wages = parseAmount(wages);
+  const other = parseAmount(otherIncome);
+  const year = Number(taxYear);
+  const hasInput = Boolean(stateCode) && profit + w2Wages + other > 0;
 
-  const [filingStatus, setFilingStatus] = useState<FilingStatus>(
-    normalizeFilingStatus(userProfile?.filing_status) || "single"
-  );
+  const estimate = useMemo(() => hasInput
+    ? estimateStateTax({ stateCode, taxYear: year, filingStatus, federalAGI: profit + w2Wages + other, scheduleCNetProfit: profit, w2Wages, otherIncome: other })
+    : null, [hasInput, stateCode, year, filingStatus, profit, w2Wages, other]);
 
-  const income = parseIncome(incomeStr);
-  const hasValidInput = stateCode && income > 0;
-
-  const { stateTax, federalTax, effectiveStateRate, effectiveCombinedRate } =
-    useMemo(() => {
-      if (!hasValidInput) {
-        return {
-          stateTax: 0,
-          federalTax: 0,
-          effectiveStateRate: 0,
-          effectiveCombinedRate: 0,
-        };
-      }
-
-      const standardDeduction =
-        STANDARD_DEDUCTIONS_2024[filingStatus] ?? STANDARD_DEDUCTIONS_2024.single;
-      const taxableIncome = Math.max(0, income - standardDeduction);
-
-      const federalTax = calculateFederalIncomeTax(taxableIncome, filingStatus);
-      const { tax: stateTax, effectiveRate: effectiveStateRate } =
-        calculateStateTax(income, stateCode, filingStatus);
-
-      const totalTax = federalTax + stateTax;
-      const effectiveCombinedRate = income > 0 ? (totalTax / income) * 100 : 0;
-
-      return {
-        stateTax,
-        federalTax,
-        effectiveStateRate,
-        effectiveCombinedRate,
-      };
-    }, [income, stateCode, filingStatus, hasValidInput]);
-
-  const config = stateCode ? STATE_TAX_CONFIG[stateCode] : null;
-  const isNoTaxState = config?.type === "no_tax";
-  const quarterlyState = stateTax / 4;
-
-  const formatCurrency = (n: number) =>
-    new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(n);
-
-  const maxTax = Math.max(federalTax, stateTax) || 1;
+  const notices = useMemo(() => stateCode
+    ? businessTaxNotices({ stateCode, city: profileStateCode === stateCode ? profileLocation.city : undefined, taxYear: year })
+    : [], [stateCode, profileStateCode, profileLocation.city, year]);
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
-      <div className="sticky top-0 z-50 bg-background border-b border-border">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
-          <div className="flex items-center gap-3 sm:gap-4">
-            <div>
-              <h1 className="text-lg sm:text-xl font-semibold text-foreground">
-                State Tax Calculator
-              </h1>
-              <p className="text-xs sm:text-sm text-muted-foreground">
-                Estimate your state income tax
-              </p>
-            </div>
-          </div>
+      <div className="sticky top-0 z-50 border-b border-border bg-background">
+        <div className="mx-auto max-w-4xl px-4 py-3 sm:px-6 sm:py-4">
+          <h1 className="text-lg font-semibold text-foreground sm:text-xl">State tax planning</h1>
+          <p className="text-xs text-muted-foreground sm:text-sm">Informational state planning estimate from state department of revenue parameters</p>
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
-        {/* Inputs */}
-        <Card className="bg-card border-border">
+      <div className="mx-auto max-w-4xl space-y-6 px-4 py-6 sm:px-6 sm:py-8">
+        <Card className="border-border bg-card">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Calculator className="w-5 h-5" />
-              Your Information
-            </CardTitle>
+            <CardTitle className="flex items-center gap-2 text-base"><Calculator className="h-5 w-5" />Your information</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="state">State</Label>
+                <Select value={stateCode} onValueChange={setStateCode}>
+                  <SelectTrigger id="state"><SelectValue placeholder="Select your state" /></SelectTrigger>
+                  <SelectContent>
+                    {US_STATES.map(s => (
+                      <SelectItem key={s.code} value={s.code}>
+                        <span className="flex items-center gap-2"><MapPin className="h-4 w-4 text-muted-foreground" />{s.name}</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="tax-year">Tax year</Label>
+                <Select value={taxYear} onValueChange={setTaxYear}>
+                  <SelectTrigger id="tax-year" aria-label="Tax year"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {[...STATE_REGISTRY_TAX_YEARS].reverse().map(y => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
             <div className="space-y-2">
-              <Label htmlFor="state">State</Label>
-              <Select value={stateCode} onValueChange={setStateCode}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select your state" />
-                </SelectTrigger>
+              <Label htmlFor="filing">Filing status</Label>
+              <Select value={filingStatus} onValueChange={v => setFilingStatus(v as StateFilingStatus)}>
+                <SelectTrigger id="filing"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {US_STATES.map((s) => (
-                    <SelectItem key={s.code} value={s.code}>
-                      <span className="flex items-center gap-2">
-                        <MapPin className="w-4 h-4 text-muted-foreground" />
-                        {s.name}
-                      </span>
-                    </SelectItem>
-                  ))}
+                  {FILING_STATUS_OPTIONS.map(opt => <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="income">Annual Income ($)</Label>
-              <Input
-                id="income"
-                type="text"
-                inputMode="numeric"
-                placeholder="e.g. 75000"
-                value={incomeStr}
-                onChange={(e) => setIncomeStr(e.target.value.replace(/[^0-9]/g, ""))}
-                className="text-base"
-              />
+            <div className="grid gap-4 sm:grid-cols-3">
+              <AmountField id="business-profit" label="Business net profit ($)" value={businessProfit} onChange={setBusinessProfit} hint="Schedule C line 31" />
+              <AmountField id="wages" label="W-2 wages ($)" value={wages} onChange={setWages} hint="Box 1" />
+              <AmountField id="other-income" label="Other income ($)" value={otherIncome} onChange={setOtherIncome} hint="Interest, dividends, other" />
             </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="filing">Filing Status</Label>
-              <Select
-                value={filingStatus}
-                onValueChange={(v) => setFilingStatus(v as FilingStatus)}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {FILING_STATUS_OPTIONS.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <p className="flex items-start gap-1.5 text-xs leading-relaxed text-muted-foreground">
+              <Info aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              Federal AGI is approximated as the sum of these amounts; Schedule 1 adjustments are not applied here. The Tax overview uses your saved records instead.
+            </p>
           </CardContent>
         </Card>
 
-        {/* Results */}
-        {hasValidInput && (
-          <>
-            {isNoTaxState ? (
-              <Card className="bg-card border-border border-emerald-500/30">
-                <CardContent className="pt-6">
-                  <div className="flex flex-col items-center text-center py-8">
-                    <div className="w-16 h-16 rounded-full bg-emerald-500/20 flex items-center justify-center mb-4">
-                      <PartyPopper className="w-8 h-8 text-emerald-500" />
-                    </div>
-                    <h3 className="text-xl font-semibold text-foreground mb-2">
-                      Your state has no income tax!
-                    </h3>
-                    <p className="text-muted-foreground max-w-sm">
-                      {config?.name} does not levy a state income tax on wages.
-                      {config?.limitedTax === "interest_dividends" &&
-                        " (Interest and dividend income may be taxed.)"}
-                    </p>
-                    <div className="mt-6 p-4 rounded-lg bg-muted/50 w-full max-w-sm">
-                      <p className="text-sm text-muted-foreground">
-                        Federal tax estimate:{" "}
-                        <span className="font-semibold text-foreground">
-                          {formatCurrency(
-                            calculateFederalIncomeTax(
-                              Math.max(
-                                0,
-                                income -
-                                  (STANDARD_DEDUCTIONS_2024[filingStatus] ?? 14600)
-                              ),
-                              filingStatus
-                            )
-                          )}
-                        </span>
-                      </p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ) : (
-              <Card className="bg-card border-border">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <DollarSign className="w-5 h-5" />
-                    Your Tax Estimate
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-6">
+        {estimate && (
+          <Card className="border-border bg-card">
+            <CardHeader>
+              <CardTitle className="text-base">{estimate.stateName} {estimate.taxYear} state planning estimate</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 text-sm">
+              {!estimate.supported ? (
+                <div role="status" className="rounded-lg border border-border bg-muted/40 p-4">
+                  <p className="font-medium text-foreground">Not available</p>
+                  <p className="mt-1 text-muted-foreground">{estimate.reason}</p>
+                </div>
+              ) : estimate.noIncomeTax ? (
+                <div className="rounded-lg border border-border bg-muted/40 p-4">
+                  <p className="font-medium text-foreground">No state income tax</p>
+                  {estimate.notes.map(note => <p key={note} className="mt-1 text-muted-foreground">{note}</p>)}
+                </div>
+              ) : (
+                <>
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="p-4 rounded-lg bg-muted/50">
-                      <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                        State Income Tax
-                      </p>
-                      <p className="text-2xl font-bold text-foreground mt-1">
-                        {formatCurrency(stateTax)}
-                      </p>
-                      <p className="text-sm text-muted-foreground mt-0.5">
-                        {effectiveStateRate.toFixed(1)}% effective rate
-                      </p>
+                    <div className="rounded-lg bg-muted/50 p-4">
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Informational state planning estimate</p>
+                      <p className="mt-1 text-2xl font-bold tabular-nums text-foreground">{fmt(estimate.estimate)}</p>
+                      <p className="mt-0.5 text-sm text-muted-foreground">{pct(estimate.components.effectiveRate)} of federal AGI</p>
                     </div>
-                    <div className="p-4 rounded-lg bg-muted/50">
-                      <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                        Federal Income Tax
-                      </p>
-                      <p className="text-2xl font-bold text-foreground mt-1">
-                        {formatCurrency(federalTax)}
-                      </p>
-                      <p className="text-sm text-muted-foreground mt-0.5">
-                        Combined: {effectiveCombinedRate.toFixed(1)}% effective
-                      </p>
+                    <div className="rounded-lg bg-muted/50 p-4">
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Marginal rate</p>
+                      <p className="mt-1 text-2xl font-bold tabular-nums text-foreground">{pct(estimate.components.marginalRate)}</p>
+                      <p className="mt-0.5 text-sm text-muted-foreground">On the last dollar of state taxable income</p>
                     </div>
                   </div>
+                  <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 text-sm">
+                    <dt className="text-muted-foreground">Federal adjusted gross income</dt><dd className="text-right tabular-nums">{fmt(estimate.components.federalAGI)}</dd>
+                    <LineRows lines={estimate.components.modifications} />
+                    <dt className="font-medium text-foreground">State adjusted gross income</dt><dd className="text-right font-medium tabular-nums">{fmt(estimate.components.stateAGI)}</dd>
+                    <LineRows lines={estimate.components.deductions} negative />
+                    <dt className="font-medium text-foreground">State taxable income</dt><dd className="text-right font-medium tabular-nums">{fmt(estimate.components.taxableIncome)}</dd>
+                    <LineRows lines={estimate.components.detail} />
+                    <dt className="text-muted-foreground">Tax before credits</dt><dd className="text-right tabular-nums">{fmt(estimate.components.taxBeforeCredits)}</dd>
+                    <LineRows lines={estimate.components.credits} negative />
+                    <LineRows lines={estimate.components.additionalTaxes} />
+                    <dt className="font-semibold text-foreground">Informational state planning estimate</dt><dd className="text-right font-semibold tabular-nums">{fmt(estimate.estimate)}</dd>
+                  </dl>
+                </>
+              )}
 
-                  {/* Comparison bar */}
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium text-foreground">
-                      Federal vs State
-                    </p>
-                    <div className="flex gap-1 h-8 rounded-lg overflow-hidden">
-                      <div
-                        className="bg-primary flex items-center justify-center text-xs font-medium text-primary-foreground min-w-[60px]"
-                        style={{
-                          width: `${(federalTax / maxTax) * 100}%`,
-                        }}
-                      >
-                        {federalTax > 0 && formatCurrency(federalTax)}
-                      </div>
-                      <div
-                        className="bg-emerald-600 flex items-center justify-center text-xs font-medium text-white min-w-[60px]"
-                        style={{
-                          width: `${(stateTax / maxTax) * 100}%`,
-                        }}
-                      >
-                        {stateTax > 0 && formatCurrency(stateTax)}
-                      </div>
-                    </div>
-                    <div className="flex justify-between text-xs text-muted-foreground">
-                      <span>Federal</span>
-                      <span>State</span>
-                    </div>
-                  </div>
+              {estimate.supported && estimate.warnings.length > 0 && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-4 text-xs leading-relaxed text-amber-950 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-100">
+                  <p className="font-semibold">Not included in this estimate</p>
+                  <ul className="mt-2 list-disc space-y-1 pl-4">
+                    {estimate.warnings.map(warning => <li key={warning}>{warning}</li>)}
+                  </ul>
+                </div>
+              )}
 
-                  {/* Quarterly estimated */}
-                  <div className="p-4 rounded-lg border border-border bg-background/50">
-                    <div className="flex items-center gap-2 mb-2">
-                      <TrendingUp className="w-5 h-5 text-primary" />
-                      <span className="font-medium text-foreground">
-                        Quarterly Estimated State Tax
-                      </span>
-                    </div>
-                    <p className="text-2xl font-bold text-foreground">
-                      {formatCurrency(quarterlyState)}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Pay this amount each quarter if you make estimated payments
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-          </>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Planning estimate only; it does not prepare a state return and is not combined with any federal amount.
+                {estimate.sources.length > 0 && <> Sources: {estimate.sources.map((url, index) => <React.Fragment key={url}>{index > 0 ? ", " : ""}<a href={url} target="_blank" rel="noreferrer" className="underline underline-offset-2">{sourceLabel(url)}</a></React.Fragment>)}.</>}
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {notices.length > 0 && (
+          <Card className="border-border bg-card">
+            <CardHeader>
+              <CardTitle className="text-base">Separate business taxes to review</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-xs leading-relaxed text-muted-foreground">
+              <p>Informational only, based on the selected state{profileLocation.city && profileStateCode === stateCode ? ` and the city saved in Settings (${profileLocation.city})` : ""}. Nothing here is calculated.</p>
+              {notices.map(notice => (
+                <div key={notice.id} className="space-y-1">
+                  <p className="font-medium text-foreground">{notice.title}</p>
+                  <p>{notice.summary}</p>
+                  <p>Sources: {notice.sources.map((source, index) => <React.Fragment key={source.url}>{index > 0 ? ", " : ""}<a href={source.url} target="_blank" rel="noreferrer" className="underline underline-offset-2">{sourceLabel(source.url)}</a></React.Fragment>)}.</p>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
         )}
       </div>
     </div>

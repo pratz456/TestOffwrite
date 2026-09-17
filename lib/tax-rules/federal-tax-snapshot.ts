@@ -7,6 +7,7 @@ import { summarizeW2Income } from './w2-income';
 import { normalizeFilingStatus } from './filing-status';
 import { assertGenericDependentCreditScope } from './credit-scope';
 import { readSocialSecurityFacts, calculateSocialSecurityWorksheet, assertSocialSecurityAdjustmentRecords, SocialSecurityReviewRequiredError } from './social-security';
+import { businessTaxNotices, readProfileLocation } from './state';
 
 interface FederalTaxSnapshotInput {
   taxYear: number;
@@ -90,6 +91,7 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
   const taxExemptInterest = benefitFacts?.taxExemptInterest ?? 0;
   const otherIncome = nonBenefitOtherIncome + socialSecurity;
   const priorYearTotalTax = amount(ded.priorYearTotalTax ?? profile.prior_year_tax);
+  const location = readProfileLocation(profile);
   const result = compute1040({
     taxYear, filingStatus, personalDeductionOrganizer: org, scheduleCNetProfit, w2Wages: w2.wages, w2MedicareWages: w2.medicareWages,
     w2FederalWithheld, socialSecurityFederalWithheld, estimatedPayments: input.estimatedPayments,
@@ -98,6 +100,7 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
     investmentIncome: interest + dividends + Math.max(0, capGains), longTermCapGains: Math.max(0, capGains), shortTermCapGains: 0,
     healthInsurancePremiums, sepIraContribution, solo401kContribution, simpleIraContribution, hsaContribution, studentLoanInterest,
     charitableDonations: amount(ded.charitableCashDonations) + amount(ded.charitableNonCashDonations), depreciationDeduction,
+    stateCode: location.state, taxableSocialSecurityBenefits: socialSecurity,
   }, priorYearTotalTax > 0 ? priorYearTotalTax : undefined);
   result.calculationWarnings.push(...reconciliation.warnings);
   if (dividends || capGains || iraDist || rental) {
@@ -105,6 +108,9 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
   }
   return {
     filingStatus, result, seCalc, depreciationDeduction, reconciliation, socialSecurityWorksheet, personalDeductions: result.personalDeductions,
+    // Informational state planning estimate and separate business-tax notices; neither is part of the federal totals.
+    stateTax: result.stateTax,
+    businessTaxNotices: businessTaxNotices({ stateCode: location.state, city: location.city, taxYear }),
     income: { grossReceipts: reconciliation.grossReceipts, w2Wages: w2.wages, scheduleCNetProfit, totalDeductible, otherIncome, otherOrdinaryIncome, interest, dividends, capGains, socialSecurity, socialSecurityNetBenefits, taxExemptInterest, iraDist, rental },
     w2: { wages: w2.wages, withheld: w2FederalWithheld, count: input.w2Entries.length, stateWithheld: w2.stateWithheld },
     deductions: { healthInsurancePremiums, sepIraContribution, solo401kContribution, hsaContribution, studentLoanInterest },

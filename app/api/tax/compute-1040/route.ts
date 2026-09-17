@@ -20,7 +20,6 @@ import { readTaxExportTransactions } from '@/lib/reports/tax-export-transactions
 import { ExportReviewRequiredError } from '@/lib/reports/transaction-export';
 import { getUserProfileServer } from '@/lib/firebase/profiles-server';
 import { adminDb } from '@/lib/firebase/admin';
-import { calculateStateTax, STATE_TAX_CONFIG } from '@/lib/tax/state-tax-data';
 import { getAssetsSettings } from '@/lib/firebase/settings-server';
 import { describeUnsupportedTaxYear, getFederalTaxRules, SUPPORTED_TAX_YEARS, TAX_YEAR_2027_STATUS } from '@/lib/tax-rules/federal-year-rules';
 import { getRecordedQuarterlyPayments, totalRecordedPayments } from '@/lib/firebase/quarterly-payments-server';
@@ -81,11 +80,18 @@ export async function GET(request: NextRequest) {
   });
   const { result, filingStatus } = snapshot;
 
-  // State tax estimate
-  const userState = (profile.mailing_address?.state || profile.state || '').toUpperCase().slice(0,2);
-  const stateConfig = STATE_TAX_CONFIG[userState];
-  const stateTaxResult = userState && stateConfig
-    ? calculateStateTax(result.agi, userState, filingStatus as any)
+  // Informational state planning estimate from the department-of-revenue registry. It is
+  // reported beside the federal figures and is never added to totalTax. W-2 state
+  // withholding is shown for reference only; the W-2 state is not reconciled here.
+  const stateWithheld = snapshot.w2.stateWithheld;
+  const stateTax = snapshot.stateTax
+    ? {
+      ...snapshot.stateTax,
+      stateWithheld,
+      ...(snapshot.stateTax.supported && !snapshot.stateTax.noIncomeTax
+        ? { stateBalanceDue: Math.max(0, Math.round((snapshot.stateTax.estimate - stateWithheld) * 100) / 100) }
+        : {}),
+    }
     : null;
 
   return NextResponse.json({
@@ -108,18 +114,8 @@ export async function GET(request: NextRequest) {
     agi: result.agi,
     effectiveRate: result.effectiveRate,
     depreciation: { totalDepreciation: snapshot.depreciationDeduction, assetCount: assetsResult.data?.length || 0 },
-    stateTax: stateTaxResult ? {
-      state: userState,
-      stateName: stateConfig?.name || userState,
-      estimatedTax: Math.round(stateTaxResult.tax),
-      effectiveRate: Math.round(stateTaxResult.effectiveRate * 100) / 100,
-      type: stateConfig?.type || 'unknown',
-      stateWithheld: snapshot.w2.stateWithheld,
-      stateBalanceDue: Math.max(0, Math.round(stateTaxResult.tax) - snapshot.w2.stateWithheld),
-      note: stateConfig?.type === 'no_tax'
-        ? 'Your state has no income tax'
-        : 'State estimate only — does not include local taxes or state-specific deductions',
-    } : null,
+    stateTax,
+    businessTaxNotices: snapshot.businessTaxNotices,
     dataSource: 'auto',
   }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (error) {

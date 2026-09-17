@@ -16,7 +16,7 @@ import {
   calculateSEPIRAMax,
   type FilingStatus as CreditFilingStatus,
 } from './credits';
-import { calculateStateTax } from './state-tax';
+import { estimateStateTax, type StateTaxEstimate } from './state';
 
 import { getFederalTaxRules, calculateSALTLimit } from './federal-year-rules';
 import { calculateStandardDeduction, calculateEnhancedSeniorDeduction } from './personal-deductions';
@@ -66,7 +66,8 @@ export interface Form1040Input {
   saltDeduction?: number;                // Eligible personal state/local taxes paid; annual cap applied here
   saltModifiedAGI?: number;              // Includes applicable foreign/territory income exclusions; defaults to AGI
   depreciationDeduction?: number;        // Section 179 / MACRS from Form 4562
-  stateCode?: string;                    // State used for state tax calculation
+  stateCode?: string;                    // Saved state (code or name) for the informational state planning estimate
+  taxableSocialSecurityBenefits?: number; // Form 1040 line 6b, already inside otherIncome; excluded by every encoded state
 }
 
 export interface Form1040Result {
@@ -128,10 +129,12 @@ export interface Form1040Result {
   quarterlyRecommended?: number;   // Recommended quarterly payment
 
   // State tax (informational)
-  stateTaxEstimate: number;              // Estimated state income tax
-  stateCode?: string;                    // State used for calculation
-  totalTaxWithState: number;             // Federal + state combined
-  stateTaxNote?: string;                 // Informational note about state tax
+  stateCode?: string;                    // Resolved state code used for the state planning estimate
+  /**
+   * Informational state planning estimate ({ supported: true, estimate, components, warnings, sources }
+   * or { supported: false, reason }). Never added to totalTax. Null when no state is saved.
+   */
+  stateTax: StateTaxEstimate | null;
 }
 
 export function compute1040(input: Form1040Input, priorYearTax?: number): Form1040Result {
@@ -342,10 +345,18 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
     calculationWarnings.push('Quarterly payments require prior-year AGI and return eligibility, a full-year tax/withholding forecast and dated payments. No safe-harbor or quarterly recommendation has been calculated from prior-year tax alone.');
   }
 
-  // State tax (informational — not part of federal return)
-  const stateResult = input.stateCode ? calculateStateTax(input.stateCode, agi, filingStatus) : null;
-  if (stateResult?.isSupported && stateResult.stateTax > 0) {
-    calculationWarnings.push('The state estimate uses a separate simplified calculation that has not been validated for the selected tax year.');
+  // State tax (informational — not part of the federal return and never added to totalTax).
+  // Supported state-years come from the department-of-revenue registry with their own warnings;
+  // unsupported state-years keep the federal-level warning that no validated state estimate exists.
+  const stateTax = input.stateCode?.trim()
+    ? estimateStateTax({
+      stateCode: input.stateCode, taxYear, filingStatus, federalAGI: agi,
+      scheduleCNetProfit: scheduleCNetProfit - (input.depreciationDeduction || 0), w2Wages, otherIncome,
+      hsaContribution, taxableSocialSecurityBenefits: input.taxableSocialSecurityBenefits, dependents: input.numDependents ?? 0,
+    })
+    : null;
+  if (stateTax && !stateTax.supported) {
+    calculationWarnings.push(`The ${stateTax.stateName} state estimate has not been validated for tax year ${taxYear} and is not shown: ${stateTax.reason}`);
   }
 
   return {
@@ -388,10 +399,8 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
     safeHarborAmount: safeHarborAmount !== undefined ? round2(safeHarborAmount) : undefined,
     quarterlyRecommended: quarterlyRecommended !== undefined ? round2(quarterlyRecommended) : undefined,
     // State tax
-    stateTaxEstimate: stateResult?.stateTax ?? 0,
-    stateCode: input.stateCode,
-    totalTaxWithState: round2(totalTax + (stateResult?.stateTax ?? 0)),
-    stateTaxNote: stateResult?.note,
+    stateCode: stateTax?.stateCode || undefined,
+    stateTax,
   };
 }
 
