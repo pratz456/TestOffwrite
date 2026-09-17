@@ -43,6 +43,7 @@
     "dist",
     "build",
     "coverage",
+    "mobile",
     "tests",
     "**/*.test.*",
     "**/*.spec.*",
