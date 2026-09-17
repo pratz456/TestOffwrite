@@ -15,6 +15,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveLocalEmulatorConfig } from './lib/firebase/local-emulator-config';
+import { gaMeasurementId, GOOGLE_TAG_CSP_SOURCES } from './lib/analytics/ga-measurement-id';
 
 // ── In-memory rate limit store (resets on cold start) ──────────────────────
 // For production at scale, swap for Upstash Redis using @upstash/ratelimit
@@ -92,13 +93,17 @@ function addSecurityHeaders(response: NextResponse, hostname: string): NextRespo
       storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET }, hostname);
   } catch { /* Keep the default CSP when an emulator guard fails. */ }
   const localConnections = localEmulators ? ` ${localEmulators.authOrigin} ${localEmulators.firestoreOrigin} ${localEmulators.storageOrigin}` : '';
+  // Google tag origins are admitted only when app/layout.tsx renders the tag
+  // (NEXT_PUBLIC_GA_MEASUREMENT_ID set at build time, not staging).
+  const googleTag = gaMeasurementId() ? GOOGLE_TAG_CSP_SOURCES : null;
+  const googleTagSources = (key: keyof typeof GOOGLE_TAG_CSP_SOURCES) => googleTag ? ` ${googleTag[key].join(' ')}` : '';
   const csp = [
     "default-src 'self'",
-    `script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://cdn.plaid.com https://apis.google.com${filingOrigin}`,
+    `script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://cdn.plaid.com https://apis.google.com${filingOrigin}${googleTagSources('scriptSrc')}`,
     "style-src 'self' 'unsafe-inline'",
-    `img-src 'self' data: blob: https://firebasestorage.googleapis.com https://storage.googleapis.com${localEmulators ? ` ${localEmulators.storageOrigin}` : ''}`,
+    `img-src 'self' data: blob: https://firebasestorage.googleapis.com https://storage.googleapis.com${localEmulators ? ` ${localEmulators.storageOrigin}` : ''}${googleTagSources('imgSrc')}`,
     "font-src 'self' data:",
-    `connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://api.stripe.com https://api.plaid.com https://sandbox.plaid.com https://production.plaid.com https://api.openai.com${localConnections}`,
+    `connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://api.stripe.com https://api.plaid.com https://sandbox.plaid.com https://production.plaid.com https://api.openai.com${localConnections}${googleTagSources('connectSrc')}`,
     `frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://cdn.plaid.com https://${process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || 'writeoff-23910.firebaseapp.com'}${filingOrigin}${localEmulators ? ` ${localEmulators.authOrigin}` : ''}`,
     "frame-ancestors 'none'",
     "object-src 'none'",

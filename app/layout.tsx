@@ -7,11 +7,14 @@ import { ThemeProvider } from "@/components/theme-provider-wrapper";
 import { PwaInstallPrompt } from "@/components/pwa-install-prompt";
 import { PwaRegisterSw } from "@/components/pwa-register-sw";
 import { Toaster } from "@/ui/sonner";
+import { gaMeasurementId } from "@/lib/analytics/ga-measurement-id";
 import "./globals.css";
 
 const defaultUrl = process.env.NEXT_PUBLIC_SITE_URL
   || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
-const analyticsEnabled = process.env.NEXT_PUBLIC_APP_ENV !== 'staging';
+// Unset NEXT_PUBLIC_GA_MEASUREMENT_ID (or staging) renders no Google tag at all;
+// middleware.ts widens the CSP for the Google tag origins under the same condition.
+const measurementId = gaMeasurementId();
 
 // Use the brand mark until a rendered static card reflects the current product scope.
 const ogImageUrl = `${defaultUrl.replace(/\/$/, "")}/writeofflogo.png`;
@@ -97,8 +100,8 @@ export default function RootLayout({
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
         />
-        {analyticsEnabled && <><Script
-          src="https://www.googletagmanager.com/gtag/js?id=G-1P3GNBHB9J"
+        {measurementId && <><Script
+          src={`https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(measurementId)}`}
           strategy="afterInteractive"
         />
         <Script id="google-analytics" strategy="afterInteractive">
@@ -106,7 +109,7 @@ export default function RootLayout({
             window.dataLayer = window.dataLayer || [];
             function gtag(){dataLayer.push(arguments);}
             gtag('js', new Date());
-            gtag('config', 'G-1P3GNBHB9J');
+            gtag('config', ${JSON.stringify(measurementId)});
           `}
         </Script></>}
         <ThemeProvider attribute="class" defaultTheme="light" forcedTheme="light" disableTransitionOnChange>
