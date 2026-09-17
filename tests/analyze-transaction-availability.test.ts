@@ -27,7 +27,11 @@ vi.mock('@/lib/ai/analysis-persistence', () => ({
   claimAnalysisLease: mocks.claim, persistAnalysisSuggestion: mocks.persist, releaseAnalysisLease: mocks.release,
   analysisSuggestionUpdate: () => ({ ai: { status_label: 'Likely Deductible' }, analysisUpdatedAt: '2026-09-16T12:00:00.000Z' }),
 }));
-vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collectionGroup: mocks.collectionGroup } }));
+// The durable per-owner limiter shares this fake store; ownership lookups stay mocked.
+vi.mock('@/lib/firebase/admin', async () => {
+  const { createFakeFirestore } = await import('./fixtures/fake-firestore');
+  return { adminDb: { ...createFakeFirestore(), collectionGroup: mocks.collectionGroup } };
+});
 
 import { POST } from '../app/api/ai/analyze-transaction/route';
 
@@ -162,6 +166,23 @@ describe('transaction analysis availability', () => {
   vi.stubEnv('AI_ANALYSIS_ENABLED', undefined);
     expect((await POST(request())).status).toBe(200);
     expect(mocks.analyze).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns AI_RATE_LIMITED with Retry-After after sixty analyses in an hour, before any record or provider work', async () => {
+    for (let i = 0; i < 60; i++) expect((await POST(request())).status).toBe(200);
+    expect(mocks.analyze).toHaveBeenCalledTimes(60);
+    const response = await POST(request());
+    expect(response.status).toBe(429);
+    expect(Number(response.headers.get('Retry-After'))).toBeGreaterThan(0);
+    expect(response.headers.get('Retry-After')).toMatch(/^\d+$/);
+    expect(await response.json()).toMatchObject({ code: 'AI_RATE_LIMITED', error: 'Analysis request limit reached. Please try again later.' });
+    expect(mocks.analyze).toHaveBeenCalledTimes(60);
+    expect(mocks.claim).toHaveBeenCalledTimes(60);
+    expect(mocks.collectionGroup).toHaveBeenCalledTimes(60);
+    // Another owner keeps an independent window.
+    mocks.authenticate.mockResolvedValue({ user: { uid: `${uid}-other` }, error: null });
+    mocks.get.mockResolvedValue({ empty: false, docs: [{ ref: { path: `user_profiles/${uid}-other/accounts/owned-account/transactions/${body.transactionId}` } }] });
+    expect((await POST(request())).status).toBe(200);
   });
   it('uses saved financial values and context rather than client-submitted replacements', async () => {
     const response = await POST(request({ ...body, transaction: { ...body.transaction, amount: 900000, merchant_name: 'Forged merchant', notes: 'Unsaved replacement' } }));

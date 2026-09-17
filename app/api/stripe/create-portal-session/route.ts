@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import Stripe from 'stripe';
 import { adminDb } from '@/lib/firebase/admin';
+import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 
 function getStripeOrNull() {
   const key = process.env.STRIPE_SECRET_KEY;
@@ -18,6 +19,9 @@ export async function POST(req: Request) {
     if (!stripe) {
       return NextResponse.json({ error: 'Billing is temporarily unavailable' }, { status: 503 });
     }
+    // Portal sessions can also create a provider customer; bound attempts per owner.
+    const limit = await enforceRateLimit({ ...RATE_LIMITS.stripePortal, key: uid });
+    if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many billing portal requests. Please wait a few minutes and try again.' });
 
     // Get user profile to find Stripe customer ID
     const userDoc = await adminDb.doc(`user_profiles/${uid}`).get();

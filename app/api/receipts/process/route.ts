@@ -17,6 +17,7 @@ import {
   receiptSignatureMatches, safeReceiptName,
 } from '@/lib/firebase/receipt-security';
 import { transactionIdInput, transactionUpdatesInput } from '@/lib/transactions/client-updates';
+import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -88,6 +89,11 @@ export async function POST(request: NextRequest) {
     }
 
     assertReceiptUploadOrigin(request);
+    // OCR and Storage are the costly steps; bound them per owner across instances
+    // before the multipart body is read.
+    setStep('rate-limit');
+    const limit = await enforceRateLimit({ ...RATE_LIMITS.receiptProcess, key: user.uid });
+    if (!limit.allowed) return rateLimitResponse(limit, { headers: PRIVATE_RECEIPT_HEADERS, error: 'Too many receipt scans. Please wait a few minutes and try again.' });
     setStep('multipart-validation');
     const formData = await receiptFormData(request);
     const files = formData.getAll('file');

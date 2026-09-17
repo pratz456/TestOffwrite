@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { deleteUserData } from '@/lib/firebase/delete-user-data';
+import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 
 // DELETE /api/user/delete
 export async function DELETE(request: NextRequest) {
@@ -9,6 +10,11 @@ export async function DELETE(request: NextRequest) {
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    // Deletion is destructive and retryable; bound retries durably and refuse
+    // when the limiter store is unreachable (the deletion gate needs it anyway).
+    const limit = await enforceRateLimit({ ...RATE_LIMITS.userDelete, key: user.uid });
+    if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many deletion attempts. Please wait before retrying or contact support.' });
 
     // Delete all user data (profile, transactions, etc.)
     const { error } = await deleteUserData(user.uid);

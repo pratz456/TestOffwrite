@@ -17,7 +17,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { resolveLocalEmulatorConfig } from './lib/firebase/local-emulator-config';
 
 // ── In-memory rate limit store (resets on cold start) ──────────────────────
-// For production at scale, swap for Upstash Redis using @upstash/ratelimit
+// First line only. Middleware runs in the edge runtime, so it cannot use
+// firebase-admin, and each hosting instance keeps its own counters: an
+// attacker spread across instances or cold starts is bounded per instance, not
+// globally. The authoritative, durable per-owner limits live in the route
+// handlers through lib/security/rate-limit.ts (Firestore `rate_limits`).
 const ipRateMap   = new Map<string, { count: number; windowStart: number }>();
 const userRateMap = new Map<string, { count: number; windowStart: number }>();
 

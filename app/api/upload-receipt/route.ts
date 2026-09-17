@@ -10,6 +10,7 @@ import {
   receiptBucket, receiptFormData, receiptMimeType, ReceiptRequestError,
   receiptSignatureMatches, receiptUser, safeReceiptName,
 } from '@/lib/firebase/receipt-security';
+import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 
 export async function POST(request: NextRequest) {
   const userId = await receiptUser(request);
@@ -17,6 +18,9 @@ export async function POST(request: NextRequest) {
 
   try {
     assertReceiptUploadOrigin(request);
+    // Durable per-owner bound before the multipart body is read or Storage is touched.
+    const limit = await enforceRateLimit({ ...RATE_LIMITS.receiptUpload, key: userId });
+    if (!limit.allowed) return rateLimitResponse(limit, { headers: PRIVATE_RECEIPT_HEADERS, error: 'Too many receipt uploads. Please wait a few minutes and try again.' });
     const formData = await receiptFormData(request);
     const files = formData.getAll('file');
     const transactionId = formData.get('transactionId');

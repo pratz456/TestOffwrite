@@ -12,23 +12,7 @@ import { getAIProviderStatus } from '@/lib/ai/provider-status';
 import { claimAnalysisLease, persistAnalysisSuggestion, releaseAnalysisLease, analysisSuggestionUpdate } from '@/lib/ai/analysis-persistence';
 import type { AnalysisLease } from '@/lib/ai/analysis-persistence';
 import type { DocumentReference } from 'firebase-admin/firestore';
-
-// ── Per-user rate limit: max 60 AI analysis calls per hour ──────────────────
-const rateLimitMap = new Map<string, { count: number; windowStart: number }>();
-const RATE_LIMIT_MAX = 60;
-const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
-
-function checkRateLimit(uid: string): boolean {
-  const now = Date.now();
-  const entry = rateLimitMap.get(uid);
-  if (!entry || now - entry.windowStart > RATE_LIMIT_WINDOW_MS) {
-    rateLimitMap.set(uid, { count: 1, windowStart: now });
-    return true;
-  }
-  if (entry.count >= RATE_LIMIT_MAX) return false;
-  entry.count++;
-  return true;
-}
+import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 
 // Zod schema for request validation
 const AnalyzeTransactionRequestSchema = z.object({
@@ -98,9 +82,12 @@ export async function POST(request: NextRequest) {
     const validation = AnalyzeTransactionRequestSchema.safeParse(await request.json().catch(() => null));
     if (!validation.success) return NextResponse.json({ error: 'Invalid request data' }, { status: 400 });
     const { transactionId } = validation.data;
+    // Per-owner model spend is bounded durably across instances (60 per hour);
+    // an unreachable limiter store refuses rather than allowing unmetered calls.
+    const limit = await enforceRateLimit({ ...RATE_LIMITS.aiAnalyzeTransaction, key: user.uid });
+    if (!limit.allowed) return rateLimitResponse(limit, { code: 'AI_RATE_LIMITED', error: 'Analysis request limit reached. Please try again later.' });
     ref = await ownedTransactionRef(user.uid, transactionId);
     if (!ref) return NextResponse.json({ error: 'Transaction not found' }, { status: 404 });
-    if (!checkRateLimit(user.uid)) return NextResponse.json({ code: 'AI_RATE_LIMITED', error: 'Analysis request limit reached. Please try again later.' }, { status: 429 });
 
     const claim = await claimAnalysisLease(ref);
     if (claim.status === 'missing') return NextResponse.json({ error: 'Transaction not found' }, { status: 404 });

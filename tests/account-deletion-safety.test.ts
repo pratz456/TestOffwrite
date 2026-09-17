@@ -28,12 +28,15 @@ vi.mock('@/lib/plaid/link-operations', () => ({ recoverPendingPlaidLinks: h.reco
 vi.mock('@/lib/stripe/cancel-subscription', () => ({ cancelUserStripeSubscriptions: h.billing }));
 vi.mock('@/lib/firebase/receipt-security', () => ({ receiptBucket: () => ({ deleteFiles: h.storage }) }));
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({ user: h.authUser ? { uid: h.authUser } : null }) }));
+vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
 import { deleteUserData } from '@/lib/firebase/delete-user-data';
 import { DELETE } from '@/app/api/user/delete/route';
+import { RATE_LIMITS } from '@/lib/security/rate-limit';
+import { exhaustRateLimit, failRateLimitStore, resetRateLimitStore } from './fixtures/rate-limit-store';
 
 function bank(id: string, extra = {}) { h.records.set(`plaid_connections/${id}`, { uid: 'owner', status: 'active', clientId: 'current-client', environment: 'sandbox', encryptedAccessToken: 'synthetic-ciphertext', ...extra }); }
 beforeEach(() => {
-  vi.clearAllMocks(); h.records.clear(); h.files.clear(); h.events = []; h.failBatch = false; h.authUser = 'owner';
+  vi.clearAllMocks(); resetRateLimitStore(); h.records.clear(); h.files.clear(); h.events = []; h.failBatch = false; h.authUser = 'owner';
   vi.stubEnv('PLAID_CLIENT_ID', 'current-client'); vi.stubEnv('PLAID_ENV', 'sandbox');
   h.records.set('user_profiles/owner', { name: 'Synthetic owner' });
   h.disconnect.mockImplementation(async (uid: string, itemId: string) => { const record = h.records.get(`plaid_connections/${itemId}`)!; expect(record.uid).toBe(uid);
@@ -146,5 +149,20 @@ describe('account deletion boundaries', () => {
     h.authUser = null;
     expect((await DELETE(new NextRequest('https://writeoff.test/api/user/delete', { method: 'DELETE' }))).status).toBe(401);
     expect(h.disconnect).not.toHaveBeenCalled(); expect(h.storage).not.toHaveBeenCalled();
+  });
+  it('bounds deletion retries per owner with Retry-After and touches nothing when throttled', async () => {
+    bank('a'); h.records.set('receipts/mine', { userId: 'owner' });
+    await exhaustRateLimit(RATE_LIMITS.userDelete, 'owner');
+    const response = await DELETE(new NextRequest('https://writeoff.test/api/user/delete', { method: 'DELETE' }));
+    expect(response.status).toBe(429); expect(Number(response.headers.get('retry-after'))).toBeGreaterThan(0);
+    expect(await response.json()).toMatchObject({ code: 'RATE_LIMITED', error: expect.stringContaining('deletion attempts') });
+    expect(h.disconnect).not.toHaveBeenCalled(); expect(h.billing).not.toHaveBeenCalled(); expect(h.storage).not.toHaveBeenCalled(); expect(h.authDelete).not.toHaveBeenCalled();
+    expect(h.records.has('user_profiles/owner')).toBe(true); expect(h.records.has('receipts/mine')).toBe(true); expect(h.records.has('account_deletions/owner')).toBe(false);
+  });
+  it('fails closed on deletion when the limiter store is unreachable, leaving the account intact', async () => {
+    failRateLimitStore();
+    const response = await DELETE(new NextRequest('https://writeoff.test/api/user/delete', { method: 'DELETE' }));
+    expect(response.status).toBe(503); expect(await response.json()).toMatchObject({ code: 'RATE_LIMIT_UNAVAILABLE' });
+    expect(h.authDelete).not.toHaveBeenCalled(); expect(h.records.has('user_profiles/owner')).toBe(true);
   });
 });

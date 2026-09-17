@@ -15,10 +15,13 @@ vi.mock('@/lib/firebase/admin', () => ({
 }));
 vi.mock('@/lib/firebase/transactions-server', () => ({ getTransactionServer: mocks.transaction }));
 vi.mock('firebase-admin/storage', () => ({ getStorage: mocks.getStorage }));
+vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
 import { POST } from '../app/api/upload-receipt/route';
 import { GET } from '../app/api/receipts/[filename]/route';
 import { GET as getLegacyReceipt } from '../app/api/receipts/[...legacyPath]/route';
 import { MAX_RECEIPT_BYTES, receiptBucket, receiptUser } from '../lib/firebase/receipt-security';
+import { RATE_LIMITS } from '../lib/security/rate-limit';
+import { exhaustRateLimit, failRateLimitStore, resetRateLimitStore } from './fixtures/rate-limit-store';
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=', 'base64');
 const userId = 'receipt-test-owner';
@@ -40,6 +43,7 @@ function receipt(data = storedReceipt, exists = true) { mocks.get.mockResolvedVa
 
 beforeEach(() => {
   vi.resetAllMocks();
+  resetRateLimitStore();
   vi.stubEnv('FIREBASE_STORAGE_BUCKET', '');
   vi.stubEnv('FIREBASE_CONFIG', '');
   vi.stubEnv('NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET', 'demo-receipts.appspot.com');
@@ -115,6 +119,28 @@ describe('receipt authentication and upload boundaries', () => {
     expect(response.status).toBe(503);
     expect(mocks.save).not.toHaveBeenCalled();
     expect(await response.text()).not.toContain('credentials');
+  });
+  it('refuses uploads over the durable per-owner window with Retry-After before reading the file', async () => {
+    await exhaustRateLimit(RATE_LIMITS.receiptUpload, userId);
+    const response = await POST(upload());
+    expect(response.status).toBe(429);
+    expect(Number(response.headers.get('retry-after'))).toBeGreaterThan(0);
+    expect(response.headers.get('cache-control')).toBe('private, no-store, max-age=0');
+    expect(await response.json()).toMatchObject({ code: 'RATE_LIMITED', error: expect.stringContaining('Too many receipt uploads') });
+    expect(mocks.transaction).not.toHaveBeenCalled();
+    expect(mocks.save).not.toHaveBeenCalled();
+    // Another owner's window is untouched.
+    mocks.verifyIdToken.mockResolvedValue({ uid: 'other-receipt-owner' });
+    mocks.transaction.mockResolvedValue({ data: { trans_id: transactionId, userId: 'other-receipt-owner' }, error: null });
+    expect((await POST(upload())).status).toBe(200);
+  });
+  it('refuses uploads rather than running unmetered when the limiter store is unreachable', async () => {
+    failRateLimitStore();
+    const response = await POST(upload());
+    expect(response.status).toBe(503);
+    expect(response.headers.get('retry-after')).toBe('30');
+    expect(await response.json()).toMatchObject({ code: 'RATE_LIMIT_UNAVAILABLE' });
+    expect(mocks.save).not.toHaveBeenCalled();
   });
   it.each(['../another/user', '', 'x'.repeat(257)])('rejects an invalid transaction identifier', async id => {
     expect((await POST(upload({ id }))).status).toBe(400);
