@@ -31,9 +31,10 @@ import { ExportDataUnavailableError } from '@/lib/reports/export-records';
 import { getUserProfileServer } from '@/lib/firebase/profiles-server';
 import { getRecordedQuarterlyPayments, totalRecordedPayments } from '@/lib/firebase/quarterly-payments-server';
 import { getFederalTaxRules, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
-import { getAssetsSettings } from '@/lib/firebase/settings-server';
+import { getScheduleCSettings } from '@/lib/firebase/settings-server';
 import { readIncomeReconciliationDecisions } from '@/lib/firebase/income-reconciliations-server';
 import { incomeReconciliationReviewBody } from '@/lib/tax-rules/income-reconciliation-response';
+import { scheduleCReviewCode } from '@/lib/tax-rules/schedule-c-profit';
 
 const PW = 612, PH = 792, ML = 36, MR = 576, MT = 756;
 const BLACK  = rgb(0, 0, 0);
@@ -290,7 +291,7 @@ export async function POST(request: NextRequest) {
     }
     requestedYear = taxYear;
 
-    const [txResult, profileResult, grossSnap, income1099Snap, w2Snap, deductionsSnap, quarterlySnap, organizerSnap, assetsResult, reconciliationDecisions] = await Promise.all([
+    const [txResult, profileResult, grossSnap, income1099Snap, w2Snap, deductionsSnap, quarterlySnap, organizerSnap, settingsResult, reconciliationDecisions] = await Promise.all([
       readTaxExportTransactions(uid, taxYear),
       getUserProfileServer(uid),
       adminDb.collection('gross_receipts').where('userId', '==', uid).where('taxYear', '==', taxYear).get(),
@@ -299,13 +300,14 @@ export async function POST(request: NextRequest) {
       adminDb.collection('tax_deductions').where('userId', '==', uid).where('taxYear', '==', taxYear).limit(1).get(),
       getRecordedQuarterlyPayments(uid, taxYear),
       adminDb.collection('tax_organizers').where('userId', '==', uid).where('taxYear', '==', taxYear).limit(1).get(),
-      getAssetsSettings(uid),
+      getScheduleCSettings(uid),
       readIncomeReconciliationDecisions(uid, taxYear),
     ]);
 
-    if (profileResult.error || assetsResult.error) {
+    if (profileResult.error || settingsResult.error || !settingsResult.data) {
       return NextResponse.json({ error: 'Could not load the information needed for this calculation. Please retry.' }, { status: 503 });
     }
+    const settings = settingsResult.data;
     const transactions = txResult;
     const profile = (profileResult.data || {}) as Record<string, any>;
     const ded = deductionsSnap.empty ? {} as Record<string, any> : deductionsSnap.docs[0].data();
@@ -349,7 +351,8 @@ export async function POST(request: NextRequest) {
       grossReceipts: grossSnap.docs.map(d => ({ ...d.data(), id: d.id })),
       forms1099: income1099Snap.docs.map(d => ({ ...d.data(), id: d.id })),
       reconciliationDecisions,
-      w2Entries: w2Snap.docs.map(d => d.data()), assets: assetsResult.data || [],
+      w2Entries: w2Snap.docs.map(d => d.data()),
+      assets: settings.assets, homeOffice: settings.homeOffice, depreciationElections: settings.depreciationElections,
       estimatedPayments: totalRecordedPayments(quarterlySnap),
     });
     const { result } = snapshot;
@@ -409,7 +412,8 @@ export async function POST(request: NextRequest) {
     if (err instanceof IncomeReconciliationRequiredError) return NextResponse.json(incomeReconciliationReviewBody(err, requestedYear), { status: 422 });
     if (err instanceof ExportReviewRequiredError || err instanceof IncomeReconciliationRequiredError || err instanceof FilingStatusReviewRequiredError || err instanceof SocialSecurityReviewRequiredError || err instanceof PersonalDeductionReviewRequiredError || err instanceof DependentCreditReviewRequiredError
       || err instanceof CapitalGainReviewRequiredError || err instanceof BusinessLossReviewRequiredError || err instanceof OBBBADeductionReviewRequiredError) return NextResponse.json({ error: err.message, code: err.code }, { status: 422 });
-    if (err && typeof err === 'object' && 'code' in err && err.code === 'DEPRECIATION_REVIEW_REQUIRED') return NextResponse.json({ error: err instanceof Error ? err.message : 'Asset depreciation needs review', code: err.code }, { status: 422 });
+    const reviewCode = scheduleCReviewCode(err);
+    if (reviewCode) return NextResponse.json({ error: err instanceof Error ? err.message : 'Schedule C records need review', code: reviewCode }, { status: 422 });
     if (err instanceof ExportDataUnavailableError) return NextResponse.json({ error: err.message, code: err.code }, { status: 503 });
     console.error('[1040 Export]', err);
     return NextResponse.json({ error: 'Failed to generate Form 1040' }, { status: 500 });

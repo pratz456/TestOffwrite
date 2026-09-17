@@ -1,7 +1,9 @@
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
-import { calc4562, type Asset } from '@/lib/reports/calc4562';
+import type { Asset, DepreciationElections } from '@/lib/reports/calc4562';
+import type { HomeOfficeSettings } from '@/lib/reports/calc8829';
 import { calcScheduleSE } from '@/lib/reports/calcSE';
 import { compute1040 } from './compute-1040';
+import { computeScheduleCProfit } from './schedule-c-profit';
 import { reconcileBusinessIncome, type IncomeRecord } from './business-income';
 import { summarizeW2Income } from './w2-income';
 import { normalizeFilingStatus } from './filing-status';
@@ -21,6 +23,10 @@ interface FederalTaxSnapshotInput {
   organizer: IncomeRecord;
   deductions: IncomeRecord;
   assets: Asset[];
+  /** settings/homeOffice facts; omitted or null means no home office is claimed in settings. */
+  homeOffice?: HomeOfficeSettings | null;
+  /** settings/depreciation annual elections (de minimis safe harbor years). */
+  depreciationElections?: DepreciationElections | null;
   estimatedPayments: number;
 }
 
@@ -40,9 +46,15 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
   const w2 = summarizeW2Income(input.w2Entries);
   const w2FederalWithheld = input.w2Entries.length ? w2.federalWithheld : amount(profile.w2_federal_withheld);
   const { totalDeductible } = aggregateScheduleC([...transactions] as Parameters<typeof aggregateScheduleC>[0], String(taxYear), CATEGORY_MAP, { mode: 'confirmed-only' });
-  const scheduleCNetProfit = reconciliation.grossReceipts - totalDeductible;
-  const depreciationDeduction = input.assets.length ? calc4562(input.assets, scheduleCNetProfit, taxYear).totalDepreciation : 0;
-  const seCalc = calcScheduleSE({ scheduleCNetProfit: scheduleCNetProfit - depreciationDeduction, taxYear }, filingStatus, w2.socialSecurityWages, w2.medicareWagesForSE);
+  // Schedule C ordering shared with the SE loader: line 13 assets, line 29, line 30 home office, line 31.
+  const scheduleC = computeScheduleCProfit({
+    taxYear, grossReceipts: reconciliation.grossReceipts, confirmedExpenses: totalDeductible, w2Wages: w2.wages,
+    assets: input.assets, depreciationElections: input.depreciationElections, homeOffice: input.homeOffice, legacyHomeOfficeMethod: profile.home_office_method,
+  });
+  const scheduleCNetProfit = scheduleC.profitBeforeAssets;
+  const { depreciationDeduction, deMinimisExpense, homeOfficeDeduction } = scheduleC;
+  const scheduleCLine31NetProfit = scheduleC.netProfit;
+  const seCalc = calcScheduleSE({ scheduleCNetProfit: scheduleCLine31NetProfit, taxYear }, filingStatus, w2.socialSecurityWages, w2.medicareWagesForSE);
 
   const interest = amount(org.amount1099INT);
   const dividends = amount(org.amount1099DIV);
@@ -72,7 +84,7 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
     if (!profile.filing_status || !org.filingStatus || normalizeFilingStatus(org.filingStatus) !== filingStatus) {
       throw new SocialSecurityReviewRequiredError('Confirm matching filing status in Profile and Tax Organizer before applying the benefit thresholds.');
     }
-    if (scheduleCNetProfit - depreciationDeduction < 0) {
+    if (scheduleCLine31NetProfit < 0) {
       throw new SocialSecurityReviewRequiredError('Business-loss treatment needs review before including it in the Social Security income test.');
     }
     const livedApart = org.socialSecurityLivedApartAllYear;
@@ -89,7 +101,7 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
     const livedApart = org.socialSecurityLivedApartAllYear;
     socialSecurityWorksheet = calculateSocialSecurityWorksheet({
       taxYear, filingStatus, ...benefitFacts,
-      otherIncome: scheduleCNetProfit - depreciationDeduction + w2.wages + nonBenefitOtherIncome,
+      otherIncome: scheduleCLine31NetProfit + w2.wages + nonBenefitOtherIncome,
       // Pub915 line7 excludes student-loan interest (Schedule1 line21).
       allowedAdjustments: seCalc.halfSEDeduction + healthInsurancePremiums + sepIraContribution
         + solo401kContribution + simpleIraContribution + hsaContribution,
@@ -111,17 +123,19 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
     investmentIncome: interest + dividends + Math.max(0, capGains),
     longTermCapGains: capitalGains.preferentialLongTermGain, shortTermCapGains: capitalGains.ordinaryShortTermGain,
     healthInsurancePremiums, sepIraContribution, solo401kContribution, simpleIraContribution, hsaContribution, studentLoanInterest,
-    charitableDonations: amount(ded.charitableCashDonations) + amount(ded.charitableNonCashDonations), depreciationDeduction,
+    charitableDonations: amount(ded.charitableCashDonations) + amount(ded.charitableNonCashDonations), depreciationDeduction, deMinimisExpense, homeOfficeDeduction,
   }, priorYearTotalTax > 0 ? priorYearTotalTax : undefined);
-  result.calculationWarnings.push(...reconciliation.warnings, ...capitalGains.warnings);
+  result.calculationWarnings.push(...reconciliation.warnings, ...capitalGains.warnings, ...scheduleC.warnings);
   if (dividends || iraDist || rental) {
     result.calculationWarnings.push('Organizer income amounts require tax review: qualified-dividend character, retirement basis and rental treatment are not fully modeled.');
   }
   return {
-    filingStatus, result, seCalc, depreciationDeduction, reconciliation, socialSecurityWorksheet, personalDeductions: result.personalDeductions,
+    filingStatus, result, seCalc, depreciationDeduction, deMinimisExpense, homeOfficeDeduction, scheduleC, reconciliation, socialSecurityWorksheet, personalDeductions: result.personalDeductions,
     capitalGains, businessLoss: result.businessLoss, obbbaDeductions: result.obbbaDeductions,
     income: {
-      grossReceipts: reconciliation.grossReceipts, w2Wages: w2.wages, scheduleCNetProfit, scheduleCAllowed: result.scheduleCAllowed, totalDeductible, otherIncome, otherOrdinaryIncome, interest, dividends,
+      grossReceipts: reconciliation.grossReceipts, w2Wages: w2.wages, scheduleCNetProfit, scheduleCAllowed: result.scheduleCAllowed, totalDeductible, deMinimisExpense, depreciationDeduction,
+      scheduleCLine29TentativeProfit: scheduleC.tentativeProfit, homeOfficeDeduction, scheduleCLine31NetProfit,
+      otherIncome, otherOrdinaryIncome, interest, dividends,
       capGains, shortTermCapGains: capitalGains.netShortTerm, longTermCapGains: capitalGains.netLongTerm, capitalLossCarryforward: capitalGains.lossCarryforward,
       socialSecurity, socialSecurityNetBenefits, taxExemptInterest, iraDist, rental,
     },

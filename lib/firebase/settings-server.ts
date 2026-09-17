@@ -1,7 +1,46 @@
 import { adminDb } from './admin';
-import { HomeOfficeSettings } from '@/lib/reports/calc8829';
-import { Asset } from '@/lib/reports/calc4562';
+import {
+  HOME_OFFICE_ANSWERS, HOME_OFFICE_EXCLUSIVE_USE_EXCEPTIONS, HOME_OFFICE_HOUSING_TYPES, HOME_OFFICE_METHODS, HOME_OFFICE_QUALIFYING_USES,
+  type HomeOfficeSettings,
+} from '@/lib/reports/calc8829';
+import { Asset, type DepreciationElections } from '@/lib/reports/calc4562';
 import { TaxSummarySettings } from '@/lib/reports/calcSE';
+import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
+
+const oneOf = <T extends string>(allowed: readonly T[], value: unknown): T | null => allowed.includes(value as T) ? value as T : null;
+const wholeNumber = (value: unknown, max: number): number | null =>
+  typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= max ? value : null;
+
+/**
+ * Firestore document → HomeOfficeSettings. Legacy documents predate the eligibility facts,
+ * so every fact reads as null (unanswered) rather than "no"; unknown stored values also read
+ * as unanswered so a stale option can never satisfy an eligibility test.
+ */
+export function normalizeHomeOfficeSettings(data: Record<string, unknown>): HomeOfficeSettings {
+  return {
+    totalHomeSqFt: (data.totalHomeSqFt as number) || 0,
+    officeSqFt: (data.officeSqFt as number) || 0,
+    rentOrMortgageInterest: (data.rentOrMortgageInterest as number) || 0,
+    utilities: (data.utilities as number) || 0,
+    insurance: (data.insurance as number) || 0,
+    repairsMaintenance: (data.repairsMaintenance as number) || 0,
+    propertyTax: (data.propertyTax as number) || 0,
+    other: (data.other as number) || 0,
+    method: oneOf(HOME_OFFICE_METHODS, data.method),
+    regularUse: oneOf(HOME_OFFICE_ANSWERS, data.regularUse),
+    exclusiveUse: oneOf(HOME_OFFICE_ANSWERS, data.exclusiveUse),
+    exclusiveUseException: oneOf(HOME_OFFICE_EXCLUSIVE_USE_EXCEPTIONS, data.exclusiveUseException),
+    qualifyingUse: oneOf(HOME_OFFICE_QUALIFYING_USES, data.qualifyingUse),
+    housingType: oneOf(HOME_OFFICE_HOUSING_TYPES, data.housingType),
+    monthsUsed: wholeNumber(data.monthsUsed, 12),
+  };
+}
+
+/** settings/depreciation: annual elections that are not attributes of any single asset. */
+export function normalizeDepreciationSettings(data: Record<string, unknown>): DepreciationElections {
+  const years = Array.isArray(data.deMinimisSafeHarborYears) ? data.deMinimisSafeHarborYears : [];
+  return { deMinimisSafeHarborYears: [...new Set(years.filter((year): year is number => SUPPORTED_TAX_YEARS.includes(year as typeof SUPPORTED_TAX_YEARS[number])))].sort() };
+}
 
 /**
  * Get home office settings for a user
@@ -19,16 +58,7 @@ export async function getHomeOfficeSettings(userId: string): Promise<{ data: Hom
         return { data: null, error: new Error('Document data is null') };
       }
       
-      const homeOfficeSettings: HomeOfficeSettings = {
-        totalHomeSqFt: data.totalHomeSqFt || 0,
-        officeSqFt: data.officeSqFt || 0,
-        rentOrMortgageInterest: data.rentOrMortgageInterest || 0,
-        utilities: data.utilities || 0,
-        insurance: data.insurance || 0,
-        repairsMaintenance: data.repairsMaintenance || 0,
-        propertyTax: data.propertyTax || 0,
-        other: data.other || 0,
-      };
+      const homeOfficeSettings = normalizeHomeOfficeSettings(data);
       
       console.log('✅ [Settings Server] Successfully fetched home office settings');
       return { data: homeOfficeSettings, error: null };
@@ -144,16 +174,7 @@ export async function saveHomeOfficeSettings(
         return { data: null, error: new Error('Document data is null') };
       }
       
-      const homeOfficeSettings: HomeOfficeSettings = {
-        totalHomeSqFt: data.totalHomeSqFt || 0,
-        officeSqFt: data.officeSqFt || 0,
-        rentOrMortgageInterest: data.rentOrMortgageInterest || 0,
-        utilities: data.utilities || 0,
-        insurance: data.insurance || 0,
-        repairsMaintenance: data.repairsMaintenance || 0,
-        propertyTax: data.propertyTax || 0,
-        other: data.other || 0,
-      };
+      const homeOfficeSettings = normalizeHomeOfficeSettings(data);
       
       console.log('✅ [Settings Server] Successfully saved home office settings');
       return { data: homeOfficeSettings, error: null };
@@ -162,6 +183,60 @@ export async function saveHomeOfficeSettings(
     return { data: null, error: new Error('Failed to retrieve updated settings') };
   } catch (error) {
     console.error('❌ [Settings Server] Error saving home office settings:', error);
+    return { data: null, error };
+  }
+}
+
+/**
+ * Get depreciation elections (settings/depreciation) for a user. A missing document is an
+ * empty election set, not an error: no year has been elected yet.
+ */
+export async function getDepreciationSettings(userId: string): Promise<{ data: DepreciationElections | null; error: any }> {
+  try {
+    const docSnap = await adminDb.collection('user_profiles').doc(userId).collection('settings').doc('depreciation').get();
+    if (!docSnap.exists) return { data: { deMinimisSafeHarborYears: [] }, error: null };
+    const data = docSnap.data();
+    if (!data) return { data: null, error: new Error('Document data is null') };
+    return { data: normalizeDepreciationSettings(data), error: null };
+  } catch (error) {
+    console.error('❌ [Settings Server] Error fetching depreciation settings:', error);
+    return { data: null, error };
+  }
+}
+
+export interface ScheduleCSettings {
+  assets: Asset[];
+  /** null when the settings/homeOffice document does not exist (no home office claimed). */
+  homeOffice: HomeOfficeSettings | null;
+  depreciationElections: DepreciationElections;
+}
+
+/**
+ * Everything the shared Schedule C ordering reads from settings, loaded together so every
+ * route (annual estimate, Form 1040 PDF, SE loader, worksheets) sees the same records.
+ * A missing home office document is a normal state; any other failure is an error so the
+ * caller returns 503 instead of calculating from silently missing settings.
+ */
+export async function getScheduleCSettings(userId: string): Promise<{ data: ScheduleCSettings | null; error: any }> {
+  const [assets, homeOffice, elections] = await Promise.all([getAssetsSettings(userId), getHomeOfficeSettings(userId), getDepreciationSettings(userId)]);
+  if (assets.error || !assets.data) return { data: null, error: assets.error ?? new Error('Assets unavailable') };
+  if (homeOffice.error && homeOffice.error.code !== 'NOT_FOUND') return { data: null, error: homeOffice.error };
+  if (elections.error || !elections.data) return { data: null, error: elections.error ?? new Error('Depreciation settings unavailable') };
+  return { data: { assets: assets.data, homeOffice: homeOffice.data ?? null, depreciationElections: elections.data }, error: null };
+}
+
+/** Save depreciation elections for a user; the stored year list is replaced, not merged. */
+export async function saveDepreciationSettings(userId: string, settings: DepreciationElections): Promise<{ data: DepreciationElections | null; error: any }> {
+  try {
+    const docRef = adminDb.collection('user_profiles').doc(userId).collection('settings').doc('depreciation');
+    const normalized = normalizeDepreciationSettings(settings as unknown as Record<string, unknown>);
+    await docRef.set({ deMinimisSafeHarborYears: normalized.deMinimisSafeHarborYears, updated_at: new Date() }, { merge: true });
+    const updatedDoc = await docRef.get();
+    const data = updatedDoc.data();
+    if (!updatedDoc.exists || !data) return { data: null, error: new Error('Failed to retrieve updated settings') };
+    return { data: normalizeDepreciationSettings(data), error: null };
+  } catch (error) {
+    console.error('❌ [Settings Server] Error saving depreciation settings:', error);
     return { data: null, error };
   }
 }

@@ -14,7 +14,7 @@ export async function generateScheduleSEPDF(data: ScheduleSEData): Promise<Uint8
   pdf.paragraph(`Name as saved: ${userProfile.name || 'Not provided'} | Filing status: ${userProfile.filing_status}`);
   pdf.paragraph('Confirm that all business earnings and wages belong to the same taxpayer. Each spouse with self-employment income needs a separate Schedule SE. Farm, church, railroad, unreported-tip, optional-method and exemption cases need separate review.');
   pdf.table(['Worksheet input / result', 'Amount'], [
-    ['Business profit after supported depreciation', money(c.netProfitFromScheduleC)], ['Other SE adjustments', money(c.adjustments)],
+    ['Schedule C line 31 planning profit (after supported de minimis items, depreciation and simplified home office)', money(c.netProfitFromScheduleC)], ['Other SE adjustments', money(c.adjustments)],
     ['Net earnings before 92.35% factor', money(c.netEarnings)], ['Positive SE earnings after 92.35% factor', money(c.seBase)],
     [`${taxYear} Social Security wage base`, money(rates.socialSecurityWageBase)], ['Recorded W-2 Social Security wages', money(data.w2SocialSecurityWages)],
     ['Remaining Social Security wage base', money(Math.max(0, rates.socialSecurityWageBase - data.w2SocialSecurityWages))],

@@ -7,7 +7,10 @@ vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({
 vi.mock('@/lib/reports/export-records', async importOriginal => ({ ...await importOriginal<typeof import('@/lib/reports/export-records')>(), readOwnedTransactions: async () => { if (state.txError) throw new Error(state.txError); return state.transactions; } }));
 vi.mock('@/lib/firebase/transactions-server', () => ({ getTransactionsServer: async () => ({ data: [], error: state.txError }) }));
 vi.mock('@/lib/firebase/profiles-server', () => ({ getUserProfileServer: async () => ({ data: { filing_status: 'single', w2_federal_withheld: 99999 }, error: null }) }));
-vi.mock('@/lib/firebase/settings-server', () => ({ getAssetsSettings: async () => ({ data: state.depreciation ? [{}] : [], error: null }) }));
+vi.mock('@/lib/firebase/settings-server', () => ({
+  getAssetsSettings: async () => ({ data: state.depreciation ? [{}] : [], error: null }),
+  getScheduleCSettings: async () => ({ data: { assets: state.depreciation ? [{}] : [], homeOffice: null, depreciationElections: { deMinimisSafeHarborYears: [] } }, error: null }),
+}));
 vi.mock('@/lib/reports/calc4562', () => ({ calc4562: () => ({ totalDepreciation: state.depreciation }) }));
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collection: (name: string) => {
   state.reads.push(name);

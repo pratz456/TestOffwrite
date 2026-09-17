@@ -41,7 +41,7 @@ vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({
 vi.mock('@/lib/reports/export-records', async importOriginal => ({ ...await importOriginal<typeof import('@/lib/reports/export-records')>(), readOwnedTransactions: async () => { if (h.apiError) throw new Error(h.apiError); return h.tx; } }));
 vi.mock('@/lib/firebase/transactions-server', () => ({ getTransactionsServer: async () => ({ data: h.tx, error: h.apiError }) }));
 vi.mock('@/lib/firebase/profiles-server', () => ({ getUserProfileServer: async () => ({ data: h.profile, error: null }) }));
-vi.mock('@/lib/firebase/settings-server', () => ({ getAssetsSettings: async () => ({ data: [], error: null }) }));
+vi.mock('@/lib/firebase/settings-server', () => ({ getAssetsSettings: async () => ({ data: [], error: null }), getScheduleCSettings: async () => ({ data: { assets: [], homeOffice: null, depreciationElections: { deMinimisSafeHarborYears: [] } }, error: null }) }));
 vi.mock('@/lib/firebase/quarterly-payments-server', () => ({ getRecordedQuarterlyPayments: async () => [], totalRecordedPayments: () => h.paid }));
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collection: (name: string) => ({
   where() { return this; }, limit() { return this; },

@@ -68,7 +68,9 @@ export interface Form1040Input {
   charitableDonations?: number;          // Schedule A charitable contributions
   saltDeduction?: number;                // Eligible personal state/local taxes paid; annual cap applied here
   saltModifiedAGI?: number;              // Includes applicable foreign/territory income exclusions; defaults to AGI
-  depreciationDeduction?: number;        // Section 179 / MACRS from Form 4562
+  depreciationDeduction?: number;        // Section 179 / MACRS from Form 4562 (Schedule C line 13)
+  deMinimisExpense?: number;             // Reg. §1.263(a)-1(f) safe-harbor items expensed on Schedule C, not depreciated
+  homeOfficeDeduction?: number;          // Schedule C line 30 (simplified method, Rev. Proc. 2013-13)
   stateCode?: string;                    // State used for state tax calculation
 }
 
@@ -174,14 +176,16 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
     : ['Planning estimate based on saved eligibility declarations and modeled income. Other deductions, credits and special return rules may require review.'];
 
   // ── Step 1: Total Income (Form 1040 Line 9) ──
-  // Schedule C net profit after depreciation (Section 179 / MACRS). A loss offsets
-  // other income only with the organizer's at-risk, participation and profit-motive
-  // facts (§465, §469, §183) and is capped by §461(l); it is never clamped silently.
-  const scheduleCAfterDepreciation = scheduleCNetProfit - (input.depreciationDeduction || 0);
-  const businessLoss = scheduleCAfterDepreciation < 0
-    ? calculateAllowedBusinessLoss({ taxYear, filingStatus, netLoss: -scheduleCAfterDepreciation, organizer: input.personalDeductionOrganizer })
+  // Schedule C line 31: subtract de minimis expenses, Form 4562 depreciation (line 13) and the
+  // home office deduction (line 30) before SE tax, QBI and Schedule 1 income. A loss offsets
+  // other income only with the organizer's at-risk, participation and profit-motive facts
+  // (§465, §469, §183) and is capped by §461(l); it is never clamped silently.
+  const scheduleCLine31 = scheduleCNetProfit - (input.deMinimisExpense || 0) - (input.depreciationDeduction || 0) - (input.homeOfficeDeduction || 0);
+  const scheduleCAfterDepreciation = scheduleCLine31;
+  const businessLoss = scheduleCLine31 < 0
+    ? calculateAllowedBusinessLoss({ taxYear, filingStatus, netLoss: -scheduleCLine31, organizer: input.personalDeductionOrganizer })
     : undefined;
-  const adjustedScheduleC = businessLoss ? -businessLoss.allowedLoss : scheduleCAfterDepreciation;
+  const adjustedScheduleC = businessLoss ? -businessLoss.allowedLoss : scheduleCLine31;
   if (businessLoss) calculationWarnings.push(...businessLoss.warnings);
   if ((input.numDependents ?? 0) > 0) {
     calculationWarnings.push('Dependent counts do not establish child-credit eligibility. Confirm each child meets the applicable age, relationship, residency, support and Social Security number requirements.');

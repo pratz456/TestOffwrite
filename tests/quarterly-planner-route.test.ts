@@ -12,7 +12,7 @@ vi.mock('@/lib/subscriptions/feature-access', () => ({ requireFeatureAccess: asy
 vi.mock('@/lib/reports/export-records', async importOriginal => ({ ...await importOriginal<typeof import('@/lib/reports/export-records')>(), readOwnedTransactions: async () => { if (state.error) throw new Error(state.error); return state.tx; } }));
 vi.mock('@/lib/firebase/transactions-server', () => ({ getTransactionsServer: async () => ({ data: state.tx, error: state.error }) }));
 vi.mock('@/lib/firebase/profiles-server', () => ({ getUserProfileServer: async () => ({ data: state.profile, error: null }) }));
-vi.mock('@/lib/firebase/settings-server', () => ({ getAssetsSettings: async () => ({ data: [], error: null }) }));
+vi.mock('@/lib/firebase/settings-server', () => ({ getAssetsSettings: async () => ({ data: [], error: null }), getScheduleCSettings: async () => ({ data: { assets: [], homeOffice: null, depreciationElections: { deMinimisSafeHarborYears: [] } }, error: null }) }));
 vi.mock('@/lib/firebase/quarterly-payments-server', async importOriginal => ({
   ...await importOriginal<typeof import('@/lib/firebase/quarterly-payments-server')>(),
   getRecordedQuarterlyPayments: async () => ([1, 2, 3, 4] as const).map(quarter => state.payments.find(payment => payment.quarter === quarter) ?? { quarter, paidAmount: 0, record: null }),
