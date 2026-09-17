@@ -69,8 +69,6 @@ function isoToMs(value: IsoDate): number {
   return Date.parse(`${value}T00:00:00Z`);
 }
 
-const msToIso = (ms: number): IsoDate => new Date(ms).toISOString().slice(0, 10);
-
 /** Whole days from `from` to `to` (Form 2210 counts the due date to the payment date). */
 export function daysBetween(from: IsoDate, to: IsoDate): number {
   return Math.round((isoToMs(to) - isoToMs(from)) / DAY_MS);

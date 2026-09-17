@@ -69,7 +69,10 @@ export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyT
     setResult(null);
     void (async () => {
       try {
-        const response = await makeAuthenticatedRequest(`/api/tax/quarterly-reminders?year=${year}`, { signal: controller.signal, cache: 'no-store' });
+        // The planner's "today" is the user's local calendar date, not the server's UTC date.
+        const today = new Date();
+        const asOf = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+        const response = await makeAuthenticatedRequest(`/api/tax/quarterly-reminders?year=${year}&asOf=${asOf}`, { signal: controller.signal, cache: 'no-store' });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'Could not load your quarterly planning records. Please retry.');
         if (data.taxYear !== year || ![data.totalEstimatedTax, data.recordedEstimatedPayments, data.w2Withheld].every(value => typeof value === 'number' && Number.isFinite(value)) || (data.totalFederalWithheld !== undefined && (typeof data.totalFederalWithheld !== 'number' || !Number.isFinite(data.totalFederalWithheld))) || !Array.isArray(data.quarters) || !data.paymentReview?.message) throw new Error('The quarterly summary is incomplete. Please retry.');

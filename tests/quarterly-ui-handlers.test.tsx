@@ -85,11 +85,13 @@ describe('authenticated quarterly summary renders planner figures or the specifi
     quarters: planner.installments.map(item => ({ quarter: item.quarter, dueDate: item.dueDate, amountPaid: item.quarter === 1 ? 2500 : 0, recommended: item.plannedEstimatedPayment, status: item.status })),
   });
   const component = () => QuarterlyTaxCalculator({ userProfile: { id: 'synthetic' }, transactions: [] });
-  const anchors = (tree: any) => walk(tree).filter(n => n.type === 'a').map(n => n.props.href as string);
+  const anchors = (tree: unknown) => walk(tree).filter(n => n.type === 'a').map(n => n.props.href as string);
 
   it('shows the next due date, the amount to pay by it, the safe-harbor basis, recorded payments and a labeled interest illustration', async () => {
     const planner = plan(); h.request.mockImplementation(() => ready(planner));
     render(component); await flush(); const tree = render(component); const content = text(tree);
+    const today = new Date(), local = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    expect(h.request.mock.calls[0][0]).toBe(`/api/tax/quarterly-reminders?year=${currentYear}&asOf=${local}`);
     expect(content).toContain('Planning estimate from reviewed facts'); expect(content).not.toContain('Payment amount needs review');
     expect(content).toContain('Next due date: 2026-09-15 (Q3)'); expect(content).toContain('$5,000.00'); expect(content).toContain('the Q3 installment alone is $2,500.00');
     expect(content).toContain('Safe-harbor basis used: 100% of 2025 tax ($10,000.00)'); expect(content).toContain('90% of the 2026 estimate ($18,000.00)');
