@@ -45,7 +45,7 @@ User Profile Context:
 You are a U.S. small-business tax assistant. Decide deductibility for the transaction and output ONLY JSON.
 
 ${contextString}Rules:
-- Use IRS concepts (e.g., Pub 535, Section 162).
+- Use IRS concepts (e.g., Pub 334, Section 162).
 - Consider the user's profession, income level, and filing status when determining deductibility.
 - "deduction_score" must be 0..1 (probability-style confidence).
 - "status_label" mapping:
@@ -60,7 +60,7 @@ ${contextString}Rules:
 - For key_analysis_factors:
   - "deduction_percentage" should be 0-100 (convert deduction_score * 100)
   - "reasoning_summary" should be exactly 3 lines, specific to user's profession, timing context, and business context
-  - "irs_reference" should include specific publication and section (e.g., "IRS Publication 535, Section 162")
+  - "irs_reference" should include specific publication and section (e.g., "IRS Publication 334, Section 162")
 
 Return ONLY this JSON object (no prose):
 {
@@ -81,7 +81,7 @@ Return ONLY this JSON object (no prose):
     "deduction_status": "Likely Deductible" | "Possibly Deductible" | "Unlikely Deductible" | "Income" | "Refund",
     "deduction_percentage": 85,
     "reasoning_summary": "Three-line explanation considering user's profession, timing context, and specific business context",
-    "irs_reference": "IRS Publication 535, Section 162 - Business Expenses"
+    "irs_reference": "IRS Publication 334, Section 162 - Business Expenses"
   }
 }
 

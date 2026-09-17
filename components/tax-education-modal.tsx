@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { IRS_CONTENT_DATABASE, type IRSContent } from '@/lib/education/irs-content';
 import { 
   BookOpen, 
   FileText, 
@@ -45,19 +46,6 @@ interface TaxEducationModalProps {
   };
 }
 
-interface IRSContent {
-  id: string;
-  title: string;
-  publication: string;
-  section?: string;
-  content: string;
-  examples: string[];
-  keyPoints: string[];
-  difficulty: 'beginner' | 'intermediate' | 'advanced';
-  estimatedReadTime: number;
-  relatedTopics: string[];
-}
-
 interface LearningProgress {
   totalLessons: number;
   completedLessons: number;
@@ -66,154 +54,6 @@ interface LearningProgress {
   level: number;
   nextLevelPoints: number;
 }
-
-const IRS_CONTENT_DATABASE: Record<string, IRSContent> = {
-  'meals_50': {
-    id: 'meals_50',
-    title: 'Business Meals - 50% Deduction Rule',
-    publication: 'IRS Pub 463',
-    section: 'Section 274(n)',
-    content: `Business meals are generally deductible at 50% under IRC Section 274(n). This includes meals with clients, business associates, or during business travel.
-
-Key Requirements:
-- Must be directly related to or associated with your business
-- Must be ordinary and necessary for your business
-- Cannot be lavish or extravagant
-- Must have a clear business purpose
-
-The 50% limitation applies to most business meals, but there are exceptions for certain types of meals like company parties or meals provided for the convenience of the employer.`,
-    examples: [
-      'Lunch with a client to discuss a project - 50% deductible',
-      'Dinner during a business conference - 50% deductible',
-      'Coffee meeting with a potential business partner - 50% deductible',
-      'Company holiday party for employees - 100% deductible (exception)'
-    ],
-    keyPoints: [
-      'Always document the business purpose and attendees',
-      'Keep receipts showing date, amount, and business purpose',
-      'The 50% rule applies even if you discuss business',
-      'Entertainment expenses are generally not deductible'
-    ],
-    difficulty: 'beginner',
-    estimatedReadTime: 3,
-    relatedTopics: ['travel_expenses', 'entertainment', 'business_purpose']
-  },
-  'home_office': {
-    id: 'home_office',
-    title: 'Home Office Deduction',
-    publication: 'IRS Pub 587',
-    section: 'Section 280A',
-    content: `The home office deduction allows you to deduct expenses for the business use of your home. You can use either the simplified method ($5 per square foot) or the actual expense method.
-
-Requirements:
-- Must be used exclusively and regularly for business
-- Must be your principal place of business OR a place where you meet clients
-- Cannot be used for personal purposes
-
-Simplified Method:
-- $5 per square foot (maximum 300 sq ft = $1,500)
-- No depreciation or home-related expenses needed
-- Easier to calculate and less recordkeeping
-
-Actual Expense Method:
-- Calculate percentage of home used for business
-- Apply percentage to home expenses (utilities, insurance, etc.)
-- Can include depreciation on home
-- More complex but potentially higher deduction`,
-    examples: [
-      '200 sq ft home office = $1,000 deduction (simplified)',
-      '15% of home used for business = 15% of utilities, insurance, etc.',
-      'Separate structure used exclusively for business = 100% deductible'
-    ],
-    keyPoints: [
-      'Exclusive use is required - no personal use allowed',
-      'Regular use means consistent business use, not occasional',
-      'Principal place of business includes administrative work',
-      'Keep records of square footage and home expenses'
-    ],
-    difficulty: 'intermediate',
-    estimatedReadTime: 5,
-    relatedTopics: ['utilities', 'depreciation', 'business_use_percentage']
-  },
-  'vehicle_expense': {
-    id: 'vehicle_expense',
-    title: 'Vehicle Expenses and Mileage',
-    publication: 'IRS Pub 463',
-    section: 'Section 162',
-    content: `Vehicle expenses for business use are deductible. You can choose between the standard mileage rate or actual expenses.
-
-Standard Mileage Rate (2024):
-- 67 cents per mile for business use
-- Includes depreciation, gas, insurance, maintenance
-- Must be chosen in first year of business use
-- Simpler recordkeeping
-
-Actual Expense Method:
-- Depreciation, gas, oil, insurance, repairs, registration
-- Calculate business use percentage
-- More complex but potentially higher deduction
-- Must track all vehicle expenses
-
-Business Use Requirements:
-- Must be ordinary and necessary for your business
-- Cannot include commuting to regular workplace
-- Must document business purpose for each trip
-- Keep detailed mileage logs`,
-    examples: [
-      'Drive 1,000 business miles = $670 deduction (standard rate)',
-      'Client meeting 50 miles away = $33.50 deduction',
-      'Business trip to conference = deductible mileage'
-    ],
-    keyPoints: [
-      'Commuting to regular workplace is NOT deductible',
-      'Keep detailed mileage logs with dates and purposes',
-      'Choose method in first year of business use',
-      'Business use percentage applies to actual expenses'
-    ],
-    difficulty: 'beginner',
-    estimatedReadTime: 4,
-    relatedTopics: ['travel_expenses', 'commuting', 'business_purpose']
-  },
-  'travel_expenses': {
-    id: 'travel_expenses',
-    title: 'Business Travel Expenses',
-    publication: 'IRS Pub 463',
-    section: 'Section 162',
-    content: `Business travel expenses are deductible when you travel away from your tax home for business purposes. This includes transportation, lodging, meals, and incidental expenses.
-
-Requirements:
-- Must be away from your tax home overnight
-- Must be primarily for business purposes
-- Must be ordinary and necessary for your business
-
-Deductible Expenses:
-- Transportation (airfare, train, car rental, gas)
-- Lodging (hotel, Airbnb, etc.)
-- Meals (50% deductible)
-- Incidental expenses (tips, phone calls, etc.)
-
-Non-Deductible:
-- Personal expenses during business travel
-- Commuting to regular workplace
-- Expenses for personal side trips
-- Lavish or extravagant expenses`,
-    examples: [
-      'Flight to client meeting in another city - 100% deductible',
-      'Hotel for business conference - 100% deductible',
-      'Meals during business travel - 50% deductible',
-      'Personal sightseeing during business trip - not deductible'
-    ],
-    keyPoints: [
-      'Tax home is your regular place of business',
-      'Overnight stay required for most travel deductions',
-      'Document business purpose for each trip',
-      'Keep receipts for all travel expenses'
-    ],
-    difficulty: 'intermediate',
-    estimatedReadTime: 4,
-    relatedTopics: ['meals_50', 'vehicle_expense', 'business_purpose']
-  }
-};
 
 export function TaxEducationModal({ isOpen, onClose, transaction, userProfile }: TaxEducationModalProps) {
   const [activeTab, setActiveTab] = useState('explanation');
@@ -333,7 +173,7 @@ export function TaxEducationModal({ isOpen, onClose, transaction, userProfile }:
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Lightbulb className="h-5 w-5 text-teal-600" />
-                    Why {transaction.is_deductible ? 'This Expense is Deductible' : 'This Expense is Not Deductible'}
+                    Why {transaction.is_deductible ? 'This Expense May Be Deductible' : 'This Expense Looks Non-Deductible'}
                   </CardTitle>
                   <CardDescription>
                     {transaction.merchant_name} • ${Math.abs(transaction.amount).toFixed(2)} • {transaction.category}
@@ -349,7 +189,7 @@ export function TaxEducationModal({ isOpen, onClose, transaction, userProfile }:
                       )}
                       <div>
                         <p className="font-medium">
-                          {transaction.is_deductible ? 'Deductible' : 'Not Deductible'}
+                          {transaction.is_deductible ? 'Suggested as deductible - confirm the business purpose' : 'Suggested as not deductible - review if you disagree'}
                         </p>
                         <p className="text-sm text-muted-foreground">
                           {transaction.deductible_reason || transaction.ai?.reasoning || 'No explanation available'}
@@ -361,8 +201,8 @@ export function TaxEducationModal({ isOpen, onClose, transaction, userProfile }:
                       <div className="bg-blue-50 p-4 rounded-lg">
                         <h4 className="font-medium text-blue-900 mb-2">Personalized for You</h4>
                         <p className="text-sm text-blue-800">
-                          As a {userProfile.profession} operating as a {userProfile.business_entity_type} in {userProfile.state}, 
-                          this analysis considers your specific business context and state tax rules.
+                          As a {userProfile.profession} operating as a {userProfile.business_entity_type} in {userProfile.state},
+                          this explanation covers general federal rules for your business context. State tax rules are not analyzed here.
                         </p>
                       </div>
                     )}
@@ -410,9 +250,11 @@ export function TaxEducationModal({ isOpen, onClose, transaction, userProfile }:
                         <span>• {currentContent.estimatedReadTime} min read</span>
                       </CardDescription>
                     </div>
-                    <Button variant="outline" size="sm">
-                      <ExternalLink className="h-4 w-4 mr-2" />
-                      View Full Publication
+                    <Button variant="outline" size="sm" asChild>
+                      <a href={currentContent.url} target="_blank" rel="noopener noreferrer">
+                        <ExternalLink className="h-4 w-4 mr-2" />
+                        View Full Publication
+                      </a>
                     </Button>
                   </div>
                 </CardHeader>
