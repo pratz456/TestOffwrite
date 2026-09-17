@@ -20,11 +20,15 @@ import { ReviewTransactionsScreen } from '../components/review-transactions-scre
 import { PurposeConfirmChip } from '../components/review/purpose-confirm-chip';
 import { BulkConfirmOffer, requestBulkConfirm, type BulkConfirmOutcome } from '../components/review/bulk-confirm-offer';
 import { ExplanationCard } from '../components/ai/explanation-card';
+import { MerchantGroupList, type GroupDecisionResult } from '../components/review/merchant-groups';
+import { QuestionChips } from '../components/review/question-chips';
 import { reviewSourceFor, taxDecisionUpdate } from '../lib/transactions/tax-decision';
-import { bulkOfferFor, canOfferPurposeConfirmation, confirmPurposeUpdates, proposedBusinessPurpose, rejectProposalUpdates, type BulkConfirmRequest } from '../lib/transactions/review-proposals';
+import { bulkOfferFor, canOfferPurposeConfirmation, confirmPurposeUpdates, groupDecision, groupUnreviewedByMerchant, proposedBusinessPurpose, rejectProposalUpdates,
+  type BulkConfirmRequest, type MerchantGroup, type OpenQuestion } from '../lib/transactions/review-proposals';
 
-type Props = { children?: unknown; proposal?: string | null; question?: string | null; onConfirm?: (purpose: string) => unknown; onReject?: () => unknown; onClick?: () => unknown; disabled?: boolean; explanation?: unknown;
-  offer?: BulkConfirmRequest; onApplied?: (outcome: BulkConfirmOutcome, offer: BulkConfirmRequest) => unknown; onDismiss?: () => unknown };
+type Props = { children?: unknown; proposal?: string | null; question?: string | null | OpenQuestion; onConfirm?: (purpose: string) => unknown; onReject?: () => unknown; onClick?: () => unknown; disabled?: boolean; explanation?: unknown;
+  offer?: BulkConfirmRequest; onApplied?: (outcome: BulkConfirmOutcome | GroupDecisionResult, offer: BulkConfirmRequest | MerchantGroup) => unknown; onDismiss?: () => unknown;
+  groups?: MerchantGroup[]; results?: GroupDecisionResult[]; onSave?: (updates: Record<string, unknown>, message: string) => unknown; 'aria-pressed'?: boolean };
 type Element = ReactElement<Props>;
 function walk(node: unknown): Element[] { if (Array.isArray(node)) return node.flatMap(walk); return isValidElement<Props>(node) ? [node, ...walk(node.props.children)] : []; }
 function text(node: unknown): string { if (Array.isArray(node)) return node.map(text).join(''); if (isValidElement<Props>(node)) return text(node.props.children); return typeof node === 'string' || typeof node === 'number' ? String(node) : ''; }
@@ -182,6 +186,91 @@ describe('apply to similar charges after a single decision', () => {
     expect(bulkOfferFor(base({ is_deductible: null }), others)).toBeNull();
     expect(bulkOfferFor(base({ is_deductible: false, transaction_kind: 'refund', amount: 42.5 }), others)).toBeNull();
     expect(bulkOfferFor(base({ is_deductible: true, amount: -42.5 }), others)).toBeNull();
+  });
+});
+
+describe('merchant-grouped triage', () => {
+  const at = (id: string, merchant: string, changes: Partial<Transaction> = {}) => base({ id, trans_id: id, merchant_name: merchant, ai_suggestion: null, ai_missing_fields: [], ...changes });
+  const grouped = (view: unknown) => walk(view).find(node => node.type === MerchantGroupList);
+  const toggle = (view: unknown) => walk(view).find(node => node.props.onClick && text(node) === 'By merchant')!;
+
+  it('keeps the single-card flow as the default and switches to groups sorted by count', () => {
+    records = [at('a1', 'Adobe'), at('f1', 'Figma'), at('a2', 'ADOBE', { ai_suggestion: { ...suggestion, category: 'software_subscriptions' } }), at('f2', 'Figma'), at('f3', 'figma', { amount: 10 }),
+      at('r1', 'Refund Co', { amount: -20 }), at('p1', 'Pending Co', { pending: true }), at('d1', 'Decided Co', { is_deductible: true })];
+    let view = page();
+    expect(grouped(view)).toBeUndefined();
+    expect(text(view)).toContain('Adobe');
+    toggle(view).props.onClick!();
+    view = page();
+    const list = grouped(view)!;
+    expect(list.props.groups!.map(group => [group.merchant, group.count, Number(group.total.toFixed(2))])).toEqual([['Figma', 3, 95], ['Adobe', 2, 85]]);
+    expect(list.props.groups![1]).toMatchObject({ merchantKey: 'adobe', proposedPurpose: 'Printer paper and ink for client proposals', category: 'software_subscriptions', categoryLabel: 'Software and subscriptions' });
+    expect(text(view)).toContain('5 charges from 2 merchants');
+    expect(walk(view).find(node => node.props['aria-pressed'] === true && text(node) === 'By merchant')).toBeDefined();
+  });
+
+  it('applies a group decision locally from the server\u2019s ids and shows the count until dismissed', () => {
+    records = [at('a1', 'Adobe'), at('a2', 'Adobe', { ai_suggestion: { ...suggestion, transactionKind: 'transfer' } }), at('f1', 'Figma')];
+    toggle(page()).props.onClick!();
+    const list = grouped(page())!;
+    const group = list.props.groups![0];
+    expect(group).toMatchObject({ merchant: 'Adobe', count: 2, needsIndividualReview: 1 });
+    const request = groupDecision(group, 'business', 'Design software for client work');
+    expect(request).toEqual({ merchantKey: 'adobe', merchant: 'Adobe', count: 2, decision: 'business', businessPurpose: 'Design software for client work', category: 'supplies_small_tools' });
+    list.props.onApplied!({ request, outcome: { updated: 1, skipped: 1, truncated: false, transactionIds: ['a1'] } }, group);
+    expect(harness.updated).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: 'a1', is_deductible: true, business_purpose: 'Design software for client work', review_status: 'confirmed', review_source: 'user_decision' }));
+    const after = grouped(page())!;
+    expect(after.props.results).toHaveLength(1);
+    expect(after.props.groups!.map(entry => [entry.merchant, entry.count])).toEqual([['Adobe', 1], ['Figma', 1]]);
+    expect(text(page())).toContain('1 confirmed this session');
+    (after.props as unknown as { onDismissResult: (key: string) => void }).onDismissResult('adobe');
+    expect(grouped(page())!.props.results).toEqual([]);
+  });
+
+  it('never carries a disagreeing or tax-method category into a group decision', () => {
+    const disagreeing = groupUnreviewedByMerchant([at('a1', 'Adobe', { ai_suggestion: { ...suggestion, category: 'software_subscriptions' } }), at('a2', 'Adobe', { ai_suggestion: { ...suggestion, category: 'supplies_small_tools' } })]);
+    expect(disagreeing[0]).toMatchObject({ category: null, categoryLabel: null });
+    const equipment = groupUnreviewedByMerchant([at('e1', 'Best Buy', { ai_suggestion: { ...suggestion, category: 'equipment' } })]);
+    expect(equipment[0]).toMatchObject({ category: 'equipment', needsIndividualReview: 0 });
+    expect(groupDecision(equipment[0], 'business', 'Laptop').category).toBeNull();
+    expect(groupDecision(equipment[0], 'personal', 'ignored')).toMatchObject({ decision: 'personal', businessPurpose: null, category: null });
+  });
+});
+
+describe('one question at a time with suggested answers', () => {
+  const chips = (view: unknown) => walk(view).find(node => node.type === QuestionChips);
+  const withQuestion = (field: string, question: string, changes: Partial<Transaction> = {}) => base({
+    ai_suggestion: { ...suggestion, proposed_purpose: undefined, category: 'equipment', questions: [question, 'Second question stays hidden'] }, ai_missing_fields: [field], ...changes });
+
+  it('asks only the first question and saves the business-use percentage as a fact, not a decision', async () => {
+    records = [withQuestion('business_use_percentage', 'How much of this laptop is for business?', { equipment_details: { make: 'Framework' } })];
+    let view = page();
+    expect(chip(view)).toBeUndefined();
+    const element = chips(view)!;
+    expect(element.props.question).toMatchObject({ kind: 'business_use_percentage', field: 'business_use_percentage', question: 'How much of this laptop is for business?' });
+    expect(text(view)).not.toContain('Second question stays hidden');
+    harness.request.mockResolvedValue(Response.json({ success: true, transaction: { ...records[0], equipment_details: { make: 'Framework', business_use_percentage: 75 } } }));
+    await element.props.onSave!({ equipment_details: { make: 'Framework', business_use_percentage: 75 } }, 'Business use saved: 75%');
+    expect(JSON.parse(harness.request.mock.calls[0][1].body)).toEqual({ equipment_details: { make: 'Framework', business_use_percentage: 75 } });
+    expect(harness.toast).toHaveBeenCalledWith('Business use saved: 75%. Run analysis again for an updated suggestion.');
+    view = page();
+    expect(text(view)).toContain('Synthetic Office Mart');
+    expect(text(view)).not.toContain('confirmed this session');
+    expect(chips(view)).toBeUndefined();
+  });
+
+  it('routes meal, settings and unknown questions to their answer surfaces', () => {
+    records = [withQuestion('attendees', 'Who joined this meal?')];
+    expect(chips(page())!.props.question).toMatchObject({ kind: 'meal_conditions' });
+    records = [withQuestion('attendees', 'Who joined this meal?', { attendees: ['Jordan Lee'] })];
+    expect(chips(page())).toBeUndefined();
+    records = [withQuestion('entity_tax_treatment', 'How is your business taxed?')];
+    expect(chips(page())!.props.question).toMatchObject({ kind: 'settings_gate' });
+    records = [withQuestion('receipt', 'Do you have the receipt?')];
+    expect(chips(page())!.props.question).toMatchObject({ kind: 'other', field: 'receipt' });
+    records = [withQuestion('business_purpose', 'What is this for?')];
+    expect(chip(page())).toBeUndefined();
+    expect(chips(page())!.props.question).toMatchObject({ kind: 'business_purpose' });
   });
 });
 

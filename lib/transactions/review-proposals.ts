@@ -120,6 +120,14 @@ export function firstOpenQuestion(transaction: ReviewRecord): OpenQuestion | nul
   return { question: question.trim(), field, kind };
 }
 
+/** The fact a question asks for is already saved on the record, so the chips can step aside. */
+export function questionAnswered(transaction: Pick<Transaction, 'business_purpose' | 'equipment_details' | 'attendees'>, question: OpenQuestion): boolean {
+  if (question.kind === 'business_purpose') return cleanText(transaction.business_purpose) !== null;
+  if (question.kind === 'business_use_percentage') return typeof transaction.equipment_details?.business_use_percentage === 'number';
+  if (question.kind === 'meal_conditions') return Array.isArray(transaction.attendees) && transaction.attendees.length > 0;
+  return false;
+}
+
 export const BUSINESS_USE_CHOICES = [100, 75, 50, 25] as const;
 
 /** Business-use percentage saves inside the allow-listed `equipment_details` map; keep its other fields. */
@@ -132,48 +140,71 @@ export function attendeesUpdates(raw: string) {
   return attendees.length ? { attendees } : null;
 }
 
+/** Where the profile facts behind an entity or tax-year question live. */
+export const TAX_SETTINGS_HREF = '/protected/settings?tab=tax';
+
 export interface MerchantGroup {
   merchantKey: string;
   merchant: string;
   transactions: Transaction[];
   count: number;
-  /** Sum of posted charges (positive amounts) in the group. */
+  /** Sum of the charges in the group. */
   total: number;
+  /** From any suggestion in the group, first one wins. */
   proposedPurpose: string | null;
+  /** Set only when every suggestion in the group that names a category agrees. */
   category: ReviewCategory | null;
   categoryLabel: string | null;
-  /** True when every charge in the group can record a deduction through the update API. */
-  canConfirmDeduction: boolean;
+  /** Charges a bulk business decision would leave for individual review (mirrors the server's skips). */
+  needsIndividualReview: number;
 }
 
 function unreviewed(transaction: Transaction): boolean {
   return !transaction.review_status && typeof transaction.is_deductible !== 'boolean' && transaction.pending !== true;
 }
 
-/** Unreviewed charges grouped by merchant key, most frequent merchant first. */
+/** Same refusals as the bulk route for a business decision, minus the caller-chosen category. */
+export function bulkDeductionBlocked(transaction: Pick<Transaction, 'ai_suggestion' | 'category' | 'transaction_kind'> & { ai_transaction_kind?: unknown }): boolean {
+  const analysisKind = transaction.ai_suggestion?.transactionKind ?? (typeof transaction.ai_transaction_kind === 'string' ? transaction.ai_transaction_kind : undefined);
+  if (analysisKind && ['income', 'transfer', 'personal', 'refund'].includes(analysisKind)) return true;
+  if (transaction.transaction_kind && ['income', 'transfer', 'personal', 'refund'].includes(transaction.transaction_kind)) return true;
+  return typeof transaction.category === 'string' && transaction.category.endsWith('_REVIEW_REQUIRED');
+}
+
+/** Unreviewed charges grouped by merchant key, most frequent merchant first. Credits and pending rows stay out. */
 export function groupUnreviewedByMerchant(transactions: Transaction[]): MerchantGroup[] {
   const groups = new Map<string, MerchantGroup>();
+  const disagreeing = new Set<string>();
   for (const transaction of transactions) {
-    if (!unreviewed(transaction)) continue;
+    if (!unreviewed(transaction) || !(Number(transaction.amount) > 0)) continue;
     const merchantKey = learningMerchantKey(transaction);
     if (!merchantKey) continue;
     let group = groups.get(merchantKey);
     if (!group) {
       group = { merchantKey, merchant: transaction.merchant_name?.trim() || merchantKey, transactions: [], count: 0, total: 0,
-        proposedPurpose: null, category: null, categoryLabel: null, canConfirmDeduction: true };
+        proposedPurpose: null, category: null, categoryLabel: null, needsIndividualReview: 0 };
       groups.set(merchantKey, group);
     }
     group.transactions.push(transaction);
     group.count += 1;
-    if (Number.isFinite(transaction.amount) && transaction.amount > 0) group.total += transaction.amount;
+    group.total += transaction.amount;
     group.proposedPurpose ??= proposedBusinessPurpose(transaction);
-    if (!group.category) {
-      const category = reviewCategory(transaction.ai_suggestion?.category);
-      if (category) { group.category = category.value; group.categoryLabel = category.label; }
+    const category = reviewCategory(transaction.ai_suggestion?.category);
+    if (category && !disagreeing.has(merchantKey)) {
+      if (!group.category) { group.category = category.value; group.categoryLabel = category.label; }
+      else if (group.category !== category.value) { disagreeing.add(merchantKey); group.category = null; group.categoryLabel = null; }
     }
-    group.canConfirmDeduction = group.canConfirmDeduction && canRecordDeductionByTap(transaction);
+    if (bulkDeductionBlocked(transaction)) group.needsIndividualReview += 1;
   }
   return [...groups.values()].sort((a, b) => b.count - a.count || b.total - a.total || a.merchant.localeCompare(b.merchant));
+}
+
+/** Group-level decision for POST /api/transactions/bulk-confirm. A category that needs its own tax review never travels. */
+export function groupDecision(group: MerchantGroup, decision: 'business' | 'personal', purpose: string | null): BulkConfirmRequest {
+  const category = decision === 'business' && group.category ? reviewCategory(group.category) : undefined;
+  return { merchantKey: group.merchantKey, merchant: group.merchant, count: group.count, decision,
+    businessPurpose: decision === 'business' ? cleanText(purpose) : null,
+    category: category && !category.recordedCategory.endsWith('_REVIEW_REQUIRED') ? category.value : null };
 }
 
 /** Other unreviewed charges sharing this record's merchant key; the bulk offer needs at least two. */
