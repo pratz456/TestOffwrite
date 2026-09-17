@@ -165,16 +165,18 @@ async function seed(path: string, values: Record<string, string | number | boole
       await expect(getDocs(collection(db, `account_deletions/${owner}/plaid_revocations`))).rejects.toMatchObject({ code: 'permission-denied' });
     }
   });
-  it('denies every client read and write of rate-limit windows', async () => {
+  it('denies every client read and write of rate-limit windows and the support audit trail', async () => {
     await seed('rate_limits/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef', { scope: 'auth.session', windowStart: 1, count: 1 });
+    await seed('support_audit/synthetic-entry', { actorUid: owner, subjectUid: 'bob', action: 'account-diagnostics' });
     for (const db of [alice, bob, anonymous]) {
-      for (const path of ['rate_limits/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef']) {
+      for (const path of ['rate_limits/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef', 'support_audit/synthetic-entry']) {
         await expect(getDoc(doc(db, path))).rejects.toMatchObject({ code: 'permission-denied' });
         await expect(setDoc(doc(db, path), { count: 0 })).rejects.toMatchObject({ code: 'permission-denied' });
         await expect(updateDoc(doc(db, path), { count: 0 })).rejects.toMatchObject({ code: 'permission-denied' });
         await expect(deleteDoc(doc(db, path))).rejects.toMatchObject({ code: 'permission-denied' });
       }
       await expect(getDocs(collection(db, 'rate_limits'))).rejects.toMatchObject({ code: 'permission-denied' });
+      await expect(getDocs(query(collection(db, 'support_audit'), where('actorUid', '==', owner)))).rejects.toMatchObject({ code: 'permission-denied' });
       // A client cannot reset its own window by creating a fresh document either.
       await expect(setDoc(doc(db, 'rate_limits/forged-window'), { scope: 'auth.session', windowStart: 1, count: 0 })).rejects.toMatchObject({ code: 'permission-denied' });
     }

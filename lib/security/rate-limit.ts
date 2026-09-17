@@ -88,6 +88,7 @@ export const RATE_LIMITS = {
   stripeCheckout: { scope: 'stripe.checkout', limit: 10, windowMs: 10 * 60_000, onUnavailable: 'deny' },
   stripePortal: { scope: 'stripe.portal', limit: 10, windowMs: 10 * 60_000, onUnavailable: 'deny' },
   plaidLinkToken: { scope: 'plaid.link-token', limit: 20, windowMs: 10 * 60_000, onUnavailable: 'deny' },
+  supportAccountLookup: { scope: 'support.account', limit: 60, windowMs: 10 * 60_000, onUnavailable: 'deny' },
 } as const satisfies Record<string, Omit<RateLimitOptions, 'key'>>;
 
 interface WindowState { windowStart: number; count: number }
