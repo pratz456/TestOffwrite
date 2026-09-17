@@ -1,6 +1,6 @@
 "use client";
 
-import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
+import { SUPPORTED_TAX_YEARS, getFederalTaxRules, nearestPublishedTaxYear } from '@/lib/tax-rules/federal-year-rules';
 import { PremiumFeatureGate } from '@/components/premium-feature-gate';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -338,10 +338,14 @@ export default function ScheduleSEPage() {
               This form calculates self-employment tax on your business income.
             </p>
             <div className="text-sm text-gray-500 space-y-1">
-              <p>• Social Security tax: 12.4% up to $176,100 (2024)</p>
-              <p>• Medicare tax: 2.9% on all earnings</p>
-              <p>• Additional Medicare tax: 0.9% on high earners</p>
+              <p>• Net earnings from self-employment are 92.35% of Schedule C net profit</p>
+              <p>• Social Security tax: 12.4% up to ${getFederalTaxRules(nearestPublishedTaxYear(Number(selectedYear))).socialSecurityWageBase.toLocaleString('en-US')} of combined wages and net earnings ({nearestPublishedTaxYear(Number(selectedYear))} wage base)</p>
+              <p>• Medicare tax: 2.9% on all net earnings</p>
+              <p>• Additional Medicare tax: 0.9% above $200,000 ($250,000 married filing jointly; $125,000 married filing separately); these thresholds are not indexed</p>
               <p>• Half of SE tax is deductible on Schedule 1</p>
+              <p>
+                • Source: <a href="https://www.irs.gov/taxtopics/tc554" target="_blank" rel="noopener noreferrer" className="underline">IRS Topic No. 554</a> and the Schedule SE instructions
+              </p>
             </div>
           </div>
         </Card>

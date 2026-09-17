@@ -247,7 +247,7 @@ export function SignUpForm({
                 Create your account
               </h1>
               <p className="text-base sm:text-sm text-muted-foreground">
-                Start maximizing your tax deductions today
+                Start organizing your business tax records today
               </p>
             </div>
           </div>

@@ -1,4 +1,5 @@
 import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
+import { getEstimatedTaxDeadline } from '@/lib/tax-provider/payment-deadlines';
 
 /**
  * Proactive Action Items Engine
@@ -240,7 +241,7 @@ export function generateActionItems(
       id: 'log-mileage',
       title: 'Log your business mileage',
       description:
-        `You use your vehicle ${profile.vehicle_business_use_percentage}% for business. Start logging trips to maximize your deduction.`,
+        `You use your vehicle ${profile.vehicle_business_use_percentage}% for business. Start logging trips so the business-use percentage and any vehicle deduction can be substantiated.`,
       priority: 'medium',
       category: 'tax_optimization',
       screen: 'mileage-tracker',
@@ -248,20 +249,22 @@ export function generateActionItems(
     });
   }
 
-  // Large expenses without receipts
+  // Large expenses without receipts. Treas. Reg. §1.274-5(c)(2)(iii) requires documentary
+  // evidence for lodging and for other §274(d) expenses of $75 or more (Rev. Proc. 92-71):
+  // https://www.law.cornell.edu/cfr/text/26/1.274-5
   const largeNoReceipt = transactions.filter(
     (t) =>
       t.is_deductible === true &&
-      Math.abs(t.amount || 0) > 75 &&
+      Math.abs(t.amount || 0) >= 75 &&
       !t.receipt_url &&
       !t.receipt_filename
   );
   if (largeNoReceipt.length > 0) {
     items.push({
       id: 'attach-receipts',
-      title: `${largeNoReceipt.length} deductions over $75 need receipts`,
+      title: `${largeNoReceipt.length} deductions of $75 or more need receipts`,
       description:
-        'The IRS requires receipts for expenses over $75. Upload them now to protect your deductions in case of audit.',
+        'IRS substantiation rules require documentary evidence for lodging and for travel, gift and listed-property expenses of $75 or more, and receipts are the simplest support for any other expense. Upload them now so these deductions are documented if the IRS asks.',
       priority: 'high',
       category: 'compliance',
       screen: 'receipt-upload',
@@ -301,11 +304,14 @@ export function generateActionItems(
 
   const now = new Date();
   const year = now.getFullYear();
+  // Form 1040-ES due dates shift for weekends and DC holidays; the January payment belongs to
+  // the prior tax year's Q4. https://www.irs.gov/forms-pubs/about-form-1040-es
   const deadlines = [
-    { q: 1, date: new Date(year, 3, 15) },
-    { q: 2, date: new Date(year, 5, 15) },
-    { q: 3, date: new Date(year, 8, 15) },
-    { q: 4, date: new Date(year + 1, 0, 15) },
+    { q: 4, date: getEstimatedTaxDeadline(year - 1, 4) },
+    { q: 1, date: getEstimatedTaxDeadline(year, 1) },
+    { q: 2, date: getEstimatedTaxDeadline(year, 2) },
+    { q: 3, date: getEstimatedTaxDeadline(year, 3) },
+    { q: 4, date: getEstimatedTaxDeadline(year, 4) },
   ];
   const nextDeadline = deadlines.find((d) => d.date > now);
   if (nextDeadline) {
@@ -317,7 +323,7 @@ export function generateActionItems(
         id: 'quarterly-deadline-soon',
         title: `Q${nextDeadline.q} estimated tax payment due in ${daysUntil} days`,
         description:
-          `Your quarterly estimated tax payment is due ${nextDeadline.date.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}. Pay on time to avoid penalties.`,
+          `Your federal quarterly estimated tax payment is due ${nextDeadline.date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' })}. Paying on time helps avoid an underpayment penalty; state due dates can differ.`,
         priority: daysUntil <= 3 ? 'critical' : 'high',
         category: 'compliance',
         screen: 'quarterly-payments',

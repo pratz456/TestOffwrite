@@ -16,3 +16,19 @@ export function getEstimatedTaxDeadline(year: number, quarter: number): Date {
   while (due.getUTCDay() === 0 || due.getUTCDay() === 6 || isHoliday(due)) due.setUTCDate(due.getUTCDate() + 1);
   return due;
 }
+
+/**
+ * Form 1040 due date for a calendar-year taxpayer: April 15 of the following year, moved for
+ * weekends and DC Emancipation Day exactly like the first estimated-tax installment (§7503).
+ * https://www.irs.gov/filing/individuals/when-to-file
+ */
+export function getIndividualReturnDueDate(taxYear: number): Date {
+  return getEstimatedTaxDeadline(taxYear + 1, 1);
+}
+
+/** Next business day on or after the given UTC date (weekends only; no federal-holiday table). */
+export function shiftWeekendToBusinessDay(date: Date): Date {
+  const shifted = new Date(date.getTime());
+  while (shifted.getUTCDay() === 0 || shifted.getUTCDay() === 6) shifted.setUTCDate(shifted.getUTCDate() + 1);
+  return shifted;
+}

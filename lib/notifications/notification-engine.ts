@@ -1,6 +1,7 @@
 import { adminDb } from '@/lib/firebase/admin';
 import { getUserTaxRateDisplay } from '@/lib/tax-rules/federal-brackets';
 import { runUserProfileBatch, type BatchOptions, type BatchResult, type PageableQuery } from './user-profile-batch';
+import { getEstimatedTaxDeadline } from '@/lib/tax-provider/payment-deadlines';
 
 /** Memory guard for the 30-day deductible sum; far above any realistic month of confirmed expenses. */
 const CELEBRATION_SCAN_LIMIT = 2000;
@@ -234,15 +235,15 @@ export class NotificationEngine {
   async generateTaxDeadlineNotifications(options: BatchOptions = {}): Promise<BatchResult | null> {
     try {
       const now = new Date();
-      const currentQuarter = Math.floor((now.getMonth() + 3) / 3);
-      const nextDeadline = this.getNextTaxDeadline(currentQuarter);
-      
-      if (!nextDeadline) return null;
+      const upcoming = this.getNextTaxDeadline(now);
+      if (!upcoming) return null;
+      const { quarter: currentQuarter, date: nextDeadline } = upcoming;
 
       const daysUntilDeadline = Math.ceil((nextDeadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-      
+
       // Only send notifications for upcoming deadlines (within 30 days)
-      if (daysUntilDeadline > 30) return null;
+      if (daysUntilDeadline > 30 || daysUntilDeadline < 0) return null;
+      const dueLabel = nextDeadline.toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' });
 
       // Range filter => the page order must start with that field (single-field index).
       const base = this.db.collection('user_profiles').where('business_income', '>', 0) as unknown as PageableQuery;
@@ -254,25 +255,24 @@ export class NotificationEngine {
         const estimatedTax = this.calculateEstimatedTax(userData);
         if (estimatedTax === null) return;
         
+        // The profile-based figure is a rough annual planning estimate; describe one installment
+        // as a quarter of it and point at the planner rather than presenting it as the amount owed.
+        const installmentEstimate = Math.max(0, Math.round(estimatedTax / 4));
+        const message = `Your Q${currentQuarter} federal estimated tax payment is due ${dueLabel} (${daysUntilDeadline} days). Planning estimate for this installment: about $${installmentEstimate.toLocaleString('en-US')}. Confirm the amount in the quarterly planner; state due dates can differ.`;
         let title: string;
-        let message: string;
         let priority: 'low' | 'medium' | 'high' | 'urgent';
 
         if (daysUntilDeadline <= 3) {
           title = '🚨 Tax Deadline Approaching!';
-          message = `Your Q${currentQuarter} estimated tax payment of $${estimatedTax.toFixed(0)} is due in ${daysUntilDeadline} days.`;
           priority = 'urgent';
         } else if (daysUntilDeadline <= 7) {
           title = '⚠️ Tax Deadline Next Week';
-          message = `Your Q${currentQuarter} estimated tax payment of $${estimatedTax.toFixed(0)} is due in ${daysUntilDeadline} days.`;
           priority = 'high';
         } else if (daysUntilDeadline <= 14) {
           title = '📅 Tax Deadline Reminder';
-          message = `Your Q${currentQuarter} estimated tax payment of $${estimatedTax.toFixed(0)} is due in ${daysUntilDeadline} days.`;
           priority = 'medium';
         } else {
           title = '📊 Upcoming Tax Deadline';
-          message = `Your Q${currentQuarter} estimated tax payment of $${estimatedTax.toFixed(0)} is due in ${daysUntilDeadline} days.`;
           priority = 'low';
         }
 
@@ -419,21 +419,21 @@ export class NotificationEngine {
     }
   }
 
-  private getNextTaxDeadline(currentQuarter: number): Date | null {
-    const year = new Date().getFullYear();
-    const deadlines = [
-      new Date(year, 3, 15), // Q1: April 15
-      new Date(year, 5, 15), // Q2: June 15
-      new Date(year, 8, 15), // Q3: September 15
-      new Date(year, 0, 15)  // Q4: January 15 (next year)
+  /**
+   * Next Form 1040-ES due date on or after `now`, with the weekend and DC-holiday shifts applied.
+   * The January payment is the prior tax year's Q4 installment.
+   * https://www.irs.gov/forms-pubs/about-form-1040-es
+   */
+  getNextTaxDeadline(now: Date = new Date()): { quarter: 1 | 2 | 3 | 4; date: Date } | null {
+    const year = now.getFullYear();
+    const candidates: Array<{ quarter: 1 | 2 | 3 | 4; date: Date }> = [
+      { quarter: 4, date: getEstimatedTaxDeadline(year - 1, 4) },
+      { quarter: 1, date: getEstimatedTaxDeadline(year, 1) },
+      { quarter: 2, date: getEstimatedTaxDeadline(year, 2) },
+      { quarter: 3, date: getEstimatedTaxDeadline(year, 3) },
+      { quarter: 4, date: getEstimatedTaxDeadline(year, 4) },
     ];
-
-    // If we're past Q4 deadline, use next year's Q1
-    if (currentQuarter === 4 && new Date() > deadlines[3]) {
-      return new Date(year + 1, 3, 15);
-    }
-
-    return deadlines[currentQuarter - 1] || null;
+    return candidates.find(candidate => candidate.date.getTime() >= now.getTime()) ?? null;
   }
 
   private calculateEstimatedTax(userData: any): number | null {
