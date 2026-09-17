@@ -9,6 +9,7 @@ import { summarizeW2Income } from '@/lib/tax-rules/w2-income';
 import { getFederalTaxRules } from '@/lib/tax-rules/federal-year-rules';
 import { calcScheduleSE } from './calcSE';
 import { calc4562 } from './calc4562';
+import { readIncomeReconciliationDecisions } from '@/lib/firebase/income-reconciliations-server';
 export class TaxExportDataUnavailableError extends Error {
   readonly code = 'TAX_EXPORT_DATA_UNAVAILABLE';
   constructor() { super('Could not load all records needed for this calculation. Please retry.'); }
@@ -18,14 +19,14 @@ export class TaxExportDataUnavailableError extends Error {
 export async function loadScheduleSEData(uid: string, taxYear: number) {
   getFederalTaxRules(taxYear);
   const query = (name: string) => adminDb.collection(name).where('userId', '==', uid).where('taxYear', '==', taxYear);
-  const [tx, profile, gross, forms, wages, deductions, assets] = await Promise.all([
+  const [tx, profile, gross, forms, wages, deductions, assets, decisions] = await Promise.all([
     readTaxExportTransactions(uid, taxYear), getUserProfileServer(uid), query('gross_receipts').get(), query('income_1099').get(),
-    query('w2_income').get(), query('tax_deductions').limit(1).get(), getAssetsSettings(uid),
+    query('w2_income').get(), query('tax_deductions').limit(1).get(), getAssetsSettings(uid), readIncomeReconciliationDecisions(uid, taxYear),
   ]);
   if (profile.error || assets.error || !profile.data) throw new TaxExportDataUnavailableError();
   const transactions = tx;
   const filingStatus = normalizeFilingStatus(profile.data.filing_status);
-  const receipts = reconcileBusinessIncome(taxYear, transactions.map(row => ({ ...row })), gross.docs.map(doc => ({ ...doc.data(), id: doc.id })), forms.docs.map(doc => ({ ...doc.data(), id: doc.id })));
+  const receipts = reconcileBusinessIncome(taxYear, transactions.map(row => ({ ...row })), gross.docs.map(doc => ({ ...doc.data(), id: doc.id })), forms.docs.map(doc => ({ ...doc.data(), id: doc.id })), decisions);
   const expense = aggregateScheduleC(transactions, String(taxYear), CATEGORY_MAP, { mode: 'confirmed-only' });
   const w2 = summarizeW2Income(wages.docs.map(doc => doc.data()));
   const netProfitBeforeDepreciation = receipts.grossReceipts - expense.totalDeductible;

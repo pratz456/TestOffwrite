@@ -29,6 +29,8 @@ import { getUserProfileServer } from '@/lib/firebase/profiles-server';
 import { getRecordedQuarterlyPayments, totalRecordedPayments } from '@/lib/firebase/quarterly-payments-server';
 import { getFederalTaxRules, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
 import { getAssetsSettings } from '@/lib/firebase/settings-server';
+import { readIncomeReconciliationDecisions } from '@/lib/firebase/income-reconciliations-server';
+import { incomeReconciliationReviewBody } from '@/lib/tax-rules/income-reconciliation-response';
 
 const PW = 612, PH = 792, ML = 36, MR = 576, MT = 756;
 const BLACK  = rgb(0, 0, 0);
@@ -260,6 +262,7 @@ async function page2(doc: PDFDocument, f: PDFFont, bf: PDFFont, d: Record<string
 }
 
 export async function POST(request: NextRequest) {
+  let requestedYear = NaN;
   try {
     let uid: string;
     try { uid = (await getUserFromReqOrThrow(request)).uid; }
@@ -278,8 +281,9 @@ export async function POST(request: NextRequest) {
     try { getFederalTaxRules(taxYear); } catch {
       return NextResponse.json({ error: `Supported tax years: ${SUPPORTED_TAX_YEARS.join(', ')}` }, { status: 400 });
     }
+    requestedYear = taxYear;
 
-    const [txResult, profileResult, grossSnap, income1099Snap, w2Snap, deductionsSnap, quarterlySnap, organizerSnap, assetsResult] = await Promise.all([
+    const [txResult, profileResult, grossSnap, income1099Snap, w2Snap, deductionsSnap, quarterlySnap, organizerSnap, assetsResult, reconciliationDecisions] = await Promise.all([
       readTaxExportTransactions(uid, taxYear),
       getUserProfileServer(uid),
       adminDb.collection('gross_receipts').where('userId', '==', uid).where('taxYear', '==', taxYear).get(),
@@ -289,6 +293,7 @@ export async function POST(request: NextRequest) {
       getRecordedQuarterlyPayments(uid, taxYear),
       adminDb.collection('tax_organizers').where('userId', '==', uid).where('taxYear', '==', taxYear).limit(1).get(),
       getAssetsSettings(uid),
+      readIncomeReconciliationDecisions(uid, taxYear),
     ]);
 
     if (profileResult.error || assetsResult.error) {
@@ -336,6 +341,7 @@ export async function POST(request: NextRequest) {
       taxYear, transactions, profile, organizer: org, deductions: ded,
       grossReceipts: grossSnap.docs.map(d => ({ ...d.data(), id: d.id })),
       forms1099: income1099Snap.docs.map(d => ({ ...d.data(), id: d.id })),
+      reconciliationDecisions,
       w2Entries: w2Snap.docs.map(d => d.data()), assets: assetsResult.data || [],
       estimatedPayments: totalRecordedPayments(quarterlySnap),
     });
@@ -392,7 +398,8 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (err) {
-    if (err instanceof ExportReviewRequiredError || err instanceof IncomeReconciliationRequiredError || err instanceof FilingStatusReviewRequiredError || err instanceof SocialSecurityReviewRequiredError || err instanceof PersonalDeductionReviewRequiredError || err instanceof DependentCreditReviewRequiredError) return NextResponse.json({ error: err.message, code: err.code }, { status: 422 });
+    if (err instanceof IncomeReconciliationRequiredError) return NextResponse.json(incomeReconciliationReviewBody(err, requestedYear), { status: 422 });
+    if (err instanceof ExportReviewRequiredError || err instanceof FilingStatusReviewRequiredError || err instanceof SocialSecurityReviewRequiredError || err instanceof PersonalDeductionReviewRequiredError || err instanceof DependentCreditReviewRequiredError) return NextResponse.json({ error: err.message, code: err.code }, { status: 422 });
     if (err && typeof err === 'object' && 'code' in err && err.code === 'DEPRECIATION_REVIEW_REQUIRED') return NextResponse.json({ error: err instanceof Error ? err.message : 'Asset depreciation needs review', code: err.code }, { status: 422 });
     if (err instanceof ExportDataUnavailableError) return NextResponse.json({ error: err.message, code: err.code }, { status: 503 });
     console.error('[1040 Export]', err);

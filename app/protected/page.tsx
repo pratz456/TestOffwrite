@@ -732,6 +732,8 @@ export default function ProtectedPage() {
         <IncomeTrackingScreen
           user={{ id: user.id, email: user.email ?? undefined }}
           onBack={handleGoBack}
+          initialTab={searchParams.get('tab')}
+          initialYear={searchParams.get('year')}
         />
       );
     }

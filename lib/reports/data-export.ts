@@ -4,7 +4,7 @@ import { readOwnedTransactions, ownedExportRecord, exportReference, ExportDataUn
 import { convertTransactionsToCSV, exportDate, selectExportYear, ExportReviewRequiredError, type ExportRecord } from './transaction-export';
 export { convertTransactionsToCSV } from './transaction-export';
 
-const TOP_LEVEL = ['gross_receipts', 'income_1099', 'w2_income', 'tax_deductions', 'tax_organizers'] as const;
+const TOP_LEVEL = ['gross_receipts', 'income_1099', 'income_reconciliations', 'w2_income', 'tax_deductions', 'tax_organizers'] as const;
 const PROFILE_CHILDREN = ['assets', 'settings', 'mileage_trips', 'quarterly_payments'] as const;
 const excludedKey = (key: string) => {
   const normalized = key.replace(/[^a-z0-9]/gi, '').toLowerCase();

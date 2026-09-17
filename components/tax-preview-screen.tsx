@@ -35,18 +35,23 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reviewCode, setReviewCode] = useState<string | null>(null);
+  const [reviewConflicts, setReviewConflicts] = useState<Array<{ message: string; sources: Array<{ label: string; amount: number }> }>>([]);
   const [data, setData] = useState<any>(null);
   const [showDetails, setShowDetails] = useState(false);
   const requestId = useRef(0);
 
   const load = useCallback(async () => {
     const currentRequest = ++requestId.current;
-    setLoading(true); setError(null); setReviewCode(null); setData(null);
+    setLoading(true); setError(null); setReviewCode(null); setReviewConflicts([]); setData(null);
     try {
       const res = await makeAuthenticatedRequest(`/api/tax/compute-1040?year=${year}`);
       const result = await res.json();
       if (!res.ok) {
-        if (currentRequest === requestId.current && res.status === 422 && typeof result.code === 'string') setReviewCode(result.code);
+        if (currentRequest === requestId.current && res.status === 422 && typeof result.code === 'string') {
+          setReviewCode(result.code);
+          // The income gate names conflicting records by reference so the owner knows what to reconcile.
+          setReviewConflicts(Array.isArray(result.conflicts) ? result.conflicts.filter((c: unknown) => c && typeof c === 'object' && typeof (c as { message?: unknown }).message === 'string') : []);
+        }
         throw new Error(result.error || "Failed to compute estimate");
       }
       if (currentRequest === requestId.current) setData(result);
@@ -104,8 +109,16 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
               <Button className="mt-3 min-h-11" variant="outline" onClick={() => onNavigate('tax-organizer')}>Review Tax Organizer</Button>}
             {onNavigate && reviewCode === 'FILING_STATUS_REVIEW_REQUIRED' &&
               <Button className="mt-3 min-h-11" variant="outline" onClick={() => onNavigate('settings')}>Review profile</Button>}
+            {reviewCode === 'INCOME_RECONCILIATION_REQUIRED' && reviewConflicts.length > 0 && (
+              <ul aria-label="Records that need a reconciliation decision" className="mt-2 space-y-1 text-xs text-foreground">
+                {reviewConflicts.map((conflict, index) => (
+                  <li key={index}>{conflict.message}{Array.isArray(conflict.sources) && conflict.sources.length > 0
+                    ? ` (${conflict.sources.map(s => `${s.label} ${s.amount.toLocaleString("en-US", { style: "currency", currency: "USD" })}`).join('; ')})` : ''}</li>
+                ))}
+              </ul>
+            )}
             {onNavigate && reviewCode === 'INCOME_RECONCILIATION_REQUIRED' &&
-              <Button className="mt-3 min-h-11" variant="outline" onClick={() => onNavigate('income-tracking')}>Review income sources</Button>}
+              <Button className="mt-3 min-h-11" variant="outline" onClick={() => onNavigate(`income-tracking?tab=reconcile&year=${year}`)}>Reconcile income sources</Button>}
             <Button className="mt-2 min-h-11" variant="ghost" onClick={load}>Retry estimate</Button>
           </div>
         )}
