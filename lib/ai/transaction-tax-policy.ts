@@ -155,7 +155,7 @@ export function groundTransactionAnalysis(
     !/\b(refund|returned|reversal|rebate|reimbursement)\b/i.test(`${saved} ${transaction.merchant} ${transaction.transaction_code ?? ''}`));
   const unexplainedPersonalCredit = amount < 0 && kind === 'personal' && saved.length < 8;
   const unexplainedTransfer = kind === 'transfer' && !savedCategory.includes('TRANSFER') &&
-    !/\b(between (?:my|our|own) accounts|own account|credit card payment|internal transfer)\b/i.test(saved);
+    !/\b(between (?:my|our|own|my own|our own) accounts|own accounts?|credit card payment|internal transfer)\b/i.test(saved);
   const impossibleExpense = amount < 0 && kind === 'expense';
   if (unexplainedIncome || unexplainedRefund || unexplainedPersonalCredit || unexplainedTransfer || impossibleExpense || amount === 0) {
     kind = 'unknown'; result.transaction_kind = kind;
@@ -181,7 +181,7 @@ export function groundTransactionAnalysis(
       requireInfo(result, 'deposit_source', 'Was this payment for a customer sale, a refund, a loan, an owner contribution or a transfer?',
         'A bank deposit is not automatically taxable business income. Identify its source so it reaches the correct tax total.');
     } else if (kind === 'transfer' && !savedCategory.includes('TRANSFER') &&
-      !/\b(between (?:my|our|own) accounts|own account|credit card payment|internal transfer)\b/i.test(saved)) {
+      !/\b(between (?:my|our|own|my own|our own) accounts|own accounts?|credit card payment|internal transfer)\b/i.test(saved)) {
       requireInfo(result, 'transfer_purpose', 'Was this money moved between your own accounts, or a payment to someone for goods or services?',
         'A payment-app or bank name alone does not establish an internal transfer. Confirm where this money went.');
     } else if (amount < 0 && !['income', 'transfer', 'personal'].includes(kind) || amount > 0 && kind === 'income') {
