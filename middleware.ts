@@ -120,6 +120,16 @@ function addSecurityHeaders(response: NextResponse, hostname: string): NextRespo
   return response;
 }
 
+// ── API cache policy ──────────────────────────────────────────────────────
+// Every /api/* response carries owner-scoped or secret-gated data. This header is applied before
+// the route handler runs; handler headers are appended, so a handler can only tighten, never loosen.
+const API_CACHE_CONTROL = 'private, no-store';
+
+function withApiCachePolicy(response: NextResponse, pathname: string): NextResponse {
+  if (pathname.startsWith('/api/')) response.headers.set('Cache-Control', API_CACHE_CONTROL);
+  return response;
+}
+
 // ── Blocked paths (return 404 to avoid enumeration) ──────────────────────
 const BLOCKED_PATHS = [
   '/wp-admin',
@@ -198,7 +208,7 @@ export function middleware(request: NextRequest) {
     pathname === '/api/plaid/sync-transactions-internal'
   ) {
     const response = NextResponse.next();
-    return addSecurityHeaders(response, request.nextUrl.hostname);
+    return withApiCachePolicy(addSecurityHeaders(response, request.nextUrl.hostname), pathname);
   }
 
   // ── Enforce HTTPS in production ────────────────────────────────────────
@@ -212,7 +222,7 @@ export function middleware(request: NextRequest) {
 
   // ── Apply security headers to all responses ───────────────────────────
   const response = NextResponse.next();
-  return addSecurityHeaders(response, request.nextUrl.hostname);
+  return withApiCachePolicy(addSecurityHeaders(response, request.nextUrl.hostname), pathname);
 }
 
 export const config = {
