@@ -107,14 +107,14 @@ export default function PrivacyPolicyPageClient() {
               <h3>Security Measures</h3>
               <ul>
                 <li>Encryption in transit and at rest, and read-only bank connections</li>
-                <li>Access controls and regular security reviews</li>
+                <li>Owner-scoped access controls enforced by database security rules, automated security tests on every release, and a written information security program</li>
                 <li>Partnerships with audited and compliant service providers</li>
                 <li>Secure processing of receipt images and OCR data</li>
                 <li>Your corrections stay within your account and are not used to train AI models</li>
               </ul>
               <p className="mt-3">
                 While no system is 100% secure, we continuously work to safeguard your data.
-                All data processing is done securely and in compliance with applicable privacy regulations.
+                Processing follows our written information security program, which we review at least annually.
               </p>
             </div>
 

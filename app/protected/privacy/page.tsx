@@ -91,7 +91,7 @@ export default function PrivacyPolicyPage() {
               </p>
               <ul>
                 <li>Encryption in transit and at rest, and read-only bank connections.</li>
-                <li>Access controls and regular security reviews.</li>
+                <li>Owner-scoped access controls enforced by database security rules, automated security tests on every release, and a written information security program.</li>
                 <li>Partnerships with audited and compliant service providers.</li>
               </ul>
               <p className="mt-3">
