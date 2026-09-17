@@ -6,7 +6,7 @@ Every successful fresh model response carries a server-derived transaction tax y
 
 Transaction kind and category are separate from tax eligibility. A supplies category can be ready to confirm while a missing business purpose keeps eligibility unresolved. The server never turns uncertainty into a personal expense, guesses a mixed-use percentage, or labels an unexplained deposit as income. An AI suggestion does not itself change the user's confirmed tax decision.
 
-Policy version: `federal-transactions-2026-09-16.1`. This is a selected federal sole-proprietor/disregarded single-member LLC transaction policy for 2025 and 2026. It is not coverage of the full Code, state tax, complete returns, all entities or 2027 law. Unsupported scope retains useful categorization but withholds tax treatment.
+Policy version: `federal-transactions-2026-09-17.1` (item-recognition gates and identifier redaction added 2026-09-17; the 2026-09-16.1 packet had the same evidence list). This is a selected federal sole-proprietor/disregarded single-member LLC transaction policy for 2025 and 2026. It is not coverage of the full Code, state tax, complete returns, all entities or 2027 law. Unsupported scope retains useful categorization but withholds tax treatment.
 
 ## Reviewed primary material
 
@@ -28,6 +28,9 @@ The current IRS publications above are labeled 2025 editions as reviewed Septemb
 - Require original purchase/year review for refund tax adjustments. A negative amount never creates a new positive expense deduction.
 - Simple supported ordinary expenses can carry a recommendation. Mixed-use percentages must come from the saved transaction. No savings amount is estimated from a guessed tax rate.
 - Meals, travel, vehicles, home offices and assets retain categorization but remain in tax review in this bounded packet. The current transaction form does not collect all conditions/elections needed to approve them automatically. Answering a general notes question is not a complete depreciation or eligibility workflow.
+- Item-recognition gates (2026-09-17.1) read the saved context, merchant descriptor and the model's own item description, but only to ask more: self-employed health/dental/vision premiums are routed to Schedule 1 (Form 7206) instead of Schedule C; gym, health-club and similar dues get the §274(a)(3) exclusive-business-use question; rent whose context names the taxpayer's home gets the home-office questions; a supplies/other item over $2,500, or $500 and up when it names a durable item, gets the capitalization/de minimis election question. None of these patterns can approve a deduction.
+- SSN/ITIN/EIN-shaped digit groups are replaced with `[redacted-id]` in merchant, note, purpose, project and meeting text before the prompt is built.
+- Offline regression: `tests/ai-eval-harness.test.ts` (73-case golden corpus with invariants and a scorecard) and `tests/ai-eval-redteam.test.ts` (47 adversarial checks). Remaining documented concerns: injected note text counts toward the length-only purpose gate, and the pending flag does not defer a suggestion (pending records are already excluded from Schedule C totals).
 - Explanations include a next question and supporting-record checklist. The model still performs semantic interpretation; official citations and these guards reduce unsupported output but do not prove that every interpretation is correct.
 
 ## Validation

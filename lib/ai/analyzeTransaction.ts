@@ -3,7 +3,7 @@ import { getOpenAIClientOrThrow } from '@/lib/openai/client';
 import { z } from 'zod';
 import { aiLearningEngine } from './learning-engine';
 import { getAIProviderStatus } from './provider-status';
-import { groundTransactionAnalysis, transactionTaxPolicyPrompt, TRANSACTION_EVIDENCE_IDS, TRANSACTION_KINDS, type TransactionTaxMetadata } from './transaction-tax-policy';
+import { groundTransactionAnalysis, redactTaxIdentifiers, transactionTaxPolicyPrompt, TRANSACTION_EVIDENCE_IDS, TRANSACTION_KINDS, type TransactionTaxMetadata } from './transaction-tax-policy';
 import { taxpayerContextForModel } from './taxpayer-context';
 
 const OutputSchema = z.object({
@@ -495,7 +495,7 @@ ${transactionTaxPolicyPrompt(transaction)}`;
     learning_context: learningContext ?? null,
     taxpayer_context: (ctx as UserContext).taxpayer_context ? taxpayerContextForModel((ctx as UserContext).taxpayer_context!) : null,
     tx: {
-      merchant: transaction.merchant || transaction.merchant_name || '',
+      merchant: redactTaxIdentifiers(transaction.merchant || transaction.merchant_name || ''),
       saved_category: transaction.category ?? null,
       saved_transaction_kind: transaction.transaction_kind ?? transaction.type ?? null,
       business_use_percentage: transaction.business_use_percentage ?? null,
@@ -513,11 +513,11 @@ ${transactionTaxPolicyPrompt(transaction)}`;
       counterparties: transaction.counterparties ?? null,
       merchant_entity_id: transaction.merchant_entity_id ?? null,
       is_recurring: transaction.is_recurring ?? (ctx as UserContext).taxpayer_context?.priors.recurrence.isRecurring ?? null,
-      note: transaction.note || transaction.notes || transaction.description || '',
-      business_purpose: transaction.business_purpose ?? null,
-      client_project: transaction.client_project ?? null,
+      note: redactTaxIdentifiers(transaction.note || transaction.notes || transaction.description || ''),
+      business_purpose: transaction.business_purpose ? redactTaxIdentifiers(transaction.business_purpose) : null,
+      client_project: transaction.client_project ? redactTaxIdentifiers(transaction.client_project) : null,
       documentation_status: transaction.documentation_status ?? null,
-      meeting_notes: transaction.meeting_notes ?? null,
+      meeting_notes: transaction.meeting_notes ? redactTaxIdentifiers(transaction.meeting_notes) : null,
       travel_destination: transaction.travel_destination ?? null,
       equipment_details: transaction.equipment_details ?? null,
       mileage_details: transaction.mileage_details ?? null,

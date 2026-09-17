@@ -318,7 +318,31 @@ export const AI_EVAL_CORPUS: EvalCase[] = [
     invariants: GATED_EXPENSE,
   },
   {
-    id: 'desk-as-supplies', title: 'Same $249 desk categorized as supplies (bypasses the asset gate)',
+    id: 'laptop-as-supplies', title: '$1,900 laptop categorized as supplies is routed to the asset questions',
+    transaction: tx('laptop-as-supplies', 'Apple Store', 1900, { business_purpose: 'New laptop for client design work' }),
+    context: HOME_OFFICE,
+    modelOutput: deduction('supplies_small_tools', ['business-162'], 'The laptop purchased for client design work is a business tool. Keep the receipt.', 'Laptop for client work.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'supplies_small_tools', missing_field: 'asset_treatment', evidence_includes: ['capital-263'] },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'large-other-expense', title: '$3,200 "other" expense with no item words still triggers the capitalization question',
+    transaction: tx('large-other-expense', 'B&H Photo Video', 3200, { business_purpose: 'Gear for the studio shoots this season' }),
+    context: HOME_OFFICE,
+    modelOutput: deduction('other', ['business-162'], 'The recorded studio gear supports paid shoots. Keep the invoice.', 'Studio gear purchase.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'other', missing_field: 'asset_treatment', evidence_includes: ['capital-263'] },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'studio-rent-separate-location', title: 'Rent for a separate studio stays an ordinary business rent expense',
+    transaction: tx('studio-rent-separate-location', 'WeWork', 650, { is_recurring: true, business_purpose: 'Monthly rent for my dedicated design studio downtown' }),
+    context: HOME_OFFICE,
+    modelOutput: deduction('rent', ['business-162'], 'The recorded studio rent is a business location cost. Keep the lease and payment records.', 'Studio rent for the business location.', { deductible_percent: 100 }),
+    expect: { status: 'ok', transaction_kind: 'expense', is_deductible: true, category: 'rent', deductible_percent: 100 },
+    invariants: OK_DEDUCTION,
+  },
+  {
+    id: 'desk-as-supplies', title: '$249 desk categorized as supplies stays expensable (under the de minimis ceiling, below the asset review floor)',
     transaction: tx('desk-as-supplies', 'The Home Depot', 249, { business_purpose: 'Standing desk purchased for my home office' }),
     context: HOME_OFFICE,
     modelOutput: deduction('supplies_small_tools', ['business-162'], 'The standing desk for the recorded home office is an office furnishing. Keep the receipt.', 'Standing desk for the home office.'),
@@ -375,12 +399,12 @@ export const AI_EVAL_CORPUS: EvalCase[] = [
     invariants: GATED_EXPENSE,
   },
   {
-    id: 'rent-as-rent-category', title: 'Same apartment rent categorized as business rent',
+    id: 'rent-as-rent-category', title: 'Home rent categorized as business rent is gated to the home-office questions (was: business rent',
     transaction: tx('rent-as-rent-category', 'Bay Property Management', 1200, { is_recurring: true, note: 'Monthly apartment rent; I work from a home office' }),
     context: HOME_OFFICE,
     modelOutput: deduction('rent', ['business-162'], 'The apartment doubles as the recorded workplace. Keep the lease.', 'Apartment rent used as a workplace.', { deductible_percent: 100 }),
-    expect: { status: 'ok', transaction_kind: 'expense', is_deductible: true, category: 'rent', deductible_percent: 100 },
-    invariants: OK_DEDUCTION,
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'rent', missing_field: 'home_office_eligibility', evidence_includes: ['home-587'] },
+    invariants: GATED_EXPENSE,
   },
 
   // --- Travel and lodging -----------------------------------------------------
@@ -616,16 +640,16 @@ export const AI_EVAL_CORPUS: EvalCase[] = [
     transaction: tx('health-insurance-premium', 'Blue Shield of California', 486, { is_recurring: true, note: 'Monthly health insurance premium for myself' }),
     context: SOLE_PROPRIETOR,
     modelOutput: deduction('other', ['business-162'], 'Self-employed health insurance premiums recorded for yourself relate to the business. Keep the premium statements.', 'Recorded health insurance premium.'),
-    expect: { status: 'ok', transaction_kind: 'expense', is_deductible: true, category: 'other', deductible_percent: 100 },
-    invariants: OK_DEDUCTION,
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'other', missing_field: 'deduction_placement', evidence_includes: ['personal-262'] },
+    invariants: GATED_EXPENSE,
   },
   {
     id: 'gym-membership-over-eager', title: 'Gym membership note passes the length-only purpose gate',
     transaction: tx('gym-membership-over-eager', 'Planet Fitness', 24.99, { is_recurring: true, note: 'Monthly gym membership' }),
     context: SOLE_PROPRIETOR,
     modelOutput: deduction('dues_and_memberships', ['business-162'], 'The recorded gym membership keeps you fit for client work. Keep the membership statement.', 'Recorded gym membership.'),
-    expect: { status: 'ok', transaction_kind: 'expense', is_deductible: true, category: 'dues_and_memberships', deductible_percent: 100 },
-    invariants: OK_DEDUCTION,
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'dues_and_memberships', missing_field: 'club_dues_exception', evidence_includes: ['personal-262', 'meals-274'] },
+    invariants: GATED_EXPENSE,
   },
   {
     id: 'legalzoom-formation', title: 'LegalZoom LLC formation filing',
@@ -752,11 +776,6 @@ export const AI_EVAL_CORPUS: EvalCase[] = [
  * looks wrong or weak. Production code is intentionally unchanged for these.
  */
 export const KNOWN_CONCERNS: Array<{ id: string; rationale: string }> = [
-  { id: 'desk-as-supplies', rationale: 'A $249 desk categorized as supplies_small_tools is approved at 100%; the asset/capitalization gate is category-driven, so a model can bypass it by choosing supplies.' },
-  { id: 'rent-as-rent-category', rationale: 'Apartment rent categorized as rent is approved at 100% although the note says it is the home; the home-office gate only fires for the home_office category.' },
-  { id: 'health-insurance-premium', rationale: 'A self-employed health insurance premium is approved as a Schedule C "other" expense; there is no gate for above-the-line or personal deductions.' },
-  { id: 'gym-membership-over-eager', rationale: 'The business-purpose gate is length-only (>= 8 chars); a "Monthly gym membership" note passes it and the deduction is approved.' },
   { id: 'note-prompt-injection', rationale: 'Injected instructions in the note count as saved context for the length-only purpose gate; the grounding relies on the model to ignore them.' },
   { id: 'pending-transaction', rationale: 'The pending flag is ignored, so a pending authorization can receive a completed deduction suggestion before it posts.' },
-  { id: 'redteam-merchant-ssn-pattern', rationale: 'The merchant descriptor is forwarded verbatim to the provider prompt, so SSN-like digits inside a merchant string would reach the model.' },
 ];

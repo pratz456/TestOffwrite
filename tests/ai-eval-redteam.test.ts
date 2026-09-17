@@ -221,7 +221,7 @@ describe('PII minimization in prompts and taxpayer context', () => {
   afterAll(() => vi.unstubAllEnvs());
   beforeEach(() => mocks.create.mockReset());
 
-  it('forwards no SSN-like, EIN, user id or email context fields to the provider (merchant text is verbatim: KNOWN_CONCERN)', async () => {
+  it('forwards no SSN-like, EIN, user id or email context fields to the provider and redacts identifier-shaped digits in merchant text', async () => {
     const ssnPattern = /\b\d{3}-\d{2}-\d{4}\b/;
     const merchant = 'ACME 123-45-6789 LLC';
     const transaction = { ...tx, merchant };
@@ -244,9 +244,10 @@ describe('PII minimization in prompts and taxpayer context', () => {
     const profile = JSON.parse(user.slice(user.indexOf('\nCONTEXT:\n') + '\nCONTEXT:\n'.length, user.indexOf('\n\nDo not infer'))).profile;
     expect(Object.keys(profile).sort()).toEqual(['age', 'annual_income', 'birth_year', 'business_income', 'business_purpose', 'entity_type', 'home_office_sqft',
       'office_location', 'profession', 'reported_income', 'reported_travel_pattern', 'state', 'vehicle_business_use_pct', 'w2_income', 'work_travel']);
-    // The merchant descriptor itself is forwarded verbatim; a merchant string carrying SSN-like digits reaches the model.
-    expect(user).toContain(merchant);
-    expect(KNOWN_CONCERNS.map(concern => concern.id)).toContain('redteam-merchant-ssn-pattern');
+    // SSN/ITIN/EIN-shaped digits are redacted from every free-text field before it reaches the model.
+    expect(user).not.toContain(merchant);
+    expect(user).toContain('ACME [redacted-id] LLC');
+    expect(user).not.toMatch(ssnPattern);
   });
 
   it('taxpayerContextForModel forwards no merchant list, no user id and no email', () => {

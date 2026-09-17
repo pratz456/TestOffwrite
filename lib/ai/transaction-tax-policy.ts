@@ -1,7 +1,7 @@
 import type { OutputType, TransactionInput, UserContext } from './analyzeTransaction';
 
 /** Selected, reviewed federal rules. This is not retrieval over the entire tax code. */
-export const TRANSACTION_TAX_POLICY_VERSION = 'federal-transactions-2026-09-16.1';
+export const TRANSACTION_TAX_POLICY_VERSION = 'federal-transactions-2026-09-17.1';
 export const TRANSACTION_KINDS = ['expense', 'income', 'transfer', 'refund', 'personal', 'unknown'] as const;
 export interface TransactionTaxSource {
   id: string; title: string; url: string; edition: string; reviewed_at: string;
@@ -87,6 +87,24 @@ function percentage(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100 ? value : null;
 }
 
+/**
+ * Item-recognition patterns used only to trigger additional review, never to approve.
+ * Model text may feed them because asking a question is safe; approving is not.
+ */
+const HEALTH_INSURANCE_PATTERN = /\b(?:health|medical|dental|vision)\s+(?:insurance|premiums?|plan|coverage)\b|\b(?:blue\s?cross|blue\s?shield|aetna|cigna|kaiser|unitedhealth(?:care)?|humana|oscar\s+health|anthem|ambetter|molina|healthcare\.gov)\b/i;
+const CLUB_DUES_PATTERN = /\b(?:gym|fitness\s+(?:center|club|membership)|health\s+club|athletic\s+club|country\s+club|golf\s+club|planet\s+fitness|equinox|crossfit|orangetheory|la\s+fitness|24\s+hour\s+fitness|peloton|soulcycle|barry'?s\s+bootcamp)\b/i;
+const HOME_RENT_PATTERN = /\b(?:apartment|apt\.?|home|house|residence|residential|landlord|housing|mortgage|rent\s+for\s+(?:my|our)\s+place)\b/i;
+const LIKELY_ASSET_PATTERN = /\b(?:laptop|computer|macbook|imac|desktop|monitor|camera|lens|drone|printer|tablet|ipad|iphone|smartphone|desk|chair|tripod|microphone|mixer|guitar|piano|keyboard|server|router|projector|television|appliance|machine|equipment|furniture|tools?)\b/i;
+/** Reg. §1.263(a)-1(f)(1)(ii)(D): per-item/per-invoice ceiling for taxpayers without an applicable financial statement. */
+export const DE_MINIMIS_ITEM_CEILING = 2500;
+/** Below this amount an ordinary supply is not second-guessed even when it names a durable item. */
+const ASSET_REVIEW_FLOOR = 500;
+
+/** Digits shaped like an SSN, ITIN or EIN inside free text; bank descriptors and notes never need them. */
+export function redactTaxIdentifiers(value: string): string {
+  return value.replace(/\b\d{3}[- ]\d{2}[- ]\d{4}\b/g, '[redacted-id]').replace(/\b\d{2}-\d{7}\b/g, '[redacted-id]');
+}
+
 /** Reject forged citations/contradictions; withhold eligibility when known gates require facts. */
 export function groundTransactionAnalysis(
   input: OutputType, transaction: TransactionInput, context: UserContext | undefined, model: string,
@@ -113,6 +131,9 @@ export function groundTransactionAnalysis(
       kind === 'personal' && (result.expense_type !== 'personal' || result.is_deductible !== false) ||
       ['income', 'transfer'].includes(kind) && result.is_deductible !== false)) return null;
   const saved = contextText(transaction);
+  // Saved context, merchant descriptor and the model's own item description. Only review
+  // gates read this; nothing here can approve a deduction.
+  const reviewText = `${saved} ${text(transaction.merchant)} ${text(transaction.merchant_name)} ${explanation}`;
   const itemContext = categoryContext(input, transaction);
   function requireInfo(result: OutputType, field: string, question: string, reason: string, blocked = false) {
     result.status = blocked ? 'blocked' : 'needs_more_info';
@@ -201,6 +222,25 @@ export function groundTransactionAnalysis(
       // The user's own repeated decisions outrank a model guess; ask before reversing them.
       requireInfo(result, 'prior_decision_conflict', 'You previously marked purchases from this merchant as personal. Is this one different, and how was it used in your business?',
         'Your earlier confirmed decisions treated this merchant as personal. Confirm what changed before a business deduction is proposed.');
+    } else if (result.is_deductible === true && HEALTH_INSURANCE_PATTERN.test(reviewText)) {
+      // §162(l) premiums are a Schedule 1 adjustment (Form 7206); on Schedule C they would wrongly reduce SE tax.
+      addEvidence('personal-262');
+      requireInfo(result, 'deduction_placement', 'Is this a health, dental or vision premium for you, your spouse or dependents, or coverage you provide to employees?',
+        'Self-employed health insurance premiums are an adjustment to income on Schedule 1 (Form 7206), not a Schedule C expense, and they do not reduce self-employment tax. Record them under health insurance in Tax Organizer; only coverage you provide to employees belongs on Schedule C.');
+    } else if (result.is_deductible === true && CLUB_DUES_PATTERN.test(reviewText)) {
+      addEvidence('personal-262'); addEvidence('meals-274');
+      requireInfo(result, 'club_dues_exception', 'Is this facility used only in your business (for example, space you rent to train clients), or is it a membership for your own use?',
+        'Gym, health club and similar membership dues are generally personal and not deductible (§274(a)(3), §262) even when fitness supports your work. Only a facility used exclusively in the business qualifies.');
+    } else if (result.is_deductible === true && result.category === 'rent' && HOME_RENT_PATTERN.test(reviewText)) {
+      addEvidence('home-587');
+      requireInfo(result, 'home_office_eligibility', 'Is this rent for a separate business location, or for the home where you live? If it is your home, is a space used regularly and exclusively for business?',
+        'Rent for the home you live in is not a business rent expense; only a qualifying home office deduction can include part of it. Rent for a separate business location is generally deductible as business rent.');
+    } else if (result.is_deductible === true && (!result.category || ['supplies_small_tools', 'other'].includes(result.category))
+      && (amount > DE_MINIMIS_ITEM_CEILING || (amount >= ASSET_REVIEW_FLOOR && LIKELY_ASSET_PATTERN.test(reviewText)))) {
+      // Choosing "supplies" must not bypass the asset gate that the equipment category triggers.
+      addEvidence('capital-263');
+      requireInfo(result, 'asset_treatment', 'What was purchased, when was it first used for business, and have you recorded the de minimis safe harbor election or a depreciation election for this year?',
+        `This purchase looks like an asset rather than a supply. Items over $${DE_MINIMIS_ITEM_CEILING.toLocaleString('en-US')} generally must be capitalized and depreciated; items at or under that amount can be expensed only when the de minimis safe harbor election is recorded for the year. Review the asset treatment before deducting it in full.`);
     } else if (result.is_deductible === true && ['equipment', 'home_office', 'vehicle_expense', 'travel'].includes(result.category ?? '')) {
       const questions: Record<string, [string, string]> = {
         equipment: ['asset_treatment', 'What was purchased, when was it first used for business, and what business-use records and depreciation elections apply?'],
