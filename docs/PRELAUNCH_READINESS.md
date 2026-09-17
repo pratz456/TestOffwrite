@@ -98,7 +98,7 @@ Two GA4 measurement IDs exist in the repository history and neither has been cho
 | Where | ID | Status |
 | --- | --- | --- |
 | `app/layout.tsx` gtag.js (hard-coded until 2026-09-17) | `G-1P3GNBHB9J` | Removed from source. The layout now reads `NEXT_PUBLIC_GA_MEASUREMENT_ID`. |
-| `lib/firebase/client.ts` `measurementId` fallback (`NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID`) | `G-LE26KP7E9N` | Unchanged. The active client never calls `getAnalytics`, so this value only travels in the Firebase config. The legacy `lib/firebase/firebase/firebase.ts` does initialize Firebase Analytics with the same fallback but is not imported by the app. |
+| `lib/firebase/client.ts` `measurementId` fallback (`NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID`) | `G-LE26KP7E9N` | Unchanged. The active client never calls `getAnalytics`, so this value only travels in the Firebase config. The legacy `lib/firebase/firebase/` client, which hardcoded production project, API key and this measurement ID as fallbacks and initialized Firebase Analytics, was deleted on 2026-09-17 (it had no importers). |
 
 Current behavior, enforced by `tests/middleware.test.ts`:
 
