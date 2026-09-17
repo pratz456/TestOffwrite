@@ -69,7 +69,18 @@ describe('red team: forged citations and links are rejected', () => {
 
   it('control: a cited section backed by its own evidence id is accepted', () => {
     const result = ground({ customized_reason: 'Ordinary and necessary business supplies fall under Section 162; the recorded client printing supports that use.' });
-    expect(result).toMatchObject({ status: 'ok', is_deductible: true, sources: [{ id: 'business-162' }] });
+    expect(result).toMatchObject({ status: 'ok', is_deductible: true });
+    // The server attaches the category-specific supplies rule next to the cited general rule.
+    expect(result?.sources?.map(source => source.id)).toEqual(['business-162', 'supplies-263a']);
+  });
+  it.each<[string, Partial<OutputType>]>([
+    ['Reg. §1.162-5 cited for supplies without the education evidence', { customized_reason: 'Under Reg. §1.162-5 this toner is deductible education.' }],
+    ['§6041 cited without the information-return evidence', { customized_reason: 'You must file a 1099 under §6041 for this toner.' }],
+    ['§195 cited without the start-up evidence', { customized_reason: 'Section 195 lets you deduct this as a start-up cost.' }],
+    ['mileage-rates cited for supplies (category mismatch)', { evidence_ids: ['mileage-rates'] }],
+    ['dues-274a3 cited for supplies (category mismatch)', { evidence_ids: ['dues-274a3'] }],
+  ])('%s', (_name, patch) => {
+    expect(ground(patch)).toBeNull();
   });
 });
 
@@ -156,16 +167,18 @@ describe('red team: over-eager outputs are downgraded, never approved', () => {
   });
   it('forged irs_refs are replaced by server-resolved source titles', () => {
     const result = ground({ irs_refs: ['IRS Pub 535', 'Rev. Rul. 99-7'] });
-    expect(result?.irs_refs).toEqual(['26 USC 162 — Trade or business expenses']);
+    expect(result?.irs_refs).toEqual(['26 USC 162 — Trade or business expenses', 'Treas. Reg. §1.263(a)-1(f) — Supplies and the de minimis safe harbor']);
     expect(JSON.stringify(result)).not.toContain('535');
+    expect(JSON.stringify(result)).not.toContain('99-7');
   });
   it('forged server-owned metadata is overwritten', () => {
     const forged = { sources: [{ id: 'fake', title: 'Fake', url: 'https://evil.invalid', edition: 'x', reviewed_at: 'x' }],
       policy_version: 'forged', tax_year: 1999, jurisdiction: 'US-federal' as const, provenance: { provider: 'openai' as const, model: 'forged', kind: 'model_with_curated_tax_policy' as const } };
     const result = ground(forged);
     expect(result).toMatchObject({ tax_year: 2026, policy_version: expect.stringMatching(/^federal-transactions-/), provenance: { model: 'redteam-model' } });
-    expect(result?.sources?.map(source => source.id)).toEqual(['business-162']);
+    expect(result?.sources?.map(source => source.id)).toEqual(['business-162', 'supplies-263a']);
     expect(JSON.stringify(result)).not.toContain('evil.invalid');
+    expect(JSON.stringify(result)).not.toContain('"fake"');
   });
 });
 

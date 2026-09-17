@@ -648,7 +648,7 @@ export const AI_EVAL_CORPUS: EvalCase[] = [
     transaction: tx('gym-membership-over-eager', 'Planet Fitness', 24.99, { is_recurring: true, note: 'Monthly gym membership' }),
     context: SOLE_PROPRIETOR,
     modelOutput: deduction('dues_and_memberships', ['business-162'], 'The recorded gym membership keeps you fit for client work. Keep the membership statement.', 'Recorded gym membership.'),
-    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'dues_and_memberships', missing_field: 'club_dues_exception', evidence_includes: ['personal-262', 'meals-274'] },
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'dues_and_memberships', missing_field: 'club_dues_exception', evidence_includes: ['dues-274a3', 'personal-262'] },
     invariants: GATED_EXPENSE,
   },
   {

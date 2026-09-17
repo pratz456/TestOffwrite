@@ -3,7 +3,7 @@ import { getOpenAIClientOrThrow } from '@/lib/openai/client';
 import { z } from 'zod';
 import { aiLearningEngine } from './learning-engine';
 import { getAIProviderStatus } from './provider-status';
-import { groundTransactionAnalysis, redactTaxIdentifiers, transactionTaxPolicyPrompt, TRANSACTION_EVIDENCE_IDS, TRANSACTION_KINDS, type TransactionTaxMetadata } from './transaction-tax-policy';
+import { EXPENSE_CATEGORIES, groundTransactionAnalysis, redactTaxIdentifiers, transactionTaxPolicyPrompt, TRANSACTION_EVIDENCE_IDS, TRANSACTION_KINDS, type TransactionTaxMetadata } from './transaction-tax-policy';
 import { taxpayerContextForModel } from './taxpayer-context';
 
 const OutputSchema = z.object({
@@ -12,23 +12,7 @@ const OutputSchema = z.object({
   evidence_ids: z.array(z.string()).min(1).max(3).optional(),
   is_deductible: z.boolean().optional(),
   expense_type: z.enum(['business', 'personal']).optional(), // Explicit classification: business or personal expense
-  category: z.enum([
-    'advertising_marketing',
-    'supplies_small_tools',
-    'software_subscriptions',
-    'contract_labor',
-    'equipment',
-    'vehicle_expense',
-    'travel',
-    'meals_50',
-    'home_office',
-    'utilities_phone_internet',
-    'education_training',
-    'dues_and_memberships',
-    'bank_and_payment_fees',
-    'rent',
-    'other'
-  ]).optional(),
+  category: z.enum(EXPENSE_CATEGORIES).optional(),
   deductible_percent: z.number().min(0).max(100).optional(),
   key_analysis_factor: z.string().max(400).optional(),
   customized_reason: z.string().optional(),
@@ -544,15 +528,7 @@ taxpayer_context describes this user's saved methods, gaps and past confirmed de
         evidence_ids: { type: ['array', 'null'], items: { type: 'string', enum: TRANSACTION_EVIDENCE_IDS } },
         is_deductible: { type: ['boolean', 'null'] },
         expense_type: { type: ['string', 'null'], enum: ['business', 'personal', null] },
-        category: {
-          type: ['string', 'null'],
-          enum: [
-            'advertising_marketing', 'supplies_small_tools', 'software_subscriptions',
-            'contract_labor', 'equipment', 'vehicle_expense', 'travel', 'meals_50',
-            'home_office', 'utilities_phone_internet', 'education_training',
-            'dues_and_memberships', 'bank_and_payment_fees', 'rent', 'other', null,
-          ],
-        },
+        category: { type: ['string', 'null'], enum: [...EXPENSE_CATEGORIES, null] },
         deductible_percent: { type: ['number', 'null'] },
         key_analysis_factor: { type: ['string', 'null'] },
         customized_reason: { type: ['string', 'null'] },

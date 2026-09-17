@@ -5,7 +5,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { AI_EVAL_CORPUS, KNOWN_CONCERNS, MODEL_OUTPUT_KEYS, type EvalCase, type EvalInvariant } from './fixtures/ai-eval-corpus';
-import { groundTransactionAnalysis, TRANSACTION_EVIDENCE_IDS, TRANSACTION_TAX_POLICY_VERSION } from '@/lib/ai/transaction-tax-policy';
+import { groundTransactionAnalysis, TRANSACTION_EVIDENCE_IDS, TRANSACTION_TAX_POLICY_VERSION, uncitedReferences } from '@/lib/ai/transaction-tax-policy';
 
 const mocks = vi.hoisted(() => ({ create: vi.fn(), learning: vi.fn() }));
 vi.mock('@/lib/openai/client', () => ({
@@ -32,8 +32,6 @@ const outcomes = new Map(AI_EVAL_CORPUS.map(c => [c.id, ground(c)] as const));
 const passed = new Set<string>();
 
 // --- Invariant checkers (pure; return a failure description or null) ---------
-const sectionEvidence: Record<string, string> = { '162': 'business-162', '262': 'personal-262', '274': 'meals-274', '263': 'capital-263', '179': 'assets-946' };
-const publicationEvidence: Record<string, string> = { '463': 'travel-463', '946': 'assets-946', '587': 'home-587', '334': 'records-334' };
 const UNCONDITIONAL = /\b(?:is|are)\s+(?:fully|100%|completely)\s+deductible\b/i;
 const INCOME_CATEGORY = /^INCOME(?:_|$)|REVENUE|SALES/;
 const INCOME_WORDS = /\b(client|customer|invoice|business sales|service revenue|platform payout)\b/i;
@@ -57,14 +55,9 @@ const checkers: Record<EvalInvariant, (result: OutputType, c: EvalCase) => strin
   },
   no_url: result => (/https?:\/\//i.test(displayedText(result)) ? 'URL in displayed text' : null),
   no_uncited_section: result => {
-    const text = displayedText(result);
-    for (const match of text.matchAll(/(?:\bsection\s+|§\s*)(\d+[a-z]?)/gi)) {
-      if (!result.evidence_ids?.includes(sectionEvidence[match[1].toLowerCase()])) return `uncited section ${match[1]}`;
-    }
-    for (const match of text.matchAll(/\bpub(?:lication)?\.?\s+(\d+[a-z]?)/gi)) {
-      if (!result.evidence_ids?.includes(publicationEvidence[match[1].toLowerCase()])) return `uncited publication ${match[1]}`;
-    }
-    return null;
+    // Every statute, regulation or publication named in displayed text must be backed by a selected evidence id.
+    const missing = uncitedReferences(displayedText(result), result.evidence_ids ?? []);
+    return missing.length ? `uncited reference ${missing.join(', ')}` : null;
   },
   no_deposit_as_income: (result, c) => {
     const amount = c.transaction.amount_usd ?? c.transaction.amount ?? 0;
@@ -144,7 +137,7 @@ describe('end-to-end wiring through analyzeTransaction with a mocked provider', 
       provenance: { provider: 'openai', model: MODEL, kind: 'model_with_curated_tax_policy' },
     });
     expect(grounded.sources?.length).toBeGreaterThan(0);
-    for (const source of grounded.sources ?? []) expect(source.url).toMatch(/^https:\/\/(?:uscode\.house\.gov|www\.irs\.gov)\//);
+    for (const source of grounded.sources ?? []) expect(source.url).toMatch(/^https:\/\/(?:uscode\.house\.gov|www\.ecfr\.gov|www\.irs\.gov)\//);
   });
 });
 
