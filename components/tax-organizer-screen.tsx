@@ -78,6 +78,8 @@ interface OrgAnswers extends SocialSecurityAnswers {
   startedBusiness: string;
   // Prior year
   priorYearTax: string;
+  /** "yes" | "no": whether the prior-year federal return covered a full 12 months (§6654(d)(1)(B)). */
+  priorReturnCoveredTwelveMonths: string;
   madeQuarterlyPayments: string;
   quarterlyTotal: string;
 }
@@ -90,7 +92,7 @@ export const EMPTY_ORGANIZER_ANSWERS: OrgAnswers = {
   paidHealthInsurance:"",healthInsurancePremium:"",madeRetirementContrib:"",retirementAmount:"",retirementType:"sep_ira",
   paidStudentLoanInterest:"",studentLoanInterest:"",paidHSA:"",hsaAmount:"",hasHomeMortgage:"",
   marriedThisYear:"",hadChild:"",boughtHome:"",soldHome:"",startedBusiness:"",
-  priorYearTax:"",madeQuarterlyPayments:"",quarterlyTotal:"",
+  priorYearTax:"",priorReturnCoveredTwelveMonths:"",madeQuarterlyPayments:"",quarterlyTotal:"",
 };
 
 const EMPTY = EMPTY_ORGANIZER_ANSWERS;
@@ -597,12 +599,19 @@ export function TaxOrganizerScreen({ user }: Props) {
         {step === 4 && (
           <Card className="bg-card border-border">
             <CardContent className="p-4 space-y-3">
-              <p className="text-sm text-muted-foreground">Keep prior-year records for your preparer. Quarterly payment planning separately requires review of prior-year tax, AGI and eligibility facts.</p>
+              <p className="text-sm text-muted-foreground">Keep prior-year records for your preparer. Quarterly payment planning uses all three facts below to compare the 90% current-year target with the 100%/110% prior-year target; it stays in review until each one is saved.</p>
               <div className="space-y-1.5">
-                <Label className="text-sm font-medium">Prior year total tax ({year - 1} Form 1040, Line 24)</Label>
-                <Input type="number" min="0" step="0.01" value={answers.priorYearTax} onChange={e => set("priorYearTax", e.target.value)} placeholder="e.g. 8500" className="bg-background" />
-                <p className="text-xs text-muted-foreground">A prior-year tax amount alone does not establish a safe-harbor payment amount.</p>
+                <Label htmlFor="organizer-priorYearTax" className="text-sm font-medium">Prior year total tax ({year - 1} Form 1040, Line 24)</Label>
+                <Input id="organizer-priorYearTax" type="number" min="0" step="0.01" value={answers.priorYearTax} onChange={e => set("priorYearTax", e.target.value)} placeholder="e.g. 8500" className="bg-background" />
+                <p className="text-xs text-muted-foreground">Enter 0 if the {year - 1} return showed no tax. A prior-year tax amount alone does not establish a safe-harbor payment amount.</p>
               </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="organizer-priorYearAGI" className="text-sm font-medium">Prior year adjusted gross income ({year - 1} Form 1040, Line 11)</Label>
+                <Input id="organizer-priorYearAGI" type="number" step="0.01" value={answers.priorYearAGI} onChange={e => set("priorYearAGI", e.target.value)} placeholder="From last year's return" className="bg-background" />
+                <p className="text-xs text-muted-foreground">Same field as the filing reference record in Personal facts. AGI above $150,000 ($75,000 if filing separately this year) raises the prior-year target from 100% to 110% of prior-year tax.</p>
+              </div>
+              {yesno("priorReturnCoveredTwelveMonths", `Did your ${year - 1} federal return cover a full 12 months?`)}
+              <p className="text-xs text-muted-foreground">Answer no if you did not file a {year - 1} return or it covered a short year; the prior-year safe harbor is then unavailable and only the current-year target is used.</p>
               {yesno("madeQuarterlyPayments", `Did you make estimated tax payments in ${year}?`)}
               {answers.madeQuarterlyPayments === "yes" && (
                 <div className="space-y-1.5">

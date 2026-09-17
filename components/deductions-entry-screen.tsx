@@ -26,6 +26,7 @@ const emptyDeductions = {
     hsaContribution: "",
     studentLoanInterest: "",
     priorYearTotalTax: "",
+    priorYearAGI: "",
     charitableCashDonations: "",
     charitableNonCashDonations: "",
 };
@@ -88,6 +89,7 @@ export function DeductionsEntryScreen({ user, onBack, onNavigate }: Props) {
           hsaContribution: num(fields.hsaContribution),
           studentLoanInterest: num(fields.studentLoanInterest),
           priorYearTotalTax: num(fields.priorYearTotalTax),
+          priorYearAGI: num(fields.priorYearAGI),
           charitableCashDonations: num(fields.charitableCashDonations),
           charitableNonCashDonations: num(fields.charitableNonCashDonations),
         }),
@@ -146,9 +148,10 @@ export function DeductionsEntryScreen({ user, onBack, onNavigate }: Props) {
       ],
     },
     {
-      icon: DollarSign, title: "Prior-year tax", kind: "Quarterly payment reference",
+      icon: DollarSign, title: "Prior-year tax and AGI", kind: "Quarterly payment reference", showSubtotal: false,
       fields: [
-        { key: "priorYearTotalTax", label: "Prior-year total tax", hint: "Form 1040, line 24. This amount alone does not establish a safe-harbor payment or prevent penalties." },
+        { key: "priorYearTotalTax", label: "Prior-year total tax", hint: "Form 1040, line 24. Used with prior-year AGI and the 12-month answer in the Tax Organizer to compare the 100%/110% prior-year target; it alone does not establish a safe-harbor payment or prevent penalties." },
+        { key: "priorYearAGI", label: "Prior-year adjusted gross income", hint: "Form 1040, line 11. Above $150,000 ($75,000 if married filing separately this year) the prior-year target is 110% of prior-year tax instead of 100%." },
       ],
     },
   ];
@@ -192,14 +195,15 @@ export function DeductionsEntryScreen({ user, onBack, onNavigate }: Props) {
           <>
             <p className="mb-2 text-sm text-muted-foreground">Open only what applies to you.</p>
             <div className="overflow-hidden rounded-xl border border-border bg-card">
-              {sections.map(({ icon: Icon, title, kind, fields: sectionFields }) => {
+              {sections.map(({ icon: Icon, title, kind, fields: sectionFields, showSubtotal = true }) => {
+                const entered = sectionFields.filter(field => num(fields[field.key as keyof typeof fields]) > 0).length;
                 const subtotal = sectionFields.reduce((sum, field) => sum + num(fields[field.key as keyof typeof fields]), 0);
                 return (
                   <details key={title} className="group border-b border-border last:border-b-0">
                     <summary className="flex min-h-14 cursor-pointer list-none items-center gap-3 px-3 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary [&::-webkit-details-marker]:hidden">
                       <Icon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
                       <span className="min-w-0 flex-1 text-sm font-medium">{title}</span>
-                      <span className="shrink-0 text-sm tabular-nums text-muted-foreground">{subtotal > 0 ? fmt(subtotal) : "Add"}</span>
+                      <span className="shrink-0 text-sm tabular-nums text-muted-foreground">{entered === 0 ? "Add" : showSubtotal ? fmt(subtotal) : `${entered} of ${sectionFields.length} entered`}</span>
                       <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
                     </summary>
                     <div className="space-y-3 border-t border-border px-3 pb-4 pt-3">
