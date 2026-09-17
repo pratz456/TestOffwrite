@@ -17,8 +17,9 @@ export function summarizeW2Income(entries: ReadonlyArray<Record<string, unknown>
     return {
       wages,
       federalWithheld: amount(entry, 'box2FederalWithheld', 'federalWithheld') ?? 0,
-      // Preserve explicit zero (for example, wages exempt from Social Security).
-      socialSecurityWages: amount(entry, 'box3SocialSecurityWages', 'socialSecurityWages') ?? wages,
+      // Preserve explicit zero (for example, wages exempt from Social Security). Schedule SE
+      // line 8a is the total of boxes 3 and 7, so reported tips count toward the wage base when a record carries them.
+      socialSecurityWages: (amount(entry, 'box3SocialSecurityWages', 'socialSecurityWages') ?? wages) + (amount(entry, 'box7SocialSecurityTips', 'socialSecurityTips') ?? 0),
       medicareWages: amount(entry, 'box5MedicareWages', 'medicareWages'),
       stateWithheld: amount(entry, 'stateWithheld') ?? 0,
     };

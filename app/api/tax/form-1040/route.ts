@@ -187,7 +187,7 @@ async function page1(doc: PDFDocument, f: PDFFont, bf: PDFFont, d: Record<string
   y = row(p, Number(yr) >= 2025 ? '7a' : '7', 'Capital gain or (loss)  -  attach Schedule D', y, d.capGains, f, bf, true);
   y = row(p, '8', 'Additional income from Schedule 1 (includes Schedule C net profit)', y, d.schedule1Income, f, bf, false);
   y -= 4;
-  y = hrow(p, '9', 'Total income. Add lines 1z, 2b, 3b, 4b, 5b, 6b, 7, 8.', y, d.totalIncome, f, bf, rgb(0.88, 0.92, 1.0), BLUE);
+  y = hrow(p, '9', `Total income. Add lines 1z, 2b, 3b, 4b, 5b, 6b, ${Number(yr) >= 2025 ? '7a' : '7'}, 8.`, y, d.totalIncome, f, bf, rgb(0.88, 0.92, 1.0), BLUE);
   y -= 4;
   y = row(p, '10', 'Adjustments to income from Schedule 1, Part II', y, d.adjustments, f, bf, false);
   y -= 4;
@@ -242,10 +242,11 @@ async function page2(doc: PDFDocument, f: PDFFont, bf: PDFFont, d: Record<string
   y = row(p, '25b', 'SSA/RRB federal income tax withheld', y, d.socialSecurityFederalWithheld || 0, f, bf, false);
   y = row(p, '25d', 'Recorded withholding only (W-2 and SSA/RRB)', y, d.w2FederalWithheld + (d.socialSecurityFederalWithheld || 0), f, bf, true, true);
   y = row(p, '26', `${yr} recorded estimated tax payments`, y, d.estimatedPayments, f, bf, false);
-  y = row(p, '27', 'Earned income credit (EIC)', y, d.eitcCredit, f, bf, true);
+  const eicLine = Number(yr) >= 2025 ? '27a' : '27';
+  y = row(p, eicLine, 'Earned income credit (EIC)', y, d.eitcCredit, f, bf, true);
   y = row(p, '28', 'Additional child tax credit', y, d.additionalCTC, f, bf, false);
   y -= 4;
-  y = hrow(p, '33', 'Total payments. Add lines 25d, 26, 27, 28.', y, d.totalPayments, f, bf, rgb(0.88, 0.92, 1.0), BLUE);
+  y = hrow(p, '33', `Total payments. Add lines 25d, 26, ${eicLine}, 28.`, y, d.totalPayments, f, bf, rgb(0.88, 0.92, 1.0), BLUE);
   y -= 6;
 
   // Result
