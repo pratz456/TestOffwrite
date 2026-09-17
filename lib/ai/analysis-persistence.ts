@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { DocumentReference } from 'firebase-admin/firestore';
 import { adminDb } from '@/lib/firebase/admin';
 import type { OutputType } from './analyzeTransaction';
+import { composeExplanation, type ExplainableResult, type ExplanationProfile } from './explanation';
 import { getOpenAIModel } from '@/lib/openai/client';
 import { reviewCategory, type AiReviewSuggestion, type TransactionKind } from '@/lib/transactions/ai-review-contract';
 
@@ -61,7 +62,8 @@ export async function claimAnalysisLease(ref: DocumentReference) {
 }
 
 /** Only suggestions and workflow state; no user classification, category, amount, or reason fields. */
-export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), canonicalData?: Record<string, unknown>, profileHash?: string) {
+export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), canonicalData?: Record<string, unknown>, profileHash?: string,
+  profile?: ExplanationProfile | Record<string, unknown> | null) {
   const evidence = result as OutputType & { transaction_kind?: TransactionKind; tax_year?: number | null;
     policy_version?: string; sources?: AiReviewSuggestion['sources'] };
   const model = result.provenance?.model?.trim() || getOpenAIModel('transaction');
@@ -95,8 +97,13 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), c
   }
   const label = suggestion.status === 'needs_more_info' ? 'Needs more information' : suggestion.status === 'blocked' ? 'Needs manual review' :
     suggestion.isDeductible === true ? 'Likely Deductible' : suggestion.isDeductible === false ? 'Unlikely Deductible' : 'Needs manual review';
+  // The explanation describes the gated suggestion the user sees, never the raw model output.
+  const gated: ExplainableResult = { ...(result as ExplainableResult), status: suggestion.status, transaction_kind: transactionKind,
+    questions: suggestion.questions, is_deductible: suggestion.isDeductible ?? undefined, deductible_percent: suggestion.deductiblePercent ?? undefined };
+  const savedDate = typeof canonicalData?.date === 'string' && /^\d{4}-\d{2}-\d{2}/.test(canonicalData.date) ? Number(canonicalData.date.slice(0, 4)) : null;
+  const explanation = composeExplanation({ result: gated, transaction: canonicalData, profile, taxYear: evidence.tax_year ?? savedDate });
   return {
-    ai_suggestion: suggestion, ai_transaction_kind: transactionKind,
+    ai_suggestion: suggestion, ai_explanation: explanation, ai_transaction_kind: transactionKind,
     ai_tax_year: evidence.tax_year ?? null, ai_sources: evidence.sources ?? [],
     ai_policy_version: evidence.policy_version ?? null, ai_provenance: evidence.provenance ?? null,
     ai_status: suggestion.status, ai_category: result.category ?? null,
@@ -128,13 +135,14 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), c
   };
 }
 
-export async function persistAnalysisSuggestion(ref: DocumentReference, result: OutputType, lease: AnalysisLease, profileHash?: string) {
+export async function persistAnalysisSuggestion(ref: DocumentReference, result: OutputType, lease: AnalysisLease, profileHash?: string,
+  profile?: ExplanationProfile | Record<string, unknown> | null) {
   return adminDb.runTransaction(async tx => {
     const snap = await tx.get(ref);
     if (!snap.exists || !isAnalysisLeaseCurrent(snap.data()!, lease)) return { status: 'stale' as const };
-    const update = analysisSuggestionUpdate(result, Date.now(), snap.data()!, profileHash);
+    const update = analysisSuggestionUpdate(result, Date.now(), snap.data()!, profileHash, profile);
     tx.update(ref, update);
-    return { status: 'saved' as const, suggestion: update.ai_suggestion };
+    return { status: 'saved' as const, suggestion: update.ai_suggestion, explanation: update.ai_explanation };
   });
 }
 

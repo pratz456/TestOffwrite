@@ -138,14 +138,14 @@ export async function POST(request: NextRequest) {
           : 'AI could not complete a reliable assessment. Please retry or review this transaction manually.';
       return NextResponse.json({ code: releaseCode, error }, { status });
     }
-    const saved = await persistAnalysisSuggestion(ref, analysis.result, lease, analysisProfileHash(profile, date));
+    const saved = await persistAnalysisSuggestion(ref, analysis.result, lease, analysisProfileHash(profile, date), context);
     if (saved.status !== 'saved') {
       releaseCode = 'AI_RECORD_CHANGED';
       return NextResponse.json({ code: releaseCode, error: 'The transaction changed during analysis. Review the latest record and run analysis again.' }, { status: 409 });
     }
     lease = null;
     const fields = analysisSuggestionUpdate(analysis.result);
-    return NextResponse.json({ success: true, ai_suggestion: saved.suggestion ?? null, analysis: {
+    return NextResponse.json({ success: true, ai_suggestion: saved.suggestion ?? null, explanation: saved.explanation ?? null, analysis: {
       status: analysis.result.status,
       deductionStatus: fields.ai.status_label,
       confidence: analysis.result.confidence ?? null,

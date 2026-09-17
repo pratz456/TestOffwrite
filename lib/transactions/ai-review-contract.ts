@@ -68,6 +68,7 @@ export function recordedTransactionType(record: Record<string, any>): 'income' |
 export function reviewHydrationFields(record: Record<string, any>) {
   return {
     ai_suggestion: record.ai_suggestion ?? null,
+    ai_explanation: record.ai_explanation ?? null,
     transaction_kind: record.transaction_kind,
     review_status: record.review_status,
     review_source: record.review_source,
