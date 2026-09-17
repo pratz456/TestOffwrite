@@ -17,7 +17,9 @@ Already saved records remain accessible. History availability still depends on t
 - Stripe reconciliation writes a server-owned `subscriptionPlan` of `basic` or `premium`. An old paid profile without this verified tier remains locked until the existing subscription-status check refreshes it from Stripe. The server does not infer Premium from paid status alone.
 - Basic remains a recognized subscription for duplicate-checkout protection. Its billing UI displays the actual provider amount and directs users to manage the existing subscription. The app's new-subscription checkout continues to sell Premium only.
 - Deploy the Firestore rules protection for `subscriptionPlan` with the application change. Client profile creation, updates, field deletion, and the profile API cannot choose or replace this tier.
-- A staging Basic lifecycle test is still required after the new code is deployed. Production rollout remains separate.
+- Staging Basic lifecycle verification passed: active and scheduled-cancellation
+  history access, report/export403, duplicate409, reactivation, and access removal
+  after cancellation. The expired trial did not restart. Production rollout remains separate.
 
 ## Validation
 

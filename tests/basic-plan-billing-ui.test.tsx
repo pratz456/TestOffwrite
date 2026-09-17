@@ -1,11 +1,12 @@
 import React, { isValidElement, type ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { parseSubscriptionStatus, type SubscriptionStatus } from '@/lib/subscriptions/client-status';
+import { canUseSubscriptionFeature, parseSubscriptionStatus, type SubscriptionStatus } from '@/lib/subscriptions/client-status';
 
 const mocks = vi.hoisted(() => ({ status: null as SubscriptionStatus | null, error: null as string | null,
   buttons: [] as Array<{ children: unknown; onClick: () => void | Promise<void> }>, push: vi.fn(), request: vi.fn(), refetch: vi.fn() }));
-vi.mock('@/lib/hooks/use-subscription', () => ({ useSubscription: () => ({ status: mocks.status, isLoading: false, error: mocks.error, refetch: mocks.refetch }) }));
+vi.mock('@/lib/hooks/use-subscription', () => ({ useSubscription: () => ({ status: mocks.status, isLoading: false, error: mocks.error, refetch: mocks.refetch,
+  canAccess: (feature: 'reports' | 'exports' | 'extended_history') => !mocks.error && canUseSubscriptionFeature(mocks.status, feature) }) }));
 vi.mock('@/lib/firebase/auth-context', () => ({ useAuth: () => ({ user: { id: 'basic-plan-user' } }) }));
 vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: mocks.request }));
 vi.mock('@/lib/firebase/profiles', () => ({ getUserProfile: vi.fn(), upsertUserProfile: vi.fn() }));
@@ -18,6 +19,8 @@ vi.mock('@/components/ui/button', () => ({ Button: ({ children, onClick, ...prop
 
 import { HistoricalAccessUpgradeCard } from '@/components/historical-access-upgrade-card';
 import { PaymentSettingsTab } from '@/components/settings-screen';
+import { PremiumFeatureGate } from '@/components/premium-feature-gate';
+import { ScheduleCExportScreen } from '@/components/schedule-c-export-screen';
 
 const future = '2099-01-01T00:00:00.000Z';
 function status(plan: 'basic' | 'premium' | 'trial' = 'basic', expired = false) {
@@ -39,6 +42,8 @@ const text = (node: unknown): string => Array.isArray(node) ? node.map(text).joi
     : typeof node === 'string' || typeof node === 'number' ? String(node) : '';
 const renderCard = (variant: 'default' | 'slim' | 'square' = 'default') => renderToStaticMarkup(<HistoricalAccessUpgradeCard variant={variant} />);
 const renderSettings = () => renderToStaticMarkup(<PaymentSettingsTab beforeNavigate={action => action()} />);
+const renderGate = (feature: 'reports' | 'exports' = 'reports', inline = false) => renderToStaticMarkup(
+  <PremiumFeatureGate feature={feature} featureName={feature} inline={inline}>PRIVATE FEATURE</PremiumFeatureGate>);
 
 beforeEach(() => { vi.clearAllMocks(); mocks.buttons = []; mocks.error = null; mocks.status = status(); });
 
@@ -136,5 +141,71 @@ describe('Basic billing presentation and actions', () => {
     expect(html).toContain('We could not verify your plan');
     expect(html).not.toContain('Basic is active');
     expect(mocks.buttons.map(button => text(button.children))).toEqual(['Try again']);
+  });
+});
+
+describe('locked feature billing recovery', () => {
+  it.each([
+    ['reports', false], ['reports', true], ['exports', false], ['exports', true],
+  ] as const)('routes Basic %s gate (inline=%s) to existing billing', (feature, inline) => {
+    const html = renderGate(feature, inline);
+    expect(html).toContain('Premium');
+    expect(html).not.toContain('PRIVATE FEATURE');
+    expect(html).not.toContain('Subscribe');
+    expect(mocks.buttons.map(button => text(button.children))).toEqual(['Manage billing']);
+    mocks.buttons[0].onClick();
+    expect(mocks.push).toHaveBeenCalledExactlyOnceWith('/protected/settings?tab=payment');
+    expect(mocks.request).not.toHaveBeenCalled();
+  });
+
+  it.each(['active', 'trialing', 'past_due', 'unpaid', 'incomplete', 'paused'])('manages a nonterminal %s subscription when feature access is denied', providerStatus => {
+    mocks.status = status('basic', true);
+    mocks.status!.subscription!.status = providerStatus;
+    mocks.status!.subscription!.cancelAtPeriodEnd = true;
+    expect(renderGate()).not.toContain('Subscribe Now');
+    expect(mocks.buttons.map(button => text(button.children))).toEqual(['Manage billing']);
+    mocks.buttons[0].onClick();
+    expect(mocks.push).toHaveBeenCalledWith('/protected/settings?tab=payment');
+  });
+
+  it.each(['canceled', 'incomplete_expired'])('allows fresh plan recovery for a terminal %s subscription', providerStatus => {
+    mocks.status = status('basic', true);
+    mocks.status!.subscription!.status = providerStatus;
+    expect(renderGate()).toContain('Subscribe Now');
+    mocks.buttons[0].onClick();
+    expect(mocks.push).toHaveBeenCalledWith('/protected/subscriptions');
+  });
+
+  it.each(['premium', 'trial'] as const)('continues to unlock feature content for %s', plan => {
+    mocks.status = status(plan);
+    expect(renderGate('exports')).toBe('PRIVATE FEATURE');
+    expect(mocks.buttons).toEqual([]);
+  });
+
+  it('offers plans after the free trial expires', () => {
+    mocks.status = status('trial', true);
+    expect(renderGate()).toContain('Subscribe Now');
+    mocks.buttons[0].onClick();
+    expect(mocks.push).toHaveBeenCalledWith('/protected/subscriptions');
+  });
+
+  it('shows verification recovery without a purchase prompt after a failed refresh', () => {
+    mocks.error = 'Verification unavailable';
+    const html = renderGate();
+    expect(html).toContain('Your plan could not be verified');
+    expect(html).not.toContain('Subscribe');
+    expect(html).not.toContain('PRIVATE FEATURE');
+  });
+
+  it('uses the shared billing recovery and exports flag on the Schedule C screen', () => {
+    mocks.status = status('premium');
+    mocks.status!.entitlements.features.exports = false;
+    const html = renderToStaticMarkup(<ScheduleCExportScreen user={{ id: 'test' }} onBack={() => {}} transactions={[]} />);
+    expect(html).toContain('Subscription Required to Export');
+    expect(html).not.toContain('Subscribe Now');
+    const manage = mocks.buttons.find(button => text(button.children) === 'Manage billing');
+    expect(manage).toBeDefined();
+    manage!.onClick();
+    expect(mocks.push).toHaveBeenCalledWith('/protected/settings?tab=payment');
   });
 });

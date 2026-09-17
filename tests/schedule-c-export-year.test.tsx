@@ -25,7 +25,7 @@ vi.mock('react', async importOriginal => {
   };
   return { ...actual, ...hooks, default: { ...actual.default, ...hooks } };
 });
-vi.mock('@/lib/hooks/use-subscription', () => ({ useSubscription: () => ({ hasAccess: true, isTrial: false, isPaid: true, isLoading: false, status: 'active' }) }));
+vi.mock('@/lib/hooks/use-subscription', () => ({ useSubscription: () => ({ canAccess: () => true, isTrial: false, isPaid: true, isLoading: false, status: null }) }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock('sonner', () => ({ toast: { error: harness.error, warning: vi.fn(), success: vi.fn() } }));
 vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: harness.api }));

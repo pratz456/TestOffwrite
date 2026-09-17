@@ -6,8 +6,9 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Download, FileText, Calendar, Lock, Sparkles } from 'lucide-react';
+import { Download, FileText, Calendar, Lock } from 'lucide-react';
 import { useSubscription } from '@/lib/hooks/use-subscription';
+import { PremiumFeatureGate, subscriptionGateDestination } from '@/components/premium-feature-gate';
 import { useRouter } from 'next/navigation';
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
@@ -57,7 +58,8 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
   const router = useRouter();
   
   // Check subscription status for feature gating
-  const { hasAccess, isTrial, isPaid, isLoading: subscriptionLoading, status: subscriptionStatus } = useSubscription();
+  const { canAccess, isLoading: subscriptionLoading, status: subscriptionStatus } = useSubscription();
+  const hasAccess = canAccess('exports');
 
   const [selectedYear, setSelectedYear] = useState(() => String(
     SUPPORTED_TAX_YEARS.find(year => year === new Date().getFullYear()) ?? SUPPORTED_TAX_YEARS[SUPPORTED_TAX_YEARS.length - 1]
@@ -133,6 +135,10 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
   };
 
   const handleExport = async () => {
+    if (!canAccess('exports')) {
+      router.push(subscriptionGateDestination(subscriptionStatus));
+      return;
+    }
     setIsExporting(true);
     try { await generateDownload(); }
     finally { setIsExporting(false); }
@@ -166,9 +172,9 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
         const contentType = response.headers.get('content-type');
         if (contentType && contentType.includes('application/json')) {
           const errorData = await response.json();
-          if (errorData.requiresSubscription) {
-            toast.warning('An active subscription is required to export Schedule C reports. Please subscribe to access this feature.');
-            router.push('/protected/subscriptions');
+          if (errorData.requiresSubscription || errorData.code === 'SUBSCRIPTION_REQUIRED') {
+            toast.warning('Schedule C exports require an active Premium plan or trial. Review your billing and plan access.');
+            router.push(subscriptionGateDestination(subscriptionStatus));
             return;
           }
           throw new Error(errorData.message || errorData.error || `PDF generation failed: ${response.statusText}`);
@@ -296,37 +302,10 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
 
         {/* Subscription Required Banner */}
         {!subscriptionLoading && !hasAccess && (
-          <Card className="p-6 bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/30 dark:to-blue-900/30 border border-purple-200 dark:border-purple-700 shadow-sm">
-            <div className="flex items-start gap-4">
-              <div className="p-3 bg-purple-100 dark:bg-purple-800/50 rounded-xl">
-                <Sparkles className="w-6 h-6 text-purple-600 dark:text-purple-400" />
-              </div>
-              <div className="flex-1">
-                <h3 className="text-lg font-semibold text-foreground mb-1">
-                  Unlock Schedule C Export
-                </h3>
-                <p className="text-muted-foreground mb-4">
-                  Subscribe to download your Schedule C data as PDF or CSV. Get organized tax reports ready for your accountant or tax software.
-                </p>
-                <div className="flex flex-wrap gap-3">
-                  <Button
-                    onClick={() => router.push('/protected/subscriptions')}
-                    className="bg-gradient-to-r from-purple-500 to-purple-600 dark:from-purple-500 dark:to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white font-medium shadow-md shadow-purple-500/20 dark:shadow-purple-500/30 transition-all duration-200"
-                  >
-                    <Sparkles className="w-4 h-4 mr-2" />
-                    Subscribe Now
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => router.push('/protected/subscriptions')}
-                    className="border-2 border-purple-300 dark:border-purple-500 text-purple-700 dark:text-purple-300 bg-card hover:bg-purple-50 dark:hover:bg-purple-900/30 transition-all duration-200"
-                  >
-                    View Plans
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </Card>
+          <PremiumFeatureGate feature="exports" featureName="Schedule C exports"
+            featureDescription="Download Schedule C data as PDF or CSV with an active Premium plan or trial.">
+            {null}
+          </PremiumFeatureGate>
         )}
 
         {/* Schedule C Preview */}

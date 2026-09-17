@@ -37,12 +37,27 @@ not restart an expired trial.
   card, and paid invoice. Its return link led back to staging billing settings.
 - A second checkout for either subscribed account was rejected with HTTP 409
   `SUBSCRIPTION_EXISTS`.
-- Monthly cancellation at period end preserved paid access; reactivation
+- Monthly and annual cancellation at period end preserved paid access; reactivation
   restored renewal; immediate test cancellation relocked reports/exports.
   The signed deletion webhook was recorded and the expired trial did not restart.
+- Deployed Firestore rules rejected a direct authenticated synthetic-user attempt
+  to overwrite `subscriptionPlan` with HTTP 403 `PERMISSION_DENIED`.
+- Basic's signed webhook produced the distinct `basic` plan, a 730-day import
+  window, report/export HTTP 403, and duplicate-checkout HTTP 409. Its dashboard
+  displayed Basic, the actual $7.99/month price, and history-only benefits.
+- Basic cancellation/reactivation preserved the correct benefits; immediate
+  cancellation restored the 90-day import window without restarting a trial.
+- ACH success, failure, and pending settlement gates passed; see
+  [bank payment verification](STRIPE_BANK_PAYMENTS_2026-09-16.md).
+
+## Build validation
+
+The combined Basic and bank-payment implementation passed 2,284 unit, route,
+and component tests. All 11 opt-in Firestore/Storage security tests passed in a
+separate emulator instance. TypeScript validation and the production build passed.
 
 ## Remaining verification
 
-Cancellation/reactivation and the distinct Basic tier are
-being tested before this report is finalized. Production rollout is separate.
+The final Basic locked-feature button is being changed to manage existing billing
+instead of offering a duplicate subscription. Production rollout is separate.
 Plaid Sandbox linking remains untested because Sandbox access is unavailable.

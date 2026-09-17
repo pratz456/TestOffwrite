@@ -36,7 +36,7 @@ vi.mock('@/lib/firebase/auth-context', () => ({ useAuth: () => ({ user: { id: 's
 vi.mock('@/lib/firebase/profiles', () => ({ getUserProfile: async () => ({ data: harness.profile, error: null }) }));
 vi.mock('@/lib/firebase/hooks', () => ({ useTransactions: () => ({ transactions: harness.transactions, isLoading: false }), useUserStats: () => ({ stats: {}, isLoading: false }) }));
 vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: async () => Response.json({ error: 'Review filing status' }, { status: 422 }) }));
-vi.mock('@/lib/hooks/use-subscription', () => ({ useSubscription: () => ({ hasAccess: true, isLoading: false }) }));
+vi.mock('@/lib/hooks/use-subscription', () => ({ useSubscription: () => ({ hasAccess: true, canAccess: () => true, isLoading: false }) }));
 vi.mock('@/lib/react-query/hooks', () => ({ useTransactions: () => ({ data: { transactions: harness.transactions } }), useMonthlyDeductions: () => ({ data: undefined, isLoading: false, error: null, refetch() {} }) }));
 vi.mock('@/components/ui/toast', () => ({ ToastContainer: 'ToastContainer', useToasts: () => ({ toasts: [], removeToast() {} }) }));
 vi.mock('@/components/historical-access-upgrade-card', () => ({ HistoricalAccessUpgradeCard: 'HistoricalAccessUpgradeCard' }));

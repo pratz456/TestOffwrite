@@ -6,7 +6,14 @@ import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Sparkles, Lock, Loader2 } from 'lucide-react';
-import type { PremiumFeature } from '@/lib/subscriptions/client-status';
+import type { PremiumFeature, SubscriptionStatus } from '@/lib/subscriptions/client-status';
+
+/** Match checkout recovery: nonterminal subscriptions must be managed, not duplicated. */
+export function subscriptionGateDestination(status: SubscriptionStatus | null): string {
+  const existing = status?.subscription;
+  return existing && !['canceled', 'incomplete_expired'].includes(existing.status)
+    ? '/protected/settings?tab=payment' : '/protected/subscriptions';
+}
 
 interface PremiumFeatureGateProps {
   feature?: PremiumFeature;
@@ -37,8 +44,15 @@ export function PremiumFeatureGate({
   inline = false,
   feature = 'reports',
 }: PremiumFeatureGateProps) {
-  const { canAccess, isLoading, error, refetch } = useSubscription();
+  const { canAccess, isLoading, error, refetch, status } = useSubscription();
   const router = useRouter();
+  const destination = subscriptionGateDestination(status);
+  const manageBilling = destination === '/protected/settings?tab=payment';
+  const basicPlan = feature !== 'extended_history' && (status?.subscription?.plan === 'basic' || status?.entitlements.plan === 'basic');
+  const lockedDescription = manageBilling
+    ? basicPlan ? `Basic ${canAccess('extended_history') ? 'includes' : 'offers'} extended bank history. ${featureName} requires Premium. Manage your existing subscription in billing.`
+      : `Review your existing subscription in billing to restore access to ${featureName}.`
+    : featureDescription || `Subscribe to access ${featureName} and other premium features.`;
 
   // Show loading state
   if (isLoading) {
@@ -61,7 +75,7 @@ export function PremiumFeatureGate({
         <p className="text-sm text-muted-foreground">Please retry to check access to {featureName}.</p>
         <div className="flex flex-wrap gap-2">
           <Button onClick={() => void refetch()}>Try again</Button>
-          <Button variant="outline" onClick={() => router.push('/protected/subscriptions')}>Billing and plans</Button>
+          <Button variant="outline" onClick={() => router.push('/protected/settings?tab=payment')}>Manage billing</Button>
         </div>
       </Card>
     );
@@ -82,14 +96,14 @@ export function PremiumFeatureGate({
       <div className="flex items-center gap-2 p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
         <Lock className="w-4 h-4 text-purple-600 dark:text-purple-400 flex-shrink-0" />
         <span className="text-sm text-purple-700 dark:text-purple-300">
-          Subscribe to access {featureName}
+          {manageBilling ? basicPlan ? `Premium is required for ${featureName}` : `Check billing for ${featureName}` : `Subscribe to access ${featureName}`}
         </span>
         <Button
-          onClick={() => router.push('/protected/subscriptions')}
+          onClick={() => router.push(destination)}
           size="sm"
           className="ml-auto bg-purple-600 hover:bg-purple-700 text-white"
         >
-          Subscribe
+          {manageBilling ? 'Manage billing' : 'Subscribe'}
         </Button>
       </div>
     );
@@ -106,23 +120,23 @@ export function PremiumFeatureGate({
             Unlock {featureName}
           </h3>
           <p className="text-gray-600 dark:text-gray-400 mb-4">
-            {featureDescription || `Subscribe to access ${featureName} and other premium features.`}
+            {lockedDescription}
           </p>
           <div className="flex flex-wrap gap-3">
             <Button
-              onClick={() => router.push('/protected/subscriptions')}
+              onClick={() => router.push(destination)}
               className="bg-purple-600 hover:bg-purple-700 text-white"
             >
               <Sparkles className="w-4 h-4 mr-2" />
-              Subscribe Now
+              {manageBilling ? 'Manage billing' : 'Subscribe Now'}
             </Button>
-            <Button
+            {!manageBilling && <Button
               variant="outline"
               onClick={() => router.push('/protected/subscriptions')}
               className="border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/30"
             >
               View Plans
-            </Button>
+            </Button>}
           </div>
         </div>
       </div>

@@ -12,6 +12,7 @@ import { useMonthlyDeductions, useTransactions } from '@/lib/react-query/hooks';
 import { ReportsChartSkeleton, PageHeaderSkeleton } from '@/components/ui/skeleton';
 import { ToastContainer, useToasts } from '@/components/ui/toast';
 import { useSubscription } from '@/lib/hooks/use-subscription';
+import { PremiumFeatureGate } from '@/components/premium-feature-gate';
 import { getUserProfile } from '@/lib/firebase/profiles';
 import { getUserTaxRateDisplay } from '@/lib/tax-rules/federal-brackets';
 
@@ -135,7 +136,8 @@ export default function ReportsPage() {
   }, [user?.id]);
 
   // Check subscription status for feature gating
-  const { hasAccess, isLoading: subscriptionLoading } = useSubscription();
+  const { canAccess, isLoading: subscriptionLoading } = useSubscription();
+  const hasAccess = canAccess('exports');
 
   // Use React Query for data fetching with caching (year param for viewing previous years)
   const {
@@ -1143,31 +1145,8 @@ export default function ReportsPage() {
             <div className="p-6">
               {/* Subscription Required Banner */}
               {!subscriptionLoading && !hasAccess && (
-                <div className="mb-6 p-4 bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
-                  <div className="flex items-start gap-3">
-                    <div className="p-2 bg-purple-100 dark:bg-purple-800/50 rounded-lg">
-                      <Lock className="w-5 h-5 text-purple-600 dark:text-purple-400" />
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-1">
-                        Subscription Required
-                      </h3>
-                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-                        Export reports as PDF or CSV with an active subscription.
-                      </p>
-                      <Button
-                        onClick={() => {
-                          setShowExportModal(false);
-                          router.push('/protected/subscriptions');
-                        }}
-                        className="bg-purple-600 hover:bg-purple-700 text-white"
-                        size="sm"
-                      >
-                        <Sparkles className="w-4 h-4 mr-2" />
-                        Subscribe Now
-                      </Button>
-                    </div>
-                  </div>
+                <div className="mb-6">
+                  <PremiumFeatureGate feature="exports" featureName="report exports" inline>{null}</PremiumFeatureGate>
                 </div>
               )}
 
