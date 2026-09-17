@@ -33,8 +33,12 @@ vi.mock('react', async importOriginal => {
   };
   return { ...actual, ...hooks, default: { ...actual.default, ...hooks } };
 });
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: harness.navigate, replace: harness.navigate }) }));
+vi.mock('@/lib/firebase/auth-context', () => ({ useAuth: () => ({ user: { id: 'snapshot-owner' }, loading: false }) }));
 import { TaxFilingHubScreen } from '../components/tax-filing-hub-screen';
 import { TaxPreviewScreen } from '../components/tax-preview-screen';
+import { FileTaxesScreen } from '../components/file-taxes-screen';
+import { reviewTargetForCode } from '../lib/tax/dashboard-snapshot';
 
 type Element = ReactElement<Record<string, any>>;
 function render(component = TaxFilingHubScreen): Element {
@@ -157,6 +161,81 @@ describe('filing hub uses the successful shared tax snapshot', () => {
     harness.request.mockImplementation(requests);
     await walk(tree).find(node => node.props?.onClick && text(node) === 'Retry filing summary')!.props.onClick();
     expect(text(render())).toContain('$65,000');
+  });
+});
+
+describe('file taxes screen routes Schedule C through the shared federal snapshot', () => {
+  const renderFileTaxes = () => render(FileTaxesScreen as unknown as typeof TaxFilingHubScreen);
+  const providerCopy = 'WriteOff prepares your tax data, filing and payment are';
+
+  it('shows the reconciled server figures instead of a client-side aggregate', async () => {
+    renderFileTaxes(); await flush(); const tree = renderFileTaxes(); const content = text(tree);
+    expect(harness.request.mock.calls.map(([url]) => url)).toEqual([`/api/tax/compute-1040?year=${year}`]);
+    expect(content).toContain('Gross receipts'); expect(content).toContain('$20,000.00');
+    expect(content).toContain('Confirmed expenses'); expect(content).toContain('$5,000.00');
+    expect(content).toContain('Net profit'); expect(content).toContain('$15,000.00');
+    expect(content).toContain('same federal calculation shown on your dashboard');
+    expect(content).toContain(providerCopy);
+    expect(content).toContain('Continue to TurboTax');
+    expect(walk(tree).some(node => node.props?.role === 'alert')).toBe(false);
+  });
+
+  it('renders the 422 review message with a deep link to the input screen and never a profit figure', async () => {
+    const error = 'Review income sources before calculating tax: Transactions, gross receipts or 1099 forms may describe the same payments.';
+    harness.request.mockImplementation(() => Promise.resolve(response({ error, code: 'INCOME_RECONCILIATION_REQUIRED' }, 422)));
+    renderFileTaxes(); await flush(); const tree = renderFileTaxes(); const content = text(tree);
+    const alert = walk(tree).find(node => node.props?.role === 'alert')!;
+    expect(text(alert)).toContain(`${year} Schedule C summary needs review`);
+    expect(text(alert)).toContain(error);
+    const link = walk(alert).find(node => node.props?.href)!;
+    expect(link.props.href).toBe('/protected?screen=income-tracking');
+    expect(text(link)).toBe('Review income sources');
+    expect(content).not.toContain('Net profit'); expect(content).not.toMatch(/\$\d/);
+    expect(content).not.toContain('No business income or confirmed expenses');
+    expect(content).toContain(providerCopy);
+  });
+
+  it('offers a retry without a deep link when the calculation is unavailable', async () => {
+    harness.request.mockImplementation(() => Promise.resolve(response({ error: 'Could not complete the tax calculation. Please retry.' }, 503)));
+    renderFileTaxes(); await flush(); let tree = renderFileTaxes();
+    const alert = walk(tree).find(node => node.props?.role === 'alert')!;
+    expect(text(alert)).toContain(`${year} Schedule C summary unavailable`);
+    expect(walk(alert).some(node => node.props?.href)).toBe(false);
+    harness.request.mockImplementation(requests);
+    walk(alert).find(node => node.props?.onClick && text(node) === 'Retry summary')!.props.onClick();
+    renderFileTaxes(); await flush(); tree = renderFileTaxes();
+    expect(text(tree)).toContain('$15,000.00');
+  });
+
+  it('reloads the snapshot for the selected supported year and shows the empty state for zero records', async () => {
+    renderFileTaxes(); await flush(); const tree = renderFileTaxes();
+    const select = walk(tree).find(node => node.type === 'select')!;
+    expect(walk(select).filter(node => node.type === 'option').map(node => node.props.value)).toEqual(['2026', '2025', '2024']);
+    harness.request.mockImplementation((url: string) => {
+      const data = snapshot(Number(new URL(url, 'http://localhost').searchParams.get('year')));
+      Object.assign(data.income, { grossReceipts: 0, totalDeductible: 0, scheduleCNetProfit: 0 });
+      return Promise.resolve(response(data));
+    });
+    select.props.onChange({ target: { value: String(year - 1) } });
+    renderFileTaxes(); await flush(); const previous = renderFileTaxes();
+    expect(harness.request.mock.calls.at(-1)![0]).toBe(`/api/tax/compute-1040?year=${year - 1}`);
+    expect(text(previous)).toContain(`No business income or confirmed expenses recorded for ${year - 1}`);
+    expect(text(previous)).not.toContain('Net profit');
+  });
+});
+
+describe('review codes map to the input screen that fixes them', () => {
+  it.each([
+    ['FILING_STATUS_REVIEW_REQUIRED', 'settings', 'Review profile'],
+    ['INCOME_RECONCILIATION_REQUIRED', 'income-tracking', 'Review income sources'],
+    ['SOCIAL_SECURITY_REVIEW_REQUIRED', 'tax-organizer', 'Review Social Security records'],
+    ['PERSONAL_DEDUCTION_REVIEW_REQUIRED', 'tax-organizer', 'Review personal deductions'],
+    ['DEPENDENT_CREDIT_REVIEW_REQUIRED', 'tax-organizer', 'Review dependent eligibility'],
+    ['EXPORT_REVIEW_REQUIRED', 'transactions', 'Review transactions'],
+    ['DEPRECIATION_REVIEW_REQUIRED', 'tax-preview', 'Review tax inputs'],
+    [undefined, 'tax-preview', 'Review tax inputs'],
+  ])('%s → %s', (code, screen, label) => {
+    expect(reviewTargetForCode(code)).toEqual({ screen, label });
   });
 });
 
