@@ -34,9 +34,18 @@ describe('Firebase analysis event bridge', () => {
   const options = () => ({ project: 'writeoff-production-testing', origin: 'https://writeoff-production-testing.web.app',
     secret: 'synthetic-test-secret-never-used-live', eventTime: new Date().toISOString(), fetcher: vi.fn().mockResolvedValue(new Response('{}')) });
   it.each([{ project: 'writeoff-23910' }, { origin: 'https://writeoffapp.com' }, { origin: 'https://attacker.example' }, { secret: '' },
+    { project: undefined }, { origin: '' }, { secret: ' '.repeat(32) }, { secret: 'x'.repeat(31) },
     { project: 'demo-writeoff-security', origin: 'http://127.0.0.1:3000' },
     { project: 'demo-writeoff-security', origin: 'http://localhost:3000', emulator: 'true' },
     { project: 'writeoff-23910', origin: 'http://127.0.0.1:3000', emulator: 'true' },
+    { project: 'writeoff-23910', origin: 'https://writeoffapp.com', emulator: 'true' },
+    { emulator: 'true' },
+    { project: 'writeoff-23910', origin: 'http://writeoffapp.com' },
+    { project: 'writeoff-23910', origin: 'https://writeoffapp.com/another-path' },
+    { project: 'writeoff-23910', origin: 'https://writeoffapp.com?redirect=https://attacker.example' },
+    { project: 'writeoff-23910', origin: 'https://user:password@writeoffapp.com' },
+    { project: 'writeoff-23910', origin: 'https://writeoffapp.com.attacker.example' },
+    { project: 'writeoff-23910', origin: 'https://writeoff-23910.web.app' },
   ])('fails closed on cross-project/misconfigured dispatch %j', async override => {
     const config = { ...options(), ...override };
     await expect(callAnalysisWorker({ action: 'process' }, config)).rejects.toThrow('CONFIGURATION_REQUIRED');
@@ -46,6 +55,14 @@ describe('Firebase analysis event bridge', () => {
     const config = { ...options(), project: 'demo-writeoff-security', origin: 'http://127.0.0.1:3000', emulator: 'true' };
     await callAnalysisWorker({ action: 'process' }, config);
     expect(config.fetcher).toHaveBeenCalledWith('http://127.0.0.1:3000/api/internal/analysis-worker', expect.any(Object));
+  });
+  it('permits the exact production project/origin pair with authenticated, non-redirecting dispatch', async () => {
+    const config = { ...options(), project: 'writeoff-23910', origin: 'https://writeoffapp.com' };
+    await callAnalysisWorker({ action: 'process', taskId: 'synthetic' }, config);
+    expect(config.fetcher).toHaveBeenCalledWith('https://writeoffapp.com/api/internal/analysis-worker', expect.objectContaining({
+      method: 'POST', redirect: 'error', headers: { 'content-type': 'application/json', 'x-analysis-worker-secret': config.secret },
+      body: JSON.stringify({ action: 'process', taskId: 'synthetic' }),
+    }));
   });
   it('awaits the authenticated dispatch and throws on retryable HTTP work', async () => {
     const config = options();

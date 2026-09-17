@@ -3,7 +3,7 @@ import { defineSecret, defineString } from 'firebase-functions/params';
 import { callAnalysisWorker, shouldProcessTask, shouldQueueBankWrite } from './bridge';
 
 const workerSecret = defineSecret('ANALYSIS_WORKER_SECRET');
-const workerOrigin = defineString('ANALYSIS_WORKER_ORIGIN', { default: 'https://writeoff-production-testing.web.app' });
+const workerOrigin = defineString('ANALYSIS_WORKER_ORIGIN', { default: '' });
 const options = { region: 'us-central1', retry: true, timeoutSeconds: 120,
   maxInstances: 2, concurrency: 2, memory: '256MiB' as const, secrets: [workerSecret] };
 function settings(eventTime: string) {

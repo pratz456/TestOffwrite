@@ -7,6 +7,10 @@
     "rules": "storage.rules"
   },
   "hosting": {
+    "site": "writeoff-23910",
+    "predeploy": [
+      "node scripts/production-preflight.mjs --config firebase.json"
+    ],
     "source": ".",
     "ignore": [
       "firebase.json",
@@ -14,7 +18,13 @@
       "**/node_modules/**"
     ],
     "frameworksBackend": {
-      "region": "us-central1"
+      "region": "us-central1",
+      "memory": "1GiB",
+      "cpu": 1,
+      "minInstances": 0,
+      "maxInstances": 2,
+      "timeoutSeconds": 60,
+      "concurrency": 80
     },
     "headers": [
       {
@@ -49,6 +59,23 @@
         "*.local"
       ],
       "predeploy": [
+        "node scripts/production-preflight.mjs --config firebase.json",
+        "npm --prefix \"$RESOURCE_DIR\" run build"
+      ]
+    },
+    {
+      "source": "functions-analysis",
+      "codebase": "analysis",
+      "ignore": [
+        "node_modules",
+        ".git",
+        "lib/**/*.map",
+        ".env*",
+        "*.local",
+        "firebase-debug*"
+      ],
+      "predeploy": [
+        "node scripts/production-preflight.mjs --config firebase.json",
         "npm --prefix \"$RESOURCE_DIR\" run build"
       ]
     }

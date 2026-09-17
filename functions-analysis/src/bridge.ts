@@ -1,5 +1,7 @@
 const STAGING_PROJECT = 'writeoff-production-testing';
 const STAGING_ORIGIN = 'https://writeoff-production-testing.web.app';
+const PRODUCTION_PROJECT = 'writeoff-23910';
+const PRODUCTION_ORIGIN = 'https://writeoffapp.com';
 const MAX_EVENT_AGE_MS = 23 * 60 * 60 * 1000;
 
 export function shouldQueueBankWrite(before: Record<string, unknown> | undefined, after: Record<string, unknown> | undefined) {
@@ -20,10 +22,13 @@ export function shouldProcessTask(before: Record<string, unknown> | undefined, a
 export async function callAnalysisWorker(body: Record<string, string>, options: {
   project: string | undefined; origin: string; secret: string; eventTime: string; emulator?: string; fetcher?: typeof fetch;
 }) {
-  // Deliberately deployable only to the staging project. Production promotion requires a reviewed allowlist change.
+  // Exact pairs prevent a worker from sending identifiers or its secret to a
+  // different project, preview, redirect, or development server.
   const staging = options.project === STAGING_PROJECT && options.origin === STAGING_ORIGIN;
+  const production = options.project === PRODUCTION_PROJECT && options.origin === PRODUCTION_ORIGIN;
+  const hosted = options.emulator !== 'true' && (staging || production);
   const local = options.emulator === 'true' && options.project === 'demo-writeoff-security' && options.origin === 'http://127.0.0.1:3000';
-  if ((!staging && !local) || options.secret.length < 32) throw new Error('ANALYSIS_WORKER_CONFIGURATION_REQUIRED');
+  if ((!hosted && !local) || options.secret.trim().length < 32) throw new Error('ANALYSIS_WORKER_CONFIGURATION_REQUIRED');
   const createdAt = Date.parse(options.eventTime);
   if (!Number.isFinite(createdAt) || Date.now() - createdAt > MAX_EVENT_AGE_MS) return;
   const response = await (options.fetcher ?? fetch)(`${options.origin}/api/internal/analysis-worker`, {

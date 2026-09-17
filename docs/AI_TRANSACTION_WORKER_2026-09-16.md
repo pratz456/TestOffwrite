@@ -21,7 +21,9 @@ Staging dispatch requires all of:
 - `ANALYSIS_WORKER_ORIGIN=https://writeoff-production-testing.web.app`.
 - The same private `ANALYSIS_WORKER_SECRET` of at least 32 characters in the Next server environment and the Functions Secret Manager binding.
 
-Local dispatch has one separate exception: `FUNCTIONS_EMULATOR=true`, project `demo-writeoff-security`, and origin exactly `http://127.0.0.1:3000`. It still requires the matching worker secret. No production project or arbitrary local/remote origin is permitted by this bridge.
+Production dispatch now has a separate exact pair: project `writeoff-23910` and `ANALYSIS_WORKER_ORIGIN=https://writeoffapp.com`, with the matching production worker secret. No origin defaults to another environment. See [production cutover prerequisites](PRODUCTION_CUTOVER_2026-09-16.md) before deployment.
+
+Local dispatch has one separate exception: `FUNCTIONS_EMULATOR=true`, project `demo-writeoff-security`, and origin exactly `http://127.0.0.1:3000`. It still requires the matching worker secret. Cross-project origins and emulator dispatch to hosted sites are rejected.
 
 The bridge sends only identifiers. The OpenAI key stays in the Next server; it is not needed in the Functions package. Firestore rules deny client writes to task documents. The worker independently verifies saved account and transaction ownership, posted status, finite amounts, valid calendar dates and explicit USD before model work.
 
@@ -59,7 +61,7 @@ Actual Firestore rules separately allowed owner progress reads and denied task r
 
 The configured OpenAI key stays server-only. `GET /api/ai/status` reports configuration, not credit or health. Both legacy single-transaction URLs share the canonical owned-record handler. The model receives saved transaction context, validated dates/USD, and known profile facts; unknown age/income/entity/travel values are not fabricated.
 
-No hosting/function deployment was performed in this batch. Staging still needs the matching worker secret and deployment; production dispatch remains explicitly disallowed by this staging bridge.
+No hosting/function deployment was performed in this original batch. The later cutover change allows the explicit production pair in source, but source support alone does not establish that production workers, secrets or migration are deployed and verified.
 
 ## AI-first review contract — September 16 update
 
