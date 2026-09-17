@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Calendar, Clock, ArrowLeft, ChevronLeft, ChevronRight, User } from "lucide-react";
-import { getAllPosts, getPostBySlug, getAdjacentPosts } from "@/lib/blog";
+import { Calendar, Clock, ArrowLeft, ChevronLeft, ChevronRight, User, ShieldCheck } from "lucide-react";
+import { getAllPosts, getPostBySlug, getAdjacentPosts, formatReviewMonth } from "@/lib/blog";
 import { BlogCTA } from "@/components/blog/blog-cta";
 import { RelatedPosts } from "@/components/blog/related-posts";
 
@@ -83,7 +83,7 @@ export default async function BlogPostPage({
     headline: post.title,
     description: post.description,
     datePublished: post.date,
-    dateModified: post.date,
+    dateModified: post.reviewedAt ?? post.date,
     author: { "@type": "Person", name: post.author },
     publisher: {
       "@type": "Organization",
@@ -146,6 +146,27 @@ export default async function BlogPostPage({
               {post.readingTime} min read
             </span>
           </div>
+          {post.reviewedAt && (
+            <p
+              data-testid="blog-reviewed-note"
+              className="mt-4 flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground"
+            >
+              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+              <span>
+                Reviewed {formatReviewMonth(post.reviewedAt)} for {post.reviewedFor ?? "accuracy"}. Dollar
+                amounts are labeled by tax year; confirm current figures at{" "}
+                <a
+                  href="https://www.irs.gov"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline underline-offset-2 hover:text-primary"
+                >
+                  IRS.gov
+                </a>{" "}
+                before filing. This article is general information, not tax advice.
+              </span>
+            </p>
+          )}
         </header>
 
         {/* Body */}

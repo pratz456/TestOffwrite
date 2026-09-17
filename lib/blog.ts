@@ -27,6 +27,10 @@ export interface BlogPost {
   readingTime: number;
   contentHtml: string;
   hasMidCta: boolean;
+  /** ISO date of the last editorial accuracy review (frontmatter `reviewed`). */
+  reviewedAt: string | null;
+  /** Tax years the review covered (frontmatter `reviewedFor`), e.g. "tax years 2025–2026". */
+  reviewedFor: string | null;
 }
 
 export interface BlogPostMeta {
@@ -37,11 +41,36 @@ export interface BlogPostMeta {
   author: string;
   tags: string[];
   readingTime: number;
+  reviewedAt: string | null;
+  reviewedFor: string | null;
 }
 
 function estimateReadingTime(text: string): number {
   const words = text.trim().split(/\s+/).length;
   return Math.max(1, Math.round(words / 230));
+}
+
+// gray-matter hands back a Date for unquoted YAML dates and a string for quoted ones.
+function normalizeReviewDate(value: unknown): string | null {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10);
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  return null;
+}
+
+function readReviewFields(data: Record<string, unknown>): Pick<BlogPostMeta, "reviewedAt" | "reviewedFor"> {
+  const reviewedAt = normalizeReviewDate(data.reviewed);
+  const reviewedFor = typeof data.reviewedFor === "string" && data.reviewedFor.trim() ? data.reviewedFor.trim() : null;
+  return { reviewedAt, reviewedFor: reviewedAt ? reviewedFor : null };
+}
+
+/** "2026-09-17" → "September 2026"; used for the dated review note shown on each post. */
+export function formatReviewMonth(isoDate: string): string {
+  const [year, month] = isoDate.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, 1)).toLocaleDateString("en-US", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
 }
 
 export function getAllPosts(): BlogPostMeta[] {
@@ -61,6 +90,7 @@ export function getAllPosts(): BlogPostMeta[] {
         author: data.author ?? "WriteOff Team",
         tags: data.tags ?? [],
         readingTime: estimateReadingTime(content),
+        ...readReviewFields(data),
       };
     })
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -91,6 +121,7 @@ export async function getPostBySlug(slug: string): Promise<BlogPost | null> {
     readingTime: estimateReadingTime(content),
     contentHtml,
     hasMidCta,
+    ...readReviewFields(data),
   };
 }
 
