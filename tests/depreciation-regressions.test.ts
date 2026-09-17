@@ -23,7 +23,7 @@ describe('scoped first-year MACRS worksheet', () => {
     expect(calc4562([asset({ datePlacedInService: '2026-05-01' as unknown as Date })], 10000, 2026).totalDepreciation).toBe(200);
   });
   it.each([
-    [{ section179Requested: true }, 'Section 179'], [{ bonusEligible: true }, 'bonus'],
+    [{ section179Requested: true, businessUsePercent: 50 }, 'Section 179'], [{ bonusEligible: true }, 'bonus'],
     [{ category: 'vehicle' }, 'vehicle'], [{ method: 'SL' }, 'recovery period'],
     [{ datePlacedInService: new Date('2025-05-01') }, 'Prior-year'],
     [{ datePlacedInService: new Date('2026-11-01') }, 'mid-quarter'],

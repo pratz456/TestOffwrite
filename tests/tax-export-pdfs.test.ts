@@ -10,7 +10,12 @@ vi.mock('@/lib/subscriptions/feature-access', () => ({ requireFeatureAccess: asy
 vi.mock('@/lib/reports/export-records', async importOriginal => ({ ...await importOriginal<typeof import('@/lib/reports/export-records')>(), readOwnedTransactions: async () => { if (state.fail === 'transactions') throw new Error('private failure'); return state.transactions; } }));
 vi.mock('@/lib/firebase/transactions-server', () => ({ getTransactionsServer: async () => ({ data: state.transactions, error: state.fail === 'transactions' ? new Error('private failure') : null }) }));
 vi.mock('@/lib/firebase/profiles-server', () => ({ getUserProfileServer: async () => ({ data: { name: 'Synthetic Taxpayer', profession: 'Consultant', filing_status: 'single', primary_work_location: 'Home Office' }, error: state.fail === 'profile' ? new Error('private failure') : null }) }));
-vi.mock('@/lib/firebase/settings-server', () => ({ getAssetsSettings: async () => ({ data: state.assets, error: state.fail === 'assets' ? new Error('private failure') : null }) }));
+vi.mock('@/lib/firebase/settings-server', () => ({
+  getAssetsSettings: async () => ({ data: state.assets, error: state.fail === 'assets' ? new Error('private failure') : null }),
+  getScheduleCSettings: async () => state.fail === 'assets'
+    ? { data: null, error: new Error('private failure') }
+    : { data: { assets: state.assets, homeOffice: null, depreciationElections: { deMinimisSafeHarborYears: [] } }, error: null },
+}));
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collection: (name: string) => {
   state.queries.push(name); const filters: [string, unknown][] = [];
   return { where(field: string, _op: string, value: unknown) { filters.push([field, value]); return this; }, limit() { return this; }, get: async () => {
@@ -92,7 +97,11 @@ describe('selected-year SE source and worksheet', () => {
     state.assets = [{ id: 'computer', description: 'Synthetic computer', datePlacedInService: new Date('2026-03-01'), cost: 1000, businessUsePercent: 100, category: 'computer', method: 'MACRS_5YR', section179Requested: false, bonusEligible: false }];
     const data = await loadScheduleSEData('export-owner', 2026);
     expect(data).toMatchObject({ netProfitBeforeDepreciation: 100000, depreciationDeduction: 200, netProfit: 99800 });
+    // First-year, nonlisted, >50% business use in a published year: §179 is calculated within the business-income limit.
     state.assets[0].section179Requested = true;
+    expect(await loadScheduleSEData('export-owner', 2026)).toMatchObject({ depreciationDeduction: 1000, netProfit: 99000 });
+    // Reg. §1.179-1(d): at or under 50% business use the election is unavailable, so the review gate still answers 422.
+    state.assets[0].businessUsePercent = 50;
     expect((await autoSE(new NextRequest('http://localhost/api/tax/schedule-se/auto?year=2026'))).status).toBe(422);
   });
   it('does not calculate false zero when the asset or income lookup fails', async () => {
