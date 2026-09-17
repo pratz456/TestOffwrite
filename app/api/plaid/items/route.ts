@@ -9,7 +9,8 @@ export async function DELETE(request: NextRequest) {
   try { ({ uid } = await getUserFromReqOrThrow(request)); }
   catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
   const result = await disconnectPlaidItem(uid);
-  return NextResponse.json(result.success ? result : { error: result.error?.message || 'Unable to disconnect bank' }, { status: result.success ? 200 : 409 });
+  if (result.success) return NextResponse.json(result);
+  return NextResponse.json({ error: result.error?.message ?? 'Unable to disconnect bank' }, { status: result.error?.status ?? 503 });
 }
 export async function GET(request: NextRequest) {
   let uid: string;

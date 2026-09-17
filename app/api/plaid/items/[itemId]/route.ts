@@ -7,43 +7,35 @@ import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 
 /**
  * DELETE /api/plaid/items/[itemId]
- * Disconnect a Plaid Item and delete all related data
+ * Disconnect one Plaid Item; imported records are retained.
  */
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { itemId: string } }
+  { params }: { params: Promise<{ itemId: string }> }
 ) {
+  let uid: string;
+  try { ({ uid } = await getUserFromReqOrThrow(request)); }
+  catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
   try {
-    console.log('🔄 [Plaid Items API] Starting DELETE request...');
+    const { itemId } = await params;
 
-    let uid: string;
-    try { ({ uid } = await getUserFromReqOrThrow(request)); }
-    catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
-    const { itemId } = params;
-
-    if (!itemId) {
+    if (!itemId || typeof itemId !== 'string' || itemId.length > 256 || /[\/\\\x00-\x1f\x7f]/.test(itemId)) {
       return NextResponse.json(
         { error: 'Item ID is required' },
         { status: 400 }
       );
     }
 
-    console.log(`✅ [Plaid Items API] User authenticated: ${uid}, deleting item: ${itemId}`);
-
     const result = await disconnectPlaidItem(uid, itemId);
 
     if (!result.success) {
       console.error('❌ [Plaid Items API] Failed to disconnect item:', result.error);
       return NextResponse.json(
-        {
-          error: 'Failed to disconnect Plaid item',
-          details: result.error?.message || 'Unknown error'
-        },
-        { status: 500 }
+        { error: result.error?.message ?? 'Unable to disconnect bank' },
+        { status: result.error?.status ?? 503 }
       );
     }
 
-    console.log('✅ [Plaid Items API] Successfully disconnected item');
     return NextResponse.json({
       success: true,
       deletedCounts: result.deletedCounts,
@@ -52,12 +44,8 @@ export async function DELETE(
   } catch (error) {
     console.error('❌ [Plaid Items API] Unexpected error:', error);
     return NextResponse.json(
-      {
-        error: 'Internal server error',
-        details: error instanceof Error ? error.message : 'Unknown error'
-      },
-      { status: 500 }
+      { error: 'Unable to disconnect bank' },
+      { status: 503 }
     );
   }
 }
-

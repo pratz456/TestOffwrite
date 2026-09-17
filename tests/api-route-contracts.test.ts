@@ -85,12 +85,6 @@ const EMPTY_BODY_ACCEPTED: Record<string, Expectation> = {
 interface KnownGap { anonymous?: number[]; mutating?: number[]; throws?: true; leaksDatabaseError?: true; reason: string }
 const KNOWN_GAPS: Record<string, KnownGap> = {
   'POST /api/tax/import-document': { mutating: [500], reason: 'Non-multipart body answers 500; upload lacks size, MIME and signature checks and a rate limit.' },
-  'DELETE /api/plaid/items/[itemId]': { mutating: [500], leaksDatabaseError: true, reason: 'Unknown connection answers 500 and the failure message is echoed.' },
-  'POST /api/plaid/sync-transactions': { mutating: [500], reason: 'A missing bank connection answers 500.' },
-  'POST /api/plaid/transactions': { mutating: [500], reason: 'Legacy alias of POST /api/plaid/sync-transactions.' },
-  'POST /api/stripe/create-portal-session': { mutating: [500], reason: 'A provider failure answers 500 instead of 503.' },
-  'DELETE /api/plaid/items': { leaksDatabaseError: true, reason: 'Disconnect failure message echoed to the caller.' },
-  'DELETE /api/plaid/exchange-token': { leaksDatabaseError: true, reason: 'Legacy alias of DELETE /api/plaid/items.' },
 };
 
 /** Findings in files owned by another branch: reported in docs/API_SECURITY_AUDIT_2026-09-17.md, not asserted here. */

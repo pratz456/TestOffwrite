@@ -13,12 +13,17 @@ export async function POST(req: Request) {
     catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
     console.log('✅ [Plaid Sync] User authenticated:', uid);
 
-    const body = await req.json().catch(() => ({}));
+    const parsed: unknown = await req.json().catch(() => ({}));
+    const body: Record<string, unknown> = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
     // import_timeframe is display-only; the server plan determines the history window.
     const { userId = uid, import_timeframe = '2years', incremental = false, itemId } = body;
 
     if (!userId) {
       return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
+    }
+    if (typeof import_timeframe !== 'string' || import_timeframe.length > 32 || typeof incremental !== 'boolean'
+      || (itemId !== undefined && (typeof itemId !== 'string' || !itemId || itemId.length > 256 || /[\/\\\x00-\x1f\x7f]/.test(itemId)))) {
+      return NextResponse.json({ error: 'Invalid sync options' }, { status: 400 });
     }
 
     // Verify the authenticated user matches the requested userId
@@ -87,10 +92,11 @@ export async function POST(req: Request) {
       });
     } else {
       console.error(`❌ [Plaid Sync] Failed to sync transactions for user ${uid}:`, syncResult.error);
+      // The helper returns owner-facing messages; a missing connection is 404, a provider failure 503.
       return NextResponse.json({
         success: false,
         error: syncResult.error || 'Failed to sync transactions'
-      }, { status: 500 });
+      }, { status: syncResult.error === 'No bank connection found' ? 404 : 503 });
     }
 
   } catch (error) {
@@ -105,6 +111,6 @@ export async function POST(req: Request) {
       });
     }
 
-    return NextResponse.json({ error: 'Failed to sync transactions. Please try again.' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to sync transactions. Please try again.' }, { status: 503 });
   }
 }
