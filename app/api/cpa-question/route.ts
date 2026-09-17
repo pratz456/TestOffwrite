@@ -5,6 +5,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase/admin';
 import { invalidJsonResponse, readJsonObject } from '@/app/api/_lib/body';
+import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 
 export async function POST(request: NextRequest) {
   try {
@@ -36,6 +37,9 @@ export async function POST(request: NextRequest) {
       typeof date !== 'string' || date.length > 64 || typeof category !== 'string' || category.length > 128) {
       return NextResponse.json({ error: 'Invalid question or transaction details' }, { status: 400 });
     }
+
+    const limit = await enforceRateLimit({ ...RATE_LIMITS.cpaQuestion, key: user.uid });
+    if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many questions submitted. Please wait before asking another.' });
 
     // Create CPA question document
     const cpaQuestionData = {

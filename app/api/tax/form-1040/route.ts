@@ -25,6 +25,7 @@ import { PDFDocument, StandardFonts, rgb, PDFFont, PDFPage } from 'pdf-lib';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import { invalidJsonResponse, readJsonObject } from '@/app/api/_lib/body';
+import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 import { adminDb } from '@/lib/firebase/admin';
 import { readTaxExportTransactions } from '@/lib/reports/tax-export-transactions';
 import { ExportReviewRequiredError } from '@/lib/reports/transaction-export';
@@ -349,6 +350,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `Supported tax years: ${SUPPORTED_TAX_YEARS.join(', ')}` }, { status: 400 });
     }
     requestedYear = taxYear;
+
+    const limit = await enforceRateLimit({ ...RATE_LIMITS.reportExport, key: uid });
+    if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many report downloads. Please wait a few minutes and try again.' });
 
     const [txResult, profileResult, grossSnap, income1099Snap, w2Snap, deductionsSnap, quarterlySnap, organizerSnap, settingsResult, reconciliationDecisions] = await Promise.all([
       readTaxExportTransactions(uid, taxYear),

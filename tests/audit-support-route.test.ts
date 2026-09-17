@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest, NextResponse } from 'next/server';
 import { PDFDocument, PDFPage } from 'pdf-lib';
+import { resetRateLimitStore } from './fixtures/rate-limit-store';
 const mock = vi.hoisted(() => ({ uid: 'owner', auth: true, deny: false, gate: vi.fn(), rows: vi.fn(), collections: {} as Record<string, Record<string, unknown>[]>, reads: [] as string[], fail: '' }));
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({ user: mock.auth ? { uid: mock.uid } : null, error: mock.auth ? null : 'Unauthorized' }) }));
+vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
 vi.mock('@/lib/subscriptions/feature-access', () => ({ requireFeatureAccess: async (uid: string, feature: string) => { mock.gate(uid, feature); return mock.deny ? NextResponse.json({ error: 'This feature requires an active trial or Premium subscription.', code: 'SUBSCRIPTION_REQUIRED', feature }, { status: 403 }) : null; } }));
 vi.mock('@/lib/reports/export-records', async importOriginal => ({ ...await importOriginal<typeof import('@/lib/reports/export-records')>(), readOwnedTransactions: (uid: string) => mock.rows(uid) }));
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collection: (path: string) => {
@@ -19,7 +21,7 @@ const request = (query: string) => new NextRequest(`http://localhost/api/reports
 const lodging = { userId: 'owner', trans_id: 'PROVIDER-ID', id: 'doc-1', recordPath: 'user_profiles/owner/accounts/a/transactions/doc-1', exportReference: 'transaction-abc', date: '2026-03-10', amount: 180, iso_currency_code: 'USD',
   merchant_name: 'SYNTHETIC-LODGING', category: 'TRAVEL_LODGING', is_deductible: true, review_status: 'confirmed', review_source: 'user_corrected', reviewed_at: '2026-04-01T12:00:00.000Z', access_token: 'SECRET_TOKEN' };
 beforeEach(() => {
-  vi.clearAllMocks(); vi.restoreAllMocks(); mock.auth = true; mock.deny = false; mock.fail = ''; mock.reads = [];
+  vi.clearAllMocks(); vi.restoreAllMocks(); resetRateLimitStore(); mock.auth = true; mock.deny = false; mock.fail = ''; mock.reads = [];
   mock.rows.mockResolvedValue([lodging, { ...lodging, trans_id: 'other', id: 'doc-2', recordPath: 'user_profiles/owner/accounts/a/transactions/doc-2', exportReference: 'transaction-def', merchant_name: 'UNCONFIRMED-MARKER', review_status: undefined }]);
   mock.collections = { 'user_profiles/owner/mileage_trips': [{ id: 'trip-1', date: '2026-03-10', startLocation: 'Home office', endLocation: 'Client site', miles: 100, roundTrip: true, businessPurpose: 'Client kickoff' }],
     receipts: [{ id: 'receipt-1', userId: 'owner', transactionId: 'PROVIDER-ID', filename: 'hotel.pdf', originalName: 'hotel.pdf', mimeType: 'application/pdf', storagePath: 'receipts/owner/PROVIDER-ID/receipt-1' }] };

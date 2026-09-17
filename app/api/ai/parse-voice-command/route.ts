@@ -5,6 +5,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { getOpenAIClientOrThrow, getOpenAIModel, hasOpenAIAPIKey } from '@/lib/openai/client';
 import { invalidJsonResponse, readJsonObject } from '@/app/api/_lib/body';
+import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 
 interface VoiceCommand {
   type: 'add_expense' | 'add_mileage' | 'question' | 'unknown';
@@ -38,6 +39,8 @@ export async function POST(request: NextRequest) {
     if (!text || typeof text !== 'string' || text.length > 2_000) {
       return NextResponse.json({ error: 'Text is required (at most 2000 characters)' }, { status: 400 });
     }
+    const limit = await enforceRateLimit({ ...RATE_LIMITS.aiVoiceCommand, key: user.uid });
+    if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many voice commands. Please wait a few minutes and try again.' });
     const openai = getOpenAIClientOrThrow();
 
     const systemPrompt = `You are a voice command parser for a tax expense tracking app. Parse the user's spoken text into structured commands.

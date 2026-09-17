@@ -5,6 +5,7 @@ import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { requireFeatureAccess } from '@/lib/subscriptions/feature-access';
 import { auditSupportPacketCSV, generateAuditSupportPDF, readAuditSupportPacket } from '@/lib/reports/audit-support-packet';
 import { exportYear, ExportReviewRequiredError } from '@/lib/reports/transaction-export';
+import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 
 // Audit support records: JSON and CSV stay available to the owner on every plan as part of
 // their records exports; the formatted PDF uses the existing Premium reports gate.
@@ -27,6 +28,8 @@ export async function GET(request: NextRequest) {
     if (parsed === undefined) throw new RangeError();
     year = parsed;
   } catch { return json({ error: 'Provide a four-digit tax year from 2000 through 2100.' }, 400); }
+  const limit = await enforceRateLimit({ ...RATE_LIMITS.reportExport, key: user.uid });
+  if (!limit.allowed) return rateLimitResponse(limit, { headers, error: 'Too many record downloads. Please wait a few minutes and try again.' });
   try {
     const packet = await readAuditSupportPacket(user.uid, year);
     if (format === 'json') return json(packet);

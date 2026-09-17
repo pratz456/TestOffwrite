@@ -81,6 +81,16 @@ export const RATE_LIMITS = {
   receiptProcess: { scope: 'receipt.process', limit: 60, windowMs: 10 * 60_000, onUnavailable: 'deny' },
   /** W-2 / 1099 / platform-summary photo extraction: one vision-model call per upload. */
   taxDocumentImport: { scope: 'tax.import-document', limit: 30, windowMs: 10 * 60_000, onUnavailable: 'deny' },
+  /** Bank statement / receipt photo import: up to two vision-model calls per upload. */
+  taxStatementImport: { scope: 'tax.import-statement', limit: 30, windowMs: 10 * 60_000, onUnavailable: 'deny' },
+  aiVoiceCommand: { scope: 'ai.voice-command', limit: 60, windowMs: 10 * 60_000, onUnavailable: 'deny' },
+  aiTaxAssistant: { scope: 'ai.tax-assistant', limit: 30, windowMs: 10 * 60_000, onUnavailable: 'deny' },
+  /** Each question writes a support record and sends a team email. */
+  cpaQuestion: { scope: 'cpa.question', limit: 10, windowMs: 60 * 60_000, onUnavailable: 'deny' },
+  /** Preparer PDFs, CSVs and audit packets each read the owner's full transaction history. */
+  reportExport: { scope: 'report.export', limit: 30, windowMs: 10 * 60_000, onUnavailable: 'deny' },
+  /** Bank sync, balance and recurring pulls call Plaid once per connection. */
+  plaidSync: { scope: 'plaid.sync', limit: 20, windowMs: 10 * 60_000, onUnavailable: 'deny' },
   aiAnalyzeTransaction: { scope: 'ai.analyze-transaction', limit: 60, windowMs: 60 * 60_000, onUnavailable: 'deny' },
   /** Completed archives; a failed attempt is refunded so recovery is not locked out. */
   userExport: { scope: 'user.export', limit: 1, windowMs: 60 * 60_000, onUnavailable: 'deny' },

@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
+import { resetRateLimitStore } from './fixtures/rate-limit-store';
 
 const mocks = vi.hoisted(() => ({ authenticate: vi.fn(), create: vi.fn(), constructor: vi.fn(), collection: vi.fn() }));
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: mocks.authenticate }));
+vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collection: mocks.collection } }));
 vi.mock('openai', () => ({ default: function MockOpenAI(options: unknown) {
   mocks.constructor(options); return { chat: { completions: { create: mocks.create } } };
@@ -27,7 +29,7 @@ const routes = [
   { name: 'bank autodetection', handler: bank, request: () => upload({ docType: 'auto', year: '2026' }), model: 'gpt-4o', content: { detectedType: 'w2', confidence: 'high' } },
 ];
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.clearAllMocks(); resetRateLimitStore();
   vi.stubEnv('OPENAI_API_KEY', '  synthetic-shared-server-key  ');
   vi.stubEnv('OPENAI_MODEL', '');
   mocks.authenticate.mockResolvedValue({ user: { uid: 'synthetic-route-user' }, error: null });

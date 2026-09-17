@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { syncUserTransactions, syncUserTransactionsIncremental } from '../../../../lib/plaid/sync-helper';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import { adminDb } from '@/lib/firebase/admin';
+import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 
 export async function POST(req: Request) {
   try {
@@ -31,6 +32,9 @@ export async function POST(req: Request) {
       console.error('❌ [Plaid Sync] User ID mismatch:', { uid, userId });
       return NextResponse.json({ error: 'Unauthorized access to user data' }, { status: 403 });
     }
+
+    const limit = await enforceRateLimit({ ...RATE_LIMITS.plaidSync, key: uid });
+    if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many bank syncs. Please wait a few minutes and try again.' });
 
     // Full sync: check/set import lock; incremental does not set lock
     if (!incremental) {

@@ -13,6 +13,7 @@ import { generateScheduleCCSV } from '@/lib/reports/schedule-c-csv';
 import { generateScheduleCPlanningPDF } from '@/lib/reports/schedule-c-pdf';
 import { readIncomeReconciliationDecisions } from '@/lib/firebase/income-reconciliations-server';
 import { incomeReconciliationReviewBody } from '@/lib/tax-rules/income-reconciliation-response';
+import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -27,6 +28,8 @@ export async function POST(request: NextRequest) {
   try { getFederalTaxRules(year); } catch { return NextResponse.json({ error: `Supported tax years: ${SUPPORTED_TAX_YEARS.join(', ')}` }, { status: 400 }); }
   if (body.format !== undefined && body.format !== 'csv' && body.format !== 'pdf') return NextResponse.json({ error: 'format must be csv or pdf' }, { status: 400 });
   if (body.includeAppendix !== undefined && typeof body.includeAppendix !== 'boolean') return NextResponse.json({ error: 'includeAppendix must be true or false' }, { status: 400 });
+  const limit = await enforceRateLimit({ ...RATE_LIMITS.reportExport, key: user.uid });
+  if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many report downloads. Please wait a few minutes and try again.' });
   try {
     const query = (name: string) => adminDb.collection(name).where('userId', '==', user.uid).where('taxYear', '==', year);
     const [tx, profile, orgSnap, gross, forms, decisions] = await Promise.all([

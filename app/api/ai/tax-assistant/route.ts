@@ -3,6 +3,7 @@ import { getOpenAIClientOrThrow, getOpenAIModel, hasOpenAIAPIKey } from '@/lib/o
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { assistantRequestSchema, isSupportedImage, readAssistantBody } from '@/lib/tax-assistant/contract';
 import { buildGuidanceMessages, guidanceResponse, validateAssessment } from '@/lib/tax-assistant/guidance';
+import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -23,6 +24,8 @@ export async function POST(request: NextRequest) {
   if (input.imageDataUrl && !isSupportedImage(input.imageDataUrl)) {
     return NextResponse.json({ error: 'Attach a valid JPEG, PNG, or WebP photo under 2 MB.' }, { status: 400 });
   }
+  const limit = await enforceRateLimit({ ...RATE_LIMITS.aiTaxAssistant, key: user.uid });
+  if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many assistant requests. Please wait a few minutes and try again.' });
   if (!hasOpenAIAPIKey()) {
     return NextResponse.json({ error: 'The tax assistant is not configured yet. Your question has not been sent for analysis.' }, { status: 503 });
   }

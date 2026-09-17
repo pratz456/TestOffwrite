@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { PDFDocument, PDFPage } from 'pdf-lib';
+import { resetRateLimitStore } from './fixtures/rate-limit-store';
 
 // Real organizer persistence handler, federal snapshot, calculation, PDF and
 // quarterly routes. Only auth, entitlement and Firestore transport are synthetic.
@@ -12,6 +13,7 @@ const state = vi.hoisted(() => ({
 }));
 vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: vi.fn() }));
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({ user: { uid: 'tier1-owner' } }) }));
+vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
 vi.mock('@/lib/subscriptions/feature-access', () => ({ requireFeatureAccess: async () => null }));
 vi.mock('@/lib/reports/export-records', async importOriginal => ({ ...await importOriginal<typeof import('@/lib/reports/export-records')>(), readOwnedTransactions: async () => state.tx }));
 vi.mock('@/lib/firebase/transactions-server', () => ({ getTransactionsServer: async () => ({ data: state.tx, error: null }) }));
@@ -79,7 +81,7 @@ function text(node: any): string { return Array.isArray(node) ? node.map(text).j
 function walk(node: any): any[] { return Array.isArray(node) ? node.flatMap(walk) : node && typeof node === 'object' ? [node, ...walk(node.props?.children)] : []; }
 
 beforeEach(() => {
-  vi.restoreAllMocks(); state.records = {}; state.profile = { filing_status: 'single' }; state.tx = []; state.calculations = [];
+  vi.restoreAllMocks(); resetRateLimitStore(); state.records = {}; state.profile = { filing_status: 'single' }; state.tx = []; state.calculations = [];
   state.records.w2_income = [{ userId: 'tier1-owner', taxYear: 2026, wages: 60000, federalWithheld: 0, socialSecurityWages: 60000, medicareWages: 60000 }];
 });
 
