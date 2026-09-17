@@ -27,6 +27,9 @@ import { toast } from 'sonner';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { Badge } from '@/components/ui/badge';
 import { canUseSubscriptionFeature } from '@/lib/subscriptions/client-status';
+import { homeOfficeReviewReasons, SIMPLIFIED_MAX_SQFT, SIMPLIFIED_RATE_PER_SQFT, type HomeOfficeSettings } from '@/lib/reports/calc8829';
+import { DE_MINIMIS_SAFE_HARBOR_LIMIT } from '@/lib/reports/calc4562';
+import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
 
 // Payment Settings Tab Component
 export const PaymentSettingsTab: React.FC<{ beforeNavigate: (action: () => void) => void }> = ({ beforeNavigate }) => {
@@ -420,6 +423,257 @@ const SettingsSection = ({ title, summary, icon: Icon, children, defaultOpen = f
     <div className="space-y-4 border-t border-border px-4 py-4">{children}</div>
   </details>
 );
+
+type HomeOfficeFacts = Partial<HomeOfficeSettings>;
+const YES_NO_OPTIONS = [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }];
+const HOME_OFFICE_METHOD_OPTIONS = [
+  { value: 'simplified', label: 'Simplified: $5 per sq ft, up to 300 sq ft' },
+  { value: 'actual', label: 'Actual expenses (Form 8829) - preparer review' },
+];
+const EXCLUSIVE_USE_EXCEPTION_OPTIONS = [
+  { value: 'none', label: 'No exception - the area is also used personally' },
+  { value: 'daycare', label: 'Licensed daycare facility (needs review)' },
+  { value: 'inventory_storage', label: 'Inventory or product-sample storage (needs review)' },
+];
+const QUALIFYING_USE_OPTIONS = [
+  { value: 'principal_place_of_business', label: 'Principal place of business (including admin work with no other fixed location)' },
+  { value: 'meet_clients', label: 'Where I meet patients, clients or customers in person' },
+  { value: 'separate_structure', label: 'Separate structure not attached to my home' },
+  { value: 'none', label: 'None of these' },
+];
+const HOUSING_TYPE_OPTIONS = [{ value: 'rented', label: 'Rented' }, { value: 'owned', label: 'Owned' }];
+const MONTHS_USED_OPTIONS = Array.from({ length: 13 }, (_, months) => ({ value: String(months), label: months === 12 ? '12 (all year)' : months === 0 ? '0 (no qualified use)' : String(months) }));
+const homeOfficeFactsStarted = (facts: HomeOfficeFacts) =>
+  Boolean(facts.method || facts.regularUse || facts.exclusiveUse || facts.qualifyingUse || facts.housingType || (facts.monthsUsed ?? null) !== null || facts.officeSqFt || facts.totalHomeSqFt);
+const homeOfficeSummary = (facts: HomeOfficeFacts | null, reasons: string[]) => {
+  if (!facts || !homeOfficeFactsStarted(facts)) return 'Eligibility facts, square footage & method';
+  const method = facts.method === 'simplified' ? 'Simplified' : facts.method === 'actual' ? 'Actual expenses (review)' : 'No method chosen';
+  const area = facts.officeSqFt ? ` · ${facts.officeSqFt} sq ft` : '';
+  return `${method}${area} · ${reasons.length ? `${reasons.length} question${reasons.length === 1 ? '' : 's'} left` : 'facts complete'}`;
+};
+
+/**
+ * Publication 587 / Rev. Proc. 2013-13 facts stored in settings/homeOffice. Each question keeps
+ * "Not answered" separate from "No": an unanswered fact leaves the estimate in review, while a
+ * "No" is an eligibility result ($0). Square footage and method are mirrored to the legacy
+ * profile fields so AI analysis context and older readers stay consistent.
+ */
+export const HomeOfficeFactsSection = ({ userId, onLegacyChange }: {
+  userId: string;
+  onLegacyChange: (changes: { home_office_sqft?: number; total_home_sqft?: number; home_office_method?: string }) => void;
+}) => {
+  const [facts, setFacts] = useState<HomeOfficeFacts | null>(null);
+  const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [saveError, setSaveError] = useState('');
+  const [attempt, setAttempt] = useState(0);
+  const pending = useRef<HomeOfficeFacts>({});
+  const timer = useRef<ReturnType<typeof setTimeout>>();
+  const owner = useRef(userId);
+  owner.current = userId;
+
+  useEffect(() => {
+    let current = true;
+    setLoadState('loading'); setFacts(null); pending.current = {};
+    (async () => {
+      try {
+        const response = await makeAuthenticatedRequest('/api/settings/home-office');
+        const result = await response.json().catch(() => ({}));
+        if (!current) return;
+        if (!response.ok) throw new Error('load failed');
+        setFacts((result.data as HomeOfficeFacts | null) ?? {});
+        setLoadState('ready');
+      } catch {
+        if (current) setLoadState('error');
+      }
+    })();
+    return () => { current = false; if (timer.current) clearTimeout(timer.current); };
+  }, [userId, attempt]);
+
+  const flush = useCallback(async () => {
+    const uid = owner.current;
+    const patch = pending.current;
+    pending.current = {};
+    if (!Object.keys(patch).length) return;
+    setSaveState('saving'); setSaveError('');
+    try {
+      const response = await makeAuthenticatedRequest('/api/settings/home-office', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
+      const result = await response.json().catch(() => ({}));
+      if (owner.current !== uid) return;
+      if (!response.ok) throw new Error(typeof result.error === 'string' ? result.error : 'Home office facts could not be saved.');
+      // Server-normalized facts win, except for edits typed while the request was in flight.
+      if (result.data) setFacts({ ...(result.data as HomeOfficeFacts), ...pending.current });
+      setSaveState('saved');
+    } catch (error) {
+      if (owner.current !== uid) return;
+      pending.current = { ...patch, ...pending.current };
+      setSaveState('error'); setSaveError(error instanceof Error ? error.message : 'Home office facts could not be saved.');
+    }
+  }, []);
+
+  const change = useCallback((patch: HomeOfficeFacts) => {
+    setFacts(previous => ({ ...(previous ?? {}), ...patch }));
+    pending.current = { ...pending.current, ...patch };
+    setSaveState('idle');
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => { void flush(); }, 1200);
+  }, [flush]);
+
+  const reasons = facts ? homeOfficeReviewReasons({ ...facts, method: facts.method ?? null }) : [];
+  const started = facts ? homeOfficeFactsStarted(facts) : false;
+  const ineligible = facts && !reasons.length && (facts.regularUse === 'no' || facts.exclusiveUse === 'no' || facts.qualifyingUse === 'none' || facts.monthsUsed === 0);
+  const optionValue = (value: unknown) => typeof value === 'string' ? value : typeof value === 'number' ? String(value) : '';
+
+  return (
+    <SettingsSection title="Home Office Deduction" icon={Home} summary={homeOfficeSummary(facts, reasons)}>
+      {loadState === 'loading' && <p className="text-xs text-muted-foreground" role="status">Loading saved home office facts…</p>}
+      {loadState === 'error' && (
+        <div role="alert" className="space-y-2 rounded-lg border p-3 text-sm">
+          <p>Saved home office facts could not be loaded.</p>
+          <Button size="sm" variant="outline" className="min-h-11" onClick={() => setAttempt(count => count + 1)}>Retry</Button>
+        </div>
+      )}
+      {loadState === 'ready' && facts && (
+        <>
+          <p className="text-xs text-muted-foreground">
+            Answer each question as it applies to {SUPPORTED_TAX_YEARS[SUPPORTED_TAX_YEARS.length - 1]}. Leaving a question unanswered keeps the estimate in review; answering “No” records that the area does not qualify. Planning estimate only (IRS Publication 587).
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <SettingsField label="Deduction method" hint={`Simplified: $${SIMPLIFIED_RATE_PER_SQFT}/sq ft up to ${SIMPLIFIED_MAX_SQFT} sq ft, no home depreciation, no carryover.`}>
+              <SimpleSelectWrapper value={optionValue(facts.method)} placeholder="Not chosen" options={HOME_OFFICE_METHOD_OPTIONS}
+                onValueChange={value => { change({ method: (value || null) as HomeOfficeFacts['method'] }); onLegacyChange({ home_office_method: value }); }} />
+            </SettingsField>
+            <SettingsField label="Home is rented or owned" hint="Owned homes keep mortgage interest and real estate taxes on Schedule A under the simplified method.">
+              <SimpleSelectWrapper value={optionValue(facts.housingType)} placeholder="Not answered" options={HOUSING_TYPE_OPTIONS}
+                onValueChange={value => change({ housingType: (value || null) as HomeOfficeFacts['housingType'] })} />
+            </SettingsField>
+            <SettingsField label="Regular business use of a specific area?" hint="Occasional or incidental use does not count.">
+              <SimpleSelectWrapper value={optionValue(facts.regularUse)} placeholder="Not answered" options={YES_NO_OPTIONS}
+                onValueChange={value => change({ regularUse: (value || null) as HomeOfficeFacts['regularUse'] })} />
+            </SettingsField>
+            <SettingsField label="Used exclusively for business (no personal use)?" hint="The area does not need to be a whole room, but it cannot double as personal space.">
+              <SimpleSelectWrapper value={optionValue(facts.exclusiveUse)} placeholder="Not answered" options={YES_NO_OPTIONS}
+                onValueChange={value => change({ exclusiveUse: (value || null) as HomeOfficeFacts['exclusiveUse'], ...(value === 'yes' ? { exclusiveUseException: null } : {}) })} />
+            </SettingsField>
+            {facts.exclusiveUse === 'no' && (
+              <SettingsField label="Exception to exclusive use" hint="Only licensed daycare and inventory/product-sample storage relax the exclusive-use test (§280A(c)(2), (c)(4)).">
+                <SimpleSelectWrapper value={optionValue(facts.exclusiveUseException)} placeholder="Not answered" options={EXCLUSIVE_USE_EXCEPTION_OPTIONS}
+                  onValueChange={value => change({ exclusiveUseException: (value || null) as HomeOfficeFacts['exclusiveUseException'] })} />
+              </SettingsField>
+            )}
+            <SettingsField label="How the area qualifies" hint="Principal place of business, a place you meet clients, or a separate structure (§280A(c)(1)).">
+              <SimpleSelectWrapper value={optionValue(facts.qualifyingUse)} placeholder="Not answered" options={QUALIFYING_USE_OPTIONS}
+                onValueChange={value => change({ qualifyingUse: (value || null) as HomeOfficeFacts['qualifyingUse'] })} />
+            </SettingsField>
+            <SettingsField label="Months used for business this year" hint="Count a month with at least 15 days of qualified use.">
+              <SimpleSelectWrapper value={optionValue(facts.monthsUsed)} placeholder="Not answered" options={MONTHS_USED_OPTIONS}
+                onValueChange={value => change({ monthsUsed: value === '' ? null : Number(value) })} />
+            </SettingsField>
+            <SettingsField label="Office area (sq ft)" hint={`Only ${SIMPLIFIED_MAX_SQFT} sq ft count under the simplified method.`}>
+              <Input type="number" min={0} inputMode="numeric" value={facts.officeSqFt || ''} placeholder="0" className="h-11 text-base rounded-lg border-border bg-background"
+                onChange={e => { const sqft = e.target.value ? Number(e.target.value) : 0; change({ officeSqFt: sqft }); onLegacyChange({ home_office_sqft: sqft || undefined }); }} />
+            </SettingsField>
+            <SettingsField label="Total home area (sq ft)" hint="Schedule C line 30 reports both areas.">
+              <Input type="number" min={0} inputMode="numeric" value={facts.totalHomeSqFt || ''} placeholder="0" className="h-11 text-base rounded-lg border-border bg-background"
+                onChange={e => { const sqft = e.target.value ? Number(e.target.value) : 0; change({ totalHomeSqFt: sqft }); onLegacyChange({ total_home_sqft: sqft || undefined }); }} />
+            </SettingsField>
+          </div>
+          <div role="status" aria-live="polite" className="text-xs text-muted-foreground">
+            {saveState === 'saving' && 'Saving home office facts…'}
+            {saveState === 'saved' && 'Home office facts saved.'}
+            {saveState === 'error' && <span role="alert" className="text-red-700 dark:text-red-300">{saveError} <button type="button" className="underline" onClick={() => void flush()}>Retry</button></span>}
+          </div>
+          {started && reasons.length > 0 && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-200">
+              <p className="font-medium">Before a home office amount is included in your estimate:</p>
+              <ul className="mt-1 list-disc space-y-1 pl-4">{reasons.map(reason => <li key={reason}>{reason}</li>)}</ul>
+            </div>
+          )}
+          {started && !reasons.length && (
+            <p className="rounded-lg border p-3 text-xs">
+              {ineligible
+                ? 'Your answers indicate the area does not qualify under §280A(c)(1), so $0 is included. Change an answer if it was recorded incorrectly.'
+                : `Facts complete. The estimate uses $${SIMPLIFIED_RATE_PER_SQFT} × the smaller of ${facts.officeSqFt} sq ft or ${SIMPLIFIED_MAX_SQFT} sq ft × ${facts.monthsUsed}/12 months, limited to your business income (Rev. Proc. 2013-13). No Form 8829 is filed under the simplified method.`}
+            </p>
+          )}
+          {!started && <p className="text-xs text-muted-foreground">No home office deduction is included until you choose a method and answer these questions.</p>}
+        </>
+      )}
+    </SettingsSection>
+  );
+};
+
+/**
+ * Reg. §1.263(a)-1(f) de minimis safe harbor: an annual election made by statement on a timely
+ * filed original return, not an asset attribute. Stored in settings/depreciation per tax year.
+ */
+export const DeMinimisElectionSection = ({ userId }: { userId: string }) => {
+  const [years, setYears] = useState<number[] | null>(null);
+  const [state, setState] = useState<'loading' | 'ready' | 'error' | 'saving'>('loading');
+  const [attempt, setAttempt] = useState(0);
+  const owner = useRef(userId);
+  owner.current = userId;
+  useEffect(() => {
+    let current = true;
+    setState('loading'); setYears(null);
+    (async () => {
+      try {
+        const response = await makeAuthenticatedRequest('/api/settings/depreciation');
+        const result = await response.json().catch(() => ({}));
+        if (!current) return;
+        if (!response.ok || !Array.isArray(result.data?.deMinimisSafeHarborYears)) throw new Error('load failed');
+        setYears(result.data.deMinimisSafeHarborYears as number[]);
+        setState('ready');
+      } catch { if (current) setState('error'); }
+    })();
+    return () => { current = false; };
+  }, [userId, attempt]);
+  const toggle = async (year: number, elected: boolean) => {
+    if (!years || state !== 'ready') return;
+    const uid = owner.current;
+    const next = elected ? [...new Set([...years, year])].sort() : years.filter(item => item !== year);
+    setYears(next); setState('saving');
+    try {
+      const response = await makeAuthenticatedRequest('/api/settings/depreciation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deMinimisSafeHarborYears: next }) });
+      const result = await response.json().catch(() => ({}));
+      if (owner.current !== uid) return;
+      if (!response.ok || !Array.isArray(result.data?.deMinimisSafeHarborYears)) throw new Error('save failed');
+      setYears(result.data.deMinimisSafeHarborYears as number[]); setState('ready');
+    } catch {
+      if (owner.current !== uid) return;
+      setYears(years); setState('ready'); toast.error('The de minimis election could not be saved. Please try again.');
+    }
+  };
+  const summary = years?.length ? `Elected for ${years.join(', ')}` : 'De minimis safe harbor election by year';
+  return (
+    <SettingsSection title="Asset expensing election" icon={Landmark} summary={summary}>
+      {state === 'loading' && <p className="text-xs text-muted-foreground" role="status">Loading saved elections…</p>}
+      {state === 'error' && (
+        <div role="alert" className="space-y-2 rounded-lg border p-3 text-sm">
+          <p>Saved elections could not be loaded.</p>
+          <Button size="sm" variant="outline" className="min-h-11" onClick={() => setAttempt(count => count + 1)}>Retry</Button>
+        </div>
+      )}
+      {years && state !== 'loading' && state !== 'error' && (
+        <fieldset className="space-y-2">
+          <legend className="text-xs text-muted-foreground">
+            Items costing ${DE_MINIMIS_SAFE_HARBOR_LIMIT.toLocaleString('en-US')} or less per invoice or item are deducted as current expenses instead of depreciated when you make this election for the year (Reg. §1.263(a)-1(f), no applicable financial statement). It applies to all qualifying purchases that year and must be attached as a statement to a timely filed original return.
+          </legend>
+          {[...SUPPORTED_TAX_YEARS].reverse().map(year => {
+            const id = `de-minimis-${year}`;
+            return (
+              <label key={year} htmlFor={id} className="flex min-h-11 items-start gap-3 text-sm">
+                <input id={id} type="checkbox" className="mt-1 h-4 w-4" checked={years.includes(year)} disabled={state === 'saving'} onChange={event => void toggle(year, event.target.checked)} />
+                <span>I elect the de minimis safe harbor on my timely filed {year} return.</span>
+              </label>
+            );
+          })}
+          <p className="text-xs text-muted-foreground">Do not also deduct the purchase transaction for an expensed item. Assets above the limit stay on the Form 4562 worksheet (Section 179 or MACRS).</p>
+        </fieldset>
+      )}
+    </SettingsSection>
+  );
+};
 
 interface SettingsScreenProps {
   user: {
@@ -1208,40 +1462,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         {/* ============= TAB 2: Tax Settings ============= */}
         {activeTab === 'tax' && (
           <div id="settings-tax" className="space-y-3">
-            {/* Home Office Deduction */}
-            <SettingsSection title="Home Office Deduction" icon={Home} summary={profile.home_office_method ? `${profile.home_office_method === 'simplified' ? 'Simplified' : 'Actual expenses'}${profile.home_office_sqft !== undefined ? ` · ${profile.home_office_sqft} sq ft` : ''}` : 'Space & deduction method'}>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <SettingsField label="Home Office Sqft">
-                  <Input
-                    type="number"
-                    value={profile.home_office_sqft ?? ''}
-                    onChange={(e) => handleProfileChange({ home_office_sqft: e.target.value ? Number(e.target.value) : undefined })}
-                    placeholder="0"
-                    className="h-11 text-base rounded-lg border-border bg-background"
-                  />
-                </SettingsField>
-                <SettingsField label="Total Home Sqft">
-                  <Input
-                    type="number"
-                    value={profile.total_home_sqft ?? ''}
-                    onChange={(e) => handleProfileChange({ total_home_sqft: e.target.value ? Number(e.target.value) : undefined })}
-                    placeholder="0"
-                    className="h-11 text-base rounded-lg border-border bg-background"
-                  />
-                </SettingsField>
-                <SettingsField label="Home Office Method">
-                  <SimpleSelectWrapper
-                    value={profile.home_office_method}
-                    onValueChange={(value) => handleProfileChange({ home_office_method: value })}
-                    placeholder="Select method"
-                    options={[
-                      { value: 'simplified', label: 'Simplified $5/sqft' },
-                      { value: 'actual', label: 'Actual Expenses' }
-                    ]}
-                  />
-                </SettingsField>
-              </div>
-            </SettingsSection>
+            {/* Home Office Deduction: facts live in settings/homeOffice; legacy profile fields are mirrored. */}
+            <HomeOfficeFactsSection userId={user.id} onLegacyChange={handleProfileChange} />
+
+            {/* De minimis safe harbor election (settings/depreciation) */}
+            <DeMinimisElectionSection userId={user.id} />
 
             {/* Vehicle Deduction */}
             <SettingsSection title="Vehicle Deduction" icon={Car} summary={profile.vehicle_deduction_method ? `${profile.vehicle_deduction_method === 'standard_mileage' ? 'Standard mileage' : 'Actual expense'}${profile.vehicle_business_use_percentage !== undefined ? ` · ${profile.vehicle_business_use_percentage}% business` : ''}` : 'Business use & deduction method'}>

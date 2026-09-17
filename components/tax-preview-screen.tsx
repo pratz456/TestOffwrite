@@ -104,6 +104,8 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
               <Button className="mt-3 min-h-11" variant="outline" onClick={() => onNavigate('tax-organizer')}>Review Tax Organizer</Button>}
             {onNavigate && reviewCode === 'FILING_STATUS_REVIEW_REQUIRED' &&
               <Button className="mt-3 min-h-11" variant="outline" onClick={() => onNavigate('settings')}>Review profile</Button>}
+            {onNavigate && reviewCode === 'HOME_OFFICE_REVIEW_REQUIRED' &&
+              <Button className="mt-3 min-h-11" variant="outline" onClick={() => onNavigate('settings')}>Review home office settings</Button>}
             {onNavigate && reviewCode === 'INCOME_RECONCILIATION_REQUIRED' &&
               <Button className="mt-3 min-h-11" variant="outline" onClick={() => onNavigate('income-tracking')}>Review income sources</Button>}
             <Button className="mt-2 min-h-11" variant="ghost" onClick={load}>Retry estimate</Button>

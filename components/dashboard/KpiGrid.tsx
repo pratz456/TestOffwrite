@@ -19,14 +19,14 @@ export function KpiGrid({ state, taxYear, onRetry, onReview }: KpiGridProps) {
     return <div role="status" aria-live="polite" className="rounded-xl border p-4 text-sm">Loading your {taxYear} federal estimate…</div>;
   }
   if (state.status !== 'ready') {
-    const target = state.code === 'FILING_STATUS_REVIEW_REQUIRED' ? 'settings'
+    const target = ['FILING_STATUS_REVIEW_REQUIRED', 'HOME_OFFICE_REVIEW_REQUIRED'].includes(state.code ?? '') ? 'settings'
       : ['SOCIAL_SECURITY_REVIEW_REQUIRED', 'PERSONAL_DEDUCTION_REVIEW_REQUIRED', 'DEPENDENT_CREDIT_REVIEW_REQUIRED'].includes(state.code ?? '') ? 'tax-organizer'
       : state.code === 'INCOME_RECONCILIATION_REQUIRED' ? 'income-tracking' : 'tax-preview';
     return <div role="alert" className="rounded-xl border p-4 text-sm">
       <h2 className="font-medium">{taxYear} federal estimate {state.status === 'review' ? 'needs review' : 'unavailable'}</h2>
       <p className="mt-1">{state.message}</p>
       <div className="mt-2 flex flex-wrap gap-x-4">
-        {state.status === 'review' && <button className="min-h-[44px] underline underline-offset-4" onClick={() => onReview(target)}>{target === 'settings' ? 'Review profile' : target === 'income-tracking' ? 'Review income sources' : state.code === 'PERSONAL_DEDUCTION_REVIEW_REQUIRED' ? 'Review personal deductions' : state.code === 'DEPENDENT_CREDIT_REVIEW_REQUIRED' ? 'Review dependent eligibility' : target === 'tax-organizer' ? 'Review Social Security records' : 'Review tax inputs'}</button>}
+        {state.status === 'review' && <button className="min-h-[44px] underline underline-offset-4" onClick={() => onReview(target)}>{state.code === 'HOME_OFFICE_REVIEW_REQUIRED' ? 'Review home office settings' : target === 'settings' ? 'Review profile' : target === 'income-tracking' ? 'Review income sources' : state.code === 'PERSONAL_DEDUCTION_REVIEW_REQUIRED' ? 'Review personal deductions' : state.code === 'DEPENDENT_CREDIT_REVIEW_REQUIRED' ? 'Review dependent eligibility' : target === 'tax-organizer' ? 'Review Social Security records' : 'Review tax inputs'}</button>}
         <button className="min-h-[44px] underline underline-offset-4" onClick={onRetry}>Retry estimate</button>
       </div>
     </div>;
