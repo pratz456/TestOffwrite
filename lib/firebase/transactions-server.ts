@@ -238,7 +238,11 @@ export interface TransactionsResult {
 export const MAX_TRANSACTIONS_PAGE_SIZE = 500;
 
 /** Fields the normalizer and dedupe key rely on; always projected. */
-const PROJECTION_IDENTITY_FIELDS = ['trans_id', 'account_id', 'accountId', 'userId', 'user_id', 'date', 'created_at', 'updated_at', 'amount'];
+// Record-scope fields (superseded_by, pending, bank_removed) travel with every projection: the
+// in-reader superseded filter and the callers' countable checks read them, and a select() that
+// omitted them would silently let excluded rows back into totals.
+const PROJECTION_IDENTITY_FIELDS = ['trans_id', 'account_id', 'accountId', 'userId', 'user_id', 'date', 'created_at', 'updated_at', 'amount',
+  'superseded_by', 'pending', 'bank_removed'];
 
 interface TransactionsCursor { date: string; path: string }
 
