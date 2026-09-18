@@ -259,6 +259,32 @@ describe('red team: findings from live evaluation round 2 (category "other" bypa
     const stapler = ground({ category: 'supplies_small_tools' }, { merchant: 'STAPLES', amount_usd: 120, business_purpose: 'Desk chair mat and stapler for the office' });
     expect(stapler).toMatchObject({ status: 'ok', is_deductible: true });
   });
+  it('the $200–$2,500 asset gate reads the saved words and the descriptor, not the model restating the category (live round 4)', () => {
+    const handyman = { ...SOLE_PROPRIETOR, profession: ['Handyman'] };
+    const materials = { merchant: 'THE HOME DEPOT #0652', amount_usd: 312, business_purpose: 'Lumber and fasteners for the Nguyen deck repair job' };
+    const restated = ground({ category: 'supplies_small_tools', customized_reason: 'Lumber and fasteners for a customer job are supplies and small tools; a durable tool would be an asset.' }, materials, handyman);
+    expect(restated).toMatchObject({ status: 'ok', is_deductible: true, category: 'supplies_small_tools', deductible_percent: 100 });
+    // A specific item named only by the model still earns the question.
+    const namedItem = ground({ category: 'supplies_small_tools', customized_reason: 'The compound miter saw and laptop bought for the job are business tools.' }, { ...materials, business_purpose: 'Stuff for the Nguyen job' }, handyman);
+    unresolved(namedItem); expect(namedItem!.missing_fields).toEqual(['asset_treatment']);
+    // The taxpayer's own words still decide below the de minimis ceiling.
+    const ownWords = ground({ category: 'supplies_small_tools', customized_reason: 'Job materials.' }, { ...materials, business_purpose: 'Cordless drill and power tools for the shop' }, handyman);
+    unresolved(ownWords); expect(ownWords!.missing_fields).toEqual(['asset_treatment']);
+  });
+  it('an ok denial that still asks the taxpayer a question becomes review, never a settled non-deduction (live round 4)', () => {
+    const fuel = ground({ category: 'vehicle_expense', is_deductible: false, expense_type: 'business', deductible_percent: 0,
+      questions: ['Are you using the standard mileage rate or actual vehicle expenses for this car?'] },
+      { merchant: 'CHEVRON 0209', amount_usd: 58, business_purpose: 'Gas for a full day of Uber driving' }, { ...SOLE_PROPRIETOR, profession: ['Rideshare driver'] });
+    unresolved(fuel);
+    expect(fuel).toMatchObject({ status: 'needs_more_info', missing_fields: ['expense_review'], questions: ['Are you using the standard mileage rate or actual vehicle expenses for this car?'] });
+    expect(fuel!.is_deductible).toBeUndefined(); expect(fuel!.deductible_percent).toBeUndefined();
+    // With no saved purpose the open fact is the purpose itself, so the one-tap proposal path applies.
+    const noPurpose = ground({ category: 'supplies_small_tools', is_deductible: false, expense_type: 'business', deductible_percent: 0, questions: ['What did you buy at Staples?'] }, { merchant: 'STAPLES', amount_usd: 42, business_purpose: undefined, note: undefined, notes: undefined });
+    unresolved(noPurpose); expect(noPurpose!.missing_fields).toEqual(['business_purpose']);
+    // A settled denial with no question stays a denial (Rule 4 personal-by-nature answers are unaffected).
+    const settled = ground({ category: 'other', is_deductible: false, expense_type: 'business', deductible_percent: 0, questions: [] }, { merchant: 'NELNET STUDENT LOAN', amount_usd: 310, business_purpose: 'Student loan payment for my design degree' });
+    expect(settled).toMatchObject({ status: 'ok', is_deductible: false, deductible_percent: 0 });
+  });
 });
 
 describe('red team: empty evidence on blocked answers keeps the block instead of failing the analysis', () => {

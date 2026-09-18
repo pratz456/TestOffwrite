@@ -262,6 +262,12 @@ const UNCONDITIONAL_CLAIM = /\b(?:(?:is|are|it's|its|was|were|be|being|been|beco
 /** The taxpayer's own note saying an item was personal outranks any merchant or profession prior. */
 const EXPLICIT_PERSONAL_NOTE = /\b(?:personal (?:use|expense|purchase|item|trip|dinner|meal|coffee|ride|subscription|only)|not (?:for )?(?:the )?business|non-?business|not deductible|not a business expense|family (?:dinner|trip|vacation|meal|purchase)|vacation|date night|for (?:my|our) (?:kids?|family|wife|husband|spouse|partner)|for (?:my|our) (?:home|house)(?! office| studio| workspace| business|-based| based)|my own use)\b/i;
 const LIKELY_ASSET_PATTERN = /\b(?:laptop|computer|macbook|imac|desktop|monitor|camera|lens|drone|printer|tablet|ipad|iphone|smartphone|desk|chair|tripod|microphone|mixer|guitar|piano|keyboard|server|router|projector|television|appliance|machine|equipment|furniture|tools?)\b/i;
+/**
+ * Specific durable items the model itself names. The category words ("supplies and small tools", "equipment",
+ * "durable tool") are excluded: a model restating the category is not evidence that an asset was bought
+ * (live round 4: $312 of lumber and fasteners was sent to asset review because the prose said "small tools").
+ */
+const LIKELY_ASSET_ITEM_PATTERN = /\b(?:laptop|computer|macbook|imac|desktop|monitor|camera|lens|drone|printer|tablet|ipad|iphone|smartphone|desk|chair|tripod|microphone|mixer|guitar|piano|keyboard|server|router|projector|television|appliance|machine|furniture)\b/i;
 /** Reg. §1.263(a)-1(f)(1)(ii)(D): per-item/per-invoice ceiling for taxpayers without an applicable financial statement. */
 export const DE_MINIMIS_ITEM_CEILING = 2500;
 /** Below this amount an ordinary supply is not second-guessed even when it names a durable item. */
@@ -495,7 +501,9 @@ export function groundTransactionAnalysis(
       requireInfo(result, 'home_office_eligibility', 'Is this rent for a separate business location, or for the home where you live? If it is your home, is a space used regularly and exclusively for business?',
         'Rent for the home you live in is not a business rent expense; only a qualifying home office deduction can include part of it. Rent for a separate business location is generally deductible as business rent.');
     } else if (result.is_deductible === true && (!result.category || ['supplies_small_tools', 'other'].includes(result.category))
-      && (amount > DE_MINIMIS_ITEM_CEILING || (amount >= ASSET_REVIEW_FLOOR && LIKELY_ASSET_PATTERN.test(reviewText)))) {
+      && (amount > DE_MINIMIS_ITEM_CEILING || (amount >= ASSET_REVIEW_FLOOR &&
+        // Between $200 and $2,500 the taxpayer's words and the descriptor decide; the model's prose counts only when it names a specific item.
+        (LIKELY_ASSET_PATTERN.test(savedAndMerchant) || LIKELY_ASSET_ITEM_PATTERN.test(explanation))))) {
       // Choosing "supplies" must not bypass the asset gate that the equipment category triggers.
       addEvidence('capital-263');
       requireInfo(result, 'asset_treatment', hint?.question ?? 'What was purchased, when was it first used for business, and have you recorded the de minimis safe harbor election or a depreciation election for this year?',
@@ -530,6 +538,13 @@ export function groundTransactionAnalysis(
       } else {
         result.deductible_percent = provided ?? 100;
       }
+    }
+    // A denial that still asks the taxpayer something is an open decision, not a settled non-deduction
+    // (live round 4: "not deductible" plus "who attended?" / "which vehicle method?" on 12 expenses).
+    if (result.status === 'ok' && result.is_deductible === false && kind === 'expense' && result.questions?.some(question => question.trim())) {
+      const question = result.questions.find(entry => entry.trim())!.trim();
+      requireInfo(result, purposeMissing ? 'business_purpose' : 'expense_review', question,
+        'The analysis did not settle whether this is a business expense; your answer to the question decides it. Nothing has been treated as deductible.');
     }
     if (result.status === 'ok' && result.is_deductible === false) result.deductible_percent = 0;
   }

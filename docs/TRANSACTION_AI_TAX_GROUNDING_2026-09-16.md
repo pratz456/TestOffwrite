@@ -80,3 +80,9 @@ Focused provider and grounding tests verify strict schema compatibility, server 
 - A proposed purpose is attached whenever the purpose is the missing fact for a confidently business merchant, including when the model itself asked; it reached users in 3 of 258 eligible results before.
 - A saved note that says personal ("personal use", "not for business", "vacation", "for my kids") outranks merchant patterns and profession priors and classifies the item as personal; "for my home office" and "personal trainer" are not personal notes.
 - "ok" refunds with no decision go to the refund review; "ok" income/transfers with no decision are recorded as non-deductions instead of failing.
+
+## Round 4 corrections (server gates; policy string unchanged until the next prompt change)
+
+- Round 4 (docs/AI_LIVE_EVAL_2026-09-18_round4.md, policy 2026-09-18.1): 618 requests, zero invariant violations, zero provider failures; gpt-4.1-mini 26/26 approvable descriptors and 112/133 corpus status; `proposed_purpose` reached 38/177 eligible results (all merchants that have one).
+- The $200–$2,500 asset review (Reg. §1.162-3(c)(1)(iv) supplies limit; Reg. §1.263(a)-1(f) de minimis) reads the taxpayer's saved words and the bank descriptor, plus specific items the model names (laptop, monitor, camera, desk…). A model restating the category ("supplies and small tools", "durable tool") no longer sends job materials to asset review; above $2,500 the amount alone still does.
+- An "ok" non-deduction on an expense that still carries a question for the taxpayer is recorded as review (needs_more_info with that question, missing field `business_purpose` when no purpose is saved, else `expense_review`), never as a settled non-deduction; personal-by-nature answers (kind personal) and denials without a question are unchanged.
