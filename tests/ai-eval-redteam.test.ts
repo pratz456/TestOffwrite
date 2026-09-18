@@ -317,6 +317,26 @@ describe('red team: findings from live evaluation round 3', () => {
     const trainer = ground({ category: 'advertising_marketing' }, { merchant: 'FACEBK *ADS', amount_usd: 120, business_purpose: 'Instagram ads for my personal trainer business' });
     expect(trainer).toMatchObject({ status: 'ok', is_deductible: true });
   });
+  it('a negated personal phrase or a business use of "vacation" is not read as a personal note', () => {
+    for (const [merchant, category, business_purpose] of [
+      ['APPLE.COM/BILL', 'equipment', 'Laptop for client design work, not for personal use'],
+      ['ADOBE *CREATIVE CLOUD', 'software_subscriptions', 'Design software licence for client projects, zero personal use'],
+      ['THE HOME DEPOT #0652', 'supplies_small_tools', 'Cleaning supplies for my vacation rental business units'],
+      ['FACEBK *ADS', 'advertising_marketing', 'Ads for my vacation photography services this season'],
+    ] as const) {
+      const result = ground({ category }, { merchant, amount_usd: 95, business_purpose });
+      // Whatever other gate applies, the note must not turn the charge into a confident personal verdict.
+      expect(result?.transaction_kind).not.toBe('personal');
+      expect(result?.customized_reason).not.toContain('Your note records this as personal');
+    }
+    // Plain personal wording still wins over the business merchant.
+    const vacation = ground({ category: 'travel', evidence_ids: ['travel-463'] },
+      { merchant: 'DELTA AIR LINES', amount_usd: 420, note: 'Flights for our family vacation in June', business_purpose: undefined });
+    expect(vacation).toMatchObject({ status: 'ok', transaction_kind: 'personal', is_deductible: false });
+    const unpaid = ground({ category: 'software_subscriptions' },
+      { merchant: 'ZOOM.US 888-799-9666', amount_usd: 15.99, note: 'Used this on vacation, not for business', business_purpose: undefined });
+    expect(unpaid).toMatchObject({ status: 'ok', transaction_kind: 'personal', is_deductible: false });
+  });
   it('parking and tolls cited under the general §162 rule are approved, not sent to off-category review', () => {
     const result = ground({ category: 'vehicle_expense', evidence_ids: ['business-162'] }, { merchant: 'PARKMOBILE 770-818-9036 GA', amount_usd: 6.5, business_purpose: 'Parking at closing' });
     expect(result).toMatchObject({ status: 'ok', is_deductible: true, category: 'vehicle_expense' });
@@ -513,6 +533,35 @@ describe('PII minimization in prompts and taxpayer context', () => {
     expect(user).not.toContain(merchant);
     expect(user).toContain('ACME [redacted-id] LLC');
     expect(user).not.toMatch(ssnPattern);
+  });
+
+  it('redacts identifier-shaped digits in every free-text context field, not only the five named ones', async () => {
+    const confirmed = summarizeConfirmedMerchants([{
+      merchant_name: 'ACME LLC', review_status: 'confirmed', is_deductible: true, expense_type: 'business', date: '2026-03-01',
+      business_purpose: 'Invoice for payer 12-3456789 client work',
+    }]);
+    const profile = { ...SOLE_PROPRIETOR, business_purpose: 'Consulting; my SSN is 123 45 6789', office_location: 'Suite 987654321 Austin' } as UserContext;
+    const context = { ...profile, taxpayer_context: buildTaxpayerContext({ profile, confirmed, merchant: 'ACME LLC', transactionDate: '2026-05-04' }) } as UserContext;
+    const transaction: TransactionInput = {
+      ...tx, merchant: 'ACME LLC', amount_usd: 1234.56, business_purpose: 'Client project for EIN 98-7654321',
+      // OCR and paste artifacts: a nine-digit run, an unformatted run after a misread colon, dotted and unicode-dash spellings.
+      note: 'Payee SSN.111223333 and 444‑55‑6666',
+      travel_destination: 'Denver for client 555.66.7777',
+      attendees: ['Jane Roe 222-33-4444', 'Sam Client'],
+      equipment_details: { make: 'Dell', model: 'Serial 333445555', year: 2026 },
+      mileage_details: { start_location: 'Home 78701-1234', end_location: 'Client', miles: 12.5, business_purpose: 'Deliver W-9 with TIN 666778888' },
+    };
+    mocks.create.mockResolvedValueOnce(completion(providerPayload()));
+    expect((await analyzeTransaction(transaction, context)).success).toBe(true);
+    const user = (mocks.create.mock.calls[0][0].messages as Array<{ role: string; content: string }>).find(message => message.role === 'user')!.content;
+    for (const identifier of ['12-3456789', '123 45 6789', '987654321', '98-7654321', '111223333', '444‑55‑6666', '555.66.7777', '222-33-4444', '333445555', '666778888']) {
+      expect(user).not.toContain(identifier);
+    }
+    expect(user).not.toMatch(/(?<!\d)\d{3}[-\s.‑]\d{2}[-\s.‑]\d{4}(?!\d)|(?<!\d)\d{2}[-\s.‑]\d{7}(?!\d)|(?<!\d)\d{9}(?!\d)/);
+    // Amounts, dates, a ZIP+4 and the fields themselves still reach the model.
+    for (const kept of ['1234.56', '2026-05-04', '78701-1234', 'Sam Client', 'Denver for client', '"miles": 12.5', '"year": 2026', 'Deliver W-9 with TIN']) {
+      expect(user).toContain(kept);
+    }
   });
 
   it('taxpayerContextForModel forwards no merchant list, no user id and no email', () => {

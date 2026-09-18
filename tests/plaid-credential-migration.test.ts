@@ -177,7 +177,7 @@ describe('production Plaid credential migration command', () => {
     expect(sha256(planText)).toBe(result.planDigest);
     const plan = JSON.parse(planText);
     expect(plan.profiles).toEqual([{
-      uid, action: 'migrate', profileTokenPresent: true, accountTokenCount: 1, itemIdPresent: true, accountCount: 2, paginated: false,
+      uid, action: 'migrate', profileTokenPresent: true, accountTokenCount: 1, itemIdPresent: true, itemIdShared: false, accountCount: 2, paginated: false,
       alreadyMarked: false, existingConnection: 'none', expectedRefusal: null,
     }]);
     for (const secret of ['legacy-secret', 'account-secret', 'old-item']) { expect(planText).not.toContain(secret); }
@@ -246,6 +246,13 @@ describe('production Plaid credential migration command', () => {
     await expect(run({ confirmation: 'plan:writeoff-production-testing', project: 'writeoff-production-testing' })).rejects.toThrow(`Use --project ${project}`);
     await expect(run({ confirmation: `plan:${project}`, allowEmulator: true, inheritedEnv: { ...env, FIRESTORE_EMULATOR_HOST: '127.0.0.1:8080' } })).rejects.toThrow('demo- project');
     await expect(run({ confirmation: `plan:${project}`, backupDir: path.join(checkout, 'backup') })).rejects.toThrow('outside the repository checkout');
+    // Run from a subdirectory of the checkout: the backup directory is still inside the repository.
+    const scripts = path.join(checkout, 'scripts');
+    fs.mkdirSync(scripts);
+    await expect(run({ confirmation: `plan:${project}`, cwd: scripts, checkoutRoot: checkout, backupDir: path.join(checkout, 'backup') })).rejects.toThrow('outside the repository checkout');
+    await expect(run({ confirmation: `plan:${project}`, cwd: scripts, checkoutRoot: checkout, backupDir: checkout })).rejects.toThrow('outside the repository checkout');
+    expect(fs.readdirSync(checkout).sort()).toEqual(['backup', 'scripts']);
+    expect(fs.readdirSync(path.join(checkout, 'backup'))).toEqual([]);
     await expect(run({ confirmation: `plan:${project}`, backupDir: 'relative/backup' })).rejects.toThrow('absolute');
     await expect(run({ confirmation: `plan:${project}`, inheritedEnv: { ...env, PLAID_TOKEN_ENCRYPTION_KEY: 'not-a-key' } })).rejects.toThrow('PLAID_TOKEN_ENCRYPTION_KEY must be set');
     await expect(run({ apply: true, verify: true, confirmation: `verify:${project}` })).rejects.toThrow('either --apply or --verify');
@@ -300,6 +307,34 @@ describe('production Plaid credential migration command', () => {
     const backupJson = JSON.parse(fs.readFileSync(result.backupFile, 'utf8'));
     expect(backupJson.documents.map((document: { uid: string; accounts: unknown[] }) => [document.uid, document.accounts.length])).toEqual([['big', 401], ['foreign', 0]]);
     expect(JSON.stringify(result)).not.toMatch(/secret|taken-item|foreign|big/);
+  });
+  it('sends two token-bearing profiles that claim one bank item to manual review instead of letting the first uid win', async () => {
+    seedLegacyRecords();
+    // Same item as the seeded legacy user, with its own token; without the flag the lexicographically
+    // earlier uid would create plaid_connections/old-item and the other would fail at apply.
+    db.records.set('user_profiles/copycat', { plaid_token: 'copycat-secret', plaid_item_id: 'old-item' });
+    // A profile that only carries the item id (no token) does not claim the connection and still migrates.
+    db.records.set('user_profiles/id-only', { plaid_item_id: 'old-item', plaid_transactions_cursor: 'c' });
+    const state = await loadPlaidCredentialMigrationState(asDb(db), core);
+    const plan = buildPlaidCredentialMigrationPlan({ project, sourceCommit: 'a'.repeat(40), generatedAt: '2026-09-17T00:00:00.000Z', encryptionKeyFingerprint: 'fp', state, core });
+    expect(plan.profiles.map(({ uid: id, action, itemIdShared, expectedRefusal }) => [id, action, itemIdShared, expectedRefusal])).toEqual([
+      ['copycat', 'manual_review', true, null],
+      ['id-only', 'migrate', false, null],
+      [uid, 'manual_review', true, null],
+    ]);
+    expect(plan.totals).toMatchObject({ toMigrate: 1, manualReview: 2, expectedRefusals: 0 });
+    expect(JSON.stringify(plan)).not.toMatch(/secret|old-item/);
+
+    const { checkout, backup } = workspace();
+    const run = runner(checkout, backup);
+    const before = snapshot(db);
+    const written = await run({ confirmation: `plan:${project}` });
+    const result = await run({ apply: true, confirmation: `apply:${project}:${written.planDigest}` });
+    expect(result.totals).toMatchObject({ planned: 1, migrated: 1, failed: 0 });
+    expect(db.records.has('plaid_connections/old-item')).toBe(false);
+    expect(db.records.get(profilePath)).toEqual(before[profilePath]);
+    expect(db.records.get('user_profiles/copycat')).toEqual(before['user_profiles/copycat']);
+    expect(db.records.get('user_profiles/id-only')).toMatchObject({ plaid_credentials_migrated: true });
   });
   it('requires the provider identity only when active private connections already exist', async () => {
     seedLegacyRecords();

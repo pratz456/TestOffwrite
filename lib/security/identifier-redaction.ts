@@ -27,11 +27,13 @@ export interface IdentifierRedactionOptions {
 // Alternatives are tried left to right at each position, so an amount token
 // ($123456789, 123,456,789, 123456789.00) is consumed before the identifier rules see it.
 const SEPARATOR = '[-\u2010-\u2015. ]';
+// A bare run is skipped only when it is the tail of a longer number ("1,123456789",
+// "1.123456789"). OCR often reads a colon as "." or ",", so "SSN.123456789" must still match.
 const TOKENS = new RegExp([
   String.raw`(?<amount>\$\s?\d[\d,]*(?:\.\d+)?|(?<![\d,.])\d{1,3}(?:,\d{3})+(?:\.\d+)?(?![\d,])|(?<![\d,.])\d+\.\d+(?![\d.]))`,
   String.raw`(?<ssn>(?<!\d)(?<ssnArea>\d{3})${SEPARATOR}(?<ssnGroup>\d{2})${SEPARATOR}(?<ssnSerial>\d{4})(?!\d))`,
   String.raw`(?<ein>(?<!\d)(?<einPrefix>\d{2})${SEPARATOR}(?<einSerial>\d{7})(?!\d))`,
-  String.raw`(?<run>(?<![\d,.])\d{9}(?!\d|[.,]\d))`,
+  String.raw`(?<run>(?<!\d)(?<!\d[.,])\d{9}(?!\d|[.,]\d))`,
 ].join('|'), 'gu');
 
 /** Replace SSN/ITIN/EIN-shaped digit groups and bare nine-digit runs; amounts are preserved. */
@@ -58,4 +60,20 @@ export function redactIdentifierText(text: string, options: IdentifierRedactionO
 
 export function containsIdentifierShapedDigits(text: string): boolean {
   return redactIdentifierText(text).count > 0;
+}
+
+/**
+ * Redact every string inside a JSON-like value (arrays and plain objects), so a payload built
+ * from user free text needs no per-field list to stay identifier-free. Numbers, booleans and
+ * class instances pass through untouched.
+ */
+export function redactIdentifierStrings<T>(value: T): T {
+  if (typeof value === 'string') return redactIdentifierText(value).text as T;
+  if (Array.isArray(value)) return value.map(redactIdentifierStrings) as T;
+  if (value !== null && typeof value === 'object') {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return value;
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, entry]) => [key, redactIdentifierStrings(entry)])) as T;
+  }
+  return value;
 }

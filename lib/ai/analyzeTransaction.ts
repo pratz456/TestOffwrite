@@ -5,6 +5,7 @@ import { aiLearningEngine } from './learning-engine';
 import { merchantIntelligence, merchantIntelligenceForModel } from './merchant-intelligence';
 import { professionContextForModel } from './profession-priors';
 import { getAIProviderStatus } from './provider-status';
+import { redactIdentifierStrings } from '@/lib/security/identifier-redaction';
 import { EXPENSE_CATEGORIES, groundTransactionAnalysis, redactTaxIdentifiers, transactionTaxPolicyPrompt, TRANSACTION_EVIDENCE_IDS, TRANSACTION_KINDS, type TransactionTaxMetadata } from './transaction-tax-policy';
 import { taxpayerContextForModel } from './taxpayer-context';
 import { ANALYSIS_DECISION_RULES } from './analysis-decision-rules';
@@ -512,10 +513,15 @@ interface AnalysisContextExtras {
   w2Income: number | undefined;
   bizIncome: number | undefined;
 }
-/** The exact saved context sent to the model; exported for offline wiring tests (no provider call). */
+/**
+ * The exact saved context sent to the model; exported for offline wiring tests (no provider call).
+ * Every string in the payload passes through identifier redaction, so fields such as
+ * travel_destination, attendees, mileage or equipment details, the profile purpose and prior
+ * confirmed purposes cannot carry an SSN/ITIN/EIN to the provider.
+ */
 export function buildAnalysisContext(transaction: TransactionInput, ctx: UserContext, extras: AnalysisContextExtras) {
   const { learningContext, timeToUse, w2Income, bizIncome } = extras;
-  return {
+  return redactIdentifierStrings({
     profile: {
       profession: (ctx as UserContext).profession || [],
       age: finiteNonnegative((ctx as UserContext).age) ?? null,
@@ -566,7 +572,7 @@ export function buildAnalysisContext(transaction: TransactionInput, ctx: UserCon
       mileage_details: transaction.mileage_details ?? null,
       attendees: transaction.attendees ?? null,
     },
-  };
+  });
 }
 
 async function requestAnalysis(

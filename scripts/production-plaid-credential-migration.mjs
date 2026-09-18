@@ -54,15 +54,21 @@ export function encryptionKeyFingerprint(env) {
   return digestOf(`plaid-token-encryption-key:${value.toLowerCase()}`).slice(0, 16);
 }
 
-/** Absolute, real, existing directory outside the checkout; created private if missing. */
-export function privateBackupDirectory(directory, cwd = process.cwd()) {
+/**
+ * Absolute, real, existing directory outside every listed root; created private if missing.
+ * The checkout that holds this script is always a root, whatever the working directory is,
+ * so a run from a subdirectory cannot place a backup of plaintext tokens inside the repository.
+ */
+export function privateBackupDirectory(directory, roots = [repositoryRoot, process.cwd()]) {
   if (typeof directory !== 'string' || !path.isAbsolute(directory)) throw new Error('The backup directory must be an absolute path');
   if (!fs.existsSync(directory)) fs.mkdirSync(directory, { mode: 0o700 });
   const resolved = fs.realpathSync(directory);
   if (!fs.statSync(resolved).isDirectory()) throw new Error('The backup directory must be a directory');
-  const relative = path.relative(fs.realpathSync(cwd), resolved);
-  if (!relative || (!relative.startsWith(`..${path.sep}`) && relative !== '..')) {
-    throw new Error('Keep the backup directory outside the repository checkout');
+  for (const root of Array.isArray(roots) ? roots : [roots]) {
+    const relative = path.relative(fs.realpathSync(root), resolved);
+    if (!relative || (!relative.startsWith(`..${path.sep}`) && relative !== '..')) {
+      throw new Error('Keep the backup directory outside the repository checkout');
+    }
   }
   return resolved;
 }
@@ -112,6 +118,18 @@ export function buildPlaidCredentialMigrationPlan({ project, sourceCommit: commi
     profiles: state.profiles.length, toMigrate: 0, profilesWithProfileToken: 0, profilesWithAccountTokens: 0, accountsWithToken: 0,
     profilesWithItemId: 0, paginated: 0, manualReview: 0, expectedRefusals: 0,
   };
+  // Two token-bearing profiles naming the same bank item would race for one private connection:
+  // the first uid would claim it and the second would fail at apply time. Neither is migrated
+  // automatically; the operator resolves the ownership first.
+  const claimedItemId = profile => {
+    if (!core.hasLegacyPlaidToken(profile.data) || profile.itemIdError) return null;
+    try { return core.legacyPlaidItemId(profile.uid, profile.data); } catch { return null; }
+  };
+  const itemIdOwners = new Map();
+  for (const profile of state.profiles) {
+    const itemId = claimedItemId(profile);
+    if (itemId) itemIdOwners.set(itemId, (itemIdOwners.get(itemId) ?? 0) + 1);
+  }
   for (const profile of state.profiles) {
     const data = profile.data;
     const profileTokenPresent = core.hasLegacyPlaidToken(data);
@@ -123,11 +141,12 @@ export function buildPlaidCredentialMigrationPlan({ project, sourceCommit: commi
     const coreWouldRun = !(alreadyMarked && !profileTokenPresent);
     const legacy = profileTokenPresent || itemIdPresent || cursorPresent || accountTokenCount > 0;
     if (!legacy) continue;
-    const action = coreWouldRun ? 'migrate' : accountTokenCount > 0 ? 'manual_review' : 'skip';
+    const itemIdShared = (itemIdOwners.get(claimedItemId(profile)) ?? 0) > 1;
+    const action = !coreWouldRun ? (accountTokenCount > 0 ? 'manual_review' : 'skip') : itemIdShared ? 'manual_review' : 'migrate';
     const expectedRefusal = action !== 'migrate' ? null
       : profile.itemIdError ? 'invalid_item_id' : profile.existingConnection === 'foreign' ? 'ownership_mismatch' : null;
     const entry = {
-      uid: profile.uid, action, profileTokenPresent, accountTokenCount, itemIdPresent, accountCount: profile.accounts.length,
+      uid: profile.uid, action, profileTokenPresent, accountTokenCount, itemIdPresent, itemIdShared, accountCount: profile.accounts.length,
       paginated: profile.accounts.length > core.LEGACY_ACCOUNT_TRANSACTION_LIMIT, alreadyMarked,
       existingConnection: profile.existingConnection, expectedRefusal,
     };
@@ -188,7 +207,7 @@ async function defaultConnect({ project, allowEmulator }) {
 
 export async function runPlaidCredentialMigration({
   project, backupDir, confirmation, apply = false, verify = false, allowEmulator = false,
-  cwd = process.cwd(), inheritedEnv = process.env, now = () => new Date(),
+  cwd = process.cwd(), checkoutRoot = repositoryRoot, inheritedEnv = process.env, now = () => new Date(),
   sourceCommit: commit, connect = defaultConnect, core: providedCore,
 }) {
   if (apply && verify) throw new Error('Choose either --apply or --verify');
@@ -205,7 +224,7 @@ export async function runPlaidCredentialMigration({
   if (expected && confirmation !== expected) throw new Error(`Use --confirm ${expected}`);
   const planDigest = mode === 'apply' ? String(confirmation || '').match(new RegExp(`^apply:${project}:([a-f\\d]{64})$`))?.[1] : null;
   if (mode === 'apply' && !planDigest) throw new Error(`Use --apply --confirm apply:${project}:<sha256 of the reviewed dry-run plan file>`);
-  const directory = privateBackupDirectory(backupDir, cwd);
+  const directory = privateBackupDirectory(backupDir, [checkoutRoot, cwd]);
   const fingerprint = mode === 'verify' ? null : encryptionKeyFingerprint(inheritedEnv);
   const core = providedCore ?? loadLegacyMigrationCore();
   const generatedAt = now().toISOString();

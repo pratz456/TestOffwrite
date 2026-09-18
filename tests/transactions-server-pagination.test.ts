@@ -189,6 +189,19 @@ describe('getTransactionsServer cursor paging', () => {
     expect(data[0].merchant_name).toBe('');
     expect(data[0].notes).toBeUndefined();
   });
+
+  it('still drops superseded duplicates and keeps the record-scope fields when a caller projects fields', async () => {
+    seed(2);
+    // The relinked copy of tx-01 carries only the server-only marker; a projection that omitted it would count the purchase twice.
+    fake.docs.set(`${account}/transactions/tx-01-copy`, { trans_id: 'tx-01-copy', account_id: 'checking', userId: uid, amount: 10, date: '2026-08-01',
+      is_deductible: true, superseded_by: `${account}/transactions/tx-01` });
+    fake.docs.set(`${account}/transactions/tx-03`, { trans_id: 'tx-03', account_id: 'checking', userId: uid, amount: 30, date: '2026-08-03', is_deductible: true, pending: true });
+    const { data } = await getTransactionsServer(uid, { fields: ['amount', 'is_deductible'] });
+    expect(data.map(row => row.trans_id).sort()).toEqual(['tx-01', 'tx-02', 'tx-03']);
+    expect(data.find(row => row.trans_id === 'tx-03')?.pending).toBe(true);
+    const paged = await getTransactionsServer(uid, { limit: 10, fields: ['amount'] });
+    expect(paged.data.map(row => row.trans_id)).not.toContain('tx-01-copy');
+  });
 });
 
 describe('getPaginatedTransactionsServer', () => {

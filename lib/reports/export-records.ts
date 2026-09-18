@@ -37,20 +37,28 @@ export async function readOwnedTransactions(uid: string, options: ReadOwnedTrans
     const accounts = await adminDb.collection('user_profiles').doc(uid).collection('accounts').get();
     const queried = await Promise.all(['userId', 'user_id'].map(field => adminDb.collectionGroup('transactions').where(field, '==', uid).get()));
     const records = new Map<string, ExportRecord>();
-    const nestedSeen = new Map<string, number>();
+    // Distinct document paths per account. A row carrying both owner spellings is returned by
+    // both queries; counting it twice would let the count() shortcut below skip a walk while
+    // owner-field-less rows are still missing.
+    const nestedSeen = new Map<string, Set<string>>();
     queried.forEach(snapshot => snapshot.docs.forEach(doc => {
       records.set(doc.ref.path, ownedExportRecord(doc, uid));
       const parts = doc.ref.path.split('/');
-      if (parts[0] === 'user_profiles' && parts[2] === 'accounts' && parts[4] === 'transactions') nestedSeen.set(parts[3], (nestedSeen.get(parts[3]) ?? 0) + 1);
+      if (parts[0] === 'user_profiles' && parts[2] === 'accounts' && parts[4] === 'transactions') {
+        const seen = nestedSeen.get(parts[3]) ?? new Set<string>();
+        seen.add(doc.ref.path);
+        nestedSeen.set(parts[3], seen);
+      }
     }));
     // Rows written before the owner field existed are invisible to the collection-group queries.
     // A count() aggregation per account (one read per 1,000 rows) decides whether that account
-    // needs a full walk, so a normal user costs A + N document reads instead of A + 3N.
+    // needs a full walk, so a normal user costs A + N document reads instead of A + 3N. Every
+    // seen path is inside the counted collection, so equal cardinalities mean the same set.
     await Promise.all(accounts.docs.map(async account => {
       ownedExportRecord(account, uid, true);
       const collection = adminDb.collection('user_profiles').doc(uid).collection('accounts').doc(account.id).collection('transactions');
       const total = (await collection.count().get()).data().count;
-      if (total === (nestedSeen.get(account.id) ?? 0)) return;
+      if (total === (nestedSeen.get(account.id)?.size ?? 0)) return;
       const snapshot = await collection.get();
       snapshot.docs.forEach(doc => records.set(doc.ref.path, ownedExportRecord(doc, uid, true)));
     }));

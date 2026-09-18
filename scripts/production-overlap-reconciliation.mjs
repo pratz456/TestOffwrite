@@ -21,7 +21,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { PRODUCTION_PROJECT } from './production-preflight.mjs';
 import { writePrivateMigrationInventory as writePrivateJson } from './production-migration-inventory.mjs';
 // Node 22.18+ strips the types; the model has no runtime imports of its own.
@@ -35,6 +35,8 @@ export const OVERLAP_DECISIONS_SCHEMA = 1;
 export const OVERLAP_EVIDENCE_SCHEMA = 1;
 /** Records written per Firestore transaction; each transaction also re-reads both records of every pair. */
 export const RECONCILIATION_WRITE_LIMIT = 400;
+/** The checkout holding this script; private outputs are refused inside it whatever the working directory is. */
+const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const USAGE = 'Use --decisions <absolute file> [--project writeoff-23910] [--inventory <absolute file>] '
   + '[--apply --confirm apply:<project>:<plan digest> --backup <absolute dir> --evidence <absolute file>] [--allow-emulator]';
@@ -192,22 +194,28 @@ export async function applyOverlapReconciliation(db, plans, { now = new Date(), 
 
 const stamp = now => now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
 
-/** The same checks writePrivateJson applies, run before any record is written so a bad path cannot strand an apply. */
-export function assertPrivateOutputPath(output, cwd = process.cwd()) {
+/**
+ * The same checks writePrivateJson applies, run before any record is written so a bad path cannot
+ * strand an apply. The path must lie outside the working directory and outside the checkout that
+ * holds this script, so running from a subdirectory cannot place a backup inside the repository.
+ */
+export function assertPrivateOutputPath(output, cwd = process.cwd(), checkoutRoot = repositoryRoot) {
   if (typeof output !== 'string' || !path.isAbsolute(output)) throw new Error('Private output paths must be absolute');
   if (!fs.existsSync(path.dirname(output))) throw new Error(`Create the output directory first: ${path.dirname(output)}`);
   if (fs.existsSync(output)) throw new Error(`Refusing to overwrite ${output}`);
   const resolved = path.join(fs.realpathSync(path.dirname(output)), path.basename(output));
-  const relative = path.relative(fs.realpathSync(cwd), resolved);
-  if (!relative.startsWith(`..${path.sep}`) && relative !== '..') throw new Error('Write private outputs outside the repository checkout');
+  for (const root of [cwd, checkoutRoot]) {
+    const relative = path.relative(fs.realpathSync(root), resolved);
+    if (!relative.startsWith(`..${path.sep}`) && relative !== '..') throw new Error('Write private outputs outside the repository checkout');
+  }
   return resolved;
 }
 
-export function writeOverlapBackup(directory, records, { project, planDigest, now, cwd = process.cwd() }) {
+export function writeOverlapBackup(directory, records, { project, planDigest, now, cwd = process.cwd(), checkoutRoot = repositoryRoot }) {
   if (typeof directory !== 'string' || !path.isAbsolute(directory)) throw new Error('--backup must be an absolute directory outside the repository checkout');
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   const output = path.join(directory, `overlap-reconciliation-backup-${stamp(now)}-${planDigest.slice(0, 12)}.json`);
-  assertPrivateOutputPath(output, cwd);
+  assertPrivateOutputPath(output, cwd, checkoutRoot);
   const digest = writePrivateJson(output, {
     schemaVersion: OVERLAP_EVIDENCE_SCHEMA,
     kind: 'historical_overlap_backup',
@@ -260,6 +268,7 @@ export async function runOverlapReconciliation({
   project = PRODUCTION_PROJECT,
   now = new Date(),
   cwd = process.cwd(),
+  checkoutRoot = repositoryRoot,
   onTransaction,
 }) {
   const file = parseOverlapDecisionsFile(decisionsFile ?? readDecisionsFile(decisionsPath), { project });
@@ -272,9 +281,9 @@ export async function runOverlapReconciliation({
 
   if (confirmation !== expected) throw new Error(`Apply requires --confirm ${expected}; rerun without --apply to review the current plan`);
   if (!backupDirectory || !evidencePath) throw new Error('Apply requires --backup <absolute dir> and --evidence <absolute file>, both outside the repository checkout');
-  assertPrivateOutputPath(evidencePath, cwd);
+  assertPrivateOutputPath(evidencePath, cwd, checkoutRoot);
   const touched = plans.filter(plan => plan.update !== null).map(plan => records.get(plan.candidate));
-  const backup = touched.length ? writeOverlapBackup(backupDirectory, touched, { project, planDigest: digest, now, cwd }) : null;
+  const backup = touched.length ? writeOverlapBackup(backupDirectory, touched, { project, planDigest: digest, now, cwd, checkoutRoot }) : null;
 
   const evidence = {
     schemaVersion: OVERLAP_EVIDENCE_SCHEMA,

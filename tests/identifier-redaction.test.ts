@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { containsIdentifierShapedDigits, REDACTED_ID, redactIdentifierText } from '../lib/security/identifier-redaction';
+import { containsIdentifierShapedDigits, REDACTED_ID, redactIdentifierStrings, redactIdentifierText } from '../lib/security/identifier-redaction';
 
 // Redaction runs on OCR text before any model call and on organizer free text
 // before storage. Every value here is synthetic.
@@ -11,6 +11,10 @@ describe('taxpayer-identifier redaction', () => {
     ['SSN with a unicode dash', 'SSN 123‑45‑6789'],
     ['ITIN (9xx)', "Recipient's TIN 912-70-1234"],
     ['a bare nine-digit run', 'control number 987654321 listed'],
+    ['a nine-digit run after an OCR-misread colon (period)', 'SSN.123456789 on Box a'],
+    ['a nine-digit run after an OCR-misread colon (comma)', 'SSN,123456789 on Box a'],
+    ['a nine-digit run in parentheses', 'Employee (123456789) listed'],
+    ['a nine-digit run glued to a label', 'SSN123456789'],
   ])('replaces %s with the marker', (_label, text) => {
     const result = redactIdentifierText(text);
     expect(result.count).toBe(1);
@@ -36,6 +40,9 @@ describe('taxpayer-identifier redaction', () => {
     ['a phone number', 'Call 555-123-4567'],
     ['a ZIP+4 code', 'Austin TX 78701-1234'],
     ['a ten-digit number', 'Account 1234567890'],
+    ['a nine-digit decimal fraction', 'Rate 0.123456789 applied'],
+    ['an amount after a stray comma', 'Total,123456789.00 due'],
+    ['a version-like number', 'Build v2.123456789'],
   ])('leaves %s alone', (_label, text) => {
     const result = redactIdentifierText(text);
     expect(result.text).toBe(text);
@@ -60,5 +67,26 @@ describe('taxpayer-identifier redaction', () => {
     const { text: redacted } = redactIdentifierText(text, { keepPrimarySSNLast4: true });
     for (const identifier of ['123456789', '123-45-6789', '12-3456789', '555444333']) expect(redacted).not.toContain(identifier);
     for (const amount of ['65,000.00', '7,250.10', '$1,234,567.89', '65000.00', '2025']) expect(redacted).toContain(amount);
+  });
+
+  it('redacts every string nested in a JSON-like payload and leaves other values untouched', () => {
+    const when = new Date('2026-05-04T00:00:00Z');
+    const payload = {
+      note: 'Paid 123-45-6789 for $1,250.00',
+      amount_usd: 123456789, date_iso: '2026-05-04', flag: true, empty: null,
+      attendees: ['Jane 987-65-4321', 'Client EIN 12-3456789', 'Bob'],
+      mileage_details: { miles: 12.5, business_purpose: 'Drove to see payer 987654321' },
+      when,
+    };
+    const redacted = redactIdentifierStrings(payload);
+    expect(redacted).toEqual({
+      note: `Paid ${REDACTED_ID} for $1,250.00`,
+      amount_usd: 123456789, date_iso: '2026-05-04', flag: true, empty: null,
+      attendees: [`Jane ${REDACTED_ID}`, `Client EIN ${REDACTED_ID}`, 'Bob'],
+      mileage_details: { miles: 12.5, business_purpose: `Drove to see payer ${REDACTED_ID}` },
+      when,
+    });
+    expect(redacted.when).toBe(when);
+    expect(payload.note).toContain('123-45-6789');
   });
 });
