@@ -63,6 +63,10 @@ describe('production deployment configuration', () => {
     expect(result.pending).toHaveLength(3);
     expect(result.pending.join(' ')).toContain('Basic price retention');
   });
+  it('accepts an explicit analysis fan-out ceiling within the reviewable bounds', () => {
+    expect(validateProductionConfiguration({ ...env, ANALYSIS_MAX_INSTANCES: '4', ANALYSIS_CONCURRENCY: '4' }, target).errors).toEqual([]);
+    expect(validateProductionConfiguration({ ...env, ANALYSIS_MAX_INSTANCES: '20', ANALYSIS_CONCURRENCY: '10' }, target).errors).toEqual([]);
+  });
   it('rejects a different Plaid account even when its client identifier has the valid provider format', () => {
     const result = validateProductionConfiguration({ ...env, PLAID_CLIENT_ID: 'b'.repeat(24) }, target);
     expect(result.errors).toContain('PLAID_CLIENT_ID must identify the reviewed replacement provider account');
@@ -87,6 +91,7 @@ describe('production deployment configuration', () => {
     { NEXT_PUBLIC_PLAID_SECRET: 'must-never-be-public' }, { FIRESTORE_EMULATOR_HOST: 'localhost:8180' },
     { COLUMN_TAX_MODE: 'sandbox' }, { COLUMN_TAX_CLIENT_ID: 'must-not-ship' },
     { ENABLE_TRANSACTION_RESET: 'true' }, { STRIPE_TEST_MODE_EXPIRE_TODAY: 'true' },
+    { ANALYSIS_MAX_INSTANCES: '0' }, { ANALYSIS_MAX_INSTANCES: '21' }, { ANALYSIS_MAX_INSTANCES: 'two' }, { ANALYSIS_CONCURRENCY: '11' }, { ANALYSIS_CONCURRENCY: '1.5' },
   ])('rejects unsafe production configuration without exposing values: %j', override => {
     const result = validateProductionConfiguration({ ...env, ...override }, target);
     expect(result.errors.length).toBeGreaterThan(0);
@@ -191,10 +196,18 @@ describe('production release preparation', () => {
     expect(fs.readFileSync(path.join(source, '.env.local'), 'utf8')).toBe('PLAID_ENV=sandbox\n');
     expect(fs.existsSync(path.join(output, '.env.local'))).toBe(false);
     expect(fs.statSync(path.join(output, RELEASE_ENV)).mode & 0o077).toBe(0);
+    // Without an explicit ceiling the analysis functions keep their compiled defaults.
     expect(fs.readFileSync(path.join(output, 'functions-analysis', `.env.${project}`), 'utf8')).toBe('ANALYSIS_WORKER_ORIGIN=https://writeoffapp.com\n');
     expect(fs.readFileSync(path.join(output, 'functions', `.env.${project}`), 'utf8')).not.toContain(env.PLAID_SECRET);
     expect(runProductionPreflight({ cwd: output, inheritedEnv: {}, args: ['--project', project] }).errors).toEqual([]);
     expect(() => prepareProductionRelease({ source, output, envFile, migrationReviewFile })).toThrow('new production release directory');
+    // An explicit fan-out ceiling travels only to the analysis functions' non-secret param file.
+    const tunedEnvFile = path.join(cwd, 'production-env-tuned');
+    fs.writeFileSync(tunedEnvFile, environmentText({ ...env, ANALYSIS_MAX_INSTANCES: '4', ANALYSIS_CONCURRENCY: ' 3 ' }), { mode: 0o600 });
+    const tuned = path.join(cwd, 'release-tuned');
+    prepareProductionRelease({ source, output: tuned, envFile: tunedEnvFile, migrationReviewFile });
+    expect(fs.readFileSync(path.join(tuned, 'functions-analysis', `.env.${project}`), 'utf8')).toBe('ANALYSIS_WORKER_ORIGIN=https://writeoffapp.com\nANALYSIS_MAX_INSTANCES=4\nANALYSIS_CONCURRENCY=3\n');
+    expect(fs.readFileSync(path.join(tuned, 'functions', `.env.${project}`), 'utf8')).not.toContain('ANALYSIS_');
     fs.writeFileSync(path.join(source, 'unreviewed.txt'), 'changed');
     expect(() => prepareProductionRelease({ source, output: path.join(cwd, 'release2'), envFile, migrationReviewFile })).toThrow('Commit the reviewed changes');
   });

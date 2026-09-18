@@ -1,11 +1,15 @@
 import { onDocumentWritten } from 'firebase-functions/v2/firestore';
-import { defineSecret, defineString } from 'firebase-functions/params';
+import { defineInt, defineSecret, defineString } from 'firebase-functions/params';
 import { callAnalysisWorker, shouldProcessTask, shouldQueueBankWrite } from './bridge';
 
 const workerSecret = defineSecret('ANALYSIS_WORKER_SECRET');
 const workerOrigin = defineString('ANALYSIS_WORKER_ORIGIN', { default: '' });
+// maxInstances × concurrency bounds the model calls in flight (each worker call is one OpenAI request).
+// Raise only together with the OpenAI organization's rate-limit tier; see docs/PRODUCTION_SCALE_2026-09-17.md §5.
+const maxInstances = defineInt('ANALYSIS_MAX_INSTANCES', { default: 2 });
+const concurrency = defineInt('ANALYSIS_CONCURRENCY', { default: 2 });
 const options = { region: 'us-central1', retry: true, timeoutSeconds: 120,
-  maxInstances: 2, concurrency: 2, memory: '256MiB' as const, secrets: [workerSecret] };
+  maxInstances, concurrency, memory: '256MiB' as const, secrets: [workerSecret] };
 function settings(eventTime: string) {
   return { project: process.env.GCLOUD_PROJECT, origin: workerOrigin.value(), secret: workerSecret.value(), eventTime, emulator: process.env.FUNCTIONS_EMULATOR };
 }

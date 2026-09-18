@@ -181,18 +181,42 @@ at item 1 and 2 misbehaving (a listener loop or a scraping session).
 ## 5. OpenAI cost control already present
 
 - **One server-only key, per-task models** (`lib/openai/client.ts`): transaction
-  analysis and voice parsing default to `gpt-4o-mini`; the tax assistant and
-  document extraction use `gpt-4o`. `OPENAI_MODEL` is a global override (an
-  emergency lever to pin everything to `gpt-4o-mini`). Requests carry
-  `store: false`; per-call `timeout` and `maxRetries` are explicit.
+  analysis defaults to `gpt-4.1-mini` (chosen in `docs/AI_LIVE_EVAL_2026-09-17_round3.md`),
+  voice parsing to `gpt-4o-mini`; the tax assistant and document extraction use
+  `gpt-4o`. `OPENAI_MODEL` is a global override (an emergency lever to pin every
+  feature to one model). Requests carry `store: false`; per-call `timeout` and
+  `maxRetries` are explicit.
 - **Bounded, de-duplicated background analysis** (`lib/ai/analysis-jobs.ts`):
   `MAX_ATTEMPTS = 3`, `TASK_MAX_AGE_MS = 23 h`, a lease so two workers never
   analyze the same task, exponential backoff `min(60 s × 2^(n−1), 300 s)`, and
   an `inputHash` so an unchanged transaction with an active task never triggers a
   new model call.
-- **Bounded concurrency** (`functions-analysis/src/index.ts:7-8`):
-  `maxInstances: 2, concurrency: 2` → at most 4 worker calls in flight, i.e. a
-  hard ceiling of a few model calls per second regardless of queue depth.
+- **Bounded concurrency** (`functions-analysis/src/index.ts`): params
+  `ANALYSIS_MAX_INSTANCES` × `ANALYSIS_CONCURRENCY`, default `2 × 2` → at most 4
+  worker calls (= 4 model requests) in flight regardless of queue depth. At the
+  measured p50 of 2.4 s per `gpt-4.1-mini` request that is ≈1.6 analyses/s,
+  ≈6,000/hour, ≈140,000/day. Everything a first bank connection imports is
+  analyzed (`lib/subscriptions/history-window.ts`: 730 days on trial/paid, 90 on
+  free; no date gating in `lib/ai/analysis-jobs.ts`), so one new trial user with
+  a checking account and a card can enqueue 1,000–3,000 tasks. Tasks expire after
+  23 h (`TASK_MAX_AGE_MS`, and Eventarc retries stop at 24 h), so a backlog
+  deeper than roughly a day surfaces as `AI_RETRY_LIMIT` failures and
+  "Analysis pending" records that need the user-requested catch-up
+  (`enqueueAccountAnalysis`). Size the ceiling to sign-ups × imported history:
+
+  | Expected first-day bank connections | Tasks (≈1,500 each) | Hours at 2 × 2 | Suggested `ANALYSIS_MAX_INSTANCES × ANALYSIS_CONCURRENCY` | Model requests/min | Minimum OpenAI tier for `gpt-4.1-mini` (≈7.4k prompt tokens/request) |
+  |---|---|---|---|---|---|
+  | ≤ 25 | ≤ 40k | ≤ 7 | 2 × 2 (default) | ≈ 100 | Tier 2 (2M TPM); Tier 1's 200k TPM caps at ≈27 requests/min, so 2 × 2 already 429s there |
+  | 25–100 | 40–150k | 7–26 | 4 × 4 | ≈ 400 | Tier 3 (4M TPM) |
+  | 100–400 | 150–600k | 26–100 | 8 × 5 | ≈ 1,000 | Tier 4 (10M TPM) |
+
+  Both params are set in the production env file (runbook §8) and copied by
+  `scripts/prepare-production-release.mjs` into `functions-analysis/.env.writeoff-23910`;
+  the preflight accepts 1–20 and 1–10. Raising the ceiling above the
+  organization's tier only converts backlog into 429s: `analyzeTransactionWithRetry`
+  treats them as retryable, each task gets `MAX_ATTEMPTS = 3` with 60/120/240 s
+  backoff, then fails permanently. Check the tier in the OpenAI dashboard
+  (Settings → Limits) before changing the default.
 - **Per-user rate limits** (`lib/security/rate-limit.ts:80-82`):
   `aiAnalyzeTransaction` 60/hour, `receiptUpload`/`receiptProcess` 60/10 min.
 - **Kill switch**: `AI_ANALYSIS_ENABLED=false` (`lib/ai/provider-status.ts:13`)
@@ -200,8 +224,12 @@ at item 1 and 2 misbehaving (a listener loop or a scraping session).
   capped at 400 transactions per batch (`docs/OPENAI_KEY_ROUTING_2026-09-16.md`).
 
 Rough spend (check the current OpenAI price list before budgeting): a
-transaction analysis is ~1k tokens on `gpt-4o-mini`, well under $0.001; 5k DAU
-generating ~30 new transactions/month each is ~150k analyses ≈ **$50–100/month**.
+transaction analysis on `gpt-4.1-mini` is ≈7.4k prompt tokens (78–90% served
+from the prompt cache) plus ≈300 completion tokens, measured at
+**$0.0015–0.0017 per transaction** in `docs/AI_LIVE_EVAL_2026-09-17_round3.md`.
+A first connection importing 1,500 transactions therefore costs ≈$2.50 per
+user; steady state of 5k DAU generating ~30 new transactions/month each is
+~150k analyses ≈ **$250/month**.
 The tax assistant on `gpt-4o` is the expensive surface at roughly $0.01–0.03
 per turn; 10% of DAU asking 3 questions/day would be ≈ **$450–1,300/month** at
 5k DAU and scales linearly. OpenAI is billed outside Google Cloud, so the GCP

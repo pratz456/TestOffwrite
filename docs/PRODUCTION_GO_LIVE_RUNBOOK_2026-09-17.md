@@ -393,7 +393,13 @@ OPENAI_API_KEY=<server-only key; funding verified in the OpenAI dashboard>    (S
 
 Optional: `OPENAI_MODEL=<model>` (global override, `lib/openai/client.ts`),
 `AI_ANALYSIS_ENABLED=false` (kill switch, `lib/ai/provider-status.ts`; leave
-unset to enable).
+unset to enable), `ANALYSIS_MAX_INSTANCES=<1–20>` and `ANALYSIS_CONCURRENCY=<1–10>`
+(analysis fan-out ceiling for `functions-analysis`, default `2 × 2`; copied to
+`functions-analysis/.env.writeoff-23910` by the release script, never into the
+SSR bundle). Before launch confirm in the OpenAI dashboard (Settings → Limits)
+that the organization is at least **Tier 2** for `gpt-4.1-mini` and set a
+monthly usage limit; the sizing table in `docs/PRODUCTION_SCALE_2026-09-17.md`
+§5 maps expected first-day bank connections to these two values.
 
 **Stripe (required; live mode)**
 

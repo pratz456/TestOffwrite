@@ -49,6 +49,8 @@ export const REQUIRED_RELEASE_REVIEWS = Object.freeze([
   'rollbackCompatibility',
 ]);
 const buckets = [`${PRODUCTION_PROJECT}.firebasestorage.app`, `${PRODUCTION_PROJECT}.appspot.com`];
+/** Optional functions-analysis params (defaults 2 × 2 in functions-analysis/src/index.ts); upper bounds keep the OpenAI fan-out reviewable. */
+export const ANALYSIS_FANOUT_LIMITS = Object.freeze({ ANALYSIS_MAX_INSTANCES: 20, ANALYSIS_CONCURRENCY: 10 });
 const protectedEnvironmentName = name => /^(?:NEXT_PUBLIC_|FIREBASE_|GOOGLE_CLOUD_PROJECT$|GCLOUD_PROJECT$|GCP_PROJECT$|WRITEOFF_ENV$|PLAID_|STRIPE_|ANALYSIS_WORKER_|CLOUD_FUNCTION_|SSN_|OPENAI_|COLUMN_TAX_|ENABLE_TRANSACTION_RESET$)/.test(name);
 export const environmentDigest = contents => createHash('sha256').update(contents).digest('hex');
 export const COORDINATED_DEPLOY_VARIABLE = 'WRITEOFF_COORDINATED_DEPLOY';
@@ -134,6 +136,10 @@ export function validateProductionConfiguration(env, { project, hosting, firebas
   }
   if (env.PLAID_TOKEN_ENCRYPTION_KEY && env.PLAID_TOKEN_ENCRYPTION_KEY === env.SSN_ENCRYPTION_KEY) errors.push('Plaid tokens and taxpayer identifiers must use separate encryption keys');
   for (const name of ['ANALYSIS_WORKER_SECRET', 'CLOUD_FUNCTION_SECRET']) if ((env[name]?.trim().length || 0) < 32) errors.push(`${name} must contain at least 32 characters`);
+  // Optional analysis fan-out ceiling (functions-analysis params); product = model calls in flight.
+  for (const [name, max] of Object.entries(ANALYSIS_FANOUT_LIMITS)) {
+    if (env[name] !== undefined && !(/^\d+$/.test(env[name].trim()) && Number(env[name]) >= 1 && Number(env[name]) <= max)) errors.push(`${name} must be an integer from 1 to ${max}`);
+  }
   if (!/^(sk|rk)_live_/.test(env.STRIPE_SECRET_KEY || '')) errors.push('STRIPE_SECRET_KEY must be a live credential');
   if (!/^pk_live_/.test(env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '')) errors.push('NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY must be a live credential');
   if (env.STRIPE_PUBLISHABLE_KEY && env.STRIPE_PUBLISHABLE_KEY !== env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY) errors.push('Stripe publishable-key aliases must agree');

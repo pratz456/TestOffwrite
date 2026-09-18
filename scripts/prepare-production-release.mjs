@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
-import { parseEnvFile as parse, PRODUCTION_PROJECT, RELEASE_ENV, RELEASE_MANIFEST, MIGRATION_REVIEW, environmentDigest, validateMigrationReview, validateProductionConfiguration, verifySourceTree } from './production-preflight.mjs';
+import { ANALYSIS_FANOUT_LIMITS, parseEnvFile as parse, PRODUCTION_PROJECT, RELEASE_ENV, RELEASE_MANIFEST, MIGRATION_REVIEW, environmentDigest, validateMigrationReview, validateProductionConfiguration, verifySourceTree } from './production-preflight.mjs';
 
 /** Path → git blob id for every file in the reviewed commit. */
 export function committedSourceTree(source, commit) {
@@ -50,7 +50,8 @@ export function prepareProductionRelease({ source, output, envFile, migrationRev
       environmentDigest: environmentDigest(contents), migrationReviewDigest: environmentDigest(migrationContents), sourceTree }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
     // Only non-secret routing parameters go into Functions env files. Both
     // Functions secrets must be separately provisioned in production Secret Manager.
-    fs.writeFileSync(path.join(output, 'functions-analysis', `.env.${PRODUCTION_PROJECT}`), `ANALYSIS_WORKER_ORIGIN=${env.ANALYSIS_WORKER_ORIGIN}\n`, { mode: 0o600, flag: 'wx' });
+    const fanout = Object.keys(ANALYSIS_FANOUT_LIMITS).filter(name => env[name] !== undefined).map(name => `${name}=${env[name].trim()}\n`).join('');
+    fs.writeFileSync(path.join(output, 'functions-analysis', `.env.${PRODUCTION_PROJECT}`), `ANALYSIS_WORKER_ORIGIN=${env.ANALYSIS_WORKER_ORIGIN}\n${fanout}`, { mode: 0o600, flag: 'wx' });
     fs.writeFileSync(path.join(output, 'functions', `.env.${PRODUCTION_PROJECT}`), `SITE_URL=${env.NEXT_PUBLIC_SITE_URL}\nPLAID_ENV=production\nPLAID_CLIENT_ID=${env.PLAID_CLIENT_ID}\n`, { mode: 0o600, flag: 'wx' });
     return { output, commit, pending: result.pending };
   } catch (error) {
