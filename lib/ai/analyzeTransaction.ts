@@ -2,8 +2,10 @@ import { APIConnectionError } from 'openai/error';
 import { getOpenAIClientOrThrow } from '@/lib/openai/client';
 import { z } from 'zod';
 import { aiLearningEngine } from './learning-engine';
+import { merchantIntelligence, merchantIntelligenceForModel } from './merchant-intelligence';
+import { professionContextForModel } from './profession-priors';
 import { getAIProviderStatus } from './provider-status';
-import { groundTransactionAnalysis, redactTaxIdentifiers, transactionTaxPolicyPrompt, TRANSACTION_EVIDENCE_IDS, TRANSACTION_KINDS, type TransactionTaxMetadata } from './transaction-tax-policy';
+import { EXPENSE_CATEGORIES, groundTransactionAnalysis, redactTaxIdentifiers, transactionTaxPolicyPrompt, TRANSACTION_EVIDENCE_IDS, TRANSACTION_KINDS, type TransactionTaxMetadata } from './transaction-tax-policy';
 import { taxpayerContextForModel } from './taxpayer-context';
 import { ANALYSIS_DECISION_RULES } from './analysis-decision-rules';
 
@@ -13,23 +15,7 @@ const OutputSchema = z.object({
   evidence_ids: z.array(z.string()).min(1).max(3).optional(),
   is_deductible: z.boolean().optional(),
   expense_type: z.enum(['business', 'personal']).optional(), // Explicit classification: business or personal expense
-  category: z.enum([
-    'advertising_marketing',
-    'supplies_small_tools',
-    'software_subscriptions',
-    'contract_labor',
-    'equipment',
-    'vehicle_expense',
-    'travel',
-    'meals_50',
-    'home_office',
-    'utilities_phone_internet',
-    'education_training',
-    'dues_and_memberships',
-    'bank_and_payment_fees',
-    'rent',
-    'other'
-  ]).optional(),
+  category: z.enum(EXPENSE_CATEGORIES).optional(),
   deductible_percent: z.number().min(0).max(100).optional(),
   key_analysis_factor: z.string().max(400).optional(),
   customized_reason: z.string().optional(),
@@ -478,6 +464,12 @@ OUTPUT CONTRACT:
 - deductible_percent: never invent mixed-use allocations. Only a documented provided allocation or an applicable supported legal limit can be used; null when unresolved.
 - reason_hash: null (server-owned). Preserve user facts; past corrections or an account marked business are category signals, not tax evidence.
 
+MERCHANT INTELLIGENCE AND PROFESSION CONTEXT (tx.merchant_intelligence, profession_context):
+- tx.merchant_intelligence identifies the merchant, its usual category, Schedule C line, a disposition (business_likely, personal_likely, mixed_use, needs_purpose, not_an_expense, transfer_or_deposit, schedule_1), a default_purpose the user can confirm and the single most useful question. When confidence is high, use its category unless the saved purpose or notes describe a different item; when confidence is medium (bank category only) treat it as a hint. A disposition is never evidence of business use: business_likely still needs the user's confirmed purpose, personal_likely needs a stated business purpose of at least a sentence, mixed_use needs a documented business-use percentage, and not_an_expense, transfer_or_deposit and schedule_1 are not Schedule C expenses.
+- profession_context describes what people in this user's line of work typically deduct, the rule nuance and the audit traps. Use it to choose between categories (for example rent versus dues for a trainer's gym floor fee) and to ask the profession-specific question; it never establishes that this purchase was for business.
+- customized_reason must quote the user's own saved purpose when one is present ("You noted: ..."). Otherwise phrase the default_purpose as a proposal to confirm, never as a fact, for example: "If this Adobe subscription is used for client design work, it is an ordinary software expense (Schedule C line 18)." Name the Schedule C line whenever a category is proposed.
+- When status is not ok, the first question and key_analysis_factor must state the single most important missing fact (use the merchant question when it applies); do not list facts the context already supplies.
+
 CATEGORIZATION EXAMPLES (use the supplied facts, not an assumed merchant purpose):
 - Groceries explicitly recorded as personal/family use => transaction_kind=personal, status=ok, is_deductible=false, expense_type=personal, category=other, deductible_percent=0, evidence_ids=[personal-262]. Explain why it stays out of business deductions. Do not request a business purpose contrary to an explicit personal purpose.
 - A recorded incoming customer invoice payment => transaction_kind=income, status=ok, is_deductible=false, expense_type=null, category=other, deductible_percent=0, evidence_ids=[records-334]. This is a business receipt, not an expense. Do not classify unidentified deposits this way.
@@ -498,8 +490,29 @@ ${transactionTaxPolicyPrompt(transaction)}`;
 
   const w2Income = finiteNonnegative((ctx as UserContext).w2_income) ?? finiteNonnegative((ctx as UserContext).income_breakdown?.w2_income);
   const bizIncome = finiteNonnegative((ctx as UserContext).business_income) ?? finiteNonnegative((ctx as UserContext).income_breakdown?.business_income);
+  const contextData = buildAnalysisContext(transaction, ctx as UserContext, { learningContext, timeToUse, w2Income, bizIncome });
+  const userPrompt = `Analyze the transaction using only the following saved context and the trusted server policy. Keep categorization useful even when tax treatment needs additional facts.
 
-  const contextData = {
+CONTEXT:
+${JSON.stringify(contextData, null, 2)}
+
+Do not infer self-employment from a profession, a deduction from a merchant, or business purpose from a transaction time. A W-2 employment expense is not a Schedule C expense. A 2025 IRS publication is not a finalized 2026 return instruction. Select the applicable evidence IDs and explain the relevant condition in everyday language.
+taxpayer_context describes this user's saved methods, gaps and past confirmed decisions. Use it to choose the most likely category, to reuse this user's own wording for the business purpose as a question, and to ask about listed open_questions first. A prior confirmation, a recurring charge or a home-office/vehicle method never establishes deductibility for this transaction; when the prior decision conflicts with the current evidence, ask whether this purchase is different.
+tx.merchant_intelligence and profession_context are server hints about the merchant and this user's line of work: prefer their category when confidence is high and nothing saved contradicts it, quote the saved purpose or propose default_purpose as a question, name the Schedule C line, and ask the merchant question first when facts are missing.`;
+
+  return requestAnalysis(transaction, userContext, provider, systemPrompt, userPrompt);
+}
+
+interface AnalysisContextExtras {
+  learningContext: unknown;
+  timeToUse: string | null | undefined;
+  w2Income: number | undefined;
+  bizIncome: number | undefined;
+}
+/** The exact saved context sent to the model; exported for offline wiring tests (no provider call). */
+export function buildAnalysisContext(transaction: TransactionInput, ctx: UserContext, extras: AnalysisContextExtras) {
+  const { learningContext, timeToUse, w2Income, bizIncome } = extras;
+  return {
     profile: {
       profession: (ctx as UserContext).profession || [],
       age: finiteNonnegative((ctx as UserContext).age) ?? null,
@@ -519,8 +532,10 @@ ${transactionTaxPolicyPrompt(transaction)}`;
     },
     learning_context: learningContext ?? null,
     taxpayer_context: (ctx as UserContext).taxpayer_context ? taxpayerContextForModel((ctx as UserContext).taxpayer_context!) : null,
+    profession_context: professionContextForModel(ctx as UserContext),
     tx: {
       merchant: redactTaxIdentifiers(transaction.merchant || transaction.merchant_name || ''),
+      merchant_intelligence: merchantIntelligenceForModel(merchantIntelligence(transaction)),
       saved_category: transaction.category ?? null,
       saved_transaction_kind: transaction.transaction_kind ?? transaction.type ?? null,
       business_use_percentage: transaction.business_use_percentage ?? null,
@@ -549,14 +564,12 @@ ${transactionTaxPolicyPrompt(transaction)}`;
       attendees: transaction.attendees ?? null,
     },
   };
-  const userPrompt = `Analyze the transaction using only the following saved context and the trusted server policy. Keep categorization useful even when tax treatment needs additional facts.
+}
 
-CONTEXT:
-${JSON.stringify(contextData, null, 2)}
-
-Do not infer self-employment from a profession, a deduction from a merchant, or business purpose from a transaction time. A W-2 employment expense is not a Schedule C expense. A 2025 IRS publication is not a finalized 2026 return instruction. Select the applicable evidence IDs and explain the relevant condition in everyday language.
-taxpayer_context describes this user's saved methods, gaps and past confirmed decisions. Use it to choose the most likely category, to reuse this user's own wording for the business purpose as a question, and to ask about listed open_questions first. A prior confirmation, a recurring charge or a home-office/vehicle method never establishes deductibility for this transaction; when the prior decision conflicts with the current evidence, ask whether this purchase is different.`;
-
+async function requestAnalysis(
+  transaction: TransactionInput, userContext: UserContext | undefined, provider: { model: string },
+  systemPrompt: string, userPrompt: string,
+): Promise<AnalysisResult> {
   // JSON schema for OpenAI structured outputs — mirrors OutputSchema exactly
   const RESPONSE_JSON_SCHEMA = {
     name: 'tax_analysis',
@@ -569,15 +582,7 @@ taxpayer_context describes this user's saved methods, gaps and past confirmed de
         evidence_ids: { type: ['array', 'null'], items: { type: 'string', enum: TRANSACTION_EVIDENCE_IDS } },
         is_deductible: { type: ['boolean', 'null'] },
         expense_type: { type: ['string', 'null'], enum: ['business', 'personal', null] },
-        category: {
-          type: ['string', 'null'],
-          enum: [
-            'advertising_marketing', 'supplies_small_tools', 'software_subscriptions',
-            'contract_labor', 'equipment', 'vehicle_expense', 'travel', 'meals_50',
-            'home_office', 'utilities_phone_internet', 'education_training',
-            'dues_and_memberships', 'bank_and_payment_fees', 'rent', 'other', null,
-          ],
-        },
+        category: { type: ['string', 'null'], enum: [...EXPENSE_CATEGORIES, null] },
         deductible_percent: { type: ['number', 'null'] },
         key_analysis_factor: { type: ['string', 'null'] },
         customized_reason: { type: ['string', 'null'] },

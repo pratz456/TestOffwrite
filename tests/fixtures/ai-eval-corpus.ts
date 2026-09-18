@@ -31,6 +31,12 @@ export type EvalExpectation =
       category?: ExpenseCategory;
       evidence_includes?: string[];
       deductible_percent?: number;
+      /** Substring the first displayed question must contain (merchant- or profession-specific wording). */
+      question_includes?: string;
+      /** Exact merchant-table purpose offered for one-tap confirmation; null asserts that none was offered. */
+      proposed_purpose?: string | null;
+      /** Schedule C line attached for display; null asserts that none was attached. */
+      schedule_c_line?: string | null;
     };
 export interface EvalCase {
   id: string;
@@ -53,6 +59,22 @@ const MIXED_USE: UserContext = { ...SOLE_PROPRIETOR, mixed_use_flag: true };
 const HOME_OFFICE: UserContext = {
   ...SOLE_PROPRIETOR, office_location: 'Home office', home_office_sqft: 150, total_home_sqft: 900, home_office_method: 'simplified',
 };
+/** Sole proprietors in other lines of work; the profession string is what the profile screen captures. */
+const persona = (profession: string): UserContext => ({ ...SOLE_PROPRIETOR, profession: [profession] });
+const TRAINER = persona('Personal trainer');
+const INFLUENCER = persona('Influencer / content creator');
+const RIDESHARE = persona('Rideshare driver (Uber)');
+const PHOTOGRAPHER = persona('Photographer');
+const CONSULTANT = persona('Management consultant');
+const REALTOR = persona('Real estate agent');
+const STYLIST = persona('Hair stylist');
+const TRAVEL_NURSE = persona('Travel nurse');
+const THERAPIST = persona('Therapist in private practice');
+const TRUCKER = persona('Owner-operator trucker');
+const ECOMMERCE = persona('E-commerce seller');
+const HANDYMAN = persona('Handyman');
+const MUSICIAN = persona('Musician');
+const CLEANER = persona('Cleaner');
 
 /** A user who confirmed the same merchant N times with one-sided decisions. */
 function priorContext(merchant: string, decisions: Array<'business' | 'personal'>): UserContext {
@@ -649,7 +671,7 @@ export const AI_EVAL_CORPUS: EvalCase[] = [
     transaction: tx('gym-membership-over-eager', 'Planet Fitness', 24.99, { is_recurring: true, note: 'Monthly gym membership' }),
     context: SOLE_PROPRIETOR,
     modelOutput: deduction('dues_and_memberships', ['business-162'], 'The recorded gym membership keeps you fit for client work. Keep the membership statement.', 'Recorded gym membership.'),
-    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'dues_and_memberships', missing_field: 'club_dues_exception', evidence_includes: ['personal-262', 'meals-274'] },
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'dues_and_memberships', missing_field: 'club_dues_exception', evidence_includes: ['dues-274a3', 'personal-262'] },
     invariants: GATED_EXPENSE,
   },
   {
@@ -770,6 +792,530 @@ export const AI_EVAL_CORPUS: EvalCase[] = [
     expect: { status: 'blocked', transaction_kind: 'unknown' },
     invariants: [...TEXT, 'question_present'],
   },
+
+  // =====================================================================================
+  // Merchant- and profession-aware grounding (policy 2026-09-17.2). The merchant table
+  // and profession priors choose the gate and its question; none of them approves.
+  // =====================================================================================
+
+  // --- business_likely merchants: a proposed purpose the user confirms, never an approval ---
+  {
+    id: 'figma-proposed-purpose', title: 'Figma with no saved purpose: the merchant purpose is proposed for one-tap confirmation, not approved',
+    transaction: tx('figma-proposed-purpose', 'Figma', 15),
+    context: SOLE_PROPRIETOR,
+    modelOutput: deduction('software_subscriptions', ['software-334'], 'Figma is design software commonly used by graphic designers. Keep the invoice.', 'Design software subscription.'),
+    expect: {
+      status: 'needs_more_info', transaction_kind: 'expense', category: 'software_subscriptions', missing_field: 'business_purpose',
+      proposed_purpose: 'Design software subscription used for client work', schedule_c_line: '18', question_includes: 'Confirm or edit the purpose', evidence_includes: ['software-334'],
+    },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'figma-descriptor-copied-into-note', title: 'Bank descriptor copied into the note is not a saved purpose (imports do this)',
+    transaction: tx('figma-descriptor-copied-into-note', 'Figma', 15, { merchant_name: 'Figma', description: 'FIGMA MONTHLY RENEWAL', note: 'FIGMA MONTHLY RENEWAL' }),
+    context: SOLE_PROPRIETOR,
+    modelOutput: deduction('software_subscriptions', ['software-334'], 'The Figma renewal is a design software subscription for a designer. Keep the invoice.', 'Design software renewal.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'software_subscriptions', missing_field: 'business_purpose', proposed_purpose: 'Design software subscription used for client work' },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'google-ads-proposed-purpose', title: 'Google Ads processor descriptor with no note proposes the advertising purpose and names line 8',
+    transaction: tx('google-ads-proposed-purpose', 'GOOGLE *ADS1234567', 250),
+    context: SOLE_PROPRIETOR,
+    modelOutput: deduction('advertising_marketing', ['advertising-334'], 'Google Ads spending promotes the design business. Keep the campaign invoice.', 'Online advertising.'),
+    expect: {
+      status: 'needs_more_info', transaction_kind: 'expense', category: 'advertising_marketing', missing_field: 'business_purpose',
+      proposed_purpose: 'Online advertising promoting the business', schedule_c_line: '8', question_includes: 'Google Ads',
+    },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'wework-proposed-purpose', title: 'WeWork with no note proposes coworking rent (line 20b) instead of approving',
+    transaction: tx('wework-proposed-purpose', 'WeWork', 350, { is_recurring: true }),
+    context: SOLE_PROPRIETOR,
+    modelOutput: deduction('rent', ['rent-334'], 'A coworking membership is business rent for a freelancer. Keep the membership invoice.', 'Coworking rent.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'rent', missing_field: 'business_purpose', proposed_purpose: 'Coworking space rented for business work', schedule_c_line: '20b' },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'hiscox-proposed-purpose', title: 'Hiscox liability premium: proposed purpose with the merchant-refined line 15 under the "other" category',
+    transaction: tx('hiscox-proposed-purpose', 'Hiscox', 42, { is_recurring: true }),
+    context: SOLE_PROPRIETOR,
+    modelOutput: deduction('other', ['insurance-334'], 'Hiscox sells small-business liability insurance. Keep the policy declaration.', 'Business liability insurance.'),
+    expect: {
+      status: 'needs_more_info', transaction_kind: 'expense', category: 'other', missing_field: 'business_purpose',
+      proposed_purpose: 'Business liability or professional (E&O) insurance for the business', schedule_c_line: '15', evidence_includes: ['insurance-334'],
+    },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'canva-purpose-ok', title: 'Canva with a saved sentence purpose completes with the Schedule C line attached',
+    transaction: tx('canva-purpose-ok', 'Canva', 12.99, { is_recurring: true, business_purpose: 'Design tool used for client social media graphics and proposals' }),
+    context: SOLE_PROPRIETOR,
+    modelOutput: deduction('software_subscriptions', ['software-334'], 'The recorded client social media graphics work supports a business design tool subscription. Keep the invoice.', 'Recorded client design tool use.'),
+    expect: { status: 'ok', transaction_kind: 'expense', is_deductible: true, category: 'software_subscriptions', deductible_percent: 100, schedule_c_line: '18', proposed_purpose: null },
+    invariants: OK_DEDUCTION,
+  },
+  {
+    id: 'figma-no-entity', title: 'Figma with no entity on file: the entity question precedes any proposed purpose',
+    transaction: tx('figma-no-entity', 'Figma', 15),
+    context: NO_ENTITY,
+    modelOutput: deduction('software_subscriptions', ['software-334'], 'Figma is design software for a freelancer. Keep the invoice.', 'Design software subscription.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'software_subscriptions', missing_field: 'business_entity', proposed_purpose: null },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'adobe-prior-personal-no-note', title: 'Adobe marked personal twice before: the user\'s decisions outrank the proposed purpose',
+    transaction: tx('adobe-prior-personal-no-note', 'Adobe Creative Cloud', 59.99, { is_recurring: true }),
+    context: priorContext('Adobe Creative Cloud', ['personal', 'personal']),
+    modelOutput: deduction('software_subscriptions', ['software-334'], 'Adobe is design software for a designer. Keep the invoice.', 'Design software.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'software_subscriptions', missing_field: 'prior_decision_conflict', proposed_purpose: null },
+    invariants: [...GATED_EXPENSE, 'prior_decision_gated'],
+  },
+  {
+    id: 'office-supplies-plaid-medium-no-proposal', title: 'Plaid office-supplies category alone (medium confidence) asks the generic question without proposing a purpose',
+    transaction: tx('office-supplies-plaid-medium-no-proposal', 'Local Office Mart', 38.5, { category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES' }),
+    context: SOLE_PROPRIETOR,
+    modelOutput: deduction('supplies_small_tools', ['supplies-263a'], 'An office-supply store purchase is a typical supply cost. Keep the receipt.', 'Office supply store purchase.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'supplies_small_tools', missing_field: 'business_purpose', proposed_purpose: null, schedule_c_line: '22' },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'zillow-realtor-proposed', title: 'Zillow for a real estate agent proposes the lead-advertising purpose (line 8)',
+    transaction: tx('zillow-realtor-proposed', 'Zillow', 300),
+    context: REALTOR,
+    modelOutput: deduction('advertising_marketing', ['advertising-334'], 'Zillow charges are lead-generation advertising for an agent. Keep the invoice.', 'Lead-generation advertising.'),
+    expect: {
+      status: 'needs_more_info', transaction_kind: 'expense', category: 'advertising_marketing', missing_field: 'business_purpose',
+      proposed_purpose: 'Lead generation and listing advertising for the real estate business', schedule_c_line: '8',
+    },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'simplepractice-therapist-proposed', title: 'SimplePractice for a therapist proposes the practice-software purpose',
+    transaction: tx('simplepractice-therapist-proposed', 'SimplePractice', 99, { is_recurring: true }),
+    context: THERAPIST,
+    modelOutput: deduction('software_subscriptions', ['software-334'], 'SimplePractice is practice-management software for therapists. Keep the invoice.', 'Practice management software.'),
+    expect: {
+      status: 'needs_more_info', transaction_kind: 'expense', category: 'software_subscriptions', missing_field: 'business_purpose',
+      proposed_purpose: 'Practice management and telehealth software for the private practice', schedule_c_line: '18',
+    },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'psychology-today-therapist-ok', title: 'Psychology Today listing with a saved purpose completes as advertising',
+    transaction: tx('psychology-today-therapist-ok', 'Psychology Today', 29.95, { is_recurring: true, business_purpose: 'Directory listing that brings new clients to my practice' }),
+    context: THERAPIST,
+    modelOutput: deduction('advertising_marketing', ['advertising-334'], 'The recorded directory listing that brings new clients to the practice is advertising. Keep the listing invoice.', 'Recorded client-acquisition listing.'),
+    expect: { status: 'ok', transaction_kind: 'expense', is_deductible: true, category: 'advertising_marketing', deductible_percent: 100, schedule_c_line: '8' },
+    invariants: OK_DEDUCTION,
+  },
+
+  // --- needs_purpose merchants: the merchant's or profession's own question replaces the generic one ---
+  {
+    id: 'best-buy-designer-no-note', title: 'Best Buy with no note asks the designer\'s electronics question',
+    transaction: tx('best-buy-designer-no-note', 'Best Buy', 649),
+    context: SOLE_PROPRIETOR,
+    modelOutput: deduction('equipment', ['assets-946'], 'Electronics from Best Buy are typical designer equipment. Keep the receipt.', 'Designer electronics.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'equipment', missing_field: 'business_purpose', question_includes: 'client design work', proposed_purpose: null, schedule_c_line: '13' },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'linkedin-premium-needs-purpose', title: 'LinkedIn Premium asks whether it finds clients or a job',
+    transaction: tx('linkedin-premium-needs-purpose', 'LinkedIn', 39.99, { is_recurring: true }),
+    context: SOLE_PROPRIETOR,
+    modelOutput: deduction('software_subscriptions', ['software-334'], 'LinkedIn Premium helps a freelancer find clients. Keep the invoice.', 'Client prospecting subscription.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'software_subscriptions', missing_field: 'business_purpose', question_includes: 'job-search', proposed_purpose: null },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'microsoft-365-no-note', title: 'Microsoft 365 (mixed-use merchant) with no note asks about a personal or family plan first',
+    transaction: tx('microsoft-365-no-note', 'Microsoft 365', 99.99, { is_recurring: true }),
+    context: SOLE_PROPRIETOR,
+    modelOutput: deduction('software_subscriptions', ['software-334'], 'Microsoft 365 is standard office software for freelancers. Keep the invoice.', 'Office software subscription.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'software_subscriptions', missing_field: 'business_purpose', question_includes: 'personal or family plan', proposed_purpose: null },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'usps-ecommerce-no-note', title: 'USPS for an e-commerce seller asks the customer-orders postage question',
+    transaction: tx('usps-ecommerce-no-note', 'USPS', 48),
+    context: ECOMMERCE,
+    modelOutput: deduction('supplies_small_tools', ['supplies-263a'], 'Postage for an online seller is a shipping supply cost. Keep the receipt.', 'Shipping postage.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'supplies_small_tools', missing_field: 'business_purpose', question_includes: 'customer orders', schedule_c_line: '22' },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'home-depot-handyman-no-note', title: 'Home Depot for a handyman asks the customer-job materials question',
+    transaction: tx('home-depot-handyman-no-note', 'The Home Depot', 312),
+    context: HANDYMAN,
+    modelOutput: deduction('supplies_small_tools', ['supplies-263a'], 'Home Depot purchases by a handyman are job materials. Keep the receipt.', 'Likely job materials.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'supplies_small_tools', missing_field: 'business_purpose', question_includes: 'customer job' },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'home-depot-handyman-materials-ok', title: 'Home Depot job materials with a saved job purpose complete as supplies',
+    transaction: tx('home-depot-handyman-materials-ok', 'The Home Depot', 312, { business_purpose: 'Lumber and fasteners for the Nguyen deck repair job' }),
+    context: HANDYMAN,
+    modelOutput: deduction('supplies_small_tools', ['supplies-263a'], 'The recorded lumber and fasteners for the Nguyen deck repair are job materials. Keep the itemized receipt.', 'Recorded job materials.'),
+    expect: { status: 'ok', transaction_kind: 'expense', is_deductible: true, category: 'supplies_small_tools', deductible_percent: 100, schedule_c_line: '22' },
+    invariants: OK_DEDUCTION,
+  },
+  {
+    id: 'marketplace-plaid-medium-question', title: 'Unknown marketplace known only from the Plaid category asks the marketplace question',
+    transaction: tx('marketplace-plaid-medium-question', 'Mercari', 57, { category: 'GENERAL_MERCHANDISE_ONLINE_MARKETPLACES' }),
+    context: SOLE_PROPRIETOR,
+    modelOutput: deduction('supplies_small_tools', ['supplies-263a'], 'Marketplace orders by a designer are usually supplies. Keep the receipt.', 'Likely supplies.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'supplies_small_tools', missing_field: 'business_purpose', question_includes: 'this marketplace' },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'square-processor-prefix-no-note', title: 'Square-processed coffee shop with no note: the coffee keyword outranks the SQ prefix and asks the meal question',
+    transaction: tx('square-processor-prefix-no-note', 'SQ *BLUE BOTTLE COFFEE', 6.5, { time_24h: '09:05' }),
+    context: SOLE_PROPRIETOR,
+    modelOutput: deduction('meals_50', ['meals-274'], 'A coffee shop charge during the workday can be a business meal. Keep the receipt.', 'Coffee during the workday.', { deductible_percent: 50 }),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'meals_50', missing_field: 'business_purpose', question_includes: 'coffee by yourself', schedule_c_line: '24b' },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'square-processor-prefix-unknown-store', title: 'Square-processed unknown store with no note asks what was bought and from whom',
+    transaction: tx('square-processor-prefix-unknown-store', 'SQ *RIVERSIDE GOODS', 42),
+    context: SOLE_PROPRIETOR,
+    modelOutput: deduction('supplies_small_tools', ['supplies-263a'], 'A Square-processed store purchase by a designer is likely supplies. Keep the receipt.', 'Likely supplies.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'supplies_small_tools', missing_field: 'business_purpose', question_includes: 'processed by Square', proposed_purpose: null },
+    invariants: GATED_EXPENSE,
+  },
+
+  // --- personal_likely merchants: a label is not a purpose; a sentence is required and the merchant question is asked ---
+  {
+    id: 'whole-foods-label-only', title: 'Whole Foods with a two-word label ("Client snacks") still needs a stated purpose',
+    transaction: tx('whole-foods-label-only', 'Whole Foods', 64, { note: 'Client snacks' }),
+    context: SOLE_PROPRIETOR,
+    modelOutput: deduction('supplies_small_tools', ['supplies-263a'], 'Snacks recorded for clients are studio supplies. Keep the receipt.', 'Client snacks.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'supplies_small_tools', missing_field: 'business_purpose', evidence_includes: ['personal-262', 'supplies-263a'], question_includes: 'Groceries are personal' },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'whole-foods-stated-sentence', title: 'Whole Foods with a full sentence purpose completes (no prior personal decisions)',
+    transaction: tx('whole-foods-stated-sentence', 'Whole Foods', 64, { business_purpose: 'Snacks and drinks for the client shoot day at the studio' }),
+    context: SOLE_PROPRIETOR,
+    modelOutput: deduction('supplies_small_tools', ['supplies-263a'], 'The recorded snacks and drinks for the client shoot day are studio supplies. Keep the itemized receipt.', 'Recorded client shoot day supplies.'),
+    expect: { status: 'ok', transaction_kind: 'expense', is_deductible: true, category: 'supplies_small_tools', deductible_percent: 100, schedule_c_line: '22' },
+    invariants: OK_DEDUCTION,
+  },
+  {
+    id: 'netflix-influencer-no-note', title: 'Netflix for a content creator asks the profession\'s licensing question',
+    transaction: tx('netflix-influencer-no-note', 'Netflix', 15.49, { is_recurring: true }),
+    context: INFLUENCER,
+    modelOutput: deduction('software_subscriptions', ['software-334'], 'Streaming research is part of content creation for an influencer. Keep the receipt.', 'Content research subscription.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'software_subscriptions', missing_field: 'business_purpose', evidence_includes: ['personal-262'], question_includes: 'licensed for use in your published content' },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'spotify-musician-no-note', title: 'Spotify for a musician asks whether it is a paid distribution or promotion service',
+    transaction: tx('spotify-musician-no-note', 'Spotify', 10.99, { is_recurring: true }),
+    context: MUSICIAN,
+    modelOutput: deduction('software_subscriptions', ['software-334'], 'A musician uses streaming for reference listening. Keep the receipt.', 'Reference listening subscription.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'software_subscriptions', missing_field: 'business_purpose', evidence_includes: ['personal-262'], question_includes: 'paid distribution or promotion service' },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'netflix-recorded-personal', title: 'Netflix recorded as family streaming stays a clean personal result',
+    transaction: tx('netflix-recorded-personal', 'Netflix', 15.49, { is_recurring: true, note: 'Family streaming plan' }),
+    context: INFLUENCER,
+    modelOutput: personal('You recorded this as the family streaming plan, a personal living cost that stays out of business deductions.', 'Recorded family streaming plan.'),
+    expect: { status: 'ok', transaction_kind: 'personal', is_deductible: false, deductible_percent: 0, schedule_c_line: null, proposed_purpose: null },
+    invariants: TEXT,
+  },
+  {
+    id: 'cvs-designer-no-note', title: 'CVS with no note asks the pharmacy question and cites the personal rule',
+    transaction: tx('cvs-designer-no-note', 'CVS Pharmacy', 23),
+    context: SOLE_PROPRIETOR,
+    modelOutput: deduction('supplies_small_tools', ['supplies-263a'], 'Pharmacy runs often include office supplies. Keep the receipt.', 'Possible office supplies.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'supplies_small_tools', missing_field: 'business_purpose', evidence_includes: ['personal-262'], question_includes: 'Pharmacy' },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'instacart-cleaner-no-note', title: 'Instacart for a cleaner asks whether these were client-job cleaning supplies',
+    transaction: tx('instacart-cleaner-no-note', 'Instacart', 74),
+    context: CLEANER,
+    modelOutput: deduction('supplies_small_tools', ['supplies-263a'], 'A cleaner buys supplies through delivery apps. Keep the receipt.', 'Cleaning supplies.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'supplies_small_tools', missing_field: 'business_purpose', evidence_includes: ['personal-262'], question_includes: 'cleaning supplies for client jobs' },
+    invariants: GATED_EXPENSE,
+  },
+
+  // --- clothing and grooming: the everyday-wear test outranks any stated purpose; the question is profession-specific ---
+  {
+    id: 'zara-influencer-outfit', title: 'Zara outfit for a sponsored video: influencer clothing question, never approved on the purpose alone',
+    transaction: tx('zara-influencer-outfit', 'Zara', 148, { business_purpose: 'Outfit for the sponsored fall fashion video series' }),
+    context: INFLUENCER,
+    modelOutput: deduction('supplies_small_tools', ['supplies-263a'], 'The recorded outfit for the sponsored video series is a production cost. Keep the receipt.', 'Recorded outfit for sponsored videos.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'supplies_small_tools', missing_field: 'personal_use_exception', evidence_includes: ['personal-262'], question_includes: 'suitable for everyday wear' },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'nike-trainer-shoes', title: 'Nike training shoes for a personal trainer: workout-clothing question',
+    transaction: tx('nike-trainer-shoes', 'Nike', 130, { business_purpose: 'Training shoes I wear when coaching clients at the gym' }),
+    context: TRAINER,
+    modelOutput: deduction('supplies_small_tools', ['supplies-263a'], 'The recorded training shoes worn when coaching clients support the training business. Keep the receipt.', 'Recorded coaching shoes.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'supplies_small_tools', missing_field: 'personal_use_exception', evidence_includes: ['personal-262'], question_includes: 'Workout clothing' },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'zara-designer-no-note', title: 'Zara for a designer with no note: the merchant clothing question (no profession hint)',
+    transaction: tx('zara-designer-no-note', 'Zara', 89),
+    context: SOLE_PROPRIETOR,
+    modelOutput: deduction('other', ['business-162'], 'Clothing for client meetings supports a professional image. Keep the receipt.', 'Client-meeting clothing.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'other', missing_field: 'personal_use_exception', evidence_includes: ['personal-262'], question_includes: 'everyday wear' },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'great-clips-stylist', title: 'Great Clips for a hair stylist: own grooming versus products used on clients',
+    transaction: tx('great-clips-stylist', 'Great Clips', 28),
+    context: STYLIST,
+    modelOutput: deduction('other', ['business-162'], 'A stylist keeps a professional appearance for clients. Keep the receipt.', 'Professional appearance.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'other', missing_field: 'personal_use_exception', evidence_includes: ['personal-262'], question_includes: 'used on your own clients' },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'sally-beauty-stylist-supplies-ok', title: 'Sally Beauty color used on salon clients completes as supplies (profession-consistent business_likely merchant)',
+    transaction: tx('sally-beauty-stylist-supplies-ok', 'Sally Beauty', 86, { business_purpose: 'Color and developer used on salon clients this month' }),
+    context: STYLIST,
+    modelOutput: deduction('supplies_small_tools', ['supplies-263a'], 'The recorded color and developer used on salon clients are consumable supplies. Keep the receipt.', 'Recorded client color supplies.'),
+    expect: { status: 'ok', transaction_kind: 'expense', is_deductible: true, category: 'supplies_small_tools', deductible_percent: 100, schedule_c_line: '22' },
+    invariants: OK_DEDUCTION,
+  },
+
+  // --- gyms and dues: trainer versus designer ---
+  {
+    id: 'planet-fitness-trainer-floor-fee', title: 'Planet Fitness floor fee for a personal trainer: rent-versus-dues question, still confirmed by the user',
+    transaction: tx('planet-fitness-trainer-floor-fee', 'Planet Fitness', 150, { is_recurring: true, note: 'Monthly floor fee to train my clients at the gym' }),
+    context: TRAINER,
+    modelOutput: deduction('rent', ['rent-334'], 'The recorded floor fee to train clients is space rent for the training business. Keep the fee agreement.', 'Recorded client training floor fee.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'rent', missing_field: 'club_dues_exception', evidence_includes: ['dues-274a3', 'rent-334', 'personal-262'], question_includes: 'floor fee' },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'equinox-designer-membership', title: 'Equinox membership for a designer with a health rationale: club dues question',
+    transaction: tx('equinox-designer-membership', 'Equinox', 220, { is_recurring: true, note: 'Gym membership, I need to stay healthy for long design hours' }),
+    context: SOLE_PROPRIETOR,
+    modelOutput: deduction('dues_and_memberships', ['dues-274a3'], 'The recorded membership supports health for client work. Keep the statement.', 'Recorded gym membership for work stamina.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'dues_and_memberships', missing_field: 'club_dues_exception', evidence_includes: ['dues-274a3', 'personal-262'], question_includes: 'membership for your own use', schedule_c_line: '27a' },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'aiga-dues-designer-ok', title: 'AIGA professional association dues complete as dues (line 27a)',
+    transaction: tx('aiga-dues-designer-ok', 'AIGA', 150, { business_purpose: 'Annual AIGA professional design association membership dues' }),
+    context: SOLE_PROPRIETOR,
+    modelOutput: deduction('dues_and_memberships', ['dues-274a3'], 'The recorded AIGA professional association dues are an ordinary cost of the design business. Keep the dues receipt.', 'Recorded professional association dues.'),
+    expect: { status: 'ok', transaction_kind: 'expense', is_deductible: true, category: 'dues_and_memberships', deductible_percent: 100, schedule_c_line: '27a', evidence_includes: ['dues-274a3'] },
+    invariants: OK_DEDUCTION,
+  },
+  {
+    id: 'nar-dues-realtor-ok', title: 'REALTOR association and MLS dues complete as dues for an agent',
+    transaction: tx('nar-dues-realtor-ok', 'National Association of Realtors', 195, { business_purpose: 'Annual REALTOR association and MLS dues' }),
+    context: REALTOR,
+    modelOutput: deduction('dues_and_memberships', ['dues-274a3'], 'The recorded REALTOR association and MLS dues are ordinary costs of the real estate business. Keep the dues invoice.', 'Recorded association and MLS dues.'),
+    expect: { status: 'ok', transaction_kind: 'expense', is_deductible: true, category: 'dues_and_memberships', deductible_percent: 100, schedule_c_line: '27a' },
+    invariants: OK_DEDUCTION,
+  },
+
+  // --- rideshare driver and trucker ---
+  {
+    id: 'chevron-rideshare-method', title: 'Chevron fuel for a rideshare driver asks the standard-mileage-versus-actual question',
+    transaction: tx('chevron-rideshare-method', 'Chevron', 58, { business_purpose: 'Gas for a full day of Uber driving' }),
+    context: RIDESHARE,
+    modelOutput: deduction('vehicle_expense', ['mileage-rates'], 'The recorded fuel for rideshare driving is a vehicle operating cost. Keep the receipt and the trip log.', 'Recorded rideshare fuel.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'vehicle_expense', missing_field: 'vehicle_method', evidence_includes: ['mileage-rates', 'travel-463'], question_includes: 'standard mileage rate', schedule_c_line: '9' },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'ezpass-rideshare-tolls', title: 'E-ZPass tolls during passenger trips are approved in addition to standard mileage (Pub 463)',
+    transaction: tx('ezpass-rideshare-tolls', 'E-ZPass', 35, { business_purpose: 'Tolls paid during Uber trips with passengers' }),
+    context: RIDESHARE,
+    modelOutput: deduction('vehicle_expense', ['travel-463'], 'The recorded tolls during passenger trips are vehicle costs separate from mileage. Keep the toll statement.', 'Recorded tolls during passenger trips.'),
+    expect: { status: 'ok', transaction_kind: 'expense', is_deductible: true, category: 'vehicle_expense', deductible_percent: 100, evidence_includes: ['travel-463'] },
+    invariants: OK_DEDUCTION,
+  },
+  {
+    id: 'chipotle-rideshare-shift-meal', title: 'Chipotle during a driving shift: the driver-specific meal question',
+    transaction: tx('chipotle-rideshare-shift-meal', 'Chipotle', 14, { note: 'Lunch between rides during my shift' }),
+    context: RIDESHARE,
+    modelOutput: deduction('meals_50', ['meals-274'], 'A meal during a driving shift was recorded. Keep the receipt.', 'Meal during shift.', { deductible_percent: 50 }),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'meals_50', missing_field: 'meal_conditions', evidence_includes: ['meals-274'], question_includes: 'during a shift are personal', schedule_c_line: '24b' },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'pilot-flying-j-trucker-diesel', title: 'Truck-stop diesel for an owner-operator asks the tractor actual-expense question',
+    transaction: tx('pilot-flying-j-trucker-diesel', 'Pilot Flying J', 612, { business_purpose: 'Diesel for the truck on the Dallas to Memphis load' }),
+    context: TRUCKER,
+    modelOutput: deduction('vehicle_expense', ['travel-463'], 'The recorded diesel for the Dallas to Memphis load is a truck operating cost. Keep the fuel receipt.', 'Recorded diesel for a hauled load.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'vehicle_expense', missing_field: 'vehicle_method', question_includes: 'standard mileage rate does not apply', schedule_c_line: '9' },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'geico-auto-insurance-method', title: 'GEICO auto premium asks the merchant\'s actual-expense-method question',
+    transaction: tx('geico-auto-insurance-method', 'Geico', 168, { is_recurring: true, business_purpose: 'Auto insurance on the car I drive to client sites' }),
+    context: SOLE_PROPRIETOR,
+    modelOutput: deduction('vehicle_expense', ['travel-463'], 'The recorded auto insurance on the car driven to client sites is a vehicle cost. Keep the policy.', 'Recorded auto insurance for client driving.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'vehicle_expense', missing_field: 'vehicle_method', question_includes: 'actual vehicle expenses', schedule_c_line: '9' },
+    invariants: GATED_EXPENSE,
+  },
+
+  // --- cameras: photographer versus consultant ---
+  {
+    id: 'bh-camera-photographer', title: '$2,899 camera body for a photographer: paid-shoots asset question',
+    transaction: tx('bh-camera-photographer', 'B&H Photo', 2899, { business_purpose: 'Camera body for paid wedding shoots' }),
+    context: PHOTOGRAPHER,
+    modelOutput: deduction('equipment', ['assets-946'], 'The recorded camera body for paid wedding shoots is business equipment. Keep the invoice and serial number.', 'Recorded camera for paid shoots.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'equipment', missing_field: 'asset_treatment', evidence_includes: ['assets-946'], question_includes: 'paid shoots', schedule_c_line: '13' },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'bh-camera-consultant', title: '$2,899 camera body for a management consultant: the consulting-use question instead',
+    transaction: tx('bh-camera-consultant', 'B&H Photo', 2899, { business_purpose: 'Camera for recording my consulting workshop videos' }),
+    context: CONSULTANT,
+    modelOutput: deduction('equipment', ['assets-946'], 'The recorded camera for consulting workshop videos is business equipment. Keep the invoice.', 'Recorded camera for workshop videos.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'equipment', missing_field: 'asset_treatment', evidence_includes: ['assets-946'], question_includes: 'consulting work', schedule_c_line: '13' },
+    invariants: GATED_EXPENSE,
+  },
+
+  // --- travel: travel nurse and content creator ---
+  {
+    id: 'marriott-travel-nurse', title: 'Extended-stay hotel for a travel nurse asks the tax-home / duplicated-expenses question',
+    transaction: tx('marriott-travel-nurse', 'Marriott', 1450, { travel_destination: 'Phoenix, AZ', business_purpose: 'Extended-stay hotel for my 13-week contract in Phoenix' }),
+    context: TRAVEL_NURSE,
+    modelOutput: deduction('travel', ['travel-463'], 'The recorded extended-stay hotel for a 13-week contract is travel lodging. Keep the folio and the contract.', 'Recorded contract lodging.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'travel', missing_field: 'travel_eligibility', question_includes: 'permanent home', schedule_c_line: '24a' },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'airbnb-influencer-content-trip', title: 'Airbnb cabin filmed for a sponsored series asks which brand deal required the stay',
+    transaction: tx('airbnb-influencer-content-trip', 'Airbnb', 890, { business_purpose: 'Cabin stay filmed for the sponsored travel series' }),
+    context: INFLUENCER,
+    modelOutput: deduction('travel', ['travel-463'], 'The recorded cabin stay filmed for a sponsored series is production travel. Keep the booking and the brand contract.', 'Recorded sponsored content trip.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'travel', missing_field: 'travel_eligibility', question_includes: 'brand deal' },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'toast-restaurant-client-dinner', title: 'Toast-processed restaurant with attendees: the merchant meal question',
+    transaction: tx('toast-restaurant-client-dinner', 'TST* GRILL HOUSE', 96, { business_purpose: 'Dinner with client Priya Shah to plan the rebrand launch', attendees: ['Priya Shah', 'me'] }),
+    context: SOLE_PROPRIETOR,
+    modelOutput: deduction('meals_50', ['meals-274'], 'The recorded dinner with client Priya Shah about the rebrand launch fits a business meal at the 50% limit. Keep the itemized bill.', 'Recorded client dinner.', { deductible_percent: 50 }),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'meals_50', missing_field: 'meal_conditions', question_includes: 'Who was at this meal', schedule_c_line: '24b' },
+    invariants: GATED_EXPENSE,
+  },
+
+  // --- payment apps and cash: money moving is not a purchase until the payee and goods are named ---
+  {
+    id: 'venmo-label-only-contractor', title: 'Venmo with a two-word label ("Alex logo") routes to the money-movement question',
+    transaction: tx('venmo-label-only-contractor', 'Venmo', 400, { note: 'Alex logo' }),
+    context: SOLE_PROPRIETOR,
+    modelOutput: deduction('contract_labor', ['contract-labor-334'], 'A Venmo payment to Alex for a logo is contract labor. Keep the invoice.', 'Contractor payment for a logo.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'contract_labor', missing_field: 'transaction_kind', evidence_includes: ['records-334', 'contract-labor-334'], question_includes: 'transfer between your own accounts', schedule_c_line: null },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'atm-withdrawal-supplies-label', title: 'ATM withdrawal labelled "Cash for supplies" is not an expense yet',
+    transaction: tx('atm-withdrawal-supplies-label', 'ATM Withdrawal', 200, { note: 'Cash for supplies' }),
+    context: SOLE_PROPRIETOR,
+    modelOutput: deduction('supplies_small_tools', ['supplies-263a'], 'Cash withdrawn for supplies covers small studio purchases. Keep the receipts.', 'Cash for supplies.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'supplies_small_tools', missing_field: 'transaction_kind', evidence_includes: ['records-334'], question_includes: 'Cash withdrawals are not expenses', schedule_c_line: null },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'stripe-fee-with-statement-ok', title: 'Stripe processing fees with a stated sentence complete as payment fees (line 10)',
+    transaction: tx('stripe-fee-with-statement-ok', 'Stripe', 23.4, { business_purpose: 'Stripe processing fees on client invoice payments this month' }),
+    context: SOLE_PROPRIETOR,
+    modelOutput: deduction('bank_and_payment_fees', ['bank-fees-334'], 'The recorded Stripe processing fees on client invoice payments are payment fees of the business. Keep the fee statement.', 'Recorded processing fees on client payments.'),
+    expect: { status: 'ok', transaction_kind: 'expense', is_deductible: true, category: 'bank_and_payment_fees', deductible_percent: 100, schedule_c_line: '10', evidence_includes: ['bank-fees-334'] },
+    invariants: OK_DEDUCTION,
+  },
+  {
+    id: 'amex-annual-fee-ok', title: 'American Express annual fee on a business-only card completes as a payment fee',
+    transaction: tx('amex-annual-fee-ok', 'Amex', 250, { business_purpose: 'Annual fee on the card I use only for business purchases' }),
+    context: SOLE_PROPRIETOR,
+    modelOutput: deduction('bank_and_payment_fees', ['bank-fees-334'], 'The recorded annual fee on the business-only card is a bank charge of the business. Keep the statement.', 'Recorded business card annual fee.'),
+    expect: { status: 'ok', transaction_kind: 'expense', is_deductible: true, category: 'bank_and_payment_fees', deductible_percent: 100, schedule_c_line: '10' },
+    invariants: OK_DEDUCTION,
+  },
+  {
+    id: 'chase-label-passes-as-fee', title: 'Chase with the label "Chase payment" passes the length-only gate for a needs_purpose merchant',
+    transaction: tx('chase-label-passes-as-fee', 'Chase', 450, { note: 'Chase payment' }),
+    context: SOLE_PROPRIETOR,
+    modelOutput: deduction('bank_and_payment_fees', ['bank-fees-334'], 'Chase charges on the business account are bank fees. Keep the statement.', 'Bank fee.'),
+    expect: { status: 'ok', transaction_kind: 'expense', is_deductible: true, category: 'bank_and_payment_fees', deductible_percent: 100 },
+    invariants: OK_DEDUCTION,
+  },
+
+  // --- not an expense / Schedule 1: the note cannot turn these into Schedule C deductions ---
+  {
+    id: 'irs-payment-model-deducts', title: 'IRS estimated tax that the model books as taxes and licenses is routed to the kind question',
+    transaction: tx('irs-payment-model-deducts', 'IRS USATAXPYMT', 2400, { note: 'Q3 estimated tax for the business', date_iso: '2025-09-15' }),
+    context: SOLE_PROPRIETOR,
+    modelOutput: deduction('other', ['taxes-licenses-sch-c'], 'Estimated taxes paid for the business are a taxes-and-licenses expense. Keep the payment confirmation.', 'Business estimated tax payment.'),
+    expect: { status: 'blocked', transaction_kind: 'expense', category: 'other', missing_field: 'tax_payment_recorded', evidence_includes: ['taxes-licenses-sch-c', 'records-334'], question_includes: 'quarterly planner' },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'nelnet-student-loan', title: 'Student loan payment for a design degree is not education expense',
+    transaction: tx('nelnet-student-loan', 'Nelnet', 310, { is_recurring: true, business_purpose: 'Student loan payment for my design degree' }),
+    context: SOLE_PROPRIETOR,
+    modelOutput: deduction('education_training', ['education-reg-1.162-5'], 'The recorded loan payment for the design degree relates to the skills used in the business. Keep the statement.', 'Recorded design degree loan payment.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'education_training', missing_field: 'transaction_kind', evidence_includes: ['records-334', 'education-reg-1.162-5'], question_includes: 'Student loan payments are not business expenses' },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'kaiser-premium-schedule-1', title: 'Kaiser premium with a self-employed note: Schedule 1 placement question with the insurance rule',
+    transaction: tx('kaiser-premium-schedule-1', 'Kaiser Permanente', 612, { is_recurring: true, business_purpose: 'Health insurance premium for myself as a self-employed designer' }),
+    context: SOLE_PROPRIETOR,
+    modelOutput: deduction('other', ['insurance-334'], 'The recorded health premium for a self-employed owner is deductible insurance. Keep the premium statement.', 'Recorded self-employed health premium.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'other', missing_field: 'deduction_placement', evidence_includes: ['insurance-334', 'personal-262'], question_includes: 'Schedule 1', schedule_c_line: null },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'lively-hsa-contribution', title: 'HSA contribution from the business account is a Schedule 1 item, not an expense',
+    transaction: tx('lively-hsa-contribution', 'Lively HSA', 300, { note: 'Monthly HSA contribution from the business account' }),
+    context: SOLE_PROPRIETOR,
+    modelOutput: deduction('other', ['business-162'], 'HSA contributions paid from the business account are a business cost. Keep the contribution record.', 'HSA contribution.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'other', missing_field: 'deduction_placement', evidence_includes: ['records-334'], question_includes: 'Schedule 1 adjustments' },
+    invariants: GATED_EXPENSE,
+  },
+
+  // --- mixed_use merchants: the documented split, asked in the merchant's words ---
+  {
+    id: 'turbotax-mixed-no-percentage', title: 'TurboTax with a saved purpose but no percentage asks for the business-schedules share',
+    transaction: tx('turbotax-mixed-no-percentage', 'TurboTax', 129, { business_purpose: 'Tax software used to file my return with Schedule C' }),
+    context: SOLE_PROPRIETOR,
+    modelOutput: deduction('other', ['professional-fees-334'], 'The recorded tax software used to file a return with a business schedule is a professional fee. Keep the receipt.', 'Recorded tax filing software.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'other', missing_field: 'business_use_percentage', question_includes: 'business schedules', schedule_c_line: '17' },
+    invariants: GATED_EXPENSE,
+  },
+  {
+    id: 'turbotax-mixed-with-percentage', title: 'TurboTax with a recorded 60% business share completes at 60%',
+    transaction: tx('turbotax-mixed-with-percentage', 'TurboTax', 129, { business_use_percentage: 60, business_purpose: 'Tax software used to file my return with Schedule C' }),
+    context: SOLE_PROPRIETOR,
+    modelOutput: deduction('other', ['professional-fees-334'], 'The recorded 60% business-schedule share of the tax software applies. Keep the receipt and the allocation note.', 'Recorded 60% business filing share.', { deductible_percent: 60 }),
+    expect: { status: 'ok', transaction_kind: 'expense', is_deductible: true, category: 'other', deductible_percent: 60, schedule_c_line: '17' },
+    invariants: [...OK_DEDUCTION, 'percent_not_assumed'],
+  },
+  {
+    id: 'att-mixed-merchant-question', title: 'AT&T plan with a purpose but no percentage asks in the merchant\'s words',
+    transaction: tx('att-mixed-merchant-question', 'AT&T', 110, { is_recurring: true, business_purpose: 'Cell phone plan for client calls' }),
+    context: SOLE_PROPRIETOR,
+    modelOutput: deduction('utilities_phone_internet', ['phone-internet-262'], 'The recorded phone plan for client calls is a business utility. Keep the statement.', 'Recorded client-call phone plan.'),
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'utilities_phone_internet', missing_field: 'business_use_percentage', question_includes: 'AT&T plan', schedule_c_line: '25' },
+    invariants: GATED_EXPENSE,
+  },
+
+  // --- documented weakness: education that qualifies for a new trade is not tested by grounding ---
+  {
+    id: 'coursera-therapist-new-degree', title: 'Coursework toward a new degree passes on the saved purpose (the new-trade test is not evaluated)',
+    transaction: tx('coursera-therapist-new-degree', 'Coursera', 399, { business_purpose: 'Coursework toward my new psychiatric nurse practitioner degree' }),
+    context: THERAPIST,
+    modelOutput: deduction('education_training', ['education-reg-1.162-5'], 'The recorded coursework relates to clinical skills used in the practice. Keep the receipt.', 'Recorded clinical coursework.'),
+    expect: { status: 'ok', transaction_kind: 'expense', is_deductible: true, category: 'education_training', deductible_percent: 100, schedule_c_line: '27a' },
+    invariants: OK_DEDUCTION,
+  },
 ];
 
 /**
@@ -779,4 +1325,6 @@ export const AI_EVAL_CORPUS: EvalCase[] = [
 export const KNOWN_CONCERNS: Array<{ id: string; rationale: string }> = [
   { id: 'note-prompt-injection', rationale: 'Injected instructions in the note count as saved context for the length-only purpose gate; the grounding relies on the model to ignore them.' },
   { id: 'pending-transaction', rationale: 'The pending flag is ignored, so a pending authorization can receive a completed deduction suggestion before it posts.' },
+  { id: 'chase-label-passes-as-fee', rationale: 'Only personal_likely and transfer_or_deposit merchants require a stated sentence; a needs_purpose bank merchant with the label "Chase payment" still passes the length-only gate, so a card payment can be booked as a fee if the model agrees.' },
+  { id: 'coursera-therapist-new-degree', rationale: 'Grounding has no education gate: the "qualifies you for a new trade or business" test in Reg. 1.162-5 is left to the model, so a saved purpose naming a new degree still completes.' },
 ];

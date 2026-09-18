@@ -39,6 +39,14 @@ export interface AiReviewSuggestion {
   profileHash?: string;
   /** Unsupported year/entity can block tax treatment without blocking a known bookkeeping category. */
   categoryReady?: boolean;
+  /**
+   * Server-proposed business purpose (from the merchant table) awaiting the user's one-tap confirmation
+   * or edit. Present only when status is needs_more_info with business_purpose missing; saving the
+   * purpose and re-running analysis, not this field, is what can change the outcome.
+   */
+  proposedPurpose?: string;
+  /** Schedule C line where the suggested category would be reported; display only. */
+  scheduleCLine?: string;
 }
 
 export type TransactionReviewRequest =
