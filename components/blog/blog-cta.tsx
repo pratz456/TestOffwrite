@@ -17,10 +17,10 @@ export function BlogCTA({ variant = "inline" }: { variant?: "inline" | "full" })
           <div className="flex-1">
             <p className="text-base font-semibold text-foreground">
               <Sparkles className="mr-1.5 inline-block h-4 w-4 text-primary" />
-              Stop tracking expenses manually.
+              Keep your expense records together.
             </p>
             <p className="mt-1 text-sm text-muted-foreground">
-              WriteOff&apos;s AI automatically finds and categorizes your deductions in real-time. Try free for 30 days.
+              Enter expenses, upload receipts, and review the details in WriteOff. Try free for 30 days, with no bank connection required.
             </p>
           </div>
           <Link href={href}>
@@ -49,10 +49,10 @@ export function BlogCTA({ variant = "inline" }: { variant?: "inline" | "full" })
       <div className="pointer-events-none absolute -bottom-20 -left-20 h-48 w-48 rounded-full opacity-[0.06]" style={{ background: "radial-gradient(circle, hsl(160 60% 45%), transparent 70%)" }} />
 
       <h3 className="text-2xl font-extrabold tracking-tight text-foreground sm:text-3xl">
-        Ready to stop overpaying taxes?
+        Ready to organize your business expenses?
       </h3>
       <p className="mx-auto mt-3 max-w-lg text-muted-foreground">
-        WriteOff&apos;s AI finds every deduction, tracks expenses as you go, and estimates your quarterly taxes automatically. No spreadsheets. No guesswork.
+        Save expenses and receipts as you go. Review their business purpose and prepare records for your accountant. In-app filing and AI analysis are not available in this preview.
       </p>
       <div className="mt-6 flex flex-col items-center gap-3">
         <Link href={href}>

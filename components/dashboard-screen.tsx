@@ -1,21 +1,24 @@
 /**
- * WriteOff Dashboard - Premium Fintech Corporate
+ * WriteOff Home — review first, financial summary second.
  *
  * All data fetching and computation stays in this parent component.
  * Presentation is delegated to components/dashboard/*.
  */
 
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { ArrowRight, ChevronDown, Loader2, Plus } from 'lucide-react';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
-import { useTransactions, useUserStats } from '@/lib/firebase/hooks';
-import { calculateEffectiveTaxRate } from '@/lib/tax-rules/federal-brackets';
+import { useTransactions } from '@/lib/firebase/hooks';
+import { getUserTaxRateDisplay } from '@/lib/tax-rules/federal-brackets';
 import { ToastContainer, useToasts } from '@/components/ui/toast';
 import { auth } from '@/lib/firebase/client';
 import { HistoricalAccessUpgradeCard } from '@/components/historical-access-upgrade-card';
-import { consolidateCategory } from '@/lib/utils';
-import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
+import { dashboardRecordStatus, summarizeDashboardRecords } from '@/lib/dashboard/record-summary';
+import { summarizeAnalysisBacklog } from '@/lib/ai/analysis-state';
+import { AnalysisStatusNotice } from '@/components/analysis-status-notice';
 import { toast } from 'sonner';
+import { loadDashboardTaxSnapshot, type DashboardTaxState } from '@/lib/tax/dashboard-snapshot';
+import { transactionNeedsCategoryReview, transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 
 import {
   DashboardHeader,
@@ -46,23 +49,20 @@ export default function DashboardScreen({
   analyzingTransactions = false,
   onSignOut,
 }: DashboardScreenProps) {
-  const router = useRouter();
-
   // --- Auth & realtime hooks (unchanged) ---
   const currentUser = auth.currentUser;
   const userId = currentUser?.uid;
   const { transactions: realtimeTransactions, isLoading: transactionsLoading } = useTransactions(userId || '');
-  const { stats: realtimeStats, isLoading: statsLoading } = useUserStats(userId || '');
   const { toasts, removeToast } = useToasts();
 
   const transactions = realtimeTransactions.length > 0 ? realtimeTransactions : propTransactions;
-  const stats = realtimeStats;
 
   // --- Tax savings state (unchanged) ---
   const [taxSavingsData, setTaxSavingsData] = useState<any>(null);
   const [isLoadingTaxSavings, setIsLoadingTaxSavings] = useState(false);
   const [isRefreshingBalances, setIsRefreshingBalances] = useState(false);
   const [lastSync, setLastSync] = useState<number | null>(null);
+  const [bankConnection, setBankConnection] = useState<{ uid: string; connected: boolean } | null>(null);
   const [analysisInProgress, setAnalysisInProgress] = useState(false);
 
   useEffect(() => {
@@ -77,6 +77,7 @@ export default function DashboardScreen({
         ]);
         if (itemsRes.ok) {
           const items = await itemsRes.json();
+          setBankConnection({ uid: userId, connected: items.hasConnection === true });
           const ls = items.last_sync;
           if (typeof ls === 'number') setLastSync(ls);
           else if (ls?.seconds) setLastSync(ls.seconds * 1000);
@@ -93,6 +94,7 @@ export default function DashboardScreen({
   useEffect(() => {
     const fetchTaxSavings = async () => {
       if (!profile?.id) return;
+      setTaxSavingsData(null);
       try {
         setIsLoadingTaxSavings(true);
         const response = await makeAuthenticatedRequest('/api/tax-savings');
@@ -107,7 +109,37 @@ export default function DashboardScreen({
       }
     };
     fetchTaxSavings();
-  }, [profile?.id]);
+  }, [profile?.id, profile?.filing_status]);
+
+  // The current-year tax cards use the same authenticated calculation as Tax Preview.
+  // Include source data in the key so even the first render after an edit cannot
+  // display a result computed from the previous user's or previous records' data.
+  const taxYear = new Date().getFullYear();
+  const [taxRetry, setTaxRetry] = useState(0);
+  const taxInputKey = JSON.stringify({ userId, taxYear, profile, transactions, taxRetry });
+  const [taxResult, setTaxResult] = useState<{ key: string; state: DashboardTaxState } | null>(null);
+  const taxState: DashboardTaxState = taxResult?.key === taxInputKey ? taxResult.state : { status: 'loading' };
+
+  useEffect(() => {
+    let current = true;
+    const controller = new AbortController();
+    setTaxResult({ key: taxInputKey, state: { status: 'loading' } });
+    if (!userId) {
+      setTaxResult({ key: taxInputKey, state: { status: 'error', message: 'Sign in to load your federal estimate.' } });
+      return () => { current = false; controller.abort(); };
+    }
+    void loadDashboardTaxSnapshot(taxYear, controller.signal).then(state => {
+      if (current && auth.currentUser?.uid === userId) setTaxResult({ key: taxInputKey, state });
+    });
+    return () => { current = false; controller.abort(); };
+  }, [taxInputKey, userId, taxYear]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const refresh = () => setTaxRetry(value => value + 1);
+    window.addEventListener('focus', refresh);
+    return () => window.removeEventListener('focus', refresh);
+  }, []);
 
   // --- Early return for no data ---
   if (!transactions) {
@@ -130,56 +162,31 @@ export default function DashboardScreen({
 
   const taxSavings = taxSavingsData?.taxSavings?.yearToDate ?? 0;
   const projectedAnnual = taxSavingsData?.taxSavings?.projectedAnnual ?? fallbackProjectedAnnual;
-  const estimatedTaxRate = calculateEffectiveTaxRate(profile);
+  const taxRateDisplay = getUserTaxRateDisplay(profile);
 
-  const needsReviewCount =
-    stats?.needsReviewTransactions ??
-    transactions.filter((t) => transactionNeedsTaxReview(t)).length;
-  const needsAnalysisCount = transactions.filter(t => t.deduction_score === undefined || t.deduction_score === null).length;
+  const recordSummary = summarizeDashboardRecords(transactions);
+  const needsReviewCount = recordSummary.needsReviewCount;
+  const needsAnalysisCount = transactions.filter(t => (t.deduction_score === undefined || t.deduction_score === null) && dashboardRecordStatus(t) === 'review').length;
+  const categoryReviews = transactions.filter(t => t.pending !== true && transactionNeedsCategoryReview(t));
+  const taxQuestions = transactions.filter(t => t.pending !== true && !transactionNeedsCategoryReview(t) && transactionNeedsTaxReview(t));
+  const categoriesNeedingAnalysis = categoryReviews.filter(t => t.deduction_score === undefined || t.deduction_score === null).length;
+  // Queued, paused and failed AI analysis, read from the records already loaded (no extra listener).
+  const analysisBacklog = summarizeAnalysisBacklog(transactions);
+  const topOutcome = analysisBacklog.outcomes[0] ?? null;
+  const isAnalyzing = analysisBacklog.waiting === 0 && (analyzingTransactions || analysisInProgress);
 
-  const deductibleTransactions = transactions.filter(t => t.is_deductible === true);
-  const totalDeductions = stats?.totalDeductibleAmount ?? deductibleTransactions.reduce((sum, t) => sum + Math.abs(t.amount || 0), 0);
+  const openNextReview = () => {
+    if (transactions.length === 0) onNavigate('add-manual-transaction');
+    else if (categoryReviews.length > 0) onNavigate('review-transactions');
+    else if (taxQuestions.length > 0) onTransactionClick({ ...taxQuestions[0], _source: 'dashboard' });
+    else onNavigate('transactions');
+  };
 
-  // Plaid convention: positive = expense/debit, negative = income/credit
-  const grossIncome = transactions.reduce((sum, t) => {
-    if (t.amount < 0) return sum + Math.abs(t.amount);
-    return sum;
-  }, 0);
-
-  const totalExpenses = transactions.reduce((sum, t) => {
-    if (t.amount > 0) return sum + t.amount;
-    return sum;
-  }, 0);
-
-  const scheduleCProfit = grossIncome - totalExpenses;
-
-  // Compute actual SE tax + income tax for accurate combined rate
-  const seBase = scheduleCProfit * 0.9235;
-  const seTax = Math.max(0, seBase * 0.153);
-  const halfSE = seTax / 2;
-  const standardDeduction = profile?.filing_status === 'married_filing_jointly' ? 31500
-    : profile?.filing_status === 'head_of_household' ? 23625 : 15750;
-  const agi = Math.max(0, scheduleCProfit - halfSE);
-  const taxableIncome = Math.max(0, agi - standardDeduction);
-  const incomeTax = taxableIncome * (estimatedTaxRate / 100);
-  const totalTax = seTax + incomeTax;
-  const combinedTaxRate = scheduleCProfit > 0 ? (totalTax / scheduleCProfit) * 100 : 0;
-  const quarterlyTaxes = Math.max(0, totalTax / 4);
-
-  // Category breakdown (unchanged)
-  const categoryBreakdown: Record<string, number> = {};
-  for (const transaction of transactions) {
-    if (transaction?.is_deductible === true && transaction.category && transaction.amount) {
-      const deductibleAmount = Math.abs(transaction.amount);
-      const { consolidatedName } = consolidateCategory(transaction.category);
-      categoryBreakdown[consolidatedName] = (categoryBreakdown[consolidatedName] || 0) + deductibleAmount;
-    }
-  }
-  const categoryEntries = Object.entries(categoryBreakdown).sort((a, b) => b[1] - a[1]);
-
-  // --- Refresh handler (unchanged) ---
+  // Recalculate tax independently of any optional bank-balance refresh.
   const handleRefresh = async () => {
     if (isRefreshingBalances) return;
+    setTaxRetry(value => value + 1);
+    if (!bankConnection || bankConnection.uid !== userId || !bankConnection.connected) return;
     try {
       setIsRefreshingBalances(true);
       const response = await makeAuthenticatedRequest('/api/plaid/refresh-balances', { method: 'POST' });
@@ -200,70 +207,59 @@ export default function DashboardScreen({
     <>
       <ToastContainer toasts={toasts} onClose={removeToast} />
 
-      <div className="min-h-screen bg-background safe-area-inset-bottom overflow-x-hidden">
+      <div className="min-h-full bg-background safe-area-inset-bottom">
         {/* Header */}
         <DashboardHeader
           userName={profile?.name?.split(' ')[0] || 'there'}
-          isRefreshing={isRefreshingBalances}
+          isRefreshing={isRefreshingBalances || taxState.status === 'loading'}
           onRefresh={handleRefresh}
           lastSync={lastSync}
-          analysisInProgress={analysisInProgress}
+          analysisInProgress={isAnalyzing}
         />
 
-        <div className="max-w-7xl mx-auto px-4 md:px-6 py-3 sm:py-4 space-y-3 sm:space-y-4">
-          {/* Row 1: KPI Cards */}
-          <KpiGrid
-            scheduleCProfit={scheduleCProfit}
-            grossIncome={grossIncome}
-            totalExpenses={totalExpenses}
-            totalDeductions={totalDeductions}
-            deductibleCount={deductibleTransactions.length}
-            estimatedTaxRate={estimatedTaxRate}
-            quarterlyTaxes={quarterlyTaxes}
-          />
+        <div className="max-w-6xl mx-auto px-3 sm:px-4 md:px-6 pt-2 pb-4 space-y-2.5 sm:space-y-3">
+          <section aria-label="Your next step" className="flex items-center gap-3 rounded-2xl bg-primary/5 px-3 py-2">
+            <div className="min-w-0 flex-1">
+              <h2 className="text-sm font-semibold leading-snug">
+                {transactions.length === 0 ? 'Start with your first expense' : categoryReviews.length > 0
+                  ? `Review ${categoryReviews.length} ${categoryReviews.length === 1 ? 'category' : 'categories'}`
+                  : taxQuestions.length > 0 ? `${taxQuestions.length} ${taxQuestions.length === 1 ? 'transaction needs' : 'transactions need'} details`
+                  : recordSummary.pendingCount > 0 ? 'Waiting for transactions to post' : 'Transaction review is up to date'}
+              </h2>
+              <p className="mt-0.5 text-xs leading-snug text-muted-foreground">
+                {transactions.length === 0 ? 'Add an expense or receipt to get started.' : categoryReviews.length > 0
+                  ? 'Confirm or correct each category.'
+                  : taxQuestions.length > 0 ? 'Add the facts needed to resolve deductions.'
+                  : recordSummary.pendingCount > 0 ? `${recordSummary.pendingCount} pending bank confirmation.`
+                    : 'Your saved records are ready to view.'}
+              </p>
+              {isAnalyzing && <p className="mt-1 flex items-center gap-1 text-xs text-primary" role="status"><Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />AI analysis in progress</p>}
+            </div>
+            <button
+              type="button"
+              onClick={openNextReview}
+              className="inline-flex min-h-[44px] shrink-0 items-center justify-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              {transactions.length === 0 ? 'Add' : categoryReviews.length > 0 ? 'Review' : taxQuestions.length > 0 ? 'Add details' : 'View'}
+              {transactions.length === 0 ? <Plus className="h-4 w-4" aria-hidden="true" /> : <ArrowRight className="h-4 w-4" aria-hidden="true" />}
+            </button>
+          </section>
 
-          {/* Row 2: Action Items + Premium - side-by-side square cards */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
-            <ActionItemsBanner
-              profile={profile}
-              transactions={transactions}
-              onNavigate={onNavigate}
-            />
-            <HistoricalAccessUpgradeCard variant="square" />
-          </div>
+          <AnalysisStatusNotice waiting={analysisBacklog.waiting} outcome={topOutcome?.outcome ?? null} count={topOutcome?.count ?? 0}
+            accountIds={topOutcome?.accountIds ?? []} onReview={() => onNavigate('review-transactions')} />
 
-          {/* Row 3: Quick Actions */}
           <QuickActionsBar
             onNavigate={onNavigate}
-            needsReviewCount={needsReviewCount}
-            needsAnalysisCount={needsAnalysisCount}
+            needsReviewCount={categoryReviews.length}
+            needsAnalysisCount={categoriesNeedingAnalysis}
           />
 
-          {/* Row 4: Analytics + Optimization */}
-          <div className="grid grid-cols-1 lg:grid-cols-10 gap-4">
-            <div className="lg:col-span-7 relative">
-              <div className="absolute inset-0 rounded-xl bg-[radial-gradient(ellipse_80%_60%_at_50%_0%,hsl(var(--primary)/0.05),transparent)] pointer-events-none" aria-hidden />
-              <AnalyticsPanel transactions={transactions} />
-            </div>
-            <div className="lg:col-span-3 relative">
-              <div className="absolute inset-0 rounded-xl bg-[radial-gradient(ellipse_80%_60%_at_50%_0%,hsl(var(--chart-4)/0.06),transparent)] pointer-events-none" aria-hidden />
-              <OptimizationCard
-                needsReviewCount={needsReviewCount}
-                needsAnalysisCount={needsAnalysisCount}
-                totalTransactions={transactions.length}
-                deductibleCount={deductibleTransactions.length}
-                onNavigate={onNavigate}
-              />
-            </div>
-          </div>
-
-          {/* Row 5: Categories + Activity */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <TopCategoriesCard
-              categories={categoryEntries}
-              totalDeductions={totalDeductions}
-              onViewAll={() => onNavigate('categories')}
-              profile={profile}
+          <div className="grid items-start gap-2.5 sm:gap-3 lg:grid-cols-2">
+            <KpiGrid
+              state={taxState}
+              taxYear={taxYear}
+              onRetry={() => setTaxRetry(value => value + 1)}
+              onReview={onNavigate}
             />
             <RecentActivityCard
               transactions={transactions}
@@ -272,13 +268,50 @@ export default function DashboardScreen({
             />
           </div>
 
-          {/* Row 6: AI Advisory */}
-          <AiAdvisoryCard
-            needsReviewCount={needsReviewCount}
-            needsAnalysisCount={needsAnalysisCount}
-            taxSavings={taxSavings}
-            onNavigate={onNavigate}
-          />
+          <details className="group rounded-xl border border-border/70 bg-card">
+            <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-4 text-sm font-medium [&::-webkit-details-marker]:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-xl">
+              More insights & tax checklist
+              <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
+            </summary>
+            <div className="grid items-start gap-3 border-t p-3 lg:grid-cols-2 [&_button]:min-h-11 [&_button[aria-label]]:min-w-11">
+              <div className="min-w-0 space-y-3">
+                <ActionItemsBanner
+                  profile={profile}
+                  transactions={transactions}
+                  onNavigate={onNavigate}
+                />
+                <button type="button" onClick={() => onNavigate('action-items')} className="flex w-full items-center justify-between gap-2 rounded-lg px-3 text-sm text-primary hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  View full checklist <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                </button>
+                {!taxRateDisplay.reviewMessage && <AiAdvisoryCard
+                  needsReviewCount={needsReviewCount}
+                  needsAnalysisCount={needsAnalysisCount}
+                  taxSavings={taxSavings}
+                  onNavigate={onNavigate}
+                />}
+                <OptimizationCard
+                  needsReviewCount={needsReviewCount}
+                  totalTransactions={transactions.length}
+                  deductibleCount={recordSummary.deductibleCount}
+                  pendingCount={recordSummary.pendingCount}
+                  onNavigate={onNavigate}
+                />
+              </div>
+              <div className="space-y-3 min-w-0">
+                <AnalyticsPanel transactions={transactions} />
+                <TopCategoriesCard
+                  categories={recordSummary.categoryEntries}
+                  totalMagnitude={recordSummary.categoryMagnitude}
+                  reviewMessage={recordSummary.categoryIssue}
+                  onViewAll={() => onNavigate('categories')}
+                />
+              </div>
+            </div>
+          </details>
+
+          <div className="[&_button]:min-h-[44px]">
+            <HistoricalAccessUpgradeCard variant="slim" />
+          </div>
         </div>
       </div>
     </>

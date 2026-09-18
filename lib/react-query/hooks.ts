@@ -1,3 +1,4 @@
+import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { auth } from '@/lib/firebase/client';
 import { getTransactions as getTransactionsClient } from '@/lib/firebase/transactions';
@@ -31,7 +32,15 @@ async function computeMonthlyDeductionsClient(userId: string, year?: number) {
           .sort((a, b) => b - a)
       : [new Date().getFullYear()];
 
-  const taxRate = getUserTaxRate(profile ?? undefined);
+  const taxRate = getUserTaxRate(profile ? {
+    ...profile,
+    w2_income: profile.w2_income ?? undefined,
+    health_insurance_premiums: profile.health_insurance_premiums ?? undefined,
+    sep_ira_contribution: profile.sep_ira_contribution ?? undefined,
+    solo_401k_contribution: profile.solo_401k_contribution ?? undefined,
+    hsa_contribution: profile.hsa_contribution ?? undefined,
+    simple_ira_contribution: profile.simple_ira_contribution ?? undefined,
+  } : undefined);
 
   const monthlyData: MonthlyData[] = Array.from({ length: 12 }, (_, i) => ({
     month: i,
@@ -50,7 +59,7 @@ async function computeMonthlyDeductionsClient(userId: string, year?: number) {
     if (!Number.isFinite(dt) || dt < start || dt > end) continue;
 
     const month = new Date(dt).getMonth();
-    const isDeductible = (t as any).is_deductible === true;
+    const isDeductible = t.is_deductible === true && !transactionNeedsTaxReview(t);
     const taxSavings = isDeductible ? amount * taxRate : 0;
     monthlyData[month].total += taxSavings;
     if (taxSavings > 0) monthlyData[month].count += 1;
@@ -84,7 +93,7 @@ async function computeMonthlyDeductionsClient(userId: string, year?: number) {
         avgMonthly,
         monthsWithData: monthsWithData.length,
         yearToDateTotal,
-        estimatedRefund: yearToDateTotal,
+        estimatedTaxSavingsFromMarkedDeductions: yearToDateTotal,
       },
       availableYears,
     },
@@ -190,6 +199,7 @@ const api = {
     if (!response.ok) {
       const error = await response.json().catch(() => ({} as any));
       const msg: string = error?.error || 'Failed to fetch monthly deductions';
+      if (response.status === 422) throw new Error(msg);
 
       // Local dev fallback: compute from client-side Firestore transactions.
       try {

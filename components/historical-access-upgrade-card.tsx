@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from 'react';
-import { Card, CardContent } from '@/components/ui/card';
+import React, { useState, useRef } from 'react';
+import { useSubscription } from '@/lib/hooks/use-subscription';
+import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/lib/firebase/auth-context';
@@ -11,60 +12,19 @@ import { Sparkles, Calendar, TrendingUp, Loader2 } from 'lucide-react';
 import { TrialCountdown } from '@/components/trial-countdown';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-
-interface HistoricalAccessStatus {
-  hasAccess: boolean;
-  isTrial: boolean;
-  isPaid: boolean;
-  trialStart?: Date;
-  trialEnd?: Date;
-  subscriptionEnd?: Date;
-  daysRemaining?: number;
-  cancelAtPeriodEnd?: boolean;
-  currentPeriodEnd?: Date;
-}
+import { canUseSubscriptionFeature } from '@/lib/subscriptions/client-status';
 
 export function HistoricalAccessUpgradeCard({ variant = 'default' }: { variant?: 'default' | 'slim' | 'square' }) {
   const { user } = useAuth();
   const router = useRouter();
-  const [loading, setLoading] = useState(true);
+  const { status: accessStatus, isLoading: loading, error: accessError, refetch } = useSubscription();
+  const actionPending = useRef(false);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
-  const [accessStatus, setAccessStatus] = useState<HistoricalAccessStatus | null>(null);
   const [billingInterval, setBillingInterval] = useState<'monthly' | 'yearly'>('monthly');
 
-  useEffect(() => {
-    if (!user?.id) return;
-
-    const fetchAccessStatus = async () => {
-      try {
-        const response = await makeAuthenticatedRequest('/api/subscriptions/check-access');
-        if (response.ok) {
-          const data = await response.json();
-          const accessData = data.data;
-          setAccessStatus({
-            ...accessData,
-            cancelAtPeriodEnd: data.data.subscription?.cancelAtPeriodEnd || false,
-            currentPeriodEnd: data.data.subscription?.currentPeriodEnd 
-              ? new Date(data.data.subscription.currentPeriodEnd) 
-              : undefined,
-          });
-        }
-      } catch (error) {
-        console.error('Error fetching access status:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchAccessStatus();
-
-    const interval = setInterval(fetchAccessStatus, 60000);
-    return () => clearInterval(interval);
-  }, [user?.id]);
-
   const handleUpgrade = async () => {
-    if (!user?.id) return;
-
+    if (!user?.id || actionPending.current) return;
+    actionPending.current = true;
     setCheckoutLoading(true);
     try {
       const response = await makeAuthenticatedRequest('/api/stripe/create-checkout', {
@@ -92,7 +52,7 @@ export function HistoricalAccessUpgradeCard({ variant = 'default' }: { variant?:
             statusText: response.statusText,
             error: errorData
           });
-        } catch (jsonError) {
+        } catch {
           console.error('Checkout error (non-JSON response):', {
             status: response.status,
             statusText: response.statusText,
@@ -104,15 +64,16 @@ export function HistoricalAccessUpgradeCard({ variant = 'default' }: { variant?:
       }
     } catch (error) {
       console.error('Error creating checkout:', error);
-      toast.error('Failed to start checkout. Please check the console for details and try again.');
+      toast.error('Failed to start checkout. Please try again.');
     } finally {
+      actionPending.current = false;
       setCheckoutLoading(false);
     }
   };
 
   const handleReactivate = async () => {
-    if (!user?.id) return;
-
+    if (!user?.id || actionPending.current) return;
+    actionPending.current = true;
     setCheckoutLoading(true);
     try {
       const response = await makeAuthenticatedRequest('/api/stripe/reactivate-subscription', {
@@ -122,18 +83,7 @@ export function HistoricalAccessUpgradeCard({ variant = 'default' }: { variant?:
       if (response.ok) {
         const data = await response.json();
         if (data.success) {
-          const statusResponse = await makeAuthenticatedRequest('/api/subscriptions/check-access');
-          if (statusResponse.ok) {
-            const statusData = await statusResponse.json();
-            const accessData = statusData.data;
-            setAccessStatus({
-              ...accessData,
-              cancelAtPeriodEnd: statusData.data.subscription?.cancelAtPeriodEnd || false,
-              currentPeriodEnd: statusData.data.subscription?.currentPeriodEnd 
-                ? new Date(statusData.data.subscription.currentPeriodEnd) 
-                : undefined,
-            });
-          }
+          await refetch();
           toast.success('Subscription reactivated successfully! Your subscription will continue after the current billing period.');
         } else {
           toast.error(data.message || 'Failed to reactivate subscription. Please try again.');
@@ -145,15 +95,16 @@ export function HistoricalAccessUpgradeCard({ variant = 'default' }: { variant?:
         try {
           const errorData = JSON.parse(responseText);
           errorMessage = errorData.error || errorData.details || errorData.message || errorMessage;
-        } catch (jsonError) {
+        } catch {
           errorMessage = responseText || `Server returned ${response.status} ${response.statusText}`;
         }
         toast.error(errorMessage);
       }
     } catch (error) {
       console.error('Error reactivating subscription:', error);
-      toast.error('Failed to reactivate subscription. Please check the console for details and try again.');
+      toast.error('Failed to reactivate subscription. Please try again.');
     } finally {
+      actionPending.current = false;
       setCheckoutLoading(false);
     }
   };
@@ -175,9 +126,50 @@ export function HistoricalAccessUpgradeCard({ variant = 'default' }: { variant?:
     );
   }
 
-  // Hide card when user has active subscription (not cancelled)
-  if (accessStatus?.hasAccess && accessStatus.isPaid && !accessStatus.cancelAtPeriodEnd) {
-    return null;
+  if (accessError) {
+    return (
+      <Card role="alert" className="p-5 space-y-3">
+        <p className="text-sm">We could not verify your plan. Please retry before starting another subscription.</p>
+        <Button variant="outline" onClick={() => void refetch()}>Try again</Button>
+      </Card>
+    );
+  }
+
+  const basicPlan = accessStatus?.entitlements.plan === 'basic' ||
+    (accessStatus?.entitlements.plan === 'free' && accessStatus.subscription?.plan === 'basic');
+  const historyIncluded = canUseSubscriptionFeature(accessStatus, 'extended_history');
+  const reportsIncluded = canUseSubscriptionFeature(accessStatus, 'reports');
+  const exportsIncluded = canUseSubscriptionFeature(accessStatus, 'exports');
+
+  // Existing Basic subscriptions are managed in billing, never by starting a
+  // second subscription. Paid status alone does not grant Premium features.
+  if (basicPlan) {
+    const basicActive = historyIncluded && accessStatus?.entitlements.isPaid && accessStatus.subscription?.status === 'active';
+    const subscription = accessStatus?.subscription;
+    return (
+      <Card className={variant === 'default' ? 'p-5 space-y-3' : 'p-3 space-y-2'}>
+        <p className="font-semibold">{basicActive ? 'WriteOff Basic is active' : 'WriteOff Basic is inactive'}</p>
+        <p className="text-sm text-muted-foreground">{historyIncluded ? 'Extended bank history is included.' : 'Extended bank history is not active.'} Reports and exports require Premium.</p>
+        {subscription?.planAmount != null && <p className="text-sm tabular-nums">
+          {subscription.planCurrency?.toLowerCase() === 'usd' ? '$' : `${subscription.planCurrency?.toUpperCase() || ''} `}{subscription.planAmount.toFixed(2)}{subscription.planInterval ? `/${subscription.planInterval}` : ''}
+        </p>}
+        {basicActive && accessStatus?.cancelAtPeriodEnd && <p className="text-sm">Basic access continues until {accessStatus.currentPeriodEnd?.toLocaleDateString() || 'the current period ends'}. Renewal is off.</p>}
+        <Button variant="outline" className="min-h-11" onClick={() => router.push('/protected/settings?tab=account')}>Manage billing</Button>
+      </Card>
+    );
+  }
+
+  // Compact dashboard cards are unnecessary when Premium is active.
+  if (accessStatus?.entitlements.plan === 'premium' && reportsIncluded && exportsIncluded && historyIncluded && !accessStatus.cancelAtPeriodEnd) {
+    if (variant !== 'default') return null;
+    return (
+      <Card className="p-5 space-y-3">
+        <p className="font-semibold">WriteOff Premium is active</p>
+        <p className="text-sm text-muted-foreground">Reports, exports and extended bank history are included.</p>
+        {accessStatus.subscriptionEnd && <p className="text-sm">Current period ends {accessStatus.subscriptionEnd.toLocaleDateString()}.</p>}
+        <Button variant="outline" onClick={() => router.push('/protected/settings?tab=account')}>Manage billing</Button>
+      </Card>
+    );
   }
 
   // --- Slim variant: compact single-line banner ---

@@ -1,4 +1,4 @@
-import { getOpenAIClientOrThrow } from './client'
+import { getOpenAIClientOrThrow, getOpenAIModel } from './client'
 import { getTransactionsServer, updateTransactionServerWithUserId } from '../firebase/transactions-server'
 
 export type AIAnalysis = {
@@ -45,7 +45,7 @@ User Profile Context:
 You are a U.S. small-business tax assistant. Decide deductibility for the transaction and output ONLY JSON.
 
 ${contextString}Rules:
-- Use IRS concepts (e.g., Pub 535, Section 162).
+- Use IRS concepts (e.g., Pub 334, Section 162).
 - Consider the user's profession, income level, and filing status when determining deductibility.
 - "deduction_score" must be 0..1 (probability-style confidence).
 - "status_label" mapping:
@@ -60,7 +60,7 @@ ${contextString}Rules:
 - For key_analysis_factors:
   - "deduction_percentage" should be 0-100 (convert deduction_score * 100)
   - "reasoning_summary" should be exactly 3 lines, specific to user's profession, timing context, and business context
-  - "irs_reference" should include specific publication and section (e.g., "IRS Publication 535, Section 162")
+  - "irs_reference" should include specific publication and section (e.g., "IRS Publication 334, Section 162")
 
 Return ONLY this JSON object (no prose):
 {
@@ -81,7 +81,7 @@ Return ONLY this JSON object (no prose):
     "deduction_status": "Likely Deductible" | "Possibly Deductible" | "Unlikely Deductible" | "Income" | "Refund",
     "deduction_percentage": 85,
     "reasoning_summary": "Three-line explanation considering user's profession, timing context, and specific business context",
-    "irs_reference": "IRS Publication 535, Section 162 - Business Expenses"
+    "irs_reference": "IRS Publication 334, Section 162 - Business Expenses"
   }
 }
 
@@ -95,9 +95,10 @@ Transaction:
 }
 
 export async function analyzeTransaction(tx: any, userContext?: any): Promise<AIAnalysis> {
-
+  const model = getOpenAIModel('transaction');
   const res = await getOpenAIClientOrThrow().chat.completions.create({
-    model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    model,
+    store: false,
     temperature: 0,
     response_format: { type: 'json_object' },
     messages: [
@@ -144,7 +145,7 @@ export async function analyzeTransaction(tx: any, userContext?: any): Promise<AI
       reasoning_summary: typeof parsed.key_analysis_factors.reasoning_summary === 'string' ? parsed.key_analysis_factors.reasoning_summary : '',
       irs_reference: typeof parsed.key_analysis_factors.irs_reference === 'string' ? parsed.key_analysis_factors.irs_reference : '',
     } : undefined,
-    model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    model: res.model?.trim() || model,
   };
 
   // fallback for missing label: derive from score
@@ -201,9 +202,8 @@ export async function analyzeAllTransactions(userId: string) {
     }
 
     return { success: true, analyzed: successful, total: transactions.length }
-  } catch (error) {
-    console.error('Error analyzing all transactions:', error)
-    return { success: false, error }
+  } catch {
+    return { success: false, error: 'Transaction analysis could not be completed.' }
   }
 }
 
@@ -231,7 +231,8 @@ export async function generateTaxSummary(userId: string) {
     `
 
     const response = await getOpenAIClientOrThrow().chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: getOpenAIModel('transaction'),
+      store: false,
       messages: [
         {
           role: 'system',
@@ -242,7 +243,7 @@ export async function generateTaxSummary(userId: string) {
           content: prompt
         }
       ],
-      max_tokens: 500,
+      max_completion_tokens: 500,
       temperature: 0.3,
     })
 
@@ -252,8 +253,7 @@ export async function generateTaxSummary(userId: string) {
       totalDeductible,
       deductibleCount: deductibleTransactions.length,
     }
-  } catch (error) {
-    console.error('Error generating tax summary:', error)
-    return { success: false, error }
+  } catch {
+    return { success: false, error: 'Tax summary could not be generated.' }
   }
-} 
+}

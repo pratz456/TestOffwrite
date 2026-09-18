@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { adminDb, FieldValue } from '@/lib/firebase/admin';
+import { invalidJsonResponse, readJsonObject } from '@/app/api/_lib/body';
 
 export async function GET(request: NextRequest) {
   try {
@@ -79,11 +80,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const body = await request.json();
+    const body = await readJsonObject(request);
+    if (!body) return invalidJsonResponse();
     const { total, status = 'running' } = body;
 
-    if (!total || typeof total !== 'number') {
-      return NextResponse.json({ error: 'Total is required and must be a number' }, { status: 400 });
+    if (!total || typeof total !== 'number' || !Number.isInteger(total) || total < 1 || total > 1_000_000) {
+      return NextResponse.json({ error: 'Total is required and must be a positive integer' }, { status: 400 });
     }
 
     // Create new analysis job with userId field
@@ -128,11 +130,18 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const body = await request.json();
+    const body = await readJsonObject(request);
+    if (!body) return invalidJsonResponse();
     const { jobId, completed, status } = body;
 
-    if (!jobId) {
-      return NextResponse.json({ error: 'Job ID is required' }, { status: 400 });
+    if (typeof jobId !== 'string' || !jobId || jobId.length > 256 || /[\/\\\x00-\x1f\x7f]/.test(jobId)) {
+      return NextResponse.json({ error: 'A valid Job ID is required' }, { status: 400 });
+    }
+    if (status !== undefined && (typeof status !== 'string' || status.length > 64)) {
+      return NextResponse.json({ error: 'Status must be a short string' }, { status: 400 });
+    }
+    if (completed !== undefined && typeof completed !== 'number') {
+      return NextResponse.json({ error: 'Completed must be a number' }, { status: 400 });
     }
 
     // Update analysis job

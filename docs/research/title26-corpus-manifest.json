@@ -1,0 +1,104 @@
+{
+  "coverage": {
+    "limitations": [
+      "Index completeness means only the documented XML selection was extracted; it does not certify tax-law completeness or correctness.",
+      "A current compilation is not a historical tax-year snapshot; amendments may have future or transitional effective dates.",
+      "Statutory base dollar amounts may require IRS annual inflation adjustments; the index does not infer 2026 or 2027 amounts.",
+      "Treasury regulations, IRS revenue procedures, rulings, forms, instructions, case law and state law are outside this archive.",
+      "Source metadata marks this as a non-positive-law U.S. Code title; check enacted law and effective dates where necessary."
+    ],
+    "review_status": "Machine-indexed corpus; not exhaustively reviewed",
+    "reviewed_section_count": null
+  },
+  "extraction": {
+    "format": "UTF-8 JSONL, one record per matching section, XML document order",
+    "metadata_index": "JSON entries contain byte offsets and lengths into the JSONL file plus text and record SHA-256 hashes",
+    "normalization": "Separate block elements with newlines; preserve inline text; normalize whitespace within each nonempty line; retain Unicode characters",
+    "text_scope": "All descendant text nodes, including statutory text, source credits, editorial notes, amendment history and effective-date notes"
+  },
+  "generator": {
+    "dependencies": "Python 3.9+ standard library; no network access",
+    "rebuild_command": "python3 scripts/index-tax-code.py build --verified-on 2026-09-15",
+    "script": "scripts/index-tax-code.py",
+    "script_sha256": "4f6c12ca1e9c3be435b523e3f0221bf222820753a98822352f7f31ff2032efe0"
+  },
+  "outputs": {
+    "index": {
+      "bytes": 3160642,
+      "path": ".tax-research/title26-index.json",
+      "sha256": "563a226e3f1860b662287aed11d86a53c053e2f23b3f14f8f06eae16c0b9524b"
+    },
+    "sections": {
+      "bytes": 27876963,
+      "path": ".tax-research/title26-sections.jsonl",
+      "sha256": "1485cebf3efac3930da5472e4855d66899e476b7aa0a1914278dc46661def709"
+    }
+  },
+  "schema_version": 1,
+  "selection": {
+    "all_xml_section_elements": 2276,
+    "element": "{http://xml.house.gov/schemas/uslm/1.0}section",
+    "excluded_section_elements": 115,
+    "identifier_prefix": "/us/usc/t26/s",
+    "indexed_section_elements": 2161,
+    "source_status_counts": {
+      "not_marked": 1899,
+      "omitted": 2,
+      "renumbered": 17,
+      "repealed": 241,
+      "reserved": 2
+    },
+    "status_interpretation": "not_marked means no XML status attribute, not a finding that the section is currently effective; repealed, renumbered, reserved and omitted entries are retained",
+    "unique_identifiers": 2161
+  },
+  "source": {
+    "archive_bytes": 8290374,
+    "archive_path": ".tax-research/title26-119-103.zip",
+    "archive_sha256": "285b9862808f26055c3eed16c2aca1d8de1fae96b581f44a55cfedb907a46eff",
+    "authority": "U.S. House of Representatives, Office of the Law Revision Counsel",
+    "document_identifier": "/us/usc/t26",
+    "download_url": "https://uscode.house.gov/download/releasepoints/us/pl/119/103/xml_usc26@119-103.zip",
+    "positive_law_title": "no",
+    "publication": "Online@119-103",
+    "release_point": "119-103",
+    "xml_bytes": 55871474,
+    "xml_created_at": "2026-09-09T11:05:05",
+    "xml_created_at_timezone": "not specified by source",
+    "xml_creator": "USCConverter 1.7.2",
+    "xml_member": "usc26.xml",
+    "xml_namespace": "http://xml.house.gov/schemas/uslm/1.0",
+    "xml_publisher": "OLRC",
+    "xml_sha256": "ab999da948658a2265f762abfedd72413a3f7828d34659ff27ed8240fcd956e4"
+  },
+  "title": "Title 26 — Internal Revenue Code",
+  "validation": {
+    "expected_section_count": 2161,
+    "reference_sections": [
+      {
+        "heading_contains": "Trade or business expenses",
+        "identifier": "/us/usc/t26/s162",
+        "passed": true,
+        "section": "162",
+        "text_contains": "ordinary and necessary expenses"
+      },
+      {
+        "heading_contains": "Election to expense certain depreciable business assets",
+        "identifier": "/us/usc/t26/s179",
+        "passed": true,
+        "section": "179",
+        "text_contains": "$2,500,000"
+      },
+      {
+        "heading_contains": "Limitation on depreciation for luxury automobiles",
+        "identifier": "/us/usc/t26/s280F",
+        "passed": true,
+        "section": "280F",
+        "text_contains": "passenger automobile"
+      }
+    ],
+    "section_count_passed": true,
+    "status_counts_passed": true,
+    "unique_identifiers_passed": true
+  },
+  "verification_date": "2026-09-15"
+}

@@ -17,6 +17,9 @@ interface KpiCardProps {
   accent?: KpiAccent;
   /** Hover tooltip explaining what this number means and what to do with it */
   tooltip?: KpiTooltipContent;
+  /** A dense overview; the parent supplies the full definitions nearby. */
+  compact?: boolean;
+  compactTitle?: string;
 }
 
 const accentBorder: Record<KpiAccent, string> = {
@@ -37,7 +40,7 @@ const accentIconWrap: Record<KpiAccent, string> = {
   orange: 'bg-orange-500/10 [&_svg]:text-orange-500',
 };
 
-export function KpiCard({ title, value, subtitle, delta, icon, loading, accent, tooltip }: KpiCardProps) {
+export function KpiCard({ title, value, subtitle, delta, icon, loading, accent, tooltip, compact = false, compactTitle }: KpiCardProps) {
   if (loading) {
     return (
       <div className="rounded-lg border border-border bg-card p-4 sm:p-5 min-h-[88px]">
@@ -53,29 +56,29 @@ export function KpiCard({ title, value, subtitle, delta, icon, loading, accent, 
 
   return (
     <div
-      className={`rounded-lg border border-border bg-card p-4 sm:p-5 transition-colors duration-150 min-h-[88px]
+      className={`rounded-lg border border-border bg-card transition-colors duration-150 ${compact ? 'p-3 sm:p-4' : 'p-4 sm:p-5 min-h-[88px]'}
         ${accent ? `border-l-4 ${borderClass}` : ''}`}
     >
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 mb-1.5">
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-              {title}
+            <p className={`text-xs font-medium text-muted-foreground ${compact ? 'leading-snug' : 'uppercase tracking-wide'}`}>
+              {compact && compactTitle ? compactTitle : title}
             </p>
             {tooltip && <KpiTooltip content={tooltip} />}
           </div>
-          <p className="text-xl sm:text-2xl font-semibold text-foreground tabular-nums tracking-tight break-words">
+          <p className={`${compact ? 'text-lg sm:text-2xl' : 'text-xl sm:text-2xl'} font-semibold text-foreground tabular-nums tracking-tight break-words`}>
             {value}
           </p>
           {delta && (
             <p className="text-xs text-muted-foreground mt-1">{delta}</p>
           )}
-          {subtitle && (
+          {subtitle && !compact && (
             <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>
           )}
         </div>
         {icon && (
-          <div className={`flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center ${iconWrapClass}`}>
+          <div className={`flex-shrink-0 w-10 h-10 rounded-lg items-center justify-center ${compact ? 'hidden xl:flex' : 'flex'} ${iconWrapClass}`}>
             {icon}
           </div>
         )}

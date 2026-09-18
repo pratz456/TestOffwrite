@@ -87,7 +87,10 @@ export function maskSSN(digits: string): string {
 function getEncryptionKey(): Buffer {
   const keyHex = process.env.SSN_ENCRYPTION_KEY;
   if (!keyHex || keyHex.length < 64) {
-    if (process.env.NODE_ENV === 'production') {
+    // A development server can connect to live data; its build mode must not
+    // permit the demo key when either application marker selects production.
+    if (process.env.NODE_ENV === 'production' || process.env.WRITEOFF_ENV === 'production'
+      || process.env.NEXT_PUBLIC_APP_ENV === 'production') {
       throw new Error('SSN_ENCRYPTION_KEY is required in production (64-char hex)');
     }
     // Dev fallback - deterministic but not for production

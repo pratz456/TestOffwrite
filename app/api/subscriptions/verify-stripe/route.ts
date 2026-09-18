@@ -10,11 +10,15 @@ function getStripeOrNull() {
 }
 
 export async function POST(req: Request) {
+  let uid: string;
+  try { ({ uid } = await getUserFromReqOrThrow(req)); }
+  catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
+  // Raw provider records are a staging diagnostic; production uses fix-access reconciliation.
+  if (process.env.NODE_ENV === 'production') return NextResponse.json({ error: 'Not found' }, { status: 404 });
   try {
-    const { uid } = await getUserFromReqOrThrow(req);
     const stripe = getStripeOrNull();
     if (!stripe) {
-      return NextResponse.json({ error: 'Stripe not configured' }, { status: 500 });
+      return NextResponse.json({ error: 'Billing is temporarily unavailable' }, { status: 503 });
     }
 
     // Get user profile
@@ -104,7 +108,7 @@ export async function POST(req: Request) {
   } catch (error: any) {
     console.error('Error verifying Stripe:', error);
     return NextResponse.json(
-      { success: false, error: error.message || 'Failed to verify Stripe subscription' },
+      { success: false, error: 'Failed to verify Stripe subscription' },
       { status: 500 }
     );
   }

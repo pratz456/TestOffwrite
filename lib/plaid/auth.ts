@@ -1,62 +1,23 @@
-import { plaidClient } from './client'
-import { CountryCode, Products } from 'plaid'
-import { db } from '../firebase/client'
-import { doc, setDoc, getDoc } from 'firebase/firestore'
-
-// Plaid authentication functions
-export async function createLinkToken(userId: string) {
-  const request = {
-    user: { client_user_id: userId },
-    client_name: 'WriteOff App',
-    products: ['transactions' as Products],
-    country_codes: ['US' as CountryCode],
-    language: 'en',
-  }
-
+import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
+/** Browser compatibility wrappers: only public Link tokens cross the API boundary. */
+export async function createLinkToken(_userId: string) {
   try {
-    const response = await plaidClient.linkTokenCreate(request)
-    return { success: true, linkToken: response.data.link_token }
-  } catch (error) {
-    console.error('Error creating link token:', error)
-    return { success: false, error }
-  }
+    const response = await makeAuthenticatedRequest('/api/plaid/create-link-token', { method: 'POST', body: '{}' });
+    const data = await response.json();
+    return response.ok ? { success: true, linkToken: data.link_token } : { success: false, error: data.error };
+  } catch { return { success: false, error: 'Unable to connect bank' }; }
 }
-
-export async function exchangePublicToken(publicToken: string, userId: string) {
+export async function exchangePublicToken(publicToken: string, _userId: string) {
   try {
-    const response = await plaidClient.itemPublicTokenExchange({
-      public_token: publicToken,
-    })
-
-    const accessToken = response.data.access_token
-    const itemId = response.data.item_id
-
-    // Store Plaid token in Firestore
-    const userRef = doc(db, 'users', userId)
-    await setDoc(userRef, { 
-      plaid_token: accessToken,
-      plaid_item_id: itemId 
-    }, { merge: true })
-
-    return { success: true, accessToken, itemId }
-  } catch (error) {
-    console.error('Error exchanging public token:', error)
-    return { success: false, error }
-  }
+    const response = await makeAuthenticatedRequest('/api/plaid/exchange-public-token', { method: 'POST', body: JSON.stringify({ public_token: publicToken }) });
+    const data = await response.json();
+    return response.ok ? { success: true, itemId: data.itemId } : { success: false, error: data.error };
+  } catch { return { success: false, error: 'Unable to connect bank' }; }
 }
-
-export async function removePlaidConnection(userId: string) {
+export async function removePlaidConnection(_userId: string, itemId?: string) {
   try {
-    // Remove Plaid token from Firestore
-    const userRef = doc(db, 'users', userId)
-    await setDoc(userRef, { 
-      plaid_token: '',
-      plaid_item_id: '' 
-    }, { merge: true })
-
-    return { success: true }
-  } catch (error) {
-    console.error('Error removing Plaid connection:', error)
-    return { success: false, error }
-  }
-} 
+    const response = await makeAuthenticatedRequest(itemId ? `/api/plaid/items/${encodeURIComponent(itemId)}` : '/api/plaid/items', { method: 'DELETE' });
+    const data = await response.json();
+    return { success: response.ok, ...(response.ok ? {} : { error: data.error }) };
+  } catch { return { success: false, error: 'Unable to disconnect bank' }; }
+}

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import Stripe from 'stripe';
 import { adminDb } from '@/lib/firebase/admin';
+import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 
 function getStripeOrNull() {
   const key = process.env.STRIPE_SECRET_KEY;
@@ -10,12 +11,17 @@ function getStripeOrNull() {
 }
 
 export async function POST(req: Request) {
+  let uid: string;
+  try { ({ uid } = await getUserFromReqOrThrow(req)); }
+  catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
   try {
-    const { uid } = await getUserFromReqOrThrow(req);
     const stripe = getStripeOrNull();
     if (!stripe) {
-      return NextResponse.json({ error: 'Stripe not configured' }, { status: 500 });
+      return NextResponse.json({ error: 'Billing is temporarily unavailable' }, { status: 503 });
     }
+    // Portal sessions can also create a provider customer; bound attempts per owner.
+    const limit = await enforceRateLimit({ ...RATE_LIMITS.stripePortal, key: uid });
+    if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many billing portal requests. Please wait a few minutes and try again.' });
 
     // Get user profile to find Stripe customer ID
     const userDoc = await adminDb.doc(`user_profiles/${uid}`).get();
@@ -27,6 +33,9 @@ export async function POST(req: Request) {
     if (customerId) {
       try {
         const customer = await stripe.customers.retrieve(customerId);
+        if (!customer.deleted && customer.metadata.firebase_uid && customer.metadata.firebase_uid !== uid) {
+          return NextResponse.json({ error: 'Billing account mismatch' }, { status: 403 });
+        }
         // Check if customer was deleted
         if (customer.deleted) {
           console.log(`[Portal Session] Customer ${customerId} was deleted in Stripe, creating new customer`);
@@ -65,8 +74,8 @@ export async function POST(req: Request) {
       } catch (createError) {
         console.error('Error creating Stripe customer:', createError);
         return NextResponse.json(
-          { error: 'Failed to create Stripe customer. Please try again.' },
-          { status: 500 }
+          { error: 'Billing is temporarily unavailable. Please try again.' },
+          { status: 503 }
         );
       }
     }
@@ -74,7 +83,7 @@ export async function POST(req: Request) {
     // Create billing portal session
     const portalSession = await stripe.billingPortal.sessions.create({
       customer: customerId,
-      return_url: `${process.env.NEXT_PUBLIC_SITE_URL || process.env.VERCEL_URL || 'http://localhost:3000'}/protected?screen=settings&tab=payment`,
+      return_url: `${process.env.NEXT_PUBLIC_SITE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : (process.env.NODE_ENV === 'production' ? 'https://writeoffapp.com' : 'http://localhost:3000'))}/protected?screen=settings&tab=payment`,
     });
 
     return NextResponse.json({
@@ -84,8 +93,8 @@ export async function POST(req: Request) {
   } catch (error) {
     console.error('Error creating billing portal session:', error);
     return NextResponse.json(
-      { error: 'Failed to create billing portal session' },
-      { status: 500 }
+      { error: 'Billing is temporarily unavailable. Please try again.' },
+      { status: 503 }
     );
   }
 }

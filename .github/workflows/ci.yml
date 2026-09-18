@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, master, feb-new]
+    branches: [main, master, feb-new, march-branch]
   pull_request:
-    branches: [main, master, feb-new]
+    branches: [main, master, feb-new, march-branch]
 
 jobs:
   ci:
@@ -42,7 +42,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version-file: ".nvmrc"
           cache: "npm"
 
       - name: Install dependencies

@@ -4,12 +4,12 @@ import PrivacyPolicyPageClient from "./privacy-page-client";
 export const metadata: Metadata = {
   title: "Privacy Policy",
   description:
-    "Read WriteOff's privacy policy. Learn how we protect your personal and financial data with bank-level encryption, GLBA compliance, and secure Plaid integration.",
+    "Read WriteOff's privacy policy. Learn how we protect your personal and financial data with encryption, GLBA safeguards, and read-only Plaid bank connections.",
   alternates: { canonical: "/privacy" },
   openGraph: {
     title: "Privacy Policy | WriteOff",
     description:
-      "How WriteOff protects your financial data with bank-level security and GLBA compliance.",
+      "How WriteOff protects your financial data with encryption and GLBA safeguards.",
     type: "website",
     url: "/privacy",
   },

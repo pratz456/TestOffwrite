@@ -1,17 +1,21 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import { EmbeddedFilingCard } from '@/components/embedded-filing-card';
+import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
+import { PremiumFeatureGate } from '@/components/premium-feature-gate';
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import * as FilingTabs from "@radix-ui/react-tabs";
 import { Badge } from "@/components/ui/badge";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  Download, CheckCircle2, Circle, AlertCircle,
-  FileText, DollarSign, Home, Car, Calculator, Loader2,
-  ChevronRight, TrendingUp, Receipt, Shield, Upload,
+  CheckCircle2, Circle, AlertCircle,
+  FileText, DollarSign, Calculator, Loader2,
+  ChevronRight, ChevronDown, ArrowLeft, Receipt, Shield, Upload,
 } from "lucide-react";
+import { TaxCalculationNotice } from "@/components/tax-calculation-notice";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 
 interface FilingHubProps {
@@ -24,7 +28,7 @@ interface ChecklistItem {
   id: string;
   label: string;
   description: string;
-  status: "complete" | "partial" | "missing";
+  status: "complete" | "partial" | "missing" | "unavailable";
   detail?: string;
   action?: string;
   actionScreen?: string;
@@ -34,11 +38,18 @@ const fmt = (n: number) =>
   n.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
 export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps) {
-  const currentYear = new Date().getFullYear();
+  const currentYear = SUPPORTED_TAX_YEARS.at(-1)!;
   const [year, setYear] = useState(String(currentYear));
   const [loading, setLoading] = useState(true);
+  const [section, setSection] = useState("prepare");
   const [exporting, setExporting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [calculationWarnings, setCalculationWarnings] = useState<unknown>([]);
+  const [hasTaxEstimate, setHasTaxEstimate] = useState(false);
+  const loadRequest = useRef(0);
+  const exportBusy = useRef(false);
+  const context = `${user.id}:${year}`;
+  const active = useRef(context); active.current = context;
 
   const [summary, setSummary] = useState({
     grossReceipts: 0,
@@ -50,7 +61,6 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
     totalExpenses: 0,
     netProfit: 0,
     seTax: 0,
-    confirmedCount: 0,
     hasHomeOffice: false,
     hasVehicle: false,
     quarterlyPaid: 0,
@@ -66,65 +76,80 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
   });
 
   const loadSummary = useCallback(async () => {
+    const request = ++loadRequest.current;
     setLoading(true);
     setError(null);
+    setHasTaxEstimate(false);
+    setCalculationWarnings([]);
     try {
-      const [grossRes, incomeRes, txRes, seRes, form1040Res] = await Promise.all([
-        makeAuthenticatedRequest(`/api/income/gross-receipts?year=${year}`),
-        makeAuthenticatedRequest(`/api/income/1099?year=${year}`),
+      const [txRes, form1040Res] = await Promise.all([
         makeAuthenticatedRequest(`/api/tax/schedule-c/calculate?year=${year}`),
-        makeAuthenticatedRequest(`/api/tax/schedule-se/auto?year=${year}`),
         makeAuthenticatedRequest(`/api/tax/compute-1040?year=${year}`),
       ]);
 
-      const grossData  = grossRes.ok  ? await grossRes.json()  : { totalGrossReceipts: 0, entries: [] };
-      const incomeData = incomeRes.ok ? await incomeRes.json() : { forms: [] };
-      const txData     = txRes.ok     ? await txRes.json()     : {};
-      const seData     = seRes.ok     ? await seRes.json()     : {};
-      const tax1040    = form1040Res.ok ? await form1040Res.json() : {};
+      const tax1040 = await form1040Res.json().catch(() => ({}));
+      if (!form1040Res.ok) throw new Error(tax1040.error || "The federal estimate could not be loaded. Open Tax Preview to retry before using these figures.");
+      const txData = await txRes.json().catch(() => ({}));
+      if (!txRes.ok) throw new Error(txData.error || "Expense review could not be loaded. Please retry before reviewing these figures.");
+      const federalEstimate = tax1040.form1040;
+      const income = tax1040.income;
+      if (Number(tax1040.taxYear) !== Number(year) || ![
+        federalEstimate?.totalIncome, federalEstimate?.totalTax, federalEstimate?.balanceDue, federalEstimate?.refund,
+        income?.grossReceipts, income?.income1099, income?.scheduleCNetProfit, income?.totalDeductible, income?.w2Wages,
+        tax1040.seCalc?.totalSETax, tax1040.w2?.withheld, tax1040.payments?.estimatedPayments,
+      ].every(value => typeof value === "number" && Number.isFinite(value))) {
+        throw new Error("The federal estimate is incomplete or belongs to another year. Open Tax Preview to retry.");
+      }
+      if (request !== loadRequest.current) return;
+      setHasTaxEstimate(true);
+      setCalculationWarnings(federalEstimate.calculationWarnings);
 
-      const grossReceipts = grossData.totalGrossReceipts || 0;
-      const income1099    = (incomeData.forms || []).reduce((s: number, f: any) => s + f.amount, 0);
-      const totalIncome   = grossReceipts + income1099;
-      const totalExpenses = txData.totalDeductible || seData.totalExpenses || 0;
-      const netProfit     = seData.netProfit ?? Math.max(0, totalIncome - totalExpenses);
-      const seTax         = seData.calculation?.totalSETax || 0;
-      const confirmedCount = txData.confirmedCount || 0;
+      const totalExpenses = income.totalDeductible;
+      const netProfit = income.scheduleCNetProfit;
+      const seTax = tax1040.seCalc.totalSETax;
 
       setSummary({
-        grossReceipts, income1099,
-        w2Wages: seData.w2Income || seData.w2Wages || 0,
-        w2Withheld: seData.w2Withheld || 0,
-        totalIncome: seData.totalIncome || totalIncome,
+        grossReceipts: income.grossReceipts,
+        // Receipts documented by NEC/K forms in the reconciled estimate, not a second income source.
+        income1099: income.income1099,
+        w2Wages: income.w2Wages,
+        w2Withheld: tax1040.w2.withheld,
+        totalIncome: federalEstimate.totalIncome,
         confirmedExpenses: totalExpenses,
-        totalExpenses, netProfit, seTax, confirmedCount,
+        totalExpenses, netProfit, seTax,
         hasHomeOffice: !!(txData.hasHomeOffice),
         hasVehicle: !!(txData.hasVehicle),
-        quarterlyPaid: 0,
-        hasDeductions: !!(seData.aboveLineDeductions?.total),
-        hasW2: (seData.w2Income || 0) > 0,
-        aboveLineDeductions: seData.aboveLineDeductions?.total || 0,
-        adjustedNetIncome: seData.adjustedNetIncome || netProfit,
-        balanceDue: tax1040?.balanceDue || 0,
-        refund: tax1040?.refund || 0,
-        totalTax: tax1040?.totalTax || 0,
+        quarterlyPaid: tax1040.payments.estimatedPayments,
+        hasDeductions: Object.values(tax1040.deductions || {}).some(value => typeof value === "number" && value > 0),
+        hasW2: income.w2Wages > 0,
+        aboveLineDeductions: federalEstimate.adjustments || 0,
+        adjustedNetIncome: federalEstimate.agi ?? netProfit,
+        balanceDue: federalEstimate?.balanceDue ?? 0,
+        refund: federalEstimate?.refund ?? 0,
+        totalTax: federalEstimate?.totalTax ?? 0,
       });
     } catch (e) {
-      setError("Failed to load filing summary. Please try again.");
+      if (request === loadRequest.current) setError(e instanceof Error ? e.message : "Failed to load filing summary. Please try again.");
     } finally {
-      setLoading(false);
+      if (request === loadRequest.current) setLoading(false);
     }
   }, [year]);
 
-  useEffect(() => { loadSummary(); }, [loadSummary]);
+  useEffect(() => {
+    const requests = loadRequest;
+    void loadSummary();
+    return () => { ++requests.current; };
+  }, [loadSummary, user.id]);
 
-  const checklist: ChecklistItem[] = [
+  const checklist: ChecklistItem[] = ([
     {
       id: "income",
-      label: "Income entered",
-      description: "Gross receipts and 1099 forms for the year",
+      label: "Income recorded",
+      description: "Income reconciled in the federal planning estimate",
       status: summary.totalIncome > 0 ? "complete" : "missing",
-      detail: summary.totalIncome > 0 ? `${fmt(summary.totalIncome)} total income` : "No income recorded yet",
+      detail: summary.totalIncome > 0
+        ? `${fmt(summary.totalIncome)} total income${summary.income1099 > 0 ? ` · ${fmt(summary.income1099)} documented on 1099 forms` : ""}`
+        : "No income recorded yet",
       action: "Add Income",
       actionScreen: "income-tracking",
     },
@@ -132,23 +157,25 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
       id: "expenses",
       label: "Expenses confirmed",
       description: "Transactions reviewed and marked deductible",
-      status: summary.confirmedCount > 30 ? "complete" : summary.confirmedCount > 0 ? "partial" : "missing",
-      detail: summary.confirmedCount > 0
-        ? `${summary.confirmedCount} confirmed · ${fmt(summary.totalExpenses)} deductible`
-        : "No confirmed expenses yet",
+      status: summary.confirmedExpenses > 0 ? "complete" : "partial",
+      // The calculation APIs return a net amount, not a confirmed record count.
+      // A zero subtotal can include expenses offset by refunds.
+      detail: summary.confirmedExpenses > 0
+        ? `${fmt(summary.confirmedExpenses)} net confirmed expense amount`
+        : `${fmt(summary.confirmedExpenses)} net confirmed expense amount · Review expenses and refunds if applicable`,
       action: "Review Transactions",
       actionScreen: "transactions",
     },
     {
       id: "schedule-c",
-      label: "Schedule C ready",
+      label: "Business profit estimate",
       description: "Profit or Loss from Business",
-      status: summary.totalIncome > 0 && summary.confirmedCount > 0 ? "complete"
-            : summary.totalIncome > 0 || summary.confirmedCount > 0 ? "partial"
+      status: summary.grossReceipts > 0 && summary.confirmedExpenses > 0 ? "complete"
+            : summary.grossReceipts !== 0 || summary.confirmedExpenses !== 0 ? "partial"
             : "missing",
-      detail: summary.totalIncome > 0 || summary.totalExpenses > 0
+      detail: summary.grossReceipts !== 0 || summary.confirmedExpenses !== 0
         ? `Net profit: ${fmt(summary.netProfit)}`
-        : "Add income and confirm expenses first",
+        : "Review business income, expenses and refunds if applicable",
       action: "Export Schedule C",
       actionScreen: "schedule-c-export",
     },
@@ -165,19 +192,12 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
       id: "quarterly",
       label: "Quarterly payments logged",
       description: "Estimated tax payments made during the year",
-      status: "partial",
-      detail: "Review if you made quarterly payments",
+      status: summary.quarterlyPaid > 0 ? "complete" : "partial",
+      detail: summary.quarterlyPaid > 0
+        ? `${fmt(summary.quarterlyPaid)} in recorded estimated payments · credited in the federal estimate`
+        : "Review if you made quarterly payments",
       action: "Quarterly Payments",
       actionScreen: "quarterly-payments",
-    },
-    {
-      id: "form8879",
-      label: "Form 8879 - E-File Authorization",
-      description: "Required IRS signature before anyone can e-file on your behalf",
-      status: "missing",
-      detail: "Sign Form 8879 to authorize WriteOff to transmit your return",
-      action: "Sign Form 8879",
-      actionScreen: "form-8879",
     },
     {
       id: "w2",
@@ -197,264 +217,259 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
       action: "Tax Organizer",
       actionScreen: "deductions-entry",
     },
-  ];
+  ] satisfies ChecklistItem[]).map(item => hasTaxEstimate ? item : {
+    ...item,
+    status: "unavailable" as const,
+    detail: "Resolve the calculation issue before reviewing these figures.",
+  });
 
   const handleExport = async (formType: string) => {
-    setExporting(formType);
-    setError(null);
+    if (exportBusy.current || active.current !== context) return;
+    exportBusy.current = true; setExporting(formType); setError(null);
     try {
-      const { auth } = await import("@/lib/firebase/client");
-      const cu = auth.currentUser;
-      if (!cu) throw new Error("Not authenticated");
-      const token = await cu.getIdToken();
-
-      let url = "", body: any = { year };
-      if (formType === "schedule-c") url = "/api/tax/schedule-c/export";
-      else if (formType === "form-1040") url = "/api/tax/form-1040";
-      else { url = "/api/reports/export"; body = { type: formType }; }
-
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        credentials: "include",
-        body: JSON.stringify(body),
-      });
-
+      const routes: Record<string, string> = { 'schedule-c': '/api/tax/schedule-c/export', 'form-1040': '/api/tax/form-1040', archive: '/api/user/export' };
+      const url = routes[formType] || '/api/reports/export';
+      const res = await makeAuthenticatedRequest(url, { method: 'POST',
+        body: JSON.stringify(routes[formType] ? { year: Number(year) } : { type: formType, year: Number(year) }) });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        if (data.requiresSubscription) { setError("Subscription required to export forms."); return; }
-        throw new Error(data.error || "Export failed");
+        throw new Error(data.error || 'Export failed. Please retry.');
       }
-
       const blob = await res.blob();
-      const dl = document.createElement("a");
-      dl.href = URL.createObjectURL(blob);
-      const names: Record<string, string> = {
-        "form-1040":  `Form_1040_${year}_WriteOff.pdf`,
-        "schedule-c": `Schedule_C_${year}_WriteOff.pdf`,
-        "scheduleSE": `Schedule_SE_${year}_WriteOff.pdf`,
-        "form8829":   `Form_8829_${year}_WriteOff.pdf`,
-        "form4562":   `Form_4562_${year}_WriteOff.pdf`,
-      };
-      dl.download = names[formType] || `${formType}_${year}.pdf`;
-      document.body.appendChild(dl);
-      dl.click();
-      document.body.removeChild(dl);
-      URL.revokeObjectURL(dl.href);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Export failed");
-    } finally {
-      setExporting(null);
-    }
+      if (active.current !== context) return;
+      const objectUrl = URL.createObjectURL(blob);
+      const dl = document.createElement('a'); dl.href = objectUrl;
+      dl.download = formType === 'archive' ? `WriteOff_records_${year}.json` : `WriteOff_${formType}_preparer_${year}.pdf`;
+      document.body.appendChild(dl); dl.click(); dl.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (e) { if (active.current === context) setError(e instanceof Error ? e.message : 'Export failed'); }
+    finally { exportBusy.current = false; if (active.current === context) setExporting(null); }
   };
 
   const statusIcon = (s: ChecklistItem["status"]) => {
+    if (s === "unavailable") return <AlertCircle className="w-5 h-5 text-muted-foreground shrink-0" />;
     if (s === "complete") return <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0" />;
     if (s === "partial")  return <AlertCircle  className="w-5 h-5 text-amber-500 shrink-0" />;
     return <Circle className="w-5 h-5 text-muted-foreground/40 shrink-0" />;
   };
 
   const statusBadge = (s: ChecklistItem["status"]) => {
-    if (s === "complete") return <Badge className="bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 border-0 text-xs">Done</Badge>;
-    if (s === "partial")  return <Badge className="bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 border-0 text-xs">Partial</Badge>;
-    return <Badge variant="outline" className="text-xs text-muted-foreground">Needed</Badge>;
+    if (s === "unavailable") return <Badge variant="outline" className="text-xs text-muted-foreground">Unavailable</Badge>;
+    if (s === "complete") return <Badge className="bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 border-0 text-xs">Recorded</Badge>;
+    if (s === "partial")  return <Badge className="bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 border-0 text-xs">Review</Badge>;
+    return <Badge variant="outline" className="text-xs text-muted-foreground">Review if applicable</Badge>;
   };
 
-  const completeCount = checklist.filter(c => c.status === "complete").length;
-  const pct = Math.round((completeCount / checklist.length) * 100);
-
   const forms = [
-    { id: "form-1040",  label: "Form 1040",   sub: "U.S. Individual Income Tax Return",     icon: DollarSign,   always: true },
-    { id: "schedule-c", label: "Schedule C",  sub: "Profit or Loss from Business",          icon: FileText,     always: true },
-    { id: "scheduleSE", label: "Schedule SE", sub: "Self-Employment Tax",                   icon: Calculator,   always: true },
-    { id: "form8829",   label: "Form 8829",   sub: "Home Office Deduction",                 icon: Home,         always: false },
-    { id: "form4562",   label: "Form 4562",   sub: "Depreciation & Section 179",            icon: Car,          always: false },
+    { id: "form-1040", label: "Form 1040", sub: "Federal planning summary", icon: DollarSign },
+    { id: "schedule-c", label: "Schedule C", sub: "Business income & expenses", icon: FileText },
+    { id: "scheduleSE", label: "Schedule SE", sub: "Self-employment tax worksheet", icon: Calculator },
   ];
 
+  const nextAction = !hasTaxEstimate
+    ? { label: "Review Tax Preview", detail: "Resolve the calculation issue to see your estimate.", screen: "tax-preview" }
+    : summary.totalIncome <= 0
+      ? { label: "Add your income", detail: "Start with business income and any employer wages.", screen: "income-tracking" }
+      : summary.confirmedExpenses <= 0
+        ? { label: "Review your transactions", detail: "Confirm business expenses and any related refunds.", screen: "transactions" }
+        : { label: "Review your estimate", detail: "Check your federal estimate against the records below.", screen: "tax-preview" };
+
+  const renderChecklistItem = (item: ChecklistItem) => {
+    const content = <>
+      <span className="mt-0.5">{statusIcon(item.status)}</span>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <p className="text-sm font-medium text-foreground">{item.label}</p>
+          {statusBadge(item.status)}
+        </div>
+        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{item.detail || item.description}</p>
+      </div>
+    </>;
+    const rowClass = "flex w-full items-start gap-2.5 px-3.5 py-3 text-left sm:px-4";
+    return item.actionScreen && onNavigate ? (
+      <button key={item.id} type="button" aria-label={`${item.action}: ${item.label}`} onClick={() => onNavigate(item.actionScreen!)}
+        className={`${rowClass} transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary`}>
+        {content}<ChevronRight aria-hidden="true" className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
+      </button>
+    ) : <div key={item.id} className={rowClass}>{content}</div>;
+  };
+
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <div className="sticky top-0 z-50 bg-background border-b border-border">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3">
-          <div className="flex-1 min-w-0">
-            <h1 className="text-lg sm:text-xl font-semibold text-foreground">Tax Filing Hub</h1>
-            <p className="text-xs sm:text-sm text-muted-foreground">Everything you need to file your self-employment taxes</p>
+    <div className="min-h-full bg-background">
+      <header className="sticky top-0 z-30 border-b border-border/60 bg-background/95 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-3xl items-center gap-2 px-4 py-2.5 sm:px-6">
+          <Button variant="ghost" size="icon" onClick={onBack} aria-label="Back" className="-ml-2 h-10 w-10 shrink-0 rounded-full">
+            <ArrowLeft aria-hidden="true" className="h-5 w-5" />
+          </Button>
+          <div className="min-w-0 flex-1">
+            <h1 className="text-lg font-semibold tracking-tight text-foreground">Tax Filing Hub</h1>
           </div>
-          <Select value={year} onValueChange={setYear}>
-            <SelectTrigger className="w-[100px] h-9"><SelectValue /></SelectTrigger>
+          <Select value={year} onValueChange={value => { active.current = `${user.id}:${value}`; setExporting(null); setYear(value); }}>
+            <SelectTrigger aria-label="Tax year" className="h-11 w-[92px] rounded-xl text-base"><SelectValue /></SelectTrigger>
             <SelectContent>
-              {Array.from({ length: 4 }, (_, i) => currentYear - i).map(y => (
+              {[...SUPPORTED_TAX_YEARS].reverse().map(y => (
                 <SelectItem key={y} value={String(y)}>{y}</SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
-      </div>
+      </header>
 
-      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-5 space-y-5">
+      <div className="mx-auto max-w-3xl space-y-4 px-4 py-4 pb-8 sm:px-6">
+        <p className="text-xs leading-relaxed text-muted-foreground">Prepare records for your tax preparer. WriteOff does not currently submit IRS or state returns.</p>
+
         {error && (
-          <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div>
+          <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-3.5 py-3 text-sm text-destructive" role="alert">
+            <p>{error}</p>
+            <Button variant="outline" size="sm" onClick={loadSummary} disabled={loading} className="mt-2">Retry filing summary</Button>
+          </div>
         )}
 
-        {loading ? (
-          <div className="flex justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-muted-foreground" /></div>
-        ) : (
-          <>
-            {/* Summary cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {[
-                { label: "Total Income",    value: fmt(summary.totalIncome + summary.w2Wages), accent: "text-green-600 dark:text-green-400",  icon: TrendingUp },
-                { label: "Total Expenses",  value: fmt(summary.totalExpenses), accent: "text-red-500 dark:text-red-400", icon: Receipt },
-                { label: "Total Tax",       value: fmt(summary.totalTax), accent: "text-orange-600 dark:text-orange-400", icon: DollarSign },
-                { label: summary.refund > 0 ? "Est. Refund" : "Balance Due",
-                  value: fmt(summary.refund > 0 ? summary.refund : summary.balanceDue),
-                  accent: summary.refund > 0 ? "text-green-600 dark:text-green-400" : "text-orange-600 dark:text-orange-400",
-                  icon: Calculator },
-              ].map(({ label, value, accent, icon: Icon }) => (
-                <Card key={label} className="bg-card border-border">
-                  <CardContent className="p-3 sm:p-4">
-                    <Icon className="w-4 h-4 text-muted-foreground mb-1" />
-                    <p className="text-xs text-muted-foreground">{label}</p>
-                    <p className={`text-base sm:text-lg font-semibold tabular-nums mt-0.5 ${accent}`}>{value}</p>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+        <FilingTabs.Root value={section} onValueChange={setSection} className="space-y-3">
+          <FilingTabs.List aria-label="Tax preparation sections" className="grid grid-cols-3 gap-1 rounded-xl bg-muted/70 p-1">
+            {[
+              { value: "prepare", label: "Prepare" },
+              { value: "review", label: "Review" },
+              { value: "export", label: "Export" },
+            ].map(tab => (
+              <FilingTabs.Trigger key={tab.value} value={tab.value}
+                className="min-h-11 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+                {tab.label}
+              </FilingTabs.Trigger>
+            ))}
+          </FilingTabs.List>
 
-            {/* Progress bar */}
-            <Card className="bg-card border-border">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-sm font-medium text-foreground">Filing readiness</p>
-                  <span className="text-sm font-semibold text-primary">{pct}%</span>
-                </div>
-                <div className="w-full bg-muted rounded-full h-2.5">
-                  <div
-                    className="h-2.5 rounded-full transition-all duration-700"
-                    style={{
-                      width: `${pct}%`,
-                      background: pct === 100 ? "#22c55e" : pct >= 60 ? "#3b82f6" : "#f59e0b"
-                    }}
-                  />
-                </div>
-                <p className="text-xs text-muted-foreground mt-2">
-                  {completeCount} of {checklist.length} steps complete
-                  {pct === 100 ? " - ready to export your forms!" : " - complete the steps below to prepare your return."}
-                </p>
-              </CardContent>
-            </Card>
-
-            {/* Checklist */}
-            <Card className="bg-card border-border">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base font-semibold">Filing Checklist</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-1 p-4 pt-0">
-                {checklist.map((item, i) => (
-                  <div key={item.id}>
-                    {i > 0 && <div className="border-t border-border/50 my-1" />}
-                    <div className="flex items-start gap-3 py-2">
-                      {statusIcon(item.status)}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-sm font-medium text-foreground">{item.label}</span>
-                          {statusBadge(item.status)}
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-0.5">{item.description}</p>
-                        {item.detail && (
-                          <p className={`text-xs mt-1 font-medium ${item.status === "complete" ? "text-green-600 dark:text-green-400" : "text-muted-foreground"}`}>
-                            {item.detail}
-                          </p>
-                        )}
-                      </div>
-                      {item.action && item.actionScreen && onNavigate && (
-                        <Button
-                          variant="ghost" size="sm"
-                          onClick={() => onNavigate(item.actionScreen!)}
-                          className="shrink-0 text-xs gap-1 text-primary hover:text-primary/80 h-8 px-2"
-                        >
-                          {item.action} <ChevronRight className="w-3 h-3" />
-                        </Button>
-                      )}
-                    </div>
+          <FilingTabs.Content value="prepare" className="space-y-3 focus-visible:outline-none">
+            {loading ? (
+              <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground" role="status"><Loader2 className="h-4 w-4 animate-spin" />Loading your records…</div>
+            ) : (
+              <>
+                <section className="flex items-center gap-3 rounded-2xl border border-primary/15 bg-primary/[0.04] p-3.5">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-primary">Next step</p>
+                    <p className="mt-1 text-sm font-semibold">{nextAction.label}</p>
+                    <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{nextAction.detail}</p>
                   </div>
-                ))}
-              </CardContent>
-            </Card>
+                  {onNavigate && <Button size="icon" aria-label={nextAction.label} className="h-10 w-10 shrink-0 rounded-full" onClick={() => onNavigate(nextAction.screen)}><ChevronRight aria-hidden="true" className="h-5 w-5" /></Button>}
+                </section>
 
-            {/* Export forms */}
-            <Card className="bg-card border-border">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base font-semibold">Export Tax Forms</CardTitle>
-                <p className="text-xs text-muted-foreground">IRS-faithful PDFs pre-filled with your data</p>
-              </CardHeader>
-              <CardContent className="space-y-2 p-4 pt-0">
-                {forms.map(form => {
-                  const Icon = form.icon;
-                  const isLoading = exporting === form.id;
-                  const isReady = form.id === "schedule-c"
-                    ? summary.totalIncome > 0 || summary.confirmedCount > 0
-                    : form.id === "scheduleSE"
-                    ? summary.netProfit > 0
-                    : true;
-                  return (
-                    <div key={form.id} className="flex items-center gap-3 p-3 rounded-lg border border-border bg-muted/20 hover:bg-muted/40 transition-colors">
-                      <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                        <Icon className="w-4 h-4 text-primary" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-foreground">{form.label}</p>
-                        <p className="text-xs text-muted-foreground">{form.sub}</p>
-                      </div>
-                      <Button
-                        size="sm"
-                        variant={isReady ? "default" : "outline"}
-                        onClick={() => handleExport(form.id)}
-                        disabled={!!exporting}
-                        className="shrink-0 gap-1.5 min-h-[36px] text-xs"
-                      >
-                        {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-                        {isLoading ? "Exporting…" : "Export PDF"}
-                      </Button>
+                <section className="overflow-hidden rounded-2xl border border-border/70 bg-card" aria-labelledby="filing-records-heading">
+                  <div className="border-b border-border/60 px-3.5 py-3 sm:px-4">
+                    <h2 id="filing-records-heading" className="text-sm font-semibold">Records and estimates</h2>
+                    <p className="mt-0.5 text-xs text-muted-foreground">Recorded amounts still need your review.</p>
+                  </div>
+                  <div className="divide-y divide-border/60">{checklist.slice(0, 3).map(renderChecklistItem)}</div>
+                  <details className="group border-t border-border/60">
+                    <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-2 px-3.5 py-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary sm:px-4 [&::-webkit-details-marker]:hidden">
+                      Wages, deductions & payments
+                      <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+                    </summary>
+                    <div className="divide-y divide-border/60 border-t border-border/60">{checklist.slice(3).map(renderChecklistItem)}</div>
+                  </details>
+                </section>
+
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" size="sm" className="min-h-10 rounded-xl" onClick={() => onNavigate?.("document-import")} disabled={!onNavigate}><Upload className="mr-1.5 h-4 w-4" />Import document</Button>
+                  <Button variant="ghost" size="sm" className="min-h-10 rounded-xl" onClick={() => onNavigate?.("add-manual-transaction")} disabled={!onNavigate}><Receipt className="mr-1.5 h-4 w-4" />Add transaction</Button>
+                </div>
+                <p className="text-xs leading-relaxed text-muted-foreground">These are recorded inputs and planning estimates. They do not establish that your return is complete or ready to file. Review missing income, adjustments, credits and state requirements with your filing provider.</p>
+              </>
+            )}
+          </FilingTabs.Content>
+
+          <FilingTabs.Content value="review" className="space-y-3 focus-visible:outline-none">
+            {loading ? (
+              <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground" role="status"><Loader2 className="h-4 w-4 animate-spin" />Loading your estimate…</div>
+            ) : (
+              <>
+                <section className="overflow-hidden rounded-2xl border border-border/70 bg-card">
+                  <div className="border-b border-border/60 p-4">
+                    <p className="text-xs text-muted-foreground">{year} federal planning estimate</p>
+                    <div className="mt-1 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                      <h2 className="text-sm font-medium">{summary.refund > 0 ? "Estimated refund" : "Estimated balance due"}</h2>
+                      <p className="text-2xl font-semibold tracking-tight tabular-nums">{hasTaxEstimate ? fmt(summary.refund > 0 ? summary.refund : summary.balanceDue) : "Unavailable"}</p>
                     </div>
-                  );
-                })}
-                <p className="text-xs text-muted-foreground pt-1 px-1">
-                  Forms are pre-filled from your confirmed transactions and income. Review all lines before filing with a tax professional or uploading to tax software.
-                </p>
-              </CardContent>
-            </Card>
+                    {hasTaxEstimate && <p className="mt-1 text-xs text-muted-foreground">After {fmt(summary.quarterlyPaid)} in recorded estimated payments and {fmt(summary.w2Withheld)} in W-2 withholding.</p>}
+                  </div>
+                  <div className="grid grid-cols-3 divide-x divide-border/60 py-3">
+                    {[
+                      { label: "Total Income", value: summary.totalIncome },
+                      { label: "Total Expenses", value: summary.totalExpenses },
+                      { label: "Total Tax", value: summary.totalTax },
+                    ].map(metric => <div key={metric.label} className="min-w-0 px-3 text-center">
+                      <p className="text-xs text-muted-foreground">{metric.label}</p>
+                      <p className="mt-1 break-words text-sm font-semibold tabular-nums sm:text-base">{hasTaxEstimate ? fmt(metric.value) : "Unavailable"}</p>
+                    </div>)}
+                  </div>
+                  {/* The refund/balance figure is never shown without its calculation limits. */}
+                  {hasTaxEstimate && <div className="border-t border-border/60 p-3"><TaxCalculationNotice taxYear={year} warnings={calculationWarnings} /></div>}
+                </section>
+                <Button className="min-h-11 w-full rounded-xl" onClick={() => onNavigate?.("tax-preview")} disabled={!onNavigate}>Open detailed Tax Preview<ChevronRight className="ml-1.5 h-4 w-4" /></Button>
+                <p className="text-xs leading-relaxed text-muted-foreground">Federal planning only. Confirm all income, payments and eligibility with your filing provider; these figures do not include a state return.</p>
+              </>
+            )}
+          </FilingTabs.Content>
 
-            {/* Quick actions */}
-            <Card className="bg-card border-border">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base font-semibold">Quick Actions</CardTitle>
-              </CardHeader>
-              <CardContent className="grid grid-cols-2 gap-2 p-4 pt-0">
-                {[
-                  { label: "Tax Preview",       screen: "tax-preview",            icon: DollarSign },
-                  { label: "Add Income",        screen: "income-tracking",        icon: TrendingUp },
-                  { label: "Add Transaction",   screen: "add-manual-transaction", icon: Receipt },
-                  { label: "Deductions",        screen: "deductions-entry",       icon: Receipt },
-                  { label: "Review Expenses",   screen: "transactions",           icon: FileText },
-                  { label: "Schedule C Export", screen: "schedule-c-export",      icon: Download },
-                  { label: "Sign Form 8879",   screen: "form-8879",              icon: Shield },
-                  { label: "Import Document",  screen: "document-import",        icon: Upload },
-                ].map(({ label, screen, icon: Icon }) => (
-                  <Button
-                    key={screen}
-                    variant="outline"
-                    className="h-auto py-3 flex flex-col items-center gap-1.5 text-xs font-medium border-border hover:bg-muted/50"
-                    onClick={() => onNavigate?.(screen)}
-                  >
-                    <Icon className="w-4 h-4 text-primary" />
-                    {label}
-                  </Button>
-                ))}
-              </CardContent>
-            </Card>
-          </>
-        )}
+          <FilingTabs.Content value="export" className="space-y-3 focus-visible:outline-none">
+            <h2 className="text-sm font-semibold">Share with your tax preparer</h2>
+            <section className="flex items-center gap-3 rounded-2xl border border-border/70 bg-card px-3.5 py-3 sm:px-4">
+              <div className="min-w-0 flex-1">
+                <h3 className="text-sm font-semibold">Saved records archive</h3>
+                <p className="mt-0.5 text-xs text-muted-foreground">All plans · once per hour</p>
+              </div>
+              <Button variant="outline" className="min-h-11 min-w-[80px] shrink-0 rounded-xl px-3 text-sm" onClick={() => handleExport('archive')} disabled={!!exporting}>
+                {exporting === 'archive' ? <><Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /><span className="sr-only">Preparing archive…</span></> : <><span className="sr-only">Download records archive (</span>JSON<span className="sr-only">)</span></>}
+              </Button>
+            </section>
+
+            <PremiumFeatureGate feature="exports" featureName="tax form exports">
+              <section className="overflow-hidden rounded-2xl border border-border/70 bg-card">
+                <h3 className="border-b border-border/60 px-3.5 py-2.5 text-sm font-semibold sm:px-4">Preparer worksheets</h3>
+                <div className="divide-y divide-border/60">
+                  {forms.map(form => {
+                    const isLoading = exporting === form.id;
+                    const isReady = form.id !== 'form-1040' || hasTaxEstimate;
+                    return (
+                      <div key={form.id} className="flex items-center gap-3 px-3.5 py-3 sm:px-4">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium">{form.label}</p>
+                          <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{form.sub}</p>
+                        </div>
+                        <Button size="sm" variant="outline" aria-label={`Export ${form.label} PDF`} onClick={() => handleExport(form.id)} disabled={!!exporting || !isReady}
+                          className="min-h-11 min-w-[80px] shrink-0 rounded-xl px-2.5 text-xs text-primary">
+                          {isLoading ? <><Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /><span className="sr-only">Exporting…</span></> : "Export PDF"}
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            </PremiumFeatureGate>
+
+            <details className="group rounded-2xl border border-border/70 bg-card">
+              <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 px-3.5 py-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary [&::-webkit-details-marker]:hidden">
+                What’s included & export limits
+                <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+              </summary>
+              <div className="space-y-3 border-t border-border/60 px-3.5 py-3 text-xs leading-relaxed text-muted-foreground">
+                <p><span className="font-medium text-foreground">Records archive:</span> Saved income forms, transactions, organizer answers and receipt metadata for {year}. The JSON includes a manifest and transaction CSV. Receipt images and filed returns are not included.</p>
+                <p><span className="font-medium text-foreground">PDF worksheets:</span> Form 1040 is a federal planning summary with documented limitations. Schedule C summarizes reconciled receipts and confirmed business expenses. Schedule SE uses recorded business profit and W-2 wages to estimate self-employment tax.</p>
+                <p><span className="font-medium text-foreground">Before filing:</span> These are preparer summaries, not IRS-fileable forms or tax software import files. Each export validates its required data. Home-office and depreciation forms need additional review and are not offered as filing-ready downloads. Only supported federal scenarios are included; no state return or TXF import is generated. Exporting does not file your return.</p>
+              </div>
+            </details>
+
+            <details className="group rounded-2xl border border-border/70 bg-card">
+              <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-2 px-3.5 py-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary [&::-webkit-details-marker]:hidden">
+                Filing availability & authorization
+                <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+              </summary>
+              <div className="space-y-2 border-t border-border/60 p-3">
+                <EmbeddedFilingCard userId={user.id} taxYear={Number(year)} />
+                <Button variant="ghost" className="min-h-11 w-full rounded-xl text-xs" onClick={() => onNavigate?.("form-8879")} disabled={!onNavigate}><Shield className="mr-1.5 h-4 w-4" />Filing Authorization<ChevronRight className="ml-auto h-4 w-4" /></Button>
+              </div>
+            </details>
+          </FilingTabs.Content>
+        </FilingTabs.Root>
       </div>
     </div>
   );

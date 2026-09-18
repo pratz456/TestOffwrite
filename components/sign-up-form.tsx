@@ -1,18 +1,20 @@
 "use client";
 
-import { cn } from "@/lib/utils";
 import { signUpUser, signInWithGoogle, handleAuthRedirectResult } from "@/lib/firebase/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import writeOffLogo from '@/public/writeofflogo.png';
 import Image from 'next/image';
 import { Eye, EyeOff } from "lucide-react";
 import { validatePassword } from "@/lib/utils/passwordValidation";
 import { useAuth } from "@/lib/firebase/auth-context";
+import { auth } from "@/lib/firebase/client";
+import { buildConsentRecord, NO_CONSENTS, requiredConsentsAccepted, stashPendingConsents, type ConsentChoices } from "@/lib/onboarding/consents";
+import { ConsentCheckboxes, NoticeAtCollection } from "@/components/onboarding/consent-checkboxes";
 
 export function SignUpForm({
   className,
@@ -24,10 +26,7 @@ export function SignUpForm({
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Consent checkboxes
-  const [bankConsent, setBankConsent] = useState(false);
-  const [aiConsent, setAiConsent] = useState(false);
-  const [commConsent, setCommConsent] = useState(false);
+  const [consents, setConsents] = useState<ConsentChoices>(NO_CONSENTS);
   const [passwordErrors, setPasswordErrors] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
@@ -35,18 +34,18 @@ export function SignUpForm({
   const mountedRef = useRef(true);
   const { user, loading: authLoading } = useAuth();
   const hasRedirected = useRef(false);
+  const operationRef = useRef(false);
 
   // Redirect already-authenticated users away from sign-up page
   useEffect(() => {
-    if (!authLoading && user && !hasRedirected.current) {
+    if (!authLoading && user && !hasRedirected.current && !operationRef.current && !isSubmitting && !isGoogleLoading) {
       hasRedirected.current = true;
-      console.log('[SignUpForm] User already authenticated, redirecting to /protected');
-      router.replace('/protected');
+      router.replace(auth.currentUser?.emailVerified ? '/protected' : '/auth/sign-up-success');
     }
     if (!user) {
       hasRedirected.current = false;
     }
-  }, [user, authLoading, router]);
+  }, [user, authLoading, router, isSubmitting, isGoogleLoading]);
 
   // Handle Google sign-in redirect result (when popup is blocked and redirect is used)
   useEffect(() => {
@@ -64,6 +63,7 @@ export function SignUpForm({
           if (process.env.NODE_ENV === 'development') console.error('handleAuthRedirectResult error', error);
           setError(error.message || 'Failed to complete sign-in.');
         } else if (data && data.user) {
+          hasRedirected.current = true;
           router.push("/protected/profile-setup");
         }
       } catch (e) {
@@ -89,10 +89,22 @@ export function SignUpForm({
     setPasswordErrors(validation.errors);
   };
 
+  // The account cannot call the profile API until it is verified, so the
+  // acknowledgments wait in this browser for profile setup to record them.
+  const stashConsents = (accountEmail: string | null | undefined) => {
+    const record = buildConsentRecord(consents, 'sign-up');
+    if (record) stashPendingConsents(record, accountEmail);
+  };
+
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (isSubmitting) return; // Prevent double submission
+    if (operationRef.current || isSubmitting || isGoogleLoading) return;
+    if (!requiredConsentsAccepted(consents)) {
+      setError("Please review and select the required acknowledgments below.");
+      return;
+    }
+    operationRef.current = true;
     
     setIsSubmitting(true);
     setError(null);
@@ -101,22 +113,36 @@ export function SignUpForm({
     const passwordValidation = validatePassword(password);
     if (!passwordValidation.isValid) {
       setError("Please fix the password requirements below");
+      operationRef.current = false;
       setIsSubmitting(false);
       return;
     }
 
     if (password !== confirmPassword) {
       setError("Passwords do not match");
+      operationRef.current = false;
       setIsSubmitting(false);
       return;
     }
 
     try {
-      const { data, error } = await signUpUser(email, password);
-      if (error) throw new Error(error.message);
+      const { data, error } = await signUpUser(email.trim(), password);
+      if (error) {
+        // Account creation can succeed while sending verification fails. Keep
+        // that account and let the verification page resend instead of creating it twice.
+        if (auth.currentUser?.email?.toLowerCase() === email.trim().toLowerCase() && !auth.currentUser.emailVerified) {
+          stashConsents(email);
+          hasRedirected.current = true;
+          router.replace('/auth/sign-up-success');
+          return;
+        }
+        throw new Error(error.message);
+      }
+      if (!data?.user) throw new Error('We could not create your account. Please try again.');
+      stashConsents(email);
+      hasRedirected.current = true;
       
-      // Use push to preserve browser history and allow back button to work
-      router.push("/auth/sign-up-success");
+      router.replace("/auth/sign-up-success");
     } catch (error: unknown) {
       // Only log errors in development
       if (process.env.NODE_ENV === 'development') {
@@ -124,18 +150,19 @@ export function SignUpForm({
       }
       setError(error instanceof Error ? error.message : "An error occurred");
     } finally {
+      operationRef.current = false;
       setIsSubmitting(false);
     }
   };
 
   const handleGoogleSignIn = async () => {
-    if (isGoogleLoading) return; // Prevent double submission
+    if (operationRef.current || isSubmitting || isGoogleLoading) return;
+    operationRef.current = true;
     
     setIsGoogleLoading(true);
     setError(null);
 
     try {
-      console.log('Attempting to sign in with Google');
       const { data, error } = await signInWithGoogle();
       
       if (error) {
@@ -157,9 +184,10 @@ export function SignUpForm({
       }
       
       if (data && data.user) {
-        console.log('Google sign in successful, redirecting to profile setup');
-        // Small delay to ensure cookies are fully set before navigation
-        await new Promise(resolve => setTimeout(resolve, 500));
+        // Boxes checked before choosing Google carry over; otherwise profile
+        // setup collects the acknowledgments before any answers are saved.
+        stashConsents(data.user.email);
+        hasRedirected.current = true;
         // For Google sign-in, redirect to profile setup (same as email sign-up flow)
         router.push("/protected/profile-setup");
       } else if (data == null && error == null) {
@@ -167,7 +195,6 @@ export function SignUpForm({
         // used a redirect (signInWithRedirect) and the browser will
         // navigate away and return to this app where the redirect result
         // will be processed by handleAuthRedirectResult (see useEffect).
-        console.log('Google sign-in triggered redirect; awaiting redirect result.');
         return;
       } else {
         setError("Google sign-in failed. Please try again.");
@@ -179,14 +206,15 @@ export function SignUpForm({
       }
       setError(error instanceof Error ? error.message : "An unexpected error occurred. Please try again.");
     } finally {
+      operationRef.current = false;
       setIsGoogleLoading(false);
     }
   };
 
-  const isFormValid = email && password && confirmPassword && password === confirmPassword && passwordErrors.length === 0 && bankConsent && aiConsent && !isSubmitting;
+  const isFormValid = email && password && confirmPassword && password === confirmPassword && passwordErrors.length === 0 && requiredConsentsAccepted(consents) && !isSubmitting;
 
   return (
-    <div className="min-h-screen bg-background safe-area-inset-top safe-area-inset-bottom">
+    <div {...props} className={`min-h-screen bg-background safe-area-inset-top safe-area-inset-bottom ${className || ""}`}>
       {/* Background with subtle gradient */}
       <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-background to-muted/20"></div>
       
@@ -219,17 +247,14 @@ export function SignUpForm({
                 Create your account
               </h1>
               <p className="text-base sm:text-sm text-muted-foreground">
-                Start maximizing your tax deductions today
+                Start organizing your business tax records today
               </p>
             </div>
           </div>
 
           {/* Sign up form */}
           <div className="bg-card/80 backdrop-blur-xl rounded-xl sm:rounded-2xl shadow-lg shadow-black/5 dark:shadow-black/25 ring-1 ring-border p-4 sm:p-6">
-            {/* Notice at Collection */}
-            <div className="mb-4 p-3 sm:p-4 bg-primary/10 dark:bg-primary/15 border border-primary/20 rounded-lg text-xs text-foreground">
-              <strong>Notice at Collection:</strong> We collect your name, email, password, and, after signup, your bank transactions, employer/workstyle answers, and state. This information is used to provide tax deduction analysis, generate reports, and personalize your experience. See our <a href="/privacy" className="underline text-primary no-tap-highlight" target="_blank" rel="noopener noreferrer">Privacy Policy</a> for details.
-            </div>
+            <NoticeAtCollection className="mb-4" />
             <form onSubmit={handleSignUp} className="space-y-4 sm:space-y-5">
               <div className="space-y-4 sm:space-y-3">
                 <div>
@@ -238,6 +263,7 @@ export function SignUpForm({
                   </Label>
                   <Input
                     id="email"
+                    autoComplete="email"
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
@@ -254,6 +280,7 @@ export function SignUpForm({
                   <div className="relative">
                     <Input
                       id="password"
+                      autoComplete="new-password"
                       type={showPassword ? 'text' : 'password'}
                       value={password}
                       onChange={(e) => handlePasswordChange(e.target.value)}
@@ -263,6 +290,8 @@ export function SignUpForm({
                     />
                     <button
                       type="button"
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                      aria-pressed={showPassword}
                       onClick={() => setShowPassword(!showPassword)}
                       className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors p-1.5 no-tap-highlight"
                     >
@@ -287,6 +316,7 @@ export function SignUpForm({
                   <div className="relative">
                     <Input
                       id="confirmPassword"
+                      autoComplete="new-password"
                       type={showConfirmPassword ? 'text' : 'password'}
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
@@ -296,6 +326,8 @@ export function SignUpForm({
                     />
                     <button
                       type="button"
+                      aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}
+                      aria-pressed={showConfirmPassword}
                       onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                       className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors p-1.5 no-tap-highlight"
                     >
@@ -303,57 +335,20 @@ export function SignUpForm({
                     </button>
                   </div>
                   {confirmPassword && password !== confirmPassword && (
-                    <p className="mt-1 text-sm text-destructive">Passwords don't match</p>
+                    <p className="mt-1 text-sm text-destructive">Passwords don&apos;t match</p>
                   )}
                 </div>
               </div>
 
 
-              {error && <p className="text-sm text-destructive">{error}</p>}
+              {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
 
               {/* Explicit Consents */}
-              <div className="space-y-3 sm:space-y-3 bg-muted/40 border border-border rounded-xl p-3 sm:p-4">
-                <div className="flex items-start gap-3 sm:gap-2">
-                  <input
-                    type="checkbox"
-                    id="bankConsent"
-                    checked={bankConsent}
-                    onChange={e => setBankConsent(e.target.checked)}
-                    className="mt-0.5 w-5 h-5 sm:w-4 sm:h-4 flex-shrink-0"
-                    required
-                  />
-                  <label htmlFor="bankConsent" className="text-xs text-foreground leading-relaxed">
-                    I authorize WriteOff to access and use my account and transaction data via Plaid to analyze potential tax deductions and generate reports. (<a href="/privacy" className="underline text-primary no-tap-highlight" target="_blank" rel="noopener noreferrer">Privacy</a> | <a href="https://plaid.com/legal/#end-user-privacy-policy" className="underline text-primary no-tap-highlight" target="_blank" rel="noopener noreferrer">Plaid</a>)
-                    <span className="text-destructive ml-0.5">*</span>
-                  </label>
-                </div>
-                <div className="flex items-start gap-3 sm:gap-2">
-                  <input
-                    type="checkbox"
-                    id="aiConsent"
-                    checked={aiConsent}
-                    onChange={e => setAiConsent(e.target.checked)}
-                    className="mt-0.5 w-5 h-5 sm:w-4 sm:h-4 flex-shrink-0"
-                    required
-                  />
-                  <label htmlFor="aiConsent" className="text-xs text-foreground leading-relaxed">
-                    I understand that WriteOff uses automated (AI) analysis to help identify tax deductions.
-                    <span className="text-destructive ml-0.5">*</span>
-                  </label>
-                </div>
-                <div className="flex items-start gap-3 sm:gap-2">
-                  <input
-                    type="checkbox"
-                    id="commConsent"
-                    checked={commConsent}
-                    onChange={e => setCommConsent(e.target.checked)}
-                    className="mt-0.5 w-5 h-5 sm:w-4 sm:h-4 flex-shrink-0"
-                  />
-                  <label htmlFor="commConsent" className="text-xs text-foreground leading-relaxed">
-                    I consent to receive communications about my account and product updates.
-                  </label>
-                </div>
-              </div>
+              <ConsentCheckboxes
+                values={consents}
+                disabled={isSubmitting}
+                onChange={(key, checked) => setConsents(prev => ({ ...prev, [key]: checked }))}
+              />
 
               <div className="bg-muted/50 border border-border rounded-xl p-3 sm:p-4">
                 <div className="flex items-start gap-3">
@@ -362,7 +357,7 @@ export function SignUpForm({
                   </svg>
                   <div className="text-sm text-muted-foreground">
                     <p className="font-medium text-foreground mb-1">What happens next?</p>
-                    <p className="text-xs sm:text-sm">After creating your account, you'll set up your profile to personalize your experience.</p>
+                    <p className="text-xs sm:text-sm">After creating your account, you&apos;ll set up your profile to personalize your experience.</p>
                   </div>
                 </div>
               </div>
@@ -417,6 +412,9 @@ export function SignUpForm({
                 </>
               )}
             </Button>
+            <p className="mt-2 text-center text-xs text-muted-foreground">
+              Google accounts make the same acknowledgments. If they are not checked above, we ask for them before profile setup.
+            </p>
 
             {/* Sign in link */}
             <div className="mt-5 sm:mt-6 text-center pb-2">

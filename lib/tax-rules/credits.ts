@@ -1,12 +1,15 @@
 /**
- * Tax Credits Engine — 2025 Tax Year
+ * Federal credits estimator — published 2024–2026 parameters
  * Sources:
  *   - IRS Rev. Proc. 2024-40 (EITC amounts and phase-out thresholds)
  *   - IRS Publication 596 (EITC rules)
- *   - IRS Publication 972 (Child Tax Credit)
+ *   - IRS Schedule 8812 and instructions (Child Tax Credit)
  *   - One Big Beautiful Bill Act P.L. 119-21 (CTC $2,200, OBBB changes)
- *   - Tax Foundation 2025 Tax Brackets (capital gains rates)
+ *   - IRS Rev. Proc. 2023-34 and 2025-32 (2024 and 2026 annual amounts)
  */
+
+import { getFederalTaxRules } from './federal-year-rules';
+import { calculateFederalIncomeTax } from './federal-brackets';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -17,6 +20,8 @@ export type FilingStatus =
   | 'head_of_household';
 
 export interface CreditInput {
+  taxYear?: number;             // Legacy calls default to 2025
+  taxLiabilityBeforeCTC?: number; // Credit Limit Worksheet A, after other nonrefundable credits; excludes regular SE tax
   earnedIncome: number;        // W-2 wages + net SE income (Schedule C profit)
   agi: number;                 // Adjusted Gross Income (Line 11)
   filingStatus: FilingStatus;
@@ -34,121 +39,24 @@ export interface CreditResult {
   eitcEligible: boolean;
   eitcDisqualifier?: string;   // reason if not eligible
 
-  childTaxCredit: number;      // Child Tax Credit (up to $2,200/child)
+  childTaxCredit: number;      // Allowed nonrefundable CTC, limited by available income tax
   additionalCTC: number;       // Refundable portion (up to $1,700/child)
   ctcEligible: boolean;
 
   longTermCapGainsTax: number; // Tax on long-term capital gains (0/15/20%)
   shortTermCapGainsTax: number;// Taxed as ordinary income (already in bracket calc)
 
-  totalCredits: number;        // EITC + CTC (reduces tax due)
+  totalCredits: number;        // Nonrefundable CTC only; EITC belongs in refundable credits
   totalRefundableCredits: number; // Credits that can create refund even if $0 tax
 
   notes: string[];             // IRS guidance notes shown to user
 }
 
-// ── 2025 EITC Parameters (IRS Rev. Proc. 2024-40) ─────────────────────────────
-
-interface EITCConfig {
-  maxCredit: number;
-  phaseInRate: number;
-  phaseOutRate: number;
-  phaseInEnd: number;        // earned income at which max credit is reached
-  phaseOutStart: number;     // AGI at which phase-out begins (single/HoH)
-  phaseOutStartMFJ: number;  // AGI phase-out start for MFJ
-  phaseOutEnd: number;       // AGI at which credit = $0 (single/HoH)
-  phaseOutEndMFJ: number;    // AGI phase-out end for MFJ
-}
-
-const EITC_2025: Record<0 | 1 | 2 | 3, EITCConfig> = {
-  0: {
-    maxCredit: 649,
-    phaseInRate: 0.0765,
-    phaseOutRate: 0.0765,
-    phaseInEnd: 8490,
-    phaseOutStart: 10620,
-    phaseOutStartMFJ: 17730,
-    phaseOutEnd: 19104,
-    phaseOutEndMFJ: 26214,
-  },
-  1: {
-    maxCredit: 4328,
-    phaseInRate: 0.34,
-    phaseOutRate: 0.1598,
-    phaseInEnd: 11950,
-    phaseOutStart: 23330,
-    phaseOutStartMFJ: 30440,
-    phaseOutEnd: 50434,
-    phaseOutEndMFJ: 57554,
-  },
-  2: {
-    maxCredit: 7152,
-    phaseInRate: 0.40,
-    phaseOutRate: 0.2106,
-    phaseInEnd: 16810,
-    phaseOutStart: 23330,
-    phaseOutStartMFJ: 30440,
-    phaseOutEnd: 57310,
-    phaseOutEndMFJ: 64430,
-  },
-  3: {
-    maxCredit: 8046,
-    phaseInRate: 0.45,
-    phaseOutRate: 0.2106,
-    phaseInEnd: 16810,
-    phaseOutStart: 23330,
-    phaseOutStartMFJ: 30440,
-    phaseOutEnd: 61555,
-    phaseOutEndMFJ: 68675,
-  },
-};
-
-const EITC_INVESTMENT_INCOME_LIMIT_2025 = 11950;
-
-// ── 2025 Child Tax Credit (OBBB P.L. 119-21) ─────────────────────────────────
-
-const CTC_PER_CHILD_2025 = 2200;              // $2,200 per qualifying child under 17
-const CTC_REFUNDABLE_PER_CHILD_2025 = 1700;   // Additional CTC (refundable portion)
-const CTC_PHASE_OUT_THRESHOLD_MFJ = 400000;   // OBBB made this permanent
+// Continuing Schedule 8812 mechanics. The annual per-child limits live in the year registry.
+const CTC_PHASE_OUT_THRESHOLD_MFJ = 400000;
 const CTC_PHASE_OUT_THRESHOLD_SINGLE = 200000;
-const CTC_PHASE_OUT_RATE = 50;                // $50 reduction per $1,000 over threshold
-const CTC_EARNED_INCOME_MIN = 2500;           // Must have at least $2,500 earned income for ACTC
-
-// ── 2025 Long-Term Capital Gains Rates ───────────────────────────────────────
-// Source: IRS Rev. Proc. 2024-40
-
-const LTCG_BRACKETS_SINGLE = [
-  { min: 0, max: 48350, rate: 0 },
-  { min: 48350, max: 533400, rate: 0.15 },
-  { min: 533400, max: Infinity, rate: 0.20 },
-];
-
-const LTCG_BRACKETS_MFJ = [
-  { min: 0, max: 96700, rate: 0 },
-  { min: 96700, max: 600050, rate: 0.15 },
-  { min: 600050, max: Infinity, rate: 0.20 },
-];
-
-const LTCG_BRACKETS_HH = [
-  { min: 0, max: 64750, rate: 0 },
-  { min: 64750, max: 566700, rate: 0.15 },
-  { min: 566700, max: Infinity, rate: 0.20 },
-];
-
-const LTCG_BRACKETS_MFS = [
-  { min: 0, max: 48350, rate: 0 },
-  { min: 48350, max: 300025, rate: 0.15 },
-  { min: 300025, max: Infinity, rate: 0.20 },
-];
-
-function getLTCGBrackets(filingStatus: FilingStatus) {
-  switch (filingStatus) {
-    case 'married_filing_jointly': return LTCG_BRACKETS_MFJ;
-    case 'head_of_household': return LTCG_BRACKETS_HH;
-    case 'married_filing_separately': return LTCG_BRACKETS_MFS;
-    default: return LTCG_BRACKETS_SINGLE;
-  }
-}
+const CTC_PHASE_OUT_RATE = 50;
+const CTC_EARNED_INCOME_MIN = 2500;
 
 // ── EITC Calculator ───────────────────────────────────────────────────────────
 
@@ -162,9 +70,11 @@ export function calculateEITC(input: CreditInput): { amount: number; eligible: b
     investmentIncome = 0,
   } = input;
 
+  const year = getFederalTaxRules(input.taxYear ?? 2025);
+
   // Cannot file MFS (with limited exceptions we don't model)
   if (filingStatus === 'married_filing_separately') {
-    return { amount: 0, eligible: false, disqualifier: 'Married Filing Separately is not eligible for EITC' };
+    return { amount: 0, eligible: false, disqualifier: 'MFS EITC requires separated-spouse eligibility rules that this estimator does not model' };
   }
 
   // Must have at least $1 of earned income
@@ -173,23 +83,24 @@ export function calculateEITC(input: CreditInput): { amount: number; eligible: b
   }
 
   // Age requirement for no-child EITC: must be 25-64
-  if (numEITCChildren === 0 && taxPayerAge !== undefined) {
+  if (numEITCChildren === 0) {
+    if (taxPayerAge === undefined) return { amount: 0, eligible: false, disqualifier: 'Age is required to estimate EITC without qualifying children' };
     if (taxPayerAge < 25 || taxPayerAge > 64) {
       return { amount: 0, eligible: false, disqualifier: 'Without qualifying children, must be age 25-64' };
     }
   }
 
-  // Investment income limit: $11,950 for 2025
-  if (investmentIncome > EITC_INVESTMENT_INCOME_LIMIT_2025) {
+  // Investment-income limit for the selected tax year
+  if (investmentIncome > year.eitcInvestmentIncomeLimit) {
     return {
       amount: 0,
       eligible: false,
-      disqualifier: `Investment income ($${investmentIncome.toLocaleString()}) exceeds $${EITC_INVESTMENT_INCOME_LIMIT_2025.toLocaleString()} limit`,
+      disqualifier: `Investment income ($${investmentIncome.toLocaleString()}) exceeds $${year.eitcInvestmentIncomeLimit.toLocaleString()} limit`,
     };
   }
 
-  const childKey = Math.min(numEITCChildren, 3) as 0 | 1 | 2 | 3;
-  const config = EITC_2025[childKey];
+  const childKey = Math.min(Math.max(0, Math.floor(numEITCChildren)), 3) as 0 | 1 | 2 | 3;
+  const config = year.eitc[childKey];
   const isMFJ = filingStatus === 'married_filing_jointly';
 
   // Phase-in: credit = earned income × phase-in rate, capped at max
@@ -207,7 +118,7 @@ export function calculateEITC(input: CreditInput): { amount: number; eligible: b
   let credit = phaseInCredit;
   if (incomeForPhaseOut > phaseOutStart) {
     const reduction = (incomeForPhaseOut - phaseOutStart) * config.phaseOutRate;
-    credit = Math.max(0, phaseInCredit - reduction);
+    credit = Math.min(phaseInCredit, Math.max(0, config.maxCredit - reduction));
   }
 
   return { amount: Math.round(credit * 100) / 100, eligible: credit > 0 };
@@ -217,6 +128,7 @@ export function calculateEITC(input: CreditInput): { amount: number; eligible: b
 
 export function calculateCTC(input: CreditInput): { ctc: number; actc: number } {
   const { agi, earnedIncome, filingStatus, numDependents } = input;
+  const year = getFederalTaxRules(input.taxYear ?? 2025);
 
   if (numDependents <= 0) return { ctc: 0, actc: 0 };
 
@@ -225,7 +137,7 @@ export function calculateCTC(input: CreditInput): { ctc: number; actc: number } 
     : CTC_PHASE_OUT_THRESHOLD_SINGLE;
 
   // Base credit
-  let baseCTC = numDependents * CTC_PER_CHILD_2025;
+  let baseCTC = Math.floor(numDependents) * year.childTaxCreditPerChild;
 
   // Phase-out: $50 reduction per $1,000 (or fraction) over threshold
   if (agi > threshold) {
@@ -234,27 +146,36 @@ export function calculateCTC(input: CreditInput): { ctc: number; actc: number } 
     baseCTC = Math.max(0, baseCTC - reduction);
   }
 
-  // Additional Child Tax Credit (refundable portion)
-  // = 15% of earned income over $2,500, up to $1,700 per child
-  let actc = 0;
-  if (earnedIncome >= CTC_EARNED_INCOME_MIN) {
-    const refundableBase = (earnedIncome - CTC_EARNED_INCOME_MIN) * 0.15;
-    const maxACTC = numDependents * CTC_REFUNDABLE_PER_CHILD_2025;
-    actc = Math.min(refundableBase, maxACTC);
-  }
+  // Schedule 8812 lines 12–17: use the credit against income tax first. Only
+  // the unused credit can qualify for ACTC; CTC must not offset Schedule 2 SE tax.
+  // A direct legacy call may omit the worksheet liability; ordinary bracket tax
+  // is then only an estimate. compute1040 supplies its tax after LTCG treatment.
+  const availableTax = Math.max(0, input.taxLiabilityBeforeCTC
+    ?? calculateFederalIncomeTax(input.taxableIncome, filingStatus, year.taxYear));
+  const ctc = Math.min(baseCTC, availableTax);
+  const unusedCredit = Math.max(0, baseCTC - ctc);
+  const refundableBase = Math.max(0, earnedIncome - CTC_EARNED_INCOME_MIN) * 0.15;
+  const maxACTC = Math.floor(numDependents) * year.refundableChildTaxCreditPerChild;
+  const actc = Math.min(unusedCredit, refundableBase, maxACTC);
 
-  return { ctc: Math.round(baseCTC * 100) / 100, actc: Math.round(actc * 100) / 100 };
+  // Ordinary earned-income method only. The alternate Social Security method for
+  // three or more children / Puerto Rico needs additional inputs and is not modeled.
+  return { ctc: Math.round(ctc * 100) / 100, actc: Math.round(actc * 100) / 100 };
 }
 
 // ── Long-Term Capital Gains Tax ───────────────────────────────────────────────
 
-export function calculateLTCGTax(longTermGains: number, taxableIncome: number, filingStatus: FilingStatus): number {
-  if (longTermGains <= 0) return 0;
-
-  const brackets = getLTCGBrackets(filingStatus);
+export function calculateLTCGTax(longTermGains: number, taxableIncome: number, filingStatus: FilingStatus, taxYear: number = 2025): number {
+  const [zeroRateEnd, fifteenRateEnd] = getFederalTaxRules(taxYear).capitalGainsThresholds[filingStatus];
+  if (longTermGains <= 0 || taxableIncome <= 0) return 0;
+  const brackets = [
+    { min: 0, max: zeroRateEnd, rate: 0 },
+    { min: zeroRateEnd, max: fifteenRateEnd, rate: 0.15 },
+    { min: fifteenRateEnd, max: Infinity, rate: 0.20 },
+  ];
   // LTCG rates apply to the LTCG portion of taxable income
   // Ordinary income "fills up" the brackets first
-  const ordinaryIncome = taxableIncome - longTermGains;
+  const ordinaryIncome = Math.max(0, taxableIncome - longTermGains);
   let ltcgTax = 0;
 
   for (const bracket of brackets) {
@@ -276,20 +197,24 @@ export function calculateLTCGTax(longTermGains: number, taxableIncome: number, f
 // ── SEP-IRA Limit Calculator ─────────────────────────────────────────────────
 
 /**
- * Calculate the IRS maximum SEP-IRA contribution for a self-employed person.
- * IRS formula: 25% of net SE earnings, where net SE earnings = net profit - half SE tax
- * This equals approximately 18.587% of net Schedule C profit.
- * Annual dollar cap: $70,000 for 2025.
- * Source: IRS Publication 560, Rev. Proc. 2024-40
+ * Owner-only sole-proprietor SEP with a 25% plan rate: reduced rate = .25/1.25 = .20.
+ * IRS Publication 560, chapter 5. This is not the remaining combined-plan limit.
+ * Supply the actual deductible half of regular SE tax when wages/other SE income exist.
+ * Legacy one-argument calls assume 2025 and no Social Security wages/other businesses.
  */
-export function calculateSEPIRAMax(scheduleC_netProfit: number): number {
+export function calculateSEPIRAMax(
+  scheduleC_netProfit: number,
+  taxYear: number = 2025,
+  halfSEDeduction?: number,
+): number {
+  const year = getFederalTaxRules(taxYear);
   if (scheduleC_netProfit <= 0) return 0;
   const seBase = scheduleC_netProfit * 0.9235;
-  const seTax = seBase * 0.153;
-  const halfSE = seTax / 2;
-  const netSEEarnings = scheduleC_netProfit - halfSE;
-  const max25Pct = netSEEarnings * 0.25;
-  return Math.round(Math.min(max25Pct, 70000) * 100) / 100;
+  const regularSETax = seBase < 400 ? 0
+    : Math.min(seBase, year.socialSecurityWageBase) * 0.124 + seBase * 0.029;
+  const halfSE = halfSEDeduction ?? regularSETax / 2;
+  const netSEEarnings = Math.max(0, scheduleC_netProfit - Math.max(0, halfSE));
+  return Math.round(Math.min(netSEEarnings * 0.20, year.sepContributionLimit) * 100) / 100;
 }
 
 // ── Main Credit Calculator ────────────────────────────────────────────────────
@@ -303,12 +228,17 @@ export function calculateAllCredits(input: CreditInput): CreditResult {
     if (input.earnedIncome < 70000) notes.push(`EITC: ${eitcResult.disqualifier}`);
   }
   if (eitcResult.eligible && eitcResult.amount > 0) {
-    notes.push(`EITC: You may qualify for $${eitcResult.amount.toLocaleString()} — attach Schedule EIC when filing`);
+    const scheduleNote = input.numEITCChildren > 0 ? ' Qualifying-child claims require Schedule EIC.' : '';
+    notes.push(`EITC estimate (eligibility and IRS table must be confirmed): $${eitcResult.amount.toLocaleString()}.${scheduleNote}`);
+  }
+
+  if (input.numDependents >= 3) {
+    notes.push('ACTC uses the earned-income method only. Three or more qualifying children may require the alternate Schedule 8812 calculation.');
   }
 
   // CTC
   const ctcResult = calculateCTC(input);
-  if (ctcResult.ctc > 0) {
+  if (ctcResult.ctc > 0 || ctcResult.actc > 0) {
     notes.push(`Child Tax Credit: $${ctcResult.ctc.toLocaleString()} (non-refundable) + $${ctcResult.actc.toLocaleString()} Additional CTC (refundable)`);
   }
 
@@ -316,7 +246,8 @@ export function calculateAllCredits(input: CreditInput): CreditResult {
   const ltcgTax = calculateLTCGTax(
     input.longTermCapGains ?? 0,
     input.taxableIncome,
-    input.filingStatus
+    input.filingStatus,
+    input.taxYear ?? 2025
   );
 
   if ((input.longTermCapGains ?? 0) > 0) {
@@ -326,7 +257,7 @@ export function calculateAllCredits(input: CreditInput): CreditResult {
     notes.push(`Capital Gains: Long-term gains taxed at preferential 0/15/20% rates — saves vs ordinary income rates.${stcgNote}`);
   }
 
-  const totalCredits = ctcResult.ctc + eitcResult.amount;
+  const totalCredits = ctcResult.ctc;
   const totalRefundableCredits = eitcResult.amount + ctcResult.actc;
 
   return {
@@ -335,7 +266,7 @@ export function calculateAllCredits(input: CreditInput): CreditResult {
     eitcDisqualifier: eitcResult.disqualifier,
     childTaxCredit: ctcResult.ctc,
     additionalCTC: ctcResult.actc,
-    ctcEligible: ctcResult.ctc > 0,
+    ctcEligible: ctcResult.ctc > 0 || ctcResult.actc > 0,
     longTermCapGainsTax: ltcgTax,
     shortTermCapGainsTax: 0, // already included in ordinary income tax
     totalCredits,

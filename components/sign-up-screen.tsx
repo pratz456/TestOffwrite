@@ -72,7 +72,7 @@ export const SignUpScreen: React.FC<SignUpScreenProps> = ({
                 Create your account
               </h1>
               <p className="text-muted-foreground">
-                Start maximizing your tax deductions today
+                Start organizing your business tax records today
               </p>
             </div>
           </div>

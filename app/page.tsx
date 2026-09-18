@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import { LandingPage } from "@/components/landing/landing-page";
 
 export const metadata: Metadata = {
-  title: "WriteOff - AI Tax Deduction Tracker for Freelancers",
+  title: "WriteOff - Expense and Receipt Tracking for Freelancers",
   description:
-    "AI powered tax autopilot that finds, categorizes, and tracks every business expense in real-time. Stop overpaying taxes.",
+    "Organize business expenses, review receipts, and export records for your tax preparer. Start with manual entry, with no bank connection required.",
 };
 
 export default function Home() {
@@ -21,7 +21,7 @@ export default function Home() {
             applicationCategory: "FinanceApplication",
             operatingSystem: "Web",
             description:
-              "AI-powered tax autopilot that automatically finds, categorizes, and tracks every business expense in real-time.",
+              "Business expense and receipt tracking with record exports and supported federal planning estimates. In-app filing is not currently available.",
             url:
               process.env.NEXT_PUBLIC_SITE_URL || "https://writeoffapp.com",
             offers: {

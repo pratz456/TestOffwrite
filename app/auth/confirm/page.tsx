@@ -1,47 +1,64 @@
 "use client";
 
-import { useEffect, Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { CheckCircle } from 'lucide-react';
+import { useEffect, useState, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
+import { AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { getSafeAuthRedirect } from '@/lib/url';
+import { confirmEmailAction } from '@/lib/onboarding/email-confirmation';
+import { UpdatePasswordForm } from '@/components/update-password-form';
 
-function ConfirmPageContent() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const next = searchParams.get('next') || '/protected';
+function VerifyEmailContent({ code, mode, next }: { code: string | null; mode: string | null; next: string }) {
+  const [result, setResult] = useState<{ code: string | null; mode: string | null; error?: string } | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const currentResult = result?.code === code && result.mode === mode ? result : null;
 
   useEffect(() => {
-    // Since the backend verification is working, just redirect to the protected area
-    // The user can log in normally if they're not authenticated
-    const timer = setTimeout(() => {
-      router.push(next);
-    }, 2000);
+    let current = true;
+    setResult(null);
+    confirmEmailAction(code, mode).then(
+      () => { if (current) setResult({ code, mode }); },
+      error => { if (current) setResult({ code, mode, error: error instanceof Error ? error.message : 'We could not verify your email. Please try again.' }); },
+    );
+    return () => { current = false; };
+  }, [code, mode, attempt]);
 
-    return () => clearTimeout(timer);
-  }, [router, next]);
-
-  return (
-    <div className="min-h-screen bg-muted flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        <div className="bg-white rounded-lg shadow-lg border border-border p-8">
-          <div className="text-center">
-            <CheckCircle className="w-12 h-12 text-accent mx-auto mb-4" />
-            <h1 className="text-2xl font-medium text-foreground mb-2">
-              Email Confirmed!
-            </h1>
-            <p className="text-muted-foreground mb-6">
-              Your email has been successfully verified. Redirecting you to log in...
-            </p>
-          </div>
-        </div>
-      </div>
+  return <main className="min-h-screen bg-background flex items-center justify-center p-4">
+    <div className="w-full max-w-md rounded-lg border bg-card p-8 text-center space-y-4">
+      {!currentResult ? <>
+        <Loader2 aria-hidden="true" className="w-12 h-12 animate-spin text-primary mx-auto" />
+        <h1 className="text-xl font-semibold">Verifying your email</h1>
+        <p role="status" className="text-muted-foreground">Checking your verification link…</p>
+      </> : currentResult.error ? <>
+        <AlertCircle aria-hidden="true" className="w-12 h-12 text-destructive mx-auto" />
+        <h1 className="text-xl font-semibold">Email not confirmed</h1>
+        <p role="alert" className="text-muted-foreground">{currentResult.error}</p>
+        {code && mode === 'verifyEmail' && <Button onClick={() => setAttempt(value => value + 1)} className="w-full">Try again</Button>}
+        <Button asChild variant="outline" className="w-full"><Link href="/auth/sign-up-success">Request another verification email</Link></Button>
+        <Link href="/auth/login" className="block text-sm text-primary underline">Sign in</Link>
+      </> : <>
+        <CheckCircle aria-hidden="true" className="w-12 h-12 text-primary mx-auto" />
+        <h1 className="text-xl font-semibold">Email confirmed</h1>
+        <p role="status" className="text-muted-foreground">Your email has been verified. Sign in to continue to WriteOff.</p>
+        <Button asChild className="w-full"><Link href={`/auth/login?redirect=${encodeURIComponent(next)}`}>Continue to WriteOff</Link></Button>
+      </>}
     </div>
-  );
+  </main>;
+}
+
+function ConfirmPageContent() {
+  const params = useSearchParams();
+  const code = params.get('oobCode');
+  const mode = params.get('mode');
+  if (mode === 'resetPassword') return <main className="flex min-h-svh items-center justify-center p-6"><UpdatePasswordForm className="w-full max-w-sm" code={code} mode={mode} /></main>;
+  return <VerifyEmailContent code={code} mode={mode} next={getSafeAuthRedirect(params.get('next'))} />;
 }
 
 export default function ConfirmPage() {
   return (
-    <Suspense fallback={<div>Loading...</div>}>
+    <Suspense fallback={<p role="status">Loading email link…</p>}>
       <ConfirmPageContent />
     </Suspense>
   );
-} 
+}

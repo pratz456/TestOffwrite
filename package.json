@@ -4,6 +4,7 @@
     "dev": "next dev --turbopack --port 3000",
     "build": "next build",
     "start": "next start",
+    "staging:preflight": "node scripts/staging-preflight.mjs --project writeoff-production-testing --config firebase.staging.json",
     "clean": "node scripts/clean-next.js",
     "clean:all": "node scripts/clean-next.js .next node_modules/.cache",
     "lint": "eslint .",
@@ -11,11 +12,17 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "ci": "npm run lint && npm test && npm run build",
-    "deploy": "node scripts/deploy-firebase.js",
-    "deploy:firebase": "firebase deploy --only \"hosting,firestore\"",
+    "production:prepare": "node scripts/prepare-production-release.mjs",
+    "production:migration-inventory": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/production-migration-inventory.mjs",
+    "production:plaid-migration": "node scripts/production-plaid-credential-migration.mjs",
+    "production:overlap-reconcile": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/production-overlap-reconciliation.mjs",
+    "production:preflight": "node scripts/production-preflight.mjs --project writeoff-23910 --config firebase.json",
+    "production:deploy": "node scripts/deploy-production-release.mjs",
+    "deploy": "node scripts/deploy-production-release.mjs",
+    "deploy:firebase": "node scripts/deploy-production-release.mjs",
     "upload:bundle": "ts-node scripts/make-upload-bundle.ts",
     "upload:find-large": "ts-node scripts/find-large.ts",
-    "firebase:deploy-indexes": "node scripts/deploy-firestore-indexes.js",
+    "firebase:deploy-indexes": "node scripts/deploy-production-release.mjs",
     "optimize-dev": "node scripts/optimize-dev.js",
     "stripe:check": "node docs/archive/scripts/setup-stripe-test.js",
     "test:plaid": "node docs/archive/scripts/test-plaid-transactions.js",
@@ -116,7 +123,7 @@
     "vitest": "^3.2.4"
   },
   "engines": {
-    "node": "20"
+    "node": "22"
   },
   "overrides": {
     "cookie": ">=0.7.0",

@@ -22,6 +22,7 @@
 # production
 /build
 /dist
+/.writeoff-production-*.json
 
 # misc
 .DS_Store
@@ -50,6 +51,16 @@ secretskey.md
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Generated PWA build output
+/public/sw.js
+/public/workbox-*.js
+/public/fallback-*.js
+/public/worker-*.js
+/public/worker-*.js.map
+
+# Downloaded primary-source research corpus (provenance is recorded in docs/research)
+/.tax-research/
 
 # backup directories
 api-backup/

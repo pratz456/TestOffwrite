@@ -14,18 +14,19 @@ interface AiAdvisoryCardProps {
 export function AiAdvisoryCard({ needsReviewCount, needsAnalysisCount, taxSavings, onNavigate }: AiAdvisoryCardProps) {
   // Build contextual summary
   let summary = '';
-  let cta = { label: 'View AI Insights', screen: 'ai-insights' };
+  let cta = { label: 'Add an expense', screen: 'add-manual-transaction' };
 
   if (needsAnalysisCount > 0) {
-    summary = `You have ${needsAnalysisCount} transactions that haven't been analyzed yet. Running AI analysis could uncover additional deductions.`;
+    summary = 'Check the categories and business purpose of your saved transactions. You can review them manually.';
     cta = { label: 'Review now', screen: 'review-transactions' };
   } else if (needsReviewCount > 0) {
-    summary = `${needsReviewCount} transactions are pending your review. Confirming them ensures your deduction total is accurate.`;
+    summary = `${needsReviewCount} transactions are pending your review. Check the business purpose and supporting records before confirming them.`;
     cta = { label: 'Review transactions', screen: 'review-transactions' };
   } else if (taxSavings > 0) {
-    summary = `You've saved $${taxSavings.toLocaleString('en-US', { minimumFractionDigits: 0 })} in taxes so far this year. Check AI Insights for additional optimization ideas.`;
+    summary = 'Your confirmed expenses are recorded. Review the federal estimate and any missing tax information in Tax Preview.';
+    cta = { label: 'Review tax estimate', screen: 'tax-preview' };
   } else {
-    summary = 'Connect your bank account and categorize expenses to get personalized tax-saving recommendations.';
+    summary = 'Start by adding income or an expense manually. Keep receipts and record the business purpose; connecting a bank is optional.';
   }
 
   return (

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Shield, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
+import { CONSENT_TERMS_VERSION } from '@/lib/onboarding/consents';
 import writeOffLogo from '@/public/writeofflogo.png';
 import Image from 'next/image';
 
@@ -36,7 +37,7 @@ export default function PrivacyPolicyPage() {
               Privacy Policy
             </CardTitle>
             <CardDescription className="text-sm text-muted-foreground mb-8 font-tabular-nums">
-              Last updated: {new Date().toLocaleDateString()}
+              Effective date: September 18, 2026 (version {CONSENT_TERMS_VERSION})
             </CardDescription>
           </CardHeader>
           <CardContent className="p-8 md:p-10 pt-4 space-y-6 [&>div:not(:first-child)]:mt-10 [&>div:not(:first-child)]:border-t [&>div:not(:first-child)]:border-border [&>div:not(:first-child)]:pt-8 [&_p]:text-base [&_p]:leading-[1.75] [&_p]:text-muted-foreground [&_p]:mb-4 [&_h3]:text-lg md:[&_h3]:text-xl [&_h3]:font-bold [&_h3]:text-foreground [&_h3]:mb-3 [&_ul]:list-disc [&_ul]:list-inside [&_ul]:ml-5 md:[&_ul]:ml-6 [&_ul]:mt-2 [&_ul]:mb-4 [&_ul]:space-y-2 [&_ul]:text-muted-foreground [&_ul]:[&_li]:marker:text-muted-foreground">
@@ -52,7 +53,7 @@ export default function PrivacyPolicyPage() {
                 We may collect the following types of information:
               </p>
               <ul>
-                <li><strong>Personal Information:</strong> such as your name, email address, phone number, and profession.</li>
+                <li><strong>Personal Information:</strong> such as your name, email address, state, profession, filing status, and income.</li>
                 <li><strong>Financial Information:</strong> securely obtained through bank connections (via trusted partners like Plaid).</li>
                 <li><strong>Transaction Data:</strong> including purchase history, expenses, and uploaded receipts.</li>
                 <li><strong>Usage Data:</strong> such as device information, app interactions, and preferences.</li>
@@ -79,7 +80,7 @@ export default function PrivacyPolicyPage() {
                 We do not sell or rent your personal information. We may share information only with:
               </p>
               <ul>
-                <li><strong>Trusted Service Providers</strong> (e.g., Plaid, Firebase, Supabase) to operate our services securely.</li>
+                <li><strong>Service Providers</strong> (Plaid for bank connections, Google Firebase and Google Cloud for hosting and storage, OpenAI for AI analysis with storage disabled, Stripe for payments, Resend for support email) to operate our services.</li>
                 <li><strong>Legal Authorities</strong> if required by law, regulation, or to protect rights and safety.</li>
               </ul>
             </div>
@@ -90,8 +91,8 @@ export default function PrivacyPolicyPage() {
                 We take the protection of your data seriously. Measures include:
               </p>
               <ul>
-                <li>Bank-level encryption and secure connections.</li>
-                <li>Access controls and regular security reviews.</li>
+                <li>Encryption in transit and at rest, and read-only bank connections.</li>
+                <li>Owner-scoped access controls enforced by database security rules, automated security tests on every release, and a written information security program.</li>
                 <li>Partnerships with audited and compliant service providers.</li>
               </ul>
               <p className="mt-3">

@@ -18,8 +18,8 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const jobId = searchParams.get('jobId');
     
-    if (!jobId) {
-      return NextResponse.json({ error: 'jobId required' }, { status: 400 });
+    if (!jobId || jobId.length > 256 || /[\/\\\x00-\x1f\x7f]/.test(jobId)) {
+      return NextResponse.json({ error: 'A valid jobId is required' }, { status: 400 });
     }
 
     // Get the job document
@@ -31,8 +31,8 @@ export async function GET(request: NextRequest) {
 
     const jobData = snap.data();
     
-    // Verify ownership - jobId should start with userId
-    if (!jobId.startsWith(user.uid)) {
+    // Ownership comes from server-written data, never a guess based on the ID.
+    if (jobData?.userId !== user.uid && jobData?.user_id !== user.uid) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
         jobId: snap.id,
         ...jobData
       }
-    }, { status: 200 });
+    }, { status: 200, headers: { 'Cache-Control': 'private, no-store', Vary: 'Cookie, Authorization' } });
 
   } catch (error) {
     console.error('Error in analysis job API:', error);

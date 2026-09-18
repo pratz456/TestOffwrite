@@ -3,37 +3,20 @@ import { updateTransactionServerWithUserId } from '@/lib/firebase/transactions-s
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { aiLearningEngine } from '@/lib/ai/learning-engine';
 import { adminDb } from '@/lib/firebase/admin';
+import { transactionIdInput, transactionUpdatesInput } from '@/lib/transactions/client-updates';
 
-// Helper function to normalize transaction document
+import { hydrateReviewTransaction } from '@/lib/transactions/review';
+
 function normalizeDoc(doc: any): any {
+  return hydrateReviewTransaction(doc.data(), doc.id);
+}
+
+function ownedDocument(doc: any, uid: string): boolean {
+  const parts = doc.ref?.path?.split('/');
   const data = doc.data();
-  return {
-    id: data.trans_id || doc.id,
-    trans_id: data.trans_id || doc.id,
-    merchant_name: data.merchant_name || '',
-    amount: data.amount || 0,
-    category: data.category || '',
-    date: data.date || '',
-    type: data.amount < 0 ? 'income' : 'expense',
-    is_deductible: data.is_deductible,
-    expense_type: data.expense_type, // Explicit classification: business or personal
-    deductible_reason: data.deductible_reason || null,
-    deduction_score: data.deduction_score || null,
-    ai_analysis: data.ai_analysis || null,
-    user_classification_reason: data.user_classification_reason || null,
-    description: data.description,
-    notes: data.notes,
-    account_id: data.account_id,
-    userId: data.userId || data.user_id,
-    analyzed: data.analyzed,
-    analysisStatus: data.analysis_status || data.analysisStatus,
-    transactionHash: data.transactionHash,
-    analysisStartedAt: data.analysisStartedAt,
-    analysisCompletedAt: data.analysisCompletedAt,
-    created_at: data.created_at,
-    updated_at: data.updated_at,
-    ai: data.ai || null,
-  };
+  return parts?.length === 6 && parts[0] === 'user_profiles' && parts[1] === uid &&
+    parts[2] === 'accounts' && parts[4] === 'transactions' &&
+    [data.userId, data.user_id].every(value => value == null || value === uid);
 }
 
 export async function GET(
@@ -50,6 +33,7 @@ export async function GET(
     }
 
     const { id: transactionId } = await params;
+    if (!transactionIdInput.safeParse(transactionId).success) return NextResponse.json({ error: 'Invalid transaction ID' }, { status: 400 });
     console.log('🔍 [API GET Transaction] Fetching transaction:', transactionId, 'for user:', user.uid);
 
     // Strategy 1: Try collectionGroup query with userId and trans_id
@@ -62,7 +46,7 @@ export async function GET(
 
       const querySnapshot = await transactionsQuery.get();
 
-      if (!querySnapshot.empty) {
+      if (!querySnapshot.empty && ownedDocument(querySnapshot.docs[0], user.uid)) {
         const doc = querySnapshot.docs[0];
         const transaction = normalizeDoc(doc);
         console.log('✅ [API GET Transaction] Found transaction via collectionGroup query');
@@ -82,7 +66,7 @@ export async function GET(
 
       const querySnapshot = await transactionsQuery.get();
 
-      if (!querySnapshot.empty) {
+      if (!querySnapshot.empty && ownedDocument(querySnapshot.docs[0], user.uid)) {
         const doc = querySnapshot.docs[0];
         const transaction = normalizeDoc(doc);
         console.log('✅ [API GET Transaction] Found transaction via collectionGroup (user_id) query');
@@ -115,7 +99,7 @@ export async function GET(
           return data.trans_id === transactionId || doc.id === transactionId;
         });
 
-        if (targetTransaction) {
+        if (targetTransaction && ownedDocument(targetTransaction, user.uid)) {
           const transaction = normalizeDoc(targetTransaction);
           console.log('✅ [API GET Transaction] Found transaction via account search');
           return NextResponse.json({ transaction });
@@ -134,7 +118,7 @@ export async function GET(
   } catch (error) {
     console.error('❌ [API GET Transaction] Unexpected error:', error);
     return NextResponse.json(
-      { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }
@@ -154,7 +138,10 @@ export async function PUT(
     }
 
     const { id: transactionId } = await params;
-    const updates = await request.json();
+    if (!transactionIdInput.safeParse(transactionId).success) return NextResponse.json({ error: 'Invalid transaction ID' }, { status: 400 });
+    const parsed = transactionUpdatesInput.safeParse(await request.json().catch(() => null));
+    if (!parsed.success) return NextResponse.json({ error: 'Provide valid editable transaction fields. Ownership, amounts and AI fields cannot be changed here.' }, { status: 400 });
+    const updates = parsed.data;
 
     console.log('🔄 [API UPDATE→DB] Updating transaction:', transactionId, updates);
 
@@ -187,21 +174,23 @@ export async function PUT(
     if (error) {
       console.error('❌ [API UPDATE→DB] Update failed:', error);
       return NextResponse.json(
-        { error: 'Update failed', details: error.message },
+        { error: 'Update failed' },
         { status: 500 }
       );
     }
 
+    const updatedTransaction = Array.isArray(data) ? data[0] : data;
+
     // Record correction for AI learning if this was a user override
-    if (isCorrection && originalAnalysis && data) {
+    if (isCorrection && originalAnalysis && updatedTransaction && updates.is_deductible !== null) {
       try {
         await aiLearningEngine.recordCorrection(
           user.uid,
           transactionId,
-          data,
+          updatedTransaction,
           originalAnalysis,
           {
-            isDeductible: updates.is_deductible !== undefined ? updates.is_deductible : data.is_deductible,
+            isDeductible: updates.is_deductible !== undefined ? updates.is_deductible : updatedTransaction.is_deductible,
             reasoning: updates.deductible_reason || updates.user_classification_reason
           }
         );
@@ -215,13 +204,13 @@ export async function PUT(
 
     return NextResponse.json({
       success: true,
-      transaction: data
+      transaction: updatedTransaction
     });
 
   } catch (error) {
     console.error('❌ [API UPDATE→DB] Unexpected error:', error);
     return NextResponse.json(
-      { error: 'Internal server error', details: error },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }

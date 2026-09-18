@@ -1,4 +1,5 @@
 import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
+import { getEstimatedTaxDeadline } from '@/lib/tax-provider/payment-deadlines';
 
 /**
  * Proactive Action Items Engine
@@ -41,11 +42,7 @@ interface UserProfile {
   business_income?: number;
   w2_income?: number;
   annual_gross_income_usd?: number;
-  plaidToken?: string;
-  // This is the field name returned by our profile loader.
-  // Keep `plaidToken` for backward compatibility with older data/code.
-  plaid_token?: string;
-  plaid_accounts?: any[];
+  bankConnected?: boolean;
   [key: string]: any;
 }
 
@@ -87,18 +84,23 @@ export function generateActionItems(
 
   // ── Setup & Onboarding ──────────────────────────────────────
 
-  const hasPlaidConnected =
-    !!profile?.plaid_token ||
-    !!profile?.plaidToken ||
-    (Array.isArray(profile?.plaid_accounts) && profile.plaid_accounts.length > 0);
+  const hasPlaidConnected = profile?.bankConnected === true;
+
+  if (transactions.length === 0) {
+    items.push({
+      id: 'add-first-transaction', title: 'Add your first expense',
+      description: 'Start with a manual expense and its business purpose. You can also add income from the dashboard; no bank connection is required.',
+      priority: 'high', category: 'setup', screen: 'add-manual-transaction', icon: 'Receipt',
+    });
+  }
 
   if (!hasPlaidConnected) {
     items.push({
       id: 'connect-bank',
-      title: 'Connect your bank account',
+      title: 'Connect a bank account (optional)',
       description:
-        'Link a bank or credit card so transactions import automatically. This is the foundation for tracking deductions.',
-      priority: 'critical',
+        'You can keep entering records manually, or connect a supported account to request transaction sync.',
+      priority: 'low',
       category: 'setup',
       screen: 'plaid-link',
       icon: 'Landmark',
@@ -110,7 +112,7 @@ export function generateActionItems(
       id: 'set-profession',
       title: 'Add your profession',
       description:
-        'Tell us what you do so the AI can give profession-specific deduction advice.',
+        'Add your profession to give context to your business records and expense review.',
       priority: 'critical',
       category: 'setup',
       screen: 'settings',
@@ -136,7 +138,7 @@ export function generateActionItems(
       id: 'set-state',
       title: 'Set your state',
       description:
-        'We need your state to calculate state taxes and give state-specific advice.',
+        'Your state is used for planning context in reports. WriteOff does not prepare state returns.',
       priority: 'high',
       category: 'setup',
       screen: 'settings',
@@ -157,25 +159,25 @@ export function generateActionItems(
   if (!hasIncome) {
     items.push({
       id: 'set-income',
-      title: 'Enter your income estimate',
+      title: 'Review your income records',
       description:
-        'An income estimate helps calculate quarterly tax payments and effective tax rates accurately.',
+        'Add or check your income records, including any 1099 forms. Reconcile records that describe the same payment before using a tax estimate.',
       priority: 'high',
       category: 'setup',
-      screen: 'settings',
+      screen: 'income-tracking',
       icon: 'DollarSign',
     });
   }
 
   // ── Transaction Review ──────────────────────────────────────
 
-  const pendingAnalysis = transactions.filter((t) => t.deduction_score === undefined || t.deduction_score === null);
+  const pendingAnalysis = transactions.filter((t) => (t.deduction_score === undefined || t.deduction_score === null) && transactionNeedsTaxReview(t));
   if (pendingAnalysis.length > 0) {
     items.push({
       id: 'analyze-transactions',
-      title: `${pendingAnalysis.length} transactions need AI analysis`,
+      title: `${pendingAnalysis.length} transactions need classification`,
       description:
-        'These transactions haven\'t been classified yet. Analyze them to identify deductions.',
+        'Review the category and business purpose of these transactions, then confirm their treatment.',
       priority: pendingAnalysis.length > 20 ? 'critical' : 'high',
       category: 'review',
       screen: 'review-transactions',
@@ -195,7 +197,7 @@ export function generateActionItems(
       id: 'review-analyzed',
       title: `${analyzedNotReviewed.length} transactions to review`,
       description:
-        'AI provided suggestions. Confirm or correct them to keep your deductions accurate.',
+        'Review the saved suggestions against your records and confirm or correct their treatment.',
       priority: analyzedNotReviewed.length > 10 ? 'high' : 'medium',
       category: 'review',
       screen: 'review-transactions',
@@ -226,7 +228,7 @@ export function generateActionItems(
       id: 'track-mileage',
       title: 'Start tracking your mileage',
       description:
-        'You have vehicle expenses but no mileage log. The IRS standard mileage deduction ($0.67/mile) often saves more than actual expenses.',
+        'You have vehicle expenses but no mileage log. A contemporaneous log is required for either the IRS standard mileage rate or actual vehicle expenses; the rate changes each year.',
       priority: 'high',
       category: 'tax_optimization',
       screen: 'mileage-tracker',
@@ -239,7 +241,7 @@ export function generateActionItems(
       id: 'log-mileage',
       title: 'Log your business mileage',
       description:
-        `You use your vehicle ${profile.vehicle_business_use_percentage}% for business. Start logging trips to maximize your deduction.`,
+        `You use your vehicle ${profile.vehicle_business_use_percentage}% for business. Start logging trips so the business-use percentage and any vehicle deduction can be substantiated.`,
       priority: 'medium',
       category: 'tax_optimization',
       screen: 'mileage-tracker',
@@ -247,20 +249,22 @@ export function generateActionItems(
     });
   }
 
-  // Large expenses without receipts
+  // Large expenses without receipts. Treas. Reg. §1.274-5(c)(2)(iii) requires documentary
+  // evidence for lodging and for other §274(d) expenses of $75 or more (Rev. Proc. 92-71):
+  // https://www.law.cornell.edu/cfr/text/26/1.274-5
   const largeNoReceipt = transactions.filter(
     (t) =>
       t.is_deductible === true &&
-      Math.abs(t.amount || 0) > 75 &&
+      Math.abs(t.amount || 0) >= 75 &&
       !t.receipt_url &&
       !t.receipt_filename
   );
   if (largeNoReceipt.length > 0) {
     items.push({
       id: 'attach-receipts',
-      title: `${largeNoReceipt.length} deductions over $75 need receipts`,
+      title: `${largeNoReceipt.length} deductions of $75 or more need receipts`,
       description:
-        'The IRS requires receipts for expenses over $75. Upload them now to protect your deductions in case of audit.',
+        'IRS substantiation rules require documentary evidence for lodging and for travel, gift and listed-property expenses of $75 or more, and receipts are the simplest support for any other expense. Upload them now so these deductions are documented if the IRS asks.',
       priority: 'high',
       category: 'compliance',
       screen: 'receipt-upload',
@@ -300,11 +304,14 @@ export function generateActionItems(
 
   const now = new Date();
   const year = now.getFullYear();
+  // Form 1040-ES due dates shift for weekends and DC holidays; the January payment belongs to
+  // the prior tax year's Q4. https://www.irs.gov/forms-pubs/about-form-1040-es
   const deadlines = [
-    { q: 1, date: new Date(year, 3, 15) },
-    { q: 2, date: new Date(year, 5, 15) },
-    { q: 3, date: new Date(year, 8, 15) },
-    { q: 4, date: new Date(year + 1, 0, 15) },
+    { q: 4, date: getEstimatedTaxDeadline(year - 1, 4) },
+    { q: 1, date: getEstimatedTaxDeadline(year, 1) },
+    { q: 2, date: getEstimatedTaxDeadline(year, 2) },
+    { q: 3, date: getEstimatedTaxDeadline(year, 3) },
+    { q: 4, date: getEstimatedTaxDeadline(year, 4) },
   ];
   const nextDeadline = deadlines.find((d) => d.date > now);
   if (nextDeadline) {
@@ -316,7 +323,7 @@ export function generateActionItems(
         id: 'quarterly-deadline-soon',
         title: `Q${nextDeadline.q} estimated tax payment due in ${daysUntil} days`,
         description:
-          `Your quarterly estimated tax payment is due ${nextDeadline.date.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}. Pay on time to avoid penalties.`,
+          `Your federal quarterly estimated tax payment is due ${nextDeadline.date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' })}. Paying on time helps avoid an underpayment penalty; state due dates can differ.`,
         priority: daysUntil <= 3 ? 'critical' : 'high',
         category: 'compliance',
         screen: 'quarterly-payments',

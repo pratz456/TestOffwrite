@@ -1,157 +1,64 @@
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
 import { NextRequest, NextResponse } from 'next/server';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
-import { getUserProfileServer } from '@/lib/firebase/profiles-server';
-import { getTransactionsServer } from '@/lib/firebase/transactions-server';
+import { requireFeatureAccess } from '@/lib/subscriptions/feature-access';
 import { generateForm8829PDF } from '@/lib/reports/form8829';
 import { generateForm4562PDF } from '@/lib/reports/form4562';
 import { generateScheduleSEPDF } from '@/lib/reports/scheduleSE';
-import { getHomeOfficeSettings, getAssetsSettings, getTaxSummarySettings } from '@/lib/firebase/settings-server';
+import { loadScheduleCRecords, loadScheduleSEData, scheduleCProfitFromRecords } from '@/lib/reports/load-schedule-se';
+import { getFederalTaxRules, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
+import { exportYear } from '@/lib/reports/transaction-export';
+import { HomeOfficeReviewRequiredError, homeOfficeReviewReasons } from '@/lib/reports/calc8829';
+import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 
-type FormType = 'form8829' | 'form4562' | 'scheduleSE';
+const REVIEW_CODES = ['EXPORT_REVIEW_REQUIRED', 'DEPRECIATION_REVIEW_REQUIRED', 'HOME_OFFICE_REVIEW_REQUIRED', 'HOME_OFFICE_DETAILS_REQUIRED', 'INVALID_HOME_OFFICE_INPUT', 'FILING_STATUS_REVIEW_REQUIRED', 'INCOME_RECONCILIATION_REQUIRED'];
 
 export async function POST(request: NextRequest) {
+  let uid: string;
+  try { uid = (await getUserFromReqOrThrow(request)).uid; }
+  catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
+  const denied = await requireFeatureAccess(uid, 'exports');
+  if (denied) return denied;
+  let type: string, year: number;
   try {
-    console.log('🔄 [Reports Export API] Starting request...');
-
-    // Get the authenticated user
-    const { uid } = await getUserFromReqOrThrow(request);
-
-    console.log('✅ [Reports Export API] User authenticated:', uid);
-
-    const { type } = await request.json();
-
-    if (!type || !['form8829', 'form4562', 'scheduleSE'].includes(type)) {
-      return NextResponse.json(
-        { error: 'Invalid form type. Must be form8829, form4562, or scheduleSE' },
-        { status: 400 }
-      );
-    }
-
-    console.log(`📋 [Reports Export API] Generating ${type} for user ${uid}`);
-
-    // Fetch user profile
-    const { data: userProfile, error: profileError } = await getUserProfileServer(uid);
-    if (profileError || !userProfile) {
-      console.error('❌ [Reports Export API] Failed to fetch user profile:', profileError);
-      return NextResponse.json(
-        { error: 'Failed to fetch user profile' },
-        { status: 500 }
-      );
-    }
-
-    // Fetch transactions for calculations
-    const { data: transactions, error: transactionsError } = await getTransactionsServer(uid);
-    if (transactionsError) {
-      console.error('❌ [Reports Export API] Failed to fetch transactions:', transactionsError);
-      return NextResponse.json(
-        { error: 'Failed to fetch transactions' },
-        { status: 500 }
-      );
-    }
-
-    let pdfBytes: Uint8Array;
-    let filename: string;
-
-    const currentYear = new Date().getFullYear();
-    const today = new Date().toISOString().split('T')[0];
-
-    switch (type as FormType) {
-      case 'form8829':
-        // Fetch home office settings
-        const { data: homeOfficeSettings, error: homeOfficeError } = await getHomeOfficeSettings(uid);
-        if (homeOfficeError || !homeOfficeSettings) {
-          return NextResponse.json(
-            { error: 'Home office settings not found. Please complete your home office setup in Settings.' },
-            { status: 400 }
-          );
+    const body = await request.json();
+    if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => !['type', 'year'].includes(key))) throw new Error();
+    if (!['form8829', 'form4562', 'scheduleSE'].includes(body.type)) throw new Error();
+    type = body.type; year = exportYear(body.year) ?? new Date().getFullYear();
+    getFederalTaxRules(year);
+  } catch { return NextResponse.json({ error: `Provide form8829, form4562 or scheduleSE and a supported year (${SUPPORTED_TAX_YEARS.join(', ')}).` }, { status: 400 }); }
+  const limit = await enforceRateLimit({ ...RATE_LIMITS.reportExport, key: uid });
+  if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many report downloads. Please wait a few minutes and try again.' });
+  try {
+    let bytes: Uint8Array;
+    if (type === 'scheduleSE') {
+      bytes = await generateScheduleSEPDF(await loadScheduleSEData(uid, year));
+    } else {
+      const records = await loadScheduleCRecords(uid, year);
+      if (type === 'form8829') {
+        if (!records.homeOffice) return NextResponse.json({ error: 'Complete the Home Office section in Settings before preparing this worksheet.' }, { status: 400 });
+        // The line 29 income limit comes from the same ordering the annual estimate uses.
+        const scheduleC = scheduleCProfitFromRecords(records);
+        if (!scheduleC.homeOffice.calculation) {
+          throw new HomeOfficeReviewRequiredError(homeOfficeReviewReasons(records.homeOffice).join(' ') || 'Choose the simplified method and answer the home office questions in Settings.');
         }
-
-        // Validate required fields
-        if (!homeOfficeSettings.totalHomeSqFt || !homeOfficeSettings.officeSqFt) {
-          return NextResponse.json(
-            { error: 'Missing home office square footage. Please complete your home office setup in Settings.' },
-            { status: 400 }
-          );
-        }
-
-        pdfBytes = await generateForm8829PDF({
-          userProfile,
-          homeOfficeSettings,
-          transactions: transactions || [],
-          taxYear: currentYear
+        bytes = await generateForm8829PDF({ userProfile: records.profile, homeOfficeSettings: records.homeOffice, transactions: records.transactions, taxYear: year, simplified: scheduleC.homeOffice.calculation });
+      } else {
+        if (!records.assets.length) return NextResponse.json({ error: 'Add your business assets before preparing this worksheet.' }, { status: 400 });
+        bytes = await generateForm4562PDF({
+          userProfile: records.profile, assetsSettings: records.assets, transactions: records.transactions, taxYear: year,
+          businessIncome: records.section179BusinessIncome, elections: records.depreciationElections,
         });
-        filename = `form8829_${today}.pdf`;
-        break;
-
-      case 'form4562':
-        // Fetch assets settings
-        const { data: assetsSettings, error: assetsError } = await getAssetsSettings(uid);
-        if (assetsError || !assetsSettings || assetsSettings.length === 0) {
-          return NextResponse.json(
-            { error: 'No assets found. Please add your business assets in Settings.' },
-            { status: 400 }
-          );
-        }
-
-        pdfBytes = await generateForm4562PDF({
-          userProfile,
-          assetsSettings,
-          transactions: transactions || [],
-          taxYear: currentYear
-        });
-        filename = `form4562_${today}.pdf`;
-        break;
-
-      case 'scheduleSE':
-        // Fetch tax summary settings
-        const { data: taxSummarySettings, error: taxSummaryError } = await getTaxSummarySettings(uid);
-        if (taxSummaryError || !taxSummarySettings) {
-          return NextResponse.json(
-            { error: 'Tax summary not found. Please ensure your Schedule C data is complete.' },
-            { status: 400 }
-          );
-        }
-
-        pdfBytes = await generateScheduleSEPDF({
-          userProfile,
-          taxSummarySettings,
-          transactions: transactions || [],
-          taxYear: currentYear
-        });
-        filename = `scheduleSE_${today}.pdf`;
-        break;
-
-      default:
-        return NextResponse.json(
-          { error: 'Invalid form type' },
-          { status: 400 }
-        );
-    }
-
-    console.log(`✅ [Reports Export API] Successfully generated ${type} PDF`);
-
-    // Return PDF as response
-    return new NextResponse(pdfBytes as any, {
-      headers: {
-        'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="${filename}"`,
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0'
       }
-    });
-
+    }
+    return new NextResponse(Buffer.from(bytes), { headers: { 'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="writeoff-${type}-preparer-${year}.pdf"`, 'Cache-Control': 'private, no-store' } });
   } catch (error) {
-    console.error('❌ [Reports Export API] Unexpected error:', error);
-    return NextResponse.json(
-      {
-        error: 'Failed to generate report',
-        details: error instanceof Error ? error.message : 'Unknown error'
-      },
-      { status: 500 }
-    );
+    const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
+    if (REVIEW_CODES.includes(code)) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : 'Additional tax details required', code }, { status: 422 });
+    }
+    return NextResponse.json({ error: 'Could not load a complete report. Please retry.' }, { status: 503 });
   }
 }

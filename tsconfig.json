@@ -43,10 +43,12 @@
     "dist",
     "build",
     "coverage",
+    "mobile",
     "tests",
     "**/*.test.*",
     "**/*.spec.*",
     "api-backup/**",
-    "functions"
+    "functions",
+    "functions-analysis"
   ]
 }

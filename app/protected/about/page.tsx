@@ -36,39 +36,39 @@ export default function AboutUsPage() {
               About WriteOff
             </CardTitle>
             <CardDescription>
-              AI-powered tax optimization for modern professionals
+              Expense and deduction records for freelancers and small business owners
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6 text-sm text-muted-foreground">
             <div>
               <h3 className="text-lg font-semibold text-foreground mb-3">Our Mission</h3>
               <p>
-                At WriteOff, we believe that tax optimization shouldn't be complicated or time-consuming.
-                Our mission is to empower professionals and small business owners with intelligent tools
-                that automatically identify tax-saving opportunities and streamline expense management.
+                At WriteOff, we believe that keeping deduction records shouldn't be complicated or time-consuming.
+                Our mission is to give professionals and small business owners tools that organize expenses,
+                suggest possible deductions for review and keep the records a tax preparer needs.
               </p>
             </div>
 
             <div>
               <h3 className="text-lg font-semibold text-foreground mb-3">What We Do</h3>
               <p className="mb-3">
-                WriteOff is an AI-powered platform that helps you:
+                WriteOff helps you:
               </p>
               <ul className="list-disc list-inside space-y-1 ml-4">
-                <li>Automatically categorize and analyze business expenses</li>
-                <li>Identify tax-deductible items using advanced AI</li>
-                <li>Generate comprehensive tax reports and analytics</li>
-                <li>Streamline receipt management and organization</li>
-                <li>Maximize your tax savings with intelligent insights</li>
+                <li>Record and categorize business expenses, with AI suggestions where enabled</li>
+                <li>Flag possible deductions and the facts still needed for your review</li>
+                <li>Build Schedule C summaries and exports your preparer can use</li>
+                <li>Keep receipts linked to the expenses they support</li>
+                <li>See federal planning estimates for supported situations</li>
               </ul>
             </div>
 
             <div>
               <h3 className="text-lg font-semibold text-foreground mb-3">Our Technology</h3>
               <p>
-                We leverage cutting-edge artificial intelligence and machine learning to analyze your
-                financial data and provide intelligent recommendations. Our platform integrates securely
-                with major banks and financial institutions, ensuring your data is always protected.
+                We use AI models to suggest categories and possible tax treatments, and published federal
+                tax parameters for planning estimates. Every suggestion is shown for your review; nothing is
+                treated as deductible until you confirm it. Bank connections run through Plaid with read-only access.
               </p>
             </div>
 
@@ -85,22 +85,22 @@ export default function AboutUsPage() {
                 <div className="flex items-start gap-3">
                   <Shield className="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" />
                   <div>
-                    <h4 className="font-medium text-foreground">Bank-Level Security</h4>
-                    <p className="text-xs">Enterprise-grade security to protect your financial data</p>
+                    <h4 className="font-medium text-foreground">Encrypted Data</h4>
+                    <p className="text-xs">Encrypted connections and storage; read-only bank access through Plaid</p>
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
                   <HelpCircle className="w-5 h-5 text-green-500 mt-0.5 flex-shrink-0" />
                   <div>
-                    <h4 className="font-medium text-foreground">AI-Powered Insights</h4>
-                    <p className="text-xs">Intelligent analysis to maximize your tax savings</p>
+                    <h4 className="font-medium text-foreground">Suggestions You Review</h4>
+                    <p className="text-xs">Possible deductions and missing facts flagged for your confirmation</p>
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
                   <Users className="w-5 h-5 text-purple-500 mt-0.5 flex-shrink-0" />
                   <div>
-                    <h4 className="font-medium text-foreground">Expert Support</h4>
-                    <p className="text-xs">Dedicated support team to help you succeed</p>
+                    <h4 className="font-medium text-foreground">Support</h4>
+                    <p className="text-xs">Email support for account and product questions (not tax advice)</p>
                   </div>
                 </div>
               </div>
@@ -110,7 +110,7 @@ export default function AboutUsPage() {
               <h3 className="text-lg font-semibold text-foreground mb-3">Get in Touch</h3>
               <p>
                 Have questions or want to learn more? We'd love to hear from you.
-                Contact us at writeoffapp@gmail.com or visit our website at writeoff.com
+                Contact us at writeoffapp@gmail.com or visit our website at writeoffapp.com
               </p>
             </div>
           </CardContent>

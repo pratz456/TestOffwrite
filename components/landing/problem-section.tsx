@@ -8,7 +8,7 @@ const PROBLEMS = [
   { icon: FileWarning, title: "Forgotten deductions", body: "Software, subscriptions, travel. Easy to miss when you're not tracking as you go.", color: "text-amber-500", bg: "bg-amber-500/10", ring: "ring-amber-500/20", border: "border-amber-400/40" },
   { icon: TableProperties, title: "Spreadsheet overload", body: "Hours spent sorting receipts and guessing categories, only to hand it all to your accountant.", color: "text-blue-500", bg: "bg-blue-500/10", ring: "ring-blue-500/20", border: "border-blue-400/40" },
   { icon: AlarmClock, title: "The April scramble", body: "Tax day looms and you're digging for invoices, receipts, and anything that might count.", color: "text-rose-500", bg: "bg-rose-500/10", ring: "ring-rose-500/20", border: "border-rose-400/40" },
-  { icon: TrendingDown, title: "Money left on the table", body: "Most people miss write-offs they're entitled to. That's real money you could keep.", color: "text-emerald-500", bg: "bg-emerald-500/10", ring: "ring-emerald-500/20", border: "border-emerald-400/40" },
+  { icon: TrendingDown, title: "Missing context", body: "A purchase amount alone doesn't explain its business purpose. Keep the details while they're fresh.", color: "text-emerald-500", bg: "bg-emerald-500/10", ring: "ring-emerald-500/20", border: "border-emerald-400/40" },
 ];
 
 const DOT_COLORS = ["bg-amber-500", "bg-blue-500", "bg-rose-500", "bg-emerald-500"];
@@ -23,7 +23,7 @@ export function ProblemSection() {
         <div className="animate-on-scroll text-center">
           <span className="mb-3 inline-block rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-primary">The Problem</span>
           <h2 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">Tax tools that actually work the way you do.</h2>
-          <p className="mx-auto mt-4 max-w-2xl text-muted-foreground">Most people overpay because traditional tools only show up in April, when it's already too late.</p>
+          <p className="mx-auto mt-4 max-w-2xl text-muted-foreground">Receipts and business details are easier to review when you keep them together throughout the year.</p>
         </div>
 
         <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
@@ -54,7 +54,7 @@ export function ProblemSection() {
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
               <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-500" />
             </span>
-            WriteOff fixes all of this <strong>automatically</strong>, so you can focus on what you do best.
+            Keep expenses, receipts, and business notes together in WriteOff.
           </div>
         </div>
       </div>

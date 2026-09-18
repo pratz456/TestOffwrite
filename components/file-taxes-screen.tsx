@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -17,12 +17,15 @@ import {
   DollarSign,
 } from "lucide-react";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
+import { TaxCalculationNotice } from "@/components/tax-calculation-notice";
 import { useAuth } from "@/lib/firebase/auth-context";
-import { useTransactions } from "@/lib/react-query/hooks";
 import {
-  aggregateScheduleC,
-  type AggregateScheduleCResult,
-} from "@/lib/schedule-c/aggregate";
+  loadDashboardTaxSnapshot,
+  reviewTargetForCode,
+  type DashboardTaxState,
+} from "@/lib/tax/dashboard-snapshot";
+import { protectedScreenUrl } from "@/lib/navigation/protected-screens";
+import { SUPPORTED_TAX_YEARS } from "@/lib/tax-rules/federal-year-rules";
 import { trackTaxFilingEvent } from "@/lib/analytics/tax-filing";
 import {
   FILING_PROVIDERS,
@@ -39,22 +42,27 @@ function formatCurrency(amount: number): string {
 export function FileTaxesScreen() {
   const router = useRouter();
   const { user } = useAuth();
-  const { data: response, isLoading: txLoading } = useTransactions(
-    user?.id || ""
-  );
-  const transactions = response?.transactions || response?.data || [];
 
   const [selectedYear, setSelectedYear] = useState(
-    String(new Date().getFullYear())
+    String(SUPPORTED_TAX_YEARS.at(-1))
   );
+  // The summary is the server's reconciled Schedule C figures. A client-side
+  // aggregate could show a profit the annual calculation refuses with a 422.
+  const [taxState, setTaxState] = useState<DashboardTaxState>({ status: "loading" });
+  const [attempt, setAttempt] = useState(0);
 
   const [selectedProvider, setSelectedProvider] =
     useState<ExternalFilingProvider | null>(null);
 
-  const aggregation: AggregateScheduleCResult | null = useMemo(() => {
-    if (!transactions || transactions.length === 0) return null;
-    return aggregateScheduleC(transactions, selectedYear);
-  }, [transactions, selectedYear]);
+  useEffect(() => {
+    if (!user?.id) return;
+    const controller = new AbortController();
+    setTaxState({ status: "loading" });
+    void loadDashboardTaxSnapshot(Number(selectedYear), controller.signal).then(state => {
+      if (!controller.signal.aborted) setTaxState(state);
+    });
+    return () => controller.abort();
+  }, [selectedYear, user?.id, attempt]);
 
   useEffect(() => {
     trackTaxFilingEvent("file_taxes_tab_viewed", { taxYear: selectedYear });
@@ -89,13 +97,98 @@ export function FileTaxesScreen() {
     setSelectedProvider(null);
   };
 
-  if (txLoading) {
+  const renderScheduleCSummary = () => {
+    if (taxState.status === "loading") {
+      return (
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground"
+        >
+          <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+          Loading your {selectedYear} Schedule C summary…
+        </div>
+      );
+    }
+
+    if (taxState.status !== "ready") {
+      const target = reviewTargetForCode(taxState.code);
+      return (
+        <div
+          role="alert"
+          className="rounded-lg border border-amber-300 bg-amber-50/60 p-4 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-100"
+        >
+          <h4 className="font-medium">
+            {selectedYear} Schedule C summary{" "}
+            {taxState.status === "review" ? "needs review" : "unavailable"}
+          </h4>
+          <p className="mt-1">{taxState.message}</p>
+          <div className="mt-2 flex flex-wrap gap-x-4">
+            {taxState.status === "review" && (
+              <Link
+                href={protectedScreenUrl(target.screen)}
+                className="min-h-[44px] inline-flex items-center underline underline-offset-4 font-medium"
+              >
+                {target.label}
+              </Link>
+            )}
+            <button
+              type="button"
+              className="min-h-[44px] underline underline-offset-4"
+              onClick={() => setAttempt(count => count + 1)}
+            >
+              Retry summary
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    const { income, form1040 } = taxState.snapshot;
+    if (income.grossReceipts === 0 && income.totalDeductible === 0) {
+      return (
+        <div className="text-center py-8">
+          <FileText className="w-12 h-12 mx-auto mb-3 text-muted-foreground/70" aria-hidden="true" />
+          <p className="text-foreground font-medium">
+            No business income or confirmed expenses recorded for {selectedYear}
+          </p>
+          <p className="text-sm text-muted-foreground mt-1">
+            Record your business income and confirm deductible transactions first.
+          </p>
+        </div>
+      );
+    }
+
+    const rows = [
+      { label: "Gross receipts", value: income.grossReceipts, note: "Reconciled business income" },
+      { label: "Confirmed expenses", value: income.totalDeductible, note: "Posted, confirmed deductions after category limits and refunds" },
+      { label: "Net profit", value: income.scheduleCNetProfit, note: "Before depreciation; used for the federal estimate" },
+    ];
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-      </div>
+      <>
+        <dl className="divide-y divide-border rounded-lg border border-border">
+          {rows.map(row => (
+            <div key={row.label} className="flex items-start justify-between gap-3 px-3 py-2.5">
+              <div className="min-w-0">
+                <dt className="text-sm font-medium text-foreground">{row.label}</dt>
+                <dd className="text-xs text-muted-foreground">{row.note}</dd>
+              </div>
+              <dd className="text-sm font-semibold text-foreground tabular-nums whitespace-nowrap">
+                {formatCurrency(row.value)}
+              </dd>
+            </div>
+          ))}
+        </dl>
+        <p className="mt-3 text-xs text-muted-foreground">
+          Figures come from the same federal calculation shown on your dashboard.
+          Verify every amount and category before filing.
+        </p>
+        <div className="mt-3">
+          <TaxCalculationNotice taxYear={selectedYear} warnings={form1040.calculationWarnings} />
+        </div>
+      </>
     );
-  }
+  };
 
   return (
     <div className="min-h-screen bg-background min-w-0 overflow-x-hidden">
@@ -103,17 +196,19 @@ export function FileTaxesScreen() {
       <div className="bg-card border-b border-border sticky top-0 z-50 shadow-sm min-w-0">
         <div className="flex items-center justify-between p-4 sm:p-6 min-w-0">
           <button
+            type="button"
+            aria-label="Back to reports"
             onClick={() => router.push("/protected/reports")}
             className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 rounded min-h-[44px] min-w-[44px] justify-center"
           >
-            <ArrowLeft className="w-5 h-5" />
+            <ArrowLeft className="w-5 h-5" aria-hidden="true" />
           </button>
           <div className="text-center">
             <h1 className="text-xl font-semibold text-foreground">
-              File Your Taxes
+              Prepare Records for Filing
             </h1>
             <p className="text-sm text-muted-foreground">
-              Prepare in WriteOff. File with a trusted provider.
+              Organize in WriteOff. File with your preparer or filing provider.
             </p>
           </div>
           <div className="w-12" />
@@ -193,90 +288,21 @@ export function FileTaxesScreen() {
               Schedule C Summary
             </h3>
             <div>
+              <label htmlFor="file-taxes-year" className="sr-only">Tax year</label>
               <select
+                id="file-taxes-year"
                 value={selectedYear}
                 onChange={(e) => setSelectedYear(e.target.value)}
                 className="min-h-[40px] px-3 py-2 border border-input rounded-lg bg-background text-foreground text-sm focus:ring-2 focus:ring-primary focus:border-primary focus:outline-none"
               >
-                <option value="2025">2025</option>
-                <option value="2024">2024</option>
-                <option value="2023">2023</option>
+                {[...SUPPORTED_TAX_YEARS].reverse().map(year => (
+                  <option key={year} value={String(year)}>{year}</option>
+                ))}
               </select>
             </div>
           </div>
 
-          {aggregation && aggregation.lineItemsArray.length > 0 ? (
-            <>
-              <div className="overflow-x-auto max-w-full rounded-lg border border-border">
-                <table className="w-full min-w-[480px] text-sm">
-                  <thead className="bg-muted text-muted-foreground text-xs uppercase">
-                    <tr>
-                      <th className="px-3 py-2 text-left font-medium">Line</th>
-                      <th className="px-3 py-2 text-left font-medium">
-                        Description
-                      </th>
-                      <th className="px-3 py-2 text-right font-medium">
-                        Transactions
-                      </th>
-                      <th className="px-3 py-2 text-right font-medium">
-                        Deductible
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border bg-card/60">
-                    {aggregation.lineItemsArray.map((item) => (
-                      <tr
-                        key={item.lineCode}
-                        className="hover:bg-muted/50 transition-colors"
-                      >
-                        <td className="px-3 py-2 font-mono text-xs text-foreground tabular-nums">
-                          {item.lineCode}
-                        </td>
-                        <td className="px-3 py-2 text-foreground">
-                          {item.lineCode === "24b"
-                            ? "Meals (50%)"
-                            : item.lineName}
-                        </td>
-                        <td className="px-3 py-2 text-right text-muted-foreground tabular-nums">
-                          {item.transactionCount}
-                        </td>
-                        <td className="px-3 py-2 text-right font-medium text-foreground tabular-nums">
-                          {formatCurrency(item.deductible)}
-                        </td>
-                      </tr>
-                    ))}
-                    <tr className="bg-muted font-semibold">
-                      <td className="px-3 py-2 font-mono text-xs tabular-nums">
-                        28
-                      </td>
-                      <td className="px-3 py-2">Total Expenses</td>
-                      <td className="px-3 py-2 text-right tabular-nums">
-                        {aggregation.counts.deductible}
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums">
-                        {formatCurrency(aggregation.totalDeductible)}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              <p className="mt-3 text-xs text-muted-foreground">
-                This preview is generated from your classified transactions.
-                Verify every amount and category before filing.
-              </p>
-            </>
-          ) : (
-            <div className="text-center py-8">
-              <FileText className="w-12 h-12 mx-auto mb-3 text-muted-foreground/70" />
-              <p className="text-foreground font-medium">
-                No deductible expenses found for {selectedYear}
-              </p>
-              <p className="text-sm text-muted-foreground mt-1">
-                Make sure your transactions are categorized and classified as
-                business expenses first.
-              </p>
-            </div>
-          )}
+          {renderScheduleCSummary()}
         </Card>
 
         {/* Choose a Filing Provider */}

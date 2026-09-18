@@ -9,27 +9,47 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
+import { buildFederalTaxSnapshot } from '@/lib/tax-rules/federal-tax-snapshot';
+import { IncomeReconciliationRequiredError } from '@/lib/tax-rules/business-income';
+import { FilingStatusReviewRequiredError } from '@/lib/tax-rules/filing-status';
+import { SocialSecurityReviewRequiredError } from '@/lib/tax-rules/social-security';
+import { PersonalDeductionReviewRequiredError } from '@/lib/tax-rules/personal-deductions';
+import { DependentCreditReviewRequiredError } from '@/lib/tax-rules/credit-scope';
+import { CapitalGainReviewRequiredError } from '@/lib/tax-rules/capital-gains';
+import { BusinessLossReviewRequiredError } from '@/lib/tax-rules/business-losses';
+import { OBBBADeductionReviewRequiredError } from '@/lib/tax-rules/obbba-deductions';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
-import { getTransactionsServer } from '@/lib/firebase/transactions-server';
+import { readTaxExportTransactions } from '@/lib/reports/tax-export-transactions';
+import { ExportReviewRequiredError } from '@/lib/reports/transaction-export';
 import { getUserProfileServer } from '@/lib/firebase/profiles-server';
 import { adminDb } from '@/lib/firebase/admin';
-import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
-import { calcScheduleSE } from '@/lib/reports/calcSE';
-import { compute1040 } from '@/lib/tax-rules/compute-1040';
-import { calculateStateTax, STATE_TAX_CONFIG } from '@/lib/tax/state-tax-data';
-import { getAssetsSettings } from '@/lib/firebase/settings-server';
-import { calc4562 } from '@/lib/reports/calc4562';
+import { getScheduleCSettings } from '@/lib/firebase/settings-server';
+import { describeUnsupportedTaxYear, getFederalTaxRules, SUPPORTED_TAX_YEARS, TAX_YEAR_2027_STATUS } from '@/lib/tax-rules/federal-year-rules';
+import { getRecordedQuarterlyPayments, totalRecordedPayments } from '@/lib/firebase/quarterly-payments-server';
+import { readIncomeReconciliationDecisions } from '@/lib/firebase/income-reconciliations-server';
+import { incomeReconciliationReviewBody } from '@/lib/tax-rules/income-reconciliation-response';
+import { scheduleCReviewCode } from '@/lib/tax-rules/schedule-c-profit';
 
 export async function GET(request: NextRequest) {
   const { user, error } = await getAuthenticatedUser(request);
   if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const yearParam = request.nextUrl.searchParams.get('year');
-  const year = yearParam ? parseInt(yearParam, 10) : new Date().getFullYear();
+  const year = yearParam === null ? new Date().getFullYear() : /^\d{4}$/.test(yearParam) ? Number(yearParam) : NaN;
+  try { getFederalTaxRules(year); } catch {
+    return NextResponse.json({
+      error: Number.isFinite(year) ? describeUnsupportedTaxYear(year) : `Supported tax years: ${SUPPORTED_TAX_YEARS.join(', ')}`,
+      code: 'TAX_YEAR_UNAVAILABLE',
+      supportedYears: SUPPORTED_TAX_YEARS,
+      ...(year === TAX_YEAR_2027_STATUS.taxYear ? { yearStatus: TAX_YEAR_2027_STATUS } : {}),
+    }, { status: 400 });
+  }
+
+  try {
 
   // Fetch all data sources in parallel
   const [
-    txResult,
+    transactions,
     profileResult,
     grossSnap,
     income1099Snap,
@@ -37,132 +57,65 @@ export async function GET(request: NextRequest) {
     deductionsSnap,
     quarterlySnap,
     organizerSnap,
-    assetsResult,
+    settingsResult,
+    reconciliationDecisions,
   ] = await Promise.all([
-    getTransactionsServer(user.uid),
+    readTaxExportTransactions(user.uid, year),
     getUserProfileServer(user.uid),
     adminDb.collection('gross_receipts').where('userId', '==', user.uid).where('taxYear', '==', year).get(),
     adminDb.collection('income_1099').where('userId', '==', user.uid).where('taxYear', '==', year).get(),
     adminDb.collection('w2_income').where('userId', '==', user.uid).where('taxYear', '==', year).get(),
     adminDb.collection('tax_deductions').where('userId', '==', user.uid).where('taxYear', '==', year).limit(1).get(),
-    adminDb.collection('quarterly_payments').where('userId', '==', user.uid).where('taxYear', '==', year).get(),
+    getRecordedQuarterlyPayments(user.uid, year),
     adminDb.collection('tax_organizers').where('userId', '==', user.uid).where('taxYear', '==', year).limit(1).get(),
-    getAssetsSettings(user.uid),
+    getScheduleCSettings(user.uid),
+    readIncomeReconciliationDecisions(user.uid, year),
   ]);
 
-  const transactions = (txResult.data || []) as any[];
+  if (profileResult.error || settingsResult.error || !settingsResult.data) {
+    return NextResponse.json({ error: 'Could not load the information needed for this calculation. Please retry.' }, { status: 503 });
+  }
   const profile = (profileResult.data || {}) as any;
+  const settings = settingsResult.data;
 
-  // ── Organizer data: additional income not in Plaid/manual ──
-  const org = organizerSnap.empty ? {} as Record<string, any> : organizerSnap.docs[0].data();
-  const orgInterest = parseFloat(org.amount1099INT || '0') || 0;
-  const orgDividends = parseFloat(org.amount1099DIV || '0') || 0;
-  const orgCapGains = parseFloat(org.amountCapGains || '0') || 0;
-  const orgSocialSecurity = parseFloat(org.amountSocialSecurity || '0') || 0;
-  const orgIRADist = parseFloat(org.amountIRADistributions || '0') || 0;
-  const orgRentalIncome = parseFloat(org.amountRentalIncome || '0') || 0;
-  const orgOtherIncome = parseFloat(org.amountOtherIncome || '0') || 0;
-  // Taxable SS: simplified — up to 85% taxable (full calculation needs provisional income)
-  const taxableSS = orgSocialSecurity * 0.85;
-  const otherIncome = orgInterest + orgDividends + orgCapGains + taxableSS + orgIRADist + orgRentalIncome + orgOtherIncome;
+  const snapshot = buildFederalTaxSnapshot({
+    taxYear: year, transactions, profile,
+    grossReceipts: grossSnap.docs.map(d => ({ ...d.data(), id: d.id })),
+    forms1099: income1099Snap.docs.map(d => ({ ...d.data(), id: d.id })),
+    reconciliationDecisions,
+    w2Entries: w2Snap.docs.map(d => d.data()),
+    organizer: organizerSnap.empty ? {} : organizerSnap.docs[0].data(),
+    deductions: deductionsSnap.empty ? {} : deductionsSnap.docs[0].data(),
+    assets: settings.assets, homeOffice: settings.homeOffice, depreciationElections: settings.depreciationElections,
+    estimatedPayments: totalRecordedPayments(quarterlySnap),
+  });
+  const { result, filingStatus } = snapshot;
 
-  // ── Income ──
-  const grossReceipts =
-    grossSnap.docs.reduce((s, d) => s + (d.data().amount || 0), 0) +
-    income1099Snap.docs.reduce((s, d) => s + (d.data().amount || 0), 0);
-
-  const w2Wages = w2Snap.docs.reduce((s, d) => s + (d.data().box1Wages || d.data().wages || 0), 0);
-  const w2FederalWithheld = w2Snap.docs.reduce((s, d) => s + (d.data().box2FederalWithheld || d.data().federalWithheld || 0), 0);
-  const w2StateWithheld = w2Snap.docs.reduce((s: number, d: any) => s + (d.data().stateWithheld || 0), 0);
-
-  // ── Schedule C expenses ──
-  const { totalDeductible } = aggregateScheduleC(transactions, String(year), CATEGORY_MAP, { mode: 'confirmed-only' });
-  const scheduleCNetProfit = Math.max(0, grossReceipts - totalDeductible);
-
-  // ── Depreciation (Form 4562) ──
-  const assets = (assetsResult.data || []) as any[];
-  const depreciationDeduction = assets.length > 0
-    ? calc4562(assets, scheduleCNetProfit).totalDepreciation
-    : 0;
-
-  // ── Schedule SE ──
-  const filingStatus = (profile.filing_status || 'single') as any;
-  const seCalc = calcScheduleSE(
-      { scheduleCNetProfit, taxYear: year },
-      filingStatus,
-      // Pass W-2 Box 3 SS wages to reduce SE SS wage base (IRS Schedule SE Line 8a)
-      w2Snap.docs.reduce((sum: number, d: any) => sum + (d.data().box3SocialSecurityWages || d.data().box1Wages || 0), 0)
-    );
-
-  // ── Above-the-line deductions ──
-  const ded = deductionsSnap.empty ? {} : deductionsSnap.docs[0].data();
-  const healthInsurancePremiums = ded.healthInsurancePremiums || profile.health_insurance_premiums || 0;
-  const sepIraContribution = ded.sepIraContribution || profile.sep_ira_contribution || 0;
-  const solo401kContribution = (ded.solo401kEmployeeContribution || 0) + (ded.solo401kEmployerContribution || 0) + (profile.solo_401k_contribution || 0);
-  const simpleIraContribution = ded.simpleIraContribution || 0;
-  const hsaContribution = ded.hsaContribution || profile.hsa_contribution || 0;
-  const studentLoanInterest = ded.studentLoanInterest || 0;
-  const priorYearTotalTax = ded.priorYearTotalTax || profile.prior_year_tax || 0;
-
-  // ── Estimated payments already made ──
-  const estimatedPayments = quarterlySnap.docs.reduce((s, d) => s + (d.data().amount || 0), 0);
-  const totalW2Withheld = w2FederalWithheld + (profile.w2_federal_withheld || 0);
-
-  // ── Compute 1040 ──
-  // Parse organizer for credits data
-  const numDependents = parseInt(org.dependents || '0', 10) || 0;
-  const numEITCChildren = numDependents; // Simplified: all dependents assumed to qualify
-  const taxPayerAge = org.dateOfBirth
-    ? new Date().getFullYear() - new Date(org.dateOfBirth).getFullYear()
-    : undefined;
-  const investmentIncome = (orgInterest + orgDividends + Math.max(0, orgCapGains));
-  const longTermCapGains = Math.max(0, orgCapGains); // Simplified: treat all cap gains as LT
-  const shortTermCapGains = 0; // User would need to specify
-
-  const result = compute1040({
-    taxYear: year,
-    filingStatus,
-    scheduleCNetProfit,
-    w2Wages,
-    otherIncome,
-    numDependents,
-    numEITCChildren,
-    taxPayerAge,
-    investmentIncome,
-    longTermCapGains,
-    shortTermCapGains,
-    w2FederalWithheld: totalW2Withheld,
-    estimatedPayments,
-    selfEmploymentTax: seCalc.totalSETax,
-    halfSEDeduction: seCalc.halfSEDeduction,
-    healthInsurancePremiums,
-    sepIraContribution,
-    solo401kContribution,
-    simpleIraContribution,
-    hsaContribution,
-    studentLoanInterest,
-    charitableDonations: (ded.charitableCashDonations || 0) + (ded.charitableNonCashDonations || 0),
-    depreciationDeduction,
-  }, priorYearTotalTax > 0 ? priorYearTotalTax : undefined);
-
-  // State tax estimate
-  const userState = (profile.mailing_address?.state || profile.state || '').toUpperCase().slice(0,2);
-  const stateConfig = STATE_TAX_CONFIG[userState];
-  const stateTaxResult = userState && stateConfig
-    ? calculateStateTax(result.agi, userState, filingStatus as any)
+  // Informational state planning estimate from the department-of-revenue registry. It is
+  // reported beside the federal figures and is never added to totalTax. W-2 state
+  // withholding is shown for reference only; the W-2 state is not reconciled here.
+  const stateWithheld = snapshot.w2.stateWithheld;
+  const stateTax = snapshot.stateTax
+    ? {
+      ...snapshot.stateTax,
+      stateWithheld,
+      ...(snapshot.stateTax.supported && !snapshot.stateTax.noIncomeTax
+        ? { stateBalanceDue: Math.max(0, Math.round((snapshot.stateTax.estimate - stateWithheld) * 100) / 100) }
+        : {}),
+    }
     : null;
 
   return NextResponse.json({
     taxYear: year,
     filingStatus,
-    // Input summary for display
-    income: { grossReceipts, w2Wages, scheduleCNetProfit, totalDeductible,
-      otherIncome, interest: orgInterest, dividends: orgDividends, capGains: orgCapGains,
-      socialSecurity: taxableSS, iraDist: orgIRADist, rental: orgRentalIncome },
-    w2: { wages: w2Wages, withheld: totalW2Withheld, count: w2Snap.docs.length },
-    deductions: { healthInsurancePremiums, sepIraContribution, solo401kContribution, hsaContribution, studentLoanInterest },
-    payments: { estimatedPayments, w2FederalWithheld: totalW2Withheld },
-    seCalc,
+    income: snapshot.income,
+    w2: snapshot.w2,
+    deductions: snapshot.deductions,
+    payments: snapshot.payments,
+    incomeReconciliation: snapshot.reconciliation,
+    socialSecurityWorksheet: snapshot.socialSecurityWorksheet,
+    personalDeductions: snapshot.personalDeductions,
+    seCalc: snapshot.seCalc,
     // Full 1040 computation
     form1040: result,
     // Convenience fields for display
@@ -171,19 +124,22 @@ export async function GET(request: NextRequest) {
     totalTax: result.totalTax,
     agi: result.agi,
     effectiveRate: result.effectiveRate,
-    depreciation: { totalDepreciation: depreciationDeduction, assetCount: assets.length },
-    stateTax: stateTaxResult ? {
-      state: userState,
-      stateName: stateConfig?.name || userState,
-      estimatedTax: Math.round(stateTaxResult.tax),
-      effectiveRate: Math.round(stateTaxResult.effectiveRate * 100) / 100,
-      type: stateConfig?.type || 'unknown',
-      stateWithheld: w2StateWithheld,
-      stateBalanceDue: Math.max(0, Math.round(stateTaxResult.tax) - w2StateWithheld),
-      note: stateConfig?.type === 'no_tax'
-        ? 'Your state has no income tax'
-        : 'State estimate only — does not include local taxes or state-specific deductions',
-    } : null,
+    depreciation: {
+      totalDepreciation: snapshot.depreciationDeduction, assetCount: settings.assets.length,
+      deMinimisExpense: snapshot.deMinimisExpense, section179: snapshot.scheduleC.assetCalculation?.section179 ?? null,
+    },
+    // Schedule C line 30 planning worksheet (Rev. Proc. 2013-13); null when no home office is claimed.
+    homeOffice: { deduction: snapshot.homeOfficeDeduction, worksheet: snapshot.scheduleC.homeOffice.calculation },
+    stateTax,
+    businessTaxNotices: snapshot.businessTaxNotices,
     dataSource: 'auto',
-  });
+  }, { headers: { 'Cache-Control': 'private, no-store' } });
+  } catch (error) {
+    if (error instanceof IncomeReconciliationRequiredError) return NextResponse.json(incomeReconciliationReviewBody(error, year), { status: 422 });
+    if (error instanceof ExportReviewRequiredError || error instanceof IncomeReconciliationRequiredError || error instanceof FilingStatusReviewRequiredError || error instanceof SocialSecurityReviewRequiredError || error instanceof PersonalDeductionReviewRequiredError || error instanceof DependentCreditReviewRequiredError
+      || error instanceof CapitalGainReviewRequiredError || error instanceof BusinessLossReviewRequiredError || error instanceof OBBBADeductionReviewRequiredError) return NextResponse.json({ error: error.message, code: error.code }, { status: 422 });
+    const reviewCode = scheduleCReviewCode(error);
+    if (reviewCode) return NextResponse.json({ error: error instanceof Error ? error.message : 'Schedule C records need review', code: reviewCode }, { status: 422 });
+    return NextResponse.json({ error: 'Could not complete the tax calculation. Please retry.' }, { status: 503 });
+  }
 }

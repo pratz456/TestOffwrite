@@ -19,6 +19,8 @@ export async function GET(request: NextRequest) {
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+    // Diagnostic detail is for local/staging investigation only.
+    if (process.env.NODE_ENV === 'production') return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
     const userId = user.uid;
 
@@ -180,8 +182,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         success: false,
-        error: error.message || 'Failed to get debug information',
-        details: error.stack,
+        error: 'Failed to get debug information',
       },
       { status: 500 }
     );

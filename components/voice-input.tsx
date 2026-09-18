@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { createMediaCapture } from '@/lib/browser/media-capture';
 import { 
   Mic, 
   MicOff, 
@@ -52,6 +53,10 @@ export function VoiceInput({ onTranscript, onExpenseCreated, isOpen, onClose }: 
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const audioCapture = useRef(createMediaCapture(constraints => navigator.mediaDevices.getUserMedia(constraints)));
+  const listeningRef = useRef(false);
+  const openRef = useRef(isOpen);
+  openRef.current = isOpen;
 
   useEffect(() => {
     // Check if speech recognition is supported
@@ -65,6 +70,8 @@ export function VoiceInput({ onTranscript, onExpenseCreated, isOpen, onClose }: 
         recognitionInstance.lang = 'en-US';
         
         recognitionInstance.onstart = () => {
+          if (!openRef.current) { recognitionInstance.stop(); return; }
+          listeningRef.current = true;
           setIsListening(true);
           setError(null);
           startAudioVisualization();
@@ -96,11 +103,13 @@ export function VoiceInput({ onTranscript, onExpenseCreated, isOpen, onClose }: 
           console.error('Speech recognition error:', event.error);
           setError(`Speech recognition error: ${event.error}`);
           setIsListening(false);
+          listeningRef.current = false;
           stopAudioVisualization();
         };
         
         recognitionInstance.onend = () => {
           setIsListening(false);
+          listeningRef.current = false;
           stopAudioVisualization();
         };
         
@@ -110,8 +119,13 @@ export function VoiceInput({ onTranscript, onExpenseCreated, isOpen, onClose }: 
     }
     
     return () => {
+      listeningRef.current = false;
       if (recognitionRef.current) {
-        recognitionRef.current.stop();
+        recognitionRef.current.onstart = null;
+        recognitionRef.current.onresult = null;
+        recognitionRef.current.onerror = null;
+        recognitionRef.current.onend = null;
+        try { recognitionRef.current.stop(); } catch { /* Already stopped. */ }
       }
       stopAudioVisualization();
     };
@@ -119,7 +133,9 @@ export function VoiceInput({ onTranscript, onExpenseCreated, isOpen, onClose }: 
 
   const startAudioVisualization = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await audioCapture.current.start({ audio: true });
+      if (!stream) return;
+      if (!listeningRef.current || !openRef.current) { audioCapture.current.stop(); return; }
       audioContextRef.current = new AudioContext();
       const source = audioContextRef.current.createMediaStreamSource(stream);
       analyserRef.current = audioContextRef.current.createAnalyser();
@@ -129,7 +145,7 @@ export function VoiceInput({ onTranscript, onExpenseCreated, isOpen, onClose }: 
       const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
       
       const updateAudioLevel = () => {
-        if (analyserRef.current && isListening) {
+        if (analyserRef.current && listeningRef.current) {
           analyserRef.current.getByteFrequencyData(dataArray);
           const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
           setAudioLevel(average / 255);
@@ -140,20 +156,23 @@ export function VoiceInput({ onTranscript, onExpenseCreated, isOpen, onClose }: 
       updateAudioLevel();
     } catch (error) {
       console.error('Error setting up audio visualization:', error);
+      stopAudioVisualization();
     }
   };
 
-  const stopAudioVisualization = () => {
+  const stopAudioVisualization = useCallback(() => {
+    audioCapture.current.stop();
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
     }
     if (audioContextRef.current) {
-      audioContextRef.current.close();
+      void audioContextRef.current.close().catch(() => {});
       audioContextRef.current = null;
     }
+    analyserRef.current = null;
     setAudioLevel(0);
-  };
+  }, []);
 
   const processVoiceCommand = async (text: string) => {
     setIsProcessing(true);
@@ -197,20 +216,29 @@ export function VoiceInput({ onTranscript, onExpenseCreated, isOpen, onClose }: 
   };
 
   const startListening = () => {
-    if (recognitionRef.current && !isListening) {
+    if (recognitionRef.current && !listeningRef.current) {
       setTranscript('');
       setInterimTranscript('');
       setError(null);
       setCommand(null);
-      recognitionRef.current.start();
+      listeningRef.current = true;
+      try { recognitionRef.current.start(); }
+      catch { listeningRef.current = false; setError('Could not start voice input. Please try again.'); stopAudioVisualization(); }
     }
   };
 
-  const stopListening = () => {
-    if (recognitionRef.current && isListening) {
-      recognitionRef.current.stop();
-    }
-  };
+  const stopListening = useCallback(() => {
+    listeningRef.current = false;
+    setIsListening(false);
+    try { recognitionRef.current?.stop(); } catch { /* Already stopped. */ }
+    stopAudioVisualization();
+  }, [stopAudioVisualization]);
+
+  useEffect(() => {
+    if (!isOpen) stopListening();
+  }, [isOpen, stopListening]);
+
+  const closeVoiceInput = () => { stopListening(); onClose(); };
 
   const clearTranscript = () => {
     setTranscript('');
@@ -233,7 +261,7 @@ export function VoiceInput({ onTranscript, onExpenseCreated, isOpen, onClose }: 
           <p className="text-sm text-muted-foreground mb-4">
             Your browser doesn't support speech recognition. Please use Chrome, Safari, or Edge.
           </p>
-          <Button onClick={onClose} className="w-full">
+          <Button onClick={closeVoiceInput} className="w-full">
             Close
           </Button>
         </CardContent>
@@ -249,7 +277,7 @@ export function VoiceInput({ onTranscript, onExpenseCreated, isOpen, onClose }: 
             <Mic className="h-5 w-5 text-teal-600" />
             Voice Input
           </div>
-          <Button variant="ghost" size="sm" onClick={onClose}>
+          <Button variant="ghost" size="sm" onClick={closeVoiceInput}>
             ×
           </Button>
         </CardTitle>

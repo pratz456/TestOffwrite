@@ -1,122 +1,103 @@
 "use client";
 
-import { cn } from "@/lib/utils";
-import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { Eye, EyeOff } from "lucide-react";
-import { validatePassword } from "@/lib/utils/passwordValidation";
-import { updateUserPassword } from "@/lib/firebase/auth";
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import Link from 'next/link';
+import { useEffect, useRef, useState } from 'react';
+import { Eye, EyeOff } from 'lucide-react';
+import { validatePassword } from '@/lib/utils/passwordValidation';
+import { passwordResetActions, passwordResetError } from '@/lib/onboarding/password-reset';
 
-export function UpdatePasswordForm({
-  className,
-  ...props
-}: React.ComponentPropsWithoutRef<"div">) {
-  const [password, setPassword] = useState("");
+type Props = React.ComponentPropsWithoutRef<'div'> & { code: string | null; mode: string | null };
+
+export function UpdatePasswordForm({ code, mode, className, ...props }: Props) {
+  const [password, setPassword] = useState('');
+  const [confirmation, setConfirmation] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [link, setLink] = useState<{ code: string | null; mode: string | null; email?: string; error?: string; retryable?: boolean } | null>(null);
+  const [attempt, setAttempt] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [passwordErrors, setPasswordErrors] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const router = useRouter();
+  const [complete, setComplete] = useState(false);
+  const submitting = useRef(false);
+  const generation = useRef(0);
+  const currentLink = link?.code === code && link.mode === mode ? link : null;
+  const validation = validatePassword(password);
 
-  const handlePasswordChange = (newPassword: string) => {
-    setPassword(newPassword);
-    const validation = validatePassword(newPassword);
-    setPasswordErrors(validation.errors);
-  };
+  useEffect(() => {
+    const current = ++generation.current;
+    setLink(null); setError(null); setPassword(''); setConfirmation(''); setComplete(false);
+    submitting.current = false; setIsLoading(false);
+    passwordResetActions.verify(code, mode).then(
+      email => { if (generation.current === current) setLink({ code, mode, email }); },
+      failure => {
+        if (generation.current !== current) return;
+        const safe = passwordResetError(failure);
+        setLink({ code, mode, error: safe.message, retryable: safe.retryable });
+      },
+    );
+    return () => { generation.current = current + 1; };
+  }, [code, mode, attempt]);
 
-  const handleForgotPassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
+  const handleReset = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (submitting.current || !currentLink?.email || complete) return;
     setError(null);
-
-    // Validate password
-    const passwordValidation = validatePassword(password);
-    if (!passwordValidation.isValid) {
-      setError("Please fix the password requirements below");
-      setIsLoading(false);
-      return;
-    }
-
+    if (!validation.isValid) { setError('Please meet all the password requirements below.'); return; }
+    if (password !== confirmation) { setError('Your passwords do not match.'); return; }
+    submitting.current = true; setIsLoading(true);
+    const current = generation.current;
     try {
-      const { error } = await updateUserPassword(password);
-      if (error) throw new Error(error.message);
-      setError(null);
-      toast.success("Password updated. Please log in with your new password.");
-      router.push("/auth/login");
-    } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : "An error occurred");
+      await passwordResetActions.confirm(code, mode, password);
+      if (generation.current !== current) return;
+      setPassword(''); setConfirmation(''); setComplete(true);
+    } catch (failure) {
+      if (generation.current !== current) return;
+      const safe = passwordResetError(failure);
+      if (safe.retryable) setError(safe.message);
+      else setLink({ code, mode, error: safe.message });
     } finally {
-      setIsLoading(false);
+      if (generation.current === current) { submitting.current = false; setIsLoading(false); }
     }
   };
 
-  return (
-    <div className={cn("flex flex-col gap-6", className)} {...props}>
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-2xl">Reset Your Password</CardTitle>
-          <CardDescription>
-            Please enter your new password below.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleForgotPassword}>
-            <div className="flex flex-col gap-6">
-              <div className="grid gap-2">
-                <Label htmlFor="password">New password</Label>
-                <div className="relative">
-                  <Input
-                    id="password"
-                    type={showPassword ? 'text' : 'password'}
-                    placeholder="New password (min 10 chars, 1 uppercase, 1 special char)"
-                    required
-                    value={password}
-                    onChange={(e) => handlePasswordChange(e.target.value)}
-                    className="pr-12"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                  </button>
-                </div>
-                {/* Password requirements info */}
-                <ul className="text-xs text-muted-foreground mt-2 list-disc ml-4">
-                  <li>Password must be at least 10 characters long</li>
-                  <li>Password must contain at least one uppercase letter</li>
-                  <li>Password must contain at least one special character</li>
-                </ul>
-                {passwordErrors.length > 0 && (
-                  <div className="mt-2 space-y-1">
-                    {passwordErrors.map((error, index) => (
-                      <p key={index} className="text-sm text-destructive">
-                        • {error}
-                      </p>
-                    ))}
-                  </div>
-                )}
-              </div>
-              {error && <p className="text-sm text-red-500">{error}</p>}
-              <Button type="submit" className="w-full" disabled={isLoading || passwordErrors.length > 0 || !password}>
-                {isLoading ? "Saving..." : "Save new password"}
-              </Button>
+  return <div className={cn('flex flex-col gap-6', className)} {...props}>
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-2xl">{complete ? 'Password reset complete' : 'Reset Your Password'}</CardTitle>
+        <CardDescription>{complete ? 'Sign in with your new password.' : 'Use the reset link sent to your email to choose a new password.'}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {complete ? <p role="status">Your password has been updated.</p> : !currentLink ? <p role="status">Checking your reset link…</p> : currentLink.error ? <>
+          <p role="alert" className="text-sm text-destructive">{currentLink.error}</p>
+          {currentLink.retryable && <Button onClick={() => setAttempt(value => value + 1)} className="w-full">Try again</Button>}
+        </> : <form onSubmit={handleReset} className="space-y-4">
+          <p className="break-all text-sm text-muted-foreground">Resetting the password for {currentLink.email}.</p>
+          <div className="grid gap-2">
+            <Label htmlFor="password">New password</Label>
+            <div className="relative">
+              <Input id="password" type={showPassword ? 'text' : 'password'} autoComplete="new-password" required disabled={isLoading} value={password} onChange={event => setPassword(event.target.value)} className="pr-12" />
+              <button type="button" aria-label={showPassword ? 'Hide password' : 'Show password'} onClick={() => setShowPassword(value => !value)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                {showPassword ? <EyeOff aria-hidden="true" className="w-5 h-5" /> : <Eye aria-hidden="true" className="w-5 h-5" />}
+              </button>
             </div>
-          </form>
-        </CardContent>
-      </Card>
-    </div>
-  );
+            <ul className="ml-4 list-disc text-xs text-muted-foreground">
+              <li>At least 10 characters</li><li>At least one uppercase letter</li><li>At least one special character</li>
+            </ul>
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="confirm-password">Confirm new password</Label>
+            <Input id="confirm-password" type={showPassword ? 'text' : 'password'} autoComplete="new-password" required disabled={isLoading} value={confirmation} onChange={event => setConfirmation(event.target.value)} />
+          </div>
+          {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+          <Button type="submit" className="w-full" disabled={isLoading || !validation.isValid || !confirmation}>{isLoading ? 'Saving…' : 'Save new password'}</Button>
+        </form>}
+        {!complete && <Link href="/auth/forgot-password" className="block text-sm text-primary underline">Request a new reset link</Link>}
+        <Link href="/auth/login" className="block text-sm text-primary underline">Sign in</Link>
+      </CardContent>
+    </Card>
+  </div>;
 }

@@ -2,8 +2,10 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getTransactionsServer } from '@/lib/firebase/transactions-server';
+import { getTransactionsServer, MAX_TRANSACTIONS_PAGE_SIZE } from '@/lib/firebase/transactions-server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
+
+const OWNER_DATA_CACHE_CONTROL = 'private, no-store';
 
 export async function GET(request: NextRequest) {
   try {
@@ -19,8 +21,22 @@ export async function GET(request: NextRequest) {
     const month = searchParams.get('month');
     const year = searchParams.get('year') || new Date().getFullYear().toString();
 
-    // Fetch all transactions for the user
-    const { data: allTransactions, error } = await getTransactionsServer(user.uid);
+    // Optional cursor paging: `limit` (1..MAX_TRANSACTIONS_PAGE_SIZE) plus the `nextCursor` from the
+    // previous page. Without `limit` the response is the full list, exactly as before.
+    const limitParam = searchParams.get('limit');
+    const cursor = searchParams.get('cursor');
+    let limit: number | undefined;
+    if (limitParam !== null) {
+      limit = Number.parseInt(limitParam, 10);
+      if (!Number.isInteger(limit) || limit < 1 || limit > MAX_TRANSACTIONS_PAGE_SIZE) {
+        return NextResponse.json({ error: `limit must be an integer between 1 and ${MAX_TRANSACTIONS_PAGE_SIZE}` }, { status: 400 });
+      }
+    }
+
+    const { data: allTransactions, error, nextCursor } = await getTransactionsServer(
+      user.uid,
+      limit ? { limit, cursor } : undefined
+    );
 
     if (error) {
       console.error('Error fetching transactions:', error);
@@ -50,8 +66,10 @@ export async function GET(request: NextRequest) {
       data: filteredTransactions, // Keep both for backward compatibility
       count: filteredTransactions.length,
       month: month ? parseInt(month) : null,
-      year: parseInt(year)
-    });
+      year: parseInt(year),
+      // Paged reads only; `null` means the last page (or an unpaged read). Month filters apply per page.
+      nextCursor: limit ? nextCursor : null,
+    }, { headers: { 'Cache-Control': OWNER_DATA_CACHE_CONTROL } });
 
   } catch (error) {
     console.error('Error in transactions API:', error);

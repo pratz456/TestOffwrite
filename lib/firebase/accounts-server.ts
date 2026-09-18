@@ -10,16 +10,17 @@ export interface Account {
   type: string;
   subtype: string;
   institution_id: string;
-  access_token?: string; // Add access token field
+  plaid_item_id?: string;
+  plaid_connection_status?: string;
   user_id: string;
   usageType?: AccountUsageType;
   businessUsePercent?: number | null;
   // Balance fields
-  balance?: number;
+  balance?: number | null;
   available_balance?: number | null;
   current_balance?: number | null;
   limit?: number | null;
-  iso_currency_code?: string;
+  iso_currency_code?: string | null;
   unofficial_currency_code?: string | null;
   balance_last_updated?: string;
   created_at?: any;
@@ -49,13 +50,15 @@ export async function getAccountsServer(userId: string): Promise<{ data: Account
         type: data.type || '',
         subtype: data.subtype || '',
         institution_id: data.institution_id || '',
+        plaid_item_id: data.plaid_item_id,
+        plaid_connection_status: data.plaid_connection_status,
         user_id: userId,
         // Balance fields
-        balance: data.balance ?? data.available_balance ?? data.current_balance ?? 0,
+        balance: data.balance ?? data.available_balance ?? data.current_balance ?? null,
         available_balance: data.available_balance ?? null,
         current_balance: data.current_balance ?? null,
         limit: data.limit ?? null,
-        iso_currency_code: data.iso_currency_code || 'USD',
+        iso_currency_code: data.iso_currency_code ?? null,
         unofficial_currency_code: data.unofficial_currency_code || null,
         balance_last_updated: data.balance_last_updated || null,
         created_at: data.created_at,
@@ -87,11 +90,14 @@ export async function createAccountServer(
     type: string;
     subtype: string;
     institution_id: string;
-    access_token?: string; // Add access token parameter
+    plaid_item_id?: string;
   }
 ): Promise<{ data: Account | null; error: any }> {
   try {
+    const allowed = ['account_id', 'name', 'mask', 'type', 'subtype', 'institution_id'];
+    if (Object.keys(accountData).some(key => !allowed.includes(key)) || !accountData.account_id || accountData.account_id.includes('/')) throw new Error('Invalid account fields');
     const docRef = adminDb.collection("user_profiles").doc(userId).collection("accounts").doc(accountData.account_id);
+    if ((await docRef.get()).exists) throw new Error('Account already exists');
 
     const newAccount = {
       ...accountData,
@@ -118,7 +124,8 @@ export async function createAccountServer(
           type: data.type || '',
           subtype: data.subtype || '',
           institution_id: data.institution_id || '',
-          access_token: data.access_token, // Include access token in response
+          plaid_item_id: data.plaid_item_id,
+          plaid_connection_status: data.plaid_connection_status,
           user_id: userId,
           created_at: data.created_at,
           updated_at: data.updated_at,
@@ -141,6 +148,8 @@ export async function updateAccountServer(
   updates: Partial<Account>
 ): Promise<{ data: Account | null; error: any }> {
   try {
+    const allowed = ['name', 'usageType', 'businessUsePercent'];
+    if (!accountId || accountId.includes('/') || Object.keys(updates).some(key => !allowed.includes(key))) throw new Error('Invalid account fields');
     const docRef = adminDb.collection("user_profiles").doc(userId).collection("accounts").doc(accountId);
     const updateData = {
       ...updates,
@@ -165,7 +174,8 @@ export async function updateAccountServer(
           type: data.type || '',
           subtype: data.subtype || '',
           institution_id: data.institution_id || '',
-          access_token: data.access_token, // Include access token in response
+          plaid_item_id: data.plaid_item_id,
+          plaid_connection_status: data.plaid_connection_status,
           user_id: userId,
           created_at: data.created_at,
           updated_at: data.updated_at,
@@ -190,12 +200,16 @@ export async function deleteAccountServer(
   accountId: string
 ): Promise<{ success: boolean; error: any; deletedTransactions?: number }> {
   try {
+    if (!accountId || accountId.includes('/')) throw new Error('Invalid account ID');
     const docRef = adminDb.collection("user_profiles").doc(userId).collection("accounts").doc(accountId);
 
     // Check if account exists
     const accountDoc = await docRef.get();
     if (!accountDoc.exists) {
       return { success: false, error: new Error('Account not found') };
+    }
+    if (accountDoc.data()?.plaid_item_id && accountDoc.data()?.plaid_connection_status !== 'disconnected') {
+      throw new Error('Disconnect this bank before deleting its saved account');
     }
 
     console.log(`🗑️ [Delete Account] Starting deletion for account ${accountId} (user: ${userId})`);

@@ -1,7 +1,19 @@
+/**
+ * Reviewed 2026-09-17 for tax years 2025-2026. Sources:
+ *   - Meals: IRC §274(k), (n), (o); IRS Pub 463 (2025) ch. 2 — https://www.irs.gov/publications/p463
+ *   - Home office: IRS Pub 587; Rev. Proc. 2013-13 ($5/sq ft, 300 sq ft cap) — https://www.irs.gov/publications/p587
+ *   - Mileage: Notice 2025-5 (70¢), Notice 2026-10 (72.5¢), Announcement 2026-11 (76¢ from 7/1/2026) —
+ *     https://www.irs.gov/tax-professionals/standard-mileage-rates ; see lib/tax-rules/mileage-rates.ts
+ *   - Travel: IRS Pub 463 ch. 1
+ *   - Business expenses generally: IRS Pub 334 (Publication 535 was discontinued after 2022) —
+ *     https://www.irs.gov/forms-pubs/about-publication-535
+ */
 export interface IRSContent {
   id: string;
   title: string;
   publication: string;
+  /** Primary IRS source for the "View Full Publication" link. */
+  url: string;
   section?: string;
   content: string;
   examples: string[];
@@ -19,27 +31,28 @@ export const IRS_CONTENT_DATABASE: Record<string, IRSContent> = {
     id: 'meals_50',
     title: 'Business Meals - 50% Deduction Rule',
     publication: 'IRS Pub 463',
+    url: 'https://www.irs.gov/publications/p463',
     section: 'Section 274(n)',
-    content: `Business meals are generally deductible at 50% under IRC Section 274(n). This includes meals with clients, business associates, or during business travel.
+    content: `Business meals are generally deductible at 50% under IRC Section 274(n) for 2025 and 2026. This includes meals with clients or business associates and meals while traveling away from home for business.
 
 Key Requirements:
-- Must be directly related to or associated with your business
 - Must be ordinary and necessary for your business
+- You or an employee must be present
 - Cannot be lavish or extravagant
-- Must have a clear business purpose
+- Must have a clear business purpose and a business contact (client, customer, consultant or similar)
 
-The 50% limitation applies to most business meals, but there are exceptions for certain types of meals like company parties or meals provided for the convenience of the employer.`,
+The temporary 100% allowance for restaurant meals applied only to 2021 and 2022 and has expired. Limited exceptions to the 50% cut remain, such as recreational events primarily for rank-and-file employees (for example a company holiday party) and meals sold to customers. Starting in 2026, most employer-provided meals excluded from employees' wages are no longer deductible at all (IRC Section 274(o)).`,
     examples: [
       'Lunch with a client to discuss a project - 50% deductible',
-      'Dinner during a business conference - 50% deductible',
+      'Dinner during a business conference away from home - 50% deductible',
       'Coffee meeting with a potential business partner - 50% deductible',
-      'Company holiday party for employees - 100% deductible (exception)'
+      'Meals during an entertainment event - deductible at 50% only if purchased separately or separately stated on the bill'
     ],
     keyPoints: [
       'Always document the business purpose and attendees',
       'Keep receipts showing date, amount, and business purpose',
-      'The 50% rule applies even if you discuss business',
-      'Entertainment expenses are generally not deductible'
+      'The 50% rule applies even when you discuss business',
+      'Entertainment expenses are not deductible'
     ],
     difficulty: 'beginner',
     estimatedReadTime: 3,
@@ -52,6 +65,7 @@ The 50% limitation applies to most business meals, but there are exceptions for 
     id: 'home_office',
     title: 'Home Office Deduction',
     publication: 'IRS Pub 587',
+    url: 'https://www.irs.gov/publications/p587',
     section: 'Section 280A',
     content: `The home office deduction allows you to deduct expenses for the business use of your home. You can use either the simplified method ($5 per square foot) or the actual expense method.
 
@@ -71,9 +85,9 @@ Actual Expense Method:
 - Can include depreciation on home
 - More complex but potentially higher deduction`,
     examples: [
-      '200 sq ft home office = $1,000 deduction (simplified)',
+      '200 sq ft home office = $1,000 deduction (simplified method, $5 per square foot)',
       '15% of home used for business = 15% of utilities, insurance, etc.',
-      'Separate structure used exclusively for business = 100% deductible'
+      'Separate structure used regularly and exclusively for business - its expenses are deductible without the principal-place-of-business test'
     ],
     keyPoints: [
       'Exclusive use is required - no personal use allowed',
@@ -91,13 +105,17 @@ Actual Expense Method:
     id: 'vehicle_expense',
     title: 'Vehicle Expenses and Mileage',
     publication: 'IRS Pub 463',
+    url: 'https://www.irs.gov/tax-professionals/standard-mileage-rates',
     section: 'Section 162',
     content: `Vehicle expenses for business use are deductible. You can choose between the standard mileage rate or actual expenses.
 
-Standard Mileage Rate (2024):
-- 67 cents per mile for business use
-- Includes depreciation, gas, insurance, maintenance
-- Must be chosen in first year of business use
+Standard Mileage Rate (business use; the rate depends on the date driven):
+- 2025: 70 cents per mile (IRS Notice 2025-5)
+- January 1 - June 30, 2026: 72.5 cents per mile (IRS Notice 2026-10)
+- July 1 - December 31, 2026: 76 cents per mile (IRS Announcement 2026-11)
+- 2027: not yet announced; the IRS normally publishes the rate in December
+- Includes depreciation, gas, insurance, maintenance; parking and tolls are deductible separately
+- Must be chosen in the first year the car is used for business to remain available later
 - Simpler recordkeeping
 
 Actual Expense Method:
@@ -112,8 +130,8 @@ Business Use Requirements:
 - Must document business purpose for each trip
 - Keep detailed mileage logs`,
     examples: [
-      'Drive 1,000 business miles = $670 deduction (standard rate)',
-      'Client meeting 50 miles away = $33.50 deduction',
+      'Drive 1,000 business miles in 2025 = $700 deduction (standard rate)',
+      'Client meeting 50 miles away in March 2026 = $36.25 deduction; the same trip in August 2026 = $38.00',
       'Business trip to conference = deductible mileage'
     ],
     keyPoints: [
@@ -133,6 +151,7 @@ Business Use Requirements:
     id: 'travel_expenses',
     title: 'Business Travel Expenses',
     publication: 'IRS Pub 463',
+    url: 'https://www.irs.gov/publications/p463',
     section: 'Section 162',
     content: `Business travel expenses are deductible when you travel away from your tax home for business purposes. This includes transportation, lodging, meals, and incidental expenses.
 
@@ -173,7 +192,8 @@ Non-Deductible:
   'software_subscriptions': {
     id: 'software_subscriptions',
     title: 'Software and Subscription Expenses',
-    publication: 'IRS Pub 535',
+    publication: 'IRS Pub 334',
+    url: 'https://www.irs.gov/publications/p334',
     section: 'Section 162',
     content: `Software and subscription expenses are generally deductible as ordinary and necessary business expenses. This includes cloud software, productivity tools, and business-related subscriptions.
 
@@ -199,7 +219,7 @@ Requirements:
       'Document business purpose for each subscription',
       'Mixed-use subscriptions may require allocation',
       'Keep records of business vs personal use',
-      'Annual subscriptions can be deducted in full if business use'
+      'A prepaid subscription covering more than 12 months may need to be spread over the periods it covers'
     ],
     difficulty: 'beginner',
     estimatedReadTime: 3,
@@ -210,7 +230,8 @@ Requirements:
   'utilities_phone_internet': {
     id: 'utilities_phone_internet',
     title: 'Utilities, Phone, and Internet Expenses',
-    publication: 'IRS Pub 535',
+    publication: 'IRS Pub 334',
+    url: 'https://www.irs.gov/publications/p334',
     section: 'Section 162',
     content: `Utilities, phone, and internet expenses can be deductible when used for business purposes. The deduction depends on whether the expense is used exclusively for business or mixed use.
 
@@ -248,20 +269,20 @@ Documentation Requirements:
   }
 };
 
-export function getIRSContentForTransaction(transaction: any): IRSContent | null {
+export function getIRSContentForTransaction(transaction: { merchant_name?: string | null; category?: string | null; mcc?: string | null }): IRSContent | null {
   const merchant = transaction.merchant_name?.toLowerCase() || '';
   const category = transaction.category?.toLowerCase() || '';
   const mcc = transaction.mcc || '';
   
   // Check by MCC code first
-  for (const [key, content] of Object.entries(IRS_CONTENT_DATABASE)) {
+  for (const content of Object.values(IRS_CONTENT_DATABASE)) {
     if (content.mccCodes?.includes(mcc)) {
       return content;
     }
   }
   
   // Check by keywords
-  for (const [key, content] of Object.entries(IRS_CONTENT_DATABASE)) {
+  for (const content of Object.values(IRS_CONTENT_DATABASE)) {
     if (content.keywords.some(keyword => 
       merchant.includes(keyword) || category.includes(keyword)
     )) {
@@ -270,7 +291,7 @@ export function getIRSContentForTransaction(transaction: any): IRSContent | null
   }
   
   // Check by category
-  for (const [key, content] of Object.entries(IRS_CONTENT_DATABASE)) {
+  for (const content of Object.values(IRS_CONTENT_DATABASE)) {
     if (content.category === category) {
       return content;
     }

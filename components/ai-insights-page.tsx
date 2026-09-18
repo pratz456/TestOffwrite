@@ -19,6 +19,7 @@ import {
 import { Lightbulb, Target, Car, Phone, Calendar, PieChart } from 'lucide-react';
 import { getUserProfile } from '@/lib/firebase/profiles';
 import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
+import { FilingStatusReviewRequiredError } from '@/lib/tax-rules/filing-status';
 import { useTransactions } from '@/lib/firebase/hooks';
 import type { Transaction } from '@/lib/firebase/transactions';
 
@@ -64,6 +65,7 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'overview' | 'deductions' | 'planning' | 'patterns'>('overview');
   const [userProfile, setUserProfile] = useState<any>(null);
+  const [taxReviewMessage, setTaxReviewMessage] = useState<string | null>(null);
   
   const { transactions } = useTransactions(user.id);
 
@@ -71,6 +73,8 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
     const loadUserData = async () => {
       try {
         setIsLoading(true);
+        setInsights(null);
+        setTaxReviewMessage(null);
         
         // Load user profile
         const { data: profile } = await getUserProfile(user.id);
@@ -80,6 +84,7 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
         const generatedInsights = await generateAIInsights(profile, transactions || []);
         setInsights(generatedInsights);
       } catch (error) {
+        if (error instanceof FilingStatusReviewRequiredError) setTaxReviewMessage(error.message);
         console.error('Error loading user data for insights:', error);
       } finally {
         setIsLoading(false);
@@ -98,11 +103,8 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
       vehicle_business_use_percentage: 0
     };
 
-    // Use real transactions; fallback to minimal mock only if empty for demo
-    const list: Transaction[] = txList.length > 0 ? txList : [
-      { id: '1', trans_id: '1', merchant_name: 'Canva', category: 'Software', amount: -12.99, date: new Date().toISOString().split('T')[0], is_deductible: true },
-      { id: '2', trans_id: '2', merchant_name: 'Zoom', category: 'Subscriptions', amount: -15, date: new Date().toISOString().split('T')[0], is_deductible: true }
-    ] as Transaction[];
+    // Only the user's own transactions drive totals; an empty account shows zero, not sample data.
+    const list: Transaction[] = txList;
 
     const categoryOrDetail = (t: Transaction) =>
       t.category || t.personal_finance_category?.detailed || t.personal_finance_category?.primary || '';
@@ -161,11 +163,10 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
       insights.push({
         id: 'design-software-deduction',
         title: 'Design Software Deductions',
-        description: 'Your Adobe Creative Cloud and Canva subscriptions are 100% deductible as business tools. Track all design-related software expenses.',
+        description: 'Design software subscriptions used in your business (for example Adobe Creative Cloud or Canva) are generally deductible; allocate any personal use. Keep the invoices and note the business purpose.',
         category: 'deduction',
         impact: 'high',
         difficulty: 'easy',
-        estimatedSavings: 780,
         icon: <FileText className="w-5 h-5" />,
         actionable: true,
         actionText: 'Mark as Business Expense',
@@ -175,11 +176,10 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
       insights.push({
         id: 'home-office-setup',
         title: 'Home Office Deduction',
-        description: 'Since you work from home, you can deduct a portion of your rent/mortgage, utilities, and internet. Use the simplified method ($5/sq ft) or actual expenses.',
+        description: 'If part of your home is used regularly and exclusively for your business, you may deduct a share of rent or mortgage interest, utilities and internet using the simplified method ($5 per square foot, up to 300 square feet) or actual expenses.',
         category: 'deduction',
         impact: 'high',
         difficulty: 'medium',
-        estimatedSavings: 750,
         icon: <Home className="w-5 h-5" />,
         actionable: true,
         actionText: 'Set Up Home Office',
@@ -189,11 +189,10 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
       insights.push({
         id: 'phone-bill-deduction',
         title: 'Business Phone Usage',
-        description: 'If you use your phone for client calls and business emails, you can deduct a percentage of your phone bill as a business expense.',
+        description: 'If you use your phone for client calls and business email, the business-use percentage of the bill may be deductible. Keep a record of how you estimated the percentage.',
         category: 'deduction',
         impact: 'medium',
         difficulty: 'easy',
-        estimatedSavings: 270,
         icon: <Phone className="w-5 h-5" />,
         actionable: true,
         actionText: 'Track Phone Usage',
@@ -207,11 +206,10 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
       insights.push({
         id: 'mileage-deduction',
         title: 'Mileage Tracking',
-        description: 'Track your business miles for rideshare driving. At $0.67/mile, this can save you thousands compared to actual expenses.',
+        description: 'Keep a dated log of your business miles for rideshare driving. The IRS standard mileage rate is set each year and may exceed your actual vehicle costs.',
         category: 'deduction',
         impact: 'high',
         difficulty: 'easy',
-        estimatedSavings: 2000,
         icon: <Car className="w-5 h-5" />,
         actionable: true,
         actionText: 'Start Mileage Log',
@@ -221,7 +219,7 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
       insights.push({
         id: 'quarterly-taxes',
         title: 'Quarterly Tax Payments',
-        description: 'Set aside 25-30% of your income for quarterly tax payments to avoid IRS penalties. Automate this to stay compliant.',
+        description: 'Many drivers set aside a share of each payout for federal and state estimated taxes. Use the quarterly planner to compare the 90% current-year and 100%/110% prior-year safe-harbor targets for your facts.',
         category: 'planning',
         impact: 'high',
         difficulty: 'medium',
@@ -238,11 +236,10 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
       insights.push({
         id: 'software-tools-deduction',
         title: 'Software & Tools Deductions',
-        description: 'Development tools, cloud services, and productivity software used for work are deductible. Track subscriptions like GitHub, AWS, or Notion.',
+        description: 'Development tools, cloud services and productivity software used in your business are generally deductible. Track subscriptions such as GitHub, AWS or Notion and note any personal use.',
         category: 'deduction',
         impact: 'high',
         difficulty: 'easy',
-        estimatedSavings: 600,
         icon: <FileText className="w-5 h-5" />,
         actionable: true,
         actionText: 'Review Subscriptions',
@@ -254,7 +251,7 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
     insights.push({
       id: 'business-expenses',
       title: 'Business Expense Tracking',
-      description: 'Keep receipts for all business-related expenses. Software subscriptions, equipment, and professional development are deductible.',
+      description: 'Keep receipts for business-related expenses. Software subscriptions, equipment and professional development related to your current business are commonly deductible; equipment may need to be depreciated.',
       category: 'deduction',
       impact: 'medium',
       difficulty: 'easy',
@@ -301,7 +298,7 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
       insights.push({
         id: 'meal-deduction-rules',
         title: 'Meal Deduction Rules',
-        description: 'Business meals are only 50% deductible. Keep detailed records of who you met with and the business purpose.',
+        description: 'Business meals are generally only 50% deductible and entertainment is not deductible. Keep records of who attended and the business purpose.',
         category: 'warning',
         impact: 'medium',
         difficulty: 'medium',
@@ -352,7 +349,8 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
           <AlertCircle className="w-8 h-8 text-amber-500 mx-auto mb-4" />
-          <p className="text-muted-foreground">Unable to generate insights. Please try again.</p>
+          <p role={taxReviewMessage ? 'alert' : undefined} className="text-muted-foreground">{taxReviewMessage || 'Unable to generate insights. Please try again.'}</p>
+          {taxReviewMessage && <Link className="mt-4 block underline" href="/protected/settings">Review profile</Link>}
           <Button onClick={onBack} variant="outline" className="mt-4">Go Back</Button>
         </div>
       </div>
@@ -404,11 +402,11 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
             </div>
             <div className="rounded-lg bg-green-600/10 dark:bg-green-600/15 p-3 sm:p-4 text-center">
               <div className="text-xl sm:text-2xl font-bold text-green-700 dark:text-green-300">${Math.round(insights.monthlySummary.potentialSavings)}</div>
-              <div className="text-xs sm:text-sm text-muted-foreground mt-0.5">Potential Annual Savings</div>
+              <div className="text-xs sm:text-sm text-muted-foreground mt-0.5">Estimated Tax Effect of Unreviewed Items</div>
             </div>
             <div className="rounded-lg bg-muted/40 dark:bg-muted/20 p-3 sm:p-4 text-center">
               <div className="text-xl sm:text-2xl font-bold text-foreground">${Math.round(insights.monthlySummary.totalDeductions)}</div>
-              <div className="text-xs sm:text-sm text-muted-foreground mt-0.5">Current Deductions</div>
+              <div className="text-xs sm:text-sm text-muted-foreground mt-0.5">Confirmed Deduction Total</div>
             </div>
           </div>
         </Card>
@@ -456,7 +454,7 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
                         </div>
                         <p className="text-sm text-muted-foreground mb-3">{insight.description}</p>
                         {insight.estimatedSavings != null && insight.estimatedSavings > 0 && (
-                          <p className="text-base font-semibold text-green-700 dark:text-green-300 mb-3">Save up to ${insight.estimatedSavings}/year</p>
+                          <p className="text-base font-semibold text-green-700 dark:text-green-300 mb-3">Estimated tax effect: about ${insight.estimatedSavings}/year, based on your recorded expenses</p>
                         )}
                         {insight.actionable && insight.actionText && insight.actionUrl && (
                           <Button size="sm" variant="outline" className="w-full text-foreground border-foreground/30 hover:bg-muted" asChild>
@@ -498,7 +496,7 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
                           </div>
                           <p className="text-sm text-muted-foreground mb-3">{insight.description}</p>
                           {insight.estimatedSavings != null && insight.estimatedSavings > 0 && (
-                            <p className="text-base font-semibold text-green-700 dark:text-green-300 mb-3">Save up to ${insight.estimatedSavings}/year</p>
+                            <p className="text-base font-semibold text-green-700 dark:text-green-300 mb-3">Estimated tax effect: about ${insight.estimatedSavings}/year, based on your recorded expenses</p>
                           )}
                           {insight.actionable && insight.actionText && insight.actionUrl && (
                             <Button size="sm" variant="outline" className="w-full text-foreground border-foreground/30 hover:bg-muted" asChild>
@@ -541,7 +539,7 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
                           </div>
                           <p className="text-sm text-muted-foreground mb-3">{insight.description}</p>
                           {insight.estimatedSavings != null && insight.estimatedSavings > 0 && (
-                            <p className="text-base font-semibold text-green-700 dark:text-green-300 mb-3">Save up to ${insight.estimatedSavings}/year</p>
+                            <p className="text-base font-semibold text-green-700 dark:text-green-300 mb-3">Estimated tax effect: about ${insight.estimatedSavings}/year, based on your recorded expenses</p>
                           )}
                           {insight.actionable && insight.actionText && insight.actionUrl && (
                             <Button size="sm" variant="outline" className="w-full text-foreground border-foreground/30 hover:bg-muted" asChild>
@@ -579,7 +577,7 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
                         </div>
                         <p className="text-sm text-muted-foreground mb-3">{insight.description}</p>
                         {insight.estimatedSavings != null && insight.estimatedSavings > 0 && (
-                          <p className="text-base font-semibold text-green-700 dark:text-green-300 mb-3">Save up to ${insight.estimatedSavings}/year</p>
+                          <p className="text-base font-semibold text-green-700 dark:text-green-300 mb-3">Estimated tax effect: about ${insight.estimatedSavings}/year, based on your recorded expenses</p>
                         )}
                         {insight.actionable && insight.actionText && insight.actionUrl && (
                           <Button size="sm" variant="outline" className="w-full text-foreground border-foreground/30 hover:bg-muted" asChild>

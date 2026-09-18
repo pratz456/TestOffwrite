@@ -3,6 +3,8 @@ import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getTransactionsServer, updateTransactionServerWithUserId } from '@/lib/firebase/transactions-server';
 
 export async function POST(request: NextRequest) {
+  // One-off migration with per-record logging; not part of the product surface.
+  if (process.env.NODE_ENV === 'production') return NextResponse.json({ error: 'Not found' }, { status: 404 });
   try {
     // Get the authenticated user
     const { user, error: authError } = await getAuthenticatedUser(request);
@@ -53,7 +55,7 @@ export async function POST(request: NextRequest) {
                 transaction_id: transaction.trans_id,
                 merchant_name: transaction.merchant_name,
                 status: 'error',
-                error: updateError
+                error: 'update_failed'
               });
             } else {
               console.log(`   ✅ Successfully migrated AI analysis for ${transaction.merchant_name}`);
@@ -71,7 +73,7 @@ export async function POST(request: NextRequest) {
               transaction_id: transaction.trans_id,
               merchant_name: transaction.merchant_name,
               status: 'error',
-              error: error instanceof Error ? error.message : 'Unknown error'
+              error: 'update_failed'
             });
           }
         } else {
