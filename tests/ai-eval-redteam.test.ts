@@ -291,6 +291,26 @@ describe('red team: findings from live evaluation round 3', () => {
     const trainer = ground({ category: 'advertising_marketing' }, { merchant: 'FACEBK *ADS', amount_usd: 120, business_purpose: 'Instagram ads for my personal trainer business' });
     expect(trainer).toMatchObject({ status: 'ok', is_deductible: true });
   });
+  it('a negated personal phrase or a business use of "vacation" is not read as a personal note', () => {
+    for (const [merchant, category, business_purpose] of [
+      ['APPLE.COM/BILL', 'equipment', 'Laptop for client design work, not for personal use'],
+      ['ADOBE *CREATIVE CLOUD', 'software_subscriptions', 'Design software licence for client projects, zero personal use'],
+      ['THE HOME DEPOT #0652', 'supplies_small_tools', 'Cleaning supplies for my vacation rental business units'],
+      ['FACEBK *ADS', 'advertising_marketing', 'Ads for my vacation photography services this season'],
+    ] as const) {
+      const result = ground({ category }, { merchant, amount_usd: 95, business_purpose });
+      // Whatever other gate applies, the note must not turn the charge into a confident personal verdict.
+      expect(result?.transaction_kind).not.toBe('personal');
+      expect(result?.customized_reason).not.toContain('Your note records this as personal');
+    }
+    // Plain personal wording still wins over the business merchant.
+    const vacation = ground({ category: 'travel', evidence_ids: ['travel-463'] },
+      { merchant: 'DELTA AIR LINES', amount_usd: 420, note: 'Flights for our family vacation in June', business_purpose: undefined });
+    expect(vacation).toMatchObject({ status: 'ok', transaction_kind: 'personal', is_deductible: false });
+    const unpaid = ground({ category: 'software_subscriptions' },
+      { merchant: 'ZOOM.US 888-799-9666', amount_usd: 15.99, note: 'Used this on vacation, not for business', business_purpose: undefined });
+    expect(unpaid).toMatchObject({ status: 'ok', transaction_kind: 'personal', is_deductible: false });
+  });
   it('parking and tolls cited under the general §162 rule are approved, not sent to off-category review', () => {
     const result = ground({ category: 'vehicle_expense', evidence_ids: ['business-162'] }, { merchant: 'PARKMOBILE 770-818-9036 GA', amount_usd: 6.5, business_purpose: 'Parking at closing' });
     expect(result).toMatchObject({ status: 'ok', is_deductible: true, category: 'vehicle_expense' });

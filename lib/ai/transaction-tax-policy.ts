@@ -259,8 +259,12 @@ const TAX_PREP_PATTERN = /\b(?:h&r block|hrblock|turbotax|intuit|taxact|taxslaye
 const CLUB_BUSINESS_USE_PATTERN = /\b(?:rent(?:al|ed)?|leas(?:e|ed|ing)|space rental|studio rental)\b/i;
 /** Certainty claims the model must not make in any displayed field ("it's fully deductible", "would be 100% deductible", "is completely deductible"). */
 const UNCONDITIONAL_CLAIM = /\b(?:(?:is|are|it's|its|was|were|be|being|been|becomes?|remains?|would be|will be|can be|should be|considered|deemed|qualif(?:y|ies) as|treated as|counts? as)\s+(?:\w+\s+){0,2})?(?:fully|100\s?%|completely|entirely|wholly)\s+(?:tax[- ])?deductible\b/i;
-/** The taxpayer's own note saying an item was personal outranks any merchant or profession prior. */
-const EXPLICIT_PERSONAL_NOTE = /\b(?:personal (?:use|expense|purchase|item|trip|dinner|meal|coffee|ride|subscription|only)|not (?:for )?(?:the )?business|non-?business|not deductible|not a business expense|family (?:dinner|trip|vacation|meal|purchase)|vacation|date night|for (?:my|our) (?:kids?|family|wife|husband|spouse|partner)|for (?:my|our) (?:home|house)(?! office| studio| workspace| business|-based| based)|my own use)\b/i;
+/**
+ * The taxpayer's own note saying an item was personal outranks any merchant or profession prior.
+ * A negated phrase ("not for personal use", "zero personal use") and a business object
+ * ("vacation rental", "vacation photography", "paid vacation") are not personal notes.
+ */
+const EXPLICIT_PERSONAL_NOTE = /\b(?:(?<!\b(?:not?|zero|without|never|excludes?|excluding)\s+(?:for\s+|any\s+|of\s+)?)personal (?:use|expense|purchase|item|trip|dinner|meal|coffee|ride|subscription|only)|not (?:for )?(?:the )?business|non-?business|not deductible|not a business expense|family (?:dinner|trip|vacation|meal|purchase)|(?<!\bpaid\s)vacation(?!\s+(?:rental|rentals|home|homes|propert(?:y|ies)|photograph\w*|pay|payroll|package\w*|planning|tours?|clients?|business|listing))|date night|for (?:my|our) (?:kids?|family|wife|husband|spouse|partner)|for (?:my|our) (?:home|house)(?! office| studio| workspace| business|-based| based)|my own use)\b/i;
 const LIKELY_ASSET_PATTERN = /\b(?:laptop|computer|macbook|imac|desktop|monitor|camera|lens|drone|printer|tablet|ipad|iphone|smartphone|desk|chair|tripod|microphone|mixer|guitar|piano|keyboard|server|router|projector|television|appliance|machine|equipment|furniture|tools?)\b/i;
 /** Reg. §1.263(a)-1(f)(1)(ii)(D): per-item/per-invoice ceiling for taxpayers without an applicable financial statement. */
 export const DE_MINIMIS_ITEM_CEILING = 2500;
