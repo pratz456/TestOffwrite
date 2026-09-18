@@ -233,15 +233,16 @@ describe('red team: findings from live evaluation round 2 (category "other" bypa
     const result = ground({ category: 'other' }, { merchant: 'H&R BLOCK ONLINE 800-472-5625', amount_usd: 189, business_purpose: 'Tax prep for my 1040 and Schedule C' });
     unresolved(result);
     expect(result!.missing_fields).toEqual(['business_use_percentage']);
+    expect(result!.category).toBe('legal_professional');
     const withShare = ground({ category: 'other', deductible_percent: 40 }, { merchant: 'H&R BLOCK ONLINE', amount_usd: 189, business_purpose: 'Tax prep for my 1040 and Schedule C', business_use_percentage: 40 });
-    expect(withShare).toMatchObject({ status: 'ok', is_deductible: true, deductible_percent: 40 });
+    expect(withShare).toMatchObject({ status: 'ok', is_deductible: true, deductible_percent: 40, category: 'legal_professional', schedule_c_line: '17' });
   });
-  it('business-trip parking and tolls with a saved purpose are approved without the vehicle-method question', () => {
+  it('business-trip parking and tolls with a saved purpose are approved as parking_tolls without the vehicle-method question', () => {
     const parking = ground({ category: 'other' }, { merchant: 'PARKMOBILE 770-818-9036 GA', amount_usd: 6.5, business_purpose: 'Parking at closing' });
-    expect(parking).toMatchObject({ status: 'ok', is_deductible: true, category: 'vehicle_expense', deductible_percent: 100 });
+    expect(parking).toMatchObject({ status: 'ok', is_deductible: true, category: 'parking_tolls', deductible_percent: 100, schedule_c_line: '9' });
     expect(parking!.evidence_ids).toContain('travel-463');
     const tolls = ground({ category: 'vehicle_expense', evidence_ids: ['travel-463'] }, { merchant: 'E-ZPASS REBILL', amount_usd: 40, business_purpose: 'Tolls while driving passengers' });
-    expect(tolls).toMatchObject({ status: 'ok', is_deductible: true, category: 'vehicle_expense' });
+    expect(tolls).toMatchObject({ status: 'ok', is_deductible: true, category: 'parking_tolls', schedule_c_line: '9' });
   });
   it('the home-rent and club-dues gates read the saved facts, never the model\'s own prose', () => {
     const wework = ground({ category: 'rent', customized_reason: 'A coworking desk is business rent rather than home-office space.' },
@@ -357,9 +358,9 @@ describe('red team: findings from live evaluation round 3', () => {
       { merchant: 'ZOOM.US 888-799-9666', amount_usd: 15.99, note: 'Used this on vacation, not for business', business_purpose: undefined });
     expect(unpaid).toMatchObject({ status: 'ok', transaction_kind: 'personal', is_deductible: false });
   });
-  it('parking and tolls cited under the general §162 rule are approved, not sent to off-category review', () => {
+  it('parking and tolls cited under the general §162 rule are approved as parking_tolls, not sent to off-category review', () => {
     const result = ground({ category: 'vehicle_expense', evidence_ids: ['business-162'] }, { merchant: 'PARKMOBILE 770-818-9036 GA', amount_usd: 6.5, business_purpose: 'Parking at closing' });
-    expect(result).toMatchObject({ status: 'ok', is_deductible: true, category: 'vehicle_expense' });
+    expect(result).toMatchObject({ status: 'ok', is_deductible: true, category: 'parking_tolls' });
     expect(result!.missing_fields ?? []).not.toContain('business_purpose');
   });
   it('offers the proposed purpose when the model itself asked for the purpose on a confidently business merchant', () => {
@@ -609,5 +610,93 @@ describe('PII minimization in prompts and taxpayer context', () => {
     expect(prompt).not.toContain('Secret Merchant');
     expect(prompt).not.toContain('private note text');
     expect(prompt).not.toMatch(/https?:\/\//);
+  });
+});
+
+describe('red team: the five confirmable categories of 2026-09-18.3 cannot be used to slip past a gate', () => {
+  const settledPersonal = (result: OutputType | null) => {
+    expect(result).toMatchObject({ status: 'ok', transaction_kind: 'personal', expense_type: 'personal', is_deductible: false, deductible_percent: 0 });
+    expect(result?.schedule_c_line).toBeUndefined();
+    expect(result?.questions).toBeUndefined();
+  };
+  it('parking_tolls: a ticket, a commute or a bare merchant is never an approved parking cost', () => {
+    const ticket = ground({ category: 'parking_tolls', evidence_ids: ['travel-463'] }, { merchant: 'CITY OF AUSTIN MUNICIPAL COURT', amount_usd: 75, business_purpose: 'Parking ticket I got while at a client meeting' });
+    unresolved(ticket); expect(ticket!.missing_fields).toEqual(['transaction_kind']);
+    const fine = ground({ category: 'parking_tolls', evidence_ids: ['travel-463'] }, { merchant: 'PAYMENT PORTAL', amount_usd: 75, business_purpose: 'Toll violation notice from the delivery route' });
+    unresolved(fine); expect(fine!.missing_fields).toEqual(['expense_review']); expect(fine!.evidence_ids).toContain('taxes-licenses-sch-c');
+    settledPersonal(ground({ category: 'parking_tolls', evidence_ids: ['travel-463'] }, { merchant: 'LAZ PARKING 400 MAIN', amount_usd: 22, business_purpose: 'Monthly parking for commuting to the office' }));
+    const bare = ground({ category: 'parking_tolls', evidence_ids: ['travel-463'], customized_reason: 'Parking is deductible in addition to mileage. Keep the receipt.' }, { merchant: 'PARKMOBILE 770-818-9036 GA', amount_usd: 6.5, business_purpose: undefined });
+    unresolved(bare); expect(bare!.missing_fields).toEqual(['business_purpose']); expect(bare!.proposed_purpose).toBeUndefined();
+    // A model share with no saved share is asked, never approved at 100%; a saved share that disagrees with the model is rejected.
+    const modelShare = ground({ category: 'parking_tolls', evidence_ids: ['travel-463'], deductible_percent: 70 }, { merchant: 'E-ZPASS REBILL', amount_usd: 40, business_purpose: 'Tolls, mostly while driving passengers' });
+    unresolved(modelShare); expect(modelShare!.missing_fields).toEqual(['business_use_percentage']); expect(modelShare!.category).toBe('parking_tolls');
+    expect(ground({ category: 'parking_tolls', evidence_ids: ['travel-463'], deductible_percent: 70 }, { merchant: 'E-ZPASS REBILL', amount_usd: 40, business_use_percentage: 80, business_purpose: 'Tolls, mostly while driving passengers' })).toBeNull();
+    expect(ground({ category: 'parking_tolls', evidence_ids: ['travel-463'], deductible_percent: 80 }, { merchant: 'E-ZPASS REBILL', amount_usd: 40, business_use_percentage: 80, business_purpose: 'Tolls, mostly while driving passengers' }))
+      .toMatchObject({ status: 'ok', is_deductible: true, deductible_percent: 80, category: 'parking_tolls' });
+  });
+  it('insurance: auto, health, home and life policies filed as business insurance are re-routed; a vague premium asks the coverage', () => {
+    const auto = ground({ category: 'insurance', evidence_ids: ['insurance-334'] }, { merchant: 'GEICO *AUTO 800-841-3000', amount_usd: 148, business_purpose: 'Business insurance for my rideshare car' });
+    unresolved(auto); expect(auto).toMatchObject({ category: 'vehicle_expense', missing_fields: ['vehicle_method'], schedule_c_line: '9' });
+    const health = ground({ category: 'insurance', evidence_ids: ['insurance-334'] }, { merchant: 'KAISER PERMANENTE', amount_usd: 612, business_purpose: 'Business insurance premium for myself as the owner' });
+    unresolved(health); expect(health).toMatchObject({ category: 'other', missing_fields: ['deduction_placement'] }); expect(health!.schedule_c_line).toBeUndefined();
+    const dental = ground({ category: 'insurance', evidence_ids: ['insurance-334'] }, { merchant: 'ACME BENEFITS', amount_usd: 80, business_purpose: 'Dental insurance plan for myself, needed to keep working' });
+    unresolved(dental); expect(dental).toMatchObject({ category: 'other', missing_fields: ['deduction_placement'] });
+    const home = ground({ category: 'insurance', evidence_ids: ['insurance-334'] }, { merchant: 'LEMONADE INSURANCE', amount_usd: 95, business_purpose: 'Renters insurance for the apartment where I run the business' });
+    unresolved(home); expect(home).toMatchObject({ category: 'home_office', missing_fields: ['home_office_eligibility'], schedule_c_line: '30' });
+    settledPersonal(ground({ category: 'insurance', evidence_ids: ['insurance-334'] }, { merchant: 'NORTHWESTERN MUTUAL', amount_usd: 150, business_purpose: 'Disability insurance policy that protects my business income' }));
+    const vague = ground({ category: 'insurance', evidence_ids: ['insurance-334'] }, { merchant: 'ACME MUTUAL', amount_usd: 90, business_purpose: 'Insurance premium paid for the business' });
+    unresolved(vague); expect(vague!.missing_fields).toEqual(['insurance_coverage']); expect(vague!.category).toBe('insurance');
+    // A business insurer with no purpose proposes its purpose and approves nothing.
+    const hiscox = ground({ category: 'insurance', evidence_ids: ['insurance-334'], customized_reason: 'Hiscox sells business liability cover. Keep the policy.' }, { merchant: 'HISCOX INC', amount_usd: 42, business_purpose: undefined });
+    unresolved(hiscox); expect(hiscox!.missing_fields).toEqual(['business_purpose']); expect(hiscox!.proposed_purpose).toMatch(/liability/);
+  });
+  it('legal_professional: personal matters are personal and a tax-prep fee needs its share, whatever the model filed', () => {
+    for (const purpose of ['Attorney fees for my divorce', 'Estate planning and my will', 'CPA fee for my personal return', 'Lawyer for our house closing when buying our house']) {
+      settledPersonal(ground({ category: 'legal_professional', evidence_ids: ['professional-fees-334'] }, { merchant: 'MORRISON LAW GROUP', amount_usd: 900, business_purpose: purpose }));
+    }
+    const share = ground({ category: 'legal_professional', evidence_ids: ['professional-fees-334'] }, { merchant: 'JACKSON HEWITT 1234', amount_usd: 189, business_purpose: 'Tax prep for my 1040 and Schedule C' });
+    unresolved(share); expect(share!.missing_fields).toEqual(['business_use_percentage']);
+    const cpaMixed = ground({ category: 'legal_professional', evidence_ids: ['professional-fees-334'] }, { merchant: 'SMITH & JONES CPA', amount_usd: 600, business_purpose: 'Preparing my personal return and the Schedule C for the business' });
+    unresolved(cpaMixed); expect(cpaMixed!.missing_fields).toEqual(['business_use_percentage']);
+    // A law firm with no saved purpose asks for the matter; nothing is approved on the category alone.
+    const bare = ground({ category: 'legal_professional', evidence_ids: ['professional-fees-334'], customized_reason: 'Law firms bill business legal work. Keep the invoice.' }, { merchant: 'MORRISON LAW GROUP', amount_usd: 450, business_purpose: undefined });
+    unresolved(bare); expect(bare!.missing_fields).toEqual(['business_purpose']); expect(bare!.questions?.[0]).toMatch(/what matter/i);
+  });
+  it('taxes_licenses: income, estimated and self-employment tax to any agency stay blocked, and a saved "sales tax" note cannot unblock a federal payee', () => {
+    for (const [merchant, purpose] of [
+      ['IRS USATAXPYMT', 'Quarterly estimated tax for the business'], ['IRS USATAXPYMT', 'Sales tax remitted for the business'], ['EFTPS PAYMENT', 'Payroll taxes for my assistant'],
+      ['FRANCHISE TAX BD', 'State income tax estimate for the business'], ['WA DEPT OF REVENUE', 'Quarterly business taxes'], ['NYS DTF PIT', 'Income tax balance due for the business'],
+    ] as const) {
+      const result = ground({ category: 'taxes_licenses', evidence_ids: ['taxes-licenses-sch-c'] }, { merchant, amount_usd: 1500, business_purpose: purpose });
+      unresolved(result);
+      expect(result!.status, `${merchant}: ${purpose}`).toBe('blocked');
+      expect(result!.missing_fields, `${merchant}: ${purpose}`).toEqual(['tax_payment_recorded']);
+      expect(result!.category, `${merchant}: ${purpose}`).toBe('other');
+      expect(result!.schedule_c_line, `${merchant}: ${purpose}`).toBeUndefined();
+    }
+    const penalty = ground({ category: 'taxes_licenses', evidence_ids: ['taxes-licenses-sch-c'] }, { merchant: 'CITY OF AUSTIN', amount_usd: 120, business_purpose: 'Late filing penalty on the city business return' });
+    unresolved(penalty); expect(penalty!.missing_fields).toEqual(['expense_review']);
+    const homeTax = ground({ category: 'taxes_licenses', evidence_ids: ['taxes-licenses-sch-c'] }, { merchant: 'COUNTY TAX COLLECTOR', amount_usd: 2100, business_purpose: 'Property tax on my house; I work from a home office' });
+    unresolved(homeTax); expect(homeTax).toMatchObject({ category: 'home_office', missing_fields: ['home_office_eligibility'] });
+    // The bank descriptor alone never turns a tax agency into a licence fee.
+    const bare = ground({ category: 'taxes_licenses', evidence_ids: ['taxes-licenses-sch-c'], customized_reason: 'State agency fees are business licences. Keep the receipt.' }, { merchant: 'WA DEPT OF REVENUE', amount_usd: 300, business_purpose: undefined });
+    unresolved(bare); expect(bare!.status).toBe('blocked');
+  });
+  it('repairs_maintenance: improvements, home repairs, vehicle repairs and bare merchants are reviewed, not approved', () => {
+    const improvement = ground({ category: 'repairs_maintenance', evidence_ids: ['business-162'] }, { merchant: 'ACE HVAC SERVICES', amount_usd: 3200, business_purpose: 'Repair: replaced the compressor in the shop HVAC system' });
+    unresolved(improvement); expect(improvement).toMatchObject({ category: 'repairs_maintenance', missing_fields: ['asset_treatment'], schedule_c_line: '21' }); expect(improvement!.evidence_ids).toContain('capital-263');
+    const overCeiling = ground({ category: 'repairs_maintenance', evidence_ids: ['business-162'] }, { merchant: 'STUDIO BUILDERS', amount_usd: 2600, business_purpose: 'Routine repair to the studio floor' });
+    unresolved(overCeiling); expect(overCeiling!.missing_fields).toEqual(['asset_treatment']);
+    const remodel = ground({ category: 'repairs_maintenance', evidence_ids: ['business-162'] }, { merchant: 'STUDIO BUILDERS', amount_usd: 900, business_purpose: 'Repair work: remodel of the studio reception' });
+    unresolved(remodel); expect(remodel!.missing_fields).toEqual(['asset_treatment']);
+    const home = ground({ category: 'repairs_maintenance', evidence_ids: ['business-162'] }, { merchant: 'HANDY HOME SERVICES', amount_usd: 260, business_purpose: 'Repaired the roof over my home office' });
+    unresolved(home); expect(home).toMatchObject({ category: 'home_office', missing_fields: ['home_office_eligibility'] });
+    const vehicle = ground({ category: 'repairs_maintenance', evidence_ids: ['business-162'] }, { merchant: 'DAVES GARAGE', amount_usd: 480, business_purpose: 'Fixed the alternator on the delivery truck' });
+    unresolved(vehicle); expect(vehicle).toMatchObject({ category: 'vehicle_expense', missing_fields: ['vehicle_method'] });
+    const bare = ground({ category: 'repairs_maintenance', evidence_ids: ['business-162'], customized_reason: 'Repair services keep equipment working. Keep the invoice.' }, { merchant: 'GEEK SQUAD 800-433-5778', amount_usd: 149, business_purpose: undefined });
+    unresolved(bare); expect(bare!.missing_fields).toEqual(['business_purpose']); expect(bare!.questions?.[0]).toMatch(/business property or equipment/);
+    // The taxpayer's own repair words place an unknown merchant on line 21, but never approve without a purpose sentence.
+    const short = ground({ category: 'other' }, { merchant: 'JOES ELECTRIC LLC', amount_usd: 420, business_purpose: 'Repair' });
+    unresolved(short); expect(short!.missing_fields).toEqual(['business_purpose']);
   });
 });

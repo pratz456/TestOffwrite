@@ -266,7 +266,7 @@ const HEALTH_INSURANCE_PATTERN = /\b(?:health|medical|dental|vision|long-?term\s
 const CLUB_DUES_PATTERN = /\b(?:gym|fitness\s+(?:center|club|membership)|health\s+club|athletic\s+club|country\s+club|golf\s+club|planet\s+fitness|equinox|crossfit|orangetheory|la\s+fitness|24\s+hour\s+fitness|peloton|soulcycle|barry'?s\s+bootcamp)\b/i;
 const HOME_RENT_PATTERN = /\b(?:apartment|apt\.?|home|house|residence|residential|landlord|housing|mortgage|rent\s+for\s+(?:my|our)\s+place)\b/i;
 /** Payments to tax authorities are never Schedule C expenses (federal income and SE tax are nondeductible; state income tax belongs on Schedule A). */
-const TAX_AUTHORITY_PATTERN = /\b(?:IRS|internal revenue|us treasury|u\.s\. treasury|usataxpymt|irs usataxpymt|estimated tax|1040-?es|form 1040|franchise tax b(?:oar)?d|\bftb\b|dept\.? of revenue|department of revenue|dept\.? of taxation|department of taxation|comptroller of|state tax payment|tax payment|edd|eftps)\b/i;
+const TAX_AUTHORITY_PATTERN = /\b(?:IRS|internal revenue|us treasury|u\.s\. treasury|usataxpymt|irs usataxpymt|estimated tax|1040-?es|form 1040|franchise tax b(?:oar)?d|\bftb\b|nys dtf|ny state tax|dept\.? of revenue|department of revenue|dept\.? of taxation|department of taxation|comptroller of|state tax payment|tax payment|edd|eftps)\b/i;
 /** Federal payees and the individual-payment descriptors: always the tax-payment block, whatever the saved words say. */
 const FEDERAL_TAX_AUTHORITY_PATTERN = /\b(?:IRS|internal revenue|us treasury|u\.s\. treasury|usataxpymt|1040-?es|form 1040|eftps|estimated tax)\b/i;
 /** Business taxes remitted to a state or local agency: sales/use tax collected on sales and employer payroll taxes (Schedule C line 23). */
@@ -405,8 +405,9 @@ export function groundTransactionAnalysis(
     (BUSINESS_TAX_REMITTANCE_PATTERN.test(purpose) || (PROPERTY_TAX_PATTERN.test(purpose) && BUSINESS_PROPERTY_WORDS.test(purpose)));
   /** A licence, permit or state filing fee paid to a payee that is not a tax authority. */
   const stateFilingFee = STATE_FILING_PATTERN.test(purpose) && !TAX_AUTHORITY_PATTERN.test(savedAndMerchant);
-  /** The merchant table names a tax agency (IRS, a state tax agency, or Plaid's tax-payment category). */
-  const taxAgencyPayee = /\btax\b|\bIRS\b/i.test(merchant.name ?? '') || merchant.plaidCategory === 'GOVERNMENT_AND_NON_PROFIT_TAX_PAYMENT';
+  /** The merchant table names a tax agency (IRS, a state tax agency, or Plaid's tax-payment category); a tax-prep service is not one. */
+  const taxAgencyPayee = (merchant.disposition === 'not_an_expense' && /\btax\b|\bIRS\b/i.test(merchant.name ?? ''))
+    || merchant.plaidCategory === 'GOVERNMENT_AND_NON_PROFIT_TAX_PAYMENT';
   /** The taxpayer names a business coverage (liability, E&O, property, cyber, workers' comp) and not an auto policy. */
   const businessCoverageStated = BUSINESS_COVERAGE_PATTERN.test(purpose) && !AUTO_WORDS.test(purpose);
   /** An insurer that sells only business coverage (Hiscox, Next, Thimble, biBERK, The Hartford's small-business line). */
@@ -533,10 +534,12 @@ export function groundTransactionAnalysis(
     markPersonal('Your note describes life, disability, accident or pet coverage on yourself or your household. Those premiums are personal, not business insurance; only coverage of a business risk or business property belongs on Schedule C line 15. Edit the note if this policy covers your business.',
       'Recorded as personal coverage by your note.');
   }
-  if (result.is_deductible === true && kind !== 'refund' && TAX_AUTHORITY_PATTERN.test(savedAndMerchant) && !remittedBusinessTax) {
+  if (result.is_deductible === true && kind !== 'refund' && !remittedBusinessTax &&
+      (TAX_AUTHORITY_PATTERN.test(savedAndMerchant) || (taxAgencyPayee && INCOME_TAX_WORDS.test(purpose)))) {
     // A live model approved a $1,500 IRS estimated-tax payment at 100%. Income tax and
     // self-employment tax payments are not business expenses and never reach Schedule C. Only the
-    // taxpayer's own words naming a sales, payroll or business property tax to a non-federal agency pass.
+    // taxpayer's own words naming a sales, payroll or business property tax to a non-federal agency pass;
+    // a tax agency the merchant table knows plus the taxpayer's own income-tax words is the same block.
     addEvidence('taxes-licenses-sch-c'); addEvidence('records-334');
     result.category = 'other';
     requireInfo(result, 'tax_payment_recorded', 'Was this a federal or state income tax payment (including estimated tax)? Record it in the quarterly planner instead of as an expense.',
@@ -648,9 +651,18 @@ export function groundTransactionAnalysis(
     } else if (result.is_deductible === true && PARKING_TOLL_PATTERN.test(savedAndMerchant) && saved.length >= 8) {
       // Business-trip parking and tolls are deductible in addition to the standard mileage rate and need no method review;
       // the commuting reading above already settled the personal case. Line 9 as parking_tolls so the approval is confirmable.
+      // The share follows the ordinary-expense rule: a saved share is kept, a model share without one is asked, never assumed.
       result.category = 'parking_tolls';
       addEvidence('travel-463');
-      result.deductible_percent = percentage(transaction.business_use_percentage) ?? 100;
+      const provided = percentage(transaction.business_use_percentage);
+      if (provided === null && result.deductible_percent != null && result.deductible_percent < 100) {
+        requireInfo(result, 'business_use_percentage', 'What share of this parking or toll cost was for business trips rather than personal or commuting driving, and what records support that split?',
+          'Only the documented business portion of parking and tolls may qualify. No percentage has been assumed for this mixed-use cost.');
+      } else if ((provided !== null && result.deductible_percent !== undefined && result.deductible_percent !== provided) || provided === 0) {
+        return null;
+      } else {
+        result.deductible_percent = provided ?? 100;
+      }
     } else if (result.is_deductible === true && HOME_INSURANCE_PATTERN.test(savedAndMerchant)) {
       // A policy on the home the taxpayer lives in is a Form 8829 item at the business percentage, never line 15.
       addEvidence('home-587'); addEvidence('insurance-334');
