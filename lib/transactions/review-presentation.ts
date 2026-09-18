@@ -1,4 +1,5 @@
 import type { Transaction } from '@/lib/firebase/transactions';
+import { analysisOutcomeLabel, analysisRecordState } from '@/lib/ai/analysis-state';
 import { canConfirmSuggestion, reviewCategory, type AiReviewSuggestion } from './ai-review-contract';
 
 export function transactionReviewKey(transaction: Pick<Transaction, 'id' | 'trans_id' | 'account_id' | 'accountId'>): string {
@@ -18,10 +19,12 @@ export function reviewPresentation(transaction: Transaction) {
     : suggestion?.transactionKind === 'refund' ? 'Expense refund' : null;
   const needsTaxFacts = !!suggestion && (suggestion.status !== 'ok' || suggestion.isDeductible === null);
   const sources = (suggestion?.sources ?? []).filter(isOfficialTaxSource);
+  // Why the durable pipeline stopped without a suggestion; null while queued, running or analyzed.
+  const outcome = analysisRecordState(transaction).outcome;
   return {
     label: pending ? 'Waiting for the bank to post' : running ? 'AI analysis in progress'
       : queued ? 'Queued for AI analysis' : suggestion ? needsTaxFacts ? 'AI category · tax details needed' : 'AI suggested category'
-      : transaction.analysisStatus === 'failed' || transaction.analysis_status === 'failed' ? 'AI analysis needs a retry' : 'No AI suggestion yet',
+      : outcome ? analysisOutcomeLabel(outcome) : 'No AI suggestion yet',
     categoryLabel: kindLabel ?? category?.label ?? 'Category needs review',
     reasoning: pending ? 'The bank can still change this transaction. Review it once the final amount posts.'
       : suggestion?.reasoning || (running ? 'AI is reviewing the saved transaction and your business context.'
@@ -32,6 +35,7 @@ export function reviewPresentation(transaction: Transaction) {
       : !canConfirmSuggestion(suggestion) ? 'Choose a category yourself or add the missing details before confirming.'
       : needsTaxFacts ? 'Confirming saves the category only. The tax deduction stays unresolved until the missing facts are reviewed.' : '',
     needsTaxFacts,
+    outcome,
     taxYear: Number.isInteger(suggestion?.taxYear) ? suggestion!.taxYear : null,
     questions: suggestion?.questions?.filter(question => typeof question === 'string' && question.trim()) ?? [],
     documentation: suggestion?.documentationRequired?.filter(item => typeof item === 'string' && item.trim()) ?? [],
