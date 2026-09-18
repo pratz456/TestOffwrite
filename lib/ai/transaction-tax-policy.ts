@@ -1,6 +1,7 @@
 import type { OutputType, TransactionInput, UserContext } from './analyzeTransaction';
 import { merchantIntelligence, type MerchantIntelligenceResult } from './merchant-intelligence';
 import { matchProfessions, professionHint } from './profession-priors';
+import { redactIdentifierText } from '@/lib/security/identifier-redaction';
 import { BUSINESS_STANDARD_MILEAGE_RATES } from '@/lib/tax-rules/mileage-rates';
 
 /** Selected, reviewed federal rules. This is not retrieval over the entire tax code. */
@@ -272,9 +273,12 @@ export const DE_MINIMIS_ITEM_CEILING = 2500;
 /** Reg. §1.162-3(c)(1)(iv): items costing $200 or less are materials and supplies; a durable item above that needs the de minimis election or depreciation. */
 const ASSET_REVIEW_FLOOR = 200;
 
-/** Digits shaped like an SSN, ITIN or EIN inside free text; bank descriptors and notes never need them. */
+/**
+ * Digits shaped like an SSN, ITIN or EIN inside free text, including unformatted nine-digit runs
+ * and dotted or unicode-dash spellings; bank descriptors and notes never need them. Amounts survive.
+ */
 export function redactTaxIdentifiers(value: string): string {
-  return value.replace(/\b\d{3}[- ]\d{2}[- ]\d{4}\b/g, '[redacted-id]').replace(/\b\d{2}-\d{7}\b/g, '[redacted-id]');
+  return redactIdentifierText(value).text;
 }
 
 /** Reject forged citations/contradictions; withhold eligibility when known gates require facts. */

@@ -509,6 +509,35 @@ describe('PII minimization in prompts and taxpayer context', () => {
     expect(user).not.toMatch(ssnPattern);
   });
 
+  it('redacts identifier-shaped digits in every free-text context field, not only the five named ones', async () => {
+    const confirmed = summarizeConfirmedMerchants([{
+      merchant_name: 'ACME LLC', review_status: 'confirmed', is_deductible: true, expense_type: 'business', date: '2026-03-01',
+      business_purpose: 'Invoice for payer 12-3456789 client work',
+    }]);
+    const profile = { ...SOLE_PROPRIETOR, business_purpose: 'Consulting; my SSN is 123 45 6789', office_location: 'Suite 987654321 Austin' } as UserContext;
+    const context = { ...profile, taxpayer_context: buildTaxpayerContext({ profile, confirmed, merchant: 'ACME LLC', transactionDate: '2026-05-04' }) } as UserContext;
+    const transaction: TransactionInput = {
+      ...tx, merchant: 'ACME LLC', amount_usd: 1234.56, business_purpose: 'Client project for EIN 98-7654321',
+      // OCR and paste artifacts: a nine-digit run, an unformatted run after a misread colon, dotted and unicode-dash spellings.
+      note: 'Payee SSN.111223333 and 444‑55‑6666',
+      travel_destination: 'Denver for client 555.66.7777',
+      attendees: ['Jane Roe 222-33-4444', 'Sam Client'],
+      equipment_details: { make: 'Dell', model: 'Serial 333445555', year: 2026 },
+      mileage_details: { start_location: 'Home 78701-1234', end_location: 'Client', miles: 12.5, business_purpose: 'Deliver W-9 with TIN 666778888' },
+    };
+    mocks.create.mockResolvedValueOnce(completion(providerPayload()));
+    expect((await analyzeTransaction(transaction, context)).success).toBe(true);
+    const user = (mocks.create.mock.calls[0][0].messages as Array<{ role: string; content: string }>).find(message => message.role === 'user')!.content;
+    for (const identifier of ['12-3456789', '123 45 6789', '987654321', '98-7654321', '111223333', '444‑55‑6666', '555.66.7777', '222-33-4444', '333445555', '666778888']) {
+      expect(user).not.toContain(identifier);
+    }
+    expect(user).not.toMatch(/(?<!\d)\d{3}[-\s.‑]\d{2}[-\s.‑]\d{4}(?!\d)|(?<!\d)\d{2}[-\s.‑]\d{7}(?!\d)|(?<!\d)\d{9}(?!\d)/);
+    // Amounts, dates, a ZIP+4 and the fields themselves still reach the model.
+    for (const kept of ['1234.56', '2026-05-04', '78701-1234', 'Sam Client', 'Denver for client', '"miles": 12.5', '"year": 2026', 'Deliver W-9 with TIN']) {
+      expect(user).toContain(kept);
+    }
+  });
+
   it('taxpayerContextForModel forwards no merchant list, no user id and no email', () => {
     const records: ConfirmedTransactionRecord[] = Array.from({ length: 45 }, (_, index) => ({
       merchant_name: `Vendor ${String.fromCharCode(65 + (index % 26))}${String.fromCharCode(65 + Math.floor(index / 26))}`,
