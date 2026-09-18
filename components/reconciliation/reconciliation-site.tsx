@@ -31,11 +31,12 @@ import {
 import {
   buildReconciliationCsv,
   type FindingStatus,
-  MAX_ROWS_PER_FILE,
+  MAX_INVOICE_CREDIT_ROWS,
   parseReconciliationCsv,
   type ParsedRecord,
   reconcileRecords,
   type ReconciliationFinding,
+  type ReconciliationProvenance,
   type ReconciliationReport,
   type ReconciliationSource,
 } from "@/lib/vendor-reconciliation";
@@ -44,6 +45,18 @@ const SAMPLE_STATEMENT_URL = "/samples/restaurant-vendor-statement.csv";
 const SAMPLE_LEDGER_URL = "/samples/restaurant-ap-ledger.csv";
 const PILOT_EMAIL =
   process.env.NEXT_PUBLIC_PILOT_EMAIL || "writeoffapp@gmail.com";
+const EMPTY_PROVENANCE: ReconciliationProvenance = {
+  vendor: "",
+  location: "",
+  periodStart: "",
+  periodEnd: "",
+};
+const SAMPLE_PROVENANCE: ReconciliationProvenance = {
+  vendor: "Northstar Foods",
+  location: "Demo Bistro · River North",
+  periodStart: "2026-08-01",
+  periodEnd: "2026-08-31",
+};
 
 type UploadedCsv = {
   name: string;
@@ -80,7 +93,7 @@ const STATUS_META: Record<
   { label: string; pill: string; dot: string }
 > = {
   matched: {
-    label: "Matched",
+    label: "Field match",
     pill: "border-emerald-200 bg-emerald-50 text-emerald-800",
     dot: "bg-emerald-500",
   },
@@ -118,7 +131,7 @@ const STATUS_META: Record<
 
 const FILTERS: { value: FilterValue; label: string }[] = [
   { value: "exceptions", label: "All exceptions" },
-  { value: "matched", label: "Matched" },
+  { value: "matched", label: "Field match" },
   { value: "statement_only", label: "Missing internally" },
   { value: "ledger_only", label: "Missing on statement" },
   { value: "amount_mismatch", label: "Amount mismatch" },
@@ -206,7 +219,7 @@ function FileDropzone({
         onDragLeave={() => setDragging(false)}
         onDragOver={(event) => event.preventDefault()}
         onDrop={dropFile}
-        className={`group flex min-h-40 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed px-5 py-7 text-center transition ${
+        className={`group flex min-h-40 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed px-5 py-7 text-center transition focus-within:border-[#205b45] focus-within:ring-4 focus-within:ring-[#205b45]/25 ${
           dragging
             ? "border-[#e36a3d] bg-[#fff4ed]"
             : value?.error
@@ -259,7 +272,7 @@ function FileDropzone({
             <span className="mt-3 text-sm font-semibold text-[#23362d]">
               Drop a redacted CSV or browse
             </span>
-            <span className="mt-1 text-xs leading-5 text-[#748078]">
+            <span className="mt-1 text-xs leading-5 text-[#59665d]">
               reference, date, type, amount, payment_status
             </span>
           </>
@@ -290,11 +303,11 @@ function SourceCard({
 }) {
   return (
     <div className="rounded-xl border border-[#dfe4df] bg-[#fafbf9] p-4">
-      <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#778179]">
+      <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#536159]">
         {title}
       </p>
       {traces.length === 0 ? (
-        <p className="mt-3 text-sm text-[#7d877f]">No corresponding source row.</p>
+        <p className="mt-3 text-sm text-[#59665d]">No corresponding source row.</p>
       ) : (
         <div className="mt-3 space-y-3">
           {traces.map((trace) => (
@@ -307,7 +320,7 @@ function SourceCard({
                   {currency(trace.amountCents)}
                 </span>
               </div>
-              <p className="mt-1 text-xs text-[#718078]">
+              <p className="mt-1 text-xs text-[#55645b]">
                 {trace.reference} · {trace.date}
                 {trace.paymentStatus ? ` · ${trace.paymentStatus}` : ""}
               </p>
@@ -321,6 +334,8 @@ function SourceCard({
 
 export function ReconciliationSite() {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [provenance, setProvenance] =
+    useState<ReconciliationProvenance>(EMPTY_PROVENANCE);
   const [statement, setStatement] = useState<UploadedCsv>();
   const [ledger, setLedger] = useState<UploadedCsv>();
   const [report, setReport] = useState<ReconciliationReport>();
@@ -382,6 +397,7 @@ export function ReconciliationSite() {
   const runReconciliation = (
     statementInput = statement,
     ledgerInput = ledger,
+    provenanceInput = provenance,
   ) => {
     if (
       !statementInput?.records.length ||
@@ -393,16 +409,27 @@ export function ReconciliationSite() {
       return;
     }
 
-    const nextReport = reconcileRecords(
-      statementInput.records,
-      ledgerInput.records,
-    );
-    setReport(nextReport);
-    setSelectedFindingId(nextReport.findings[0]?.id);
-    setFilter("exceptions");
-    setWorkspaceMessage(
-      "Reconciliation complete. Nothing was uploaded or saved by this workspace.",
-    );
+    try {
+      const nextReport = reconcileRecords(
+        statementInput.records,
+        ledgerInput.records,
+        provenanceInput,
+      );
+      setReport(nextReport);
+      setSelectedFindingId(undefined);
+      setFilter("exceptions");
+      setWorkspaceMessage(
+        "Reconciliation complete. Nothing was uploaded or saved by this workspace.",
+      );
+    } catch (error) {
+      setReport(undefined);
+      setSelectedFindingId(undefined);
+      setWorkspaceMessage(
+        error instanceof Error
+          ? error.message
+          : "These sources could not be reconciled.",
+      );
+    }
   };
 
   const loadSample = async () => {
@@ -435,7 +462,8 @@ export function ReconciliationSite() {
       };
       setStatement(statementInput);
       setLedger(ledgerInput);
-      runReconciliation(statementInput, ledgerInput);
+      setProvenance(SAMPLE_PROVENANCE);
+      runReconciliation(statementInput, ledgerInput, SAMPLE_PROVENANCE);
       requestAnimationFrame(() => {
         document
           .getElementById("workspace")
@@ -451,11 +479,22 @@ export function ReconciliationSite() {
   };
 
   const clearWorkspace = () => {
+    setProvenance(EMPTY_PROVENANCE);
     setStatement(undefined);
     setLedger(undefined);
     setReport(undefined);
     setSelectedFindingId(undefined);
     setWorkspaceMessage("Workspace cleared from this browser tab.");
+  };
+
+  const updateProvenance = (
+    field: keyof ReconciliationProvenance,
+    value: string,
+  ) => {
+    setProvenance((current) => ({ ...current, [field]: value }));
+    setReport(undefined);
+    setSelectedFindingId(undefined);
+    setWorkspaceMessage("");
   };
 
   const filteredFindings = useMemo(() => {
@@ -477,8 +516,16 @@ export function ReconciliationSite() {
     setCopied(false);
   };
 
+  const incumbentUser =
+    pilotForm.currentProcess === "MarginEdge" ||
+    pilotForm.currentProcess === "xtraCHEF";
+
   const preparePilotBrief = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (incumbentUser) {
+      setPilotBrief("");
+      return;
+    }
     const brief = [
       "TABLEPROOF PILOT FIT REQUEST",
       "",
@@ -507,10 +554,6 @@ export function ReconciliationSite() {
     `TableProof pilot fit — ${pilotForm.restaurant || "restaurant"}`,
   )}&body=${encodeURIComponent(pilotBrief)}`;
 
-  const incumbentUser =
-    pilotForm.currentProcess === "MarginEdge" ||
-    pilotForm.currentProcess === "xtraCHEF";
-
   return (
     <div
       className="min-h-screen overflow-x-hidden bg-[#f7f5ef] text-[#17211b]"
@@ -526,7 +569,7 @@ export function ReconciliationSite() {
               <span className="block text-[17px] font-bold leading-none tracking-[-0.025em]">
                 TableProof
               </span>
-              <span className="mt-1 block text-[9px] font-bold uppercase tracking-[0.18em] text-[#7b867d]">
+              <span className="mt-1 block text-[9px] font-bold uppercase tracking-[0.18em] text-[#4f5e55]">
                 Validation pilot
               </span>
             </span>
@@ -615,9 +658,9 @@ export function ReconciliationSite() {
                 , not guesswork.
               </h1>
               <p className="mt-7 max-w-xl text-lg leading-8 text-[#536159] sm:text-xl">
-                Compare a redacted vendor statement with your AP export. Exact
-                rows close; missing credits, duplicates, and mismatches stay
-                visible for a human decision.
+                Compare a redacted vendor statement with your AP export. Rows
+                match only when transaction fields and status evidence agree;
+                everything else stays visible for a human decision.
               </p>
               <div className="mt-9 flex flex-col gap-3 sm:flex-row">
                 <button
@@ -657,7 +700,7 @@ export function ReconciliationSite() {
                     <p className="text-sm font-bold text-[#20342a]">
                       August reconciliation
                     </p>
-                    <p className="mt-0.5 text-xs text-[#7a857e]">
+                    <p className="mt-0.5 text-xs text-[#536159]">
                       Northstar Foods · illustrative sample
                     </p>
                   </div>
@@ -668,7 +711,7 @@ export function ReconciliationSite() {
                 <div className="grid grid-cols-3 border-b border-[#e8ebe7] bg-[#fbfcfa]">
                   {[
                     ["19", "Source rows"],
-                    ["4", "Exact matches"],
+                    ["4", "Field matches"],
                     ["6", "Findings"],
                   ].map(([value, label], index) => (
                     <div
@@ -678,7 +721,7 @@ export function ReconciliationSite() {
                       <p className="text-2xl font-bold tracking-tight text-[#1b3126]">
                         {value}
                       </p>
-                      <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-[#7a867f]">
+                      <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-[#536159]">
                         {label}
                       </p>
                     </div>
@@ -686,7 +729,7 @@ export function ReconciliationSite() {
                 </div>
                 <div className="p-5 sm:p-6">
                   <div className="mb-4 flex items-center justify-between">
-                    <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#7a857e]">
+                    <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#536159]">
                       Review queue
                     </p>
                     <span className="text-xs font-semibold text-[#426151]">
@@ -724,20 +767,21 @@ export function ReconciliationSite() {
                               {value}
                             </span>
                           </div>
-                          <p className="mt-0.5 text-xs text-[#89928c]">{label}</p>
+                          <p className="mt-0.5 text-xs text-[#59665d]">{label}</p>
                         </div>
-                        <ChevronRight className="h-4 w-4 shrink-0 text-[#a6aea8]" />
+                        <ChevronRight className="h-4 w-4 shrink-0 text-[#68756d]" />
                       </div>
                     ))}
                   </div>
                   <div className="mt-5 flex items-center gap-3 rounded-xl bg-[#eef4ef] px-4 py-3 text-xs font-semibold leading-5 text-[#3c5a4a]">
                     <CheckCircle2 className="h-5 w-5 shrink-0 text-[#2f765b]" />
-                    Deterministic matches only. Date differences remain open.
+                    Repeated references are opened first. Both sources must
+                    include agreeing status evidence for a field match.
                   </div>
                 </div>
               </div>
               <div className="absolute -bottom-6 -left-5 hidden rotate-[-3deg] rounded-2xl border border-[#e3ddd2] bg-[#fffdf8] px-4 py-3 shadow-lg sm:block">
-                <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#8b8174]">
+                <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#66594c]">
                   Source link
                 </p>
                 <p className="mt-1 text-sm font-bold text-[#314138]">
@@ -760,8 +804,8 @@ export function ReconciliationSite() {
               {
                 icon: Search,
                 eyebrow: "Conservative logic",
-                title: "Exact before ambiguous",
-                copy: "Reference, date, type, and amount must agree before a row is auto-matched.",
+                title: "Repeated references stay open",
+                copy: "Duplicate reference/type groups are isolated before exact fields and status evidence are compared.",
               },
               {
                 icon: FileCheck2,
@@ -774,7 +818,7 @@ export function ReconciliationSite() {
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#eef2ed] text-[#23513f]">
                   <Icon className="h-5 w-5" />
                 </div>
-                <p className="mt-5 text-[10px] font-bold uppercase tracking-[0.18em] text-[#d95f34]">
+                <p className="mt-5 text-[10px] font-bold uppercase tracking-[0.18em] text-[#9f3c1c]">
                   {eyebrow}
                 </p>
                 <h2 className="mt-2 text-lg font-bold tracking-[-0.02em]">{title}</h2>
@@ -788,7 +832,7 @@ export function ReconciliationSite() {
           <div className="mx-auto max-w-7xl px-5 py-24 sm:px-8 lg:py-32">
             <div className="grid gap-14 lg:grid-cols-[0.78fr_1.22fr] lg:gap-24">
               <div>
-                <p className="text-xs font-bold uppercase tracking-[0.19em] text-[#d95f34]">
+                <p className="text-xs font-bold uppercase tracking-[0.19em] text-[#9f3c1c]">
                   One narrow job
                 </p>
                 <h2 className="mt-4 text-4xl font-bold leading-tight tracking-[-0.045em] sm:text-5xl">
@@ -817,7 +861,7 @@ export function ReconciliationSite() {
                   {
                     number: "02",
                     title: "Match locally",
-                    copy: "The browser applies deterministic rules without sending CSV content to a server.",
+                    copy: "The browser opens repeated references first, then compares exact fields and two-sided status evidence.",
                   },
                   {
                     number: "03",
@@ -881,7 +925,67 @@ export function ReconciliationSite() {
             </div>
 
             <div className="mt-10 rounded-[28px] bg-[#f7f5ef] p-4 shadow-[0_30px_80px_rgba(0,0,0,0.18)] sm:p-6 lg:p-8">
-              <div className="grid gap-7 lg:grid-cols-2">
+              <fieldset className="rounded-2xl border border-[#d6ddd7] bg-white p-5">
+                <legend className="px-2 text-sm font-bold text-[#20352a]">
+                  Reconciliation provenance
+                </legend>
+                <p className="mb-5 text-xs leading-5 text-[#59665d]">
+                  Required for the audit trail. Every source row must fall
+                  inside this statement period.
+                </p>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  <label className="text-xs font-bold text-[#35483e]">
+                    Vendor
+                    <input
+                      required
+                      value={provenance.vendor}
+                      onChange={(event) =>
+                        updateProvenance("vendor", event.target.value)
+                      }
+                      className="mt-2 min-h-11 w-full rounded-xl border border-[#b8c2ba] bg-white px-3.5 text-sm font-normal text-[#20352a] placeholder:text-[#5f6c64]"
+                      placeholder="Northstar Foods"
+                    />
+                  </label>
+                  <label className="text-xs font-bold text-[#35483e]">
+                    Restaurant location
+                    <input
+                      required
+                      value={provenance.location}
+                      onChange={(event) =>
+                        updateProvenance("location", event.target.value)
+                      }
+                      className="mt-2 min-h-11 w-full rounded-xl border border-[#b8c2ba] bg-white px-3.5 text-sm font-normal text-[#20352a] placeholder:text-[#5f6c64]"
+                      placeholder="River North"
+                    />
+                  </label>
+                  <label className="text-xs font-bold text-[#35483e]">
+                    Period start
+                    <input
+                      required
+                      type="date"
+                      value={provenance.periodStart}
+                      onChange={(event) =>
+                        updateProvenance("periodStart", event.target.value)
+                      }
+                      className="mt-2 min-h-11 w-full rounded-xl border border-[#b8c2ba] bg-white px-3.5 text-sm font-normal text-[#20352a]"
+                    />
+                  </label>
+                  <label className="text-xs font-bold text-[#35483e]">
+                    Period end
+                    <input
+                      required
+                      type="date"
+                      value={provenance.periodEnd}
+                      onChange={(event) =>
+                        updateProvenance("periodEnd", event.target.value)
+                      }
+                      className="mt-2 min-h-11 w-full rounded-xl border border-[#b8c2ba] bg-white px-3.5 text-sm font-normal text-[#20352a]"
+                    />
+                  </label>
+                </div>
+              </fieldset>
+
+              <div className="mt-8 grid gap-7 lg:grid-cols-2">
                 <FileDropzone
                   title="1. Vendor statement"
                   description="One distributor statement period, exported and redacted."
@@ -910,7 +1014,7 @@ export function ReconciliationSite() {
                 <button
                   type="button"
                   onClick={() => runReconciliation()}
-                  className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-full bg-[#df6539] px-6 text-sm font-bold text-white shadow-sm transition hover:bg-[#c9522a]"
+                  className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-full bg-[#a94321] px-6 text-sm font-bold text-white shadow-sm transition hover:bg-[#8f3519]"
                 >
                   Run reconciliation
                   <ArrowRight className="h-4 w-4" />
@@ -924,9 +1028,10 @@ export function ReconciliationSite() {
                   {workspaceMessage}
                 </p>
               ) : null}
-              <p className="mt-4 text-center text-[11px] text-[#78847c]">
-                Pilot limit: {MAX_ROWS_PER_FILE} rows per file · Refreshing or
-                closing this tab clears the workspace
+              <p className="mt-4 text-center text-xs text-[#59665d]">
+                Pilot limit: {MAX_INVOICE_CREDIT_ROWS} invoice/credit rows per
+                file; payment rows do not count · Refreshing or closing this tab
+                clears the workspace
               </p>
             </div>
 
@@ -943,8 +1048,13 @@ export function ReconciliationSite() {
                           <h3 className="font-bold text-[#193126]">
                             Reconciliation report
                           </h3>
-                          <p className="mt-0.5 text-xs text-[#748078]">
+                          <p className="mt-0.5 text-xs text-[#536159]">
                             Generated locally · {new Date(report.generatedAt).toLocaleString()}
+                          </p>
+                          <p className="mt-1 text-xs font-semibold text-[#405148]">
+                            {report.provenance.vendor} ·{" "}
+                            {report.provenance.location} ·{" "}
+                            {report.provenance.periodStart}–{report.provenance.periodEnd}
                           </p>
                         </div>
                       </div>
@@ -982,7 +1092,7 @@ export function ReconciliationSite() {
                   <div className="mt-7 grid grid-cols-2 gap-3 lg:grid-cols-4">
                     {[
                       ["Rows processed", report.summary.rowsProcessed, "Across both sources"],
-                      ["Exact matches", report.summary.matched, "Deterministically closed"],
+                      ["Field matches", report.summary.matched, "Both sources and status agree"],
                       ["Exceptions", report.summary.exceptionCount, "Kept open for review"],
                       [
                         "Judgment needed",
@@ -995,13 +1105,13 @@ export function ReconciliationSite() {
                         key={label}
                         className="rounded-2xl border border-[#e2e7e2] bg-[#fafbf9] p-4"
                       >
-                        <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#77837b]">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#536159]">
                           {label}
                         </p>
                         <p className="mt-2 text-3xl font-bold tracking-[-0.04em] text-[#1d382c]">
                           {value}
                         </p>
-                        <p className="mt-1 text-xs text-[#7b867f]">{helper}</p>
+                        <p className="mt-1 text-xs text-[#536159]">{helper}</p>
                       </div>
                     ))}
                   </div>
@@ -1013,7 +1123,7 @@ export function ReconciliationSite() {
                       <p className="text-sm font-bold text-[#263a30]">
                         Finding ledger
                       </p>
-                      <p className="mt-1 text-xs text-[#7a867f]">
+                      <p className="mt-1 text-xs text-[#536159]">
                         Select a row to inspect its rule and source trail.
                       </p>
                     </div>
@@ -1021,9 +1131,10 @@ export function ReconciliationSite() {
                       Show
                       <select
                         value={filter}
-                        onChange={(event) =>
-                          setFilter(event.target.value as FilterValue)
-                        }
+                        onChange={(event) => {
+                          setFilter(event.target.value as FilterValue);
+                          setSelectedFindingId(undefined);
+                        }}
                         className="min-h-10 rounded-xl border border-[#d6ddd7] bg-white px-3 pr-8 text-xs font-bold text-[#2c4438]"
                       >
                         {FILTERS.map((option) => (
@@ -1038,7 +1149,7 @@ export function ReconciliationSite() {
                   <div className="mt-5 overflow-x-auto rounded-2xl border border-[#e0e5e0]">
                     <table className="w-full min-w-[900px] border-collapse text-left">
                       <thead className="bg-[#f6f8f5]">
-                        <tr className="text-[10px] font-bold uppercase tracking-[0.13em] text-[#78847c]">
+                        <tr className="text-[10px] font-bold uppercase tracking-[0.13em] text-[#536159]">
                           <th className="px-4 py-3">Finding</th>
                           <th className="px-4 py-3">Status</th>
                           <th className="px-4 py-3">Reference</th>
@@ -1055,7 +1166,7 @@ export function ReconciliationSite() {
                               selectedFindingId === item.id ? "bg-[#f1f6f2]" : ""
                             }`}
                           >
-                            <td className="px-4 py-4 font-mono text-xs font-bold text-[#738078]">
+                            <td className="px-4 py-4 font-mono text-xs font-bold text-[#536159]">
                               {item.id}
                             </td>
                             <td className="px-4 py-4">
@@ -1065,13 +1176,13 @@ export function ReconciliationSite() {
                               <p className="font-bold text-[#20352a]">
                                 {item.reference}
                               </p>
-                              <p className="mt-1 text-xs capitalize text-[#7b867f]">
+                              <p className="mt-1 text-xs capitalize text-[#536159]">
                                 {item.type}
                               </p>
                             </td>
                             <td className="px-4 py-4 font-semibold tabular-nums text-[#35483e]">
                               {currency(item.statementAmountCents)}
-                              <span className="mx-2 text-[#b0b7b2]">/</span>
+                              <span className="mx-2 text-[#65716a]">/</span>
                               {currency(item.ledgerAmountCents)}
                             </td>
                             <td className="max-w-[310px] px-4 py-4 text-xs leading-5 text-[#6b776f]">
@@ -1097,7 +1208,7 @@ export function ReconciliationSite() {
                       </tbody>
                     </table>
                     {filteredFindings.length === 0 ? (
-                      <div className="px-5 py-12 text-center text-sm text-[#728078]">
+                      <div className="px-5 py-12 text-center text-sm text-[#536159]">
                         No findings in this filter.
                       </div>
                     ) : null}
@@ -1108,7 +1219,7 @@ export function ReconciliationSite() {
                       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
                         <div>
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-mono text-xs font-bold text-[#78847c]">
+                            <span className="font-mono text-xs font-bold text-[#536159]">
                               {selectedFinding.id}
                             </span>
                             <StatusPill status={selectedFinding.status} />
@@ -1120,7 +1231,7 @@ export function ReconciliationSite() {
                         <button
                           type="button"
                           onClick={() => setSelectedFindingId(undefined)}
-                          className="flex h-9 w-9 items-center justify-center self-end rounded-lg text-[#7c8780] hover:bg-[#f2f5f2] sm:self-auto"
+                          className="flex h-9 w-9 items-center justify-center self-end rounded-lg text-[#536159] hover:bg-[#f2f5f2] sm:self-auto"
                           aria-label="Close finding details"
                         >
                           <X className="h-4 w-4" />
@@ -1138,7 +1249,7 @@ export function ReconciliationSite() {
                       </div>
                       <div className="mt-4 grid gap-4 rounded-xl bg-[#f2f5f1] p-4 lg:grid-cols-2">
                         <div>
-                          <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#758179]">
+                          <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#536159]">
                             Applied rule
                           </p>
                           <p className="mt-2 text-sm font-semibold leading-6 text-[#344a3e]">
@@ -1146,7 +1257,7 @@ export function ReconciliationSite() {
                           </p>
                         </div>
                         <div>
-                          <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#758179]">
+                          <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#536159]">
                             Why it is open
                           </p>
                           <p className="mt-2 text-sm leading-6 text-[#55645b]">
@@ -1166,7 +1277,7 @@ export function ReconciliationSite() {
           <div className="mx-auto max-w-7xl px-5 py-24 sm:px-8 lg:py-32">
             <div className="grid gap-14 lg:grid-cols-[0.9fr_1.1fr] lg:items-start lg:gap-24">
               <div>
-                <p className="text-xs font-bold uppercase tracking-[0.19em] text-[#d95f34]">
+                <p className="text-xs font-bold uppercase tracking-[0.19em] text-[#9f3c1c]">
                   Trust starts with limits
                 </p>
                 <h2 className="mt-4 text-4xl font-bold leading-tight tracking-[-0.045em] sm:text-5xl">
@@ -1189,7 +1300,7 @@ export function ReconciliationSite() {
                   <ul className="mt-4 space-y-3 text-sm leading-6 text-emerald-950/75">
                     {[
                       "Redacted CSV input",
-                      "Exact field matching",
+                      "Guarded field matching",
                       "Conservative exception states",
                       "Source filename and row trace",
                       "Local CSV report download",
@@ -1202,7 +1313,7 @@ export function ReconciliationSite() {
                   </ul>
                 </div>
                 <div className="rounded-3xl border border-[#e4d9ce] bg-[#fffaf3] p-6">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#e66a3b] text-white">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#a94321] text-white">
                     X
                   </div>
                   <h3 className="mt-5 text-lg font-bold text-[#4d3025]">
@@ -1217,7 +1328,7 @@ export function ReconciliationSite() {
                       "Payment initiation or legal conclusions",
                     ].map((item) => (
                       <li key={item} className="flex gap-2.5">
-                        <X className="mt-1 h-4 w-4 shrink-0 text-[#ce5930]" />
+                        <X className="mt-1 h-4 w-4 shrink-0 text-[#9f3c1c]" />
                         {item}
                       </li>
                     ))}
@@ -1271,7 +1382,7 @@ export function ReconciliationSite() {
               <div className="rounded-[28px] border border-[#dce2dc] bg-[#f8f8f4] p-5 shadow-[0_20px_60px_rgba(34,50,41,0.08)] sm:p-8">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-[0.17em] text-[#d75d33]">
+                    <p className="text-xs font-bold uppercase tracking-[0.17em] text-[#9f3c1c]">
                       Pilot intake
                     </p>
                     <h3 className="mt-2 text-2xl font-bold tracking-[-0.025em]">
@@ -1298,7 +1409,7 @@ export function ReconciliationSite() {
                         onChange={(event) =>
                           updatePilotField("name", event.target.value)
                         }
-                        className="mt-2 min-h-11 w-full rounded-xl border border-[#d6ddd7] bg-white px-3.5 text-sm font-normal text-[#20352a] placeholder:text-[#9da69f]"
+                        className="mt-2 min-h-11 w-full rounded-xl border border-[#b8c2ba] bg-white px-3.5 text-sm font-normal text-[#20352a] placeholder:text-[#5f6c64]"
                         placeholder="Jordan Lee"
                       />
                     </label>
@@ -1312,7 +1423,7 @@ export function ReconciliationSite() {
                         onChange={(event) =>
                           updatePilotField("email", event.target.value)
                         }
-                        className="mt-2 min-h-11 w-full rounded-xl border border-[#d6ddd7] bg-white px-3.5 text-sm font-normal text-[#20352a] placeholder:text-[#9da69f]"
+                        className="mt-2 min-h-11 w-full rounded-xl border border-[#b8c2ba] bg-white px-3.5 text-sm font-normal text-[#20352a] placeholder:text-[#5f6c64]"
                         placeholder="jordan@restaurant.com"
                       />
                     </label>
@@ -1324,7 +1435,7 @@ export function ReconciliationSite() {
                         onChange={(event) =>
                           updatePilotField("restaurant", event.target.value)
                         }
-                        className="mt-2 min-h-11 w-full rounded-xl border border-[#d6ddd7] bg-white px-3.5 text-sm font-normal text-[#20352a] placeholder:text-[#9da69f]"
+                        className="mt-2 min-h-11 w-full rounded-xl border border-[#b8c2ba] bg-white px-3.5 text-sm font-normal text-[#20352a] placeholder:text-[#5f6c64]"
                         placeholder="Restaurant name"
                       />
                     </label>
@@ -1371,7 +1482,7 @@ export function ReconciliationSite() {
                         onChange={(event) =>
                           updatePilotField("distributor", event.target.value)
                         }
-                        className="mt-2 min-h-11 w-full rounded-xl border border-[#d6ddd7] bg-white px-3.5 text-sm font-normal text-[#20352a] placeholder:text-[#9da69f]"
+                        className="mt-2 min-h-11 w-full rounded-xl border border-[#b8c2ba] bg-white px-3.5 text-sm font-normal text-[#20352a] placeholder:text-[#5f6c64]"
                         placeholder="Distributor name"
                       />
                     </label>
@@ -1415,18 +1526,21 @@ export function ReconciliationSite() {
                   {incumbentUser ? (
                     <div className="flex gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs leading-5 text-amber-900">
                       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                      This pilot is designed for operators without an existing
-                      full-suite reconciliation workflow. Your context may be
-                      better suited to a research conversation than a paid pilot.
+                      Paid-pilot intake is unavailable for operators already
+                      using MarginEdge or xtraCHEF reconciliation. This pilot is
+                      limited to teams without a full-suite reconciliation workflow.
                     </div>
                   ) : null}
 
                   <button
                     type="submit"
-                    className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-[#193d31] px-6 text-sm font-bold text-white transition hover:bg-[#102f25]"
+                    disabled={incumbentUser}
+                    className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-[#193d31] px-6 text-sm font-bold text-white transition hover:bg-[#102f25] disabled:cursor-not-allowed disabled:bg-[#65746c] disabled:text-white"
                   >
-                    Prepare pilot request
-                    <ArrowRight className="h-4 w-4" />
+                    {incumbentUser
+                      ? "Paid pilot unavailable for this setup"
+                      : "Prepare pilot request"}
+                    {!incumbentUser ? <ArrowRight className="h-4 w-4" /> : null}
                   </button>
                 </form>
 
@@ -1477,12 +1591,12 @@ export function ReconciliationSite() {
             </span>
             <div>
               <p className="text-sm font-bold">TableProof</p>
-              <p className="mt-0.5 text-xs text-[#a9beb2]">
+              <p className="mt-0.5 text-xs text-[#c7d8ce]">
                 Restaurant statement reconciliation · validation MVP
               </p>
             </div>
           </div>
-          <p className="max-w-xl text-xs leading-5 text-[#a9beb2] md:text-right">
+          <p className="max-w-xl text-xs leading-5 text-[#c7d8ce] md:text-right">
             Review aid only. No credentials, payment movement, sensitive-data
             persistence, or conclusion that money is owed.
           </p>

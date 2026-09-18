@@ -4,11 +4,12 @@ Effortless tax deduction management for freelancers and small businesses.
 
 ## Restaurant reconciliation validation MVP
 
-The public home page now hosts **TableProof**, a validation prototype for restaurant
-vendor-statement reconciliation. It accepts two deliberately narrow, redacted CSV
-files, matches them entirely in the browser, and exports a row-traceable exception
-report. It does not collect credentials, persist uploaded data, contact vendors, or
-initiate payments.
+The private, `noindex` route at `/pilot` hosts **TableProof**, a validation
+prototype for restaurant vendor-statement reconciliation. The existing WriteOff
+home page, metadata, manifest, and providers remain unchanged. TableProof accepts
+two deliberately narrow, redacted CSV files, matches them entirely in the browser,
+and exports a provenance- and row-traceable exception report. It does not collect
+credentials, persist uploaded data, contact vendors, or initiate payments.
 
 Run it locally:
 
@@ -17,14 +18,18 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000), then select **Run the sample
-audit**. Sample inputs are available at:
+Open [http://localhost:3000/pilot](http://localhost:3000/pilot), then select
+**Run the sample audit**. Sample inputs are available at:
 
 - `public/samples/restaurant-vendor-statement.csv`
 - `public/samples/restaurant-ap-ledger.csv`
 
 Accepted columns are `reference,date,type,amount,payment_status`; the first four
-are required. Each file is limited to 150 data rows. Run the focused tests with
+are required. Vendor, location, and statement-period provenance must be entered
+before matching. Each file is limited to 150 invoice/credit rows; payment rows do
+not count toward that cap. Repeated reference/type groups stay open, and an exact
+transaction is only labeled a field match when both sources also provide agreeing
+status evidence. Run focused adversarial tests with
 `npx vitest run tests/vendor-reconciliation.test.ts`.
 
 ## Tech Stack

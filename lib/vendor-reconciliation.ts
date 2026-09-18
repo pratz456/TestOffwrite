@@ -1,6 +1,13 @@
-export const REQUIRED_CSV_COLUMNS = ["reference", "date", "type", "amount"] as const;
+export const REQUIRED_CSV_COLUMNS = [
+  "reference",
+  "date",
+  "type",
+  "amount",
+] as const;
 export const OPTIONAL_CSV_COLUMNS = ["payment_status"] as const;
-export const MAX_ROWS_PER_FILE = 150;
+export const MAX_INVOICE_CREDIT_ROWS = 150;
+// Kept as a compatibility alias for existing UI imports.
+export const MAX_ROWS_PER_FILE = MAX_INVOICE_CREDIT_ROWS;
 
 export type ReconciliationSource = "statement" | "ledger";
 export type TransactionType = "invoice" | "credit" | "payment";
@@ -12,6 +19,13 @@ export type FindingStatus =
   | "amount_mismatch"
   | "payment_mismatch"
   | "review_required";
+
+export type ReconciliationProvenance = {
+  vendor: string;
+  location: string;
+  periodStart: string;
+  periodEnd: string;
+};
 
 export type ParsedRecord = {
   id: string;
@@ -61,6 +75,7 @@ export type ReconciliationReport = {
   generatedAt: string;
   statementName: string;
   ledgerName: string;
+  provenance: ReconciliationProvenance;
   findings: ReconciliationFinding[];
   summary: ReconciliationSummary;
 };
@@ -72,11 +87,27 @@ export class CsvValidationError extends Error {
   }
 }
 
+export class ReconciliationValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ReconciliationValidationError";
+  }
+}
+
+type CsvRow = {
+  values: string[];
+  rowNumber: number;
+};
+
 const ALLOWED_COLUMNS = new Set<string>([
   ...REQUIRED_CSV_COLUMNS,
   ...OPTIONAL_CSV_COLUMNS,
 ]);
-const ALLOWED_TYPES = new Set<TransactionType>(["invoice", "credit", "payment"]);
+const ALLOWED_TYPES = new Set<TransactionType>([
+  "invoice",
+  "credit",
+  "payment",
+]);
 
 function normalizeHeader(value: string): string {
   return value
@@ -91,14 +122,33 @@ function normalizeReference(value: string): string {
 }
 
 function normalizeStatus(value: string): string {
-  return value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return value.toLowerCase().replace(/[\s-]+/g, "_");
 }
 
-function parseCsvRows(csv: string): string[][] {
-  const rows: string[][] = [];
-  let row: string[] = [];
+function parseCsvRows(csv: string): CsvRow[] {
+  const rows: CsvRow[] = [];
+  let values: string[] = [];
   let field = "";
   let quoted = false;
+  let justClosedQuote = false;
+  let lineNumber = 1;
+  let rowNumber = 1;
+
+  const finishRow = () => {
+    rows.push({ values: [...values, field], rowNumber });
+    values = [];
+    field = "";
+    justClosedQuote = false;
+  };
+
+  const finishLine = (carriageReturn: boolean) => {
+    finishRow();
+    if (carriageReturn) {
+      // The caller consumes the following LF for a CRLF pair.
+    }
+    lineNumber += 1;
+    rowNumber = lineNumber;
+  };
 
   for (let index = 0; index < csv.length; index += 1) {
     const character = csv[index];
@@ -110,82 +160,148 @@ function parseCsvRows(csv: string): string[][] {
           index += 1;
         } else {
           quoted = false;
+          justClosedQuote = true;
         }
+      } else if (character === "\r" && csv[index + 1] === "\n") {
+        field += "\r\n";
+        index += 1;
+        lineNumber += 1;
       } else {
         field += character;
+        if (character === "\n" || character === "\r") lineNumber += 1;
+      }
+      continue;
+    }
+
+    if (justClosedQuote) {
+      if (character === ",") {
+        values.push(field);
+        field = "";
+        justClosedQuote = false;
+      } else if (character === "\r" && csv[index + 1] === "\n") {
+        finishLine(true);
+        index += 1;
+      } else if (character === "\n" || character === "\r") {
+        finishLine(false);
+      } else {
+        throw new CsvValidationError(
+          `Line ${lineNumber}: unexpected character after a closing quote.`,
+        );
       }
       continue;
     }
 
     if (character === '"') {
+      if (field.length > 0) {
+        throw new CsvValidationError(
+          `Line ${lineNumber}: a quoted field must begin with a quote.`,
+        );
+      }
       quoted = true;
     } else if (character === ",") {
-      row.push(field);
+      values.push(field);
       field = "";
-    } else if (character === "\n") {
-      row.push(field.replace(/\r$/, ""));
-      rows.push(row);
-      row = [];
-      field = "";
+    } else if (character === "\r" && csv[index + 1] === "\n") {
+      finishLine(true);
+      index += 1;
+    } else if (character === "\n" || character === "\r") {
+      finishLine(false);
     } else {
       field += character;
     }
   }
 
   if (quoted) {
-    throw new CsvValidationError("The CSV contains an unclosed quoted value.");
+    throw new CsvValidationError(
+      `Line ${rowNumber}: the CSV contains an unclosed quoted value.`,
+    );
   }
 
-  if (field.length > 0 || row.length > 0) {
-    row.push(field.replace(/\r$/, ""));
-    rows.push(row);
+  if (field.length > 0 || values.length > 0 || justClosedQuote) {
+    finishRow();
   }
 
-  return rows.filter((candidate) =>
-    candidate.some((value) => value.trim().length > 0),
+  return rows;
+}
+
+function isBlankRow(row: CsvRow): boolean {
+  return row.values.every((value) => value.trim().length === 0);
+}
+
+function isStrictIsoDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return (
+    !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value
   );
 }
 
 function parseDate(value: string, rowNumber: number): string {
-  const trimmed = value.trim();
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
-  if (!match) {
+  if (value !== value.trim() || !isStrictIsoDate(value)) {
     throw new CsvValidationError(
-      `Row ${rowNumber}: date must use YYYY-MM-DD format.`,
+      `Row ${rowNumber}: date must be a valid YYYY-MM-DD value with no surrounding whitespace.`,
     );
   }
-
-  const date = new Date(`${trimmed}T00:00:00Z`);
-  if (
-    Number.isNaN(date.getTime()) ||
-    date.toISOString().slice(0, 10) !== trimmed
-  ) {
-    throw new CsvValidationError(`Row ${rowNumber}: date is not valid.`);
-  }
-
-  return trimmed;
+  return value;
 }
 
 function parseAmount(value: string, rowNumber: number): number {
-  const trimmed = value.trim();
-  const parenthesized = /^\(.*\)$/.test(trimmed);
-  const normalized = trimmed
-    .replace(/[()]/g, "")
-    .replace(/[$,\s]/g, "");
+  const ungrouped = /^-?\$?(?:0|[1-9]\d*)(?:\.\d{1,2})?$/;
+  const grouped = /^-?\$?[1-9]\d{0,2}(?:,\d{3})+(?:\.\d{1,2})?$/;
 
-  if (!/^-?\d+(?:\.\d{1,2})?$/.test(normalized)) {
+  if (
+    value !== value.trim() ||
+    value.includes(" ") ||
+    (!ungrouped.test(value) && !grouped.test(value))
+  ) {
     throw new CsvValidationError(
-      `Row ${rowNumber}: amount must be a number with at most two decimal places.`,
+      `Row ${rowNumber}: amount must use a plain leading minus, optional leading $, valid comma groups, and at most two decimal places.`,
     );
   }
 
-  const numeric = Number(normalized) * (parenthesized ? -1 : 1);
-  const cents = Math.round(numeric * 100);
+  const negative = value.startsWith("-");
+  const unsigned = value.replace(/^-/, "").replace(/^\$/, "").replace(/,/g, "");
+  const [whole, fraction = ""] = unsigned.split(".");
+  const absoluteCents = Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
+  const cents = negative ? -absoluteCents : absoluteCents;
+
   if (!Number.isSafeInteger(cents)) {
-    throw new CsvValidationError(`Row ${rowNumber}: amount is outside the supported range.`);
+    throw new CsvValidationError(
+      `Row ${rowNumber}: amount is outside the supported range.`,
+    );
   }
 
   return cents;
+}
+
+function parseType(value: string, rowNumber: number): TransactionType {
+  if (value !== value.trim()) {
+    throw new CsvValidationError(
+      `Row ${rowNumber}: type cannot contain surrounding whitespace.`,
+    );
+  }
+
+  const type = value.toLowerCase() as TransactionType;
+  if (!ALLOWED_TYPES.has(type)) {
+    throw new CsvValidationError(
+      `Row ${rowNumber}: type must be invoice, credit, or payment.`,
+    );
+  }
+  return type;
+}
+
+function parseStatus(value: string, rowNumber: number): string {
+  if (value !== value.trim()) {
+    throw new CsvValidationError(
+      `Row ${rowNumber}: payment_status cannot contain surrounding whitespace.`,
+    );
+  }
+  if (value && !/^[A-Za-z0-9]+(?:[ _-][A-Za-z0-9]+)*$/.test(value)) {
+    throw new CsvValidationError(
+      `Row ${rowNumber}: payment_status contains unsupported characters.`,
+    );
+  }
+  return normalizeStatus(value);
 }
 
 export function parseReconciliationCsv(
@@ -194,11 +310,13 @@ export function parseReconciliationCsv(
   sourceName: string,
 ): ParsedRecord[] {
   const rows = parseCsvRows(csv);
-  if (rows.length < 2) {
+  const headerIndex = rows.findIndex((row) => !isBlankRow(row));
+  if (headerIndex < 0) {
     throw new CsvValidationError("Add a header row and at least one data row.");
   }
 
-  const headers = rows[0].map(normalizeHeader);
+  const headerRow = rows[headerIndex];
+  const headers = headerRow.values.map(normalizeHeader);
   const duplicateHeaders = headers.filter(
     (header, index) => headers.indexOf(header) !== index,
   );
@@ -210,7 +328,9 @@ export function parseReconciliationCsv(
     );
   }
 
-  const unexpectedHeaders = headers.filter((header) => !ALLOWED_COLUMNS.has(header));
+  const unexpectedHeaders = headers.filter(
+    (header) => !ALLOWED_COLUMNS.has(header),
+  );
   if (unexpectedHeaders.length > 0) {
     throw new CsvValidationError(
       `Remove unsupported column${unexpectedHeaders.length === 1 ? "" : "s"} before continuing: ${unexpectedHeaders.join(
@@ -228,54 +348,63 @@ export function parseReconciliationCsv(
     );
   }
 
-  const dataRows = rows.slice(1);
-  if (dataRows.length > MAX_ROWS_PER_FILE) {
-    throw new CsvValidationError(
-      `This pilot workspace accepts up to ${MAX_ROWS_PER_FILE} rows per file.`,
-    );
+  const dataRows = rows
+    .slice(headerIndex + 1)
+    .filter((row) => !isBlankRow(row));
+  if (dataRows.length === 0) {
+    throw new CsvValidationError("Add at least one data row.");
   }
 
-  return dataRows.map((values, index) => {
-    const rowNumber = index + 2;
-    if (values.length !== headers.length) {
+  const records = dataRows.map((row) => {
+    if (row.values.length !== headers.length) {
       throw new CsvValidationError(
-        `Row ${rowNumber}: expected ${headers.length} columns but found ${values.length}.`,
+        `Row ${row.rowNumber}: expected ${headers.length} columns but found ${row.values.length}.`,
       );
     }
 
     const fields = Object.fromEntries(
-      headers.map((header, headerIndex) => [header, values[headerIndex] ?? ""]),
+      headers.map((header, headerIndex) => [
+        header,
+        row.values[headerIndex] ?? "",
+      ]),
     );
-    const reference = fields.reference.trim();
-    if (!reference) {
-      throw new CsvValidationError(`Row ${rowNumber}: reference is required.`);
+    const reference = fields.reference;
+    if (!reference.trim()) {
+      throw new CsvValidationError(
+        `Row ${row.rowNumber}: reference is required.`,
+      );
     }
     if (reference.length > 80) {
       throw new CsvValidationError(
-        `Row ${rowNumber}: reference must be 80 characters or fewer.`,
+        `Row ${row.rowNumber}: reference must be 80 characters or fewer.`,
       );
     }
 
-    const type = fields.type.trim().toLowerCase() as TransactionType;
-    if (!ALLOWED_TYPES.has(type)) {
-      throw new CsvValidationError(
-        `Row ${rowNumber}: type must be invoice, credit, or payment.`,
-      );
-    }
-
+    const type = parseType(fields.type, row.rowNumber);
     return {
-      id: `${source}-${rowNumber}`,
+      id: `${source}-${row.rowNumber}`,
       source,
       sourceName,
-      rowNumber,
+      rowNumber: row.rowNumber,
       reference,
       normalizedReference: normalizeReference(reference),
-      date: parseDate(fields.date, rowNumber),
+      date: parseDate(fields.date, row.rowNumber),
       type,
-      amountCents: parseAmount(fields.amount, rowNumber),
-      paymentStatus: normalizeStatus(fields.payment_status ?? ""),
+      amountCents: parseAmount(fields.amount, row.rowNumber),
+      paymentStatus: parseStatus(fields.payment_status ?? "", row.rowNumber),
     };
   });
+
+  const invoiceCreditCount = records.filter(
+    (record) => record.type === "invoice" || record.type === "credit",
+  ).length;
+  if (invoiceCreditCount > MAX_INVOICE_CREDIT_ROWS) {
+    throw new CsvValidationError(
+      `This pilot accepts up to ${MAX_INVOICE_CREDIT_ROWS} invoice or credit rows per file; payment rows do not count toward that limit.`,
+    );
+  }
+
+  return records;
 }
 
 function groupBy(
@@ -325,8 +454,15 @@ function toTrace(record: ParsedRecord): SourceTrace {
   };
 }
 
-function firstAmount(records: ParsedRecord[]): number | undefined {
-  return records[0]?.amountCents;
+function groupedAmount(records: ParsedRecord[]): number | undefined {
+  if (records.length === 0) return undefined;
+  const total = records.reduce((sum, record) => sum + record.amountCents, 0);
+  if (!Number.isSafeInteger(total)) {
+    throw new ReconciliationValidationError(
+      "A grouped amount is outside the supported range.",
+    );
+  }
+  return total;
 }
 
 type FindingInput = Omit<ReconciliationFinding, "id">;
@@ -343,8 +479,8 @@ function finding(
     status,
     reference: representative.reference,
     type: representative.type,
-    statementAmountCents: firstAmount(statementRecords),
-    ledgerAmountCents: firstAmount(ledgerRecords),
+    statementAmountCents: groupedAmount(statementRecords),
+    ledgerAmountCents: groupedAmount(ledgerRecords),
     statementTraces: statementRecords.map(toTrace),
     ledgerTraces: ledgerRecords.map(toTrace),
     rule,
@@ -352,7 +488,10 @@ function finding(
   };
 }
 
-function available(records: ParsedRecord[], consumed: Set<string>): ParsedRecord[] {
+function available(
+  records: ParsedRecord[],
+  consumed: Set<string>,
+): ParsedRecord[] {
   return records.filter((record) => !consumed.has(record.id));
 }
 
@@ -368,27 +507,130 @@ function earliestRow(item: FindingInput): number {
   );
 }
 
+function cleanProvenanceField(
+  value: string,
+  label: "vendor" | "location",
+): string {
+  const cleaned = value.trim().replace(/\s+/g, " ");
+  if (!cleaned) {
+    throw new ReconciliationValidationError(
+      `Enter the ${label} before reconciling.`,
+    );
+  }
+  if (cleaned.length > 120) {
+    throw new ReconciliationValidationError(
+      `${label === "vendor" ? "Vendor" : "Location"} must be 120 characters or fewer.`,
+    );
+  }
+  return cleaned;
+}
+
+function validateProvenance(
+  provenance: ReconciliationProvenance,
+  records: ParsedRecord[],
+): ReconciliationProvenance {
+  const cleaned = {
+    vendor: cleanProvenanceField(provenance.vendor, "vendor"),
+    location: cleanProvenanceField(provenance.location, "location"),
+    periodStart: provenance.periodStart,
+    periodEnd: provenance.periodEnd,
+  };
+
+  if (
+    !isStrictIsoDate(cleaned.periodStart) ||
+    !isStrictIsoDate(cleaned.periodEnd)
+  ) {
+    throw new ReconciliationValidationError(
+      "Enter a valid statement period start and end date.",
+    );
+  }
+  if (cleaned.periodStart > cleaned.periodEnd) {
+    throw new ReconciliationValidationError(
+      "Statement period end must be on or after its start.",
+    );
+  }
+
+  const outsidePeriod = records.find(
+    (record) =>
+      record.date < cleaned.periodStart || record.date > cleaned.periodEnd,
+  );
+  if (outsidePeriod) {
+    throw new ReconciliationValidationError(
+      `${outsidePeriod.sourceName} row ${outsidePeriod.rowNumber} falls outside the stated period.`,
+    );
+  }
+
+  return cleaned;
+}
+
+function canonicalDataset(records: ParsedRecord[]): string {
+  return records
+    .map((record) =>
+      JSON.stringify([
+        record.normalizedReference,
+        record.date,
+        record.type,
+        record.amountCents,
+        record.paymentStatus,
+      ]),
+    )
+    .sort()
+    .join("\n");
+}
+
+function assertDistinctDatasets(
+  statementRecords: ParsedRecord[],
+  ledgerRecords: ParsedRecord[],
+): void {
+  if (
+    statementRecords.length === ledgerRecords.length &&
+    canonicalDataset(statementRecords) === canonicalDataset(ledgerRecords)
+  ) {
+    throw new ReconciliationValidationError(
+      "The statement and ledger contain the same normalized rows. Select two independent source exports.",
+    );
+  }
+}
+
 export function reconcileRecords(
   statementRecords: ParsedRecord[],
   ledgerRecords: ParsedRecord[],
+  provenance: ReconciliationProvenance,
   generatedAt = new Date().toISOString(),
 ): ReconciliationReport {
+  if (statementRecords.length === 0 || ledgerRecords.length === 0) {
+    throw new ReconciliationValidationError(
+      "Both the statement and ledger need at least one row.",
+    );
+  }
+
+  assertDistinctDatasets(statementRecords, ledgerRecords);
+  const cleanProvenance = validateProvenance(provenance, [
+    ...statementRecords,
+    ...ledgerRecords,
+  ]);
   const consumed = new Set<string>();
   const draftFindings: FindingInput[] = [];
 
-  const statementFullGroups = groupBy(statementRecords, fullKey);
-  const ledgerFullGroups = groupBy(ledgerRecords, fullKey);
-  const duplicateKeys = new Set(
-    [...statementFullGroups.keys(), ...ledgerFullGroups.keys()].filter(
+  // Repeated normalized reference/type groups must stay open before any exact
+  // matching. Otherwise one duplicate can be hidden behind an apparently exact
+  // counterpart.
+  const statementReferenceGroups = groupBy(statementRecords, referenceTypeKey);
+  const ledgerReferenceGroups = groupBy(ledgerRecords, referenceTypeKey);
+  const repeatedReferenceKeys = new Set(
+    [
+      ...statementReferenceGroups.keys(),
+      ...ledgerReferenceGroups.keys(),
+    ].filter(
       (key) =>
-        (statementFullGroups.get(key)?.length ?? 0) > 1 ||
-        (ledgerFullGroups.get(key)?.length ?? 0) > 1,
+        (statementReferenceGroups.get(key)?.length ?? 0) > 1 ||
+        (ledgerReferenceGroups.get(key)?.length ?? 0) > 1,
     ),
   );
 
-  duplicateKeys.forEach((key) => {
-    const statementGroup = statementFullGroups.get(key) ?? [];
-    const ledgerGroup = ledgerFullGroups.get(key) ?? [];
+  repeatedReferenceKeys.forEach((key) => {
+    const statementGroup = statementReferenceGroups.get(key) ?? [];
+    const ledgerGroup = ledgerReferenceGroups.get(key) ?? [];
     consume(statementGroup, consumed);
     consume(ledgerGroup, consumed);
     draftFindings.push(
@@ -396,8 +638,8 @@ export function reconcileRecords(
         "possible_duplicate",
         statementGroup,
         ledgerGroup,
-        "Duplicate guard: repeated exact keys are never auto-confirmed.",
-        "The same reference, date, type, and amount appears more than once in at least one source. Review every listed row.",
+        "Repeated-reference guard: every row sharing a normalized reference and type remains open before exact matching.",
+        "At least one source repeats this reference and transaction type. Review all grouped rows; none were auto-matched.",
       ),
     );
   });
@@ -420,22 +662,33 @@ export function reconcileRecords(
     consume(statementGroup, consumed);
     consume(ledgerGroup, consumed);
 
+    const statementHasStatus = statementRecord.paymentStatus.length > 0;
+    const ledgerHasStatus = ledgerRecord.paymentStatus.length > 0;
+    const bothHaveStatus = statementHasStatus && ledgerHasStatus;
     const statusesConflict =
-      statementRecord.paymentStatus.length > 0 &&
-      ledgerRecord.paymentStatus.length > 0 &&
+      bothHaveStatus &&
       statementRecord.paymentStatus !== ledgerRecord.paymentStatus;
+    const status: FindingStatus = !bothHaveStatus
+      ? "review_required"
+      : statusesConflict
+        ? "payment_mismatch"
+        : "matched";
 
     draftFindings.push(
       finding(
-        statusesConflict ? "payment_mismatch" : "matched",
+        status,
         statementGroup,
         ledgerGroup,
-        statusesConflict
-          ? "Status check: exact transaction keys match, but payment statuses differ."
-          : "Exact match: normalized reference, date, type, and amount agree.",
-        statusesConflict
-          ? `Statement status “${statementRecord.paymentStatus}” differs from ledger status “${ledgerRecord.paymentStatus}”.`
-          : "The deterministic fields agree across both source rows.",
+        !bothHaveStatus
+          ? "Evidence guard: transaction fields agree, but both sources must provide payment_status evidence."
+          : statusesConflict
+            ? "Status check: transaction fields agree, but payment statuses differ."
+            : "Field match: reference, date, type, amount, and status evidence agree in both sources.",
+        !bothHaveStatus
+          ? "Absent or one-sided status evidence cannot be treated as a completed match."
+          : statusesConflict
+            ? `Statement status “${statementRecord.paymentStatus}” differs from ledger status “${ledgerRecord.paymentStatus}”.`
+            : "The supplied fields agree. This is a field-level match, not proof of payment, closure, or money owed.",
       ),
     );
   });
@@ -504,17 +757,17 @@ export function reconcileRecords(
     );
   });
 
-  const statementByReference = groupBy(
+  const remainingStatementByReference = groupBy(
     available(statementRecords, consumed),
     referenceTypeKey,
   );
-  const ledgerByReference = groupBy(
+  const remainingLedgerByReference = groupBy(
     available(ledgerRecords, consumed),
     referenceTypeKey,
   );
 
-  statementByReference.forEach((statementGroup, key) => {
-    const ledgerGroup = ledgerByReference.get(key) ?? [];
+  remainingStatementByReference.forEach((statementGroup, key) => {
+    const ledgerGroup = remainingLedgerByReference.get(key) ?? [];
     if (ledgerGroup.length === 0) return;
 
     consume(statementGroup, consumed);
@@ -560,7 +813,9 @@ export function reconcileRecords(
     .sort((left, right) => {
       const leftMatched = left.status === "matched" ? 1 : 0;
       const rightMatched = right.status === "matched" ? 1 : 0;
-      return leftMatched - rightMatched || earliestRow(left) - earliestRow(right);
+      return (
+        leftMatched - rightMatched || earliestRow(left) - earliestRow(right)
+      );
     })
     .map((item, index) => ({
       ...item,
@@ -584,6 +839,7 @@ export function reconcileRecords(
     generatedAt,
     statementName: statementRecords[0]?.sourceName ?? "statement.csv",
     ledgerName: ledgerRecords[0]?.sourceName ?? "ap-ledger.csv",
+    provenance: cleanProvenance,
     findings,
     summary: {
       ...statusCounts,
@@ -593,8 +849,16 @@ export function reconcileRecords(
   };
 }
 
+function neutralizeCsvFormula(value: string): string {
+  const candidate = value.replace(
+    /^[ \f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]*/,
+    "",
+  );
+  return /^[=+\-@\t\r\n]/.test(candidate) ? `'${value}` : value;
+}
+
 function escapeCsvText(value: string): string {
-  const formulaSafe = /^[=+@]/.test(value) ? `'${value}` : value;
+  const formulaSafe = neutralizeCsvFormula(value);
   return `"${formulaSafe.replace(/"/g, '""')}"`;
 }
 
@@ -611,6 +875,11 @@ export function buildReconciliationCsv(
   exceptionsOnly = true,
 ): string {
   const headers = [
+    "vendor",
+    "location",
+    "period_start",
+    "period_end",
+    "generated_at",
     "finding_id",
     "status",
     "reference",
@@ -630,6 +899,11 @@ export function buildReconciliationCsv(
 
   const rows = findings.map((item) =>
     [
+      report.provenance.vendor,
+      report.provenance.location,
+      report.provenance.periodStart,
+      report.provenance.periodEnd,
+      report.generatedAt,
       item.id,
       item.status,
       item.reference,
@@ -643,7 +917,7 @@ export function buildReconciliationCsv(
       item.rule,
       item.detail,
     ]
-      .map(escapeCsvText)
+      .map((value) => escapeCsvText(String(value)))
       .join(","),
   );
 

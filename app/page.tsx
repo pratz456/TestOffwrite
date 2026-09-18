@@ -1,22 +1,10 @@
 import type { Metadata } from "next";
-import { ReconciliationSite } from "@/components/reconciliation/reconciliation-site";
+import { LandingPage } from "@/components/landing/landing-page";
 
 export const metadata: Metadata = {
-  title: {
-    absolute: "TableProof — Restaurant Vendor Statement Reconciliation",
-  },
+  title: "WriteOff - AI Tax Deduction Tracker for Freelancers",
   description:
-    "A browser-local validation prototype for matching redacted restaurant vendor statements to AP exports and producing traceable exception reports.",
-  robots: {
-    index: true,
-    follow: true,
-  },
-  openGraph: {
-    title: "TableProof — Close vendor statements with evidence",
-    description:
-      "Match redacted CSVs locally, keep ambiguous rows open, and export a source-linked exception report.",
-    type: "website",
-  },
+    "AI powered tax autopilot that finds, categorizes, and tracks every business expense in real-time. Stop overpaying taxes.",
 };
 
 export default function Home() {
@@ -29,16 +17,22 @@ export default function Home() {
           __html: JSON.stringify({
             "@context": "https://schema.org",
             "@type": "SoftwareApplication",
-            name: "TableProof",
+            name: "WriteOff",
             applicationCategory: "FinanceApplication",
             operatingSystem: "Web",
             description:
-              "Browser-local restaurant vendor statement reconciliation validation prototype.",
-            url: process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000",
+              "AI-powered tax autopilot that automatically finds, categorizes, and tracks every business expense in real-time.",
+            url:
+              process.env.NEXT_PUBLIC_SITE_URL || "https://writeoffapp.com",
+            offers: {
+              "@type": "Offer",
+              price: "14.99",
+              priceCurrency: "USD",
+            },
           }),
         }}
       />
-      <ReconciliationSite />
+      <LandingPage />
     </>
   );
 }
