@@ -139,7 +139,7 @@ describe('returning-customer profile decisions', () => {
     expect(profileLookupState({ name: 'Existing customer' }, null)).toBe('existing');
   });
   it('keeps onboarding open for a document that only records the sign-up acknowledgments', () => {
-    const consents = { version: '2026-09-17', source: 'profile-setup', accepted_at: '2026-09-17T12:00:00.000Z', bank_data: true, ai_review: true, communications: false };
+    const consents = { version: '2026-09-18', source: 'profile-setup', accepted_at: '2026-09-17T12:00:00.000Z', terms: true, bank_data: true, ai_review: true, communications: false };
     // getUserProfile maps absent answers to empty strings.
     expect(profileLookupState({ id: 'new', email: '', name: '', profession: '', income: '', state: '', filing_status: '', consents }, null)).toBe('missing');
     expect(profileLookupState({ id: 'new', name: 'Finished setup', consents }, null)).toBe('existing');

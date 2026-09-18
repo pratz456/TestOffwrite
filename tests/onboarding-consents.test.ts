@@ -53,7 +53,7 @@ vi.mock('react', async importOriginal => {
 });
 
 import {
-  buildConsentRecord, CONSENT_TERMS_VERSION, hasAcknowledgedRequiredConsents, hasDocumentImportConsent, parseConsentRecord, PENDING_CONSENTS_KEY,
+  buildConsentRecord, CONSENT_TERMS_VERSION, hasAcknowledgedRequiredConsents, hasDocumentImportConsent, NO_CONSENTS, parseConsentRecord, PENDING_CONSENTS_KEY,
   PENDING_CONSENTS_TTL_MS, readPendingConsents, signDocumentImportConsent, stashPendingConsents, withdrawDocumentImportConsent, type ConsentRecord,
 } from '../lib/onboarding/consents';
 import { DOCUMENT_IMPORT_CONSENT_TEXT, DOCUMENT_IMPORT_CONSENT_VERSION } from '../lib/onboarding/document-import-consent';
@@ -88,13 +88,13 @@ function memoryStorage(): Storage {
 
 const validRecord: ConsentRecord = {
   version: CONSENT_TERMS_VERSION, source: 'sign-up', accepted_at: '2026-09-17T12:00:00.000Z',
-  bank_data: true, ai_review: true, communications: true, document_import: false,
+  terms: true, bank_data: true, ai_review: true, communications: true, document_import: false,
 };
 
 describe('consent record allowlist', () => {
   it('accepts and normalizes a complete record of the current terms', () => {
     expect(parseConsentRecord({ ...validRecord, accepted_at: '2026-09-17T12:00:00Z' })).toEqual(validRecord);
-    expect(parseConsentRecord({ version: CONSENT_TERMS_VERSION, source: 'profile-setup', accepted_at: validRecord.accepted_at, bank_data: true, ai_review: true }))
+    expect(parseConsentRecord({ version: CONSENT_TERMS_VERSION, source: 'profile-setup', accepted_at: validRecord.accepted_at, terms: true, bank_data: true, ai_review: true }))
       .toMatchObject({ source: 'profile-setup', communications: false });
     expect(hasAcknowledgedRequiredConsents(validRecord)).toBe(true);
   });
@@ -104,6 +104,8 @@ describe('consent record allowlist', () => {
     ['an unknown key', { ...validRecord, marketing_partner: true }],
     ['a missing required acknowledgment', { ...validRecord, ai_review: undefined }],
     ['a declined required acknowledgment', { ...validRecord, bank_data: false }],
+    ['a declined Terms of Service acknowledgment', { ...validRecord, terms: false }],
+    ['a record from before the Terms of Service acknowledgment', { ...validRecord, terms: undefined, version: '2026-09-17' }],
     ['a stale terms version', { ...validRecord, version: '2025-01-01' }],
     ['an unknown source', { ...validRecord, source: 'import' }],
     ['a non-date acceptance time', { ...validRecord, accepted_at: 'yesterday' }],
@@ -112,14 +114,15 @@ describe('consent record allowlist', () => {
     expect(parseConsentRecord(input)).toBeNull();
     expect(hasAcknowledgedRequiredConsents(input)).toBe(false);
   });
-  it('builds a record only once both required acknowledgments are checked', () => {
+  it('builds a record only once every required acknowledgment is checked', () => {
     const now = new Date('2026-09-17T15:30:00.000Z');
-    expect(buildConsentRecord({ bank_data: true, ai_review: false, communications: true, document_import: false }, 'sign-up', now)).toBeNull();
-    expect(buildConsentRecord({ bank_data: true, ai_review: true, communications: false, document_import: false }, 'profile-setup', now))
-      .toEqual({ version: CONSENT_TERMS_VERSION, source: 'profile-setup', accepted_at: now.toISOString(), bank_data: true, ai_review: true, communications: false, document_import: false });
+    expect(buildConsentRecord({ terms: true, bank_data: true, ai_review: false, communications: true, document_import: false }, 'sign-up', now)).toBeNull();
+    expect(buildConsentRecord({ terms: false, bank_data: true, ai_review: true, communications: true, document_import: false }, 'sign-up', now)).toBeNull();
+    expect(buildConsentRecord({ terms: true, bank_data: true, ai_review: true, communications: false, document_import: false }, 'profile-setup', now))
+      .toEqual({ version: CONSENT_TERMS_VERSION, source: 'profile-setup', accepted_at: now.toISOString(), terms: true, bank_data: true, ai_review: true, communications: false, document_import: false });
   });
   it('never records the §7216 document consent from sign-up choices alone', () => {
-    const record = buildConsentRecord({ bank_data: true, ai_review: true, communications: false, document_import: true }, 'sign-up');
+    const record = buildConsentRecord({ terms: true, bank_data: true, ai_review: true, communications: false, document_import: true }, 'sign-up');
     expect(record).toMatchObject({ document_import: false });
     expect(record).not.toHaveProperty('document_import_signature');
   });
@@ -196,15 +199,19 @@ describe('pending sign-up acknowledgments', () => {
 
 describe('consent checkboxes are labeled controls', () => {
   it('pairs every checkbox with a label and marks the required ones', () => {
-    const tree = ConsentCheckboxes({ values: { bank_data: true, ai_review: false, communications: false }, onChange: vi.fn(), idPrefix: 'setup' });
+    const tree = ConsentCheckboxes({ values: { terms: false, bank_data: true, ai_review: false, communications: false, document_import: false }, onChange: vi.fn(), idPrefix: 'setup' });
     const inputs = walk(tree).filter(node => node.type === 'input');
     const labels = walk(tree).filter(node => node.type === 'label');
-    expect(inputs.map(node => node.props.id)).toEqual(['setup-bankConsent', 'setup-aiConsent', 'setup-commConsent']);
+    expect(inputs.map(node => node.props.id)).toEqual(['setup-termsConsent', 'setup-bankConsent', 'setup-aiConsent', 'setup-commConsent']);
     expect(labels.map(node => node.props.htmlFor)).toEqual(inputs.map(node => node.props.id));
-    expect(inputs.map(node => node.props['aria-required'])).toEqual([true, true, false]);
-    expect(inputs.map(node => node.props.checked)).toEqual([true, false, false]);
-    expect(ConsentCheckboxes({ values: { bank_data: false, ai_review: false, communications: false }, onChange: vi.fn() }).props.children.map((child: Element) => child.props.children[0].props.id))
-      .toEqual(['bankConsent', 'aiConsent', 'commConsent']);
+    expect(inputs.map(node => node.props['aria-required'])).toEqual([true, true, true, false]);
+    expect(inputs.map(node => node.props.checked)).toEqual([false, true, false, false]);
+    // The Terms acknowledgment links to both governing documents and states the no-filing scope.
+    const termsLabel = labels.find(node => node.props.htmlFor === 'setup-termsConsent')!;
+    expect(walk(termsLabel).filter(node => node.type === 'a').map(node => node.props.href)).toEqual(['/terms', '/privacy']);
+    expect(text(termsLabel)).toContain('does not prepare or file tax returns');
+    expect(ConsentCheckboxes({ values: NO_CONSENTS, onChange: vi.fn() }).props.children.map((child: Element) => child.props.children[0].props.id))
+      .toEqual(['termsConsent', 'bankConsent', 'aiConsent', 'commConsent']);
   });
 });
 
@@ -232,7 +239,7 @@ const checkboxes = (tree: Element) => walk(tree).find(node => node.type === Cons
 const postedConsents = () => harness.request.mock.calls.filter(([url]) => url === '/api/database/profiles').map(([, options]) => JSON.parse(options.body).consents);
 
 describe('profile setup collects acknowledgments before any answer is saved', () => {
-  it('starts a Google account without a record on the consent step and only enables continue once both required boxes are checked', () => {
+  it('starts a Google account without a record on the consent step and only enables continue once every required box is checked', () => {
     const tree = renderSetup();
     expect(text(tree)).toContain('A few acknowledgments first');
     expect(walk(tree).some(node => node.type === NoticeAtCollection)).toBe(true);
@@ -242,18 +249,21 @@ describe('profile setup collects acknowledgments before any answer is saved', ()
     checkboxes(tree).props.onChange('bank_data', true);
     expect(continueButton(renderSetup()).props.disabled).toBe(true);
     checkboxes(tree).props.onChange('ai_review', true);
+    expect(continueButton(renderSetup()).props.disabled).toBe(true);
+    checkboxes(tree).props.onChange('terms', true);
     expect(continueButton(renderSetup()).props.disabled).toBe(false);
     expect(harness.request).not.toHaveBeenCalled();
   });
 
   it('records the acknowledgments through the profile API, then opens the profile form', async () => {
     const tree = renderSetup();
+    checkboxes(tree).props.onChange('terms', true);
     checkboxes(tree).props.onChange('bank_data', true);
     checkboxes(tree).props.onChange('ai_review', true);
     await continueButton(renderSetup()).props.onClick();
     const next = renderSetup();
     expect(harness.request).toHaveBeenCalledExactlyOnceWith('/api/database/profiles', expect.objectContaining({ method: 'POST' }));
-    expect(postedConsents()).toEqual([expect.objectContaining({ version: CONSENT_TERMS_VERSION, source: 'profile-setup', bank_data: true, ai_review: true, communications: false })]);
+    expect(postedConsents()).toEqual([expect.objectContaining({ version: CONSENT_TERMS_VERSION, source: 'profile-setup', terms: true, bank_data: true, ai_review: true, communications: false })]);
     expect(Date.parse(postedConsents()[0].accepted_at)).not.toBeNaN();
     expect(text(next)).toContain('About you');
     expect(text(next)).not.toContain('A few acknowledgments first');
@@ -263,6 +273,7 @@ describe('profile setup collects acknowledgments before any answer is saved', ()
   it('stays on the consent step with a retryable error when the record cannot be saved', async () => {
     harness.request.mockResolvedValue(Response.json({ error: 'Failed to save profile' }, { status: 503 }));
     const tree = renderSetup();
+    checkboxes(tree).props.onChange('terms', true);
     checkboxes(tree).props.onChange('bank_data', true);
     checkboxes(tree).props.onChange('ai_review', true);
     await continueButton(renderSetup()).props.onClick();
@@ -300,7 +311,7 @@ describe('profile setup collects acknowledgments before any answer is saved', ()
     renderSetup(); await flush();
     const tree = renderSetup();
     expect(text(tree)).toContain('A few acknowledgments first');
-    expect(checkboxes(tree).props.values).toEqual({ bank_data: true, ai_review: true, communications: true, document_import: false });
+    expect(checkboxes(tree).props.values).toEqual({ terms: true, bank_data: true, ai_review: true, communications: true, document_import: false });
     expect(text(walk(tree).find(node => node.props?.role === 'alert')!)).toBe(CONSENT_SAVE_ERROR);
   });
 
@@ -334,12 +345,13 @@ describe('sign-up form carries acknowledgments into profile setup', () => {
     harness.google.mockResolvedValue({ data: { user: { id: 'google-user', email: 'Person@Example.test' } }, error: null });
     renderSignUp(); await flush();
     const tree = renderSignUp();
+    checkboxes(tree).props.onChange('terms', true);
     checkboxes(tree).props.onChange('bank_data', true);
     checkboxes(tree).props.onChange('ai_review', true);
     checkboxes(tree).props.onChange('communications', true);
     await googleButton(renderSignUp()).props.onClick();
     expect(harness.navigate).toHaveBeenCalledWith('/protected/profile-setup');
-    expect(stashed()).toMatchObject({ email: 'person@example.test', record: { version: CONSENT_TERMS_VERSION, source: 'sign-up', bank_data: true, ai_review: true, communications: true } });
+    expect(stashed()).toMatchObject({ email: 'person@example.test', record: { version: CONSENT_TERMS_VERSION, source: 'sign-up', terms: true, bank_data: true, ai_review: true, communications: true } });
     expect(readPendingConsents('person@example.test', storage)).toMatchObject({ source: 'sign-up', communications: true });
   });
 
@@ -369,6 +381,10 @@ describe('sign-up form carries acknowledgments into profile setup', () => {
     expect(text(walk(renderSignUp()).find(node => node.props?.role === 'alert')!)).toContain('required acknowledgments');
     checkboxes(tree).props.onChange('bank_data', true);
     checkboxes(tree).props.onChange('ai_review', true);
+    // Bank and AI acknowledgments alone are not enough; the Terms of Service must be accepted too.
+    await walk(renderSignUp()).find(node => node.type === 'form')!.props.onSubmit({ preventDefault() {} });
+    expect(harness.signUp).not.toHaveBeenCalled();
+    checkboxes(tree).props.onChange('terms', true);
     await walk(renderSignUp()).find(node => node.type === 'form')!.props.onSubmit({ preventDefault() {} });
     expect(harness.signUp).toHaveBeenCalledWith('New@Example.test', 'Sup3r-Secret!!');
     expect(harness.replace).toHaveBeenCalledWith('/auth/sign-up-success');

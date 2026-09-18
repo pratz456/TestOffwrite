@@ -127,6 +127,7 @@ export default function ToolsPage() {
               <Link href="/about" className="hover:text-gray-700">About</Link>
               <Link href="/blog" className="hover:text-gray-700">Blog</Link>
               <Link href="/privacy" className="hover:text-gray-700">Privacy</Link>
+              <Link href="/terms" className="hover:text-gray-700">Terms</Link>
               <Link href="/contact" className="hover:text-gray-700">Contact</Link>
             </div>
           </div>

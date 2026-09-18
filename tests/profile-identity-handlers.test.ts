@@ -35,7 +35,7 @@ import { CONSENT_TERMS_VERSION } from '../lib/onboarding/consents';
 type Element = ReactElement<Record<string, any>>;
 const user = (email: string | null): AuthUser => ({ id: 'google-user', email, emailVerified: true, sessionReady: true, user_metadata: { name: 'Original Google Name' } });
 // These tests cover the profile form; the acknowledgments step that precedes it is covered in tests/onboarding-consents.test.ts.
-const acknowledged = { version: CONSENT_TERMS_VERSION, source: 'sign-up', accepted_at: '2026-09-17T12:00:00.000Z', bank_data: true, ai_review: true, communications: false };
+const acknowledged = { version: CONSENT_TERMS_VERSION, source: 'sign-up', accepted_at: '2026-09-17T12:00:00.000Z', terms: true, bank_data: true, ai_review: true, communications: false };
 function render(email: string | null, uid = 'google-user', existingConsents: unknown = acknowledged) {
   harness.cursor = 0;
   const tree = ProfileSetupScreen({ user: { ...user(email), id: uid }, existingConsents, onBack() {}, onComplete() {} }) as Element;

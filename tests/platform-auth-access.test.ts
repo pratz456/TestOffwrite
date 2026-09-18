@@ -10,6 +10,7 @@ import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import { POST as session } from '@/app/api/auth/session/route';
 import { GET as profileGet, POST as profilePost } from '@/app/api/database/profiles/route';
 import { anonymousRateLimitKey, clearRateLimitMemory, RATE_LIMITS } from '@/lib/security/rate-limit';
+import { CONSENT_TERMS_VERSION } from '@/lib/onboarding/consents';
 import { exhaustRateLimit, failRateLimitStore, fakeRateLimitFirestore, recordedRateLimitCount, resetRateLimitStore } from './fixtures/rate-limit-store';
 
 function request(headers: Record<string, string> = {}, method = 'GET', body?: unknown) {
@@ -125,7 +126,7 @@ describe('server profile API boundaries', () => {
   });
 
   describe('sign-up consent record', () => {
-    const consents = { version: '2026-09-17', source: 'profile-setup', accepted_at: '2026-09-17T12:00:00Z', bank_data: true, ai_review: true, communications: false };
+    const consents = { version: CONSENT_TERMS_VERSION, source: 'profile-setup', accepted_at: '2026-09-17T12:00:00Z', terms: true, bank_data: true, ai_review: true, communications: false };
     beforeEach(() => {
       mock.transaction.mockImplementation(async (callback: (transaction: unknown) => Promise<void>) => callback({ get: mock.get, set: mock.set }));
     });

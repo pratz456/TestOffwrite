@@ -32,6 +32,7 @@ vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collection: (name: string) =
 import { POST as importDocument } from '../app/api/tax/import-document/route';
 import { encryptSensitive } from '../lib/security/utils';
 import { DOCUMENT_IMAGE_CONSENT_REQUIRED, DOCUMENT_IMPORT_CONSENT_VERSION } from '../lib/onboarding/document-import-consent';
+import { CONSENT_TERMS_VERSION } from '../lib/onboarding/consents';
 
 const W2_TEXT = [
   'a Employee\'s social security number 123-45-6789', 'b Employer identification number (EIN) 98-7654321',
@@ -46,7 +47,7 @@ const W2_JSON = { docType: 'w2', employerName: 'Synthetic Employer LLC', employe
 // A real PNG signature: the route verifies magic bytes before OCR.
 const IMAGE_BYTES = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, ...Array.from({ length: 64 }, () => 1)]);
 const consents = (documentImport: boolean, version = DOCUMENT_IMPORT_CONSENT_VERSION) => ({
-  version: '2026-09-17', source: 'sign-up', accepted_at: '2026-09-17T12:00:00.000Z', bank_data: true, ai_review: true, communications: false,
+  version: CONSENT_TERMS_VERSION, source: 'sign-up', accepted_at: '2026-09-17T12:00:00.000Z', terms: true, bank_data: true, ai_review: true, communications: false,
   document_import: documentImport, ...(documentImport ? { document_import_signature: { version, signed_name: 'Synthetic Signer', signed_at: '2026-09-18T09:00:00.000Z' } } : {}),
 });
 

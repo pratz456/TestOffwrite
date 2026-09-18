@@ -6,9 +6,9 @@
  */
 import { DOCUMENT_IMPORT_CONSENT_VERSION } from './document-import-consent';
 
-export const CONSENT_TERMS_VERSION = '2026-09-17';
+export const CONSENT_TERMS_VERSION = '2026-09-18';
 
-export const REQUIRED_CONSENTS = ['bank_data', 'ai_review'] as const;
+export const REQUIRED_CONSENTS = ['terms', 'bank_data', 'ai_review'] as const;
 /**
  * `communications` is a marketing preference. `document_import` is the §7216
  * consent to disclose a whole tax-document image to OpenAI; it is never offered
@@ -42,7 +42,7 @@ export interface ConsentRecord extends ConsentChoices {
   document_import_signature?: DocumentImportConsentSignature;
 }
 
-export const NO_CONSENTS: ConsentChoices = { bank_data: false, ai_review: false, communications: false, document_import: false };
+export const NO_CONSENTS: ConsentChoices = { terms: false, bank_data: false, ai_review: false, communications: false, document_import: false };
 
 export function requiredConsentsAccepted(choices: Partial<ConsentChoices> | null | undefined): boolean {
   return REQUIRED_CONSENTS.every(key => choices?.[key] === true);
@@ -55,6 +55,7 @@ export function buildConsentRecord(choices: ConsentChoices, source: ConsentSourc
     version: CONSENT_TERMS_VERSION,
     source,
     accepted_at: now.toISOString(),
+    terms: true,
     bank_data: true,
     ai_review: true,
     communications: choices.communications === true,
@@ -102,6 +103,7 @@ export function parseConsentRecord(input: unknown): ConsentRecord | null {
     version: CONSENT_TERMS_VERSION,
     source: record.source as ConsentSource,
     accepted_at: new Date(record.accepted_at).toISOString(),
+    terms: true,
     bank_data: true,
     ai_review: true,
     communications: record.communications === true,

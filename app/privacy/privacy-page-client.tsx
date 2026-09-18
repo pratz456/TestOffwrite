@@ -7,6 +7,7 @@ import { Shield, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import writeOffLogo from '@/public/writeofflogo.png';
 import Image from 'next/image';
+import { CONSENT_TERMS_VERSION } from '@/lib/onboarding/consents';
 
 export default function PrivacyPolicyPageClient() {
   return (
@@ -36,7 +37,7 @@ export default function PrivacyPolicyPageClient() {
               Privacy Policy
             </CardTitle>
             <CardDescription className="text-sm text-muted-foreground mb-8 font-tabular-nums">
-              Effective date: September 17, 2026 (version 2026-09-17)
+              Effective date: September 18, 2026 (version {CONSENT_TERMS_VERSION})
             </CardDescription>
           </CardHeader>
           <CardContent className="p-8 md:p-10 pt-4 space-y-6 [&>div:not(:first-child)]:mt-10 [&>div:not(:first-child)]:border-t [&>div:not(:first-child)]:border-border [&>div:not(:first-child)]:pt-8 [&_p]:text-base [&_p]:leading-[1.75] [&_p]:text-muted-foreground [&_p]:mb-4 [&_h3]:text-lg md:[&_h3]:text-xl [&_h3]:font-bold [&_h3]:text-foreground [&_h3]:mb-3 [&_ul]:list-disc [&_ul]:list-inside [&_ul]:ml-5 md:[&_ul]:ml-6 [&_ul]:mt-2 [&_ul]:mb-4 [&_ul]:space-y-2 [&_ul]:text-muted-foreground [&_ul]:[&_li]:marker:text-muted-foreground">
@@ -86,7 +87,10 @@ export default function PrivacyPolicyPageClient() {
             <div>
               <h3>Data Retention</h3>
               <p className="mb-3">
-                We retain your data as long as your account is active or as needed to provide services, comply with legal obligations, or resolve disputes. You may request deletion at any time.
+                We retain your data as long as your account is active or as needed to provide services, comply with legal obligations, or resolve disputes. You can delete your account at any time from Settings, or ask us to.
+              </p>
+              <p className="mb-3">
+                Deleting your account removes your records from the live database right away. Copies can remain in point-in-time recovery for up to 7 days and in scheduled backups for up to 14 weeks, and Google&apos;s infrastructure may hold backup copies for up to about six months before they expire. Backups are used only to recover the service from an outage; after any restore, deletions requested before it are carried out again. We keep a minimal record that a deletion was requested and completed.
               </p>
             </div>
 

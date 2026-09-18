@@ -10,7 +10,7 @@ import { DocumentImportScreen } from '@/components/document-import-screen';
 import { CONSENT_TERMS_VERSION } from '@/lib/onboarding/consents';
 import { DOCUMENT_IMPORT_CONSENT_DATE_BLANK, DOCUMENT_IMPORT_CONSENT_TEXT, DOCUMENT_IMPORT_CONSENT_VERSION } from '@/lib/onboarding/document-import-consent';
 
-const record = { version: CONSENT_TERMS_VERSION, source: 'sign-up', accepted_at: '2026-09-17T12:00:00.000Z', bank_data: true, ai_review: true, communications: false, document_import: false };
+const record = { version: CONSENT_TERMS_VERSION, source: 'sign-up', accepted_at: '2026-09-17T12:00:00.000Z', terms: true, bank_data: true, ai_review: true, communications: false, document_import: false };
 const signed = { ...record, document_import: true, document_import_signature: { version: DOCUMENT_IMPORT_CONSENT_VERSION, signed_name: 'Synthetic Signer', signed_at: '2026-09-18T09:00:00.000Z' } };
 const today = new Date('2026-09-19T15:00:00.000Z');
 const unescape = (html: string) => html.replace(/&#x27;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');

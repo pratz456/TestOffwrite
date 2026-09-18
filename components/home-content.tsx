@@ -38,6 +38,7 @@ export function HomeContent() {
         <nav className="flex flex-wrap items-center justify-center gap-x-5" aria-label="Support and policies">
           <Link href="/help" prefetch={false} className="inline-flex min-h-11 items-center text-xs text-muted-foreground hover:text-foreground">Help & Support</Link>
           <Link href="/privacy" prefetch={false} className="inline-flex min-h-11 items-center text-xs text-muted-foreground hover:text-foreground">Privacy</Link>
+          <Link href="/terms" prefetch={false} className="inline-flex min-h-11 items-center text-xs text-muted-foreground hover:text-foreground">Terms</Link>
           <Link href="/about" prefetch={false} className="inline-flex min-h-11 items-center text-xs text-muted-foreground hover:text-foreground">About</Link>
           <a href="mailto:writeoffapp@gmail.com" className="inline-flex min-h-11 items-center text-xs text-muted-foreground hover:text-foreground">Contact</a>
         </nav>
