@@ -69,6 +69,8 @@ if (mode !== 'authenticated') {
     ['POST /api/plaid/webhook', [401]], ['GET /api/plaid/webhook', [200]],
     // Support diagnostics deliberately answer 404 to anonymous and non-admin callers (route existence is hidden).
     ['GET /api/support/account/smoke-missing', [404]],
+    // Maintenance routes are unreachable in production builds (404) since the API security hardening.
+    ['POST /api/fix-transaction-analysis', [404]], ['POST /api/migrate-ai-analysis', [404]],
   ]);
   for (const { route, method } of sourceApis) {
     await check(`anonymous ${method} ${route}`, async () => {
