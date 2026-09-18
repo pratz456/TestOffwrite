@@ -11,9 +11,11 @@ export async function localDemoAIEnvironment(args, cwd = process.cwd()) {
   const contents = parse(await fs.readFile(path.resolve(cwd, args[1]), 'utf8'));
   const key = contents.OPENAI_API_KEY?.trim();
   if (!key) throw new Error('The selected server environment file has no OpenAI API key.');
+  const model = contents.OPENAI_MODEL?.trim();
+  // Without an explicit override the demo runs the per-task production defaults from lib/openai/client.ts.
   return {
     OPENAI_API_KEY: key,
-    OPENAI_MODEL: contents.OPENAI_MODEL?.trim() || 'gpt-4o-mini',
+    ...(model ? { OPENAI_MODEL: model } : {}),
     AI_ANALYSIS_ENABLED: contents.AI_ANALYSIS_ENABLED === 'false' ? 'false' : 'true',
   };
 }

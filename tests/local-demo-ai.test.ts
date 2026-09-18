@@ -17,10 +17,10 @@ describe('local demo explicit server-only AI connection', () => {
   it('does not connect any provider by default', async () => {
     expect(await localDemoAIEnvironment([])).toEqual({});
   });
-  it('copies only OpenAI settings and defaults the model', async () => {
+  it('copies only OpenAI settings and leaves the per-task production model defaults in place', async () => {
     const dir = await fixture('OPENAI_API_KEY=synthetic-test-key\nFIREBASE_PROJECT_ID=forbidden\nPLAID_SECRET=forbidden\nSTRIPE_SECRET_KEY=forbidden\nNEXT_PUBLIC_OPENAI_API_KEY=forbidden');
     expect(await localDemoAIEnvironment(['--ai-env-file', 'server.env'], dir)).toEqual({
-      OPENAI_API_KEY: 'synthetic-test-key', OPENAI_MODEL: 'gpt-4o-mini', AI_ANALYSIS_ENABLED: 'true',
+      OPENAI_API_KEY: 'synthetic-test-key', AI_ANALYSIS_ENABLED: 'true',
     });
   });
   it('preserves an explicit operator pause and selected model', async () => {
