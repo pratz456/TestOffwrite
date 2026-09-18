@@ -14,7 +14,7 @@ credentials, persist uploaded data, contact vendors, or initiate payments.
 Run it locally:
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
@@ -46,17 +46,17 @@ status evidence. Run focused adversarial tests with
 
 ### Prerequisites
 
-- Node.js 20 (see `.nvmrc`)
+- Node.js 22 (see `.nvmrc`)
 - npm
 
 ### Install and Run
 
 ```bash
-# Use Node 20 (Windows: run before npm commands)
-. .\tools\powershell\ensure-node-20.ps1
+# Use the Node 22 release selected by .nvmrc
+nvm use
 
 # Install dependencies
-npm install
+npm ci
 
 # Start dev server
 npm run dev
