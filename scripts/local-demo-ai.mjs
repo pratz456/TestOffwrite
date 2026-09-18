@@ -1,6 +1,19 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { parse } from 'dotenv';
+import { ANALYSIS_FANOUT_DEFAULTS } from './production-preflight.mjs';
+
+/**
+ * Dotenv file for the analysis Functions emulator. The emulator resolves params
+ * interactively whatever the CLI flags say (firebase-tools emulator/functionsEmulator.js
+ * passes `nonInteractive: false`), and it prompts for every declared non-secret param
+ * missing from the dotenv files, compiled default or not. The demo's stdin is closed,
+ * so a prompt aborts the codebase load and no analysis function ever starts.
+ */
+export function analysisWorkerEnvFile(origin) {
+  return [`ANALYSIS_WORKER_ORIGIN=${origin}`, ...Object.entries(ANALYSIS_FANOUT_DEFAULTS).map(([name, value]) => `${name}=${value}`)]
+    .map(line => `${line}\n`).join('');
+}
 
 /** Explicit opt-in. Never inherit Firebase, bank, payment, or other provider credentials. */
 export async function localDemoAIEnvironment(args, cwd = process.cwd()) {
