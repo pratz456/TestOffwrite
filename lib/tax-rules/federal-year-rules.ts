@@ -1,5 +1,9 @@
 /**
- * Published federal estimator parameters, reviewed September 15, 2026.
+ * Published federal estimator parameters. 2025 and 2026 figures were re-audited against the
+ * primary sources on 2026-09-18 (Rev. Proc. 2024-40, Rev. Proc. 2025-32, P.L. 119-21 enrolled text,
+ * Notices 2024-80 / 2025-67, Rev. Procs. 2024-25 / 2025-19, 2025 Schedule SE instructions and the
+ * 2026 Form 1040-ES); every figure matched. Section references in the year blocks below point at
+ * the paragraph of the revenue procedure that publishes the amount.
  * Annual parameters do not establish eligibility or validate a complete return.
  * 2027 is intentionally absent until the official annual figures are published.
  */
@@ -131,26 +135,37 @@ const rules: Record<SupportedTaxYear, FederalTaxRules> = {
     section179: { limit: 1220000, phaseoutThreshold: 3050000, source: 'Rev. Proc. 2023-34 §3.25' },
   },
   2025: {
-    taxYear: 2025, reviewedAt: '2026-09-15',
+    taxYear: 2025, reviewedAt: '2026-09-18',
     sources: ['https://www.irs.gov/pub/irs-drop/rp-24-40.pdf', 'https://www.irs.gov/pub/irs-drop/rp-25-32.pdf', ...sharedSources],
+    // Rev. Proc. 2024-40 §2.01 Tables 1–4 (rates 10%–37% made permanent by P.L. 119-21 §70101).
     brackets: {
       single: brackets([11925, 48475, 103350, 197300, 250525, 626350]),
       married_filing_jointly: brackets([23850, 96950, 206700, 394600, 501050, 751600]),
       married_filing_separately: brackets([11925, 48475, 103350, 197300, 250525, 375800]),
       head_of_household: brackets([17000, 64850, 103350, 197300, 250500, 626350]),
     },
-    // P.L. 119-21 amended the original Rev. Proc. 2024-40 basic deductions.
+    // P.L. 119-21 §70102(b) rewrote §63(c)(7) to $15,750 / $23,625 (joint = 2 × $15,750) for tax years
+    // beginning after 2024, replacing the $15,000 / $30,000 / $22,500 in Rev. Proc. 2024-40 §2.15.
     standardDeductions: filingAmounts(15750, 31500, 15750, 23625),
+    // Wage base: 2025 Instructions for Schedule SE ("$176,100"); the SSA table in sharedSources
+    // refused automated access on 2026-09-18, so the IRS instructions are the verified source.
+    // SEP / §415(c)(1)(A) limit: Notice 2024-80 ($70,000).
     socialSecurityWageBase: 176100, sepContributionLimit: 70000,
+    // §24(h)(2) as amended by P.L. 119-21 §70104(a)(2): $2,200 (Rev. Proc. 2024-40 predates the
+    // increase); refundable §24(d)(1)(A) amount Rev. Proc. 2024-40 §2.05: $1,700.
     childTaxCreditPerChild: 2200, refundableChildTaxCreditPerChild: 1700,
+    // Rev. Proc. 2024-40 §2.06: table (1) amounts and the §32(i) investment income limit in (2).
     eitcInvestmentIncomeLimit: 11950,
     eitc: eitc([649, 4328, 7152, 8046], [10620, 23350, 23350, 23350],
       [17730, 30470, 30470, 30470], [19104, 50434, 57310, 61555], [26214, 57554, 64430, 68675]),
+    // Rev. Proc. 2024-40 §2.03: maximum zero-rate and 15%-rate amounts under §1(j)(5)(B).
     capitalGainsThresholds: {
       single: [48350, 533400], married_filing_jointly: [96700, 600050],
       married_filing_separately: [48350, 300000], head_of_household: [64750, 566700],
     },
+    // §164(b)(7) as added by P.L. 119-21 §70120: $40,000 cap, 30% phase-down above $500,000 MAGI.
     saltCap: 40000, saltPhaseoutStart: 500000,
+    // Rev. Proc. 2024-40 §2.27: thresholds $197,300 / $394,600; phase-in range $50,000 ($100,000 joint).
     qbiThreshold: filingAmounts(197300, 394600, 197300, 197300), qbiPhaseInWidth: 50000,
     // Rev. Proc. 2024-25 §2: $4,300 self-only, $8,550 family. https://www.irs.gov/pub/irs-drop/rp-24-25.pdf
     hsaContributionLimit: { selfOnly: 4300, family: 8550, catchUp: 1000 },
@@ -162,25 +177,36 @@ const rules: Record<SupportedTaxYear, FederalTaxRules> = {
     section179: { limit: 2500000, phaseoutThreshold: 4000000, source: 'OBBBA §70306 (P.L. 119-21); Rev. Proc. 2025-32 §2.10 and §3.02' },
   },
   2026: {
-    taxYear: 2026, reviewedAt: '2026-09-15',
+    taxYear: 2026, reviewedAt: '2026-09-18',
     sources: ['https://www.irs.gov/pub/irs-drop/rp-25-32.pdf', ...sharedSources],
+    // Rev. Proc. 2025-32 §4.01 Tables 1–4 (the first inflation adjustment incorporating P.L. 119-21).
     brackets: {
       single: brackets([12400, 50400, 105700, 201775, 256225, 640600]),
       married_filing_jointly: brackets([24800, 100800, 211400, 403550, 512450, 768700]),
       married_filing_separately: brackets([12400, 50400, 105700, 201775, 256225, 384350]),
       head_of_household: brackets([17700, 67450, 105700, 201750, 256200, 640600]),
     },
+    // Rev. Proc. 2025-32 §4.14(1): $32,200 joint / $24,150 head of household / $16,100 single and MFS.
     standardDeductions: filingAmounts(16100, 32200, 16100, 24150),
+    // Wage base: 2026 Form 1040-ES self-employment tax worksheet line 5 ("Social security tax maximum
+    // income $184,500"); the SSA table itself was unreachable on 2026-09-18 (see the 2025 note).
+    // SEP / §415(c)(1)(A) limit: Notice 2025-67 ($72,000).
     socialSecurityWageBase: 184500, sepContributionLimit: 72000,
+    // Rev. Proc. 2025-32 §4.05: $2,200 maximum (first indexing year under §24(h)(2)) and $1,700 refundable.
     childTaxCreditPerChild: 2200, refundableChildTaxCreditPerChild: 1700,
+    // Rev. Proc. 2025-32 §4.06: table (1) amounts and the §32(i) investment income limit in (2).
     eitcInvestmentIncomeLimit: 12200,
     eitc: eitc([664, 4427, 7316, 8231], [10860, 23890, 23890, 23890],
       [18140, 31160, 31160, 31160], [19540, 51593, 58629, 62974], [26820, 58863, 65899, 70244]),
+    // Rev. Proc. 2025-32 §4.03: maximum zero-rate and 15%-rate amounts under §1(j)(5)(B).
     capitalGainsThresholds: {
       single: [49450, 545500], married_filing_jointly: [98900, 613700],
       married_filing_separately: [49450, 306850], head_of_household: [66200, 579600],
     },
+    // §164(b)(7)(A)(ii) and (B)(ii): $40,400 cap and $505,000 MAGI threshold fixed by statute for 2026.
     saltCap: 40400, saltPhaseoutStart: 505000,
+    // Rev. Proc. 2025-32 §4.26: thresholds $403,500 joint / $201,775 MFS / $201,750 other;
+    // phase-in range $75,000 ($150,000 joint) per §199A(b)(3)(B) as amended by P.L. 119-21 §70105.
     qbiThreshold: filingAmounts(201750, 403500, 201775, 201750), qbiPhaseInWidth: 75000,
     // Rev. Proc. 2025-19 §2: $4,400 self-only, $8,750 family. https://www.irs.gov/pub/irs-drop/rp-25-19.pdf
     hsaContributionLimit: { selfOnly: 4400, family: 8750, catchUp: 1000 },
