@@ -3,8 +3,17 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { afterEach, describe, expect, it } from 'vitest';
-import { COORDINATED_DEPLOY_VARIABLE, environmentDigest, EXPECTED_PRODUCTION_PLAID_CLIENT_ID, gitBlobDigest, RELEASE_ENV, RELEASE_MANIFEST, MIGRATION_REVIEW, REQUIRED_RELEASE_REVIEWS, runProductionPreflight, validateMigrationReview, validateProductionConfiguration } from '../scripts/production-preflight.mjs';
+import { createRequire } from 'node:module';
+import { ANALYSIS_FANOUT_DEFAULTS, ANALYSIS_FANOUT_LIMITS, COORDINATED_DEPLOY_VARIABLE, environmentDigest, EXPECTED_PRODUCTION_PLAID_CLIENT_ID, gitBlobDigest, RELEASE_ENV, RELEASE_MANIFEST, MIGRATION_REVIEW, REQUIRED_RELEASE_REVIEWS, runProductionPreflight, validateMigrationReview, validateProductionConfiguration } from '../scripts/production-preflight.mjs';
 import { prepareProductionRelease } from '../scripts/prepare-production-release.mjs';
+
+// The deploy tool that consumes the generated dotenv files; its param resolver is the contract under test.
+const firebaseTools = createRequire(import.meta.url);
+const functionParams = firebaseTools('firebase-tools/lib/deploy/functions/params.js') as {
+  resolveParams(params: unknown[], config: unknown, userEnvs: unknown, nonInteractive: boolean, isEmulator?: boolean): Promise<Record<string, { toSDK(): string }>>;
+};
+const functionBuild = firebaseTools('firebase-tools/lib/deploy/functions/build.js') as { envWithTypes(params: unknown[], envs: Record<string, string>): unknown };
+const functionsEnv = firebaseTools('firebase-tools/lib/functions/env.js') as { loadUserEnvs(opts: { functionsSource: string; projectId: string }): Record<string, string> };
 
 const project = 'writeoff-23910';
 const config = { hosting: { source: '.', site: project }, functions: [
@@ -196,8 +205,10 @@ describe('production release preparation', () => {
     expect(fs.readFileSync(path.join(source, '.env.local'), 'utf8')).toBe('PLAID_ENV=sandbox\n');
     expect(fs.existsSync(path.join(output, '.env.local'))).toBe(false);
     expect(fs.statSync(path.join(output, RELEASE_ENV)).mode & 0o077).toBe(0);
-    // Without an explicit ceiling the analysis functions keep their compiled defaults.
-    expect(fs.readFileSync(path.join(output, 'functions-analysis', `.env.${project}`), 'utf8')).toBe('ANALYSIS_WORKER_ORIGIN=https://writeoffapp.com\n');
+    // Without an explicit ceiling the compiled defaults are still written: firebase-tools
+    // prompts for every declared param that is absent from the dotenv file, and a
+    // --non-interactive deploy aborts instead of prompting (see the contract test below).
+    expect(fs.readFileSync(path.join(output, 'functions-analysis', `.env.${project}`), 'utf8')).toBe('ANALYSIS_WORKER_ORIGIN=https://writeoffapp.com\nANALYSIS_MAX_INSTANCES=2\nANALYSIS_CONCURRENCY=2\n');
     expect(fs.readFileSync(path.join(output, 'functions', `.env.${project}`), 'utf8')).not.toContain(env.PLAID_SECRET);
     expect(runProductionPreflight({ cwd: output, inheritedEnv: {}, args: ['--project', project] }).errors).toEqual([]);
     expect(() => prepareProductionRelease({ source, output, envFile, migrationReviewFile })).toThrow('new production release directory');
@@ -210,5 +221,33 @@ describe('production release preparation', () => {
     expect(fs.readFileSync(path.join(tuned, 'functions', `.env.${project}`), 'utf8')).not.toContain('ANALYSIS_');
     fs.writeFileSync(path.join(source, 'unreviewed.txt'), 'changed');
     expect(() => prepareProductionRelease({ source, output: path.join(cwd, 'release2'), envFile, migrationReviewFile })).toThrow('Commit the reviewed changes');
+  });
+});
+
+describe('analysis fan-out params survive a non-interactive deploy', () => {
+  // What firebase-tools discovers from functions-analysis/src/index.ts: an int param with a compiled default.
+  const declaredParams = Object.entries(ANALYSIS_FANOUT_DEFAULTS).map(([name, value]) => ({ name, type: 'int', default: value }));
+  const firebaseConfig = { projectId: project, storageBucket: `${project}.firebasestorage.app`, databaseURL: '' };
+  const resolve = (userEnvs: Record<string, string>) =>
+    functionParams.resolveParams(declaredParams, firebaseConfig, functionBuild.envWithTypes(declaredParams, userEnvs), true, false);
+
+  it('keeps the release defaults equal to the compiled defineInt defaults and inside the preflight bounds', () => {
+    const source = fs.readFileSync(new URL('../functions-analysis/src/index.ts', import.meta.url), 'utf8');
+    expect(Object.keys(ANALYSIS_FANOUT_DEFAULTS)).toEqual(Object.keys(ANALYSIS_FANOUT_LIMITS));
+    for (const [name, value] of Object.entries(ANALYSIS_FANOUT_DEFAULTS)) {
+      expect(source).toMatch(new RegExp(`defineInt\\('${name}',\\s*\\{\\s*default:\\s*${value}\\s*\\}\\)`));
+      expect(value).toBeGreaterThanOrEqual(1);
+      expect(value).toBeLessThanOrEqual(ANALYSIS_FANOUT_LIMITS[name as keyof typeof ANALYSIS_FANOUT_LIMITS]);
+    }
+  });
+
+  it('is refused by firebase-tools when the dotenv file omits a defaulted param, and resolved from the generated file', async () => {
+    // The compiled default alone does not satisfy the resolver: this is why the release file always writes both values.
+    await expect(resolve({})).rejects.toThrow(/non-interactive mode but have no value for the following environment variables: ANALYSIS_MAX_INSTANCES, ANALYSIS_CONCURRENCY/);
+    const functionsSource = directory();
+    fs.writeFileSync(path.join(functionsSource, `.env.${project}`), 'ANALYSIS_WORKER_ORIGIN=https://writeoffapp.com\nANALYSIS_MAX_INSTANCES=2\nANALYSIS_CONCURRENCY=2\n');
+    const resolved = await resolve(functionsEnv.loadUserEnvs({ functionsSource, projectId: project }));
+    expect(resolved.ANALYSIS_MAX_INSTANCES.toSDK()).toBe('2');
+    expect(resolved.ANALYSIS_CONCURRENCY.toSDK()).toBe('2');
   });
 });
