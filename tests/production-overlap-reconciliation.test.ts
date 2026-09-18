@@ -251,6 +251,24 @@ describe('inputs and targets', () => {
     const linked = path.join(root, 'linked-checkout');
     fs.symlinkSync(checkout, linked, 'dir');
     expect(() => assertPrivateOutputPath(path.join(linked, 'inside.json'), checkout)).toThrow(/outside the repository checkout/);
+    // Run from a subdirectory of the checkout: the output is outside cwd yet still inside the repository.
+    const scripts = path.join(checkout, 'scripts');
+    fs.mkdirSync(scripts);
+    expect(() => assertPrivateOutputPath(path.join(checkout, 'inside.json'), scripts, checkout)).toThrow(/outside the repository checkout/);
+    expect(assertPrivateOutputPath(path.join(root, 'new.json'), scripts, checkout)).toBe(path.join(fs.realpathSync(root), 'new.json'));
+  });
+
+  it('refuses a backup or evidence path inside the checkout even when run from a subdirectory of it', async () => {
+    const dry = await run({});
+    const scripts = path.join(checkout, 'scripts');
+    fs.mkdirSync(scripts);
+    const before = snapshot();
+    const inside = { cwd: scripts, checkoutRoot: checkout, apply: true, confirmation: dry.confirmation };
+    await expect(run({ ...inside, backupDirectory, evidencePath: path.join(checkout, 'evidence.json') })).rejects.toThrow(/outside the repository checkout/);
+    await expect(run({ ...inside, backupDirectory: path.join(checkout, 'backups'), evidencePath: evidencePath() })).rejects.toThrow(/outside the repository checkout/);
+    expect(snapshot()).toBe(before);
+    expect(fs.existsSync(path.join(checkout, 'evidence.json'))).toBe(false);
+    expect(fs.readdirSync(path.join(checkout, 'backups'))).toEqual([]);
   });
 
   it('parses the command line and requires the apply trio together', () => {
