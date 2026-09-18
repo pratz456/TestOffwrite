@@ -4,7 +4,7 @@ import { matchProfessions, professionHint } from './profession-priors';
 import { BUSINESS_STANDARD_MILEAGE_RATES } from '@/lib/tax-rules/mileage-rates';
 
 /** Selected, reviewed federal rules. This is not retrieval over the entire tax code. */
-export const TRANSACTION_TAX_POLICY_VERSION = 'federal-transactions-2026-09-17.3';
+export const TRANSACTION_TAX_POLICY_VERSION = 'federal-transactions-2026-09-18.1';
 export const TRANSACTION_KINDS = ['expense', 'income', 'transfer', 'refund', 'personal', 'unknown'] as const;
 /** Expense categories the model may return; the single source for the zod enum, JSON schema and intelligence tables. */
 export const EXPENSE_CATEGORIES = [
@@ -111,7 +111,8 @@ export const CATEGORY_EVIDENCE: Record<ExpenseCategory, readonly string[]> = {
   software_subscriptions: ['software-334', 'business-162'],
   contract_labor: ['contract-labor-334', 'information-returns-6041', 'business-162'],
   equipment: ['assets-946', 'capital-263', 'supplies-263a'],
-  vehicle_expense: ['travel-463', 'mileage-rates'],
+  // §162 stays applicable: parking and tolls on a business trip are ordinary expenses that models correctly cite under it.
+  vehicle_expense: ['travel-463', 'mileage-rates', 'business-162'],
   travel: ['travel-463'],
   meals_50: ['meals-274'],
   home_office: ['home-587'],
@@ -258,6 +259,8 @@ const TAX_PREP_PATTERN = /\b(?:h&r block|hrblock|turbotax|intuit|taxact|taxslaye
 const CLUB_BUSINESS_USE_PATTERN = /\b(?:rent(?:al|ed)?|leas(?:e|ed|ing)|space rental|studio rental)\b/i;
 /** Certainty claims the model must not make in any displayed field ("it's fully deductible", "would be 100% deductible", "is completely deductible"). */
 const UNCONDITIONAL_CLAIM = /\b(?:(?:is|are|it's|its|was|were|be|being|been|becomes?|remains?|would be|will be|can be|should be|considered|deemed|qualif(?:y|ies) as|treated as|counts? as)\s+(?:\w+\s+){0,2})?(?:fully|100\s?%|completely|entirely|wholly)\s+(?:tax[- ])?deductible\b/i;
+/** The taxpayer's own note saying an item was personal outranks any merchant or profession prior. */
+const EXPLICIT_PERSONAL_NOTE = /\b(?:personal (?:use|expense|purchase|item|trip|dinner|meal|coffee|ride|subscription|only)|not (?:for )?(?:the )?business|non-?business|not deductible|not a business expense|family (?:dinner|trip|vacation|meal|purchase)|vacation|date night|for (?:my|our) (?:kids?|family|wife|husband|spouse|partner)|for (?:my|our) (?:home|house)(?! office| studio| workspace| business|-based| based)|my own use)\b/i;
 const LIKELY_ASSET_PATTERN = /\b(?:laptop|computer|macbook|imac|desktop|monitor|camera|lens|drone|printer|tablet|ipad|iphone|smartphone|desk|chair|tripod|microphone|mixer|guitar|piano|keyboard|server|router|projector|television|appliance|machine|equipment|furniture|tools?)\b/i;
 /** Reg. §1.263(a)-1(f)(1)(ii)(D): per-item/per-invoice ceiling for taxpayers without an applicable financial statement. */
 export const DE_MINIMIS_ITEM_CEILING = 2500;
@@ -372,6 +375,16 @@ export function groundTransactionAnalysis(
   if (offCategoryCitation && result.status === 'ok') {
     requireInfo(result, 'business_purpose', 'What did you buy or pay for, and how was it used in your business?',
       'The category is a suggestion; the tax basis the analysis relied on did not match this kind of expense, so confirm the purpose before including a deduction.');
+  }
+  if (result.is_deductible === true && kind === 'expense' && EXPLICIT_PERSONAL_NOTE.test(saved) && !/\bpersonal trainer|personal chef|personal assistant|personal brand/i.test(saved)) {
+    // Live evaluation: models approved Zoom, Starbucks and Uber charges whose saved note said personal.
+    result.transaction_kind = 'personal'; kind = 'personal';
+    result.expense_type = 'personal'; result.is_deductible = false; result.deductible_percent = 0; result.status = 'ok';
+    addEvidence('personal-262');
+    result.customized_reason = 'Your note records this as personal, so it stays out of business deductions. Edit the note if part of it was for your business.';
+    result.reasoning_summary = result.customized_reason;
+    result.key_analysis_factor = 'Recorded as personal by your note.';
+    delete result.missing_fields; delete result.questions;
   }
   if (result.is_deductible === true && kind !== 'refund' && TAX_AUTHORITY_PATTERN.test(savedAndMerchant)) {
     // A live model approved a $1,500 IRS estimated-tax payment at 100%. Income tax and
@@ -544,6 +557,12 @@ export function groundTransactionAnalysis(
     result.documentation_required = kind === 'refund'
       ? ['Refund record and matching original invoice', 'Original expense tax year and treatment']
       : ['Itemized invoice or receipt', 'Recorded business purpose and any personal-use allocation'];
+  }
+  // A proposed purpose is offered whenever the purpose is the missing fact for a merchant that is confidently
+  // business (the model itself may have asked); the user's confirmation remains the only approval.
+  if (result.status === 'needs_more_info' && result.missing_fields?.includes('business_purpose') && purposeMissing
+      && merchant.disposition === 'business_likely' && merchant.confidence === 'high' && merchant.defaultPurpose) {
+    result.proposed_purpose = merchant.defaultPurpose;
   }
   // The Schedule C line names where a confirmed expense would be reported; it is display metadata, not an approval.
   if (result.transaction_kind === 'expense' && result.category && input.expense_type !== 'personal' && result.expense_type !== 'personal'

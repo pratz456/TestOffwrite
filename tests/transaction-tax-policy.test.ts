@@ -22,7 +22,7 @@ describe('curated transaction tax grounding', () => {
   it('derives federal year, source URLs, policy version and model provenance on the server', () => {
     expect(analyze({ irs_refs: ['Fake source https://evil.invalid'] })).toMatchObject({
       status: 'ok', category: 'supplies_small_tools', deductible_percent: 100, tax_year: 2026,
-      jurisdiction: 'US-federal', policy_version: 'federal-transactions-2026-09-17.3',
+      jurisdiction: 'US-federal', policy_version: 'federal-transactions-2026-09-18.1',
       sources: [
         { id: 'business-162', title: '26 USC 162 — Trade or business expenses', url: expect.stringContaining('https://uscode.house.gov/'), reviewed_at: '2026-09-16' },
         // The category-specific rule is attached by the server so the user sees the applicable test.
@@ -31,7 +31,7 @@ describe('curated transaction tax grounding', () => {
       irs_refs: ['26 USC 162 — Trade or business expenses', 'Treas. Reg. §1.263(a)-1(f) — Supplies and the de minimis safe harbor'],
       provenance: { provider: 'openai', model: 'synthetic-model', kind: 'model_with_curated_tax_policy' },
     });
-    expect(TRANSACTION_TAX_POLICY_VERSION).toBe('federal-transactions-2026-09-17.3');
+    expect(TRANSACTION_TAX_POLICY_VERSION).toBe('federal-transactions-2026-09-18.1');
   });
   it('ships a reviewed packet of primary sources with a category-specific rule for every expense category', () => {
     expect(TRANSACTION_TAX_EVIDENCE.length).toBeGreaterThanOrEqual(22);

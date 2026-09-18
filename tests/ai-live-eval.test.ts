@@ -18,6 +18,7 @@ vi.mock('@/lib/ai/learning-engine', () => ({ aiLearningEngine: { getLearningCont
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: {}, adminAuth: {}, FieldValue: {}, Timestamp: {} }));
 
 import { analyzeTransaction, type OutputType, type TransactionInput } from '@/lib/ai/analyzeTransaction';
+import { getOpenAIModel } from '@/lib/openai/client';
 import { AI_EVAL_CORPUS, type EvalCase } from './fixtures/ai-eval-corpus';
 import { DESCRIPTOR_CASES, descriptorContext, descriptorTransaction } from './fixtures/ai-live-eval-descriptors';
 
@@ -137,7 +138,7 @@ const descriptorResults: DescriptorResult[] = [];
       const approvable = descriptorResults.filter(r => r.expectedStatus === 'ok' && r.expectedCategory);
       const approvedCorrectly = approvable.filter(r => r.gotStatus === 'ok' && r.isDeductible === true).length;
       const failures = descriptorResults.filter(r => r.failure).length;
-      const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+      const model = getOpenAIModel('transaction');
       const file = path.join(os.tmpdir(), `writeoff-ai-live-eval-descriptors-${model.replace(/[^a-z0-9.-]/gi, '_')}-${Date.now()}.json`);
       fs.writeFileSync(file, JSON.stringify({ model, cases: descriptorResults.length, categoryAgreement: `${categoryMatches}/${labeled.length}`, statusAgreement: `${statusMatches}/${descriptorResults.length}`, approvableApproved: `${approvedCorrectly}/${approvable.length}`, failures, results: descriptorResults }, null, 2), { mode: 0o600 });
       console.info(`[ai-live-eval:descriptors] model=${model} cases=${descriptorResults.length} category_agreement=${categoryMatches}/${labeled.length} status_agreement=${statusMatches}/${descriptorResults.length} approvable_approved=${approvedCorrectly}/${approvable.length} failures=${failures} report=${file}`);
@@ -151,7 +152,7 @@ const descriptorResults: DescriptorResult[] = [];
     const latencies = results.map(r => r.latencyMs).sort((a, b) => a - b);
     const p = (q: number) => latencies[Math.min(latencies.length - 1, Math.floor(q * latencies.length))] ?? 0;
     const statusAgreement = results.filter(r => r.expectedStatus && r.gotStatus === r.expectedStatus).length;
-    const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+    const model = getOpenAIModel('transaction');
     const report = { model, generatedAt: new Date().toISOString(), cases: results.length, categoryAgreement: `${matches}/${labeled.length}`, statusAgreement: `${statusAgreement}/${results.filter(r => r.expectedStatus).length}`,
       statusCounts, providerFailures: failures, okWithDeduction: okDeductions, latencyMs: { p50: p(0.5), p95: p(0.95), max: latencies[latencies.length - 1] ?? 0 }, results };
     const file = path.join(os.tmpdir(), `writeoff-ai-live-eval-${model.replace(/[^a-z0-9.-]/gi, '_')}-${Date.now()}.json`);

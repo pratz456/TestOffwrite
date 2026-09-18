@@ -72,3 +72,11 @@ Focused provider and grounding tests verify strict schema compatibility, server 
 - Off-category citations keep the category with the server's own citation and force review instead of failing the analysis; empty `evidence_ids` on blocked answers default to the server citation.
 - The unconditional-claim sanitizer covers every displayed field and every phrasing; `deductible_percent` given as a 0–1 fraction is read as a percentage.
 - Default transaction model: `gpt-4.1-mini` (docs/AI_LIVE_EVAL_2026-09-17_round2.md).
+
+## Round 3 corrections (2026-09-18.1)
+
+- Round 3 (docs/AI_LIVE_EVAL_2026-09-17_round3.md): zero invariant violations across four runs and three models; no never-approve descriptor approved; gpt-4.1-mini approves 24/26 approvable descriptors at about $0.0016 per transaction and stays the default.
+- §162 is applicable evidence for vehicle costs, so correctly cited business parking and tolls are approved instead of sent to off-category review.
+- A proposed purpose is attached whenever the purpose is the missing fact for a confidently business merchant, including when the model itself asked; it reached users in 3 of 258 eligible results before.
+- A saved note that says personal ("personal use", "not for business", "vacation", "for my kids") outranks merchant patterns and profession priors and classifies the item as personal; "for my home office" and "personal trainer" are not personal notes.
+- "ok" refunds with no decision go to the refund review; "ok" income/transfers with no decision are recorded as non-deductions instead of failing.

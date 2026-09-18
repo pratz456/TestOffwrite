@@ -274,6 +274,56 @@ describe('red team: empty evidence on blocked answers keeps the block instead of
   });
 });
 
+describe('red team: findings from live evaluation round 3', () => {
+  it('a saved note saying personal outranks a business merchant and the profession prior', () => {
+    for (const [merchant, note] of [['ZOOM.US 888-799-9666', 'Personal use, catching up with family'], ['STARBUCKS STORE 08421', 'Personal coffee, not for business'], ['UBER *TRIP', 'Vacation ride with my kids']] as const) {
+      const result = ground({ category: 'software_subscriptions', customized_reason: 'A subscription commonly used for client meetings.' }, { merchant, amount_usd: 15.99, note, business_purpose: undefined });
+      expect(result).toMatchObject({ status: 'ok', transaction_kind: 'personal', expense_type: 'personal', is_deductible: false, deductible_percent: 0 });
+      expect(result!.evidence_ids).toContain('personal-262');
+      expect(result!.questions).toBeUndefined();
+    }
+    // "for my home office" and "for my home studio" describe business use, not a personal note.
+    const homeOffice = ground({ category: 'supplies_small_tools' }, { merchant: 'THE HOME DEPOT #0652', amount_usd: 89, business_purpose: 'Cable organizers purchased for my home office' });
+    expect(homeOffice).toMatchObject({ status: 'ok', is_deductible: true, transaction_kind: 'expense' });
+    const homeOnly = ground({ category: 'supplies_small_tools' }, { merchant: 'THE HOME DEPOT #0652', amount_usd: 89, note: 'Shelves for my home' });
+    expect(homeOnly).toMatchObject({ status: 'ok', transaction_kind: 'personal', is_deductible: false });
+    // "personal trainer" in a purpose is a profession, not a personal note.
+    const trainer = ground({ category: 'advertising_marketing' }, { merchant: 'FACEBK *ADS', amount_usd: 120, business_purpose: 'Instagram ads for my personal trainer business' });
+    expect(trainer).toMatchObject({ status: 'ok', is_deductible: true });
+  });
+  it('parking and tolls cited under the general §162 rule are approved, not sent to off-category review', () => {
+    const result = ground({ category: 'vehicle_expense', evidence_ids: ['business-162'] }, { merchant: 'PARKMOBILE 770-818-9036 GA', amount_usd: 6.5, business_purpose: 'Parking at closing' });
+    expect(result).toMatchObject({ status: 'ok', is_deductible: true, category: 'vehicle_expense' });
+    expect(result!.missing_fields ?? []).not.toContain('business_purpose');
+  });
+  it('offers the proposed purpose when the model itself asked for the purpose on a confidently business merchant', () => {
+    const result = ground({ status: 'needs_more_info', is_deductible: undefined, expense_type: undefined, category: 'software_subscriptions', missing_fields: ['business_purpose'],
+      questions: ['What is this subscription used for in your business?'], customized_reason: 'Adobe is commonly design software; the business use is not recorded.' },
+      { merchant: 'PAYPAL *ADOBE 4029357733 CA', amount_usd: 59.99, business_purpose: undefined, note: undefined, description: undefined });
+    expect(result?.status).toBe('needs_more_info');
+    expect(result?.proposed_purpose).toBeTruthy();
+    expect(result?.is_deductible).toBeUndefined();
+  });
+});
+
+describe('red team: refund and income shapes without a decision', () => {
+  beforeAll(() => { vi.stubEnv('AI_ANALYSIS_ENABLED', 'true'); mocks.learning.mockResolvedValue(null); });
+  afterAll(() => vi.unstubAllEnvs());
+  beforeEach(() => mocks.create.mockReset());
+  it('"ok" refund with is_deductible null reaches the refund review instead of failing', async () => {
+    mocks.create.mockResolvedValueOnce(completion(providerPayload({ transaction_kind: 'refund', category: 'other', is_deductible: null, expense_type: null, evidence_ids: ['records-334'], deductible_percent: null })));
+    const outcome = await analyzeTransaction({ ...tx, merchant: 'AMZN Mktp US*RF12345 REFUND', amount_usd: -45.99, business_purpose: 'Refund for returned toner' }, SOLE_PROPRIETOR);
+    expect(outcome.success).toBe(true);
+    if (outcome.success) { expect(outcome.result.status).not.toBe('ok'); expect(outcome.result.is_deductible).toBeUndefined(); }
+  });
+  it('"ok" income with is_deductible null is a non-deduction, not a failure', async () => {
+    mocks.create.mockResolvedValueOnce(completion(providerPayload({ transaction_kind: 'income', category: 'other', is_deductible: null, expense_type: null, evidence_ids: ['records-334'], deductible_percent: null })));
+    const outcome = await analyzeTransaction({ ...tx, merchant: 'STRIPE TRANSFER ST-A1B2C3', amount_usd: -2400, category: 'INCOME', business_purpose: 'Client invoice payout' }, SOLE_PROPRIETOR);
+    expect(outcome.success).toBe(true);
+    if (outcome.success) expect(outcome.result).toMatchObject({ status: 'ok', transaction_kind: 'income', is_deductible: false });
+  });
+});
+
 describe('red team: live-model output shapes through the provider path', () => {
   beforeAll(() => { vi.stubEnv('AI_ANALYSIS_ENABLED', 'true'); mocks.learning.mockResolvedValue(null); });
   afterAll(() => vi.unstubAllEnvs());

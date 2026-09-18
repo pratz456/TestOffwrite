@@ -96,7 +96,10 @@ function parseProviderOutput(value: unknown, transaction: TransactionInput, cont
       : normalized.status === 'ok' && kind === 'expense' ? ['business-162'] : ['records-334'];
   }
   // "ok" without a business/personal determination is a request for review, not a decision.
-  if (normalized.status === 'ok' && typeof normalized.is_deductible !== 'boolean' && ['expense', 'personal', 'unknown', undefined].includes(normalized.transaction_kind as string | undefined)) {
+  if (normalized.status === 'ok' && typeof normalized.is_deductible !== 'boolean' && ['income', 'transfer'].includes(normalized.transaction_kind as string)) {
+    normalized.is_deductible = false;
+  }
+  if (normalized.status === 'ok' && typeof normalized.is_deductible !== 'boolean' && ['expense', 'personal', 'unknown', 'refund', undefined].includes(normalized.transaction_kind as string | undefined)) {
     normalized.status = 'needs_more_info';
     if (!Array.isArray(normalized.missing_fields) || !normalized.missing_fields.length) normalized.missing_fields = ['business_purpose'];
   }
