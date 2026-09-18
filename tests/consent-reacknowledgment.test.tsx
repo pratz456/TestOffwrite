@@ -8,7 +8,7 @@ vi.mock('sonner', () => ({ toast: { error: vi.fn() } }));
 vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: vi.fn() }));
 vi.mock('@/components/logout-button', () => ({ LogoutButton: (props: { className?: string }) => <button type="button" className={props.className}>Sign out</button> }));
 
-import { ConsentReacknowledgment, needsConsentReacknowledgment } from '@/components/onboarding/consent-reacknowledgment';
+import { CONSENT_GATE_EXIT_PATHS, ConsentReacknowledgment, consentGateApplies, needsConsentReacknowledgment } from '@/components/onboarding/consent-reacknowledgment';
 import { buildConsentRecord, CONSENT_SOURCES, CONSENT_TERMS_VERSION, parseConsentRecord } from '@/lib/onboarding/consents';
 
 const current = { version: CONSENT_TERMS_VERSION, source: 'sign-up', accepted_at: '2026-09-17T12:00:00.000Z', terms: true, bank_data: true, ai_review: true, communications: false };
@@ -31,6 +31,16 @@ describe('consent re-acknowledgment for existing accounts', () => {
     expect(record).toMatchObject({ source: 'reacknowledgment', version: CONSENT_TERMS_VERSION, communications: true });
     expect(parseConsentRecord(record)).toMatchObject({ source: 'reacknowledgment' });
     expect(parseConsentRecord({ ...record, source: 'support-override' })).toBeNull();
+  });
+  it('leaves billing and data & privacy reachable without agreeing (click-to-cancel, export, delete), gates everything else', () => {
+    const legacy = { name: 'Legacy' };
+    expect(CONSENT_GATE_EXIT_PATHS).toEqual(['/protected/subscriptions', '/protected/settings']);
+    for (const path of CONSENT_GATE_EXIT_PATHS) expect(consentGateApplies(path, legacy)).toBe(false);
+    for (const path of ['/protected', '/protected/transactions', '/protected/reports', '/protected/settings/anything', null, undefined]) expect(consentGateApplies(path, legacy)).toBe(true);
+    expect(consentGateApplies('/protected', { consents: current })).toBe(false);
+    const html = renderToStaticMarkup(<ConsentReacknowledgment onRecorded={() => {}} />);
+    expect(html).toMatch(/href="\/protected\/subscriptions"[^>]*>manage or cancel your plan/);
+    expect(html).toMatch(/href="\/protected\/settings"[^>]*>export or delete your data/);
   });
   it('renders the notice, all three required checkboxes unchecked, a disabled continue button and a sign-out path', () => {
     const html = renderToStaticMarkup(<ConsentReacknowledgment onRecorded={() => {}} />);

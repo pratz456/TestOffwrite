@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { LogoutButton } from '@/components/logout-button';
@@ -17,6 +18,17 @@ import { CONSENT_SAVE_ERROR, persistConsentRecord } from '@/lib/onboarding/conse
  */
 export function needsConsentReacknowledgment(profile: { consents?: unknown } | null | undefined): boolean {
   return !!profile && !hasAcknowledgedRequiredConsents(profile.consents);
+}
+
+/**
+ * Billing management (cancel, click-to-cancel) and the data & privacy controls (export, revoke,
+ * delete) stay reachable without agreeing to updated terms; the gate covers the service itself.
+ */
+export const CONSENT_GATE_EXIT_PATHS = ['/protected/subscriptions', '/protected/settings'] as const;
+
+export function consentGateApplies(pathname: string | null | undefined, profile: { consents?: unknown } | null | undefined): boolean {
+  if (pathname && (CONSENT_GATE_EXIT_PATHS as readonly string[]).includes(pathname)) return false;
+  return needsConsentReacknowledgment(profile);
 }
 
 interface ConsentReacknowledgmentProps {
@@ -62,6 +74,9 @@ export function ConsentReacknowledgment({ onRecorded, persist = persistConsentRe
           {saving ? 'Saving...' : 'Agree and continue'}<ArrowRight className="h-4 w-4" />
         </Button>
       </div>
+      <p className="mt-4 text-xs text-muted-foreground">
+        If you prefer not to agree, you can still <Link href="/protected/subscriptions" className="underline">manage or cancel your plan</Link> and <Link href="/protected/settings" className="underline">export or delete your data</Link>.
+      </p>
     </section>
   );
 }

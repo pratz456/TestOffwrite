@@ -14,7 +14,7 @@ import { premiumFeatureForLocation } from '@/lib/subscriptions/client-status';
 import { Button } from '@/components/ui/button';
 import { subscribeToProfileUpdates } from '@/lib/onboarding/profile-events';
 import { profileLookupState } from '@/lib/onboarding/profile';
-import { ConsentReacknowledgment, needsConsentReacknowledgment } from '@/components/onboarding/consent-reacknowledgment';
+import { ConsentReacknowledgment, consentGateApplies } from '@/components/onboarding/consent-reacknowledgment';
 
 interface ProtectedLayoutClientProps { children: React.ReactNode }
 
@@ -95,8 +95,9 @@ const ProtectedLayoutContent: React.FC<ProtectedLayoutClientProps> = ({ children
   }
 
   // Accounts from before the current terms version confirm the acknowledgments before the app renders.
-  // Profile setup collects them itself; a failed profile read never traps the account here.
-  const reacknowledge = !isProfileSetup && !currentProfile?.error && !!userProfile && needsConsentReacknowledgment(userProfile);
+  // Profile setup collects them itself; a failed profile read never traps the account here; billing and
+  // data & privacy controls stay reachable without agreeing.
+  const reacknowledge = !isProfileSetup && !currentProfile?.error && !!userProfile && consentGateApplies(pathname, userProfile);
   // Account/billing navigation remains available even when the profile service fails.
   const showNavigation = !reacknowledge && (!isProfileSetup || pathname === '/protected/settings' || pathname === '/protected/subscriptions');
   return (

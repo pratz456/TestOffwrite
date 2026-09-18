@@ -153,5 +153,10 @@ describe('read-only production migration inventory', () => {
     const linkedParent = path.join(root, 'linked-parent');
     fs.symlinkSync(checkout, linkedParent, 'dir');
     expect(() => writePrivateMigrationInventory(path.join(linkedParent, 'report.json'), report, checkout)).toThrow('outside');
+    // Running from a subdirectory (or any other cwd) must not make the checkout itself an acceptable target.
+    const subdirectory = path.join(checkout, 'scripts'); fs.mkdirSync(subdirectory);
+    expect(() => writePrivateMigrationInventory(path.join(checkout, 'report-from-scripts.json'), report, subdirectory, checkout)).toThrow('outside');
+    expect(() => writePrivateMigrationInventory(path.join(checkout, 'scripts', 'report.json'), report, '/', checkout)).toThrow('outside');
+    expect(writePrivateMigrationInventory(path.join(root, 'elsewhere.json'), report, subdirectory, checkout)).toMatch(/^[a-f\d]{64}$/);
   });
 });

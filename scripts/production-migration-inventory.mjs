@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { PRODUCTION_PROJECT, RELEASE_MANIFEST } from './production-preflight.mjs';
 // Node 22.18+ strips the types; the model has no runtime imports of its own.
 // Sharing it keeps the inventory's groups and the reconciliation command's
@@ -190,15 +190,20 @@ export function buildProductionMigrationInventory({
   };
 }
 
-export function writePrivateMigrationInventory(output, report, cwd = process.cwd()) {
+/** The checkout that holds this script; a run from a subdirectory must not be able to write inside the repository. */
+const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+export function writePrivateMigrationInventory(output, report, cwd = process.cwd(), checkoutRoot = repositoryRoot) {
   if (!path.isAbsolute(output)) throw new Error('The private inventory output path must be absolute');
   // Resolve symlinks on both sides so a linked parent cannot redirect the report into the checkout.
   const parent = fs.realpathSync(path.dirname(output));
   if (fs.existsSync(output) && fs.lstatSync(output).isSymbolicLink()) throw new Error('The inventory output must not be a symlink');
   const resolvedOutput = path.join(parent, path.basename(output));
-  const relative = path.relative(fs.realpathSync(cwd), resolvedOutput);
-  if (!relative.startsWith(`..${path.sep}`) && relative !== '..') {
-    throw new Error('Write the private inventory outside the repository checkout');
+  for (const root of new Set([cwd, checkoutRoot].filter(Boolean))) {
+    const relative = path.relative(fs.realpathSync(root), resolvedOutput);
+    if (!relative.startsWith(`..${path.sep}`) && relative !== '..') {
+      throw new Error('Write the private inventory outside the repository checkout');
+    }
   }
   fs.writeFileSync(resolvedOutput, `${JSON.stringify(report, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
   return fingerprint(fs.readFileSync(resolvedOutput));
