@@ -7,17 +7,19 @@
  * See a full list of supported triggers at https://firebase.google.com/docs/functions
  */
 
-import {setGlobalOptions, defineString} from "firebase-functions/v2/options";
+import {setGlobalOptions} from "firebase-functions/v2/options";
+import {defineString} from "firebase-functions/params";
 import {onSchedule} from "firebase-functions/v2/scheduler";
 import * as logger from "firebase-functions/logger";
-import * as admin from "firebase-admin";
+import {getApps, initializeApp} from "firebase-admin/app";
+import {FieldValue, getFirestore} from "firebase-admin/firestore";
 
 // Initialize Firebase Admin
-if (!admin.apps.length) {
-  admin.initializeApp();
+if (!getApps().length) {
+  initializeApp();
 }
 
-const db = admin.firestore();
+const db = getFirestore();
 
 // Define config parameters
 const siteUrl = defineString("SITE_URL", {
@@ -90,7 +92,7 @@ export const syncAllUsersTransactions = onSchedule(
           try {
             // Update last_scheduled_sync timestamp
             await db.doc(`user_profiles/${userId}`).update({
-              last_scheduled_sync: admin.firestore.FieldValue.serverTimestamp(),
+              last_scheduled_sync: FieldValue.serverTimestamp(),
               last_scheduled_sync_status: "in_progress",
             });
 
@@ -111,13 +113,20 @@ export const syncAllUsersTransactions = onSchedule(
             });
 
             if (response.ok) {
-              const result = await response.json();
+              const result: unknown = await response.json();
+              const transactionsSaved =
+                typeof result === "object" &&
+                result !== null &&
+                "transactions_saved" in result &&
+                typeof result.transactions_saved === "number" ?
+                  result.transactions_saved :
+                  0;
               successCount++;
-              logger.info(`✅ [Scheduled Sync] User ${userId}: Synced ${result.transactions_saved || 0} transactions`);
+              logger.info(`✅ [Scheduled Sync] User ${userId}: Synced ${transactionsSaved} transactions`);
 
               await db.doc(`user_profiles/${userId}`).update({
                 last_scheduled_sync_status: "success",
-                last_scheduled_sync_transactions: result.transactions_saved || 0,
+                last_scheduled_sync_transactions: transactionsSaved,
               });
             } else {
               const errorText = await response.text();

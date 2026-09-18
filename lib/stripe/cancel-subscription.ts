@@ -4,7 +4,7 @@ import { adminDb } from '@/lib/firebase/admin';
 function getStripeOrNull() {
   const key = process.env.STRIPE_SECRET_KEY;
   if (!key) return null;
-  return new Stripe(key, { apiVersion: '2025-10-29.clover' });
+  return new Stripe(key, { apiVersion: '2026-08-26.dahlia' });
 }
 
 /**
