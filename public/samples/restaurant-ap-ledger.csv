@@ -1,0 +1,10 @@
+reference,date,type,amount,payment_status
+INV-1041,2026-08-02,invoice,842.16,open
+INV-1042,2026-08-04,invoice,621.40,paid
+CM-220,2026-08-05,credit,-86.25,applied
+INV-1043,2026-08-08,invoice,1192.80,open
+INV-1044,2026-08-11,invoice,458.90,open
+INV-1045,2026-08-15,invoice,734.22,open
+INV-1046,2026-08-17,invoice,509.00,open
+INV-1047,2026-08-24,invoice,912.00,open
+INV-9999,2026-08-27,invoice,267.40,open

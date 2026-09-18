@@ -10,10 +10,11 @@ console.log('🚀 Starting Firebase deployment with optimizations...');
 const nodeVersion = process.version;
 console.log(`📋 Current Node.js version: ${nodeVersion}`);
 
-// Check if we're using Node 20 (recommended for Firebase)
-if (!nodeVersion.startsWith('v20')) {
-  console.warn('⚠️  Warning: Firebase recommends Node.js 20. Current version:', nodeVersion);
-  console.log('💡 Consider using Node.js 20 for optimal Firebase deployment');
+// Firebase Admin 14 requires Node 22 or newer.
+const nodeMajor = Number.parseInt(nodeVersion.slice(1).split('.')[0], 10);
+if (!Number.isFinite(nodeMajor) || nodeMajor < 22) {
+  console.error('❌ Firebase deployment requires Node.js 22 or newer. Current version:', nodeVersion);
+  process.exit(1);
 }
 
 try {

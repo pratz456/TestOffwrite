@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { randomBytes } from 'node:crypto';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import Stripe from 'stripe';
 import { adminDb } from '@/lib/firebase/admin';
@@ -7,7 +8,16 @@ import { checkHistoricalAccess } from '@/lib/subscriptions/historical-access';
 function getStripeOrNull() {
   const key = process.env.STRIPE_SECRET_KEY;
   if (!key) return null;
-  return new Stripe(key, { apiVersion: '2025-10-29.clover' });
+  return new Stripe(key, { apiVersion: '2026-08-26.dahlia' });
+}
+
+function createIntegrationIdentifier() {
+  const alphabet = 'abcdefghijklmnopqrstuvwxyz';
+  const suffix = Array.from(
+    randomBytes(8),
+    (byte) => alphabet[byte % alphabet.length],
+  ).join('');
+  return `writeoff_checkout_${suffix}`;
 }
 
 export async function POST(req: Request) {
@@ -93,7 +103,7 @@ export async function POST(req: Request) {
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       mode: 'subscription',
-      payment_method_types: ['card'],
+      integration_identifier: createIntegrationIdentifier(),
       line_items: [
         {
           price: priceId,
