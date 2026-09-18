@@ -29,6 +29,7 @@ const CASES: Case[] = [
   { path: '/api/plaid/import-transactions', body: { account_id: 'acct-1' }, policy: 'plaidSync', importRoute: () => import('../app/api/plaid/import-transactions/route') },
   { path: '/api/plaid/refresh-balances', body: null, policy: 'plaidSync', importRoute: () => import('../app/api/plaid/refresh-balances/route') },
   { path: '/api/plaid/recurring-transactions', body: null, policy: 'plaidSync', importRoute: () => import('../app/api/plaid/recurring-transactions/route') },
+  { path: '/api/plaid/auto-analyze', body: { accountId: 'acct-1' }, policy: 'analysisCatchUp', importRoute: () => import('../app/api/plaid/auto-analyze/route') },
 ];
 
 async function call(testCase: Case) {

@@ -92,6 +92,8 @@ export const RATE_LIMITS = {
   /** Bank sync, balance and recurring pulls call Plaid once per connection. */
   plaidSync: { scope: 'plaid.sync', limit: 20, windowMs: 10 * 60_000, onUnavailable: 'deny' },
   aiAnalyzeTransaction: { scope: 'ai.analyze-transaction', limit: 60, windowMs: 60 * 60_000, onUnavailable: 'deny' },
+  /** Account-wide catch-up / "Retry analysis": each call re-reads every transaction of one account. */
+  analysisCatchUp: { scope: 'analysis.catch-up', limit: 6, windowMs: 10 * 60_000, onUnavailable: 'deny' },
   /** Completed archives; a failed attempt is refunded so recovery is not locked out. */
   userExport: { scope: 'user.export', limit: 1, windowMs: 60 * 60_000, onUnavailable: 'deny' },
   /** Every archive attempt, including failures, so repeated full reads stay bounded. */
