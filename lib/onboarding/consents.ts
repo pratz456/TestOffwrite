@@ -116,6 +116,18 @@ export function hasAcknowledgedRequiredConsents(record: unknown): record is Cons
   return parseConsentRecord(record) !== null;
 }
 
+/**
+ * The well-formed, current-version §7216 signature inside a stored record of ANY terms version.
+ * A terms bump re-collects the acknowledgments but does not change the document-consent text, so
+ * the server carries this signature into the re-acknowledged record instead of silently withdrawing it.
+ */
+export function storedDocumentImportSignature(record: unknown): DocumentImportConsentSignature | null {
+  if (!record || typeof record !== 'object' || Array.isArray(record)) return null;
+  const stored = record as Record<string, unknown>;
+  if (stored.document_import !== true) return null;
+  return parseDocumentImportSignature(stored.document_import_signature).signature;
+}
+
 /** True only for a current-version signed §7216 consent; the import route sends a document image on nothing less. */
 export function hasDocumentImportConsent(record: unknown): boolean {
   return parseConsentRecord(record)?.document_import === true;

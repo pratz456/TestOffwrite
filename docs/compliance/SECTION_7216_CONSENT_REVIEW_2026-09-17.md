@@ -27,7 +27,7 @@ Date: 2026-09-17. Version: 1.0. Prepared from the code at commit cec95bf, Treas.
 
 ## 3. What the current checkboxes cover and where they fall short
 
-Source: `components/onboarding/consent-checkboxes.tsx`; stored by `lib/onboarding/consents.ts` with `CONSENT_TERMS_VERSION = '2026-09-17'`, `source`, `accepted_at`; the server (`POST /api/database/profiles`) validates the record with `parseConsentRecord` and refuses profile setup unless both required boxes are true.
+Source: `components/onboarding/consent-checkboxes.tsx`; stored by `lib/onboarding/consents.ts` with `CONSENT_TERMS_VERSION` (`2026-09-18` since the Terms of Service acknowledgment was added), `source`, `accepted_at`; the server (`POST /api/database/profiles`) validates the record with `parseConsentRecord` and refuses profile setup unless all three required boxes (`terms`, `bank_data`, `ai_review`) are true. Accounts recorded under an earlier version re-acknowledge through the protected-layout gate (`components/onboarding/consent-reacknowledgment.tsx`); a current-version §7216 signature is carried into the re-acknowledged record by the server rather than withdrawn.
 
 - `bank_data` (required): "I authorize WriteOff to access and use my account and transaction data via Plaid to analyze potential tax deductions and generate reports." This is an authorization to obtain bank data and use it for the core service. It is adequate for its purpose and is not a §7216 consent (none is needed for that use).
 - `ai_review` (required): "I understand that WriteOff uses automated (AI) analysis to suggest categories and possible tax treatments for my review, and that I confirm each one." This is an acknowledgment of automated processing. It does not name OpenAI or any recipient, does not identify the information disclosed, has no duration, carries none of the Rev. Proc. 2013-14 §5.04(1) mandatory statements or the TIGTA statement, is not on a screen that "pertains solely" to the consent, is not signed by typing a name or PIN (§6), and is not dated by the taxpayer. If consent is required for row 1 or row 2, this checkbox does not provide it.
@@ -122,7 +122,7 @@ Notes for counsel: (a) the paragraph describing OpenAI's processing must be kept
 ## Facts verified in code
 
 - `components/onboarding/consent-checkboxes.tsx`: exact checkbox wording; `NoticeAtCollection` text; Plaid policy link.
-- `lib/onboarding/consents.ts`: `CONSENT_TERMS_VERSION = '2026-09-17'`; required `bank_data`, `ai_review`; optional `communications`; strict record parsing.
+- `lib/onboarding/consents.ts`: `CONSENT_TERMS_VERSION = '2026-09-18'`; required `terms`, `bank_data`, `ai_review`; optional `communications`, `document_import` (signed); strict record parsing.
 - `lib/ai/analyzeTransaction.ts` (`contextData`), `lib/ai/transaction-tax-policy.ts` (`redactTaxIdentifiers`, `groundTransactionAnalysis`), `lib/openai/client.ts`: fields sent, redaction scope, model names, `store: false`.
 - `app/api/tax/import-document/route.ts`, `app/api/tax/import-bank-statement/route.ts`: whole-image upload; prompt asks for employer EIN.
 - `app/api/plaid/create-link-token/route.ts`: only `client_user_id` and app name sent to Plaid.

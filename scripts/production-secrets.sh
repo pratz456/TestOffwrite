@@ -114,7 +114,7 @@ OPTIONAL_SECRETS=(
 # into <release>/functions*/.env.writeoff-23910 (firebase-tools loads them at deploy).
 FUNCTION_ENV=(
   "functions/.env.${PROJECT}|SITE_URL, PLAID_ENV=production, PLAID_CLIENT_ID|functions/src/index.ts:12-14 defineString"
-  "functions-analysis/.env.${PROJECT}|ANALYSIS_WORKER_ORIGIN|functions-analysis/src/index.ts:6 defineString"
+  "functions-analysis/.env.${PROJECT}|ANALYSIS_WORKER_ORIGIN, ANALYSIS_MAX_INSTANCES, ANALYSIS_CONCURRENCY (fan-out ceiling; defaults 2, 2 always written)|functions-analysis/src/index.ts:6-10 defineString/defineInt"
 )
 
 # Deploy service account (the JSON key in the GitHub `production` environment

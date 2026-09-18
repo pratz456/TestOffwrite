@@ -3,7 +3,7 @@ import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { adminDb, FieldValue } from '@/lib/firebase/admin';
 import { migrateLegacyPlaidConnection } from '@/lib/plaid/connections';
 import { EDITABLE_PROFILE_FIELDS, publicProfile } from '@/lib/firebase/profile-fields';
-import { parseConsentRecord } from '@/lib/onboarding/consents';
+import { parseConsentRecord, storedDocumentImportSignature } from '@/lib/onboarding/consents';
 
 export async function GET(request: NextRequest) {
   const { user } = await getAuthenticatedUser(request);
@@ -42,11 +42,19 @@ export async function POST(request: NextRequest) {
     const ref = adminDb.doc(`user_profiles/${user.uid}`);
     await adminDb.runTransaction(async transaction => {
       const snapshot = await transaction.get(ref);
-      // A merge keeps nested fields, so a withdrawn §7216 signature is removed explicitly.
       const stored = snapshot.exists ? snapshot.data()?.consents : undefined;
-      const withdrawn = 'consents' in body && !body.consents.document_import_signature
+      let consents = 'consents' in body ? body.consents : undefined;
+      // Re-acknowledging updated terms re-collects the acknowledgments, not the separately signed §7216
+      // document consent: a current signature travels into the new record. A withdrawal (same terms
+      // version, signature omitted) still removes it.
+      const storedVersion = stored && typeof stored === 'object' ? (stored as Record<string, unknown>).version : undefined;
+      const carried = consents && consents.source === 'reacknowledgment' && !consents.document_import_signature
+        && storedVersion !== consents.version ? storedDocumentImportSignature(stored) : null;
+      if (consents && carried) consents = { ...consents, document_import: true, document_import_signature: carried };
+      // A merge keeps nested fields, so a withdrawn §7216 signature is removed explicitly.
+      const withdrawn = consents && !consents.document_import_signature
         && stored && typeof stored === 'object' && 'document_import_signature' in stored;
-      transaction.set(ref, { ...body, ...(withdrawn ? { consents: { ...body.consents, document_import_signature: FieldValue.delete() } } : {}),
+      transaction.set(ref, { ...body, ...(consents ? { consents: withdrawn ? { ...consents, document_import_signature: FieldValue.delete() } : consents } : {}),
         ...stamps, updated_at: FieldValue.serverTimestamp(),
         ...(!snapshot.exists ? { created_at: FieldValue.serverTimestamp() } : {}) }, { merge: true });
     });

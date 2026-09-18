@@ -11,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { initializeApp, deleteApp, type FirebaseApp } from 'firebase/app';
 import { collection, collectionGroup, connectFirestoreEmulator, deleteDoc, deleteField, doc, getDoc, getDocs, getFirestore, query, setDoc, updateDoc, where, type Firestore } from 'firebase/firestore';
 import { connectStorageEmulator, deleteObject, getBytes, getStorage, ref, uploadBytes, type FirebaseStorage } from 'firebase/storage';
+import { CONSENT_TERMS_VERSION } from '../lib/onboarding/consents';
 
 const enabled = process.env.WRITEOFF_RULES_EMULATOR_TESTS === '1';
 const projectId = process.env.WRITEOFF_RULES_PROJECT_ID || 'demo-writeoff-security';
@@ -161,7 +162,7 @@ async function seed(path: string, values: Record<string, string | number | boole
     await expect(setDoc(doc(alice, 'user_profiles/somebody-else'), { name: 'Wrong owner' })).rejects.toMatchObject({ code: 'permission-denied' });
   });
   it('keeps the sign-up consent record server-only on create and update', async () => {
-    const consents = { version: '2026-09-18', source: 'profile-setup', accepted_at: '2026-09-17T12:00:00.000Z', terms: true, bank_data: true, ai_review: true, communications: false };
+    const consents = { version: CONSENT_TERMS_VERSION, source: 'profile-setup', accepted_at: '2026-09-17T12:00:00.000Z', terms: true, bank_data: true, ai_review: true, communications: false };
     await expect(setDoc(doc(alice, `user_profiles/${owner}`), { name: 'Alice', consents })).rejects.toMatchObject({ code: 'permission-denied' });
     await seed(`user_profiles/${owner}`, { name: 'Alice', consents_recorded_at: 'server-stamped' });
     await updateDoc(doc(alice, `user_profiles/${owner}`), { profession: 'Designer' });

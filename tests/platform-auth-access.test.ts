@@ -11,6 +11,7 @@ import { POST as session } from '@/app/api/auth/session/route';
 import { GET as profileGet, POST as profilePost } from '@/app/api/database/profiles/route';
 import { anonymousRateLimitKey, clearRateLimitMemory, RATE_LIMITS } from '@/lib/security/rate-limit';
 import { CONSENT_TERMS_VERSION } from '@/lib/onboarding/consents';
+import { DOCUMENT_IMPORT_CONSENT_VERSION } from '@/lib/onboarding/document-import-consent';
 import { exhaustRateLimit, failRateLimitStore, fakeRateLimitFirestore, recordedRateLimitCount, resetRateLimitStore } from './fixtures/rate-limit-store';
 
 function request(headers: Record<string, string> = {}, method = 'GET', body?: unknown) {
@@ -151,6 +152,28 @@ describe('server profile API boundaries', () => {
       expect((await profilePost(request({ authorization: 'Bearer id' }, 'POST', { consents: { ...consents, document_import: false } }))).status).toBe(200);
       expect(mock.set).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({
         consents: { ...consents, accepted_at: '2026-09-17T12:00:00.000Z', document_import: false, document_import_signature: 'delete-field' },
+      }), { merge: true });
+    });
+    it('carries a current §7216 signature into a re-acknowledgment of updated terms, but not into a same-version withdrawal', async () => {
+      const signature = { version: DOCUMENT_IMPORT_CONSENT_VERSION, signed_name: 'Synthetic Signer', signed_at: '2026-09-18T09:00:00.000Z' };
+      const previousTerms = { ...consents, version: '2026-09-17', terms: undefined, document_import: true, document_import_signature: signature };
+      mock.get.mockResolvedValue({ exists: true, data: () => ({ consents: previousTerms }) });
+      const reacknowledged = { ...consents, source: 'reacknowledgment', document_import: false };
+      expect((await profilePost(request({ authorization: 'Bearer id' }, 'POST', { consents: reacknowledged }))).status).toBe(200);
+      expect(mock.set).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({
+        consents: { ...reacknowledged, accepted_at: '2026-09-17T12:00:00.000Z', document_import: true, document_import_signature: signature },
+      }), { merge: true });
+      // A stale signature (earlier consent text) is not revived.
+      mock.get.mockResolvedValue({ exists: true, data: () => ({ consents: { ...previousTerms, document_import_signature: { ...signature, version: '2025-01-01' } } }) });
+      expect((await profilePost(request({ authorization: 'Bearer id' }, 'POST', { consents: reacknowledged }))).status).toBe(200);
+      expect(mock.set).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({
+        consents: { ...reacknowledged, accepted_at: '2026-09-17T12:00:00.000Z', document_import: false, document_import_signature: 'delete-field' },
+      }), { merge: true });
+      // Same terms version: omitting the signature is the Settings withdrawal.
+      mock.get.mockResolvedValue({ exists: true, data: () => ({ consents: { ...consents, source: 'reacknowledgment', document_import: true, document_import_signature: signature } }) });
+      expect((await profilePost(request({ authorization: 'Bearer id' }, 'POST', { consents: reacknowledged }))).status).toBe(200);
+      expect(mock.set).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({
+        consents: { ...reacknowledged, accepted_at: '2026-09-17T12:00:00.000Z', document_import: false, document_import_signature: 'delete-field' },
       }), { merge: true });
     });
     it.each([

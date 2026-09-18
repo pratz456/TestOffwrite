@@ -13,7 +13,7 @@ Verdicts: OK = accurate; FIXED = copy changed in this branch; REC = accurate or 
 
 | Statement (abridged) | Verdict | Basis |
 |---|---|---|
-| "Last updated: September 11, 2025" | FIXED → "Effective date: September 17, 2026 (version 2026-09-17)" | Copy changed today; version now equals `CONSENT_TERMS_VERSION` in `lib/onboarding/consents.ts` |
+| "Last updated: September 11, 2025" | FIXED → "Effective date: September 18, 2026 (version 2026-09-18)" | Copy changed 2026-09-17 and re-versioned 2026-09-18 with the Terms of Service acknowledgment; the public page renders `CONSENT_TERMS_VERSION` from `lib/onboarding/consents.ts` |
 | Intro: explains what is collected, how used, choices | OK | |
 | Personal Information: name, email, state, profession, filing status, income | OK | `lib/firebase/profiles.ts`. Incomplete: also entity type, business purpose, NAICS, EIN, home-office and vehicle facts, W-2 figures (REC: add EIN explicitly) |
 | Financial Data: bank account and transaction data via Plaid | OK | `app/api/plaid/*`, `lib/plaid/connections.ts` |
@@ -61,7 +61,7 @@ Verdicts: OK = accurate; FIXED = copy changed in this branch; REC = accurate or 
 ## 3. Effective date, version, and consent alignment
 
 - Both pages now show "Effective date: September 17, 2026 (version 2026-09-17)".
-- `CONSENT_TERMS_VERSION = '2026-09-17'` (`lib/onboarding/consents.ts`); the stored consent record carries this version and `parseConsentRecord` rejects any other. Match confirmed.
+- `CONSENT_TERMS_VERSION = '2026-09-18'` (`lib/onboarding/consents.ts`); the stored consent record carries this version and `parseConsentRecord` rejects any other; earlier records are re-collected by the re-acknowledgment gate. Match confirmed on 2026-09-18.
 - The version strings are hard-coded in the pages. REC: render `CONSENT_TERMS_VERSION` in both pages and add a test so the policy date cannot drift from the consent version.
 - `app/help/help-page-client.tsx` also renders a dynamic "Last updated" date (outside the scope of allowed edits). REC: fix the same way.
 - Existing accounts have no consent record (`docs/PRELAUNCH_READINESS.md`); when the re-acknowledgment prompt ships, show the policy version being accepted.
@@ -99,7 +99,7 @@ Verdicts: OK = accurate; FIXED = copy changed in this branch; REC = accurate or 
 
 ## Facts verified in code
 
-- `lib/onboarding/consents.ts`: `CONSENT_TERMS_VERSION = '2026-09-17'`.
+- `lib/onboarding/consents.ts`: `CONSENT_TERMS_VERSION = '2026-09-18'` (required acknowledgments: `terms`, `bank_data`, `ai_review`).
 - `components/onboarding/consent-checkboxes.tsx`: links to `/privacy` and Plaid's policy; Notice at Collection wording.
 - `lib/firebase/profiles.ts`: profile fields (no phone number; `ein` present).
 - `components/voice-input.tsx`, `app/api/ai/parse-voice-command/route.ts`: Web Speech API; text-only payload to OpenAI; component not imported anywhere.
