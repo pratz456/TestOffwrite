@@ -74,8 +74,10 @@ function pennsylvania(taxYear: StateRegistryTaxYear): FlatRateRules {
 // 2026 IT-511 booklet at review time and is therefore not applied for 2026.
 const GA_SOURCES_2025: StateSource[] = [
   {
-    url: 'https://dor.georgia.gov/document/booklet/2025-it-511-individual-income-tax-booklet/download',
-    note: '2025 Georgia IT-511 booklet: "the income tax rate is 5.19%"; standard deduction $24,000 married filing jointly, $12,000 single, married filing separately, head of household and qualifying surviving spouse; Form 500 line 14 dependent exemption $4,000 per dependent; Schedule 1 line 8 subtracts the taxable portion of Social Security benefits.',
+    // The earlier ".../document/booklet/..." path returned HTTP 404 on 2026-09-18; the
+    // department publishes the booklet under ".../document/document/...".
+    url: 'https://dor.georgia.gov/document/document/2025-it-511-individual-income-tax-booklet/download',
+    note: '2025 Georgia IT-511 booklet: "the income tax rate is 5.19%"; standard deduction $24,000 married filing jointly, $12,000 single, married filing separately, head of household and qualifying surviving spouse; Form 500 line 14 dependent exemption $4,000 per dependent (IT-511 line 11 instructions: "Multiply Form 500, Line 7c by $4,000"); Schedule 1 line 8 subtracts the taxable portion of Social Security benefits.',
   },
 ];
 const GA_SOURCES_2026: StateSource[] = [

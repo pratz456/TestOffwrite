@@ -93,6 +93,9 @@ describe('state registry sanity', () => {
     expect(flat('GA', 2025).standardDeduction).toMatchObject({ single: 12000, married_filing_jointly: 24000, married_filing_separately: 12000, head_of_household: 12000 });
     expect(flat('GA', 2026).standardDeduction).toMatchObject({ single: 15000, married_filing_jointly: 30000, married_filing_separately: 15000, head_of_household: 15000 });
     expect(flat('GA', 2025).dependentExemption).toBe(4000); expect(flat('GA', 2026).dependentExemption).toBeUndefined();
+    // The 2025 IT-511 booklet lives under /document/document/; the older /document/booklet/ path is a 404.
+    expect(flat('GA', 2025).sources.map(source => source.url)).toContain('https://dor.georgia.gov/document/document/2025-it-511-individual-income-tax-booklet/download');
+    expect(flat('GA', 2026).sources.map(source => source.url)).toContain('https://dor.georgia.gov/document/document/2025-it-511-individual-income-tax-booklet/download');
     expect(flat('NC', 2025).rate).toBe(0.0425); expect(flat('NC', 2026).rate).toBe(0.0399);
     for (const year of STATE_REGISTRY_TAX_YEARS) expect(flat('NC', year).standardDeduction).toMatchObject({ single: 12750, married_filing_jointly: 25500, married_filing_separately: 12750, head_of_household: 19125 });
   });

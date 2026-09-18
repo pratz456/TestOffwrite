@@ -31,11 +31,27 @@ export class PersonalDeductionReviewRequiredError extends Error {
 }
 const review = (message: string): never => { throw new PersonalDeductionReviewRequiredError(message); };
 const round = (amount: number) => Math.round((amount + Number.EPSILON) * 100) / 100;
+/**
+ * §63(c)(5) dependent limitation and §63(f) additional standard deduction, verified 2026-09-18:
+ * - 2024: Rev. Proc. 2023-34 (2024 amounts were outside the 2025–2026 audit scope).
+ * - 2025: Rev. Proc. 2024-40 §2.15(2)–(3) — $1,350 / $450; $1,600, or $2,000 if unmarried and not a surviving spouse.
+ * - 2026: Rev. Proc. 2025-32 §4.14(2)–(3) — $1,350 / $450; $1,650, or $2,050 if unmarried and not a surviving spouse.
+ * P.L. 119-21 did not change these amounts.
+ */
 const extraRules = {
   2024: { dependentMinimum: 1300, earnedAddition: 450, marriedAdditional: 1550, unmarriedAdditional: 1950 },
   2025: { dependentMinimum: 1350, earnedAddition: 450, marriedAdditional: 1600, unmarriedAdditional: 2000 },
   2026: { dependentMinimum: 1350, earnedAddition: 450, marriedAdditional: 1650, unmarriedAdditional: 2050 },
 } as const;
+/**
+ * §63(f)(5)(C) enhanced senior deduction, added by P.L. 119-21 §70103 for tax years beginning
+ * after 2024 and before 2029: $6,000 per qualified individual, reduced by 6% of MAGI over
+ * $75,000 ($150,000 joint). Statutory and not indexed.
+ */
+const SENIOR_DEDUCTION = 6000;
+const SENIOR_DEDUCTION_PHASEOUT_RATE = 0.06;
+const SENIOR_DEDUCTION_MAGI_THRESHOLD = 75000;
+const SENIOR_DEDUCTION_MAGI_THRESHOLD_JOINT = 150000;
 
 export function readPersonalDeductionAnswers(raw: unknown): PersonalDeductionAnswers {
   if (typeof raw !== 'string' || !raw.trim()) review('confirm age, blindness and dependency facts before calculating.');
@@ -170,9 +186,9 @@ export function calculateEnhancedSeniorDeduction(input: Input & { agi: number })
     review('foreign/territory amounts are saved while addbacks are marked No; reconcile those answers.');
   }
   const modifiedAGI = round(input.agi + magiAddbacks);
-  const threshold = filingStatus === 'married_filing_jointly' ? 150000 : 75000;
-  const reduction = round(Math.max(0, modifiedAGI - threshold) * .06);
-  const perPerson = Math.max(0, round(6000 - reduction));
+  const threshold = filingStatus === 'married_filing_jointly' ? SENIOR_DEDUCTION_MAGI_THRESHOLD_JOINT : SENIOR_DEDUCTION_MAGI_THRESHOLD;
+  const reduction = round(Math.max(0, modifiedAGI - threshold) * SENIOR_DEDUCTION_PHASEOUT_RATE);
+  const perPerson = Math.max(0, round(SENIOR_DEDUCTION - reduction));
   // Schedule1A calculates the reduced amount PER eligible person before adding spouses.
   return { ...empty, deduction: round(perPerson * eligiblePeople), eligiblePeople, modifiedAGI, magiAddbacks: round(magiAddbacks), perPersonDeduction: perPerson, phaseoutThreshold: threshold, phaseoutReductionPerPerson: reduction };
 }
