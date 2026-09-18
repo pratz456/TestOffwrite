@@ -141,7 +141,7 @@ describe('server profile API boundaries', () => {
       }, { merge: true });
     });
     it('stores a signed §7216 document consent and removes the signature again on withdrawal', async () => {
-      const signature = { version: '2026-09-17', signed_name: 'Synthetic Signer', signed_at: '2026-09-18T09:00:00.000Z' };
+      const signature = { version: DOCUMENT_IMPORT_CONSENT_VERSION, signed_name: 'Synthetic Signer', signed_at: '2026-09-18T09:00:00.000Z' };
       mock.get.mockResolvedValue({ exists: true, data: () => ({ consents }) });
       expect((await profilePost(request({ authorization: 'Bearer id' }, 'POST', { consents: { ...consents, document_import: true, document_import_signature: signature } }))).status).toBe(200);
       expect(mock.set).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({

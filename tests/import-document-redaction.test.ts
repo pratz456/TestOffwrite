@@ -37,6 +37,7 @@ import { CONSENT_TERMS_VERSION } from '../lib/onboarding/consents';
 const W2_TEXT = [
   'a Employee\'s social security number 123-45-6789', 'b Employer identification number (EIN) 98-7654321',
   'c Employer\'s name Synthetic Employer LLC 100 Main St Austin TX 78701-1234', 'd Control number 555444333',
+  'e Employee\'s first name and initial Last name Jordan Demo', 'f Employee\'s address and ZIP code 42 Oak Avenue Apt 3 Austin, TX 78702',
   '1 Wages, tips, other compensation 65,000.00', '2 Federal income tax withheld 7,250.10',
   '3 Social security wages 65,000.00', '4 Social security tax withheld 4,030.00', '5 Medicare wages 65,000.00', '6 Medicare tax withheld 942.50',
   '15 State TX 16 State wages 65000.00', 'Form W-2 Wage and Tax Statement 2025',
@@ -65,7 +66,7 @@ const contentParts = (call: number) => mocks.create.mock.calls[call][0].messages
 beforeEach(() => {
   mocks.create.mockReset(); mocks.recognize.mockReset();
   state.records = { tax_organizers: [{ userId: 'import-owner', taxYear: 2025, taxpayerSSN: encryptSensitive('123456789') }] };
-  state.profile = { name: 'Owner', consents: consents(false) };
+  state.profile = { name: 'Jordan Demo', consents: consents(false) };
   mocks.recognize.mockResolvedValue({ text: W2_TEXT, confidence: 0.9 });
 });
 
@@ -82,9 +83,12 @@ describe('redact-first W-2/1099 import: text path', () => {
     const sent = sentText(0);
     for (const identifier of ['123-45-6789', '123456789', '98-7654321', '987654321', '555444333']) expect(sent).not.toContain(identifier);
     expect(sent).toContain('***-**-6789'); expect(sent).toContain('[redacted-id]');
-    expect(sent).toContain('65,000.00'); expect(sent).toContain('7,250.10'); expect(sent).toContain('78701-1234');
+    // The account holder's name and every postal address stay on this server; amounts and the employer name travel.
+    for (const personal of ['Jordan', 'Demo', '42 Oak Avenue', '78702', '100 Main St', '78701']) expect(sent).not.toContain(personal);
+    expect(sent).toContain('[redacted-name]'); expect(sent).toContain('[redacted-address]'); expect(sent).toContain('Synthetic Employer LLC');
+    expect(sent).toContain('65,000.00'); expect(sent).toContain('7,250.10');
     expect(sent).toContain('needs_image');
-    expect(body).toMatchObject({ success: true, disclosure: 'text', identifiersRedacted: 3, documentOwner: 'taxpayer', committed: true });
+    expect(body).toMatchObject({ success: true, disclosure: 'text', identifiersRedacted: 8, documentOwner: 'taxpayer', committed: true });
     expect(body.extracted.employerEIN).toBe('98-7654321');
     expect(body.verificationRequired).toEqual([]);
     expect(state.records.w2_income).toHaveLength(1);

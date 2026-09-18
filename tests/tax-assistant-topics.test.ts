@@ -4,7 +4,7 @@ import { buildGuidanceMessages, guidanceResponse, topicAnswer, topicSourceIds, v
 import { GUIDANCE_SOURCES, guidanceSource, SELECTABLE_TOPICS, type SelectableTopic } from '../lib/tax-assistant/knowledge';
 
 /** docs/PRODUCT_ROADMAP_2026-09-17.md §4: claims the product may not make until validated. */
-const FORBIDDEN_CLAIMS = /finds? every deduction|every deduction|maximi[sz]e|guarantee|file your taxes|e-file|audit[- ](protection|defense|proof)|accurate for all states|2027 estimate|IRS[- ]approved|risk[- ]free/i;
+const FORBIDDEN_CLAIMS = /finds? every deduction|every deduction|maximi[sz]e|guarantee|file your taxes|e-file|audit[- ](protection|defense|proof)|accurate for all states|2027 estimate|IRS[- ]approved|risk[- ]free|(?<!not automatically )(?:is|are) (?:fully|100%) deductible/i;
 const PRIMARY_SOURCE = /^https:\/\/(www\.irs\.gov|uscode\.house\.gov|www\.ecfr\.gov)\//;
 const PLACEMENT = /Schedule (C|1|1-A|A|SE)\b|Form 1040|Not deductible|Not a deduction/;
 const TAX_YEARS = [2026, 2027] as const;

@@ -35,7 +35,7 @@ import { getOpenAIClientOrThrow, getOpenAIModel } from '@/lib/openai/client';
 import { MAX_RECEIPT_BYTES, ReceiptRequestError, receiptFormData, receiptMimeType, receiptSignatureMatches } from '@/lib/firebase/receipt-security';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 import { documentOcrUsable, recognizeDocumentText } from '@/lib/ocr/document-text';
-import { redactIdentifierText } from '@/lib/security/identifier-redaction';
+import { redactIdentifierText, redactPersonalDetails } from '@/lib/security/identifier-redaction';
 import { DOCUMENT_IMAGE_CONSENT_REQUIRED } from '@/lib/onboarding/document-import-consent';
 import { documentImportConsentOnFile } from '@/lib/onboarding/document-import-consent-server';
 import { readOrganizerDocument } from '@/lib/tax-organizer/organizer-server';
@@ -331,6 +331,18 @@ async function matchDocumentOwner(uid: string, taxYear: number, ssnLast4: string
   }
 }
 
+/** Names the account holder is known by (profile name and organizer taxpayer/spouse names); a read failure redacts nothing extra. */
+async function accountHolderNames(uid: string): Promise<string[]> {
+  try {
+    const profile = await adminDb.collection('user_profiles').doc(uid).get();
+    const data = profile.data() ?? {};
+    const names = [data.name, data.full_name, data.displayName, [data.first_name, data.last_name].filter(Boolean).join(' '), data.taxpayerName, data.spouseName];
+    return names.filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
+  } catch {
+    return [];
+  }
+}
+
 function consentRequired(reason: ImageFallbackReason, consentOnFile: boolean) {
   return NextResponse.json({
     error: reason === 'model_requested_image' || reason === 'ocr_low_confidence'
@@ -406,8 +418,11 @@ export async function POST(request: NextRequest) {
       const redaction = redactIdentifierText(ocr!.text, { keepPrimarySSNLast4: true });
       ssnLast4 = redaction.ssnLast4;
       localEINs = redaction.eins.map(formatEIN);
-      identifiersRedacted = redaction.count;
-      ({ rawText, extracted } = await extractDocument('text', docType, { text: redaction.text }));
+      // The no-consent path also keeps the account holder's name and postal addresses on this server;
+      // the boxes the model extracts are numeric and the employer name stays for labeling.
+      const personal = redactPersonalDetails(redaction.text, await accountHolderNames(user.uid));
+      identifiersRedacted = redaction.count + personal.count;
+      ({ rawText, extracted } = await extractDocument('text', docType, { text: personal.text }));
       if (extracted?.needs_image === true) { fallbackReason = 'model_requested_image'; extracted = null; }
     }
 

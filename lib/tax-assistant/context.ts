@@ -252,7 +252,7 @@ export function composeForYou(context: AssistantContext | null | undefined, topi
   if (merchant) {
     const plural = merchant.count === 1 ? '' : 's';
     const unreviewed = merchant.unreviewedCount === 0
-      ? 'all are reviewed'
+      ? (merchant.count === 1 ? 'it is reviewed' : 'all are reviewed')
       : merchant.unreviewedCount === merchant.count
         ? `${merchant.unreviewedCount === 1 ? 'it is' : 'all are'} unreviewed`
         : `${merchant.unreviewedCount} ${merchant.unreviewedCount === 1 ? 'is' : 'are'} unreviewed`;

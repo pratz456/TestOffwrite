@@ -9,7 +9,7 @@
  * the typed full name is the electronic signature (Rev. Proc. 2013-14 §6) and the
  * date is displayed, never pre-filled or completed later.
  */
-export const DOCUMENT_IMPORT_CONSENT_VERSION = '2026-09-17';
+export const DOCUMENT_IMPORT_CONSENT_VERSION = '2026-09-18';
 
 export const DOCUMENT_IMPORT_CONSENT_NAME_BLANK = '[type your full name]';
 export const DOCUMENT_IMPORT_CONSENT_DATE_BLANK = "[today's date]";
@@ -42,12 +42,13 @@ travel pattern; the merchant, amount, date, location, category, payment
 channel and your notes for each transaction analyzed; your past confirmed
 categorizations for the same merchant; and the full content of any W-2, 1099,
 platform summary, bank or credit card statement, or receipt image you upload
-for extraction, which may include your Social Security number, taxpayer
+for extraction, which may include your name, Social Security number, taxpayer
 identification number, address, account numbers and employer identification
 number if they appear on the document. OpenAI processes this information only
 to return results to WriteOff and does not use it to train its models.
-WriteOff does not disclose your name, email address, or bank login credentials
-to OpenAI.
+WriteOff does not disclose your email address or bank login credentials to
+OpenAI. Without this consent, WriteOff sends only document text from which
+identification numbers, your name and postal addresses have been removed.
 
 Duration: this consent is valid until you delete your WriteOff account or
 withdraw it in Settings, whichever is earlier.

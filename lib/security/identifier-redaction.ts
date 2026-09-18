@@ -77,3 +77,39 @@ export function redactIdentifierStrings<T>(value: T): T {
   }
   return value;
 }
+
+export const REDACTED_NAME = '[redacted-name]';
+export const REDACTED_ADDRESS = '[redacted-address]';
+
+export interface PersonalDetailRedaction { text: string; count: number }
+
+// Postal addresses as printed on W-2/1099 forms: a numbered street line (with an optional unit), a
+// PO box, or a city/state/ZIP line. Amounts never carry a street suffix or a two-letter state code
+// followed by five digits, so wages and withholding survive untouched.
+const STREET_SUFFIX = '(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Lane|Ln|Way|Court|Ct|Place|Pl|Terrace|Ter|Circle|Cir|Highway|Hwy|Parkway|Pkwy|Trail|Trl|Loop|Square|Sq)';
+const STREET_ADDRESS = new RegExp(String.raw`(?<![\d$,.-])\d{1,6}[A-Za-z]?\s+(?:[NSEW]\.?\s+)?(?:[A-Za-z0-9'.-]+\s+){1,4}${STREET_SUFFIX}\b\.?(?:,?\s*(?:Apt|Apartment|Suite|Ste|Unit|Bldg|Floor|Fl|#)\.?\s*[A-Za-z0-9-]+)?`, 'gi');
+const PO_BOX = /\bP\.?\s?O\.?\s+Box\s+\d+/gi;
+const CITY_STATE_ZIP = /\b[A-Za-z][A-Za-z .'-]{1,40},?\s+[A-Z]{2}\.?\s+\d{5}(?:-\d{4})?\b/g;
+
+/**
+ * Remove the account holder's name and postal addresses from document text before it leaves the
+ * server on the no-consent path. Names are matched as whole words, first-last or last-first, with
+ * an optional middle initial; a single-word name is left alone rather than redacting ordinary words.
+ */
+export function redactPersonalDetails(text: string, names: readonly (string | null | undefined)[]): PersonalDetailRedaction {
+  let count = 0;
+  let output = text;
+  for (const pattern of [STREET_ADDRESS, PO_BOX, CITY_STATE_ZIP]) {
+    output = output.replace(pattern, () => { count += 1; return REDACTED_ADDRESS; });
+  }
+  for (const name of names) {
+    const tokens = (name ?? '').trim().split(/\s+/).filter(token => token.replace(/[^A-Za-z]/g, '').length >= 2);
+    if (tokens.length < 2) continue;
+    const escaped = tokens.map(token => token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const gap = String.raw`[\s,.]+(?:[A-Za-z]\.?[\s,.]+)?`;
+    for (const variant of [escaped.join(gap), [...escaped].reverse().join(gap)]) {
+      output = output.replace(new RegExp(String.raw`(?<![A-Za-z])${variant}(?![A-Za-z])`, 'gi'), () => { count += 1; return REDACTED_NAME; });
+    }
+  }
+  return { text: output, count };
+}

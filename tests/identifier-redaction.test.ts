@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { containsIdentifierShapedDigits, REDACTED_ID, redactIdentifierStrings, redactIdentifierText } from '../lib/security/identifier-redaction';
+import { containsIdentifierShapedDigits, REDACTED_ID, redactIdentifierStrings, redactIdentifierText, redactPersonalDetails } from '../lib/security/identifier-redaction';
 
 // Redaction runs on OCR text before any model call and on organizer free text
 // before storage. Every value here is synthetic.
@@ -88,5 +88,27 @@ describe('taxpayer-identifier redaction', () => {
     });
     expect(redacted.when).toBe(when);
     expect(payload.note).toContain('123-45-6789');
+  });
+});
+
+describe('account holder name and postal address redaction (no-consent document text path)', () => {
+  const text = [
+    "c Employer's name Synthetic Employer LLC 100 Main St Austin TX 78701-1234",
+    "e Employee's first name and initial Last name Jordan Demo f Employee's address and ZIP code 42 Oak Avenue Apt 3 Austin, TX 78702",
+    'Prepared by Demo, Jordan A. for tax year 2025', 'P.O. Box 1187 Round Rock, TX 78680',
+    '1 Wages, tips, other compensation 65,000.00 2 Federal income tax withheld 7,250.10 15 State TX 16 State wages 65000.00',
+  ].join('\n');
+  it('removes the holder name in either order and every street, PO box and city/state/ZIP line while keeping amounts and the employer name', () => {
+    const { text: output, count } = redactPersonalDetails(text, ['Jordan Demo']);
+    for (const leaked of ['Jordan', 'Demo, Jordan', '100 Main St', '42 Oak Avenue', '78701', '78702', 'P.O. Box 1187', 'Round Rock']) expect(output).not.toContain(leaked);
+    expect(output).toContain('Synthetic Employer LLC');
+    for (const kept of ['65,000.00', '7,250.10', '65000.00', 'tax year 2025', '15 State TX 16 State wages']) expect(output).toContain(kept);
+    expect(output.match(/\[redacted-address\]/g)).toHaveLength(6);
+    expect(output.match(/\[redacted-name\]/g)).toHaveLength(2);
+    expect(count).toBe(8);
+  });
+  it('ignores single-word or empty names and tolerates missing values', () => {
+    const { text: output } = redactPersonalDetails('Owner paid 1,200.00 to Main Street Bakery on 5 May 2026', ['Owner', '', null, undefined, 'A B']);
+    expect(output).toBe('Owner paid 1,200.00 to Main Street Bakery on 5 May 2026');
   });
 });
