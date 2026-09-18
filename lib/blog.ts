@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import yaml from "js-yaml";
+import { load as loadYaml } from "js-yaml";
 import { remark } from "remark";
 import remarkHtml from "remark-html";
 import remarkGfm from "remark-gfm";
@@ -24,7 +24,7 @@ function parseFrontMatter(raw: string): {
     throw new Error("Blog front matter is missing its closing delimiter.");
   }
 
-  const parsed = yaml.load(lines.slice(1, closingIndex).join("\n"));
+  const parsed = loadYaml(lines.slice(1, closingIndex).join("\n"));
   const data =
     typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
       ? (parsed as Record<string, unknown>)
