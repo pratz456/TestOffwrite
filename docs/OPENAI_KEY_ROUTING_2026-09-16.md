@@ -23,7 +23,7 @@ changing the endpoint, organization, or project. SDK request-body logging is off
 
 | Feature | Default model |
 | --- | --- |
-| Transaction analysis, including background jobs | `gpt-4o-mini` |
+| Transaction analysis, including background jobs | `gpt-4.1-mini` (since 2026-09-17; selection evidence in `docs/AI_LIVE_EVAL_2026-09-17_round3.md`) |
 | Tax assistant | `gpt-4o` |
 | Voice-command parsing | `gpt-4o-mini` |
 | Tax-form and statement image extraction | `gpt-4o` |
