@@ -67,6 +67,10 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), c
   const model = result.provenance?.model?.trim() || getOpenAIModel('transaction');
   const transactionKind = evidence.transaction_kind ?? (canonicalData && Number(canonicalData.amount) > 0 ?
     result.expense_type === 'personal' ? 'personal' : 'expense' : 'unknown');
+  // A proposed purpose is a question for the user, so it only travels with the unresolved business_purpose field.
+  const proposedPurpose = result.status === 'needs_more_info' && result.missing_fields?.includes('business_purpose') && typeof result.proposed_purpose === 'string'
+    ? result.proposed_purpose.trim() || undefined : undefined;
+  const scheduleCLine = transactionKind === 'expense' && typeof result.schedule_c_line === 'string' ? result.schedule_c_line.trim() || undefined : undefined;
   const suggestion: AiReviewSuggestion = {
     id: randomUUID(), status: result.status, transactionKind, category: result.category ?? null,
     isDeductible: result.is_deductible ?? null, deductiblePercent: result.deductible_percent ?? null,
@@ -77,6 +81,9 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), c
     analyzedAt: now, inputHash: canonicalData ? analysisInputHash(canonicalData) : '',
     profileHash: profileHash ?? '',
     categoryReady: result.status !== 'blocked' || result.missing_fields?.some(field => ['supported_tax_year', 'entity_tax_treatment'].includes(field)) === true,
+    // Firestore rejects undefined, so the optional display fields are only written when the server set them.
+    ...(proposedPurpose ? { proposedPurpose } : {}),
+    ...(scheduleCLine ? { scheduleCLine } : {}),
   };
   // A saved suggestion never approves a credit/zero amount as a new expense or approves an unsupported method.
   if (canonicalData && (transactionKind === 'expense' && !(Number(canonicalData.amount) > 0) ||
@@ -108,6 +115,7 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), c
     ai_audit_risk_rationale: result.audit_risk_rationale ?? null, ai_confidence: result.confidence ?? null,
     ai_missing_fields: result.missing_fields ?? [], ai_questions: suggestion.questions,
     ai_documentation_required: result.documentation_required ?? [], ai_reason_hash: result.reason_hash ?? null,
+    ai_proposed_purpose: proposedPurpose ?? null, ai_schedule_c_line: scheduleCLine ?? null,
     ai_model: model, ai_last_analyzed_at: now,
     deductionStatus: label, confidence: result.confidence ?? null,
     reasoning: result.customized_reason ?? result.reasoning_summary ?? null,
@@ -120,6 +128,7 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), c
       irs_refs: result.irs_refs ?? [], audit_risk: result.audit_risk ?? null,
       deductible_percent: suggestion.deductiblePercent, questions: suggestion.questions,
       missing_fields: result.missing_fields ?? [], documentation_required: result.documentation_required ?? [],
+      proposed_purpose: proposedPurpose ?? null, schedule_c_line: scheduleCLine ?? null,
       model, last_analyzed_at: now,
     },
     analyzed: true, analysis_status: 'completed', analysisStatus: 'completed', analysisErrorCode: null,

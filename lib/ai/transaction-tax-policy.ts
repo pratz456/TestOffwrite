@@ -1,4 +1,6 @@
 import type { OutputType, TransactionInput, UserContext } from './analyzeTransaction';
+import { merchantIntelligence, type MerchantIntelligenceResult } from './merchant-intelligence';
+import { matchProfessions, professionHint } from './profession-priors';
 import { BUSINESS_STANDARD_MILEAGE_RATES } from '@/lib/tax-rules/mileage-rates';
 
 /** Selected, reviewed federal rules. This is not retrieval over the entire tax code. */
@@ -20,6 +22,13 @@ export interface TransactionTaxMetadata {
   policy_version: string;
   sources: TransactionTaxSource[];
   provenance: { provider: 'openai'; model: string; kind: 'model_with_curated_tax_policy' };
+  /**
+   * Merchant-table purpose the user can confirm or edit in one tap. Present only on a
+   * needs_more_info result whose missing field is business_purpose; never on an approval.
+   */
+  proposed_purpose?: string;
+  /** Schedule C line for the suggested expense category, for display only. */
+  schedule_c_line?: string;
 }
 const codeUrl = (section: number | string) => `https://uscode.house.gov/view.xhtml?req=granuleid:USC-prelim-title26-section${section}&num=0&edition=prelim`;
 const PUB_334 = 'https://www.irs.gov/publications/p334';
@@ -115,6 +124,12 @@ export const CATEGORY_EVIDENCE: Record<ExpenseCategory, readonly string[]> = {
 };
 /** Vehicle purchases/financing cite asset rules; operating costs cite the travel and mileage rules. */
 const VEHICLE_PURCHASE_EVIDENCE = ['assets-946', 'capital-263', 'travel-463', 'mileage-rates'] as const;
+/** Schedule C line per expense category (2025 Instructions for Schedule C); a matching merchant entry can refine it. */
+export const CATEGORY_SCHEDULE_C_LINE: Record<ExpenseCategory, string | null> = {
+  advertising_marketing: '8', supplies_small_tools: '22', software_subscriptions: '18', contract_labor: '11', equipment: '13',
+  vehicle_expense: '9', travel: '24a', meals_50: '24b', home_office: '30', utilities_phone_internet: '25', education_training: '27a',
+  dues_and_memberships: '27a', bank_and_payment_fees: '10', rent: '20b', other: null,
+};
 
 /** Code sections, regulations and publications a model may name in prose, and the evidence IDs that back each. */
 const SECTION_EVIDENCE: Record<string, readonly string[]> = {
@@ -175,6 +190,26 @@ function text(value: unknown) { return typeof value === 'string' ? value.trim() 
 function contextText(tx: TransactionInput) {
   return [tx.business_purpose, tx.note, tx.notes, tx.description, tx.client_project, tx.meeting_notes].map(text).filter(Boolean).join(' ');
 }
+const descriptorKey = (value: string) => value.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
+/**
+ * Text the user typed. Imports copy the bank descriptor into the note, so a descriptor that
+ * merely repeats the merchant or Plaid name never counts as a saved business purpose.
+ */
+export function userPurposeText(tx: TransactionInput): string {
+  const descriptors = new Set([tx.merchant, tx.merchant_name, tx.description].map(text).filter(Boolean).map(descriptorKey));
+  return [tx.business_purpose, tx.note, tx.notes, tx.client_project, tx.meeting_notes].map(text)
+    .filter(value => value && !descriptors.has(descriptorKey(value))).join(' ');
+}
+/** A stated purpose of at least a short sentence (four words), rather than a label such as "Client snacks". */
+export function isStatedSentence(value: string): boolean {
+  return value.trim().length >= 16 && (value.match(/[\p{L}\p{N}]+/gu)?.length ?? 0) >= 4;
+}
+/** One-tap confirmation of the merchant table's default purpose; acronyms such as "AI" keep their case. */
+export function proposedPurposeQuestion(merchant: MerchantIntelligenceResult): string {
+  const purpose = merchant.defaultPurpose ?? '';
+  const phrased = /^[A-Z][a-z]/.test(purpose) ? purpose.charAt(0).toLowerCase() + purpose.slice(1) : purpose;
+  return `Is this ${merchant.name} charge your ${phrased}? Confirm or edit the purpose.`;
+}
 /** Retain a little item context, never an earlier model tax conclusion, after a policy gate. */
 function categoryContext(input: OutputType, transaction: TransactionInput): string | null {
   if (input.transaction_kind !== 'expense' || !input.category || input.category === 'other' ||
@@ -227,6 +262,8 @@ export function groundTransactionAnalysis(
   input: OutputType, transaction: TransactionInput, context: UserContext | undefined, model: string,
 ): OutputType | null {
   const result: OutputType = { ...input };
+  // Server-owned; a caller or model never supplies them.
+  delete result.proposed_purpose; delete result.schedule_c_line;
   const ids = result.evidence_ids ?? [];
   if (!Array.isArray(ids) || !ids.length || ids.length > 3 || ids.some(id => !TRANSACTION_EVIDENCE_IDS.includes(id)) || new Set(ids).size !== ids.length) return null;
   const year = transactionTaxYear(transaction);
@@ -245,6 +282,17 @@ export function groundTransactionAnalysis(
   // gates read this; nothing here can approve a deduction.
   const reviewText = `${saved} ${text(transaction.merchant)} ${text(transaction.merchant_name)} ${explanation}`;
   const itemContext = categoryContext(input, transaction);
+  // Merchant and profession intelligence choose the gate and its question; they never approve.
+  const merchant = merchantIntelligence(transaction);
+  const priors = matchProfessions(context?.profession);
+  const hint = professionHint(priors, merchant.subtype);
+  /** The profession's reading of this merchant, else the merchant's own question when it fits the proposed category. */
+  const targetedQuestion = (category: string | undefined) =>
+    hint?.question ?? (merchant.category !== null && merchant.category === category ? merchant.question : null);
+  const purpose = userPurposeText(transaction);
+  // Personal-leaning merchants and payment apps need a stated sentence, not a two-word label.
+  const purposeMissing = purpose.length < 8 ||
+    (['personal_likely', 'transfer_or_deposit'].includes(merchant.disposition) && !isStatedSentence(purpose));
   function requireInfo(result: OutputType, field: string, question: string, reason: string, blocked = false) {
     result.status = blocked ? 'blocked' : 'needs_more_info';
     delete result.is_deductible;
@@ -274,13 +322,13 @@ export function groundTransactionAnalysis(
     result.status !== 'ok' && (!result.category || result.category === 'other') ? [...CATEGORY_EVIDENCE.other, 'personal-262', 'records-334'] :
     categoryEvidence ?? CATEGORY_EVIDENCE.other;
   if (!applicableEvidence.some(id => ids.includes(id))) return null;
-  const evidence = [...ids];
-  const addEvidence = (id: string) => { if (!evidence.includes(id)) evidence.push(id); };
+  // Rules a review gate names in its displayed text outrank the category rule when only three sources fit.
+  const gateEvidence: string[] = [];
+  const addEvidence = (id: string) => { if (!gateEvidence.includes(id)) gateEvidence.push(id); };
   // Surface the category-specific rule whenever an expense category is proposed, so the
   // displayed sources name the applicable test rather than only the general §162 rule.
-  if (kind === 'expense' && categoryEvidence && categoryEvidence[0] !== 'business-162' && result.expense_type !== 'personal') {
-    addEvidence(result.category === 'vehicle_expense' && assetPurchase ? VEHICLE_PURCHASE_EVIDENCE[0] : categoryEvidence[0]);
-  }
+  const categoryRule = kind === 'expense' && categoryEvidence && categoryEvidence[0] !== 'business-162' && result.expense_type !== 'personal'
+    ? (result.category === 'vehicle_expense' && assetPurchase ? VEHICLE_PURCHASE_EVIDENCE[0] : categoryEvidence[0]) : null;
   // Kind affects reporting even while eligibility is unresolved. Never let a tentative
   // model kind turn an unexplained deposit into income or a payment app into a transfer.
   const unexplainedIncome = kind === 'income' && (amount >= 0 ||
@@ -327,23 +375,58 @@ export function groundTransactionAnalysis(
     } else if (result.is_deductible === true && !context?.business_entity) {
       requireInfo(result, 'business_entity', 'Is this for your sole-proprietor business or a disregarded single-member LLC?',
         'Confirm your business tax structure before applying this self-employed expense treatment.');
-    } else if (result.is_deductible === true && saved.length < 8) {
-      requireInfo(result, 'business_purpose', 'What did you buy, and how did you use it in your business?',
-        'The likely category helps organize the purchase, but the merchant and account do not establish its business purpose.');
+    } else if (result.is_deductible === true && merchant.disposition === 'not_an_expense') {
+      // Tax payments, loan principal, investments, fines and donations are not expenses whatever the note says.
+      addEvidence(/\btax\b|\bIRS\b/i.test(merchant.name ?? '') || merchant.plaidCategory === 'GOVERNMENT_AND_NON_PROFIT_TAX_PAYMENT' ? 'taxes-licenses-sch-c' : 'records-334');
+      requireInfo(result, 'transaction_kind', hint?.question ?? merchant.question ?? 'Was this a tax payment, loan payment, investment, fine or donation rather than a purchase for your business?',
+        'Payments of this kind (taxes, loan principal, investments, fines or donations) are not Schedule C expenses even when paid from the business account. Confirm what this payment was before it is treated as an expense.');
+    } else if (result.is_deductible === true && (merchant.disposition === 'schedule_1' || HEALTH_INSURANCE_PATTERN.test(reviewText))) {
+      // §162(l) premiums are a Schedule 1 adjustment (Form 7206); on Schedule C they would wrongly reduce SE tax.
+      const health = merchant.disposition !== 'schedule_1' || merchant.subtype === 'health_premium' || HEALTH_INSURANCE_PATTERN.test(reviewText);
+      if (health) { addEvidence('insurance-334'); addEvidence('personal-262'); } else addEvidence('records-334');
+      requireInfo(result, 'deduction_placement', hint?.question ?? (merchant.disposition === 'schedule_1' ? merchant.question : null)
+        ?? 'Is this a health, dental or vision premium for you, your spouse or dependents, or coverage you provide to employees?',
+      health ? 'Self-employed health insurance premiums are an adjustment to income on Schedule 1 (Form 7206), not a Schedule C expense, and they do not reduce self-employment tax. Record them under health insurance in Tax Organizer; only coverage you provide to employees belongs on Schedule C.'
+        : 'Contributions to retirement or health savings accounts are not Schedule C business expenses. Confirm this was a contribution rather than a business purchase, and record it outside business expenses.');
+    } else if (result.is_deductible === true && (merchant.subtype === 'gym' ||
+      // The word "gym" in a note must not re-route a confidently identified clothing or hardware purchase (a non-gym subtype).
+      (CLUB_DUES_PATTERN.test(reviewText) && !(merchant.confidence === 'high' && merchant.subtype)))) {
+      // The statutory club-dues test outranks the generic purpose question: a purpose cannot cure §274(a)(3).
+      addEvidence('dues-274a3'); addEvidence('personal-262');
+      const gymHint = professionHint(priors, 'gym');
+      if (gymHint?.category === 'rent') addEvidence('rent-334');
+      requireInfo(result, 'club_dues_exception', gymHint?.question ?? 'Is this facility used only in your business (for example, space you rent to train clients), or is it a membership for your own use?',
+        'Gym, health club and similar membership dues are generally personal and not deductible (§274(a)(3), §262) even when fitness supports your work. Only a facility used exclusively in the business qualifies.'
+        + (gymHint?.category === 'rent' ? ' Space you rent to train your own clients is business rent rather than dues; confirm the arrangement.' : ''));
+    } else if (result.is_deductible === true && (merchant.subtype === 'clothing' || merchant.subtype === 'beauty')) {
+      // Everyday-wear clothing and grooming stay personal (§262) whatever the stated purpose; only the exception facts can change that.
+      addEvidence('personal-262');
+      requireInfo(result, 'personal_use_exception', hint?.question ?? merchant.question ?? 'Is this item unusable outside your business (a uniform, costume or protective gear) or a product used on your own clients, rather than clothing or grooming for yourself?',
+        'Clothing, grooming and similar items suitable for everyday use are personal living costs even when bought for work or on-camera use. Only items unusable outside the business, such as uniforms, costumes or protective gear, or products used on your own clients can qualify; confirm which this was.');
     } else if (result.is_deductible === true && context?.taxpayer_context?.priors.merchant?.decision === 'personal'
       && context.taxpayer_context.priors.merchant.personalCount >= 2) {
-      // The user's own repeated decisions outrank a model guess; ask before reversing them.
+      // The user's own repeated decisions outrank a model guess and the merchant table's proposed purpose.
       requireInfo(result, 'prior_decision_conflict', 'You previously marked purchases from this merchant as personal. Is this one different, and how was it used in your business?',
         'Your earlier confirmed decisions treated this merchant as personal. Confirm what changed before a business deduction is proposed.');
-    } else if (result.is_deductible === true && HEALTH_INSURANCE_PATTERN.test(reviewText)) {
-      // §162(l) premiums are a Schedule 1 adjustment (Form 7206); on Schedule C they would wrongly reduce SE tax.
-      addEvidence('personal-262');
-      requireInfo(result, 'deduction_placement', 'Is this a health, dental or vision premium for you, your spouse or dependents, or coverage you provide to employees?',
-        'Self-employed health insurance premiums are an adjustment to income on Schedule 1 (Form 7206), not a Schedule C expense, and they do not reduce self-employment tax. Record them under health insurance in Tax Organizer; only coverage you provide to employees belongs on Schedule C.');
-    } else if (result.is_deductible === true && CLUB_DUES_PATTERN.test(reviewText)) {
-      addEvidence('dues-274a3'); addEvidence('personal-262');
-      requireInfo(result, 'club_dues_exception', 'Is this facility used only in your business (for example, space you rent to train clients), or is it a membership for your own use?',
-        'Gym, health club and similar membership dues are generally personal and not deductible (§274(a)(3), §262) even when fitness supports your work. Only a facility used exclusively in the business qualifies.');
+    } else if (result.is_deductible === true && purposeMissing) {
+      const generic = 'What did you buy, and how did you use it in your business?';
+      if (merchant.disposition === 'transfer_or_deposit') {
+        addEvidence('records-334');
+        requireInfo(result, 'transaction_kind', hint?.question ?? merchant.question ?? 'Was this money moved between your own accounts, or a payment to someone for goods or services, and what was bought?',
+          `This ${merchant.name ?? 'payment'} record shows money moving, not what it paid for. Name the payee and the goods or services before it is treated as a business expense.`);
+      } else if (merchant.disposition === 'personal_likely') {
+        addEvidence('personal-262');
+        requireInfo(result, 'business_purpose', hint?.question ?? merchant.question ?? generic,
+          `Purchases from ${merchant.name ?? 'this merchant'} are ordinarily personal living costs. A deduction needs your own stated business purpose, a sentence rather than a label, before the suggested category is more than a bookkeeping hint.`);
+      } else if (merchant.disposition === 'business_likely' && merchant.confidence === 'high' && merchant.defaultPurpose) {
+        // Still needs_more_info: the user's confirmation of the proposed purpose is the only approval.
+        requireInfo(result, 'business_purpose', proposedPurposeQuestion(merchant),
+          `Charges from ${merchant.name} are commonly business purchases, but the merchant alone does not record your business use. Confirm or edit the proposed purpose so it is saved with this transaction.`);
+        result.proposed_purpose = merchant.defaultPurpose;
+      } else {
+        requireInfo(result, 'business_purpose', hint?.question ?? merchant.question ?? generic,
+          'The likely category helps organize the purchase, but the merchant and account do not establish its business purpose.');
+      }
     } else if (result.is_deductible === true && result.category === 'rent' && HOME_RENT_PATTERN.test(reviewText)) {
       addEvidence('home-587');
       requireInfo(result, 'home_office_eligibility', 'Is this rent for a separate business location, or for the home where you live? If it is your home, is a space used regularly and exclusively for business?',
@@ -352,7 +435,7 @@ export function groundTransactionAnalysis(
       && (amount > DE_MINIMIS_ITEM_CEILING || (amount >= ASSET_REVIEW_FLOOR && LIKELY_ASSET_PATTERN.test(reviewText)))) {
       // Choosing "supplies" must not bypass the asset gate that the equipment category triggers.
       addEvidence('capital-263');
-      requireInfo(result, 'asset_treatment', 'What was purchased, when was it first used for business, and have you recorded the de minimis safe harbor election or a depreciation election for this year?',
+      requireInfo(result, 'asset_treatment', hint?.question ?? 'What was purchased, when was it first used for business, and have you recorded the de minimis safe harbor election or a depreciation election for this year?',
         `This purchase looks like an asset rather than a supply. Items over $${DE_MINIMIS_ITEM_CEILING.toLocaleString('en-US')} generally must be capitalized and depreciated; items at or under that amount can be expensed only when the de minimis safe harbor election is recorded for the year. Review the asset treatment before deducting it in full.`);
     } else if (result.is_deductible === true && ['equipment', 'home_office', 'vehicle_expense', 'travel'].includes(result.category ?? '')) {
       const questions: Record<string, [string, string]> = {
@@ -362,18 +445,20 @@ export function groundTransactionAnalysis(
         travel: ['travel_eligibility', 'What was your tax home, business destination, travel dates and personal portion of the trip?'],
       };
       const [field, question] = questions[result.category!];
-      requireInfo(result, field, question, 'The category is suggested, but this expense has additional eligibility or calculation rules. Review the supporting facts before including a deduction.');
+      requireInfo(result, field, targetedQuestion(result.category) ?? question, 'The category is suggested, but this expense has additional eligibility or calculation rules. Review the supporting facts before including a deduction.');
     } else if (result.is_deductible === true && result.category === 'meals_50') {
       // The current UI does not collect every meal-condition fact; retain the useful category, never infer eligibility.
       addEvidence('meals-274');
-      requireInfo(result, 'meal_conditions', 'Who attended, were you or your employee present, and was the meal non-lavish and separately billed from entertainment?',
+      requireInfo(result, 'meal_conditions', targetedQuestion('meals_50') ?? 'Who attended, were you or your employee present, and was the meal non-lavish and separately billed from entertainment?',
         'A qualifying business meal generally has a 50% limit, but a restaurant charge or work shift alone does not qualify. Confirm the attendees, purpose and meal conditions before claiming it.');
     } else if (result.is_deductible === true) {
       const provided = percentage(transaction.business_use_percentage);
-      const mixed = context?.mixed_use_flag === true || result.category === 'utilities_phone_internet' ||
+      // A mixed-use merchant (phone plans, household memberships, tax-prep bundles) needs the documented split.
+      const mixed = context?.mixed_use_flag === true || result.category === 'utilities_phone_internet' || merchant.disposition === 'mixed_use' ||
         /\b(mixed use|partly personal|personal and business|business and personal|shared with family)\b/i.test(saved);
       if ((mixed && provided === null) || (result.deductible_percent != null && result.deductible_percent < 100 && provided === null)) {
-        requireInfo(result, 'business_use_percentage', 'What percentage of this specific expense was for business, and what records support that split?',
+        requireInfo(result, 'business_use_percentage',
+          (merchant.disposition === 'mixed_use' ? targetedQuestion(result.category) : null) ?? 'What percentage of this specific expense was for business, and what records support that split?',
           'Only the documented business portion may qualify. No percentage has been assumed for this mixed-use expense.');
       } else if (provided !== null && result.deductible_percent !== undefined && result.deductible_percent !== provided) {
         return null;
@@ -401,7 +486,15 @@ export function groundTransactionAnalysis(
       ? ['Refund record and matching original invoice', 'Original expense tax year and treatment']
       : ['Itemized invoice or receipt', 'Recorded business purpose and any personal-use allocation'];
   }
-  result.evidence_ids = evidence.slice(0, 3);
+  // The Schedule C line names where a confirmed expense would be reported; it is display metadata, not an approval.
+  if (result.transaction_kind === 'expense' && result.category && input.expense_type !== 'personal' && result.expense_type !== 'personal'
+      && result.is_deductible !== false && !result.missing_fields?.includes('transaction_kind')) {
+    const line = merchant.category === result.category && merchant.scheduleCLine ? merchant.scheduleCLine : CATEGORY_SCHEDULE_C_LINE[result.category];
+    if (line) result.schedule_c_line = line;
+  }
+  // Model-selected ids lead, but a gate's cited rules and the category rule are never squeezed out by them.
+  const required = [...new Set([...gateEvidence, ...(categoryRule ? [categoryRule] : [])])].slice(0, 3);
+  result.evidence_ids = [...ids.filter(id => !required.includes(id)).slice(0, 3 - required.length), ...required];
   result.sources = result.evidence_ids.map(id => {
     const item = TRANSACTION_TAX_EVIDENCE.find(entry => entry.id === id)!;
     return { id: item.id, title: item.title, url: item.url, edition: item.edition, reviewed_at: item.reviewed_at };

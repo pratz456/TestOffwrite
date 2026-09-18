@@ -90,7 +90,7 @@ export const PROFESSION_PRIORS: readonly ProfessionPrior[] = [
       'Stock assets, fonts and courses bought for personal projects.',
     ],
     hints: {
-      electronics: { category: 'equipment', question: 'What was purchased and how much of its use is client design work? Items over $2,500 need depreciation or §179 records; items at or under need the de minimis election.' },
+      electronics: { category: 'equipment', question: 'What was purchased and how much of its use is client design work? Items over $2,500 need depreciation or first-year expensing records; items at or under need the de minimis election.' },
     },
   },
   {
@@ -128,7 +128,7 @@ export const PROFESSION_PRIORS: readonly ProfessionPrior[] = [
       'Bodies and lenses over $2,500 expensed without depreciation or §179 records.',
     ],
     hints: {
-      electronics: { category: 'equipment', scheduleCLine: '13', question: 'Is this camera body, lens or computer used in paid shoots, what share of its use is personal, and is it over $2,500 (depreciation or §179) or at or under (de minimis election)?' },
+      electronics: { category: 'equipment', scheduleCLine: '13', question: 'Is this camera body, lens or computer used in paid shoots, what share of its use is personal, and is it over $2,500 (depreciation or first-year expensing) or at or under (de minimis election)?' },
       travel_air: { question: 'Which paid shoot required this trip, what were the travel dates, and were any days personal or with family?' },
     },
   },

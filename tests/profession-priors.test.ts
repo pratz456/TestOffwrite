@@ -36,6 +36,8 @@ describe('profession priors table', () => {
       expect(prior.auditTraps.length, prior.id).toBe(3);
       for (const [subtype, hint] of Object.entries(prior.hints ?? {})) {
         expect(hint.question.length, `${prior.id}/${subtype}`).toBeGreaterThan(20);
+        // Hint questions are displayed by the grounding layer, whose evidence list may not back a named statute.
+        expect(hint.question, `${prior.id}/${subtype}`).not.toMatch(/§|\bPub(?:lication)?\.?\s+\d|\bsections?\s+\d/i);
         if (hint.category) expect(EXPENSE_CATEGORIES).toContain(hint.category);
         if (hint.scheduleCLine) expect(LINES_BY_CATEGORY[hint.category as string], `${prior.id}/${subtype}`).toContain(hint.scheduleCLine);
       }

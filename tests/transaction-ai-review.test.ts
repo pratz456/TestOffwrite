@@ -193,3 +193,36 @@ describe('explicit category correction and cash direction', () => {
     expect(transactionNeedsTaxReview(record())).toBe(true);
   });
 });
+
+describe('proposed purpose and Schedule C line pass through persistence', () => {
+  const proposal = { status: 'needs_more_info' as const, is_deductible: undefined, expense_type: undefined, deductible_percent: undefined,
+    category: 'software_subscriptions' as const, missing_fields: ['business_purpose'], questions: ['Is this Figma charge your design software subscription used for client work? Confirm or edit the purpose.'],
+    proposed_purpose: 'Design software subscription used for client work', schedule_c_line: '18' };
+  it('saves the proposed purpose and line on an unresolved business_purpose suggestion without approving it', () => {
+    suggest(proposal);
+    expect(record().ai_suggestion).toMatchObject({ status: 'needs_more_info', isDeductible: null, deductiblePercent: null,
+      proposedPurpose: 'Design software subscription used for client work', scheduleCLine: '18' });
+    expect(record()).toMatchObject({ ai_proposed_purpose: 'Design software subscription used for client work', ai_schedule_c_line: '18',
+      ai: { proposed_purpose: 'Design software subscription used for client work', schedule_c_line: '18', missing_fields: ['business_purpose'] } });
+    expect(hydrateReviewTransaction(record(), 'tx').ai_suggestion).toMatchObject({ proposedPurpose: 'Design software subscription used for client work' });
+    // Confirming a needs_more_info suggestion still records no deduction.
+    expect(canConfirmAiSuggestion(record().ai_suggestion)).toBe(true);
+  });
+  it('writes no undefined values and drops a proposed purpose that is not attached to the business_purpose question', () => {
+    const hasUndefined = (value: unknown): boolean => value === undefined || (!!value && typeof value === 'object' && Object.values(value as object).some(hasUndefined));
+    expect(hasUndefined(analysisSuggestionUpdate({ ...result, schedule_c_line: '22' }, 1770000000000, record()))).toBe(false);
+    expect(hasUndefined(analysisSuggestionUpdate({ ...result, ...proposal }, 1770000000000, record()))).toBe(false);
+    suggest({ schedule_c_line: '22' });
+    expect(record().ai_suggestion).toMatchObject({ status: 'ok', scheduleCLine: '22' });
+    expect('proposedPurpose' in record().ai_suggestion).toBe(false);
+    expect(record()).toMatchObject({ ai_proposed_purpose: null, ai_schedule_c_line: '22', ai: { proposed_purpose: null, schedule_c_line: '22' } });
+    // A proposed purpose on a completed result (which grounding never produces) is not persisted.
+    suggest({ proposed_purpose: 'Leaked proposal' });
+    expect('proposedPurpose' in record().ai_suggestion).toBe(false);
+    expect(record().ai_proposed_purpose).toBeNull();
+    // Nor is a line for a non-expense kind.
+    suggest({ ...proposal, transaction_kind: 'personal', category: 'other', missing_fields: ['transaction_kind'], schedule_c_line: '18' });
+    expect(record().ai_suggestion.scheduleCLine).toBeUndefined();
+    expect(record().ai_suggestion.proposedPurpose).toBeUndefined();
+  });
+});

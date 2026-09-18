@@ -17,7 +17,7 @@ import { analyzeTransaction, type OutputType, type TransactionInput } from '@/li
 
 const MODEL = 'gpt-4o';
 const E2E_CASE_IDS = ['adobe-purpose', 'adobe-no-purpose', 'laptop-1900', 'zelle-deposit-no-note', 'dated-2024',
-  'stripe-payout-income-category', 'verizon-percentage-mismatch'];
+  'stripe-payout-income-category', 'verizon-percentage-mismatch', 'figma-proposed-purpose', 'planet-fitness-trainer-floor-fee', 'zara-influencer-outfit'];
 
 /** Mirrors parseProviderOutput's pre-grounding normalization so both paths see identical input. */
 function normalizeModelOutput(raw: Record<string, unknown>): OutputType {
@@ -85,17 +85,35 @@ function assertExpectation(c: EvalCase, result: OutputType | null) {
   if (expectation.deductible_percent !== undefined) expect(grounded.deductible_percent).toBe(expectation.deductible_percent);
   if (expectation.missing_field !== undefined) expect(grounded.missing_fields).toContain(expectation.missing_field);
   for (const id of expectation.evidence_includes ?? []) expect(grounded.evidence_ids).toContain(id);
+  if (expectation.question_includes !== undefined) expect(grounded.questions?.[0]).toContain(expectation.question_includes);
+  if (expectation.proposed_purpose !== undefined) expect(grounded.proposed_purpose).toBe(expectation.proposed_purpose ?? undefined);
+  if (expectation.schedule_c_line !== undefined) expect(grounded.schedule_c_line).toBe(expectation.schedule_c_line ?? undefined);
   // Server-owned metadata is always present on an accepted result.
   expect(grounded).toMatchObject({ jurisdiction: 'US-federal', policy_version: TRANSACTION_TAX_POLICY_VERSION, provenance: { provider: 'openai', model: MODEL, kind: 'model_with_curated_tax_policy' } });
   expect(grounded.sources?.map(source => source.id)).toEqual(grounded.evidence_ids);
   expect(grounded.evidence_ids?.every(id => TRANSACTION_EVIDENCE_IDS.includes(id))).toBe(true);
+  expect(grounded.evidence_ids?.length).toBeLessThanOrEqual(3);
+  // A proposed purpose is a question, never an approval: it only travels with the unresolved business_purpose field.
+  if (grounded.proposed_purpose !== undefined) {
+    expect(grounded.status).toBe('needs_more_info');
+    expect(grounded.missing_fields).toEqual(['business_purpose']);
+    expect(grounded.is_deductible).toBeUndefined();
+    expect(grounded.questions?.[0]).toMatch(/Confirm or edit the purpose/);
+  }
+  // A Schedule C line is display metadata for a proposed expense category only.
+  if (grounded.schedule_c_line !== undefined) {
+    expect(grounded.transaction_kind).toBe('expense');
+    expect(grounded.category).toBeTruthy();
+    expect(grounded.is_deductible).not.toBe(false);
+    expect(grounded.expense_type).not.toBe('personal');
+  }
 }
 
 describe('AI evaluation corpus through the grounding layer', () => {
   it('has unique ids, complete strict-schema outputs and documented concerns', () => {
     const ids = AI_EVAL_CORPUS.map(c => c.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(ids.length).toBeGreaterThanOrEqual(60);
+    expect(ids.length).toBeGreaterThanOrEqual(105);
     for (const c of AI_EVAL_CORPUS) expect(Object.keys(c.modelOutput).sort(), c.id).toEqual([...MODEL_OUTPUT_KEYS].sort());
     for (const concern of KNOWN_CONCERNS) {
       expect(concern.rationale.length).toBeGreaterThan(20);
@@ -147,5 +165,6 @@ afterAll(() => {
   console.info(`[ai-eval scorecard] cases=${AI_EVAL_CORPUS.length} passed=${passed.size} rejected=${results.filter(result => result === null).length}`
     + ` needs_more_info=${count(result => result.status === 'needs_more_info')} blocked=${count(result => result.status === 'blocked')}`
     + ` ok=${count(result => result.status === 'ok')} ok_with_deduction=${count(result => result.status === 'ok' && result.is_deductible === true)}`
+    + ` proposed_purpose=${count(result => result.proposed_purpose !== undefined)} schedule_c_line=${count(result => result.schedule_c_line !== undefined)}`
     + ` known_concerns=${KNOWN_CONCERNS.length}`);
 });

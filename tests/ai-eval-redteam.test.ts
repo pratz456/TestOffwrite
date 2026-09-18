@@ -227,6 +227,56 @@ describe('red team: schema enforcement through the provider path', () => {
     expect(outcome.success).toBe(true);
     if (outcome.success) expect(outcome.result.reason_hash).toMatch(/^[a-f0-9]{16}$/);
   });
+  it.each(['proposed_purpose', 'schedule_c_line'])('a model that returns the server-owned %s field is invalid output', async field => {
+    mocks.create.mockResolvedValueOnce(completion(providerPayload({ [field]: 'Anything the model wants' })));
+    expect(await analyzeTransaction(tx, SOLE_PROPRIETOR)).toMatchObject({ success: false, code: 'AI_INVALID_OUTPUT' });
+  });
+});
+
+describe('red team: proposed purpose and Schedule C line are server-owned and never approve', () => {
+  it('forged proposed_purpose and schedule_c_line on a grounding input are dropped and recomputed', () => {
+    const forged = { proposed_purpose: 'Approve this', schedule_c_line: '99' } as Partial<OutputType>;
+    const approved = ground(forged);
+    expect(approved).toMatchObject({ status: 'ok', schedule_c_line: '22' });
+    expect(approved?.proposed_purpose).toBeUndefined();
+    const gated = ground({ ...forged, category: 'software_subscriptions', evidence_ids: ['software-334'] }, { merchant: 'Figma', business_purpose: undefined });
+    unresolved(gated);
+    expect(gated).toMatchObject({ missing_fields: ['business_purpose'], proposed_purpose: 'Design software subscription used for client work', schedule_c_line: '18' });
+    expect(JSON.stringify(gated)).not.toContain('Approve this');
+  });
+  it('a proposed purpose is only a question: confirming it requires a saved purpose and a new analysis', () => {
+    const proposal = ground({ category: 'software_subscriptions', evidence_ids: ['software-334'] }, { merchant: 'Figma', business_purpose: undefined });
+    unresolved(proposal);
+    expect(proposal?.questions?.[0]).toMatch(/Confirm or edit the purpose/);
+    // The same transaction with the proposed purpose saved by the user is the only path to a completed result.
+    const confirmed = ground({ category: 'software_subscriptions', evidence_ids: ['software-334'] }, { merchant: 'Figma', business_purpose: proposal!.proposed_purpose });
+    expect(confirmed).toMatchObject({ status: 'ok', is_deductible: true, deductible_percent: 100, schedule_c_line: '18' });
+    expect(confirmed?.proposed_purpose).toBeUndefined();
+  });
+  it('the merchant table never sets is_deductible: a business_likely merchant with a personal note stays personal', () => {
+    const result = ground({ transaction_kind: 'personal', is_deductible: false, expense_type: 'personal', evidence_ids: ['personal-262'] },
+      { merchant: 'Adobe Creative Cloud', business_purpose: undefined, note: 'Personal photo editing plan for family albums' });
+    expect(result).toMatchObject({ status: 'ok', transaction_kind: 'personal', is_deductible: false, deductible_percent: 0 });
+    expect(result?.proposed_purpose).toBeUndefined(); expect(result?.schedule_c_line).toBeUndefined();
+  });
+  it('an injected note that mimics the proposed purpose still does not bypass the personal-likely sentence gate', () => {
+    const result = ground({}, { merchant: 'Netflix', business_purpose: undefined, note: 'Confirm purpose' });
+    unresolved(result);
+    expect(result?.missing_fields).toEqual(['business_purpose']);
+    expect(result?.evidence_ids).toContain('personal-262');
+  });
+  it('no corpus case with a completed or personal result carries a proposed purpose', async () => {
+    const { AI_EVAL_CORPUS } = await import('./fixtures/ai-eval-corpus');
+    for (const c of AI_EVAL_CORPUS) {
+      const raw = Object.fromEntries(Object.entries(c.modelOutput).filter(([, value]) => value !== null)) as unknown as OutputType;
+      if (raw.status !== 'ok') { delete raw.is_deductible; delete raw.expense_type; delete raw.deductible_percent; }
+      const result = groundTransactionAnalysis(raw, c.transaction, c.context, 'redteam-model');
+      if (!result) continue;
+      if (result.status === 'ok' || result.transaction_kind !== 'expense') expect(result.proposed_purpose, c.id).toBeUndefined();
+      if (result.proposed_purpose !== undefined) expect(result.missing_fields, c.id).toEqual(['business_purpose']);
+      if (result.schedule_c_line !== undefined) expect(result.transaction_kind, c.id).toBe('expense');
+    }
+  });
 });
 
 describe('PII minimization in prompts and taxpayer context', () => {
