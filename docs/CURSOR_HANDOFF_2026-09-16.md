@@ -134,7 +134,8 @@ All active OpenAI features use `lib/openai/client.ts` and server-only `OPENAI_AP
 
 | Feature | Default model |
 |---|---|
-| Transaction classification and voice parsing | `gpt-4o-mini` |
+| Transaction classification | `gpt-4.1-mini` (changed 2026-09-17 after live evaluation) |
+| Voice parsing | `gpt-4o-mini` |
 | Tax assistant and document image extraction | `gpt-4o` |
 
 `OPENAI_MODEL` is an optional server-wide override. Requests specify `store:false`, which does not establish a universal provider-retention guarantee. Analysis records the actual returned model ID.

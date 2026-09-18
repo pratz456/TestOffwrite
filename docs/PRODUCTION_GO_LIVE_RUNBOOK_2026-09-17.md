@@ -399,7 +399,11 @@ unset to enable), `ANALYSIS_MAX_INSTANCES=<1–20>` and `ANALYSIS_CONCURRENCY=<1
 SSR bundle). Before launch confirm in the OpenAI dashboard (Settings → Limits)
 that the organization is at least **Tier 2** for `gpt-4.1-mini` and set a
 monthly usage limit; the sizing table in `docs/PRODUCTION_SCALE_2026-09-17.md`
-§5 maps expected first-day bank connections to these two values.
+§5 maps expected first-day bank connections to these two values. The chain
+trigger → worker → OpenAI → `ai_suggestion` was proven end to end with the funded
+key on 2026-09-18 (`docs/AI_PIPELINE_E2E_2026-09-18.md`: 8/8 tasks completed,
+served model `gpt-4.1-mini-2025-04-14`, 1.9–3.2 s per transaction); the same key
+value belongs in this file.
 
 **Stripe (required; live mode)**
 
