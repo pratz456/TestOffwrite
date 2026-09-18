@@ -16,6 +16,8 @@ import { ExplanationCard } from '@/components/ai/explanation-card';
 import { normalizeExplanation } from '@/lib/ai/explanation';
 import { PurposeConfirmChip } from '@/components/review/purpose-confirm-chip';
 import { BulkConfirmOffer, bulkOutcomeMessage } from '@/components/review/bulk-confirm-offer';
+import { AnalysisStatusNotice } from '@/components/analysis-status-notice';
+import { analysisRecordState } from '@/lib/ai/analysis-state';
 import type { AiReviewSuggestion } from '@/lib/transactions/ai-review-contract';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import type { Transaction as StoredTransaction } from '@/lib/firebase/transactions';
@@ -65,6 +67,11 @@ interface TransactionDetailScreenProps {
     superseded_by?: string | null; // Server-only: this bank record duplicates an earlier reviewed one
     pending?: boolean | null;
     review_status?: string;
+    // Durable analysis pipeline stamps (lib/ai/analysis-jobs.ts).
+    analysisStatus?: StoredTransaction['analysisStatus'];
+    analysis_status?: StoredTransaction['analysis_status'];
+    analysisErrorCode?: StoredTransaction['analysisErrorCode'];
+    analysisJobId?: StoredTransaction['analysisJobId'];
     ai_suggestion?: AiReviewSuggestion | null;
     ai_missing_fields?: string[];
     ai_customized_reason?: string | null;
@@ -250,6 +257,8 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
     if (await aiAvailability.refresh() && activeAnalysisContext.current === analysisContext) setAnalysisUnavailable(false);
   };
   const analysisBlocked = analysisUnavailable || aiAvailability.status !== 'configured';
+  // What the durable pipeline last did with this record, explained when no suggestion exists.
+  const pipeline = analysisRecordState(transaction);
 
   // Use React Query mutation with optimistic updates for instant UI feedback
   const updateTransactionMutation = useUpdateTransaction();
@@ -813,7 +822,9 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
               : transaction.ai_explanation ? <div className="space-y-2"><ExplanationCard explanation={normalizeExplanation(transaction.ai_explanation)} />{transaction.ai_suggestion && <AiTaxAnalysisDialog key={transaction.ai_suggestion.id} suggestion={transaction.ai_suggestion} />}</div>
               : transaction.ai_suggestion ? <AiTaxExplanation key={transaction.ai_suggestion.id} suggestion={transaction.ai_suggestion} compact onAddContext={() => changeDetailSection('details')} />
               : <div className="space-y-2 text-sm text-muted-foreground">
-                <p>{transaction.deductionStatus || transaction.ai ? 'Run analysis again for a current category, tax explanation and sources.' : 'No AI suggestion yet. Add a business purpose, then run analysis.'}</p>
+                {pipeline.outcome ? <AnalysisStatusNotice compact outcome={pipeline.outcome} accountIds={transaction.account_id ? [transaction.account_id] : []} disabled={isAnalyzing} className="text-foreground" />
+                  : pipeline.state === 'queued' ? <p role="status">Queued for automatic AI analysis. A first import can take a while; run it now or review this transaction yourself.</p>
+                  : <p>{transaction.deductionStatus || transaction.ai ? 'Run analysis again for a current category, tax explanation and sources.' : 'No AI suggestion yet. Add a business purpose, then run analysis.'}</p>}
                 {(transaction.ai || transaction.ai_analysis || transaction.deductible_reason || transaction.reasoning) && <details className="group rounded-lg border border-border">
                   <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between px-3 font-medium [&::-webkit-details-marker]:hidden">Earlier analysis<ChevronDown className="h-4 w-4 group-open:rotate-180" /></summary>
                   <div className="space-y-2 border-t border-border p-3"><p>{transaction.reasoning || transaction.ai?.key_analysis_factors?.reasoning_summary || transaction.ai?.reasoning || transaction.ai_analysis || transaction.deductible_reason || 'No saved explanation.'}</p><p className="text-xs">Earlier guidance has not been verified against the current facts. Run analysis again before relying on it.</p></div>

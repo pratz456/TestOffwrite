@@ -5,6 +5,7 @@ import { useJobProgress } from '@/lib/hooks/useJobProgress';
 import { analysisJobView } from '@/lib/ai/client-job-progress';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
+import { AnalysisStatusNotice } from '@/components/analysis-status-notice';
 import { useRouter } from 'next/navigation';
 
 interface JobProgressProps { accountId: string; onComplete?: () => void }
@@ -23,6 +24,7 @@ export function JobProgress({ accountId, onComplete }: JobProgressProps) {
       {job && <>
         <Progress value={job.total ? Math.round(job.processed / job.total * 100) : 0} />
         <p className="text-sm">{job.processed} of {job.total} processed · {job.succeeded} suggestions saved · {job.failed} failed</p>
+        {view?.outcome && <AnalysisStatusNotice compact outcome={view.outcome} count={job.failed} accountIds={[accountId]} onReview={review} />}
       </>}
       <Button variant="outline" onClick={review}>Review Transactions</Button>
     </div>

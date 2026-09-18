@@ -20,6 +20,8 @@ import { MerchantGroupList, type GroupDecisionResult } from '@/components/review
 import { QuestionChips } from '@/components/review/question-chips';
 import { ExplanationCard } from '@/components/ai/explanation-card';
 import { normalizeExplanation } from '@/lib/ai/explanation';
+import { AnalysisStatusNotice } from '@/components/analysis-status-notice';
+import { summarizeAnalysisBacklog } from '@/lib/ai/analysis-state';
 
 interface ReviewTransactionsScreenProps {
   user: { id: string; email?: string; user_metadata?: { name?: string } };
@@ -95,6 +97,8 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
   const suggestion = current?.ai_suggestion;
   const analysisRunning = current?.analysisStatus === 'running' || current?.analysis_status === 'running';
   const analysisQueued = !!current?.analysisJobId && (current.analysisStatus === 'pending' || current.analysis_status === 'pending');
+  // Backlog across the loaded records, so a queued card can say how long the wait may be.
+  const analysisWaiting = analysisQueued ? summarizeAnalysisBacklog(resolved).waiting : 0;
   const mayConfirm = !!current && current.pending !== true && !analysisRunning && !analysisQueued && canConfirmSuggestion(suggestion);
   const suggestedCategory = reviewCategory(suggestion?.category);
   // Describe the existing review endpoint's supported deduction cases, not just the model's status.
@@ -389,7 +393,8 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
               <section className="space-y-2 rounded-xl border border-primary/20 bg-primary/5 p-3" aria-labelledby="suggestion-heading">
                 <div className="flex items-center gap-1.5 text-xs font-medium text-primary"><Sparkles className="h-3.5 w-3.5 shrink-0" /><span>{mayConfirm && presentation!.needsTaxFacts ? 'AI suggested category' : presentation!.label}</span></div>
                 <h3 id="suggestion-heading" className="text-xl font-semibold leading-tight">{presentation!.categoryLabel}</h3>
-                {current.ai_explanation ? <ExplanationCard explanation={normalizeExplanation(current.ai_explanation)} />
+                {presentation!.outcome ? <AnalysisStatusNotice compact outcome={presentation!.outcome} accountIds={[current.account_id || current.accountId || ''].filter(Boolean)} disabled={busy} />
+                  : current.ai_explanation ? <ExplanationCard explanation={normalizeExplanation(current.ai_explanation)} />
                   : <p className={suggestion ? 'line-clamp-2 text-sm leading-5' : 'text-sm leading-5'}>{presentation!.reasoning}</p>}
               </section>
 
@@ -415,7 +420,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
               </div>}
 
               {!suggestion && analysisControls}
-              {analysisQueued && <p role="status" className="text-xs leading-5 text-muted-foreground">Queued for automatic analysis. Run it now or wait for the result.</p>}
+              {analysisQueued && <p role="status" className="text-xs leading-5 text-muted-foreground">{`Queued for automatic analysis.${analysisWaiting > 1 ? ` ${analysisWaiting} transactions are waiting; a first import can take a while.` : ''} Run it now or wait for the result.`}</p>}
               {analysisRunning && <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 shrink-0 animate-spin" />AI is analyzing. Results refresh here.</p>}
               {!suggestion && availability.status === 'unavailable' && <p className="text-xs text-muted-foreground">{availability.message} Manual categorization remains available.</p>}
             </>}
