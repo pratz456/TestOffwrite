@@ -46,7 +46,9 @@ describe('one server OpenAI configuration across model routes', () => {
     expect(response.status).toBe(200);
     expect(mocks.constructor).toHaveBeenCalledWith(expect.objectContaining({ apiKey: 'synthetic-shared-server-key', baseURL: 'https://api.openai.com/v1' }));
     expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ model: route.model, store: false }));
-    expect(mocks.collection).not.toHaveBeenCalled();
+    // The document text path reads only the owner's own profile, to learn which name to redact before the text leaves the server.
+    if (route.name === 'document') expect(mocks.collection.mock.calls).toEqual([['user_profiles']]);
+    else expect(mocks.collection).not.toHaveBeenCalled();
   });
   it.each(routes)('$name honors the same server model override', async route => {
     vi.stubEnv('OPENAI_MODEL', '  gpt-4o-mini  ');
