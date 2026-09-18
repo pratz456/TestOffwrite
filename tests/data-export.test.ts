@@ -63,6 +63,16 @@ describe('owner export source completeness and privacy', () => {
     expect(state.reads.filter(path => path === 'user_profiles/owner/accounts/account/transactions')).toHaveLength(0);
     state.rows.set('user_profiles/owner/accounts/account/transactions/manual', manual);
   });
+  it('does not let a row returned by both owner queries stand in for an owner-field-less row', async () => {
+    // One row carries both owner spellings (a legacy user_id row later updated with userId) and one carries
+    // neither: count() is 2 and both queries return the first row. Counting it twice would skip the walk.
+    state.rows.delete('user_profiles/owner/accounts/account/transactions/current');
+    seed('user_profiles/owner/accounts/account/transactions/both', { userId: 'owner', user_id: 'owner', date: '2026-02-01', amount: 50, is_deductible: true });
+    state.reads.length = 0; state.counts.length = 0;
+    const rows = await readOwnedTransactions('owner');
+    expect(rows.map(row => row.id).sort()).toEqual(['both', 'legacy', 'manual']);
+    expect(state.reads.filter(path => path === 'user_profiles/owner/accounts/account/transactions')).toHaveLength(1);
+  });
   it.each(['transactions', 'user_profiles/owner/accounts/account/transactions'])('fails closed when %s cannot be read', async path => {
     state.fail = path; await expect(readOwnedTransactions('owner')).rejects.toBeInstanceOf(ExportDataUnavailableError);
   });
