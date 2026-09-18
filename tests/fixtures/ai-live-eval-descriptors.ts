@@ -103,7 +103,7 @@ export const DESCRIPTOR_CASES: DescriptorCase[] = [
   c('hiscox', 'HISCOX INC 866-283-7545', 42, 'consultant', 'insurance', 'ok', { purpose: 'Professional liability insurance for my consulting business', note: 'business insurance is confirmable on line 15 (2026-09-18.3)' }),
   c('next-insurance-no-purpose', 'NEXT INSURANCE INC', 38, 'trainer', 'insurance', 'needs_more_info', { note: 'business insurer with no purpose: proposed purpose, never ok' }),
   c('state-farm-vague', 'STATE FARM INSURANCE 800-782-8332', 110, 'realtor', 'insurance', 'needs_more_info', { purpose: 'Insurance premium for the business', note: 'a carrier that sells every policy type: insurance_coverage question' }),
-  c('blue-shield', 'BLUE SHIELD OF CA PREMIUM', 486, 'designer', 'other', 'needs_more_info', { purpose: 'My health insurance premium', note: 'Schedule 1 / Form 7206, never Schedule C ok; never the insurance category' }),
+  c('blue-shield', 'BLUE SHIELD OF CA PREMIUM', 486, 'designer', 'other', 'blocked', { purpose: 'My health insurance premium', note: 'own health premium is a Schedule 1 / Form 7206 item: blocked (Rule 5, relabeled 2026-09-18), never Schedule C ok; never the insurance category' }),
   c('geico', 'GEICO *AUTO 800-841-3000', 148, 'rideshare', 'vehicle_expense', 'needs_more_info', { purpose: 'Car insurance for my rideshare car', note: 'vehicle method question' }),
   c('lemonade-renters', 'LEMONADE INS 844-733-8666', 28, 'writer', 'home_office', 'needs_more_info', { purpose: 'Renters insurance for the apartment where I write', note: 'home policy → home-office eligibility, never line 15' }),
   c('legalzoom', 'LEGALZOOM.COM INC', 299, 'photographer', 'legal_professional', 'ok', { purpose: 'LLC formation filing for my photography business', note: 'line 17 as legal_professional (2026-09-18.3)' }),
@@ -119,7 +119,7 @@ export const DESCRIPTOR_CASES: DescriptorCase[] = [
   c('udemy', 'UDEMY ONLINE COURSES', 19.99, 'designer', 'education_training', 'ok', { purpose: 'Advanced Figma course to improve my design skills' }),
   c('coursera-new-trade', 'COURSERA ORG', 49, 'trainer', 'education_training', 'needs_more_info', { purpose: 'Nursing prerequisites so I can change careers', note: '§1.162-5 new trade: never ok' }),
   c('aiga-dues', 'AIGA NATIONAL DUES', 150, 'designer', 'dues_and_memberships', 'ok', { purpose: 'Professional association membership' }),
-  c('planet-fitness', 'PLANET FITNESS CLUB FEES', 24.99, 'writer', 'dues_and_memberships', 'needs_more_info', { purpose: 'Gym membership', note: '§274(a)(3): never ok' }),
+  c('planet-fitness', 'PLANET FITNESS CLUB FEES', 24.99, 'writer', 'dues_and_memberships', 'ok', { purpose: 'Gym membership', expectedKind: 'personal', note: '§274(a)(3) club dues with no business purpose: ok as personal without a question (Rule 4, relabeled 2026-09-18), never a deduction' }),
   c('trainer-gym-rent', 'EQUINOX TRAINER SPACE RENTAL', 400, 'trainer', 'rent', 'ok', { purpose: 'Floor space rental to train my clients at the gym' }),
   // Contract labor
   c('contractor-zelle', 'ZELLE PAYMENT TO ANA RIVERA', 800, 'photographer', 'contract_labor', 'ok', { purpose: 'Second shooter for the Alvarez wedding' }),
@@ -133,8 +133,8 @@ export const DESCRIPTOR_CASES: DescriptorCase[] = [
   c('client-deposit', 'ZELLE PAYMENT FROM MARK T', -300, 'trainer', null, 'ok', { purpose: 'Client payment for 4 training sessions', plaidCategory: 'INCOME_OTHER_INCOME', expectedKind: 'income' }),
   c('amazon-refund', 'AMZN Mktp US*RF12345 REFUND', -45.99, 'writer', null, 'needs_more_info', { expectedKind: 'refund', note: 'refund needs the original purchase' }),
   c('atm', 'ATM WITHDRAWAL 00123 MAIN ST', 200, 'rideshare', null, 'needs_more_info', { plaidCategory: 'TRANSFER_OUT_WITHDRAWAL' }),
-  c('netflix', 'NETFLIX.COM 866-579-7172', 15.49, 'designer', null, 'needs_more_info', { note: 'personal; model may return personal kind' }),
-  c('groceries', 'TRADER JOE S #123 OAKLAND', 84.2, 'consultant', null, 'needs_more_info', { plaidCategory: 'FOOD_AND_DRINK_GROCERIES' }),
+  c('netflix', 'NETFLIX.COM 866-579-7172', 15.49, 'designer', null, 'ok', { expectedKind: 'personal', note: 'streaming with no purpose is personal by nature: ok as personal without a question (Rule 4, relabeled 2026-09-18), never a deduction' }),
+  c('groceries', 'TRADER JOE S #123 OAKLAND', 84.2, 'consultant', null, 'ok', { plaidCategory: 'FOOD_AND_DRINK_GROCERIES', expectedKind: 'personal', note: 'groceries with no purpose are personal by nature: ok as personal without a question (Rule 4, relabeled 2026-09-18), never a deduction' }),
   c('check', 'CHECK 1043', 1200, 'realtor', null, 'needs_more_info'),
   c('pending-auth', 'PENDING - UBER *TRIP', 12, 'consultant', 'travel', 'needs_more_info', { note: 'pending records should not be approved' }),
 ];
