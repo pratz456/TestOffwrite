@@ -1,6 +1,5 @@
 import fs from "fs";
 import path from "path";
-import matter from "gray-matter";
 import yaml from "js-yaml";
 import { remark } from "remark";
 import remarkHtml from "remark-html";
@@ -8,14 +7,46 @@ import remarkGfm from "remark-gfm";
 
 const BLOG_DIR = path.join(process.cwd(), "content", "blog");
 
-const matterOptions: any = {
-  engines: {
-    yaml: {
-      parse: (s: string) => yaml.load(s) as Record<string, unknown>,
-      stringify: (o: Record<string, unknown>) => yaml.dump(o),
-    },
-  },
-};
+function parseFrontMatter(raw: string): {
+  data: Record<string, unknown>;
+  content: string;
+} {
+  const normalized = raw.replace(/\r\n/g, "\n");
+  const lines = normalized.split("\n");
+  if (lines[0]?.trim() !== "---") {
+    return { data: {}, content: normalized };
+  }
+
+  const closingIndex = lines.findIndex(
+    (line, index) => index > 0 && line.trim() === "---",
+  );
+  if (closingIndex < 0) {
+    throw new Error("Blog front matter is missing its closing delimiter.");
+  }
+
+  const parsed = yaml.load(lines.slice(1, closingIndex).join("\n"));
+  const data =
+    typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+
+  return {
+    data,
+    content: lines.slice(closingIndex + 1).join("\n").replace(/^\n/, ""),
+  };
+}
+
+function frontMatterString(value: unknown, fallback = ""): string {
+  if (typeof value === "string") return value;
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  return fallback;
+}
+
+function frontMatterTags(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((tag): tag is string => typeof tag === "string")
+    : [];
+}
 
 export interface BlogPost {
   slug: string;
@@ -52,14 +83,14 @@ export function getAllPosts(): BlogPostMeta[] {
     .filter((f) => f.endsWith(".mdx"))
     .map((filename) => {
       const raw = fs.readFileSync(path.join(BLOG_DIR, filename), "utf-8");
-      const { data, content } = matter(raw, matterOptions);
+      const { data, content } = parseFrontMatter(raw);
       return {
         slug: filename.replace(/\.mdx$/, ""),
-        title: data.title ?? "",
-        description: data.description ?? "",
-        date: data.date ?? "",
-        author: data.author ?? "WriteOff Team",
-        tags: data.tags ?? [],
+        title: frontMatterString(data.title),
+        description: frontMatterString(data.description),
+        date: frontMatterString(data.date),
+        author: frontMatterString(data.author, "WriteOff Team"),
+        tags: frontMatterTags(data.tags),
         readingTime: estimateReadingTime(content),
       };
     })
@@ -73,7 +104,7 @@ export async function getPostBySlug(slug: string): Promise<BlogPost | null> {
   if (!fs.existsSync(filePath)) return null;
 
   const raw = fs.readFileSync(filePath, "utf-8");
-  const { data, content } = matter(raw, matterOptions);
+  const { data, content } = parseFrontMatter(raw);
 
   const hasMidCta = content.includes("<BlogCTA");
   const cleaned = content.replace(/<BlogCTA\s*\/?>/, CTA_PLACEHOLDER);
@@ -83,11 +114,11 @@ export async function getPostBySlug(slug: string): Promise<BlogPost | null> {
 
   return {
     slug,
-    title: data.title ?? "",
-    description: data.description ?? "",
-    date: data.date ?? "",
-    author: data.author ?? "WriteOff Team",
-    tags: data.tags ?? [],
+    title: frontMatterString(data.title),
+    description: frontMatterString(data.description),
+    date: frontMatterString(data.date),
+    author: frontMatterString(data.author, "WriteOff Team"),
+    tags: frontMatterTags(data.tags),
     readingTime: estimateReadingTime(content),
     contentHtml,
     hasMidCta,

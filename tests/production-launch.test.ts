@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
+import { getAllPosts, getPostBySlug } from '../lib/blog';
 import { getWelcomeView } from '../lib/welcome-view-state';
 
 describe('getWelcomeView', () => {
@@ -35,5 +36,28 @@ describe('/login alias', () => {
     expect(src).toMatch(/\/auth\/login/);
     expect(src).toMatch(/searchParams/);
     expect(src).toMatch(/redirect\(/);
+  });
+});
+
+describe('blog front matter', () => {
+  it('parses metadata and content through the secure js-yaml path', async () => {
+    const posts = getAllPosts();
+    const metadata = posts.find(
+      (post) => post.slug === 'sales-tax-freelancers-digital-services',
+    );
+
+    expect(metadata).toMatchObject({
+      title: 'Sales Tax for Freelancers: Do You Actually Have to Collect It?',
+      date: '2026-06-05',
+      author: 'WriteOff Team',
+    });
+    expect(metadata?.tags).toContain('Sales Tax');
+
+    const post = await getPostBySlug(
+      'sales-tax-freelancers-digital-services',
+    );
+    expect(post?.contentHtml).toContain(
+      'First Question: Are Your Services Even Taxable?',
+    );
   });
 });

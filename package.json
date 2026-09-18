@@ -66,9 +66,9 @@
     "firebase": "^12.19.0",
     "firebase-admin": "^14.4.0",
     "firebase-functions": "^7.4.0",
-    "gray-matter": "^4.0.3",
     "idb": "^8.0.3",
     "input-otp": "^1.4.2",
+    "js-yaml": "^5.4.2",
     "lucide-react": "^0.511.0",
     "next": "^15.5.25",
     "next-themes": "^0.4.6",
@@ -118,7 +118,6 @@
   },
   "overrides": {
     "cookie": ">=0.7.0",
-    "js-yaml": ">=4.1.1",
     "workbox-build": "7.4.1",
     "workbox-webpack-plugin": "7.4.1",
     "workbox-core": "7.4.1",
@@ -127,6 +126,7 @@
     "@babel/plugin-transform-modules-systemjs": "7.29.8",
     "terser-webpack-plugin": "5.6.1",
     "serialize-javascript": "7.1.1",
-    "uuid": "11.1.1"
+    "uuid": "11.1.1",
+    "js-yaml": "$js-yaml"
   }
 }
