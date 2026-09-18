@@ -51,6 +51,14 @@ export const REQUIRED_RELEASE_REVIEWS = Object.freeze([
 const buckets = [`${PRODUCTION_PROJECT}.firebasestorage.app`, `${PRODUCTION_PROJECT}.appspot.com`];
 /** Optional functions-analysis params (defaults 2 × 2 in functions-analysis/src/index.ts); upper bounds keep the OpenAI fan-out reviewable. */
 export const ANALYSIS_FANOUT_LIMITS = Object.freeze({ ANALYSIS_MAX_INSTANCES: 20, ANALYSIS_CONCURRENCY: 10 });
+/**
+ * Values written to functions-analysis/.env.<project> when the operator sets none.
+ * firebase-tools resolves every non-secret param from the codebase's dotenv files
+ * and, under --non-interactive, aborts the deploy when a param has no value there
+ * even though the code declares a default; the release env file therefore always
+ * carries both. Must equal the `default` of each defineInt in functions-analysis/src/index.ts.
+ */
+export const ANALYSIS_FANOUT_DEFAULTS = Object.freeze({ ANALYSIS_MAX_INSTANCES: 2, ANALYSIS_CONCURRENCY: 2 });
 const protectedEnvironmentName = name => /^(?:NEXT_PUBLIC_|FIREBASE_|GOOGLE_CLOUD_PROJECT$|GCLOUD_PROJECT$|GCP_PROJECT$|WRITEOFF_ENV$|PLAID_|STRIPE_|ANALYSIS_WORKER_|CLOUD_FUNCTION_|SSN_|OPENAI_|COLUMN_TAX_|ENABLE_TRANSACTION_RESET$)/.test(name);
 export const environmentDigest = contents => createHash('sha256').update(contents).digest('hex');
 export const COORDINATED_DEPLOY_VARIABLE = 'WRITEOFF_COORDINATED_DEPLOY';

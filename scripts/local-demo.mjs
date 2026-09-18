@@ -6,7 +6,7 @@ import os from 'node:os';
 import net from 'node:net';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { localDemoAIEnvironment } from './local-demo-ai.mjs';
+import { analysisWorkerEnvFile, localDemoAIEnvironment } from './local-demo-ai.mjs';
 import { randomBytes } from 'node:crypto';
 
 const source = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -43,7 +43,7 @@ if (automaticAnalysis) {
   await fs.symlink(await fs.realpath(path.join(source, 'node_modules')), path.join(workerDirectory, 'node_modules'), 'dir');
   execFileSync(process.execPath, [path.join(source, 'node_modules/typescript/bin/tsc')], { cwd: workerDirectory, stdio: 'pipe' });
   await fs.writeFile(path.join(workerDirectory, '.secret.local'), `ANALYSIS_WORKER_SECRET=${workerSecret}\n`, { mode: 0o600 });
-  await fs.writeFile(path.join(workerDirectory, '.env.local'), 'ANALYSIS_WORKER_ORIGIN=http://127.0.0.1:3000\n', { mode: 0o600 });
+  await fs.writeFile(path.join(workerDirectory, '.env.local'), analysisWorkerEnvFile('http://127.0.0.1:3000'), { mode: 0o600 });
 }
 const configPath = path.join(directory, 'firebase.json');
 await fs.writeFile(configPath, JSON.stringify({
