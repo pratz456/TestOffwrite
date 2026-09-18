@@ -8,8 +8,10 @@ import { EXPENSE_CATEGORIES } from '@/lib/ai/transaction-tax-policy';
 const SCHEDULE_C_LINES = ['8', '9', '10', '11', '13', '15', '16b', '17', '18', '20a', '20b', '21', '22', '23', '24a', '24b', '25', '27a', '30'];
 /** Lines a category may legitimately land on (2025 Schedule C). */
 const LINES_BY_CATEGORY: Record<string, string[]> = {
-  advertising_marketing: ['8'], vehicle_expense: ['9'], bank_and_payment_fees: ['10'], contract_labor: ['11'], equipment: ['13'],
-  other: ['15', '16b', '17', '21', '23', '27a'], software_subscriptions: ['18'], rent: ['20a', '20b'], supplies_small_tools: ['22'],
+  advertising_marketing: ['8'], vehicle_expense: ['9'], parking_tolls: ['9'], bank_and_payment_fees: ['10'], contract_labor: ['11'], equipment: ['13'],
+  insurance: ['15'], legal_professional: ['17'], repairs_maintenance: ['21'], taxes_licenses: ['23'],
+  // 2026-09-18.3: lines 15, 17, 21 and 23 have their own categories; "other" keeps only interest and the 27a catch-all.
+  other: ['16b', '27a'], software_subscriptions: ['18'], rent: ['20a', '20b'], supplies_small_tools: ['22'],
   travel: ['24a'], meals_50: ['24b'], utilities_phone_internet: ['25'], education_training: ['27a'], dues_and_memberships: ['27a'],
   home_office: ['30'],
 };
@@ -115,15 +117,15 @@ describe('descriptor matching', () => {
     expect(intel('AIGA MEMBERSHIP DUES')).toMatchObject({ disposition: 'business_likely', category: 'dues_and_memberships' });
     expect(intel('IRS USATAXPYMT')).toMatchObject({ name: 'IRS', disposition: 'not_an_expense', category: null, scheduleCLine: null });
     expect(intel('KAISER PERMANENTE')).toMatchObject({ disposition: 'schedule_1', scheduleCLine: null });
-    expect(intel('HISCOX INC')).toMatchObject({ disposition: 'business_likely', category: 'other', scheduleCLine: '15' });
+    expect(intel('HISCOX INC')).toMatchObject({ disposition: 'business_likely', category: 'insurance', scheduleCLine: '15', subtype: 'insurance' });
     expect(intel('GEICO *AUTO')).toMatchObject({ category: 'vehicle_expense', subtype: 'auto_insurance', disposition: 'needs_purpose' });
-    expect(intel('STATE FARM INSURANCE')).toMatchObject({ category: 'other', scheduleCLine: '15', disposition: 'needs_purpose' });
+    expect(intel('STATE FARM INSURANCE')).toMatchObject({ category: 'insurance', scheduleCLine: '15', disposition: 'needs_purpose' });
     expect(intel('NETFLIX.COM')).toMatchObject({ disposition: 'personal_likely', category: null });
     expect(intel('WHOLE FOODS MARKET').disposition).toBe('personal_likely');
     expect(intel('CVS/PHARMACY #1234').disposition).toBe('personal_likely');
     expect(intel('WEWORK 123 MAIN')).toMatchObject({ category: 'rent', scheduleCLine: '20b', disposition: 'business_likely' });
-    expect(intel('PARKMOBILE')).toMatchObject({ subtype: 'parking_tolls', category: 'vehicle_expense' });
-    expect(intel('E-ZPASS REBILL').subtype).toBe('parking_tolls');
+    expect(intel('PARKMOBILE')).toMatchObject({ subtype: 'parking_tolls', category: 'parking_tolls', scheduleCLine: '9', disposition: 'needs_purpose' });
+    expect(intel('E-ZPASS REBILL')).toMatchObject({ subtype: 'parking_tolls', category: 'parking_tolls', scheduleCLine: '9' });
     expect(intel('CHASE CREDIT CRD AUTOPAY')).toMatchObject({ name: 'Card payment', disposition: 'transfer_or_deposit' });
     expect(intel('ONLINE TRANSFER TO CHK ...1234').disposition).toBe('transfer_or_deposit');
     expect(intel('ATM WITHDRAWAL 123 MAIN ST').disposition).toBe('transfer_or_deposit');
@@ -133,6 +135,47 @@ describe('descriptor matching', () => {
     expect(intel('STARBUCKS STORE 12345').question).toMatch(/who was at this meal/i);
     expect(intel('NORDSTROM #123').subtype).toBe('clothing');
     expect(intel('SOFI').disposition).toBe('transfer_or_deposit');
+  });
+
+  it('2026-09-18.3: parking, insurance, legal, licence and repair merchants land on their own confirmable categories', () => {
+    for (const descriptor of ['SPOTHERO', 'LAZ PARKING 123', 'IMPARK00120', 'PAYBYPHONE', 'FASTRAK CSC', 'SUNPASS ACC', 'PA TURNPIKE TOLL', 'NY THRUWAY']) {
+      expect(intel(descriptor), descriptor).toMatchObject({ category: 'parking_tolls', scheduleCLine: '9', subtype: 'parking_tolls' });
+    }
+    expect(intel('PREPASS LLC')).toMatchObject({ category: 'parking_tolls', disposition: 'business_likely' });
+    // A ticket or citation is a fine, never parking_tolls.
+    expect(intel('PARKING VIOLATION BUREAU')).toMatchObject({ name: 'Government fine or fee', disposition: 'not_an_expense', category: null });
+    expect(intel('TOLL VIOLATION NOTICE').category).not.toBe('parking_tolls');
+
+    for (const descriptor of ['NEXT INSURANCE', 'THE HARTFORD', 'SIMPLY BUSINESS', 'THIMBLE', 'BIBERK']) {
+      expect(intel(descriptor), descriptor).toMatchObject({ category: 'insurance', scheduleCLine: '15', disposition: 'business_likely', subtype: 'insurance' });
+    }
+    expect(intel('ALLSTATE INS')).toMatchObject({ category: 'insurance', scheduleCLine: '15', disposition: 'needs_purpose' });
+    expect(intel('ALLSTATE INS').question).toMatch(/liability|auto policy|health/i);
+    expect(intel('PROGRESSIVE INS')).toMatchObject({ category: 'vehicle_expense', subtype: 'auto_insurance' });
+    expect(intel('AETNA')).toMatchObject({ disposition: 'schedule_1', scheduleCLine: null });
+
+    expect(intel('LEGALZOOM.COM')).toMatchObject({ name: 'LegalZoom', category: 'legal_professional', scheduleCLine: '17', disposition: 'business_likely', subtype: 'legal' });
+    expect(intel('ZENBUSINESS INC')).toMatchObject({ category: 'legal_professional', scheduleCLine: '17', subtype: 'legal' });
+    expect(intel('NORTHWEST REGISTERED AGENT')).toMatchObject({ category: 'legal_professional', scheduleCLine: '17' });
+    expect(intel('H&R BLOCK ONLINE')).toMatchObject({ name: 'H&R Block', category: 'legal_professional', scheduleCLine: '17', disposition: 'mixed_use', subtype: 'tax_prep' });
+    expect(intel('H&R BLOCK ONLINE').question).toMatch(/business schedules/i);
+    expect(intel('INTUIT *TURBOTAX')).toMatchObject({ category: 'legal_professional', scheduleCLine: '17', subtype: 'tax_prep' });
+    expect(intel('SMITH & JONES CPA')).toMatchObject({ category: 'legal_professional', scheduleCLine: '17', disposition: 'needs_purpose' });
+    expect(intel('MORRISON LAW GROUP')).toMatchObject({ name: 'Law firm', category: 'legal_professional', scheduleCLine: '17', disposition: 'needs_purpose' });
+    expect(intel('MORRISON LAW GROUP').question).toMatch(/personal matters/i);
+
+    expect(intel('FLORIDA SUNBIZ')).toMatchObject({ category: 'taxes_licenses', scheduleCLine: '23', disposition: 'business_likely' });
+    expect(intel('CA SECRETARY OF STATE')).toMatchObject({ category: 'taxes_licenses', scheduleCLine: '23' });
+    expect(intel('IFTA QUARTERLY')).toMatchObject({ category: 'taxes_licenses', scheduleCLine: '23', disposition: 'business_likely' });
+    expect(intel('NIPR')).toMatchObject({ category: 'taxes_licenses', scheduleCLine: '23' });
+    // Income-tax agencies stay outside every expense category.
+    expect(intel('FRANCHISE TAX BD')).toMatchObject({ disposition: 'not_an_expense', category: null, scheduleCLine: null });
+
+    expect(intel('GEEK SQUAD 800-433-5778')).toMatchObject({ name: 'Best Buy Geek Squad', category: 'repairs_maintenance', scheduleCLine: '21', disposition: 'needs_purpose', subtype: 'repair' });
+    expect(intel('BEST BUY 00012345')).toMatchObject({ name: 'Best Buy', category: 'equipment' });
+    expect(intel('UBREAKIFIX')).toMatchObject({ category: 'repairs_maintenance', scheduleCLine: '21' });
+    expect(intel('UBREAKIFIX').question).toMatch(/home/i);
+    expect(intel('MR. APPLIANCE OF AUSTIN').category).toBe('repairs_maintenance');
   });
 
   it('treats a credit from any merchant as a payout, refund or transfer question rather than an expense', () => {
@@ -217,6 +260,13 @@ describe('Plaid personal_finance_category taxonomy mapping', () => {
     expect(mapPlaidCategory('LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')).toMatchObject({ disposition: 'transfer_or_deposit' });
     expect(mapPlaidCategory('PERSONAL_CARE_GYMS_AND_FITNESS_CENTERS')).toMatchObject({ disposition: 'personal_likely', category: 'dues_and_memberships' });
     expect(mapPlaidCategory('RENT_AND_UTILITIES_TELEPHONE')).toMatchObject({ disposition: 'mixed_use', category: 'utilities_phone_internet', scheduleCLine: '25' });
+    expect(mapPlaidCategory('TRANSPORTATION_PARKING')).toMatchObject({ category: 'parking_tolls', scheduleCLine: '9', disposition: 'needs_purpose', subtype: 'parking_tolls' });
+    expect(mapPlaidCategory('TRANSPORTATION_TOLLS')).toMatchObject({ category: 'parking_tolls', scheduleCLine: '9' });
+    expect(mapPlaidCategory('GENERAL_SERVICES_INSURANCE')).toMatchObject({ category: 'insurance', scheduleCLine: '15', disposition: 'needs_purpose' });
+    expect(mapPlaidCategory('GENERAL_SERVICES_CONSULTING_AND_LEGAL')).toMatchObject({ category: 'legal_professional', scheduleCLine: '17', disposition: 'needs_purpose' });
+    expect(mapPlaidCategory('GENERAL_SERVICES_ACCOUNTING_AND_FINANCIAL_PLANNING')).toMatchObject({ category: 'legal_professional', scheduleCLine: '17', subtype: 'tax_prep' });
+    expect(mapPlaidCategory('GOVERNMENT_AND_NON_PROFIT_GOVERNMENT_DEPARTMENTS_AND_AGENCIES')).toMatchObject({ category: 'taxes_licenses', scheduleCLine: '23', disposition: 'needs_purpose' });
+    expect(mapPlaidCategory('HOME_IMPROVEMENT_REPAIR_AND_MAINTENANCE')).toMatchObject({ category: 'repairs_maintenance', scheduleCLine: '21', disposition: 'needs_purpose', subtype: 'repair' });
     expect(mapPlaidCategory('TRANSFER_OUT')).toMatchObject({ disposition: 'transfer_or_deposit', category: null });
     expect(mapPlaidCategory('BANK_FEES')?.category).toBe('bank_and_payment_fees');
     expect(mapPlaidCategory('SERVICE_SUBSCRIPTION')).toBeNull();

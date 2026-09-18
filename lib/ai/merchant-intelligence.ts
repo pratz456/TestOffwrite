@@ -35,7 +35,7 @@ export type MerchantSubtype =
   | 'local_transport' | 'fuel' | 'parking_tolls' | 'auto_service' | 'auto_insurance' | 'rental_car' | 'travel_air' | 'travel_lodging'
   | 'meal' | 'groceries' | 'streaming' | 'gym' | 'beauty' | 'clothing' | 'sporting_goods' | 'health_premium'
   | 'electronics' | 'hardware' | 'general_merchandise' | 'software' | 'phone_internet' | 'home_utility' | 'rent' | 'coworking'
-  | 'education' | 'legal' | 'tax_prep' | 'insurance' | 'gift' | 'postage' | 'processor';
+  | 'education' | 'legal' | 'tax_prep' | 'insurance' | 'gift' | 'postage' | 'processor' | 'repair';
 
 export interface MerchantIntelligenceEntry {
   pattern: RegExp;
@@ -130,7 +130,7 @@ const SUBTYPE_BY_QUESTION = new Map<string, MerchantSubtype>([
   [Q.healthPremium, 'health_premium'], [Q.autoInsurance, 'auto_insurance'], [Q.insurance, 'insurance'], [Q.taxPrep, 'tax_prep'],
   [Q.legal, 'legal'], [Q.education, 'education'], [Q.gift, 'gift'], [Q.hardware, 'hardware'], [Q.electronics, 'electronics'],
   [Q.furniture, 'general_merchandise'], [Q.homeUtility, 'home_utility'], [Q.rent, 'rent'], [Q.postage, 'postage'],
-  [Q.processor, 'processor'], [Q.marketplacePayout, 'processor'],
+  [Q.processor, 'processor'], [Q.marketplacePayout, 'processor'], [Q.repair, 'repair'],
 ]);
 function inferSubtype(question: string | undefined): MerchantSubtype | undefined {
   if (!question) return undefined;
@@ -177,7 +177,7 @@ export const MERCHANT_INTELLIGENCE: readonly MerchantIntelligenceEntry[] = [
   entry(/\bshopify\b/i, 'Shopify', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Online store platform subscription for the business', notes: 'Negative amounts are Shopify Payments payouts (gross receipts before fees).', paysOut: true }),
   entry(/\bmailchimp\b|\bintuit\s*\*?\s*mailchimp\b/i, 'Mailchimp', 'advertising_marketing', '8', 'business_likely', { defaultPurpose: 'Email marketing platform for business newsletters and campaigns' }),
   entry(/\bquickbooks\b|\bintuit\s*\*?\s*(?:qbooks|qbo|quickbooks)\b|\bqbo\b/i, 'QuickBooks', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Bookkeeping software for the business' }),
-  entry(/\bintuit\s*\*?\s*turbotax\b|\bturbotax\b/i, 'TurboTax', 'other', '17', 'mixed_use', { question: Q.taxPrep, subtype: 'tax_prep' }),
+  entry(/\bintuit\s*\*?\s*turbotax\b|\bturbotax\b/i, 'TurboTax', 'legal_professional', '17', 'mixed_use', { question: Q.taxPrep, subtype: 'tax_prep' }),
   entry(/\bintuit\b/i, 'Intuit', 'software_subscriptions', '18', 'needs_purpose', { question: 'Which Intuit product is this: QuickBooks (business bookkeeping), TurboTax (business portion only) or Mailchimp?' }),
   entry(/\bcalendly\b/i, 'Calendly', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Client scheduling software' }),
   entry(/\bloom\b/i, 'Loom', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Screen-recording tool for client communication' }),
@@ -225,8 +225,8 @@ export const MERCHANT_INTELLIGENCE: readonly MerchantIntelligenceEntry[] = [
   entry(/\bzillow\b|\brealtor\.com\b|\bhomes\.com\b/i, 'Real estate lead platform', 'advertising_marketing', '8', 'business_likely', { defaultPurpose: 'Lead generation and listing advertising for the real estate business' }),
   entry(/\bshowingtime\b|\bdotloop\b|\bskyslope\b|\bsupra\b|\bsentrilock\b/i, 'Real estate transaction tools', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Showing, lockbox and transaction software for the real estate business' }),
   entry(/\bsnapdocs\b|\bsigning\s*order\b|\bnotary\s*rotary\b|\bsigningagent\.com\b/i, 'Notary signing platform', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Signing-order platform and notary tools for the loan signing business' }),
-  entry(/\bnipr\b|\bsircon\b/i, 'Insurance licensing service', 'other', '23', 'business_likely', { defaultPurpose: 'State insurance license and appointment fees for the agency business' }),
-  entry(/\bnursys\b|\bncsbn\b|\bboard\s*of\s*nursing\b/i, 'Nursing license service', 'other', '23', 'business_likely', { defaultPurpose: 'Nursing license verification or renewal fee for contract work' }),
+  entry(/\bnipr\b|\bsircon\b/i, 'Insurance licensing service', 'taxes_licenses', '23', 'business_likely', { defaultPurpose: 'State insurance license and appointment fees for the agency business' }),
+  entry(/\bnursys\b|\bncsbn\b|\bboard\s*of\s*nursing\b/i, 'Nursing license service', 'taxes_licenses', '23', 'business_likely', { defaultPurpose: 'Nursing license verification or renewal fee for contract work' }),
   entry(/\bvistaprint\b|\bmoo\.com\b|\bmoo\s*print\b|\bgotprint\b/i, 'Print marketing (Vistaprint/MOO)', 'advertising_marketing', '8', 'business_likely', { defaultPurpose: 'Business cards and printed marketing materials' }),
 
   // Marketplaces, processors and freelance platforms -------------------------------------------
@@ -274,9 +274,10 @@ export const MERCHANT_INTELLIGENCE: readonly MerchantIntelligenceEntry[] = [
   entry(/\blyft\b/i, 'Lyft', 'vehicle_expense', '9', 'needs_purpose', { question: Q.localRide, subtype: 'local_transport' }),
   entry(/\bamtrak\b/i, 'Amtrak', 'travel', '24a', 'needs_purpose', { question: Q.airfare }),
   entry(/\bmta\b|\bmetrocard\b|\bomny\b|\bbart\b|\bwmata\b|\bsepta\b|\bcta\s*(?:ventra|transit)\b|\bventra\b|\bclipper\b/i, 'Public transit', 'vehicle_expense', '9', 'needs_purpose', { question: Q.localRide, subtype: 'local_transport' }),
-  entry(/\bparkmobile\b|\bspothero\b|\bpaybyphone\b|\blaz\s*parking\b|\bimpark\b|\bpark\s*whiz\b|\bparking\b/i, 'Parking', 'vehicle_expense', '9', 'needs_purpose', { question: Q.parking, subtype: 'parking_tolls' }),
-  entry(/\be-?z\s*pass\b|\bfastrak\b|\bsunpass\b|\btxtag\b|\bpeach\s*pass\b|\bipass\b|\btoll(?:s|way|\s*road)?\b/i, 'Tolls', 'vehicle_expense', '9', 'needs_purpose', { question: Q.parking, subtype: 'parking_tolls' }),
-  entry(/\bprepass\b|\bbestpass\b/i, 'Trucking toll service', 'vehicle_expense', '9', 'business_likely', { defaultPurpose: 'Toll and weigh-station bypass service for the trucking business', subtype: 'parking_tolls' }),
+  // Parking and tolls (Schedule C line 9, deductible beside the standard mileage rate). A parking ticket is a fine, matched below.
+  entry(/\bparkmobile\b|\bspothero\b|\bpaybyphone\b|\blaz\s*parking\b|\bimpark(?:\d|\b)|\bpark\s*whiz\b|\bparking\b(?!\s*(?:ticket|violation|citation|fine))/i, 'Parking', 'parking_tolls', '9', 'needs_purpose', { question: Q.parking, subtype: 'parking_tolls' }),
+  entry(/\be-?z\s*pass\b|\bfastrak\b|\bsunpass\b|\btxtag\b|\bpeach\s*pass\b|\bipass\b|\bturnpike\b|\bthruway\b|\btoll(?:s|way|\s*road)?\b(?!\s*(?:violation|citation))/i, 'Tolls', 'parking_tolls', '9', 'needs_purpose', { question: Q.parking, subtype: 'parking_tolls' }),
+  entry(/\bprepass\b|\bbestpass\b/i, 'Trucking toll service', 'parking_tolls', '9', 'business_likely', { defaultPurpose: 'Toll and weigh-station bypass service for the trucking business', subtype: 'parking_tolls' }),
 
   // Fuel and vehicle (Schedule C line 9) ---------------------------------------------------------
   entry(/\bcostco\s*(?:gas|fuel)\b/i, 'Costco Gas', 'vehicle_expense', '9', 'needs_purpose', { question: Q.fuel, subtype: 'fuel' }),
@@ -291,8 +292,8 @@ export const MERCHANT_INTELLIGENCE: readonly MerchantIntelligenceEntry[] = [
   entry(/\bgeico\b/i, 'GEICO', 'vehicle_expense', '9', 'needs_purpose', { question: Q.autoInsurance, subtype: 'auto_insurance' }),
   entry(/\bprogressive\s*(?:ins|insurance|casualty|\*|$)/i, 'Progressive Insurance', 'vehicle_expense', '9', 'needs_purpose', { question: Q.autoInsurance, subtype: 'auto_insurance' }),
   entry(/\bmercury\s*(?:ins|insurance|general)\b|\broot\s*insurance\b|\blemonade\s*ins/i, 'Auto insurer', 'vehicle_expense', '9', 'needs_purpose', { question: Q.autoInsurance, subtype: 'auto_insurance' }),
-  entry(/\bstate\s*farm\b/i, 'State Farm', 'other', '15', 'needs_purpose', { question: Q.insurance }),
-  entry(/\ballstate\b|\bliberty\s*mutual\b|\bfarmers\s*ins(?:urance)?\b|\bnationwide\s*ins(?:urance)?\b|\busaa\s*(?:p&c|insurance)\b|\btravelers\s*ins(?:urance)?\b/i, 'Insurance carrier', 'other', '15', 'needs_purpose', { question: Q.insurance }),
+  entry(/\bstate\s*farm\b/i, 'State Farm', 'insurance', '15', 'needs_purpose', { question: Q.insurance }),
+  entry(/\ballstate\b|\bliberty\s*mutual\b|\bfarmers\s*ins(?:urance)?\b|\bnationwide\s*ins(?:urance)?\b|\busaa\s*(?:p&c|insurance)\b|\btravelers\s*ins(?:urance)?\b/i, 'Insurance carrier', 'insurance', '15', 'needs_purpose', { question: Q.insurance }),
   entry(/\bdmv\b|\bdept\.?\s*of\s*motor\s*vehicles\b|\bmotor\s*vehicle\s*(?:admin|division|dept)/i, 'DMV', 'vehicle_expense', '9', 'needs_purpose', { question: Q.vehicleRegistration }),
 
   // Office, supplies, hardware and general merchandise (Schedule C line 22 / asset review) --------
@@ -300,6 +301,9 @@ export const MERCHANT_INTELLIGENCE: readonly MerchantIntelligenceEntry[] = [
   entry(/\boffice\s*depot\b|\bofficemax\b|\boffice\s*max\b/i, 'Office Depot / OfficeMax', 'supplies_small_tools', '22', 'needs_purpose', { question: Q.item('Office Depot') }),
   entry(/\bamazon\s*prime\b|\bprime\s*video\b|\bamzn\s*prime\b/i, 'Amazon Prime', 'software_subscriptions', '18', 'mixed_use', { question: 'Amazon Prime is a household membership unless it is used mainly for business shipping and purchases. What share is business?', subtype: 'software' }),
   entry(/\bamazon\b|\bamzn\b/i, 'Amazon', 'supplies_small_tools', '22', 'needs_purpose', { question: 'What did you order from Amazon, and how is it used in your business? Household items are personal; durable items over $2,500 need asset review.', subtype: 'general_merchandise' }),
+  // Repair services (Schedule C line 21): Geek Squad is billed under the Best Buy name, so it must come before the store entry.
+  entry(/\bgeek\s*squad\b/i, 'Best Buy Geek Squad', 'repairs_maintenance', '21', 'needs_purpose', { question: Q.repair }),
+  entry(/\bubreakifix\b|\bu\s*break\s*i\s*fix\b|\bcpr\s*cell\s*phone\s*repair\b|\bappliance\s*repair\b|\bmr\.?\s*appliance\b|\bsears\s*home\s*serv/i, 'Repair service', 'repairs_maintenance', '21', 'needs_purpose', { question: Q.repair }),
   entry(/\bbest\s*buy\b/i, 'Best Buy', 'equipment', '13', 'needs_purpose', { question: Q.electronics }),
   entry(/\bapple\.com\/bill\b|\bapple\s*\.?com\s*bill\b|\bitunes\b|\bapple\s*services\b/i, 'Apple services (iCloud/apps)', 'software_subscriptions', '18', 'mixed_use', { question: 'Apple.com/bill covers iCloud, apps, music and TV. Which subscription is this, and what share is business use?', subtype: 'software' }),
   entry(/\bapple\s*store\b|\bapple\.com\b|\bapple\s*retail\b/i, 'Apple Store', 'equipment', '13', 'needs_purpose', { question: Q.electronics }),
@@ -352,9 +356,9 @@ export const MERCHANT_INTELLIGENCE: readonly MerchantIntelligenceEntry[] = [
   entry(/\bsola\s*salon\b|\bphenix\s*salon\b|\bsalon\s*suite\b|\bbooth\s*rent\b|\bchair\s*rent\b/i, 'Salon suite / booth rent', 'rent', '20b', 'business_likely', { defaultPurpose: 'Booth or suite rent for serving my own clients', subtype: 'rent' }),
 
   // Business, auto and health insurance ------------------------------------------------------------
-  entry(/\bhiscox\b/i, 'Hiscox', 'other', '15', 'business_likely', { defaultPurpose: 'Business liability or professional (E&O) insurance for the business' }),
-  entry(/\bnext\s*insurance\b|\bnextinsurance\b/i, 'Next Insurance', 'other', '15', 'business_likely', { defaultPurpose: 'Small-business liability insurance for the business' }),
-  entry(/\bthimble\b|\bsimply\s*business\b|\bthe\s*hartford\b|\bbiberk\b|\binsureon\b|\bcoverwallet\b/i, 'Business insurer', 'other', '15', 'business_likely', { defaultPurpose: 'Business liability or professional insurance for the business' }),
+  entry(/\bhiscox\b/i, 'Hiscox', 'insurance', '15', 'business_likely', { defaultPurpose: 'Business liability or professional (E&O) insurance for the business', subtype: 'insurance' }),
+  entry(/\bnext\s*insurance\b|\bnextinsurance\b/i, 'Next Insurance', 'insurance', '15', 'business_likely', { defaultPurpose: 'Small-business liability insurance for the business', subtype: 'insurance' }),
+  entry(/\bthimble\b|\bsimply\s*business\b|\bthe\s*hartford\b|\bbiberk\b|\binsureon\b|\bcoverwallet\b/i, 'Business insurer', 'insurance', '15', 'business_likely', { defaultPurpose: 'Business liability or professional insurance for the business', subtype: 'insurance' }),
   entry(/\bblue\s*(?:shield|cross)\b|\banthem\b|\bbcbs\b|\bcarefirst\b|\bpremera\b|\bregence\b|\bhighmark\b/i, 'Blue Cross / Blue Shield', 'other', null, 'schedule_1', { question: Q.healthPremium }),
   entry(/\baetna\b/i, 'Aetna', 'other', null, 'schedule_1', { question: Q.healthPremium }),
   entry(/\bcigna\b/i, 'Cigna', 'other', null, 'schedule_1', { question: Q.healthPremium }),
@@ -363,12 +367,14 @@ export const MERCHANT_INTELLIGENCE: readonly MerchantIntelligenceEntry[] = [
   entry(/\bvsp\b|\beyemed\b|\bguardian\s*dental\b|\bmetlife\s*dental\b/i, 'Dental / vision plan', 'other', null, 'schedule_1', { question: Q.healthPremium }),
 
   // Legal, tax and professional services (Schedule C line 17) ------------------------------------
-  entry(/\blegalzoom\b/i, 'LegalZoom', 'other', '17', 'business_likely', { defaultPurpose: 'Business formation, registered agent or legal filing service' }),
-  entry(/\brocket\s*lawyer\b|\bzenbusiness\b|\bincfile\b|\bbizee\b|\bnorthwest\s*registered\s*agent\b/i, 'Business legal service', 'other', '17', 'business_likely', { defaultPurpose: 'Business legal document or registered agent service' }),
-  entry(/\bh\s*&\s*r\s*block\b|\bhrblock\b/i, 'H&R Block', 'other', '17', 'mixed_use', { question: Q.taxPrep, subtype: 'tax_prep' }),
-  entry(/\btaxact\b|\btaxslayer\b|\bfreetaxusa\b|\bjackson\s*hewitt\b|\bliberty\s*tax\b/i, 'Tax preparation service', 'other', '17', 'mixed_use', { question: Q.taxPrep, subtype: 'tax_prep' }),
-  entry(/\bcpa\b|\baccounting\b|\bbookkeep/i, 'Accounting / bookkeeping service', 'other', '17', 'needs_purpose', { question: Q.legal }),
-  entry(/\blaw\s*(?:office|firm|group)\b|\battorney\b|\besq\b/i, 'Law firm', 'other', '17', 'needs_purpose', { question: Q.legal }),
+  // Formation and filing services bill their own service fee (line 17); a state filing fee the taxpayer names in the
+  // purpose (annual report, business licence) is re-placed on line 23 by the grounding layer.
+  entry(/\blegalzoom\b/i, 'LegalZoom', 'legal_professional', '17', 'business_likely', { defaultPurpose: 'Business formation, registered agent or legal filing service', subtype: 'legal', notes: 'State filing fees collected on the taxpayer\'s behalf are line 23; the service fee is line 17.' }),
+  entry(/\brocket\s*lawyer\b|\bzenbusiness\b|\bincfile\b|\bbizee\b|\bnorthwest\s*registered\s*agent\b/i, 'Business legal service', 'legal_professional', '17', 'business_likely', { defaultPurpose: 'Business legal document or registered agent service', subtype: 'legal', notes: 'State filing fees collected on the taxpayer\'s behalf are line 23; the service fee is line 17.' }),
+  entry(/\bh\s*&\s*r\s*block\b|\bhrblock\b/i, 'H&R Block', 'legal_professional', '17', 'mixed_use', { question: Q.taxPrep, subtype: 'tax_prep' }),
+  entry(/\btaxact\b|\btaxslayer\b|\bfreetaxusa\b|\bjackson\s*hewitt\b|\bliberty\s*tax\b/i, 'Tax preparation service', 'legal_professional', '17', 'mixed_use', { question: Q.taxPrep, subtype: 'tax_prep' }),
+  entry(/\bcpa\b|\baccounting\b|\bbookkeep/i, 'Accounting / bookkeeping service', 'legal_professional', '17', 'needs_purpose', { question: Q.legal }),
+  entry(/\blaw\s*(?:office|firm|group)\b|\battorney\b|\besq\b/i, 'Law firm', 'legal_professional', '17', 'needs_purpose', { question: Q.legal }),
 
   // Education and training (Schedule C line 27a) --------------------------------------------------
   entry(/\budemy\b/i, 'Udemy', 'education_training', '27a', 'needs_purpose', { question: Q.education }),
@@ -412,9 +418,9 @@ export const MERCHANT_INTELLIGENCE: readonly MerchantIntelligenceEntry[] = [
   // Government, taxes and licenses (Schedule C line 23 or not an expense) ---------------------------
   entry(/\birs\b|\busataxpymt\b|\bus\s*treasury\b|\binternal\s*revenue\b|\beftps\b/i, 'IRS', null, null, 'not_an_expense', { question: Q.taxPayment, notes: 'Federal income and estimated tax payments (§275) are never Schedule C expenses; payroll tax deposits through EFTPS need the payroll context.' }),
   entry(/\bfranchise\s*tax\s*b(?:oar)?d\b|\bftb\b|\bnys\s*dtf\b|\bny\s*state\s*(?:tax|dtf)\b|\bdept\.?\s*of\s*revenue\b|\bdepartment\s*of\s*revenue\b|\bcomptroller\b|\bstate\s*tax\b|\btax\s*commission\b|\bdept\.?\s*of\s*taxation\b/i, 'State tax agency', null, null, 'not_an_expense', { question: Q.taxPayment, notes: 'State income tax is personal (Schedule A); sales tax remitted, state LLC taxes and business licenses can be line 23.' }),
-  entry(/\bsecretary\s*of\s*state\b|\bsec\s*of\s*state\b|\bsos\s*(?:business|filing|llc)\b|\bcorporations?\s*division\b|\bllc\s*(?:annual|renewal|fee)\b|\bbusiness\s*licen[cs]e\b|\bcity\s*of\s*\w+\s*licen/i, 'State / local business registration', 'other', '23', 'business_likely', { defaultPurpose: 'Business registration, LLC annual report or business license fee' }),
+  entry(/\bsecretary\s*of\s*state\b|\bsec\s*of\s*state\b|\bsos\s*(?:business|filing|llc)\b|\bcorporations?\s*division\b|\bllc\s*(?:annual|renewal|fee)\b|\bbusiness\s*licen[cs]e\b|\bcity\s*of\s*\w+\s*licen|\bsunbiz\b|\bbizfile\b/i, 'State / local business registration', 'taxes_licenses', '23', 'business_likely', { defaultPurpose: 'Business registration, LLC annual report or business license fee' }),
   entry(/\b(?:superior|district|municipal|circuit|traffic|county|justice)\s*court\b|\bcourt\s*(?:clerk|fees?|fines?|services)\b|\bclerk\s*of\s*(?:the\s*)?court\b|\bcounty\s*clerk\b|\bmunicipal\s*fine\b|\bparking\s*(?:ticket|violation|citation)\b|\bviolation\b|\bcitation\b|\bred\s*light\s*camera\b/i, 'Government fine or fee', null, null, 'not_an_expense', { question: 'Fines, penalties and tickets paid to a government are not deductible. Was this a fine, or a business permit or filing fee?' }),
-  entry(/\bifta\b|\birp\s*(?:registration|renewal|plate)\b|\bheavy\s*(?:highway|vehicle)\s*use\b|\bform\s*2290\b|\bucr\s*(?:registration|fee)\b|\bfmcsa\b/i, 'Trucking taxes and permits', 'other', '23', 'business_likely', { defaultPurpose: 'Fuel tax, apportioned registration or carrier permit for the trucking business' }),
+  entry(/\bifta\b|\birp\s*(?:registration|renewal|plate)\b|\bheavy\s*(?:highway|vehicle)\s*use\b|\bform\s*2290\b|\bucr\s*(?:registration|fee)\b|\bfmcsa\b/i, 'Trucking taxes and permits', 'taxes_licenses', '23', 'business_likely', { defaultPurpose: 'Fuel tax, apportioned registration or carrier permit for the trucking business' }),
 
   // Personal signals: entertainment, groceries, pharmacies, clothing -------------------------------
   entry(/\bnetflix\b/i, 'Netflix', null, null, 'personal_likely', { question: Q.streaming }),
@@ -533,7 +539,7 @@ export const PLAID_CATEGORY_MAP: readonly PlaidCategoryMapping[] = [
   // HOME_IMPROVEMENT (5)
   plaid('HOME_IMPROVEMENT_FURNITURE', 'supplies_small_tools', '22', 'needs_purpose', { question: Q.furniture }),
   plaid('HOME_IMPROVEMENT_HARDWARE', 'supplies_small_tools', '22', 'needs_purpose', { question: Q.hardware }),
-  plaid('HOME_IMPROVEMENT_REPAIR_AND_MAINTENANCE', 'other', '21', 'needs_purpose', { question: Q.repair }),
+  plaid('HOME_IMPROVEMENT_REPAIR_AND_MAINTENANCE', 'repairs_maintenance', '21', 'needs_purpose', { question: Q.repair }),
   plaid('HOME_IMPROVEMENT_SECURITY', 'other', '27a', 'needs_purpose', { question: 'Is this security service for a business location (deductible) or for your home (only a home-office share through Form 8829)?' }),
   plaid('HOME_IMPROVEMENT_OTHER_HOME_IMPROVEMENT', null, null, 'needs_purpose', { question: Q.repair }),
   // MEDICAL (7): Schedule A, not Schedule C.
@@ -550,27 +556,27 @@ export const PLAID_CATEGORY_MAP: readonly PlaidCategoryMapping[] = [
   plaid('PERSONAL_CARE_LAUNDRY_AND_DRY_CLEANING', null, null, 'personal_likely', { question: Q.dryCleaning }),
   plaid('PERSONAL_CARE_OTHER_PERSONAL_CARE', null, null, 'personal_likely', { question: Q.beauty }),
   // GENERAL_SERVICES (9)
-  plaid('GENERAL_SERVICES_ACCOUNTING_AND_FINANCIAL_PLANNING', 'other', '17', 'needs_purpose', { question: 'Was this bookkeeping, accounting or the business portion of tax preparation (line 17), or personal financial planning and investment advice (not a business expense)?', subtype: 'tax_prep' }),
+  plaid('GENERAL_SERVICES_ACCOUNTING_AND_FINANCIAL_PLANNING', 'legal_professional', '17', 'needs_purpose', { question: 'Was this bookkeeping, accounting or the business portion of tax preparation (line 17), or personal financial planning and investment advice (not a business expense)?', subtype: 'tax_prep' }),
   plaid('GENERAL_SERVICES_AUTOMOTIVE', 'vehicle_expense', '9', 'needs_purpose', { question: 'Is this vehicle used for business, what share of its miles are business, and do you use actual expenses (repairs count) or the standard mileage rate (already included)?', subtype: 'auto_service' }),
   plaid('GENERAL_SERVICES_CHILDCARE', null, null, 'personal_likely', { question: Q.childcare }),
-  plaid('GENERAL_SERVICES_CONSULTING_AND_LEGAL', 'other', '17', 'needs_purpose', { question: Q.legal }),
+  plaid('GENERAL_SERVICES_CONSULTING_AND_LEGAL', 'legal_professional', '17', 'needs_purpose', { question: Q.legal }),
   plaid('GENERAL_SERVICES_EDUCATION', 'education_training', '27a', 'needs_purpose', { question: Q.education }),
-  plaid('GENERAL_SERVICES_INSURANCE', 'other', '15', 'needs_purpose', { question: Q.insurance }),
+  plaid('GENERAL_SERVICES_INSURANCE', 'insurance', '15', 'needs_purpose', { question: Q.insurance }),
   plaid('GENERAL_SERVICES_POSTAGE_AND_SHIPPING', 'supplies_small_tools', '22', 'needs_purpose', { question: Q.postage }),
   plaid('GENERAL_SERVICES_STORAGE', 'rent', '20b', 'needs_purpose', { question: Q.storage }),
   plaid('GENERAL_SERVICES_OTHER_GENERAL_SERVICES', 'other', '27a', 'needs_purpose', { question: 'What service was this, and how does it relate to operating your business?' }),
   // GOVERNMENT_AND_NON_PROFIT (4)
   plaid('GOVERNMENT_AND_NON_PROFIT_DONATIONS', null, null, 'not_an_expense', { question: Q.donation }),
-  plaid('GOVERNMENT_AND_NON_PROFIT_GOVERNMENT_DEPARTMENTS_AND_AGENCIES', 'other', '23', 'needs_purpose', { question: Q.government }),
+  plaid('GOVERNMENT_AND_NON_PROFIT_GOVERNMENT_DEPARTMENTS_AND_AGENCIES', 'taxes_licenses', '23', 'needs_purpose', { question: Q.government }),
   plaid('GOVERNMENT_AND_NON_PROFIT_TAX_PAYMENT', null, null, 'not_an_expense', { question: Q.taxPayment }),
   plaid('GOVERNMENT_AND_NON_PROFIT_OTHER_GOVERNMENT_AND_NON_PROFIT', null, null, 'needs_purpose', { question: Q.government }),
   // TRANSPORTATION (7)
   plaid('TRANSPORTATION_BIKES_AND_SCOOTERS', 'vehicle_expense', '9', 'needs_purpose', { question: Q.localRide, subtype: 'local_transport' }),
   plaid('TRANSPORTATION_GAS', 'vehicle_expense', '9', 'needs_purpose', { question: Q.fuel, subtype: 'fuel' }),
-  plaid('TRANSPORTATION_PARKING', 'vehicle_expense', '9', 'needs_purpose', { question: Q.parking, subtype: 'parking_tolls' }),
+  plaid('TRANSPORTATION_PARKING', 'parking_tolls', '9', 'needs_purpose', { question: Q.parking, subtype: 'parking_tolls' }),
   plaid('TRANSPORTATION_PUBLIC_TRANSIT', 'vehicle_expense', '9', 'needs_purpose', { question: Q.localRide, subtype: 'local_transport' }),
   plaid('TRANSPORTATION_TAXIS_AND_RIDE_SHARES', 'vehicle_expense', '9', 'needs_purpose', { question: Q.localRide, subtype: 'local_transport' }),
-  plaid('TRANSPORTATION_TOLLS', 'vehicle_expense', '9', 'needs_purpose', { question: Q.parking, subtype: 'parking_tolls' }),
+  plaid('TRANSPORTATION_TOLLS', 'parking_tolls', '9', 'needs_purpose', { question: Q.parking, subtype: 'parking_tolls' }),
   plaid('TRANSPORTATION_OTHER_TRANSPORTATION', 'vehicle_expense', '9', 'needs_purpose', { question: Q.localRide, subtype: 'local_transport' }),
   // TRAVEL (4)
   plaid('TRAVEL_FLIGHTS', 'travel', '24a', 'needs_purpose', { question: Q.airfare }),

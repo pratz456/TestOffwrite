@@ -94,6 +94,10 @@ const RULES: Record<string, string> = {
   'assets-946': 'IRS Publication 946: depreciation, Section 179 and bonus depreciation are separate treatments that depend on the asset, the date it was placed in service and its business-use percentage.',
   'home-587': 'IRS Publication 587: a home workspace normally must be used regularly and exclusively for business and be your principal place of business or meet another listed use. The method and the business area set the amount.',
   'records-334': 'IRS Publication 334: customer receipts, owner contributions, loans, transfers and refunds are different flows. A bank credit alone does not establish income, and a refund reduces the original expense instead of creating a deduction.',
+  'insurance-334': 'IRS Publication 334: premiums that cover a business risk or business property (liability, professional or E&O, business property, workers\' compensation) are Schedule C insurance. Your own health premiums belong on Schedule 1, auto premiums follow your vehicle method, and life, disability and home policies are personal.',
+  'professional-fees-334': 'IRS Publication 334: attorney, accountant, bookkeeper and consultant fees that relate to operating the business are deductible; a tax-preparation fee counts only for the business schedules, and fees for personal matters such as a will, a divorce or a personal return do not.',
+  'taxes-licenses-sch-c': 'Instructions for Schedule C, line 23: business licences, permits, regulatory fees, sales tax you remitted and the employer share of payroll taxes are deductible. Federal income tax, estimated tax and self-employment tax are never Schedule C expenses.',
+  'mileage-rates': 'IRS standard mileage rates: the per-mile rate already covers fuel, repairs, insurance and depreciation for the same miles, while parking and tolls on business trips stay separately deductible. Commuting is excluded under either method.',
 };
 
 const MISSING_FACT_LABELS: Record<string, string> = {
@@ -116,6 +120,9 @@ const MISSING_FACT_LABELS: Record<string, string> = {
   expense_review: 'your answer to the open question about this expense',
   deduction_placement: 'whether this is a health, dental or vision premium',
   club_dues_exception: 'whether this facility is used only in your business',
+  insurance_coverage: 'which risk or property this policy covers',
+  tax_payment_recorded: 'whether this was an income or estimated tax payment',
+  personal_use_exception: 'whether this item is unusable outside your business',
 };
 
 /** Category-specific records that make a deduction defensible; merged with the model's documentation list. */
@@ -134,6 +141,11 @@ const RECORD_RULES: Record<string, string[]> = {
   dues_and_memberships: ['Membership invoice', 'The organization and its business purpose'],
   bank_and_payment_fees: ['Statement showing the fee on the business account or processor'],
   rent: ['Lease or rental agreement', 'Evidence the space is a separate business location'],
+  parking_tolls: ['Parking or toll receipt or account statement', 'The trip: destination and business purpose (parking at a regular workplace is commuting)'],
+  insurance: ['Policy declarations page naming the coverage and the insured business or property', 'Premium statement for the period'],
+  legal_professional: ['Invoice describing the matter or service', 'How the matter relates to operating the business (for tax preparation, the business share)'],
+  taxes_licenses: ['Licence, permit or filing confirmation, or the tax return remitted', 'The government payee and what the payment was for'],
+  repairs_maintenance: ['Repair invoice describing the work and the property repaired', 'Evidence the property is used in the business (and the business share, for a home or vehicle)'],
   other: ['Itemized receipt or invoice', 'Written business purpose'],
 };
 

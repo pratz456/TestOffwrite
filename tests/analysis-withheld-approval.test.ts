@@ -18,6 +18,25 @@ describe('an engine approval the review path cannot consume is stored as the que
     expect(saved.ai_customized_reason).toContain('Schedule C line 18');
     expect(saved.deductionStatus).toBe('Likely Deductible');
   });
+  it.each([
+    ['parking_tolls', '9', 'PARKMOBILE 770-818-9036', 'Parking at the client site for the kickoff meeting'],
+    ['insurance', '15', 'HISCOX INC', 'Professional liability insurance for my consulting business'],
+    ['legal_professional', '17', 'MORRISON LAW GROUP', 'Attorney review of my client services contract'],
+    ['taxes_licenses', '23', 'FLORIDA SUNBIZ', 'Annual report fee for my LLC'],
+    ['repairs_maintenance', '21', 'UBREAKIFIX', 'Screen repair on the work laptop'],
+  ])('a %s approval (2026-09-18.3 confirmable line %s) is saved as the approval, not withheld', (category, line, merchant, purpose) => {
+    const saved = analysisSuggestionUpdate(approval({ category: category as OutputType['category'], schedule_c_line: line,
+      customized_reason: `You noted: ${purpose}.` }), 1, record({ amount: 120, merchant_name: merchant, business_purpose: purpose }));
+    expect(saved.ai_suggestion).toMatchObject({ status: 'ok', isDeductible: true, deductiblePercent: 100, scheduleCLine: line, category });
+    expect(saved.ai_missing_fields).toEqual([]);
+    expect(saved.deductionStatus).toBe('Likely Deductible');
+  });
+  it('a tax-preparation fee approved at the saved business share is withheld like any partial share', () => {
+    const saved = analysisSuggestionUpdate(approval({ category: 'legal_professional', deductible_percent: 60, schedule_c_line: '17' }), 1,
+      record({ amount: 200, merchant_name: 'H&R BLOCK ONLINE', business_purpose: 'Tax prep for my 1040 and Schedule C', business_use_percentage: 60 }));
+    expect(saved.ai_suggestion).toMatchObject({ status: 'needs_more_info', isDeductible: null });
+    expect(saved.ai_missing_fields).toEqual(['business_use_allocation']);
+  });
   it('a partial business share names the share and says the estimate keeps it for the preparer; nothing contradicts the status', () => {
     const saved = analysisSuggestionUpdate(approval({ category: 'utilities_phone_internet', deductible_percent: 40, schedule_c_line: '25',
       customized_reason: 'You noted: Cell phone used for client calls. The 40% business share is deductible on Schedule C line 25.' }), 1, record());

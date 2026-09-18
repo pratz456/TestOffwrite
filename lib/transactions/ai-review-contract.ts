@@ -6,6 +6,7 @@ export const REVIEW_CATEGORIES = [
   { value: 'contract_labor', label: 'Contract labor', recordedCategory: 'SERVICE_FREELANCE_SERVICES' },
   { value: 'equipment', label: 'Equipment — tax treatment needs review', recordedCategory: 'EQUIPMENT_REVIEW_REQUIRED' },
   { value: 'vehicle_expense', label: 'Vehicle — method needs review', recordedCategory: 'VEHICLE_REVIEW_REQUIRED' },
+  { value: 'parking_tolls', label: 'Parking and tolls', recordedCategory: 'TRANSPORTATION_PARKING_AND_TOLLS' },
   { value: 'travel', label: 'Business travel', recordedCategory: 'TRAVEL_OTHER_TRAVEL' },
   { value: 'meals_50', label: 'Business meals (50% limit)', recordedCategory: 'FOOD_AND_DRINK_RESTAURANT' },
   { value: 'home_office', label: 'Home office — eligibility needs review', recordedCategory: 'HOME_OFFICE_REVIEW_REQUIRED' },
@@ -14,6 +15,10 @@ export const REVIEW_CATEGORIES = [
   { value: 'dues_and_memberships', label: 'Professional dues', recordedCategory: 'SERVICE_PROFESSIONAL_DUES' },
   { value: 'bank_and_payment_fees', label: 'Bank and payment fees', recordedCategory: 'BANK_FEES_OTHER_BANK_FEES' },
   { value: 'rent', label: 'Business property rent', recordedCategory: 'RENT_RENT' },
+  { value: 'insurance', label: 'Business insurance', recordedCategory: 'SERVICE_INSURANCE' },
+  { value: 'legal_professional', label: 'Legal and professional services', recordedCategory: 'SERVICE_LEGAL_AND_PROFESSIONAL' },
+  { value: 'taxes_licenses', label: 'Taxes and licenses', recordedCategory: 'GOVERNMENT_TAXES_AND_LICENSES' },
+  { value: 'repairs_maintenance', label: 'Repairs and maintenance', recordedCategory: 'SERVICE_REPAIRS_AND_MAINTENANCE' },
   { value: 'other', label: 'Other — tax treatment needs review', recordedCategory: 'OTHER_REVIEW_REQUIRED' },
 ] as const;
 

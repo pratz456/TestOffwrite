@@ -35,6 +35,7 @@ export const CATEGORY_MAP: Record<string, CategoryMapEntry> = {
   'TRANSPORTATION_AUTO_SERVICE': { line: '9', name: 'Car and truck expenses', code: '9' },
   'TRANSPORTATION_FUEL': { line: '9', name: 'Car and truck expenses', code: '9' },
   'TRANSPORTATION_TOLLS': { line: '9', name: 'Car and truck expenses', code: '9' },
+  'TRANSPORTATION_PARKING_AND_TOLLS': { line: '9', name: 'Car and truck expenses', code: '9' },
   'TRANSPORTATION_PUBLIC_TRANSIT': { line: '9', name: 'Car and truck expenses', code: '9' },
   'TRANSPORTATION_CAR_WASH': { line: '9', name: 'Car and truck expenses', code: '9' },
 
@@ -60,6 +61,7 @@ export const CATEGORY_MAP: Record<string, CategoryMapEntry> = {
   'SERVICE_ACCOUNTING': { line: '17', name: 'Legal and professional services', code: '17' },
   'SERVICE_CONSULTING': { line: '17', name: 'Legal and professional services', code: '17' },
   'SERVICE_LEGAL': { line: '17', name: 'Legal and professional services', code: '17' },
+  'SERVICE_LEGAL_AND_PROFESSIONAL': { line: '17', name: 'Legal and professional services', code: '17' },
   'SERVICE_SECURITY': { line: '17', name: 'Legal and professional services', code: '17' },
   'SERVICE_TAX_PREPARATION': { line: '17', name: 'Legal and professional services', code: '17' },
 
@@ -78,12 +80,18 @@ export const CATEGORY_MAP: Record<string, CategoryMapEntry> = {
   'RENT_RENT': { line: '20b', name: 'Rent (other business property)', code: '20b' },
   'RENT_COWORKING': { line: '20b', name: 'Rent (other business property)', code: '20b' },
 
+  // ── Line 21: Repairs and maintenance ─────────────────────────────────
+  'SERVICE_REPAIRS_AND_MAINTENANCE': { line: '21', name: 'Repairs and maintenance', code: '21' },
+
   // ── Line 22: Supplies ────────────────────────────────────────────────
   'GENERAL_MERCHANDISE_OFFICE_SUPPLIES': { line: '22', name: 'Supplies', code: '22' },
   'SERVICE_SHIPPING': { line: '22', name: 'Supplies', code: '22' },
   'SERVICE_PRINTING_AND_COPYING': { line: '22', name: 'Supplies', code: '22' },
   'GENERAL_MERCHANDISE_HARDWARE_STORE': { line: '22', name: 'Supplies', code: '22' },
   'GENERAL_MERCHANDISE_BOOKSTORES_AND_NEWSSTANDS': { line: '22', name: 'Supplies', code: '22' },
+
+  // ── Line 23: Taxes and licenses ──────────────────────────────────────
+  'GOVERNMENT_TAXES_AND_LICENSES': { line: '23', name: 'Taxes and licenses', code: '23' },
 
   // ── Line 24a: Travel ─────────────────────────────────────────────────
   'TRAVEL_FLIGHTS': { line: '24a', name: 'Travel', code: '24a' },

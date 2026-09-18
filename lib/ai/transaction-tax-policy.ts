@@ -5,15 +5,21 @@ import { redactIdentifierText } from '@/lib/security/identifier-redaction';
 import { BUSINESS_STANDARD_MILEAGE_RATES } from '@/lib/tax-rules/mileage-rates';
 
 /** Selected, reviewed federal rules. This is not retrieval over the entire tax code. */
-export const TRANSACTION_TAX_POLICY_VERSION = 'federal-transactions-2026-09-18.2';
+export const TRANSACTION_TAX_POLICY_VERSION = 'federal-transactions-2026-09-18.3';
 export const TRANSACTION_KINDS = ['expense', 'income', 'transfer', 'refund', 'personal', 'unknown'] as const;
 /** Expense categories the model may return; the single source for the zod enum, JSON schema and intelligence tables. */
 export const EXPENSE_CATEGORIES = [
   'advertising_marketing', 'supplies_small_tools', 'software_subscriptions', 'contract_labor', 'equipment', 'vehicle_expense',
-  'travel', 'meals_50', 'home_office', 'utilities_phone_internet', 'education_training', 'dues_and_memberships',
-  'bank_and_payment_fees', 'rent', 'other',
+  'parking_tolls', 'travel', 'meals_50', 'home_office', 'utilities_phone_internet', 'education_training', 'dues_and_memberships',
+  'bank_and_payment_fees', 'rent', 'insurance', 'legal_professional', 'taxes_licenses', 'repairs_maintenance', 'other',
 ] as const;
 export type ExpenseCategory = typeof EXPENSE_CATEGORIES[number];
+/**
+ * Categories added in 2026-09-18.3 so that ordinary Schedule C lines 9, 15, 17, 21 and 23 are confirmable
+ * deductions. Live evaluation had found correct approvals for parking, tolls and business insurance dying in the
+ * unconfirmable "other"/"vehicle_expense" buckets; a high-confidence merchant match now refines a model's "other".
+ */
+export const CONFIRMABLE_LINE_CATEGORIES: readonly ExpenseCategory[] = ['parking_tolls', 'insurance', 'legal_professional', 'taxes_licenses', 'repairs_maintenance'];
 export interface TransactionTaxSource {
   id: string; title: string; url: string; edition: string; reviewed_at: string;
 }
@@ -115,6 +121,8 @@ export const CATEGORY_EVIDENCE: Record<ExpenseCategory, readonly string[]> = {
   equipment: ['assets-946', 'capital-263', 'supplies-263a'],
   // §162 stays applicable: parking and tolls on a business trip are ordinary expenses that models correctly cite under it.
   vehicle_expense: ['travel-463', 'mileage-rates', 'business-162'],
+  // Deductible in addition to the standard mileage rate (Pub 463); commuting parking is personal.
+  parking_tolls: ['travel-463', 'business-162', 'mileage-rates'],
   travel: ['travel-463'],
   meals_50: ['meals-274'],
   home_office: ['home-587'],
@@ -123,6 +131,11 @@ export const CATEGORY_EVIDENCE: Record<ExpenseCategory, readonly string[]> = {
   dues_and_memberships: ['dues-274a3', 'business-162'],
   bank_and_payment_fees: ['bank-fees-334', 'platform-fees-1099k', 'business-162'],
   rent: ['rent-334', 'business-162', 'home-587'],
+  insurance: ['insurance-334', 'business-162'],
+  legal_professional: ['professional-fees-334', 'business-162'],
+  taxes_licenses: ['taxes-licenses-sch-c', 'business-162'],
+  // §263 leads: the repair-versus-improvement test is the rule a repair approval must survive, then §162 applies.
+  repairs_maintenance: ['capital-263', 'business-162'],
   other: ['business-162', 'startup-195', 'professional-fees-334', 'taxes-licenses-sch-c', 'insurance-334', 'gifts-274b'],
 };
 /** Vehicle purchases/financing cite asset rules; operating costs cite the travel and mileage rules. */
@@ -130,8 +143,9 @@ const VEHICLE_PURCHASE_EVIDENCE = ['assets-946', 'capital-263', 'travel-463', 'm
 /** Schedule C line per expense category (2025 Instructions for Schedule C); a matching merchant entry can refine it. */
 export const CATEGORY_SCHEDULE_C_LINE: Record<ExpenseCategory, string | null> = {
   advertising_marketing: '8', supplies_small_tools: '22', software_subscriptions: '18', contract_labor: '11', equipment: '13',
-  vehicle_expense: '9', travel: '24a', meals_50: '24b', home_office: '30', utilities_phone_internet: '25', education_training: '27a',
-  dues_and_memberships: '27a', bank_and_payment_fees: '10', rent: '20b', other: null,
+  vehicle_expense: '9', parking_tolls: '9', travel: '24a', meals_50: '24b', home_office: '30', utilities_phone_internet: '25', education_training: '27a',
+  dues_and_memberships: '27a', bank_and_payment_fees: '10', rent: '20b', insurance: '15', legal_professional: '17', taxes_licenses: '23',
+  repairs_maintenance: '21', other: null,
 };
 
 /** Code sections, regulations and publications a model may name in prose, and the evidence IDs that back each. */
@@ -248,17 +262,64 @@ function percentage(value: unknown): number | null {
  * Item-recognition patterns used only to trigger additional review, never to approve.
  * Model text may feed them because asking a question is safe; approving is not.
  */
-const HEALTH_INSURANCE_PATTERN = /\b(?:health|medical|dental|vision)\s+(?:insurance|premiums?|plan|coverage)\b|\b(?:blue\s?cross|blue\s?shield|aetna|cigna|kaiser|unitedhealth(?:care)?|humana|oscar\s+health|anthem|ambetter|molina|healthcare\.gov)\b/i;
+const HEALTH_INSURANCE_PATTERN = /\b(?:health|medical|dental|vision|long-?term\s+care)\s+(?:insurance|premiums?|plan|coverage)\b|\b(?:blue\s?cross|blue\s?shield|aetna|cigna|kaiser|unitedhealth(?:care)?|humana|oscar\s+health|anthem|ambetter|molina|healthcare\.gov)\b/i;
 const CLUB_DUES_PATTERN = /\b(?:gym|fitness\s+(?:center|club|membership)|health\s+club|athletic\s+club|country\s+club|golf\s+club|planet\s+fitness|equinox|crossfit|orangetheory|la\s+fitness|24\s+hour\s+fitness|peloton|soulcycle|barry'?s\s+bootcamp)\b/i;
 const HOME_RENT_PATTERN = /\b(?:apartment|apt\.?|home|house|residence|residential|landlord|housing|mortgage|rent\s+for\s+(?:my|our)\s+place)\b/i;
 /** Payments to tax authorities are never Schedule C expenses (federal income and SE tax are nondeductible; state income tax belongs on Schedule A). */
-const TAX_AUTHORITY_PATTERN = /\b(?:IRS|internal revenue|us treasury|u\.s\. treasury|usataxpymt|irs usataxpymt|estimated tax|1040-?es|form 1040|franchise tax board|\bftb\b|dept\.? of revenue|department of revenue|dept\.? of taxation|department of taxation|comptroller of|state tax payment|tax payment|edd|eftps)\b/i;
+const TAX_AUTHORITY_PATTERN = /\b(?:IRS|internal revenue|us treasury|u\.s\. treasury|usataxpymt|irs usataxpymt|estimated tax|1040-?es|form 1040|franchise tax b(?:oar)?d|\bftb\b|dept\.? of revenue|department of revenue|dept\.? of taxation|department of taxation|comptroller of|state tax payment|tax payment|edd|eftps)\b/i;
+/** Federal payees and the individual-payment descriptors: always the tax-payment block, whatever the saved words say. */
+const FEDERAL_TAX_AUTHORITY_PATTERN = /\b(?:IRS|internal revenue|us treasury|u\.s\. treasury|usataxpymt|1040-?es|form 1040|eftps|estimated tax)\b/i;
+/** Business taxes remitted to a state or local agency: sales/use tax collected on sales and employer payroll taxes (Schedule C line 23). */
+const BUSINESS_TAX_REMITTANCE_PATTERN = /\b(?:sales\s+(?:and\s+use\s+)?tax|use\s+tax|seller'?s?\s+permit|sales\s+tax\s+(?:remit\w*|return|filing)|payroll\s+tax(?:es)?|unemployment\s+(?:insurance|tax)|\bsuta\b|\bsui\b|employer\s+(?:share|portion|tax(?:es)?)|form\s+94[01]|withholding\s+deposit)\b/i;
+/** Words that mark a payment as the taxpayer's own income or self-employment tax, which no saved purpose can turn into an expense. */
+const INCOME_TAX_WORDS = /\b(?:income\s+tax|estimated\s+tax|self[- ]employment\s+tax|\bse\s+tax|quarterly\s+(?:tax|estimate)|1040|schedule\s+se|tax\s+bill|balance\s+due|extension\s+payment)\b/i;
+/** Property tax: on the home it is a home-office item (Form 8829); on business assets or a business location it is line 23. */
+const PROPERTY_TAX_PATTERN = /\b(?:property\s+tax(?:es)?|real\s+estate\s+tax(?:es)?|county\s+(?:tax\s+collector|treasurer|assessor)|tax\s+collector|personal\s+property\s+tax)\b/i;
+const BUSINESS_PROPERTY_WORDS = /\b(?:equipment|machinery|inventory|business\s+(?:property|assets?|vehicle|truck|van|location|building)|studio|shop|warehouse|office\s+building|commercial|storefront|work\s+(?:truck|van|vehicle))\b/i;
 /** Vehicle operating costs filed under another category still need the vehicle-method review (Pub 463). */
-const VEHICLE_COST_PATTERN = /\b(?:auto|car|vehicle|truck)\s+(?:insurance|premium|registration|repair|repairs|maintenance|wash|payment|loan)\b|\b(?:geico|progressive|state farm auto|allstate|oil change|jiffy lube|tires?|autozone|o'?reilly auto|pep boys|dmv|smog check|car wash)\b/i;
+const VEHICLE_COST_PATTERN = /\b(?:auto|car|vehicle|truck|van|suv)\s+(?:insurance|premium|policy|registration|repair|repairs|maintenance|wash|payment|loan)\b|\b(?:geico|progressive|state farm auto|allstate|oil change|jiffy lube|tires?|autozone|o'?reilly auto|pep boys|dmv|smog check|car wash|commercial auto|brake (?:job|pads|repair|replacement)|transmission (?:repair|rebuild|flush)|wheel alignment)\b/i;
 /** Parking and tolls on a business trip are deductible in addition to the standard mileage rate (Pub 463) and need no method review. */
-const PARKING_TOLL_PATTERN = /\b(?:parking|parkmobile|spothero|laz parking|impark|toll|tolls|e-?zpass|fastrak|sunpass|turnpike)\b/i;
-/** Tax return preparation is deductible only for the business schedules (Rev. Rul. 92-29; Pub 334). */
-const TAX_PREP_PATTERN = /\b(?:h&r block|hrblock|turbotax|intuit|taxact|taxslayer|jackson hewitt|liberty tax|tax prep(?:aration)?|tax return|cpa|accountant|bookkeep\w*)\b/i;
+const PARKING_TOLL_PATTERN = /\b(?:parking|parkmobile|spothero|paybyphone|laz parking|impark|parkwhiz|toll|tolls|tollway|e-?z\s?pass|fastrak|sunpass|txtag|peach pass|i-?pass|turnpike|thruway)\b/i;
+/** Fines, tickets and penalties paid to a government are not expenses; a bare "ticket" (a plane ticket) is not a penalty. */
+const PENALTY_PATTERN = /\b(?:parking|traffic|speeding|toll|red[- ]light|camera|moving)\s+(?:ticket|violation|citation|fine)s?\b|\b(?:violation|citation)\s+(?:notice|fee|payment)\b|\b(?:fine|penalt(?:y|ies))\s+(?:for|paid|notice|assessed)\b|\blate[- ](?:filing|payment)\s+penalt\w*/i;
+/** The taxpayer's own word for the regular drive to a workplace; Pub 463 treats that parking and those tolls as personal. */
+const COMMUTING_PATTERN = /\bcommut\w*\b/i;
+const NEGATED_COMMUTING_PATTERN = /\b(?:not?|non|never|isn't|wasn't|instead\s+of|rather\s+than)[- ]?(?:a\s+|my\s+|the\s+)?commut\w*/i;
+/** Auto words that keep a premium or repair on the vehicle-method review even when business coverage words appear. */
+const AUTO_WORDS = /\b(?:auto|car|vehicle|truck|van|suv|rideshare)\b/i;
+/** A repair whose saved words name the vehicle or a drivetrain part is a vehicle cost (Pub 463), not a line 21 repair. */
+const VEHICLE_NOUNS = /\b(?:auto|car|vehicle|truck|van|suv|pickup|engine|transmission|brakes?|tires?|windshield|alternator|radiator)\b/i;
+/**
+ * Tax return preparation is deductible only for the business schedules (Rev. Rul. 92-29; Pub 334). Brand names and
+ * return-preparation phrases only: a CPA's bookkeeping or an accountant's advisory fee is an ordinary professional fee.
+ */
+const TAX_PREP_PATTERN = /\b(?:h&r block|hrblock|turbotax|taxact|taxslayer|freetaxusa|jackson hewitt|liberty tax|tax prep(?:aration|arer)?|tax[- ]return\s+(?:prep\w*|fee|service|filing)|tax\s+filing\s+(?:fee|service|software)|(?:prepar\w+|fil(?:e|ed|ing))\s+(?:my|our|the)\s+(?:tax(?:es)?|return|1040)|(?:personal|individual)\s+(?:income\s+)?(?:tax\s+)?returns?|(?:my|our)\s+(?:1040|tax\s+returns?)|schedule\s+c\s+(?:prep\w*|filing)|tax\s+software)\b/i;
+/** Words that name a legal, accounting or advisory service; with a personal matter they mark a personal fee. */
+const PROFESSIONAL_SERVICE_WORDS = /\b(?:attorney|lawyer|law\s+(?:firm|office|group)|legal|esq\.?|paralegal|cpa|accountant|accounting|bookkeep\w*|consultant|advisor|tax\s+prep\w*|notary)\b/i;
+/**
+ * Personal legal and tax matters (Pub 334: wills, divorce, personal injury, a personal return, buying a residence). A fee
+ * naming one of these is personal whatever account paid it; "personal return" is personal only without business schedules.
+ */
+const PERSONAL_LEGAL_MATTER_PATTERN = /\b(?:divorce|custody|child\s+support|alimony|prenup\w*|estate\s+plan\w*|(?:my|our)\s+will\b|will\s+(?:and|&)\s+trust|living\s+trust|personal\s+injury|dui|dwi|speeding\s+ticket|traffic\s+(?:ticket|court)|criminal\s+(?:defense|charge)|immigration\s+(?:attorney|lawyer|filing|case)|buying\s+(?:a|my|our)\s+(?:house|home|condo)|(?:my|our)\s+(?:house|home)\s+(?:purchase|closing)|residential\s+closing)\b/i;
+const PERSONAL_RETURN_PATTERN = /\bpersonal\s+(?:tax\s+)?(?:return|taxes|1040)\b/i;
+const BUSINESS_SCHEDULE_WORDS = /\b(?:schedule\s+c|schedule\s+se|business\s+(?:schedule|return|forms?|portion|share|taxes)|1099|llc|self[- ]employ\w*)\b/i;
+/** State filings and licences a filing service may collect on the taxpayer's behalf (line 23), as opposed to its own service fee (line 17). */
+const STATE_FILING_PATTERN = /\b(?:annual\s+report|biennial\s+report|statement\s+of\s+information|secretary\s+of\s+state|business\s+licen[cs]e|licen[cs]e\s+(?:renewal|fee)|(?:professional|state|nursing|real\s+estate|cosmetology|contractor'?s?|insurance|notary)\s+licen[cs]e|permit\s+fee|(?:city|county|state)\s+permit|llc\s+(?:annual|renewal|fee|tax|filing\s+fee)|franchise\s+tax|registration\s+fee|sales\s+tax\s+permit|dba\s+filing|fictitious\s+(?:business\s+)?name)\b/i;
+const FILING_SERVICE_FEE_WORDS = /\b(?:registered\s+agent|service\s+fee|filing\s+service|package|attorney|legal\s+(?:service|fee|review)|prepared\s+by|filed\s+(?:by|through)|compliance\s+service|operating\s+agreement)\b/i;
+/** Business coverage types (Pub 334: liability, professional/E&O, property, workers' compensation, business interruption, bonds). */
+const BUSINESS_COVERAGE_PATTERN = /\b(?:general\s+liability|liability|e\s*&\s*o|errors?\s+(?:and|&)\s+omissions?|professional\s+(?:liability|indemnity|insurance|coverage)|malpractice|cyber|business\s+(?:owner'?s?|property|interruption|insurance|policy|coverage|liability)|\bbop\b|commercial\s+(?:property|general\s+liability|liability|insurance|policy)|workers'?\s+comp(?:ensation)?|surety|bond|equipment\s+(?:insurance|coverage|policy|floater)|inland\s+marine|product\s+liability|event\s+insurance|studio\s+insurance)\b/i;
+/** A policy on the home the taxpayer lives in counts only through a qualifying home office (Form 8829). */
+const HOME_INSURANCE_PATTERN = /\b(?:homeowner'?s?|renter'?s?|renters|home|house|condo|dwelling|residential|apartment)\s+(?:insurance|policy|premium|coverage)\b/i;
+/** Life, disability, accident and pet coverage on the taxpayer or the household is personal (Pub 334); long-term care follows the health rule. */
+const PERSONAL_COVERAGE_PATTERN = /\b(?:life|disability|term\s+life|whole\s+life|accident|pet)\s+(?:insurance|policy|premium|coverage)\b/i;
+/** The taxpayer's own words for fixing existing property, used only to place a model's "other" in the repairs category. */
+const REPAIR_WORDS = /\b(?:repair\w*|fix(?:ed|ing|es)?|servic(?:e|ed|ing)\s+(?:call|visit|fee|appointment)|maintenance|tune-?ups?|calibrat\w*|patch(?:ed|ing)?|mend(?:ed|ing)?)\b/i;
+/** "Website maintenance" and "software maintenance plan" are office or software costs, not line 21 repairs. */
+const NON_PROPERTY_MAINTENANCE = /\b(?:website|web\s*site|software|hosting|domain|app|plugin|theme|subscription)\b/i;
+/** Repairs to the home the taxpayer lives in are home-office items (Form 8829), never line 21. */
+const HOME_REPAIR_PATTERN = /\b(?:my|our)\s+(?:home|house|apartment|apt|condo|residence|kitchen|bathroom|bedroom|basement|garage|roof|yard|lawn|driveway)\b|\b(?:home|house|residential)\s+(?:repair|maintenance|improvement|remodel)\w*\b|\bhome\s+office\b/i;
+/** Betterments, restorations and whole-unit replacements can be capital improvements (§263) rather than repairs. */
+const IMPROVEMENT_PATTERN = /\b(?:improv\w+|remodel\w*|renovat\w*|upgrad\w+|rebuil\w+|overhaul\w*|restor(?:e|ed|ation)|betterment|addition|new\s+(?:roof|hvac|furnace|engine|transmission|flooring|floors?|windows|unit|system|compressor)|replac\w+\s+(?:\w+\s+){0,2}?(?:roof|hvac|furnace|water\s+heater|engine|transmission|flooring|floors?|windows|unit|system|machine|equipment|laptop|computer|camera|printer|monitor|appliance|compressor))\b/i;
 /** A saved purpose describing space rented to serve clients is business rent, not club dues. */
 const CLUB_BUSINESS_USE_PATTERN = /\b(?:rent(?:al|ed)?|leas(?:e|ed|ing)|space rental|studio rental)\b/i;
 /** Certainty claims the model must not make in any displayed field ("it's fully deductible", "would be 100% deductible", "is completely deductible"). */
@@ -329,6 +390,41 @@ export function groundTransactionAnalysis(
   // Personal-leaning merchants and payment apps need a stated sentence, not a two-word label.
   const purposeMissing = purpose.length < 8 ||
     (['personal_likely', 'transfer_or_deposit'].includes(merchant.disposition) && !isStatedSentence(purpose));
+  // --- Line placement (2026-09-18.3). A model's "other" is placed on the confirmable Schedule C line that a
+  // high-confidence merchant match or the taxpayer's own words name. Placement is bookkeeping, never approval:
+  // every gate below still runs on the placed category, and only the taxpayer's words (never the bank
+  // descriptor) can move a payment away from the tax-authority block.
+  const taxPrep = TAX_PREP_PATTERN.test(savedAndMerchant) || merchant.subtype === 'tax_prep';
+  const propertyTax = PROPERTY_TAX_PATTERN.test(savedAndMerchant);
+  const federalPayee = FEDERAL_TAX_AUTHORITY_PATTERN.test(savedAndMerchant);
+  /**
+   * A business tax in the taxpayer's own words — sales/use tax collected on sales, employer payroll tax, property tax on
+   * business property — remitted to a state or local agency, with no income-tax words. Federal payees never qualify.
+   */
+  const remittedBusinessTax = !federalPayee && !INCOME_TAX_WORDS.test(purpose) &&
+    (BUSINESS_TAX_REMITTANCE_PATTERN.test(purpose) || (PROPERTY_TAX_PATTERN.test(purpose) && BUSINESS_PROPERTY_WORDS.test(purpose)));
+  /** A licence, permit or state filing fee paid to a payee that is not a tax authority. */
+  const stateFilingFee = STATE_FILING_PATTERN.test(purpose) && !TAX_AUTHORITY_PATTERN.test(savedAndMerchant);
+  /** The merchant table names a tax agency (IRS, a state tax agency, or Plaid's tax-payment category). */
+  const taxAgencyPayee = /\btax\b|\bIRS\b/i.test(merchant.name ?? '') || merchant.plaidCategory === 'GOVERNMENT_AND_NON_PROFIT_TAX_PAYMENT';
+  /** The taxpayer names a business coverage (liability, E&O, property, cyber, workers' comp) and not an auto policy. */
+  const businessCoverageStated = BUSINESS_COVERAGE_PATTERN.test(purpose) && !AUTO_WORDS.test(purpose);
+  /** An insurer that sells only business coverage (Hiscox, Next, Thimble, biBERK, The Hartford's small-business line). */
+  const businessInsurer = merchant.category === 'insurance' && merchant.confidence === 'high' && merchant.disposition === 'business_likely';
+  if (kind === 'expense' && result.expense_type !== 'personal') {
+    const placeable = !result.category || result.category === 'other';
+    if (placeable && merchant.confidence === 'high' && merchant.category && CONFIRMABLE_LINE_CATEGORIES.includes(merchant.category)) {
+      result.category = merchant.category;
+    } else if (placeable && REPAIR_WORDS.test(purpose) && !NON_PROPERTY_MAINTENANCE.test(purpose) && !VEHICLE_COST_PATTERN.test(savedAndMerchant)) {
+      result.category = 'repairs_maintenance';
+    }
+    if (taxPrep && (!result.category || ['other', 'contract_labor', 'legal_professional', 'software_subscriptions'].includes(result.category))) {
+      result.category = 'legal_professional';
+    }
+    if ((remittedBusinessTax || stateFilingFee) && (!result.category || ['other', 'legal_professional'].includes(result.category))) {
+      result.category = 'taxes_licenses';
+    }
+  }
   function requireInfo(result: OutputType, field: string, question: string, reason: string, blocked = false) {
     result.status = blocked ? 'blocked' : 'needs_more_info';
     delete result.is_deductible;
@@ -351,7 +447,7 @@ export function groundTransactionAnalysis(
   // category. Vehicle purchase/depreciation evidence is not an operating-cost rule.
   // Kind survives an unresolved tax assessment even after expense_type is cleared.
   const categoryEvidence = result.category ? CATEGORY_EVIDENCE[result.category] : undefined;
-  const applicableEvidence: readonly string[] = kind === 'personal' || result.expense_type === 'personal' ? ['personal-262', 'dues-274a3', 'taxes-licenses-sch-c', 'insurance-334'] :
+  const applicableEvidence: readonly string[] = kind === 'personal' || result.expense_type === 'personal' ? ['personal-262', 'dues-274a3', 'taxes-licenses-sch-c', 'insurance-334', 'professional-fees-334', 'travel-463'] :
     ['income', 'refund', 'transfer'].includes(kind) ? ['records-334', 'platform-fees-1099k'] :
     kind === 'unknown' && amount <= 0 ? ['records-334', 'personal-262', 'business-162', 'platform-fees-1099k'] :
     result.category === 'vehicle_expense' && assetPurchase ? VEHICLE_PURCHASE_EVIDENCE :
@@ -371,6 +467,16 @@ export function groundTransactionAnalysis(
   // Rules a review gate names in its displayed text outrank the category rule when only three sources fit.
   const gateEvidence: string[] = [];
   const addEvidence = (id: string) => { if (!gateEvidence.includes(id)) gateEvidence.push(id); };
+  /** The taxpayer's own words settle an expense as personal (§262): no deduction and no open question. */
+  const markPersonal = (reason: string, factor: string) => {
+    result.transaction_kind = 'personal'; kind = 'personal';
+    result.expense_type = 'personal'; result.is_deductible = false; result.deductible_percent = 0; result.status = 'ok';
+    addEvidence('personal-262');
+    result.customized_reason = reason;
+    result.reasoning_summary = reason;
+    result.key_analysis_factor = factor;
+    delete result.missing_fields; delete result.questions;
+  };
   // Surface the category-specific rule whenever an expense category is proposed, so the
   // displayed sources name the applicable test rather than only the general §162 rule.
   const categoryRule = kind === 'expense' && categoryEvidence && categoryEvidence[0] !== 'business-162' && result.expense_type !== 'personal'
@@ -403,17 +509,34 @@ export function groundTransactionAnalysis(
   }
   if (result.is_deductible === true && kind === 'expense' && EXPLICIT_PERSONAL_NOTE.test(saved) && !/\bpersonal trainer|personal chef|personal assistant|personal brand/i.test(saved)) {
     // Live evaluation: models approved Zoom, Starbucks and Uber charges whose saved note said personal.
-    result.transaction_kind = 'personal'; kind = 'personal';
-    result.expense_type = 'personal'; result.is_deductible = false; result.deductible_percent = 0; result.status = 'ok';
-    addEvidence('personal-262');
-    result.customized_reason = 'Your note records this as personal, so it stays out of business deductions. Edit the note if part of it was for your business.';
-    result.reasoning_summary = result.customized_reason;
-    result.key_analysis_factor = 'Recorded as personal by your note.';
-    delete result.missing_fields; delete result.questions;
+    markPersonal('Your note records this as personal, so it stays out of business deductions. Edit the note if part of it was for your business.',
+      'Recorded as personal by your note.');
   }
-  if (result.is_deductible === true && kind !== 'refund' && TAX_AUTHORITY_PATTERN.test(savedAndMerchant)) {
+  if (result.is_deductible === true && kind === 'expense' && PARKING_TOLL_PATTERN.test(savedAndMerchant) && COMMUTING_PATTERN.test(purpose) && !NEGATED_COMMUTING_PATTERN.test(purpose)) {
+    // Pub 463: parking at a regular workplace and tolls on the drive there are commuting, whatever the model approved.
+    addEvidence('travel-463');
+    markPersonal('Your note describes commuting. Parking at a regular workplace and tolls on the drive there are personal commuting costs, so this stays out of business deductions. Edit the note if the trip was to a client, a job site or between work locations.',
+      'Recorded as commuting by your note.');
+  }
+  /** A legal, accounting or tax-preparation fee: the model's category, the merchant table or the payee's own words. */
+  const professionalFee = result.category === 'legal_professional' || ['legal', 'tax_prep'].includes(merchant.subtype ?? '') || PROFESSIONAL_SERVICE_WORDS.test(savedAndMerchant);
+  if (result.is_deductible === true && kind === 'expense' && professionalFee &&
+      (PERSONAL_LEGAL_MATTER_PATTERN.test(purpose) || (PERSONAL_RETURN_PATTERN.test(purpose) && !BUSINESS_SCHEDULE_WORDS.test(purpose)))) {
+    // Pub 334: wills, divorce, personal injury, a personal return and buying a residence are personal matters whoever paid.
+    addEvidence('professional-fees-334');
+    markPersonal('Your note describes a personal matter. Legal, accounting and tax-preparation fees for personal matters (a divorce or custody case, a will or estate plan, a personal injury claim, your personal return, buying a home) are personal costs, not Schedule C expenses; whether any part is a personal itemized deduction is a question for your personal return, not this business review. Edit the note if part of the fee was for your business.',
+      'Recorded as a personal legal or tax matter by your note.');
+  }
+  if (result.is_deductible === true && kind === 'expense' && PERSONAL_COVERAGE_PATTERN.test(purpose) && !BUSINESS_COVERAGE_PATTERN.test(purpose)) {
+    // Pub 334: life, disability, accident and pet coverage on the taxpayer or the household is personal, not line 15.
+    addEvidence('insurance-334');
+    markPersonal('Your note describes life, disability, accident or pet coverage on yourself or your household. Those premiums are personal, not business insurance; only coverage of a business risk or business property belongs on Schedule C line 15. Edit the note if this policy covers your business.',
+      'Recorded as personal coverage by your note.');
+  }
+  if (result.is_deductible === true && kind !== 'refund' && TAX_AUTHORITY_PATTERN.test(savedAndMerchant) && !remittedBusinessTax) {
     // A live model approved a $1,500 IRS estimated-tax payment at 100%. Income tax and
-    // self-employment tax payments are not business expenses and never reach Schedule C.
+    // self-employment tax payments are not business expenses and never reach Schedule C. Only the
+    // taxpayer's own words naming a sales, payroll or business property tax to a non-federal agency pass.
     addEvidence('taxes-licenses-sch-c'); addEvidence('records-334');
     result.category = 'other';
     requireInfo(result, 'tax_payment_recorded', 'Was this a federal or state income tax payment (including estimated tax)? Record it in the quarterly planner instead of as an expense.',
@@ -448,15 +571,18 @@ export function groundTransactionAnalysis(
     } else if (result.is_deductible === true && !context?.business_entity) {
       requireInfo(result, 'business_entity', 'Is this for your sole-proprietor business or a disregarded single-member LLC?',
         'Confirm your business tax structure before applying this self-employed expense treatment.');
-    } else if (result.is_deductible === true && merchant.disposition === 'not_an_expense') {
-      // Tax payments, loan principal, investments, fines and donations are not expenses whatever the note says.
-      addEvidence(/\btax\b|\bIRS\b/i.test(merchant.name ?? '') || merchant.plaidCategory === 'GOVERNMENT_AND_NON_PROFIT_TAX_PAYMENT' ? 'taxes-licenses-sch-c' : 'records-334');
+    } else if (result.is_deductible === true && merchant.disposition === 'not_an_expense' && !(remittedBusinessTax && taxAgencyPayee)) {
+      // Tax payments, loan principal, investments, fines and donations are not expenses whatever the note says;
+      // only a sales, payroll or business property tax the taxpayer names to a state or local agency is a line 23 expense.
+      addEvidence(taxAgencyPayee ? 'taxes-licenses-sch-c' : 'records-334');
       requireInfo(result, 'transaction_kind', hint?.question ?? merchant.question ?? 'Was this a tax payment, loan payment, investment, fine or donation rather than a purchase for your business?',
         'Payments of this kind (taxes, loan principal, investments, fines or donations) are not Schedule C expenses even when paid from the business account. Confirm what this payment was before it is treated as an expense.');
     } else if (result.is_deductible === true && (merchant.disposition === 'schedule_1' || HEALTH_INSURANCE_PATTERN.test(reviewText))) {
       // §162(l) premiums are a Schedule 1 adjustment (Form 7206); on Schedule C they would wrongly reduce SE tax.
       const health = merchant.disposition !== 'schedule_1' || merchant.subtype === 'health_premium' || HEALTH_INSURANCE_PATTERN.test(reviewText);
       if (health) { addEvidence('insurance-334'); addEvidence('personal-262'); } else addEvidence('records-334');
+      // A health premium is never line 15 business insurance, so it must not carry that line into the review.
+      if (result.category === 'insurance') result.category = 'other';
       requireInfo(result, 'deduction_placement', hint?.question ?? (merchant.disposition === 'schedule_1' ? merchant.question : null)
         ?? 'Is this a health, dental or vision premium for you, your spouse or dependents, or coverage you provide to employees?',
       health ? 'Self-employed health insurance premiums are an adjustment to income on Schedule 1 (Form 7206), not a Schedule C expense, and they do not reduce self-employment tax. Record them under health insurance in Tax Organizer; only coverage you provide to employees belongs on Schedule C.'
@@ -500,24 +626,63 @@ export function groundTransactionAnalysis(
         requireInfo(result, 'business_purpose', hint?.question ?? merchant.question ?? generic,
           'The likely category helps organize the purchase, but the merchant and account do not establish its business purpose.');
       }
-    } else if (result.is_deductible === true && result.category !== 'vehicle_expense' && VEHICLE_COST_PATTERN.test(savedAndMerchant)) {
+    } else if (result.is_deductible === true && PENALTY_PATTERN.test(savedAndMerchant)) {
+      // A parking or toll violation paid to a government is a fine, not the parking or toll it was issued for.
+      addEvidence('taxes-licenses-sch-c');
+      requireInfo(result, 'expense_review', 'Was this a fine, penalty or ticket paid to a government, or a business permit, licence or filing fee?',
+        'Fines, penalties and tickets paid to a government (parking and traffic tickets, late-filing penalties) are not deductible business expenses; permits, licences and filing fees are. Confirm which this was before it is included.');
+    } else if (result.is_deductible === true && result.category !== 'vehicle_expense' &&
+      (VEHICLE_COST_PATTERN.test(savedAndMerchant) || (result.category === 'repairs_maintenance' && VEHICLE_NOUNS.test(purpose))) &&
+      // A carrier that also sells auto policies (Allstate, State Farm) is not an auto cost when the taxpayer names business coverage.
+      !(result.category === 'insurance' && businessCoverageStated)) {
       // Auto insurance, registration or repairs filed as "other" is still a vehicle cost: the method decides whether it is deductible separately.
       addEvidence('travel-463');
       result.category = 'vehicle_expense';
       requireInfo(result, 'vehicle_method', 'Is this cost for a vehicle you drive for business, and do you use the standard mileage rate or actual expenses for it?',
         'Vehicle insurance, registration and repairs are part of the actual-expense method; under the standard mileage rate they are already included in the per-mile amount and cannot be deducted again. Confirm the vehicle and method before including this cost.');
     } else if (result.is_deductible === true && TAX_PREP_PATTERN.test(savedAndMerchant) && percentage(transaction.business_use_percentage) === null) {
+      // Once the share is saved, the fee is approved below under legal_professional at that share.
+      addEvidence('professional-fees-334');
       requireInfo(result, 'business_use_percentage', 'What share of this fee was for your business schedules (Schedule C, SE, business forms) rather than your personal return?',
         'Tax preparation and accounting fees are deductible on Schedule C only for the business portion; the personal-return portion is not deductible. Record the business share before including it.');
     } else if (result.is_deductible === true && PARKING_TOLL_PATTERN.test(savedAndMerchant) && saved.length >= 8) {
-      // Business-trip parking and tolls are deductible in addition to the standard mileage rate; commuting parking is personal, which the saved purpose establishes.
-      result.category = 'vehicle_expense';
+      // Business-trip parking and tolls are deductible in addition to the standard mileage rate and need no method review;
+      // the commuting reading above already settled the personal case. Line 9 as parking_tolls so the approval is confirmable.
+      result.category = 'parking_tolls';
       addEvidence('travel-463');
       result.deductible_percent = percentage(transaction.business_use_percentage) ?? 100;
+    } else if (result.is_deductible === true && HOME_INSURANCE_PATTERN.test(savedAndMerchant)) {
+      // A policy on the home the taxpayer lives in is a Form 8829 item at the business percentage, never line 15.
+      addEvidence('home-587'); addEvidence('insurance-334');
+      result.category = 'home_office';
+      requireInfo(result, 'home_office_eligibility', 'Is this policy on the home where you live? A homeowner\'s or renter\'s policy counts only through a qualifying home office (a space used regularly and exclusively for business), at the business share of the home.',
+        'A homeowner\'s or renter\'s policy is a personal cost; only a qualifying home office deduction can include the business percentage of it (Form 8829). It is not business insurance on Schedule C line 15.');
+    } else if (result.is_deductible === true && result.category === 'insurance' && !businessCoverageStated && !businessInsurer) {
+      // Line 15 needs the insured business risk or property (Pub 334); a carrier that sells every kind of policy does not show it.
+      addEvidence('insurance-334');
+      requireInfo(result, 'insurance_coverage', targetedQuestion('insurance') ?? 'Which coverage is this: business liability, professional (E&O) or business property insurance, an auto policy, or health, life or home coverage?',
+        'Only premiums that cover a business risk or business property are Schedule C insurance (line 15). Auto policies follow your vehicle method, your own health premiums belong on Schedule 1, and life, disability and home policies are personal; name the coverage before this premium is included.');
     } else if (result.is_deductible === true && result.category === 'rent' && HOME_RENT_PATTERN.test(savedAndMerchant)) {
       addEvidence('home-587');
       requireInfo(result, 'home_office_eligibility', 'Is this rent for a separate business location, or for the home where you live? If it is your home, is a space used regularly and exclusively for business?',
         'Rent for the home you live in is not a business rent expense; only a qualifying home office deduction can include part of it. Rent for a separate business location is generally deductible as business rent.');
+    } else if (result.is_deductible === true && propertyTax && !remittedBusinessTax) {
+      // Property tax on the home is a Form 8829 item; on business assets or a business location it is line 23 (approved below).
+      addEvidence('home-587'); addEvidence('taxes-licenses-sch-c');
+      result.category = 'home_office';
+      requireInfo(result, 'home_office_eligibility', 'Is this property tax on the home where you live, or on business property (a shop, studio, business vehicle or equipment)? Tax on your home counts only through a qualifying home office.',
+        'Property tax on the home you live in is a personal cost that only a qualifying home office deduction can include in part (Form 8829). Personal property tax on business assets or a separate business location is a line 23 expense; name the property before this payment is included.');
+    } else if (result.is_deductible === true && result.category === 'repairs_maintenance' && HOME_REPAIR_PATTERN.test(purpose)) {
+      // Repairs to the home are Form 8829 items (in full for the office itself, otherwise at the business percentage).
+      addEvidence('home-587');
+      result.category = 'home_office';
+      requireInfo(result, 'home_office_eligibility', 'Was this repair to the home where you live? Repairs to your home count only through a qualifying home office: in full for the office space itself, otherwise at the business percentage of the home.',
+        'A repair to the home you live in is a personal cost that only a qualifying home office deduction can include (Form 8829); it is not a business repair on Schedule C line 21. Repairs to a separate business location or to business equipment are.');
+    } else if (result.is_deductible === true && result.category === 'repairs_maintenance' && (IMPROVEMENT_PATTERN.test(purpose) || amount > DE_MINIMIS_ITEM_CEILING)) {
+      // Reg. §1.263(a)-3: a betterment, restoration or replacement of a major component is capitalized; a repair keeps property in ordinary working order.
+      addEvidence('capital-263');
+      requireInfo(result, 'asset_treatment', 'Did this work keep existing property in its ordinary operating condition (a repair), or improve, restore or replace it (an improvement)? When was the property first used in your business?',
+        `A repair that keeps business property in ordinary working order is a current expense (Schedule C line 21), but a betterment, restoration or replacement of a major component is a capital improvement that is depreciated. ${amount > DE_MINIMIS_ITEM_CEILING ? `At over $${DE_MINIMIS_ITEM_CEILING.toLocaleString('en-US')} this` : 'The saved description of this'} work points to an improvement or replacement; review the treatment before deducting it in full.`);
     } else if (result.is_deductible === true && (!result.category || ['supplies_small_tools', 'other'].includes(result.category))
       && (amount > DE_MINIMIS_ITEM_CEILING || (amount >= ASSET_REVIEW_FLOOR &&
         // Between $200 and $2,500 the taxpayer's words and the descriptor decide; the model's prose counts only when it names a specific item.
