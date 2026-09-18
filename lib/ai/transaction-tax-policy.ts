@@ -1,11 +1,11 @@
 import type { OutputType, TransactionInput, UserContext } from './analyzeTransaction';
-import { merchantIntelligence, type MerchantIntelligenceResult } from './merchant-intelligence';
+import { findMerchantEntry, merchantDescriptor, merchantIntelligence, type MerchantIntelligenceResult } from './merchant-intelligence';
 import { matchProfessions, professionHint } from './profession-priors';
 import { redactIdentifierText } from '@/lib/security/identifier-redaction';
 import { BUSINESS_STANDARD_MILEAGE_RATES } from '@/lib/tax-rules/mileage-rates';
 
 /** Selected, reviewed federal rules. This is not retrieval over the entire tax code. */
-export const TRANSACTION_TAX_POLICY_VERSION = 'federal-transactions-2026-09-18.1';
+export const TRANSACTION_TAX_POLICY_VERSION = 'federal-transactions-2026-09-18.2';
 export const TRANSACTION_KINDS = ['expense', 'income', 'transfer', 'refund', 'personal', 'unknown'] as const;
 /** Expense categories the model may return; the single source for the zod enum, JSON schema and intelligence tables. */
 export const EXPENSE_CATEGORIES = [
@@ -45,8 +45,9 @@ export const TRANSACTION_TAX_EVIDENCE = [
     'An expense must be ordinary and necessary for an existing trade or business. Merchant, profession, a business bank account, prior corrections, and time of day do not establish the purpose. Identify the actual item/service and business use; consider reimbursement, personal allocation, timing and capitalization.'),
   source('personal-262', '26 USC 262 — Personal, living and family expenses', codeUrl(262), 'Current Code; selected general rule',
     'Personal, living and family spending does not become a business deduction merely because it benefits work. Distinguish household meals, recreation and commuting. Separate identifiable business use from personal use; never invent an allocation.'),
-  source('meals-274', '26 USC 274 — Meal conditions and entertainment limits', codeUrl(274), 'Current Code; selected 2025/2026 rules',
-    'Ordinary qualifying business meals generally have a 50% limit, not automatic eligibility. Establish business purpose, participants, taxpayer/employee presence, non-lavish spending and separately stated food from entertainment. Entertainment is generally disallowed. Special meal exceptions and employer-furnished meals require separate review; employer convenience/eating-facility deductions change after 2025. A meal during a work shift alone is not enough.'),
+  source('meals-274', '26 USC 274 — Meal conditions, entertainment limits and employer-provided meals after 2025', codeUrl(274), 'Current Code as amended by P.L. 119-21 §70305; selected 2025/2026 rules',
+    'Ordinary qualifying business meals generally have a 50% limit, not automatic eligibility (§274(k) conditions, §274(n)(1) limit). Establish business purpose, participants, taxpayer/employee presence, non-lavish spending and separately stated food from entertainment; food and drinks served to clients, customers or contractors at the taxpayer\'s own studio, office or shoot location are business meals under the same tests, not supplies. Entertainment is generally disallowed. Meals and snacks the taxpayer provides to their own employees at the business premises (§119 employer-convenience meals, an on-premises eating facility or break room under §132(e)(2)) were limited to 50% for 2018–2025 and are not deductible at all for amounts paid after December 31, 2025 (§274(o)); the only exceptions are food sold to customers for full consideration (§274(e)(8)) and crew, offshore-rig and fishing-vessel meals (§274(n)(2)(C)). A meal during a work shift alone is not enough.',
+    '2026-09-18', 'Text and effective dates verified in the current uscode.house.gov text on 2026-09-18: §274(o) enacted by P.L. 115-97 (2017) for amounts paid after 2025; the (e)(8)/(n)(2)(C) exceptions and the fishing-vessel clause (n)(2)(C)(v) added by P.L. 119-21 §70305, also for amounts paid after December 31, 2025; the restaurant exception in (n)(2)(D) ended after 2022.'),
   source('travel-463', 'IRS Publication 463 — Travel, gift and car expenses', 'https://www.irs.gov/publications/p463', '2025 publication; selected general principles only',
     'Ordinary commuting to a regular work location is personal. Overnight business travel depends on tax home, business purpose, dates and personal allocation. A home-to-client trip is not automatically eligible: qualifying home-office/temporary-location facts matter. For vehicles establish business mileage/use and deduction method; standard mileage already includes many actual car costs. No annual mileage rates or depreciation limits are supplied here.'),
   source('capital-263', '26 USC 263 — Capital expenditures', codeUrl(263), 'Current Code; selected general rule',
@@ -138,6 +139,8 @@ const SECTION_EVIDENCE: Record<string, readonly string[]> = {
   '162': ['business-162', 'software-334', 'advertising-334', 'contract-labor-334', 'education-reg-1.162-5', 'insurance-334', 'bank-fees-334', 'professional-fees-334', 'rent-334', 'utilities-334'],
   '262': ['personal-262', 'phone-internet-262'],
   '274': ['meals-274', 'dues-274a3', 'gifts-274b', 'mileage-rates'],
+  // Employer-provided meals: §119(a) and §132(e) are cross-referenced by §274(o) and backed by the meals rule.
+  '119': ['meals-274'], '132': ['meals-274'],
   '263': ['capital-263', 'supplies-263a'],
   '179': ['assets-946'], '168': ['assets-946'], '280f': ['assets-946', 'phone-internet-262'],
   '280a': ['home-587', 'rent-334'],
@@ -265,7 +268,9 @@ const UNCONDITIONAL_CLAIM = /\b(?:(?:is|are|it's|its|was|were|be|being|been|beco
  * A negated phrase ("not for personal use", "zero personal use") and a business object
  * ("vacation rental", "vacation photography", "paid vacation") are not personal notes.
  */
-const EXPLICIT_PERSONAL_NOTE = /\b(?:(?<!\b(?:not?|zero|without|never|excludes?|excluding)\s+(?:for\s+|any\s+|of\s+)?)personal (?:use|expense|purchase|item|trip|dinner|meal|coffee|ride|subscription|only)|not (?:for )?(?:the )?business|non-?business|not deductible|not a business expense|family (?:dinner|trip|vacation|meal|purchase)|(?<!\bpaid\s)vacation(?!\s+(?:rental|rentals|home|homes|propert(?:y|ies)|photograph\w*|pay|payroll|package\w*|planning|tours?|clients?|business|listing))|date night|for (?:my|our) (?:kids?|family|wife|husband|spouse|partner)|for (?:my|our) (?:home|house)(?! office| studio| workspace| business|-based| based)|my own use)\b/i;
+const EXPLICIT_PERSONAL_NOTE = /\b(?:(?<!\b(?:not?|zero|without|never|excludes?|excluding)\s+(?:for\s+|any\s+|of\s+)?)personal (?:use|expense|purchase|item|trip|dinner|meal|coffee|ride|subscription|only)|not (?:for )?(?:the )?business|non-?business|not deductible|not a business expense|family (?:dinner|trip|vacation|meal|purchase)|(?<!\bpaid\s)vacation(?!\s+(?:rental|rentals|home|homes|propert(?:y|ies)|photograph\w*|pay|payroll|package\w*|planning|tours?|clients?|business|listing))|date night|for (?:my|our) (?:kids?|family|wife|husband|spouse|partner)|for (?:my|our) (?:home|house)(?! office| studio| workspace| business|-based| based)|my own use|my (?:morning|daily|usual) coffee|coffee before work|(?:coffee|lunch|dinner|breakfast|meal) (?:by myself|alone|on my own)|(?:solo|my own) (?:coffee|lunch|dinner|breakfast|meal))\b/i;
+/** Saved wording that establishes business income for a credit (a customer payment, an invoice, a platform payout). */
+const INCOME_CONTEXT = /\b(client|customer|invoice|business sales|service revenue|platform payout)\b/i;
 const LIKELY_ASSET_PATTERN = /\b(?:laptop|computer|macbook|imac|desktop|monitor|camera|lens|drone|printer|tablet|ipad|iphone|smartphone|desk|chair|tripod|microphone|mixer|guitar|piano|keyboard|server|router|projector|television|appliance|machine|equipment|furniture|tools?)\b/i;
 /**
  * Specific durable items the model itself names. The category words ("supplies and small tools", "equipment",
@@ -372,8 +377,14 @@ export function groundTransactionAnalysis(
     ? (result.category === 'vehicle_expense' && assetPurchase ? VEHICLE_PURCHASE_EVIDENCE[0] : categoryEvidence[0]) : null;
   // Kind affects reporting even while eligibility is unresolved. Never let a tentative
   // model kind turn an unexplained deposit into income or a payment app into a transfer.
-  const unexplainedIncome = kind === 'income' && (amount >= 0 ||
-    !/^INCOME(?:_|$)|REVENUE|SALES/.test(savedCategory) && !/\b(client|customer|invoice|business sales|service revenue|platform payout)\b/i.test(saved));
+  // A credit from a vendor the taxpayer buys from (a software vendor, a store) is a refund or an unknown credit, never
+  // income, however the saved purpose is worded ("Design software used for client branding projects" describes the
+  // purchase); only platforms that pay out the taxpayer's own earnings are exempt (`paysOut`).
+  const vendor = amount < 0 ? findMerchantEntry(merchantDescriptor(transaction)) : null;
+  const purchaseVendorCredit = vendor !== null && vendor.disposition === 'business_likely' && vendor.category !== null && vendor.paysOut !== true;
+  const savedIncomeEvidence = /^INCOME(?:_|$)|REVENUE|SALES/.test(savedCategory) ||
+    (INCOME_CONTEXT.test(saved) && !purchaseVendorCredit);
+  const unexplainedIncome = kind === 'income' && (amount >= 0 || !savedIncomeEvidence);
   const unexplainedRefund = kind === 'refund' && (amount >= 0 ||
     !/\b(refund|returned|reversal|rebate|reimbursement)\b/i.test(`${saved} ${transaction.merchant} ${transaction.transaction_code ?? ''}`));
   const unexplainedPersonalCredit = amount < 0 && kind === 'personal' && saved.length < 8;
@@ -421,8 +432,7 @@ export function groundTransactionAnalysis(
       addEvidence('records-334');
       requireInfo(result, 'original_expense', 'Which original purchase does this refund match, and in which tax year was that purchase deducted?',
         'Match this credit to its original purchase before adjusting tax totals. A same-year refund and a recovery of a prior-year deduction can have different tax treatment.');
-    } else if (amount < 0 && kind === 'income' && !/^INCOME(?:_|$)|REVENUE|SALES/.test(savedCategory) &&
-      !/\b(client|customer|invoice|business sales|service revenue|platform payout)\b/i.test(saved)) {
+    } else if (amount < 0 && kind === 'income' && !savedIncomeEvidence) {
       requireInfo(result, 'deposit_source', 'Was this payment for a customer sale, a refund, a loan, an owner contribution or a transfer?',
         'A bank deposit is not automatically taxable business income. Identify its source so it reaches the correct tax total.');
     } else if (kind === 'transfer' && !savedCategory.includes('TRANSFER') &&

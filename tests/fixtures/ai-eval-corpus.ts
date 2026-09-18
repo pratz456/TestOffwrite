@@ -219,13 +219,13 @@ export const AI_EVAL_CORPUS: EvalCase[] = [
 
   // --- Meals -----------------------------------------------------------------
   {
-    id: 'starbucks-alone-over-eager', title: 'Starbucks alone before work, model proposes a 50% meal',
+    id: 'starbucks-alone-over-eager', title: 'Starbucks alone before work, model proposes a 50% meal: the solo-coffee note makes it personal (Rule 4)',
     transaction: tx('starbucks-alone-over-eager', 'Starbucks', 6.45, { note: 'Coffee before work', time_24h: '08:10' }),
     context: SOLE_PROPRIETOR,
     modelOutput: deduction('meals_50', ['meals-274'],
       'Coffee before a work day can be a 50% business meal for a freelancer. Keep the receipt.', 'Coffee before work.', { deductible_percent: 50 }),
-    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'meals_50', missing_field: 'meal_conditions', evidence_includes: ['meals-274'] },
-    invariants: GATED_EXPENSE,
+    expect: { status: 'ok', transaction_kind: 'personal', is_deductible: false, deductible_percent: 0, evidence_includes: ['personal-262'] },
+    invariants: TEXT,
   },
   {
     id: 'starbucks-alone-personal', title: 'Starbucks recorded as a personal morning coffee',

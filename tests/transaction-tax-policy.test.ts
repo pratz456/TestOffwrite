@@ -22,7 +22,7 @@ describe('curated transaction tax grounding', () => {
   it('derives federal year, source URLs, policy version and model provenance on the server', () => {
     expect(analyze({ irs_refs: ['Fake source https://evil.invalid'] })).toMatchObject({
       status: 'ok', category: 'supplies_small_tools', deductible_percent: 100, tax_year: 2026,
-      jurisdiction: 'US-federal', policy_version: 'federal-transactions-2026-09-18.1',
+      jurisdiction: 'US-federal', policy_version: 'federal-transactions-2026-09-18.2',
       sources: [
         { id: 'business-162', title: '26 USC 162 — Trade or business expenses', url: expect.stringContaining('https://uscode.house.gov/'), reviewed_at: '2026-09-16' },
         // The category-specific rule is attached by the server so the user sees the applicable test.
@@ -31,14 +31,14 @@ describe('curated transaction tax grounding', () => {
       irs_refs: ['26 USC 162 — Trade or business expenses', 'Treas. Reg. §1.263(a)-1(f) — Supplies and the de minimis safe harbor'],
       provenance: { provider: 'openai', model: 'synthetic-model', kind: 'model_with_curated_tax_policy' },
     });
-    expect(TRANSACTION_TAX_POLICY_VERSION).toBe('federal-transactions-2026-09-18.1');
+    expect(TRANSACTION_TAX_POLICY_VERSION).toBe('federal-transactions-2026-09-18.2');
   });
   it('ships a reviewed packet of primary sources with a category-specific rule for every expense category', () => {
     expect(TRANSACTION_TAX_EVIDENCE.length).toBeGreaterThanOrEqual(22);
     expect(new Set(TRANSACTION_EVIDENCE_IDS).size).toBe(TRANSACTION_TAX_EVIDENCE.length);
     for (const item of TRANSACTION_TAX_EVIDENCE) {
       expect(item.url, item.id).toMatch(/^https:\/\/(?:uscode\.house\.gov|www\.ecfr\.gov|www\.irs\.gov)\//);
-      expect(item.reviewed_at, item.id).toMatch(/^2026-09-1[67]$/);
+      expect(item.reviewed_at, item.id).toMatch(/^2026-09-1[678]$/);
       expect(item.rule.split(/(?<=[.!?])\s+/).length, item.id).toBeGreaterThanOrEqual(2);
       expect(item.rule, item.id).not.toMatch(/https?:\/\//);
     }

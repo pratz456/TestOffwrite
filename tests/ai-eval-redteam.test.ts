@@ -271,6 +271,26 @@ describe('red team: findings from live evaluation round 2 (category "other" bypa
     const ownWords = ground({ category: 'supplies_small_tools', customized_reason: 'Job materials.' }, { ...materials, business_purpose: 'Cordless drill and power tools for the shop' }, handyman);
     unresolved(ownWords); expect(ownWords!.missing_fields).toEqual(['asset_treatment']);
   });
+  it('a credit from a vendor the taxpayer buys from is never income because the purpose mentions a client (round 3 finding 7)', () => {
+    const adobe = ground({ transaction_kind: 'income', category: 'other', is_deductible: false, expense_type: undefined, deductible_percent: undefined },
+      { merchant: 'Adobe Creative Cloud', amount_usd: -59.99, business_purpose: 'Design software used for client branding projects' });
+    unresolved(adobe); expect(adobe!.transaction_kind).not.toBe('income'); expect(adobe!.missing_fields).toEqual(['transaction_kind']);
+    // A payout platform the taxpayer earns through keeps the income reading when the saved text says so.
+    const payout = { transaction_kind: 'income' as const, category: undefined, is_deductible: false, expense_type: undefined, deductible_percent: undefined, evidence_ids: ['records-334', 'platform-fees-1099k'] };
+    const shopify = ground(payout, { merchant: 'SHOPIFY PAYMENTS', amount_usd: -1850, business_purpose: 'Customer sales payout from my online store' });
+    expect(shopify).toMatchObject({ status: 'ok', transaction_kind: 'income', is_deductible: false });
+    // A processor payout (transfer_or_deposit disposition) with a saved customer purpose is unchanged.
+    const stripe = ground(payout, { merchant: 'STRIPE TRANSFER', amount_usd: -1850, business_purpose: 'Client invoices paid through Stripe' });
+    expect(stripe).toMatchObject({ status: 'ok', transaction_kind: 'income' });
+  });
+  it('a solo coffee or meal described as the taxpayer\'s own is personal even when the model approves it (round 4 finding 4)', () => {
+    for (const note of ['My morning coffee', 'Coffee before work', 'Lunch by myself between rides']) {
+      const solo = ground({ category: 'meals_50', deductible_percent: 50, evidence_ids: ['meals-274'] }, { merchant: 'STARBUCKS STORE 08812', amount_usd: 6.45, business_purpose: undefined, note });
+      expect(solo, note).toMatchObject({ status: 'ok', transaction_kind: 'personal', is_deductible: false });
+    }
+    const client = ground({ category: 'meals_50', deductible_percent: 50, evidence_ids: ['meals-274'] }, { merchant: 'STARBUCKS STORE 08812', amount_usd: 12.9, business_purpose: 'Coffee meeting with client Dana about the rebrand', attendees: ['Dana Reyes'] });
+    expect(client!.transaction_kind).toBe('expense');
+  });
   it('an ok denial that still asks the taxpayer a question becomes review, never a settled non-deduction (live round 4)', () => {
     const fuel = ground({ category: 'vehicle_expense', is_deductible: false, expense_type: 'business', deductible_percent: 0,
       questions: ['Are you using the standard mileage rate or actual vehicle expenses for this car?'] },

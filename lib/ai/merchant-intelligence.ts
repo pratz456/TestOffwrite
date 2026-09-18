@@ -50,9 +50,15 @@ export interface MerchantIntelligenceEntry {
   question?: string;
   notes?: string;
   subtype?: MerchantSubtype;
+  /**
+   * Credits from this merchant can legitimately be payouts of the taxpayer's own sales or earnings
+   * (marketplaces, gig platforms, creator platforms). Without this flag a credit from a merchant the
+   * taxpayer buys from is a refund or an unknown credit, never income, whatever the saved text says.
+   */
+  paysOut?: boolean;
 }
 
-type Detail = Pick<MerchantIntelligenceEntry, 'defaultPurpose' | 'question' | 'notes' | 'subtype'>;
+type Detail = Pick<MerchantIntelligenceEntry, 'defaultPurpose' | 'question' | 'notes' | 'subtype' | 'paysOut'>;
 const entry = (pattern: RegExp, name: string, category: ExpenseCategory | null, scheduleCLine: string | null,
   disposition: MerchantDisposition, detail: Detail = {}): MerchantIntelligenceEntry =>
   ({ pattern, name, category, scheduleCLine, disposition, ...detail, subtype: detail.subtype ?? inferSubtype(detail.question) });
@@ -168,7 +174,7 @@ export const MERCHANT_INTELLIGENCE: readonly MerchantIntelligenceEntry[] = [
   entry(/\bamazon\s*web\s*services\b|\baws\s*(?:emea|inc|services)?\b/i, 'Amazon Web Services', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Cloud hosting and infrastructure for business or client projects' }),
   entry(/\bsquarespace\b/i, 'Squarespace', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Business website hosting and builder subscription' }),
   entry(/\bwix\.?com\b|\bwix\b/i, 'Wix', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Business website hosting and builder subscription' }),
-  entry(/\bshopify\b/i, 'Shopify', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Online store platform subscription for the business', notes: 'Negative amounts are Shopify Payments payouts (gross receipts before fees).' }),
+  entry(/\bshopify\b/i, 'Shopify', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Online store platform subscription for the business', notes: 'Negative amounts are Shopify Payments payouts (gross receipts before fees).', paysOut: true }),
   entry(/\bmailchimp\b|\bintuit\s*\*?\s*mailchimp\b/i, 'Mailchimp', 'advertising_marketing', '8', 'business_likely', { defaultPurpose: 'Email marketing platform for business newsletters and campaigns' }),
   entry(/\bquickbooks\b|\bintuit\s*\*?\s*(?:qbooks|qbo|quickbooks)\b|\bqbo\b/i, 'QuickBooks', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Bookkeeping software for the business' }),
   entry(/\bintuit\s*\*?\s*turbotax\b|\bturbotax\b/i, 'TurboTax', 'other', '17', 'mixed_use', { question: Q.taxPrep, subtype: 'tax_prep' }),
@@ -193,10 +199,10 @@ export const MERCHANT_INTELLIGENCE: readonly MerchantIntelligenceEntry[] = [
   entry(/\btwilio\b|\bsendgrid\b/i, 'Twilio / SendGrid', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Messaging and email delivery services for business applications' }),
   entry(/\bdocusign\b|\bpandadoc\b|\bhellosign\b|\bdropbox\s*sign\b/i, 'E-signature service', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Contract e-signature service for client agreements' }),
   entry(/\bfreshbooks\b|\bwave\s*(?:apps|financial|accounting)\b|\bxero\b|\bbench\s*accounting\b|\bbill\.com\b/i, 'Bookkeeping software', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Bookkeeping and invoicing software for the business' }),
-  entry(/\bhoneybook\b|\bdubsado\b|\b17hats\b|\bhellobonsai\b|\bbonsai\s*(?:inc|tech)\b/i, 'Client management platform', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Client contracts, invoicing and booking software for the business' }),
+  entry(/\bhoneybook\b|\bdubsado\b|\b17hats\b|\bhellobonsai\b|\bbonsai\s*(?:inc|tech)\b/i, 'Client management platform', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Client contracts, invoicing and booking software for the business', paysOut: true }),
   entry(/\bgetharvest\b|\bharvest\s*(?:app|inc|time)\b|\btoggl\b|\bexpensify\b/i, 'Time and expense tracking', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Time and expense tracking software for the business' }),
   entry(/\bgusto\b|\badp\b|\bpaychex\b/i, 'Payroll service', 'other', '27a', 'business_likely', { defaultPurpose: 'Payroll or contractor-payment service fees for the business', notes: 'Wages paid through the service are line 26; contractor payments are line 11; only the service fee is line 27a.' }),
-  entry(/\bkajabi\b|\bteachable\b|\bthinkific\b|\bpodia\b/i, 'Course platform', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Course and membership platform for selling the business\'s content' }),
+  entry(/\bkajabi\b|\bteachable\b|\bthinkific\b|\bpodia\b/i, 'Course platform', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Course and membership platform for selling the business\'s content', paysOut: true }),
   entry(/\bconvertkit\b|\bkit\.com\b|\bflodesk\b|\bklaviyo\b|\bbeehiiv\b|\bconstant\s*contact\b/i, 'Email marketing platform', 'advertising_marketing', '8', 'business_likely', { defaultPurpose: 'Email marketing platform for business newsletters' }),
   entry(/\bsubstack\b/i, 'Substack', 'software_subscriptions', '18', 'needs_purpose', { question: 'Is this a subscription you pay for reading (personal unless it is research for your business) or a payout of your own publication (business income)?' }),
   entry(/\bpatreon\b/i, 'Patreon', null, null, 'needs_purpose', { question: 'Is this a pledge you pay to a creator (personal) or a payout of your own Patreon (business income at the gross amount)?' }),
@@ -209,7 +215,7 @@ export const MERCHANT_INTELLIGENCE: readonly MerchantIntelligenceEntry[] = [
   entry(/\bvagaro\b|\bstyleseat\b|\bbooksy\b|\bglossgenius\b|\bsquare\s*appointments\b/i, 'Salon booking software', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Client booking and payment software for the salon or studio business' }),
   entry(/\bsimplepractice\b|\btherapynotes\b|\btherapy\s*notes\b|\bdoxy\.me\b|\bheadway\s*(?:health|inc)?\b|\bhelloalma\b|\balma\s*(?:health|care)\b/i, 'Practice management software', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Practice management and telehealth software for the private practice' }),
   entry(/\bpsychology\s*today\b/i, 'Psychology Today listing', 'advertising_marketing', '8', 'business_likely', { defaultPurpose: 'Directory listing advertising the private practice' }),
-  entry(/\bdistrokid\b|\btunecore\b|\bcd\s*baby\b/i, 'Music distribution service', 'other', '27a', 'business_likely', { defaultPurpose: 'Music distribution fees for the performing/recording business', notes: 'Negative amounts are royalty payouts (business income).' }),
+  entry(/\bdistrokid\b|\btunecore\b|\bcd\s*baby\b/i, 'Music distribution service', 'other', '27a', 'business_likely', { defaultPurpose: 'Music distribution fees for the performing/recording business', notes: 'Negative amounts are royalty payouts (business income).', paysOut: true }),
   entry(/\bsplice\b|\bnative\s*instruments\b|\bableton\b|\bizotope\b/i, 'Music production software', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Music production software used for paid work' }),
   entry(/\bshipstation\b|\bpirate\s*ship\b|\bstamps\.com\b|\bshippo\b|\beasypost\b/i, 'Shipping software', 'supplies_small_tools', '22', 'business_likely', { defaultPurpose: 'Shipping labels and postage for business orders' }),
   entry(/\bprintful\b|\bprintify\b|\bgooten\b/i, 'Print-on-demand supplier', 'supplies_small_tools', '22', 'business_likely', { defaultPurpose: 'Products fulfilled for customer orders (cost of goods sold)', notes: 'Cost of goods sold belongs in Schedule C Part III (line 4) rather than line 22; the app records it as supplies pending COGS support.' }),
