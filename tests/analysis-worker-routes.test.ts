@@ -9,6 +9,9 @@ vi.mock('@/app/api/_lib/auth', () => ({ getUserFromReqOrThrow: mocks.auth }));
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({ user: { uid: 'synthetic-owner' }, error: null }) }));
 vi.mock('@/lib/firebase/transactions-server', () => ({ getTransactionsServer: mocks.transactions }));
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collection: () => ({ where: () => ({ get: mocks.jobs }) }) } }));
+// The catch-up route's per-owner window runs against the in-memory limiter store, not the Admin double above.
+vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
+import { resetRateLimitStore } from './fixtures/rate-limit-store';
 import { POST as internal } from '../app/api/internal/analysis-worker/route';
 import { POST as catchup } from '../app/api/plaid/auto-analyze/route';
 import { GET as status } from '../app/api/transactions/analysis-status/route';
@@ -18,7 +21,7 @@ function request(body: unknown = task, supplied = secret) { return new NextReque
   method: 'POST', headers: { 'x-analysis-worker-secret': supplied, 'content-type': 'application/json' }, body: JSON.stringify(body),
 }); }
 beforeEach(() => {
-  vi.resetAllMocks(); vi.stubEnv('ANALYSIS_WORKER_SECRET', secret); mocks.configured = true;
+  vi.resetAllMocks(); vi.stubEnv('ANALYSIS_WORKER_SECRET', secret); mocks.configured = true; resetRateLimitStore();
   mocks.auth.mockResolvedValue({ uid: 'synthetic-owner' });
   mocks.account.mockResolvedValue({ status: 'queued', queued: 3, jobId: 'synthetic-owner_bank' });
   mocks.process.mockResolvedValue({ status: 'completed', retry: false });

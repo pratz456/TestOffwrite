@@ -14,6 +14,8 @@ import { ToastContainer, useToasts } from '@/components/ui/toast';
 import { auth } from '@/lib/firebase/client';
 import { HistoricalAccessUpgradeCard } from '@/components/historical-access-upgrade-card';
 import { dashboardRecordStatus, summarizeDashboardRecords } from '@/lib/dashboard/record-summary';
+import { summarizeAnalysisBacklog } from '@/lib/ai/analysis-state';
+import { AnalysisStatusNotice } from '@/components/analysis-status-notice';
 import { toast } from 'sonner';
 import { loadDashboardTaxSnapshot, type DashboardTaxState } from '@/lib/tax/dashboard-snapshot';
 import { transactionNeedsCategoryReview, transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
@@ -168,7 +170,10 @@ export default function DashboardScreen({
   const categoryReviews = transactions.filter(t => t.pending !== true && transactionNeedsCategoryReview(t));
   const taxQuestions = transactions.filter(t => t.pending !== true && !transactionNeedsCategoryReview(t) && transactionNeedsTaxReview(t));
   const categoriesNeedingAnalysis = categoryReviews.filter(t => t.deduction_score === undefined || t.deduction_score === null).length;
-  const isAnalyzing = analyzingTransactions || analysisInProgress;
+  // Queued, paused and failed AI analysis, read from the records already loaded (no extra listener).
+  const analysisBacklog = summarizeAnalysisBacklog(transactions);
+  const topOutcome = analysisBacklog.outcomes[0] ?? null;
+  const isAnalyzing = analysisBacklog.waiting === 0 && (analyzingTransactions || analysisInProgress);
 
   const openNextReview = () => {
     if (transactions.length === 0) onNavigate('add-manual-transaction');
@@ -239,6 +244,9 @@ export default function DashboardScreen({
               {transactions.length === 0 ? <Plus className="h-4 w-4" aria-hidden="true" /> : <ArrowRight className="h-4 w-4" aria-hidden="true" />}
             </button>
           </section>
+
+          <AnalysisStatusNotice waiting={analysisBacklog.waiting} outcome={topOutcome?.outcome ?? null} count={topOutcome?.count ?? 0}
+            accountIds={topOutcome?.accountIds ?? []} onReview={() => onNavigate('review-transactions')} />
 
           <QuickActionsBar
             onNavigate={onNavigate}

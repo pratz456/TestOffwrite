@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { usePlaidLink } from 'react-plaid-link';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { PlaidProgress } from './PlaidProgress';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -48,6 +49,8 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
   const [analysisStatus, setAnalysisStatus] = useState<'connecting' | 'importing' | 'queued' | 'idle' | 'analyzing' | 'completed' | 'error'>('connecting');
   const [accountId, setAccountId] = useState<string | null>(null);
   const [currentTransaction, setCurrentTransaction] = useState<string>('');
+  // Where the user fixes a paused job's cause (for example the profile fields), from the job's last code.
+  const [jobLink, setJobLink] = useState<{ href: string; label: string } | null>(null);
   const [estimatedTimeRemaining, setEstimatedTimeRemaining] = useState<number>(0);
   const [importProgress] = useState({ imported: 0, total: 0 });
 
@@ -65,6 +68,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
     const view = analysisJobView(job);
     setAnalysisStatus(view.status);
     setCurrentTransaction(view.message);
+    setJobLink(view.outcome?.link ?? null);
     setAnalysisProgress({ current: job.processed, total: job.total, status: 'running' });
     setEstimatedTimeRemaining(0);
     if (view.terminal) {
@@ -579,6 +583,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
                   <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide">Analysis status</span>
                 </div>
                 <p className="text-card-foreground font-medium text-xs">{currentTransaction}</p>
+                {jobLink && analysisStatus === 'error' && <Link href={jobLink.href} className="mt-1 inline-flex min-h-11 items-center gap-1 text-xs font-medium text-primary underline underline-offset-2">{jobLink.label}<ArrowRight className="h-3 w-3 shrink-0" aria-hidden="true" /></Link>}
               </div>
             )}
 

@@ -83,6 +83,18 @@ describe('durable analysis job contract', () => {
   it.each([{}, { ...queuedJob(), failed: 1 }, { ...queuedJob(), processed: 3 }, { ...queuedJob(), succeeded: NaN }])('rejects incomplete counts: %j', job => {
     expect(parseAnalysisJob(job)).toBeNull();
   });
+  it('explains the last paused or failed code with the record-level copy, and sets the first-import expectation while waiting', () => {
+    const paused = analysisJobView({ ...finishedJob(2), lastErrorCode: 'PROFILE_REQUIRED' });
+    expect(paused.outcome).toMatchObject({ code: 'PROFILE_REQUIRED', link: { href: '/protected/settings?tab=profile' } });
+    expect(paused.message).toBe('0 suggestions saved; 2 records need review or retry. Add your profession and state to your profile to enable analysis, then retry.');
+    expect(analysisJobView({ ...finishedJob(1), lastErrorCode: 'AI_RETRY_LIMIT' }).message).toContain('Analysis stopped after several attempts');
+    // The job only remembers the most recent code; skipped work and unknown codes explain nothing about the failures.
+    expect(analysisJobView({ ...finishedJob(2), lastErrorCode: 'TRANSACTION_UNAVAILABLE' })).toMatchObject({ outcome: null, message: expect.stringContaining('No failed record is counted as analyzed') });
+    expect(analysisJobView(finishedJob(2)).outcome).toBeNull();
+    expect(analysisJobView(queuedJob()).message).toContain('A first import can take a while');
+    expect(analysisJobView({ ...queuedJob(), phase: 'running', processed: 1, succeeded: 1 }).message).toContain('1 remaining. A first import can take a while.');
+    expect(analysisJobView(finishedJob()).outcome).toBeNull();
+  });
 });
 
 describe('owner-scoped job subscriptions and display', () => {
@@ -127,6 +139,15 @@ describe('Plaid progress never guesses completion', () => {
     expect(text(render(link))).toContain('Analysis queued');
     const request = h.api.mock.calls.find(([url]) => url === '/api/plaid/auto-analyze')!;
     expect(JSON.parse(request[1].body)).toEqual({ accountId: h.accountId });
+  });
+  it('links a job paused on the profile to the settings tab and keeps the retry and manual review paths', async () => {
+    h.api.mockImplementation(async () => Response.json({ success: true, data: { ...finishedJob(2), lastErrorCode: 'PROFILE_REQUIRED' } }));
+    render(link); await vi.advanceTimersByTimeAsync(0); const tree = render(link);
+    expect(text(tree)).toContain('Add your profession and state to your profile to enable analysis');
+    const profileLink = walk(tree).find(node => (node.props as { href?: string }).href === '/protected/settings?tab=profile')!;
+    expect(profileLink).toBeDefined(); expect(text(profileLink)).toBe('Add profession and state');
+    expect(action(tree, 'Retry AI analysis')).toBeDefined(); expect(action(tree, 'Review transactions manually')).toBeDefined();
+    expect(h.push).not.toHaveBeenCalled();
   });
   it('a progress timeout offers manual review rather than forcing completion', async () => {
     render(link); await vi.advanceTimersByTimeAsync(303000); const tree = render(link);

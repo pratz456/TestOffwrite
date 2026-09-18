@@ -18,6 +18,7 @@ vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: harness.
 vi.mock('@/lib/hooks/use-ai-availability', () => ({ useAiAvailability: () => ({ status: harness.availability, refresh: harness.refresh, message: 'AI configuration unavailable.' }) }));
 vi.mock('sonner', () => ({ toast: { success: harness.toast } }));
 import { AiTaxAnalysisDialog, AiTaxExplanation } from '../components/ai-tax-explanation';
+import { AnalysisStatusNotice } from '../components/analysis-status-notice';
 import { ReviewTransactionsScreen } from '../components/review-transactions-screen';
 
 type Props = { children?: unknown; id?: string; disabled?: boolean; value?: unknown; 'aria-label'?: string; onClick?: () => unknown; onChange?: (event: { target: { value: string; checked?: boolean } }) => void; onTouchStart?: (event: unknown) => void; onTouchMove?: (event: unknown) => void; onTouchEnd?: () => void };
@@ -254,9 +255,30 @@ describe('AI category swipe review', () => {
   it('shows a real queued job separately from no analysis and allows an explicit analysis request', () => {
     records = [base({ ai_suggestion: null, analysisStatus: 'pending', analysisJobId: 'queued-job' })];
     expect(text(page())).toContain('Queued for automatic analysis');
+    expect(text(page())).not.toContain('a first import can take a while');
     expect(action(page(), 'Confirm category').props.disabled).toBe(true);
     expect(action(page(), 'Run AI analysis').props.disabled).toBe(false);
     expect(harness.request).not.toHaveBeenCalled();
+  });
+
+  it('counts the whole queued backlog on a queued card so a first import is not mistaken for a stall', () => {
+    records = ['tx-1', 'tx-2', 'tx-3'].map(id => base({ id, trans_id: id, ai_suggestion: null, analysisStatus: 'pending', analysisJobId: `job-${id}` }));
+    records.push(base({ id: 'done', trans_id: 'done' }));
+    expect(text(page())).toContain('Queued for automatic analysis. 3 transactions are waiting; a first import can take a while. Run it now or wait for the result.');
+  });
+
+  it.each([
+    ['PROFILE_REQUIRED', 'AI analysis paused'], ['AI_UNAVAILABLE', 'AI analysis paused'], ['AI_RETRY_LIMIT', 'AI analysis could not complete'],
+  ])('explains a record the pipeline left with %s and keeps manual categorization open', (code, label) => {
+    records = [base({ ai_suggestion: null, analysisStatus: 'failed', analysisErrorCode: code })];
+    const view = page();
+    expect(text(view)).toContain(label);
+    expect(text(view)).not.toContain('AI analysis needs a retry');
+    const notice = walk(view).find(node => node.type === AnalysisStatusNotice) as ReactElement<{ outcome: { code: string; retry: boolean }; accountIds: string[]; compact: boolean }>;
+    expect(notice.props).toMatchObject({ outcome: { code }, accountIds: ['account-1'], compact: true });
+    expect(action(view, 'Confirm category').props.disabled).toBe(true);
+    expect(action(view, 'Change').props.disabled).toBe(false);
+    expect(action(view, 'Run AI analysis').props.disabled).toBe(false);
   });
 
   it('handles provider unavailability without invented analysis and keeps manual categorization available', async () => {
