@@ -36,7 +36,8 @@ const siteUrl = defineString("SITE_URL", {
 setGlobalOptions({maxInstances: 10});
 
 /**
- * Scheduled function that syncs transactions for all users every 2 hours (incremental sync).
+ * Scheduled function that syncs transactions for all users every 2 hours
+ * (incremental sync).
  * Webhooks are the primary trigger; this is a fallback for missed webhooks.
  */
 export const syncAllUsersTransactions = onSchedule(
@@ -46,8 +47,10 @@ export const syncAllUsersTransactions = onSchedule(
     retryCount: 1,
     maxInstances: 1, // Only one instance to avoid rate limits
   },
-  async (event) => {
-    logger.info("🔄 [Scheduled Sync] Starting scheduled transaction sync for all users...");
+  async () => {
+    logger.info(
+      "🔄 [Scheduled Sync] Starting scheduled transaction sync for all users..."
+    );
 
     try {
       // Get all users with connected bank accounts (have plaid_token)
@@ -57,7 +60,10 @@ export const syncAllUsersTransactions = onSchedule(
         .get();
 
       const totalUsers = usersSnapshot.size;
-      logger.info(`📊 [Scheduled Sync] Found ${totalUsers} users with connected bank accounts`);
+      logger.info(
+        `📊 [Scheduled Sync] Found ${totalUsers} users with connected ` +
+        "bank accounts"
+      );
 
       if (totalUsers === 0) {
         logger.info("✅ [Scheduled Sync] No users to sync");
@@ -100,11 +106,14 @@ export const syncAllUsersTransactions = onSchedule(
             // Note: For Cloud Functions, we make a server-to-server call
             // The actual sync logic is in the Next.js API
             const baseUrl = siteUrl.value();
-            const response = await fetch(`${baseUrl}/api/plaid/sync-transactions-internal`, {
+            const syncUrl =
+              `${baseUrl}/api/plaid/sync-transactions-internal`;
+            const response = await fetch(syncUrl, {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
-                "X-Cloud-Function-Secret": process.env.CLOUD_FUNCTION_SECRET || "",
+                "X-Cloud-Function-Secret":
+                  process.env.CLOUD_FUNCTION_SECRET || "",
               },
               body: JSON.stringify({
                 userId: userId,
@@ -122,7 +131,10 @@ export const syncAllUsersTransactions = onSchedule(
                   result.transactions_saved :
                   0;
               successCount++;
-              logger.info(`✅ [Scheduled Sync] User ${userId}: Synced ${transactionsSaved} transactions`);
+              logger.info(
+                `✅ [Scheduled Sync] User ${userId}: ` +
+                `Synced ${transactionsSaved} transactions`
+              );
 
               await db.doc(`user_profiles/${userId}`).update({
                 last_scheduled_sync_status: "success",
@@ -132,7 +144,9 @@ export const syncAllUsersTransactions = onSchedule(
               const errorText = await response.text();
               errorCount++;
               errors.push({userId, error: errorText});
-              logger.error(`❌ [Scheduled Sync] User ${userId}: API error - ${errorText}`);
+              logger.error(
+                `❌ [Scheduled Sync] User ${userId}: API error - ${errorText}`
+              );
 
               await db.doc(`user_profiles/${userId}`).update({
                 last_scheduled_sync_status: "error",
@@ -141,7 +155,10 @@ export const syncAllUsersTransactions = onSchedule(
             }
           } catch (userError) {
             errorCount++;
-            const errorMessage = userError instanceof Error ? userError.message : "Unknown error";
+            const errorMessage =
+              userError instanceof Error ?
+                userError.message :
+                "Unknown error";
             errors.push({userId, error: errorMessage});
             logger.error(`❌ [Scheduled Sync] User ${userId}: ${errorMessage}`);
 
@@ -154,19 +171,29 @@ export const syncAllUsersTransactions = onSchedule(
           }
 
           // Small delay between users to avoid rate limits
-          await new Promise((resolve) => setTimeout(resolve, DELAY_BETWEEN_USERS_MS));
+          await new Promise((resolve) =>
+            setTimeout(resolve, DELAY_BETWEEN_USERS_MS)
+          );
         }
 
         // Delay between batches
         if (i + BATCH_SIZE < users.length) {
-          await new Promise((resolve) => setTimeout(resolve, DELAY_BETWEEN_BATCHES_MS));
+          await new Promise((resolve) =>
+            setTimeout(resolve, DELAY_BETWEEN_BATCHES_MS)
+          );
         }
       }
 
-      logger.info(`✅ [Scheduled Sync] Completed. Success: ${successCount}, Errors: ${errorCount}`);
+      logger.info(
+        `✅ [Scheduled Sync] Completed. Success: ${successCount}, ` +
+        `Errors: ${errorCount}`
+      );
 
       if (errors.length > 0) {
-        logger.warn(`⚠️ [Scheduled Sync] Errors encountered:`, errors.slice(0, 10));
+        logger.warn(
+          "⚠️ [Scheduled Sync] Errors encountered:",
+          errors.slice(0, 10)
+        );
       }
     } catch (error) {
       logger.error("❌ [Scheduled Sync] Fatal error:", error);
