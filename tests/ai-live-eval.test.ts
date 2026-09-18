@@ -87,7 +87,8 @@ const descriptorResults: DescriptorResult[] = [];
       const started = performance.now();
       const outcome = await analyzeTransaction(c.transaction, c.context);
       const latencyMs = Math.round(performance.now() - started);
-      const expectedCategory = typeof c.modelOutput.category === 'string' ? c.modelOutput.category : null;
+      // The label is the case's expected category when it states one (a server gate may move the model's category); else the synthetic model output.
+      const expectedCategory = 'category' in c.expect && typeof c.expect.category === 'string' ? c.expect.category : typeof c.modelOutput.category === 'string' ? c.modelOutput.category : null;
       const expectedStatus = 'status' in c.expect ? c.expect.status : 'rejected' in c.expect ? 'rejected' : null;
       if (!outcome.success) {
         return { id: c.id, title: c.title, merchant: c.transaction.merchant, amount: c.transaction.amount_usd, expectedCategory, gotCategory: null, categoryMatch: null,

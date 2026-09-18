@@ -292,6 +292,49 @@ describe('red team: findings from live evaluation round 2 (category "other" bypa
     const client = ground({ category: 'meals_50', deductible_percent: 50, evidence_ids: ['meals-274'] }, { merchant: 'STARBUCKS STORE 08812', amount_usd: 12.9, business_purpose: 'Coffee meeting with client Dana about the rebrand', attendees: ['Dana Reyes'] });
     expect(client!.transaction_kind).toBe('expense');
   });
+  it('the taxpayer\'s personal words settle an expense the model only asked about or denied, not just one it approved (round 5 P1)', () => {
+    const asked = ground({ status: 'needs_more_info', is_deductible: undefined, expense_type: undefined, deductible_percent: undefined, category: 'meals_50', evidence_ids: ['meals-274'],
+      missing_fields: ['business_purpose'], questions: ['Who was at this meal and what business was discussed?'] },
+      { merchant: 'STARBUCKS STORE 08812', amount_usd: 6.45, business_purpose: undefined, note: 'My morning coffee' });
+    expect(asked).toMatchObject({ status: 'ok', transaction_kind: 'personal', is_deductible: false });
+    expect(asked!.questions).toBeUndefined();
+    // A personal denial that cites §162 keeps its answer instead of turning into a generic purpose question.
+    const denied = ground({ category: 'vehicle_expense', is_deductible: false, expense_type: 'personal', deductible_percent: 0, evidence_ids: ['business-162'], questions: [] },
+      { merchant: 'PARKMOBILE 770-818-9036 GA', amount_usd: 6.5, business_purpose: 'Parking at my regular office, my daily commute' });
+    expect(denied).toMatchObject({ status: 'ok', transaction_kind: 'personal', is_deductible: false });
+    expect(denied!.evidence_ids).toContain('personal-262');
+    // Blocks are left alone even when the note says personal.
+    const blocked = ground({ status: 'blocked', category: 'other', is_deductible: undefined, expense_type: undefined, deductible_percent: undefined, evidence_ids: ['taxes-licenses-sch-c'],
+      questions: ['Confirm this was not a business purchase.'], customized_reason: 'Estimated federal tax payments are not business expenses.' },
+      { merchant: 'IRS USATAXPYMT', amount_usd: 1500, business_purpose: 'Q2 estimated tax, personal' });
+    expect(blocked!.status).toBe('blocked');
+  });
+  it('a blocked answer carries no Schedule C line and asks only for confirmation (round 5 P2)', () => {
+    const premium = ground({ status: 'blocked', category: 'insurance', is_deductible: undefined, expense_type: undefined, deductible_percent: undefined, evidence_ids: ['insurance-334'], questions: [],
+      customized_reason: 'Your own health insurance premium belongs on Schedule 1 (Form 7206), not Schedule C.' },
+      { merchant: 'BLUE SHIELD OF CA PREMIUM', amount_usd: 486, business_purpose: 'My health insurance premium' });
+    expect(premium!.status).toBe('blocked');
+    expect(premium!.schedule_c_line).toBeUndefined();
+    expect(premium!.questions?.[0]).toMatch(/^Confirm this was not a business purchase/);
+  });
+  it('a question-only answer that names an uncited section cites the packet rule instead of failing the analysis (round 5 P2)', () => {
+    const desk = ground({ status: 'needs_more_info', is_deductible: undefined, expense_type: undefined, deductible_percent: undefined, category: 'equipment', evidence_ids: ['business-162'],
+      missing_fields: ['asset_treatment'], questions: ['Was the desk placed in service this year and will you elect Section 179 or the de minimis safe harbor?'],
+      customized_reason: 'A $480 desk may be expensed under Section 179 or depreciated; confirm the election.' },
+      { merchant: 'THE HOME DEPOT #0652', amount_usd: 480, business_purpose: 'Standing desk for my home office' });
+    expect(desk).not.toBeNull();
+    expect(desk!.status).toBe('needs_more_info');
+    expect(desk!.evidence_ids).toContain('assets-946');
+    // An approval that names an uncited section still fails closed.
+    expect(ground({ category: 'supplies_small_tools', customized_reason: 'Deductible under Section 179 in full.' }, { merchant: 'STAPLES', amount_usd: 120 })).toBeNull();
+  });
+  it('the claims sanitizer keeps the verb and Lemonade asks the coverage question under insurance (round 5)', () => {
+    const toner = ground({ customized_reason: 'The toner is fully deductible as an office supply.', reasoning_summary: 'It is 100% deductible.' });
+    expect(toner!.customized_reason).toContain('The toner is deductible as a business expense, subject to your records');
+    expect(toner!.reasoning_summary).toContain('It is deductible as a business expense, subject to your records');
+    const lemonade = ground({ category: 'insurance' }, { merchant: 'LEMONADE INS', amount_usd: 42, business_purpose: 'Monthly premium' });
+    unresolved(lemonade); expect(lemonade!.missing_fields).toEqual(['insurance_coverage']);
+  });
   it('an ok denial that still asks the taxpayer a question becomes review, never a settled non-deduction (live round 4)', () => {
     const fuel = ground({ category: 'vehicle_expense', is_deductible: false, expense_type: 'business', deductible_percent: 0,
       questions: ['Are you using the standard mileage rate or actual vehicle expenses for this car?'] },

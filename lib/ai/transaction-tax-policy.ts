@@ -322,7 +322,7 @@ const IMPROVEMENT_PATTERN = /\b(?:improv\w+|remodel\w*|renovat\w*|upgrad\w+|rebu
 /** A saved purpose describing space rented to serve clients is business rent, not club dues. */
 const CLUB_BUSINESS_USE_PATTERN = /\b(?:rent(?:al|ed)?|leas(?:e|ed|ing)|space rental|studio rental)\b/i;
 /** Certainty claims the model must not make in any displayed field ("it's fully deductible", "would be 100% deductible", "is completely deductible"). */
-const UNCONDITIONAL_CLAIM = /\b(?:(?:is|are|it's|its|was|were|be|being|been|becomes?|remains?|would be|will be|can be|should be|considered|deemed|qualif(?:y|ies) as|treated as|counts? as)\s+(?:\w+\s+){0,2})?(?:fully|100\s?%|completely|entirely|wholly)\s+(?:tax[- ])?deductible\b/i;
+const UNCONDITIONAL_CLAIM = /\b((?:(?:is|are|it's|its|was|were|be|being|been|becomes?|remains?|would be|will be|can be|should be|considered|deemed|qualif(?:y|ies) as|treated as|counts? as)\s+(?:\w+\s+){0,2})?)(?:fully|100\s?%|completely|entirely|wholly)\s+(?:tax[- ])?deductible\b/i;
 /**
  * The taxpayer's own note saying an item was personal outranks any merchant or profession prior.
  * A negated phrase ("not for personal use", "zero personal use") and a business object
@@ -368,7 +368,18 @@ export function groundTransactionAnalysis(
   const explanation = [result.customized_reason, result.reasoning_summary, result.key_analysis_factor].filter(Boolean).join(' ');
   // A model cannot smuggle arbitrary source links or imply a computed percentage unsupported by the fields.
   if (/https?:\/\//i.test(explanation)) return null;
-  if (uncitedReferences(explanation, ids).length) return null;
+  const uncited = uncitedReferences(explanation, ids);
+  if (uncited.length) {
+    // An approval must rest on the rules it names. A question-only answer that mentions a known
+    // section ("Section 179") cites the packet rule for it instead of failing the whole analysis.
+    if (result.status === 'ok') return null;
+    for (const reference of uncited) {
+      const key = reference.replace(/^§|^Pub\s+/i, '').toLowerCase();
+      const mapped = reference.startsWith('Pub') ? PUBLICATION_EVIDENCE[key] : key.includes('.') ? REGULATION_EVIDENCE[key] : SECTION_EVIDENCE[key.replace(/\(.*$/, '')];
+      if (!mapped?.length) return null;
+      if (!ids.includes(mapped[0])) ids.push(mapped[0]);
+    }
+  }
   if (result.status === 'ok' && (result.is_deductible === true && result.expense_type !== 'business' ||
       kind === 'personal' && (result.expense_type !== 'personal' || result.is_deductible !== false) ||
       ['income', 'transfer'].includes(kind) && result.is_deductible !== false)) return null;
@@ -503,16 +514,18 @@ export function groundTransactionAnalysis(
       'The bank record and saved context do not establish the type of money movement. Confirm its purpose before using it in tax totals.');
   }
 
-  if (offCategoryCitation && result.status === 'ok') {
+  if (offCategoryCitation && result.status === 'ok' && result.is_deductible === true) {
     requireInfo(result, 'business_purpose', 'What did you buy or pay for, and how was it used in your business?',
       'The category is a suggestion; the tax basis the analysis relied on did not match this kind of expense, so confirm the purpose before including a deduction.');
   }
-  if (result.is_deductible === true && kind === 'expense' && EXPLICIT_PERSONAL_NOTE.test(saved) && !/\bpersonal trainer|personal chef|personal assistant|personal brand/i.test(saved)) {
-    // Live evaluation: models approved Zoom, Starbucks and Uber charges whose saved note said personal.
+  /** An expense answer that is not a block: approved, asked about, or denied by the model. The taxpayer's words outrank all three. */
+  const openExpense = kind === 'expense' && result.status !== 'blocked';
+  if (openExpense && EXPLICIT_PERSONAL_NOTE.test(saved) && !/\bpersonal trainer|personal chef|personal assistant|personal brand/i.test(saved)) {
+    // Live evaluation: models approved, or asked about, Zoom, Starbucks and Uber charges whose saved note said personal.
     markPersonal('Your note records this as personal, so it stays out of business deductions. Edit the note if part of it was for your business.',
       'Recorded as personal by your note.');
   }
-  if (result.is_deductible === true && kind === 'expense' && PARKING_TOLL_PATTERN.test(savedAndMerchant) && COMMUTING_PATTERN.test(purpose) && !NEGATED_COMMUTING_PATTERN.test(purpose)) {
+  if (openExpense && PARKING_TOLL_PATTERN.test(savedAndMerchant) && COMMUTING_PATTERN.test(purpose) && !NEGATED_COMMUTING_PATTERN.test(purpose)) {
     // Pub 463: parking at a regular workplace and tolls on the drive there are commuting, whatever the model approved.
     addEvidence('travel-463');
     markPersonal('Your note describes commuting. Parking at a regular workplace and tolls on the drive there are personal commuting costs, so this stays out of business deductions. Edit the note if the trip was to a client, a job site or between work locations.',
@@ -520,7 +533,7 @@ export function groundTransactionAnalysis(
   }
   /** A legal, accounting or tax-preparation fee: the model's category, the merchant table or the payee's own words. */
   const professionalFee = result.category === 'legal_professional' || ['legal', 'tax_prep'].includes(merchant.subtype ?? '') || PROFESSIONAL_SERVICE_WORDS.test(savedAndMerchant);
-  if (result.is_deductible === true && kind === 'expense' && professionalFee &&
+  if (openExpense && professionalFee &&
       (PERSONAL_LEGAL_MATTER_PATTERN.test(purpose) || (PERSONAL_RETURN_PATTERN.test(purpose) && !BUSINESS_SCHEDULE_WORDS.test(purpose)))) {
     // Pub 334: wills, divorce, personal injury, a personal return and buying a residence are personal matters whoever paid.
     addEvidence('professional-fees-334');
@@ -745,7 +758,9 @@ export function groundTransactionAnalysis(
   if (result.status !== 'ok') {
     delete result.is_deductible; delete result.expense_type; delete result.deductible_percent;
     if (!result.questions?.some(question => question.trim())) {
-      result.questions = ['What was purchased or received, and what was its business or personal purpose?'];
+      result.questions = [result.status === 'blocked'
+        ? 'Confirm this was not a business purchase. If it was, describe what was bought and how it is used in your business.'
+        : 'What was purchased or received, and what was its business or personal purpose?'];
     }
     const displayed = [result.customized_reason, result.reasoning_summary, result.key_analysis_factor, result.reason, result.audit_risk_rationale].filter(Boolean).join(' ');
     if (UNCONDITIONAL_CLAIM.test(displayed)) {
@@ -759,7 +774,7 @@ export function groundTransactionAnalysis(
     // Even an approved ordinary expense is not "fully deductible" as a certainty; keep the claims policy wording.
     for (const field of ['customized_reason', 'reasoning_summary', 'key_analysis_factor', 'reason', 'audit_risk_rationale'] as const) {
       const value = result[field];
-      if (typeof value === 'string' && UNCONDITIONAL_CLAIM.test(value)) result[field] = value.replace(UNCONDITIONAL_CLAIM, 'deductible as a business expense, subject to your records');
+      if (typeof value === 'string' && UNCONDITIONAL_CLAIM.test(value)) result[field] = value.replace(UNCONDITIONAL_CLAIM, (_match, verb: string | undefined) => `${verb ?? ''}deductible as a business expense, subject to your records`);
     }
   }
   if (!result.documentation_required?.length && ['expense', 'refund'].includes(kind)) {
@@ -774,7 +789,7 @@ export function groundTransactionAnalysis(
     result.proposed_purpose = merchant.defaultPurpose;
   }
   // The Schedule C line names where a confirmed expense would be reported; it is display metadata, not an approval.
-  if (result.transaction_kind === 'expense' && result.category && input.expense_type !== 'personal' && result.expense_type !== 'personal'
+  if (result.transaction_kind === 'expense' && result.status !== 'blocked' && result.category && input.expense_type !== 'personal' && result.expense_type !== 'personal'
       && result.is_deductible !== false && !result.missing_fields?.includes('transaction_kind')) {
     const line = merchant.category === result.category && merchant.scheduleCLine ? merchant.scheduleCLine : CATEGORY_SCHEDULE_C_LINE[result.category];
     if (line) result.schedule_c_line = line;
