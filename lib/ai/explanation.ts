@@ -111,6 +111,9 @@ const MISSING_FACT_LABELS: Record<string, string> = {
   transaction_direction: 'whether money left or entered the account, and why',
   business_entity: 'your business tax structure',
   prior_decision_conflict: 'whether this purchase differs from the ones you marked personal',
+  expense_category: 'which expense category this charge belongs to',
+  business_use_allocation: 'whether this charge is 100% business or a shared item kept for your preparer',
+  expense_review: 'your answer to the open question about this expense',
   deduction_placement: 'whether this is a health, dental or vision premium',
   club_dues_exception: 'whether this facility is used only in your business',
 };
