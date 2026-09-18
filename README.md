@@ -2,6 +2,31 @@
 
 Effortless tax deduction management for freelancers and small businesses.
 
+## Restaurant reconciliation validation MVP
+
+The public home page now hosts **TableProof**, a validation prototype for restaurant
+vendor-statement reconciliation. It accepts two deliberately narrow, redacted CSV
+files, matches them entirely in the browser, and exports a row-traceable exception
+report. It does not collect credentials, persist uploaded data, contact vendors, or
+initiate payments.
+
+Run it locally:
+
+```bash
+npm install
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000), then select **Run the sample
+audit**. Sample inputs are available at:
+
+- `public/samples/restaurant-vendor-statement.csv`
+- `public/samples/restaurant-ap-ledger.csv`
+
+Accepted columns are `reference,date,type,amount,payment_status`; the first four
+are required. Each file is limited to 150 data rows. Run the focused tests with
+`npx vitest run tests/vendor-reconciliation.test.ts`.
+
 ## Tech Stack
 
 - **Next.js 15** (App Router, Turbopack)
