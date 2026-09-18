@@ -139,6 +139,25 @@ describe('POST /api/transactions/bulk-confirm', () => {
     expect((await post({ merchantKey: 'adobe', decision: 'business', category: 'software_subscriptions' })).status).toBe(200);
     expect(stored(uid, 'a')).toMatchObject({ category: 'SERVICE_SUBSCRIPTION', transaction_kind: 'expense', is_deductible: true, review_status: 'confirmed' });
   });
+  it.each([
+    ['parking_tolls', 'TRANSPORTATION_PARKING_AND_TOLLS'], ['insurance', 'SERVICE_INSURANCE'], ['legal_professional', 'SERVICE_LEGAL_AND_PROFESSIONAL'],
+    ['taxes_licenses', 'GOVERNMENT_TAXES_AND_LICENSES'], ['repairs_maintenance', 'SERVICE_REPAIRS_AND_MAINTENANCE'],
+  ])('2026-09-18.3: a bulk business decision may carry the %s category as a deduction', async (category, recorded) => {
+    nested(uid, 'a', { category: 'GENERAL_MERCHANDISE_OTHER' });
+    expect((await post({ merchantKey: 'adobe', decision: 'business', category })).status).toBe(200);
+    expect(stored(uid, 'a')).toMatchObject({ category: recorded, transaction_kind: 'expense', is_deductible: true, review_status: 'confirmed' });
+  });
+  it('2026-09-18.3: a charge already recorded in a new category is a bulk deduction (not a method placeholder), and "other" is still refused as a deduction', async () => {
+    nested(uid, 'insured', { merchant_name: 'Hiscox', category: 'SERVICE_INSURANCE', ai_suggestion: { ...suggestion, status: 'ok', category: 'insurance', isDeductible: true, deductiblePercent: 100, scheduleCLine: '15' } });
+    nested(uid, 'parked', { merchant_name: 'Hiscox', category: 'TRANSPORTATION_PARKING_AND_TOLLS' });
+    expect(await (await post({ merchantKey: 'hiscox', decision: 'business' })).json()).toMatchObject({ updated: 2, skipped: 0 });
+    expect(stored(uid, 'insured')).toMatchObject({ category: 'SERVICE_INSURANCE', is_deductible: true, review_status: 'confirmed' });
+    expect(stored(uid, 'parked')).toMatchObject({ category: 'TRANSPORTATION_PARKING_AND_TOLLS', is_deductible: true, review_status: 'confirmed' });
+    nested(uid, 'b', { category: 'GENERAL_MERCHANDISE_OTHER' });
+    const refused = await post({ merchantKey: 'adobe', decision: 'business', category: 'other' });
+    expect(refused.status).toBe(422);
+    expect(await refused.json()).toMatchObject({ code: 'DEDUCTION_REVIEW_REQUIRED' });
+  });
   it('caps a call at 200 newest charges and reports truncation', async () => {
     expect(BULK_CONFIRM_MAX_TRANSACTIONS).toBe(200);
     expect(BULK_CONFIRM_BATCH_SIZE).toBeLessThanOrEqual(400);

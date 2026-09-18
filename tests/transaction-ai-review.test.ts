@@ -157,6 +157,41 @@ describe('saved AI categorization confirmation', () => {
   });
 });
 
+describe('taxonomy expansion (2026-09-18.3): the five new categories confirm as deductions and reach their Schedule C line', () => {
+  it.each([
+    ['parking_tolls', '9', 'TRANSPORTATION_PARKING_AND_TOLLS', 'Car and truck expenses'],
+    ['insurance', '15', 'SERVICE_INSURANCE', 'Insurance'],
+    ['legal_professional', '17', 'SERVICE_LEGAL_AND_PROFESSIONAL', 'Legal and professional services'],
+    ['repairs_maintenance', '21', 'SERVICE_REPAIRS_AND_MAINTENANCE', 'Repairs and maintenance'],
+    ['taxes_licenses', '23', 'GOVERNMENT_TAXES_AND_LICENSES', 'Taxes and licenses'],
+  ] as const)('a %s approval confirms as a deduction on line %s under %s', async (category, line, recorded, lineName) => {
+    suggest({ category, schedule_c_line: line });
+    expect(record().ai_suggestion).toMatchObject({ status: 'ok', isDeductible: true, deductiblePercent: 100, scheduleCLine: line });
+    expect(canConfirmAiSuggestion(record().ai_suggestion)).toBe(true);
+    const response = await send(confirm()); expect(response.status).toBe(200);
+    expect(record()).toMatchObject({ category: recorded, is_deductible: true, expense_type: 'business', transaction_kind: 'expense', review_status: 'confirmed', review_source: 'ai_confirmed', tax_review_required: false });
+    expect(transactionNeedsTaxReview(record())).toBe(false);
+    const totals = aggregateScheduleC([record() as any], '2026', undefined, { mode: 'confirmed-only' });
+    expect(totals.totalDeductible).toBe(100);
+    expect(totals.lineItems[line]).toMatchObject({ lineCode: line, lineName, deductible: 100, transactionCount: 1 });
+  });
+  it('a partial-share legal_professional approval (tax preparation) confirms the category but not the deduction', async () => {
+    change({ business_use_percentage: 60 });
+    suggest({ category: 'legal_professional', deductible_percent: 60, schedule_c_line: '17' });
+    expect((await send(confirm())).status).toBe(200);
+    expect(record()).toMatchObject({ category: 'SERVICE_LEGAL_AND_PROFESSIONAL', is_deductible: null, tax_review_required: true });
+    expect(aggregateScheduleC([record() as any], '2026', undefined, { mode: 'confirmed-only' }).totalDeductible).toBe(0);
+  });
+  it('a manual correction may claim a deduction under the new categories but still not under "other"', async () => {
+    expect((await send(correct({ category: 'taxes_licenses', isDeductible: true }))).status).toBe(200);
+    expect(record()).toMatchObject({ category: 'GOVERNMENT_TAXES_AND_LICENSES', is_deductible: true, review_source: 'user_corrected', tax_review_required: false });
+    change({ is_deductible: null, category: 'UNCLASSIFIED', review_status: undefined });
+    expect((await send(correct({ category: 'other', isDeductible: true }))).status).toBe(422);
+    expect((await send(correct({ category: 'other' }))).status).toBe(200);
+    expect(record()).toMatchObject({ category: 'OTHER_REVIEW_REQUIRED', is_deductible: null, tax_review_required: true });
+  });
+});
+
 describe('explicit category correction and cash direction', () => {
   it('permits category correction without asserting a tax deduction', async () => {
     expect((await send(correct({ category: 'equipment' }))).status).toBe(200);

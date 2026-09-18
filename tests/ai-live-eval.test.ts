@@ -78,7 +78,7 @@ async function mapLimit<T, R>(values: T[], limit: number, work: (value: T) => Pr
 }
 
 const results: CaseResult[] = [];
-interface DescriptorResult { id: string; descriptor: string; expectedCategory: string | null; gotCategory: string | null; expectedStatus: string; gotStatus: string | null; kind: string | null; isDeductible: boolean | undefined; failure: string | null; latencyMs: number; firstQuestion: string | null; reason: string | null; violation: string | null }
+interface DescriptorResult { id: string; descriptor: string; expectedCategory: string | null; gotCategory: string | null; expectedStatus: string; gotStatus: string | null; expectedKind: string | null; kind: string | null; isDeductible: boolean | undefined; failure: string | null; latencyMs: number; firstQuestion: string | null; reason: string | null; violation: string | null }
 const descriptorResults: DescriptorResult[] = [];
 
 (enabled ? describe : describe.skip)('live model evaluation over the golden corpus', () => {
@@ -115,15 +115,15 @@ const descriptorResults: DescriptorResult[] = [];
       const outcome = await analyzeTransaction(transaction, descriptorContext(item));
       const latencyMs = Math.round(performance.now() - started);
       if (!outcome.success) {
-        return { id: item.id, descriptor: item.descriptor, expectedCategory: item.expectedCategory, gotCategory: null, expectedStatus: item.expectedStatus, gotStatus: null, kind: null, isDeductible: undefined, failure: outcome.code, latencyMs, firstQuestion: null, reason: outcome.error, violation: null } satisfies DescriptorResult;
+        return { id: item.id, descriptor: item.descriptor, expectedCategory: item.expectedCategory, gotCategory: null, expectedStatus: item.expectedStatus, gotStatus: null, expectedKind: item.expectedKind ?? null, kind: null, isDeductible: undefined, failure: outcome.code, latencyMs, firstQuestion: null, reason: outcome.error, violation: null } satisfies DescriptorResult;
       }
       const result = outcome.result;
-      // A case whose expected status is anything but ok must never come back approved.
-      const mustNotApprove = item.expectedStatus !== 'ok' || item.expectedKind === 'income' || item.expectedKind === 'transfer';
+      // A case whose expected status is anything but ok, or whose expected kind is not an expense, must never come back approved.
+      const mustNotApprove = item.expectedStatus !== 'ok' || ['income', 'transfer', 'personal'].includes(item.expectedKind ?? '');
       const approved = result.status === 'ok' && result.is_deductible === true;
       const violation = mustNotApprove && approved ? `approved a deduction for ${item.descriptor} (${item.note ?? item.expectedStatus})` : null;
       return { id: item.id, descriptor: item.descriptor, expectedCategory: item.expectedCategory, gotCategory: result.category ?? null, expectedStatus: item.expectedStatus, gotStatus: result.status,
-        kind: result.transaction_kind ?? null, isDeductible: result.is_deductible, failure: null, latencyMs, firstQuestion: result.questions?.[0] ?? null, reason: result.customized_reason ?? null, violation } satisfies DescriptorResult;
+        expectedKind: item.expectedKind ?? null, kind: result.transaction_kind ?? null, isDeductible: result.is_deductible, failure: null, latencyMs, firstQuestion: result.questions?.[0] ?? null, reason: result.customized_reason ?? null, violation } satisfies DescriptorResult;
     });
     descriptorResults.push(...outcomes);
     expect(outcomes.filter(o => o.violation).map(o => `${o.id}: ${o.violation}`)).toEqual([]);
@@ -135,7 +135,7 @@ const descriptorResults: DescriptorResult[] = [];
       const labeled = descriptorResults.filter(r => r.expectedCategory && r.gotCategory !== null);
       const categoryMatches = labeled.filter(r => r.gotCategory === r.expectedCategory).length;
       const statusMatches = descriptorResults.filter(r => r.expectedStatus === 'blocked_or_review' ? (r.gotStatus === 'blocked' || r.gotStatus === 'needs_more_info') : r.gotStatus === r.expectedStatus).length;
-      const approvable = descriptorResults.filter(r => r.expectedStatus === 'ok' && r.expectedCategory);
+      const approvable = descriptorResults.filter(r => r.expectedStatus === 'ok' && r.expectedCategory && (r.expectedKind ?? 'expense') === 'expense');
       const approvedCorrectly = approvable.filter(r => r.gotStatus === 'ok' && r.isDeductible === true).length;
       const failures = descriptorResults.filter(r => r.failure).length;
       const model = getOpenAIModel('transaction');
