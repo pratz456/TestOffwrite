@@ -873,7 +873,7 @@ export function ReconciliationSite() {
                     key={step.number}
                     className="relative overflow-hidden rounded-3xl border border-[#dce2dc] bg-white p-6 shadow-[0_12px_35px_rgba(35,52,42,0.05)]"
                   >
-                    <span className="text-5xl font-bold tracking-[-0.06em] text-[#e4ebe5]">
+                    <span className="text-5xl font-bold tracking-[-0.06em] text-[#68756d]">
                       {step.number}
                     </span>
                     <h3 className="mt-8 text-lg font-bold">{step.title}</h3>
