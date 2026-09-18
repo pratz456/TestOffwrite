@@ -2,7 +2,33 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { parse } from 'dotenv';
+
+/**
+ * Parse a KEY=value env file with only Node built-ins. The release scripts run inside a freshly
+ * exported release directory BEFORE `npm ci`, so they cannot depend on any package. Supports
+ * comments, blank lines, `export KEY=`, and single- or double-quoted single-line values with
+ * the common escapes dotenv accepts for our files (\n, \r, \t, \\, \", \').
+ */
+export function parseEnvFile(contents) {
+  const env = {};
+  for (const rawLine of String(contents).split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+    const match = line.match(/^(?:export\s+)?([A-Za-z_][A-Za-z0-9_.-]*)\s*=\s*(.*)$/);
+    if (!match) continue;
+    let value = match[2].trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      const quote = value[0];
+      value = value.slice(1, -1);
+      if (quote === '"') value = value.replace(/\\(n|r|t|\\|"|')/g, (_, code) => ({ n: '\n', r: '\r', t: '\t', '\\': '\\', '"': '"', "'": "'" })[code]);
+    } else {
+      value = value.replace(/\s+#.*$/, '').trim();
+    }
+    env[match[1]] = value;
+  }
+  return env;
+}
+const parse = parseEnvFile;
 
 export const PRODUCTION_PROJECT = 'writeoff-23910';
 export const PRODUCTION_ORIGIN = 'https://writeoffapp.com';

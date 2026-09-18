@@ -2,8 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
-import { parse } from 'dotenv';
-import { PRODUCTION_PROJECT, RELEASE_ENV, RELEASE_MANIFEST, MIGRATION_REVIEW, environmentDigest, validateMigrationReview, validateProductionConfiguration, verifySourceTree } from './production-preflight.mjs';
+import { parseEnvFile as parse, PRODUCTION_PROJECT, RELEASE_ENV, RELEASE_MANIFEST, MIGRATION_REVIEW, environmentDigest, validateMigrationReview, validateProductionConfiguration, verifySourceTree } from './production-preflight.mjs';
 
 /** Path → git blob id for every file in the reviewed commit. */
 export function committedSourceTree(source, commit) {

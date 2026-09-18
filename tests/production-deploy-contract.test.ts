@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -180,6 +181,23 @@ describe('production workflow contract', () => {
     expect(execute).not.toHaveBeenCalled();
     expect(() => assertDeployNodeVersion(cwd, 'v22.23.2')).not.toThrow();
     expect(() => assertDeployNodeVersion(cwd, 'v24.1.0')).toThrow(/requires Node 22/);
+  });
+  it('the release scripts load and run in a fresh release directory with no node_modules (the workflow runs them before npm ci)', () => {
+    const cwd = preparedRelease();
+    const scripts = path.join(cwd, 'scripts');
+    fs.mkdirSync(scripts);
+    for (const name of ['production-preflight.mjs', 'deploy-production-release.mjs']) {
+      fs.copyFileSync(path.join(process.cwd(), 'scripts', name), path.join(scripts, name));
+    }
+    expect(fs.existsSync(path.join(cwd, 'node_modules'))).toBe(false);
+    // NODE_PATH is cleared so nothing resolves from the checkout; a third-party import fails here.
+    const env = { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '', NODE_PATH: '' };
+    const preflight = spawnSync(process.execPath, ['scripts/production-preflight.mjs', '--project', project, '--config', 'firebase.json'], { cwd, env, encoding: 'utf8' });
+    expect(preflight.stderr).not.toMatch(/ERR_MODULE_NOT_FOUND|Cannot find package/);
+    expect(preflight.stdout + preflight.stderr).toMatch(/PASS|PENDING|FAIL/);
+    const load = spawnSync(process.execPath, ['--input-type=module', '-e', "import('./scripts/deploy-production-release.mjs').then(m => console.log(typeof m.deployProductionRelease))"], { cwd, env, encoding: 'utf8' });
+    expect(load.stderr).not.toMatch(/ERR_MODULE_NOT_FOUND|Cannot find package/);
+    expect(load.stdout.trim()).toBe('function');
   });
   it('routes package deploy commands through the prepared-release orchestrator', () => {
     const root = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8'));
