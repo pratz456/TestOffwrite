@@ -48,5 +48,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Runtime dependencies must carry no known critical vulnerability with an upstream fix.
+      # Build-time findings that need a major upgrade are tracked in docs/compliance/WISP_2026-09-17.md (G8).
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=critical
+
       - name: Lint, test, and build
         run: npm run ci
