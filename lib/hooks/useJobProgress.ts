@@ -1,91 +1,34 @@
-'use client';
+"use client";
 
 import { useEffect, useState } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase/client';
-import { waitForAuth } from '@/lib/firebase/waitForAuth';
+import { useAuth } from '@/lib/firebase/auth-context';
+import { parseAnalysisJob, type AnalysisJob } from '@/lib/ai/client-job-progress';
 
-export type Job = {
-  status: 'running' | 'done' | 'failed' | 'canceled';
-  total: number;
-  processed: number;
-  succeeded: number;
-  failed: number;
-  avgMs?: number;
-  startedAt?: any;
-  completedAt?: any;
-  lastUpdate?: any;
-};
+export type Job = AnalysisJob;
 
-// `accountIdOrJobId` may be either an accountId (e.g. 'acct_123') or a
-// fully formed jobId 'uid_accountId'. If a full jobId is provided (contains
-// an underscore), the hook will subscribe directly to that document. This
-// makes the subscription robust to any UID-derived mismatches.
-export function useJobProgress(accountIdOrJobId: string) {
-  const [job, setJob] = useState<Job | null>(null);
-  const [error, setError] = useState<unknown>(null);
-  const [loading, setLoading] = useState(true);
-
+/** Callers pass an account ID, including IDs containing underscores. */
+export function useJobProgress(accountId: string) {
+  const { user, loading: authLoading } = useAuth();
+  const key = user?.id && accountId ? `${user.id}_${accountId}` : null;
+  const [result, setResult] = useState<{ key: string; job: Job | null; error: Error | null } | null>(null);
   useEffect(() => {
-    if (!accountIdOrJobId) {
-      setLoading(false);
-      return;
+    if (!key || authLoading) return;
+    let active = true;
+    let unsubscribe = () => {};
+    try { unsubscribe = onSnapshot(doc(db, 'analysis_jobs', key), snap => {
+      if (!active) return;
+      const job = snap.exists() ? parseAnalysisJob(snap.data()) : null;
+      setResult({ key, job, error: snap.exists() && !job ? new Error('Analysis progress is incomplete. Please retry.') : null });
+    }, () => {
+      if (active) setResult({ key, job: null, error: new Error('Could not load analysis progress. You can still review transactions manually.') });
+    }); } catch {
+      setResult({ key, job: null, error: new Error('Could not load analysis progress. Please check the account and retry.') });
     }
-
-    let unsub: (() => void) | undefined;
-
-    (async () => {
-      try {
-        const uid = await waitForAuth(); // gate by auth
-        // Determine jobId: if caller supplied a full jobId (contains '_'),
-        // use it directly. Otherwise construct deterministic jobId from uid.
-        let jobId: string;
-        if (accountIdOrJobId && accountIdOrJobId.includes('_')) {
-          jobId = accountIdOrJobId;
-        } else {
-          jobId = `${uid}_${accountIdOrJobId}`;
-        }
-        console.log(`📊 [useJobProgress] Subscribing to job ${jobId}`);
-        
-        unsub = onSnapshot(
-          doc(db, 'analysis_jobs', jobId),
-          (snap) => {
-            setLoading(false);
-            if (snap.exists()) {
-              const data = snap.data() as Job;
-              setJob(data);
-              console.log(`📊 [useJobProgress] Job update:`, data);
-            } else {
-              setJob(null);
-              console.log(`📊 [useJobProgress] Job not found: ${jobId}`);
-            }
-          },
-          (err) => {
-            setLoading(false);
-            setError(err);
-            console.error('📊 [useJobProgress] Subscription error:', err);
-            
-            // If it's a permissions error, don't treat it as a fatal error
-            if (err.code === 'permission-denied') {
-              console.warn('📊 [useJobProgress] Permission denied - user may not be authenticated yet');
-              setJob(null);
-            }
-          }
-        );
-      } catch (e) {
-        setLoading(false);
-        setError(e);
-        console.error('📊 [useJobProgress] Auth error:', e);
-      }
-    })();
-
-    return () => {
-      if (unsub) {
-        console.log(`📊 [useJobProgress] Unsubscribing from job`);
-        unsub();
-      }
-    };
-  }, [accountIdOrJobId]);
-
-  return { job, error, loading };
+    return () => { active = false; unsubscribe(); };
+  }, [key, authLoading]);
+  const current = !authLoading && result?.key === key ? result : null;
+  return { job: current?.job ?? null, error: current?.error ?? null,
+    loading: authLoading || Boolean(key && !current) };
 }

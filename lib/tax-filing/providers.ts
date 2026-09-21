@@ -15,10 +15,10 @@ export const FILING_PROVIDERS: ExternalFilingProvider[] = [
     name: "TurboTax",
     description: "Guided filing for freelancers and self-employed users",
     url: "https://turbotax.intuit.com/personal-taxes/online/self-employed.jsp",
-    pricingEstimate: "~$0 to $129+",
+    pricingEstimate: "Check provider pricing",
     pricingNote:
-      "Free for very simple returns. Self-employed plans are typically higher.",
-    badge: "Most popular",
+      "Pricing and eligibility depend on the return and selected service.",
+    badge: "External provider",
     recommendedFor: "Freelancers, gig workers",
   },
   {
@@ -26,9 +26,9 @@ export const FILING_PROVIDERS: ExternalFilingProvider[] = [
     name: "Column Tax",
     description: "Simple and modern tax filing experience",
     url: "https://www.columntax.com",
-    pricingEstimate: "~$25 – $60",
-    pricingNote: "Simple, modern filing with transparent pricing.",
-    badge: "Simple & fast",
-    recommendedFor: "Simple returns",
+    pricingEstimate: "Partner access required",
+    pricingNote: "WriteOff has not activated a filing partnership. Pricing and availability are unconfirmed.",
+    badge: "Integration pending",
+    recommendedFor: "Subject to provider eligibility",
   },
 ];

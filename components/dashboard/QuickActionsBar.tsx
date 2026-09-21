@@ -1,7 +1,8 @@
 'use client';
 
 import React from 'react';
-import { ClipboardList, FileText, Lightbulb, Calculator, ChevronRight } from 'lucide-react';
+import { ClipboardList, FileText, Lightbulb, Calculator, Plus, MoreHorizontal } from 'lucide-react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
 interface QuickActionsBarProps {
   onNavigate: (screen: string) => void;
@@ -9,51 +10,21 @@ interface QuickActionsBarProps {
   needsAnalysisCount: number;
 }
 
-interface ActionItem {
-  label: string;
-  screen: string;
-  icon: React.ElementType;
-  show: boolean;
-  accent?: boolean;
-}
-
 export function QuickActionsBar({ onNavigate, needsReviewCount, needsAnalysisCount }: QuickActionsBarProps) {
-  const actions: ActionItem[] = [
-    {
-      label: `Review (${needsReviewCount})`,
-      screen: 'review-transactions',
-      icon: ClipboardList,
-      show: needsReviewCount > 0 || needsAnalysisCount > 0,
-      accent: true,
-    },
+  const extraActions = [
+    { label: `Review (${needsReviewCount})`, screen: 'review-transactions', icon: ClipboardList, show: needsReviewCount > 0 || needsAnalysisCount > 0 },
     { label: 'Transactions', screen: 'transactions', icon: FileText, show: true },
-    { label: 'Export', screen: 'schedule-c-export', icon: FileText, show: true },
-    { label: 'AI Insights', screen: 'ai-insights', icon: Lightbulb, show: true },
-    { label: 'Quarterly Taxes', screen: 'quarterly-taxes', icon: Calculator, show: true },
+    { label: 'Export records', screen: 'schedule-c-export', icon: FileText, show: true },
+    { label: 'AI insights', screen: 'ai-insights', icon: Lightbulb, show: true },
+    { label: 'Quarterly taxes', screen: 'quarterly-taxes', icon: Calculator, show: true },
   ];
-
-  const visible = actions.filter(a => a.show);
-
-  return (
-    <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
-      {visible.map(action => {
-        const Icon = action.icon;
-        return (
-          <button
-            key={action.screen}
-            type="button"
-            onClick={() => onNavigate(action.screen)}
-            className={`flex items-center gap-2 min-h-[44px] px-3.5 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-colors duration-150 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
-              action.accent
-                ? 'bg-primary/5 hover:bg-primary/10 border border-primary/20 text-primary'
-                : 'bg-muted hover:bg-muted/70 border border-border text-foreground'
-            }`}
-          >
-            <Icon className="h-3.5 w-3.5" />
-            {action.label}
-          </button>
-        );
-      })}
-    </div>
-  );
+  return <div className="grid grid-cols-[1fr_1fr_auto] gap-2" aria-label="Quick actions">
+    {[{ label: 'Add Income', screen: 'income-tracking' }, { label: 'Add Expense', screen: 'add-manual-transaction' }].map(action => <button key={action.screen} type="button" onClick={() => onNavigate(action.screen)} className="flex min-h-11 items-center justify-center gap-1 rounded-xl border border-border/70 bg-card px-2 text-sm font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><Plus className="h-3.5 w-3.5 shrink-0" />{action.label}</button>)}
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild><button type="button" aria-label="More actions" className="flex h-11 w-11 items-center justify-center rounded-xl border border-border/70 bg-card text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><MoreHorizontal className="h-5 w-5" /></button></DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56 rounded-xl">
+        {extraActions.filter(action => action.show).map(action => <DropdownMenuItem key={action.screen} onClick={() => onNavigate(action.screen)} className="min-h-11 gap-2 rounded-lg"><action.icon className="h-4 w-4" />{action.label}</DropdownMenuItem>)}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  </div>;
 }

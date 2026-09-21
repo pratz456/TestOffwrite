@@ -4,65 +4,7 @@ import React, { useState, useRef, useLayoutEffect, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ChevronDown, HelpCircle } from 'lucide-react';
-
-interface FAQItem {
-  question: string;
-  answer: string;
-  category: string;
-}
-
-const faqData: FAQItem[] = [
-  {
-    question: "What is WriteOff?",
-    answer: "WriteOff is an AI-powered tax optimization platform that helps professionals and small business owners automatically categorize expenses, identify tax-deductible items, and generate comprehensive tax reports to maximize their tax savings.",
-    category: "general"
-  },
-  {
-    question: "How does WriteOff work?",
-    answer: "WriteOff connects to your bank accounts securely through Plaid, automatically categorizes your transactions using AI, identifies potential tax deductions, and generates detailed reports for tax filing. You can also manually review and adjust categorizations.",
-    category: "general"
-  },
-  {
-    question: "Is my financial data secure?",
-    answer: "Yes, absolutely. We use bank-level security with end-to-end encryption, secure connections through Plaid, and never store your banking credentials. All data is encrypted and protected by industry-standard security measures.",
-    category: "security"
-  },
-  {
-    question: "Which banks does WriteOff support?",
-    answer: "WriteOff supports thousands of banks and credit unions through our Plaid integration, including major banks like Chase, Bank of America, Wells Fargo, and many regional and online banks.",
-    category: "banking"
-  },
-  {
-    question: "How accurate is the AI categorization?",
-    answer: "Our AI achieves over 90% accuracy in expense categorization. The system learns from your corrections and improves over time. You can always manually review and adjust any categorizations.",
-    category: "ai"
-  },
-  {
-    question: "What types of expenses can I track?",
-    answer: "You can track all types of business expenses including office supplies, travel, meals, equipment, software subscriptions, professional development, and more. The system automatically identifies which expenses are tax-deductible.",
-    category: "expenses"
-  },
-  {
-    question: "Can I upload receipts?",
-    answer: "Yes! You can upload receipts and invoices directly to WriteOff. Our AI will extract key information like amounts, dates, and merchants to help with expense tracking and categorization.",
-    category: "features"
-  },
-  {
-    question: "What tax reports does WriteOff generate?",
-    answer: "WriteOff generates comprehensive reports including Schedule C summaries, expense breakdowns by category, monthly and yearly summaries, and detailed analytics to help you maximize your tax deductions.",
-    category: "reports"
-  },
-  {
-    question: "Is WriteOff suitable for my business type?",
-    answer: "WriteOff is designed for freelancers, consultants, small business owners, and professionals who want to optimize their tax situation. It works with various business structures and filing statuses.",
-    category: "general"
-  },
-  {
-    question: "How much does WriteOff cost?",
-    answer: "We offer flexible pricing plans starting with a free tier for basic expense tracking. Premium plans include advanced features like unlimited transactions, priority support, and advanced analytics.",
-    category: "pricing"
-  }
-];
+import { faqData, type FAQItem } from '@/lib/content/faq';
 
 const DURATION_MS = 220;
 const EASING = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
@@ -214,7 +156,7 @@ export function FAQSection() {
             <HelpCircle className="w-8 h-8 text-primary mx-auto" />
             <h3 className="text-lg font-semibold text-foreground">Still Need Help?</h3>
             <p className="text-sm text-muted-foreground">
-              Can't find the answer you're looking for? Our support team is here to help.
+              Have another question? Contact us or browse the Help Center.
             </p>
             <div className="flex gap-3 justify-center flex-wrap">
               <Button

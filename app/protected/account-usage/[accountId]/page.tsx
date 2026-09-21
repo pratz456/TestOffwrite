@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { useRouter, useParams } from 'next/navigation';
 import { useAuth } from '@/lib/firebase/auth-context';
@@ -9,46 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/ui/slider';
-
-async function startAnalysis(accountId?: string) {
-  const auth = getAuth();
-  const idToken = await auth.currentUser?.getIdToken?.();
-  if (!idToken) throw new Error('no-id-token');
-
-  const res = await fetch('/api/plaid/auto-analyze', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${idToken}`,
-    },
-    body: JSON.stringify({ accountId }),
-  });
-  if (!res.ok) throw new Error('failed-to-start-analysis');
-}
-
-// (optional) brief poll to show progress before moving
-async function waitForAnalysisDone(accountId: string, timeoutMs = 20000, stepMs = 1500) {
-  const auth = getAuth();
-  const idToken = await auth.currentUser?.getIdToken?.();
-  if (!idToken) return false;
-
-  const jobId = `${auth.currentUser?.uid}_${accountId}`;
-  const start = Date.now();
-
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const s = await fetch(`/api/analysis-job?jobId=${jobId}`, {
-        headers: { 'Authorization': `Bearer ${idToken}` }
-      }).then(r => r.json());
-
-      if (s?.data?.status === 'completed' || s?.data?.status === 'failed') {
-        return s.data.status === 'completed';
-      }
-    } catch {}
-    await new Promise(r => setTimeout(r, stepMs));
-  }
-  return false;
-}
+import { parseAnalysisQueue } from '@/lib/ai/client-job-progress';
 
 export default function AccountUsagePage() {
   const router = useRouter();
@@ -68,7 +29,7 @@ export default function AccountUsagePage() {
     const importedParam = urlParams.get('imported');
     if (importedParam) {
       const count = parseInt(importedParam, 10);
-      if (!isNaN(count)) {
+      if (Number.isSafeInteger(count) && count >= 0) {
         setImportedCount(count);
         console.log(`📊 [Account Usage] Found ${count} imported transactions`);
       }
@@ -103,15 +64,21 @@ export default function AccountUsagePage() {
 
       // 2) branch by usage
       if (usage === 'personal') {
-        // Mark all transactions as personal (AUTH HEADER ADDED)
-        await fetch(`/api/accounts/${accountId}/mark-personal`, {
+        const response = await fetch(`/api/accounts/${accountId}/mark-personal`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${idToken}` },
-        }).catch(()=>{});
+        });
+        const result = await response.json().catch(() => null);
+        if (!response.ok || result?.ok !== true || !Number.isSafeInteger(result.count) || result.count < 0) {
+          throw new Error('Your account usage was saved, but marking transactions as personal could not be confirmed. Please retry.');
+        }
 
-        // Show personal account message and redirect to dashboard
-        toast.info('Personal accounts are not useful for tax calculations. All transactions have been marked as personal expenses. Consider connecting a business account for tax deduction analysis.', { duration: 6000 });
-        router.push('/protected');
+        toast.info(result.count > 0
+          ? `${result.count} saved ${result.count === 1 ? 'transaction was' : 'transactions were'} marked as personal based on your choice. Review any business expenses separately.`
+          : importedCount === 0
+            ? 'Bank connected; no transactions have arrived yet. Activity will appear as available.'
+            : 'Account usage saved as personal. No saved transactions were changed.');
+        router.push(result.count === 0 ? '/protected?screen=banks-detail' : '/protected');
         return;
       }
 
@@ -125,51 +92,28 @@ export default function AccountUsagePage() {
         body: JSON.stringify({ accountId }),
       });
 
+      const responseData = await r2.json().catch(() => null);
       if (!r2.ok) {
-        const errorData = await r2.json().catch(() => ({}));
-        const errorText = await r2.text().catch(() => '');
-        console.error('auto-analyze server error:', r2.status, errorText);
-
-        // Check if it's a "no transactions" error
-        if (r2.status === 400 && (errorData.error?.includes('No transactions') || errorData.details?.includes('no transactions'))) {
-          // Show user-friendly message and suggest syncing transactions
-          const message = errorData.suggestion || errorData.details || 'No transactions found. Please sync transactions first.';
-          toast.warning(`${message} You can sync transactions from the Banks settings page.`, { duration: 6000 });
-          // Redirect to banks settings or transactions page
-          router.push('/protected?screen=settings');
-          return;
-        }
-
-        // For other errors, still continue to transactions; user can retry from there
-        console.warn('Auto-analyze failed but continuing to transactions page');
-      } else {
-        // Check response data
-        const responseData = await r2.json().catch(() => ({}));
-
-        // If transactions were imported and analysis started
-        if (responseData.imported && responseData.imported > 0) {
-          console.log(`✅ Transactions imported (${responseData.imported}), analysis started`);
-          const message = responseData.message || `Successfully imported ${responseData.imported} transactions. Analysis has started.`;
-
-          // Show success message
-          if (responseData.pendingTransactions > 0) {
-            toast.success(`${message} Redirecting to view analysis progress...`);
-            // Redirect to transactions page to see analysis progress
-            router.push(`/protected?screen=review-transactions&accountId=${accountId}`);
-          } else {
-            toast.success(message);
-            // If all transactions are already analyzed, just go to transactions page
-            router.push(`/protected?screen=review-transactions&accountId=${accountId}`);
-          }
-          return;
-        }
-
-        // Normal response - analysis started or already running
-        console.log('✅ Auto-analyze started successfully');
+        toast.warning(responseData?.error || 'Your account usage was saved, but AI analysis could not be queued. Review transactions manually or retry later.');
+        router.push(`/protected?screen=review-transactions&accountId=${encodeURIComponent(accountId)}`);
+        return;
       }
-
-      // Redirect to PlaidLinkScreen to show analyzing progress
-      router.push(`/protected?screen=plaid-link&accountId=${accountId}&analyzing=true`);
+      const queued = parseAnalysisQueue(responseData);
+      if (!queued) throw new Error('Your account usage was saved, but the analysis queue response could not be verified.');
+      if (queued.status === 'idle') {
+        if (importedCount === 0) {
+          toast.info('Bank connected; no transactions have arrived yet. Activity will appear as available.');
+          router.push('/protected?screen=banks-detail');
+          return;
+        }
+        toast.info('No additional analysis was queued. Review your saved records.');
+        router.push(`/protected?screen=review-transactions&accountId=${encodeURIComponent(accountId)}`);
+        return;
+      }
+      toast.info(`${queued.queued} records queued for analysis. Suggestions still require your review.`);
+      router.push(`/protected?screen=plaid-link&accountId=${encodeURIComponent(accountId)}&analyzing=true`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not save account usage. Please retry.');
     } finally {
       setSaving(false);
     }
@@ -192,6 +136,11 @@ export default function AccountUsagePage() {
                 Successfully imported {importedCount} {importedCount === 1 ? 'transaction' : 'transactions'}
               </span>
             </div>
+          )}
+          {importedCount === 0 && (
+            <p className="text-sm text-muted-foreground" role="status">
+              Bank connected; no transactions have arrived yet. Activity will appear as available.
+            </p>
           )}
         </CardHeader>
         <CardContent className="px-6 sm:px-8 pb-6 sm:pb-8 space-y-6">
@@ -217,7 +166,7 @@ export default function AccountUsagePage() {
               />
               <div className="flex-1 min-w-0 space-y-1">
                 <span className="text-sm font-semibold text-foreground">Business</span>
-                <p className="text-xs text-muted-foreground leading-relaxed">Best for tax deduction analysis. All transactions will be analyzed for business expense potential.</p>
+                <p className="text-xs text-muted-foreground leading-relaxed">Best for tax deduction analysis. Eligible posted transactions can receive AI suggestions when the service is available.</p>
               </div>
             </label>
 
@@ -242,7 +191,7 @@ export default function AccountUsagePage() {
               />
               <div className="flex-1 min-w-0 space-y-1">
                 <span className="text-sm font-semibold text-foreground">Personal</span>
-                <p className="text-xs text-muted-foreground leading-relaxed">Personal accounts are not used for tax calculations. All transactions will be marked as personal expenses.</p>
+                <p className="text-xs text-muted-foreground leading-relaxed">Marks saved transactions as personal. Choose mixed use if this account also pays business expenses.</p>
               </div>
             </label>
 
@@ -322,7 +271,7 @@ export default function AccountUsagePage() {
               disabled={saving}
               className="w-full h-12 rounded-xl font-semibold bg-gradient-to-r from-primary to-primary/90 hover:from-primary/95 hover:to-primary/85 shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
             >
-              {saving ? 'Saving…' : usage === 'personal' ? 'Mark as Personal & Continue' : 'Save & Start Analysis'}
+              {saving ? 'Saving…' : usage === 'personal' ? 'Mark as Personal & Continue' : importedCount === 0 ? 'Save & Continue' : 'Save & Start Analysis'}
             </Button>
             <div className="flex items-center justify-center gap-3 text-sm">
               <button

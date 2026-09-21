@@ -8,16 +8,21 @@ export async function GET(request: NextRequest) {
     }
     const { data, error } = await getAssetsSettings(user.uid);
     if (error) {
-      return NextResponse.json({ error: error.message || 'Failed to load assets' }, { status: 500 });
+      return NextResponse.json({ error: 'Failed to load assets' }, { status: 500 });
     }
     return NextResponse.json({ success: true, data });
-  } catch (error) {
-    return NextResponse.json({ error: 'Failed to load assets', details: error instanceof Error ? error.message : 'Unknown error' }, { status: 500 });
+  } catch {
+    return NextResponse.json({ error: 'Failed to load assets' }, { status: 500 });
   }
 }
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { saveAsset, deleteAsset } from '@/lib/firebase/settings-server';
+import { invalidJsonResponse, readJsonObject } from '@/app/api/_lib/body';
+
+const MAX_ASSETS_PER_REQUEST = 100;
+const optionalString = (value: unknown, max: number) => value === undefined || (typeof value === 'string' && value.length <= max);
+const optionalBoolean = (value: unknown) => value === undefined || typeof value === 'boolean';
 
 export async function POST(request: NextRequest) {
   try {
@@ -33,36 +38,51 @@ export async function POST(request: NextRequest) {
 
     console.log('✅ [Assets Settings API] User authenticated:', user.uid);
 
-    const { assets } = await request.json();
+    const body = await readJsonObject(request);
+    if (!body) return invalidJsonResponse();
+    const { assets } = body;
 
-    if (!assets || !Array.isArray(assets)) {
+    if (!assets || !Array.isArray(assets) || assets.length > MAX_ASSETS_PER_REQUEST) {
       return NextResponse.json(
-        { error: 'Assets array is required' },
+        { error: `Assets array is required (at most ${MAX_ASSETS_PER_REQUEST} per request)` },
         { status: 400 }
       );
     }
 
     // Validate each asset
     for (const asset of assets) {
-      if (!asset.description || !asset.cost || !asset.datePlacedInService) {
+      if (!asset || typeof asset !== 'object' || Array.isArray(asset)) {
+        return NextResponse.json({ error: 'Each asset must be an object' }, { status: 400 });
+      }
+      if (!asset.description || typeof asset.description !== 'string' || asset.description.length > 200
+        || !asset.cost || !asset.datePlacedInService) {
         return NextResponse.json(
           { error: 'Each asset must have description, cost, and date placed in service' },
           { status: 400 }
         );
       }
 
-      if (asset.cost <= 0) {
+      if (typeof asset.cost !== 'number' || !Number.isFinite(asset.cost) || asset.cost <= 0 || asset.cost > 100_000_000) {
         return NextResponse.json(
           { error: 'Asset cost must be greater than 0' },
           { status: 400 }
         );
       }
+      if ((typeof asset.datePlacedInService !== 'string' && typeof asset.datePlacedInService !== 'number')
+        || Number.isNaN(new Date(asset.datePlacedInService).getTime())) {
+        return NextResponse.json({ error: 'Date placed in service must be a valid date' }, { status: 400 });
+      }
 
-      if (asset.businessUsePercent < 0 || asset.businessUsePercent > 100) {
+      if (asset.businessUsePercent !== undefined && (typeof asset.businessUsePercent !== 'number'
+        || !Number.isFinite(asset.businessUsePercent) || asset.businessUsePercent < 0 || asset.businessUsePercent > 100)) {
         return NextResponse.json(
           { error: 'Business use percentage must be between 0 and 100' },
           { status: 400 }
         );
+      }
+      if (!optionalString(asset.category, 100) || !optionalString(asset.method, 50)
+        || !optionalBoolean(asset.section179Requested) || !optionalBoolean(asset.bonusEligible)) {
+        return NextResponse.json({ error: 'Asset category, method and election flags have the wrong type' }, { status: 400 });
       }
     }
 
@@ -104,8 +124,7 @@ export async function POST(request: NextRequest) {
     console.error('❌ [Assets Settings API] Unexpected error:', error);
     return NextResponse.json(
       { 
-        error: 'Failed to save assets',
-        details: error instanceof Error ? error.message : 'Unknown error'
+        error: 'Failed to save assets'
       },
       { status: 500 }
     );
@@ -124,9 +143,11 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { assetId } = await request.json();
+    const body = await readJsonObject(request);
+    if (!body) return invalidJsonResponse();
+    const { assetId } = body;
 
-    if (!assetId) {
+    if (typeof assetId !== 'string' || !assetId || assetId.length > 256 || /[\/\\\x00-\x1f\x7f]/.test(assetId)) {
       return NextResponse.json(
         { error: 'Asset ID is required' },
         { status: 400 }
@@ -154,8 +175,7 @@ export async function DELETE(request: NextRequest) {
     console.error('❌ [Assets Settings API] Unexpected error:', error);
     return NextResponse.json(
       { 
-        error: 'Failed to delete asset',
-        details: error instanceof Error ? error.message : 'Unknown error'
+        error: 'Failed to delete asset'
       },
       { status: 500 }
     );

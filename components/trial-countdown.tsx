@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Calendar, Clock } from 'lucide-react';
@@ -61,8 +61,8 @@ export function TrialCountdown({ trialEnd, isTrial }: TrialCountdownProps) {
           <div className="flex items-center gap-2">
             <Calendar className="w-5 h-5 text-red-600" />
             <div>
-              <p className="font-semibold text-red-600">Free Trial Expired</p>
-              <p className="text-sm text-muted-foreground">Upgrade to continue 1-year access, or use free tier with 3 months</p>
+              <p className="font-semibold text-red-600">{isTrial ? 'Free Trial Expired' : 'Subscription Period Ended'}</p>
+              <p className="text-sm text-muted-foreground">Free accounts can import the last 90 days; saved records remain accessible. Paid plans can request up to 2 years of bank history, depending on bank availability.</p>
             </div>
           </div>
         </CardContent>
@@ -103,7 +103,7 @@ export function TrialCountdown({ trialEnd, isTrial }: TrialCountdownProps) {
         {isExpiringSoon && (
           <div className="mt-3 pt-3 border-t border-yellow-500/20">
             <p className="text-xs text-yellow-700 dark:text-yellow-300">
-              ⚠️ Your free trial will end in {days} day{days !== 1 ? 's' : ''}. Upgrade to keep 1-year access, or continue with 3 months on the free tier.
+              {isTrial ? 'Your free trial' : 'This billing period'} ends in {days} day{days !== 1 ? 's' : ''}. Free accounts can import the last 90 days; saved records remain accessible. Paid plans can request up to 2 years of bank history, depending on bank availability.
             </p>
           </div>
         )}
@@ -111,4 +111,3 @@ export function TrialCountdown({ trialEnd, isTrial }: TrialCountdownProps) {
     </Card>
   );
 }
-

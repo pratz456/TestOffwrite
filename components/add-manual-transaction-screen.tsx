@@ -11,6 +11,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ArrowLeft, Plus, Loader2, TrendingUp, TrendingDown, CheckCircle2 } from "lucide-react";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
+import { localCalendarYMD } from "@/lib/transactions/calendar-date";
 
 const EXPENSE_CATEGORIES = [
   { value: "SERVICE_ADVERTISING",                      label: "Advertising & Marketing" },
@@ -47,7 +48,6 @@ interface AddManualTransactionScreenProps {
   onSaved?: () => void;
 }
 
-const today = () => new Date().toISOString().slice(0, 10);
 const fmt = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualTransactionScreenProps) {
@@ -57,17 +57,17 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
   const [saving, setSaving] = useState(false);
 
   // Expense fields
-  const [exp, setExp] = useState({
-    merchant_name: "", amount: "", date: today(),
+  const [exp, setExp] = useState(() => ({
+    merchant_name: "", amount: "", date: localCalendarYMD(),
     category: "other", notes: "", business_purpose: "",
     is_deductible: true as boolean,
-  });
+  }));
 
   // Income fields
-  const [inc, setInc] = useState({
-    source: "", amount: "", date: today(),
+  const [inc, setInc] = useState(() => ({
+    source: "", amount: "", date: localCalendarYMD(),
     type: "freelance", description: "",
-  });
+  }));
 
   const handleSaveExpense = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,6 +80,7 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
         body: JSON.stringify({
           merchant_name: exp.merchant_name.trim(),
           amount: amt,
+          iso_currency_code: 'USD',
           date: exp.date,
           category: exp.category,
           notes: exp.notes,
@@ -90,7 +91,7 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
       });
       if (!res.ok) { let m = "Failed to save"; try { m = (await res.json()).error || m; } catch {} throw new Error(m); }
       setSaved(true);
-      setExp({ merchant_name: "", amount: "", date: today(), category: "other", notes: "", business_purpose: "", is_deductible: true });
+      setExp({ merchant_name: "", amount: "", date: localCalendarYMD(), category: "other", notes: "", business_purpose: "", is_deductible: true });
       setTimeout(() => { setSaved(false); onSaved?.(); }, 1800);
     } catch (err) { setError(err instanceof Error ? err.message : "Failed to save"); }
     finally { setSaving(false); }
@@ -116,7 +117,7 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
       });
       if (!res.ok) { let m = "Failed to save"; try { m = (await res.json()).error || m; } catch {} throw new Error(m); }
       setSaved(true);
-      setInc({ source: "", amount: "", date: today(), type: "freelance", description: "" });
+      setInc({ source: "", amount: "", date: localCalendarYMD(), type: "freelance", description: "" });
       setTimeout(() => { setSaved(false); onSaved?.(); }, 1800);
     } catch (err) { setError(err instanceof Error ? err.message : "Failed to save"); }
     finally { setSaving(false); }
@@ -168,7 +169,7 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
               <CardTitle className="text-base font-semibold flex items-center gap-2">
                 <TrendingDown className="w-4 h-4 text-red-500" /> Business Expense
               </CardTitle>
-              <p className="text-xs text-muted-foreground">Saved expenses are auto-analyzed by AI and flow to Schedule C Part II.</p>
+              <p className="text-xs text-muted-foreground">Record the business purpose and review the category before confirming a deduction.</p>
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSaveExpense} className="space-y-4">
@@ -179,7 +180,7 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
                       placeholder="e.g. Adobe, Staples, AWS" className="bg-background" required />
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">Amount ($) *</Label>
+                    <Label className="text-xs text-muted-foreground">Amount (USD) *</Label>
                     <Input type="number" min="0.01" step="0.01" value={exp.amount}
                       onChange={e => setExp(p => ({ ...p, amount: e.target.value }))}
                       placeholder="0.00" className="bg-background" required />
@@ -251,7 +252,7 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
                       placeholder="e.g. Acme Corp, Client Name" className="bg-background" required />
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">Amount ($) *</Label>
+                    <Label className="text-xs text-muted-foreground">Amount (USD) *</Label>
                     <Input type="number" min="0.01" step="0.01" value={inc.amount}
                       onChange={e => setInc(p => ({ ...p, amount: e.target.value }))}
                       placeholder="0.00" className="bg-background" required />
@@ -295,7 +296,7 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
           <p className="font-medium text-foreground text-sm">How this works</p>
           {mode === "expense" ? (
             <>
-              <p>• Expenses are stored and AI-analyzed automatically.</p>
+              <p>• Your saved amount, date, category and notes stay available for review.</p>
               <p>• Confirmed deductible expenses flow to the correct Schedule C line based on category.</p>
               <p>• You can review and edit these under Transactions at any time.</p>
             </>

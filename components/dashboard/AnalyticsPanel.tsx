@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
+import { transactionDateParts } from '@/lib/transactions/calendar-date';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { BarChart3 } from 'lucide-react';
 import {
@@ -32,20 +33,20 @@ const GRAD_NET_NEG = 'netNegGradient';
 
 const DATA_MODE_CONFIG: Record<DataMode, { label: string; tooltipLabel: string; gradient: string; color: string }> = {
   expenses: {
-    label: 'Expenses',
-    tooltipLabel: 'Expenses',
+    label: 'Outflows',
+    tooltipLabel: 'Cash outflows',
     gradient: GRAD_EXPENSE,
     color: 'hsl(var(--primary))',
   },
   income: {
-    label: 'Income',
-    tooltipLabel: 'Income',
+    label: 'Inflows',
+    tooltipLabel: 'Cash inflows',
     gradient: GRAD_INCOME,
     color: 'hsl(var(--success))',
   },
   net: {
-    label: 'Net',
-    tooltipLabel: 'Net',
+    label: 'Net cash flow',
+    tooltipLabel: 'Net cash flow',
     gradient: GRAD_NET_POS,
     color: 'hsl(var(--success))',
   },
@@ -61,8 +62,8 @@ export function AnalyticsPanel({ transactions }: AnalyticsPanelProps) {
     const years = new Set<number>();
     for (const t of transactions) {
       try {
-        const y = new Date(t.date).getFullYear();
-        if (y >= 2000 && y <= currentYear) years.add(y);
+        const y = transactionDateParts(t.date)?.year;
+        if (y !== undefined && y >= 2000 && y <= currentYear) years.add(y);
       } catch { /* skip malformed dates */ }
     }
     if (years.size === 0) years.add(currentYear);
@@ -71,7 +72,7 @@ export function AnalyticsPanel({ transactions }: AnalyticsPanelProps) {
 
   const chartData = useMemo(() => {
     const yearTx = transactions.filter(t => {
-      try { return new Date(t.date).getFullYear() === selectedYear; } catch { return false; }
+      return transactionDateParts(t.date)?.year === selectedYear;
     });
 
     const labels = viewMode === 'monthly' ? MONTHS : QUARTERS;
@@ -81,8 +82,10 @@ export function AnalyticsPanel({ transactions }: AnalyticsPanelProps) {
       const amt = Number(tx.amount);
       if (isNaN(amt) || amt === 0) continue;
 
-      const d = new Date(tx.date);
-      const idx = viewMode === 'monthly' ? d.getMonth() : Math.floor(d.getMonth() / 3);
+      const date = transactionDateParts(tx.date);
+      if (!date) continue;
+      const monthIndex = date.month - 1;
+      const idx = viewMode === 'monthly' ? monthIndex : Math.floor(monthIndex / 3);
       const isIncome = amt < 0 || tx.type === 'income';
       const abs = Math.abs(amt);
 
@@ -102,23 +105,23 @@ export function AnalyticsPanel({ transactions }: AnalyticsPanelProps) {
   const cfg = DATA_MODE_CONFIG[dataMode];
 
   const titleText = dataMode === 'expenses'
-    ? 'Expense Trends'
+    ? 'Cash Outflow Trends'
     : dataMode === 'income'
-      ? 'Income Trends'
-      : 'Net Income Trends';
+      ? 'Cash Inflow Trends'
+      : 'Net Cash Flow Trends';
 
   return (
-    <Card className="h-full">
-      <CardHeader className="pb-2 px-4 sm:px-5">
+    <Card className="min-w-0">
+      <CardHeader className="p-3 pb-2 sm:p-4 sm:pb-2 md:p-4 md:pb-2 lg:p-4 lg:pb-2">
         <div className="flex flex-col gap-2">
           {/* Row 1: Title + year | Monthly/Quarterly */}
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
               <CardTitle className="text-sm font-medium">{titleText}</CardTitle>
               <select
                 value={selectedYear}
                 onChange={(e) => setSelectedYear(Number(e.target.value))}
-                className="min-h-[36px] sm:min-h-0 px-2 py-1 text-xs font-medium rounded-lg border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-primary/30 transition-colors"
+                className="min-h-[44px] px-2 py-1 text-xs font-medium rounded-lg border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-primary/30 transition-colors"
                 aria-label="Select year"
               >
                 {availableYears.map((y) => (
@@ -152,14 +155,16 @@ export function AnalyticsPanel({ transactions }: AnalyticsPanelProps) {
             </div>
           </div>
 
-          {/* Row 2: Expenses / Income / Net toggle */}
+          <p className="text-xs text-muted-foreground">All recorded inflows and outflows, including personal and pending transactions.</p>
+
+          {/* Row 2: Cash-flow toggle */}
           <div className="flex rounded-lg border border-border overflow-hidden self-start">
             {(['net', 'income', 'expenses'] as DataMode[]).map((mode) => (
               <button
                 key={mode}
                 type="button"
                 onClick={() => setDataMode(mode)}
-                className={`min-h-[36px] min-w-[44px] sm:min-w-0 px-3 py-1.5 sm:py-1 text-xs font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+                className={`min-h-[44px] min-w-[44px] sm:min-w-0 px-3 py-1.5 sm:py-1 text-xs font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
                   dataMode === mode
                     ? 'bg-primary text-primary-foreground'
                     : 'bg-card text-muted-foreground hover:bg-muted'
@@ -171,7 +176,7 @@ export function AnalyticsPanel({ transactions }: AnalyticsPanelProps) {
           </div>
         </div>
       </CardHeader>
-      <CardContent className="px-4 sm:px-5 pb-4">
+      <CardContent className="p-3 pt-0 sm:p-4 sm:pt-0 md:p-4 md:pt-0 lg:p-4 lg:pt-0">
         {hasData ? (
           <div className="h-[160px] sm:h-[190px] w-full min-w-0 chart-bar-hover">
             <ResponsiveContainer width="100%" height="100%">
@@ -199,13 +204,13 @@ export function AnalyticsPanel({ transactions }: AnalyticsPanelProps) {
                   dataKey="name"
                   tickLine={false}
                   axisLine={false}
-                  tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                  tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
                   interval={viewMode === 'monthly' ? 1 : 0}
                 />
                 <YAxis
                   tickLine={false}
                   axisLine={false}
-                  tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                  tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
                   tickFormatter={(v: number) => {
                     const abs = Math.abs(v);
                     if (abs >= 1000) return `${v < 0 ? '-' : ''}$${(abs / 1000).toFixed(0)}k`;
@@ -282,7 +287,7 @@ export function AnalyticsPanel({ transactions }: AnalyticsPanelProps) {
           <div className="h-[160px] sm:h-[190px] flex flex-col items-center justify-center text-muted-foreground">
             <BarChart3 className="h-8 w-8 mb-2 opacity-40" />
             <p className="text-sm">No {cfg.label.toLowerCase()} data for {selectedYear}</p>
-            <p className="text-xs mt-1">Connect your bank to see trends</p>
+            <p className="text-xs mt-1">Add transactions manually or connect a bank to see recorded trends.</p>
           </div>
         )}
       </CardContent>

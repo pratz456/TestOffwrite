@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { X } from "lucide-react";
-
-const DISMISS_KEY = "writeoff-pwa-install-dismissed";
+import { recordInstallVisit, shouldOfferInstall, snoozeInstallPrompt } from "@/lib/pwa/install-prompt-policy";
 
 export function PwaInstallPrompt() {
+  const pathname = usePathname();
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [showBanner, setShowBanner] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
@@ -20,18 +21,20 @@ export function PwaInstallPrompt() {
 
     if (standalone) return;
 
-    const dismissed = localStorage.getItem(DISMISS_KEY);
-    if (dismissed === "true") return;
+    let visitCount = 0;
+    try { visitCount = recordInstallVisit(localStorage); } catch { return; }
 
     const handler = (e: Event) => {
       e.preventDefault();
+      // The browser fires this on every eligible page load; decide here, not once at mount.
+      if (!shouldOfferInstall({ pathname, storage: localStorage, visitCount })) return;
       setDeferredPrompt(e as BeforeInstallPromptEvent);
       setShowBanner(true);
     };
 
     window.addEventListener("beforeinstallprompt", handler as EventListener);
     return () => window.removeEventListener("beforeinstallprompt", handler as EventListener);
-  }, []);
+  }, [pathname]);
 
   const handleInstall = async () => {
     if (!deferredPrompt) return;
@@ -46,14 +49,14 @@ export function PwaInstallPrompt() {
   const handleDismiss = () => {
     setShowBanner(false);
     setDeferredPrompt(null);
-    localStorage.setItem(DISMISS_KEY, "true");
+    try { snoozeInstallPrompt(localStorage); } catch { /* Private mode: the banner simply returns next visit. */ }
   };
 
   if (!showBanner || isStandalone) return null;
 
   return (
     <div
-      className="fixed bottom-4 left-4 right-4 z-50 mx-auto max-w-md rounded-lg border border-border bg-card p-4 shadow-lg sm:left-auto"
+      className="fixed bottom-4 left-4 right-4 z-50 mx-auto max-w-md rounded-lg border border-border bg-card p-4 shadow-lg sm:left-auto print:hidden"
       role="region"
       aria-label="Install app"
     >

@@ -1,233 +1,54 @@
 import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
-import { adminDb } from '@/lib/firebase/admin';
-import { headers } from 'next/headers';
+import { getStripeClient, refreshSubscriptionForUser } from '@/lib/stripe/subscription-sync';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-function getStripeOrNull() {
-  const key = process.env.STRIPE_SECRET_KEY;
-  if (!key) return null;
-  return new Stripe(key, { apiVersion: '2025-10-29.clover' });
-}
-
-// Module-level stripe instance used by helper functions
-const stripe = getStripeOrNull();
-const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET || '';
-
 export async function POST(req: Request) {
+  const stripe = getStripeClient();
+  const secret = process.env.STRIPE_WEBHOOK_SECRET;
+  if (!stripe || !secret) return NextResponse.json({ error: 'Webhook not configured' }, { status: 503 });
+  const signature = req.headers.get('stripe-signature');
+  if (!signature) return NextResponse.json({ error: 'Missing signature' }, { status: 400 });
+  let event: Stripe.Event;
+  try { event = stripe.webhooks.constructEvent(await req.text(), signature, secret); }
+  catch { return NextResponse.json({ error: 'Invalid signature' }, { status: 400 }); }
   try {
-    if (!stripe) {
-      return NextResponse.json({ error: 'Stripe not configured' }, { status: 500 });
+    let subscriptionId: string | null = null;
+    let deleted: Stripe.Subscription | null = null;
+    if (['customer.subscription.created', 'customer.subscription.updated', 'customer.subscription.deleted'].includes(event.type)) {
+      const payload = event.data.object as Stripe.Subscription;
+      subscriptionId = payload.id;
+      if (event.type === 'customer.subscription.deleted') deleted = payload;
+    } else if (['checkout.session.completed', 'checkout.session.async_payment_succeeded', 'checkout.session.async_payment_failed'].includes(event.type)) {
+      const session = event.data.object as Stripe.Checkout.Session;
+      if (session.mode === 'subscription') subscriptionId = typeof session.subscription === 'string' ? session.subscription : session.subscription?.id ?? null;
+    } else if (['invoice.paid', 'invoice.payment_succeeded', 'invoice.payment_failed', 'invoice.voided', 'invoice.marked_uncollectible'].includes(event.type)) {
+      const invoice = event.data.object as Stripe.Invoice;
+      const linked = invoice.parent?.subscription_details?.subscription;
+      subscriptionId = typeof linked === 'string' ? linked : linked?.id ?? null;
     }
-    const body = await req.text();
-    const headersList = await headers();
-    const signature = headersList.get('stripe-signature');
-
-    if (!signature) {
-      return NextResponse.json(
-        { error: 'No signature' },
-        { status: 400 }
-      );
+    if (subscriptionId) {
+      let subscription: Stripe.Subscription;
+      // Stripe does not guarantee event order. Retrieve its current state instead
+      // of granting from an old event payload or from Checkout success alone.
+      try { subscription = await stripe.subscriptions.retrieve(subscriptionId); }
+      catch (error) {
+        if (deleted && error instanceof Stripe.errors.StripeInvalidRequestError && error.code === 'resource_missing') subscription = deleted;
+        else throw error;
+      }
+      let uid = subscription.metadata?.firebase_uid;
+      if (!uid) {
+        const customer = typeof subscription.customer === 'string' ? await stripe.customers.retrieve(subscription.customer) : subscription.customer;
+        if (!customer.deleted) uid = customer.metadata?.firebase_uid;
+      }
+      // Unrelated Stripe products/customers do not belong to this application.
+      if (uid) await refreshSubscriptionForUser(uid, stripe, subscriptionId, { id: event.id, created: event.created }, deleted ?? undefined);
     }
-
-    let event: Stripe.Event;
-
-    try {
-      event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
-    } catch (err) {
-      console.error('Webhook signature verification failed:', err);
-      return NextResponse.json(
-        { error: 'Invalid signature' },
-        { status: 400 }
-      );
-    }
-
-    // Handle different event types
-    switch (event.type) {
-      case 'checkout.session.completed': {
-        const session = event.data.object as Stripe.Checkout.Session;
-        await handleCheckoutCompleted(session);
-        break;
-      }
-
-      case 'customer.subscription.created':
-      case 'customer.subscription.updated': {
-        const subscription = event.data.object as Stripe.Subscription;
-        await handleSubscriptionUpdate(subscription);
-        break;
-      }
-
-      case 'customer.subscription.deleted': {
-        const subscription = event.data.object as Stripe.Subscription;
-        await handleSubscriptionDeleted(subscription);
-        break;
-      }
-
-      case 'invoice.payment_succeeded': {
-        const invoice = event.data.object as Stripe.Invoice;
-        const invoiceSubId = invoice.parent?.subscription_details?.subscription;
-        if (invoiceSubId) {
-          const subscription = await stripe!.subscriptions.retrieve(invoiceSubId as string);
-          await handleSubscriptionUpdate(subscription);
-        }
-        break;
-      }
-
-      case 'invoice.payment_failed': {
-        // Handle payment failure - could revoke access or send notification
-        console.log('Payment failed for subscription:', event.data.object);
-        break;
-      }
-
-      default:
-        console.log(`Unhandled event type: ${event.type}`);
-    }
-
     return NextResponse.json({ received: true });
-  } catch (error) {
-    console.error('Webhook error:', error);
-    return NextResponse.json(
-      { error: 'Webhook handler failed' },
-      { status: 500 }
-    );
+  } catch {
+    // Retry on a failed persistence/provider operation; never acknowledge a lost grant.
+    return NextResponse.json({ error: 'Webhook processing unavailable' }, { status: 500 });
   }
 }
-
-async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
-  let firebaseUid = session.metadata?.firebase_uid;
-
-  // If not in session metadata, try to get from customer
-  if (!firebaseUid && session.customer) {
-    try {
-      const customer = typeof session.customer === 'string'
-        ? await stripe!.customers.retrieve(session.customer)
-        : session.customer;
-      if (customer && !customer.deleted) {
-        firebaseUid = customer.metadata?.firebase_uid;
-      }
-    } catch (error) {
-      console.error('Error retrieving customer in checkout:', error);
-    }
-  }
-
-  if (!firebaseUid) {
-    console.error('No firebase_uid in session or customer metadata');
-    return;
-  }
-
-  // Get subscription details
-  const subscriptionId = session.subscription as string;
-  if (!subscriptionId) {
-    console.error('No subscription ID in session');
-    return;
-  }
-
-  try {
-    const subscription = await stripe!.subscriptions.retrieve(subscriptionId);
-    await handleSubscriptionUpdate(subscription);
-    console.log(`✅ Checkout completed for user ${firebaseUid}, subscription ${subscriptionId}`);
-  } catch (error) {
-    console.error('Error processing checkout completion:', error);
-  }
-}
-
-async function handleSubscriptionUpdate(subscription: Stripe.Subscription) {
-  // Try to get firebase_uid from subscription metadata first
-  let firebaseUid = subscription.metadata?.firebase_uid;
-
-  // If not in subscription metadata, try to get from customer metadata
-  if (!firebaseUid && subscription.customer) {
-    try {
-      const customer = typeof subscription.customer === 'string'
-        ? await stripe!.customers.retrieve(subscription.customer)
-        : subscription.customer;
-      if (customer && !customer.deleted) {
-        firebaseUid = customer.metadata?.firebase_uid;
-      }
-    } catch (error) {
-      console.error('Error retrieving customer:', error);
-    }
-  }
-
-  if (!firebaseUid) {
-    console.error('No firebase_uid found in subscription or customer metadata');
-    return;
-  }
-
-  const customerId = subscription.customer as string;
-  // Active includes subscriptions that are active even if scheduled for cancellation
-  const isActive = subscription.status === 'active';
-  const firstItem = subscription.items?.data?.[0];
-  let currentPeriodEnd = firstItem?.current_period_end ? new Date(firstItem.current_period_end * 1000) : null;
-
-  // TEST MODE: Set subscription end to 0 days (today) for testing expiration behavior
-  if (process.env.STRIPE_TEST_MODE_EXPIRE_TODAY === 'true') {
-    currentPeriodEnd = new Date(); // Set to now (0 days remaining)
-    console.log(`🧪 TEST MODE: Setting subscriptionEnd to today for testing`);
-  }
-
-  // Update user profile with subscription info
-  // When user pays, set subscriptionStatus to 'active' and grant 1-year access
-  // Note: Trial is app-managed, not Stripe-managed, so we don't use Stripe's trial fields
-  const updateData: any = {
-    stripeSubscriptionId: subscription.id,
-    stripeCustomerId: customerId,
-    stripeSubscriptionStatus: subscription.status,
-    subscriptionStatus: isActive ? 'active' : 'expired', // App-managed status
-    hasHistoricalAccess: isActive, // Only true if subscription is active
-    subscriptionEnd: currentPeriodEnd,
-  };
-
-  // Keep app-managed trial dates for historical reference, but subscriptionStatus is now 'active'
-  // Don't overwrite trialStart/trialEnd - they're app-managed
-
-  await adminDb.doc(`user_profiles/${firebaseUid}`).update(updateData);
-
-  console.log(`✅ Updated user ${firebaseUid} with subscription status: ${subscription.status} (app status: ${updateData.subscriptionStatus})`);
-}
-
-async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
-  // Try to get firebase_uid from subscription metadata first
-  let firebaseUid = subscription.metadata?.firebase_uid;
-
-  // If not in subscription metadata, try to get from customer metadata
-  if (!firebaseUid && subscription.customer) {
-    try {
-      const customer = typeof subscription.customer === 'string'
-        ? await stripe!.customers.retrieve(subscription.customer)
-        : subscription.customer;
-      if (customer && !customer.deleted) {
-        firebaseUid = customer.metadata?.firebase_uid;
-      }
-    } catch (error) {
-      console.error('Error retrieving customer:', error);
-    }
-  }
-
-  if (!firebaseUid) {
-    console.error('No firebase_uid found in subscription or customer metadata');
-    return;
-  }
-
-  // When subscription is deleted, check if trial expired
-  // If trial expired, set to 'expired', otherwise keep as 'none' (they can still use free tier)
-  const userDoc = await adminDb.doc(`user_profiles/${firebaseUid}`).get();
-  const userData = userDoc.data();
-  const trialEnd = userData?.trialEnd?.toDate?.() || (userData?.trialEnd ? new Date(userData.trialEnd) : undefined);
-  const now = new Date();
-  const trialExpired = trialEnd && now > trialEnd;
-
-  // Revoke access when subscription is deleted
-  await adminDb.doc(`user_profiles/${firebaseUid}`).update({
-    subscriptionStatus: trialExpired ? 'expired' : 'none', // If trial expired, mark as expired; otherwise back to none
-    hasHistoricalAccess: false, // No longer have 1-year access
-    stripeSubscriptionStatus: 'canceled',
-    stripeSubscriptionId: null,
-    // Keep trialStart/trialEnd for historical reference
-  });
-
-  console.log(`✅ Revoked access for user ${firebaseUid} - subscription deleted (status: ${trialExpired ? 'expired' : 'none'})`);
-}
-

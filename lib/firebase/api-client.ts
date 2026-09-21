@@ -15,12 +15,14 @@ export async function makeAuthenticatedRequest(
   // Get the current user's ID token
   const idToken = await user.getIdToken();
 
-  // Add authorization header
-  const headers = {
-    'Authorization': `Bearer ${idToken}`,
-    'Content-Type': 'application/json',
-    ...options.headers,
-  };
+  const headers = new Headers(options.headers);
+  headers.set('Authorization', `Bearer ${idToken}`);
+  if (options.body instanceof FormData) {
+    // Fetch must generate the multipart boundary along with the content type.
+    headers.delete('Content-Type');
+  } else if (options.body != null && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
 
   return fetch(url, {
     ...options,
@@ -77,5 +79,4 @@ export async function apiDelete(url: string): Promise<any> {
 
   return response.json();
 }
-
 

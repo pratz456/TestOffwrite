@@ -6,160 +6,89 @@ import { getTransactionsServer } from '@/lib/firebase/transactions-server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { adminDb } from '@/lib/firebase/admin';
 
+function timestampMs(value: unknown): number {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === 'number') return value;
+  if (value && typeof value === 'object' && 'seconds' in value && typeof value.seconds === 'number') return value.seconds * 1000;
+  return NaN;
+}
+function count(value: unknown): number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0;
+}
+function runningLease(record: { analysisStatus?: string; analysisLeaseToken?: unknown; analysisLeaseExpiresAt?: unknown }, now: number): boolean {
+  return record.analysisStatus === 'running' && typeof record.analysisLeaseToken === 'string' && record.analysisLeaseToken.length > 0 &&
+    typeof record.analysisLeaseExpiresAt === 'number' && record.analysisLeaseExpiresAt > now && record.analysisLeaseExpiresAt <= now + 240_000;
+}
+
 export async function GET(request: NextRequest) {
   try {
-    // Get the authenticated user
     const { user, error: authError } = await getAuthenticatedUser(request);
-    
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const accountId = new URL(request.url).searchParams.get('accountId');
+    const now = Date.now();
+    let terminalJob: { id: string; status?: unknown; lastErrorCode?: unknown } | undefined;
 
-    // Get query parameters
-    const { searchParams } = new URL(request.url);
-    const accountId = searchParams.get('accountId');
-
-    // Prefer checking `analysis_jobs` collection (where auto-analyze writes job docs).
-    // This ensures the client sees the real job progress created by `/api/plaid/auto-analyze`.
+    // Only the versioned, recent durable queue proves background work exists.
+    // Legacy running flags can outlive their request process and are not a live heartbeat.
     try {
-      const jobsQuery = adminDb.collection('analysis_jobs').where('userId', '==', user.uid);
-      // If an accountId is provided, narrow to that job to avoid ambiguity
-      const jobsSnapshot = await jobsQuery.get();
-      if (!jobsSnapshot.empty) {
-        const activeJobs = jobsSnapshot.docs
-          .map(doc => ({ id: doc.id, ...doc.data() }))
-          .filter((job: any) => job.status === 'running' || job.status === 'pending')
-          .filter((job: any) => (accountId ? job.accountId === accountId : true))
-          .sort((a: any, b: any) => (b.startedAt?.seconds || 0) - (a.startedAt?.seconds || 0));
-
-        if (activeJobs.length > 0) {
-          const activeJob: any = activeJobs[0];
-          console.log(`📊 [Analysis Status] Found active job (analysis_jobs): ${activeJob.id}`);
-          return NextResponse.json({
-            success: true,
-            data: {
-              overallStatus: 'analyzing',
-              progress: {
-                current: activeJob.processed || 0,
-                total: activeJob.total || 0,
-                percentage: activeJob.total > 0 ? Math.round(((activeJob.processed || 0) / activeJob.total) * 100) : 0
-              },
-              breakdown: {
-                pending: (activeJob.total || 0) - (activeJob.processed || 0),
-                running: 1,
-                completed: activeJob.processed || 0,
-                failed: activeJob.failed || 0
-              },
-              jobId: activeJob.id,
-              summary: {
-                totalTransactions: activeJob.total || 0,
-                analyzedTransactions: activeJob.processed || 0,
-                remainingTransactions: (activeJob.total || 0) - (activeJob.processed || 0),
-                successRate: activeJob.total > 0 ? Math.round(((activeJob.processed || 0) / activeJob.total) * 100) : 0
-              }
-            }
-          });
-        }
+      const snapshot = await adminDb.collection('analysis_jobs').where('userId', '==', user.uid).get();
+      const jobs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as { id: string } & Record<string, unknown>))
+        .filter(job => job.version === 1 && (!accountId || job.accountId === accountId))
+        .sort((a, b) => (timestampMs(b.lastUpdate ?? b.startedAt) || 0) - (timestampMs(a.lastUpdate ?? a.startedAt) || 0));
+      const active = jobs.find(job => {
+        const age = now - timestampMs(job.lastUpdate ?? job.startedAt);
+        return job.status === 'running' && typeof job.batchId === 'string' && job.batchId.length > 0 &&
+          count(job.total) > count(job.processed) && Number.isFinite(age) && age >= -60_000 && age < 23 * 60 * 60 * 1000;
+      });
+      if (active) {
+        const total = count(active.total);
+        const processed = Math.min(total, count(active.processed));
+        const succeeded = Math.min(processed, count(active.succeeded));
+        const failed = Math.min(processed - succeeded, count(active.failed));
+        const remaining = total - processed;
+        return NextResponse.json({ success: true, data: {
+          overallStatus: 'analyzing', phase: active.phase ?? 'queued', jobId: active.id,
+          progress: { current: succeeded, total, percentage: Math.round(succeeded / total * 100) },
+          breakdown: { pending: remaining, running: 0, completed: succeeded, failed, skipped: 0 },
+          summary: { totalTransactions: total, analyzedTransactions: succeeded,
+            remainingTransactions: remaining, successRate: Math.round(succeeded / total * 100) },
+        } }, { headers: { 'cache-control': 'private, no-store' } });
       }
-    } catch (e) {
-      console.warn('⚠️ [Analysis Status] Failed to query analysis_jobs collection, falling back to analysis_status. Error:', e);
+      terminalJob = jobs.find(job => ['done', 'failed', 'canceled'].includes(String(job.status)));
+    } catch {
+      // Transaction records can still describe results, but a failed job lookup cannot certify active work.
     }
 
-    // If no active jobs, check transaction status directly
     const { data: allTransactions, error } = await getTransactionsServer(user.uid);
-
-    if (error) {
-      console.error('Error fetching transactions for analysis status:', error);
-      return NextResponse.json({ error: 'Failed to fetch transactions' }, { status: 500 });
+    if (error) return NextResponse.json({ error: 'Failed to fetch transactions' }, { status: 500 });
+    const owned = (allTransactions || []).filter(record => !accountId || record.account_id === accountId || record.accountId === accountId);
+    const transactions = owned.filter(record => record.pending !== true && Number.isFinite(record.amount));
+    const skipped = owned.length - transactions.length;
+    let completed = 0;
+    let failed = 0;
+    let pending = 0;
+    const running = transactions.filter(record => runningLease(record, now));
+    for (const record of transactions) {
+      if (runningLease(record, now)) continue;
+      if (record.analysisStatus === 'failed') failed++;
+      else if (record.ai_suggestion?.id && (record.analysisStatus === 'completed' || record.analyzed === true)) completed++;
+      else pending++; // Waiting for a job or manual review, including expired/unknown legacy running flags.
     }
-
-    let transactions = allTransactions || [];
-    console.log(`📊 [Analysis Status] Found ${transactions.length} total transactions for user ${user.uid}`);
-
-    // Filter by account if specified
-    if (accountId) {
-      const beforeFilter = transactions.length;
-      transactions = transactions.filter(t => t.account_id === accountId || t.accountId === accountId);
-      console.log(`📊 [Analysis Status] Filtered to ${transactions.length} transactions for account ${accountId} (was ${beforeFilter})`);
-    }
-
-    // Calculate analysis status
-    const pending = transactions.filter(t => 
-      t.analysisStatus === 'pending' || 
-      t.analysisStatus === undefined || 
-      t.analysisStatus === null ||
-      (t.analyzed === false && t.analysisStatus !== 'completed' && t.analysisStatus !== 'failed')
-    ).length;
-    
-    const running = transactions.filter(t => t.analysisStatus === 'running').length;
-    const completed = transactions.filter(t => 
-      t.analysisStatus === 'completed' || 
-      (t.analyzed === true && t.analysisStatus !== 'failed')
-    ).length;
-    const failed = transactions.filter(t => t.analysisStatus === 'failed').length;
-
-    const total = pending + running + completed + failed;
-    const current = completed + failed;
-
-    // Debug logging
-    console.log(`📊 [Analysis Status] Account ${accountId}: ${total} total, ${pending} pending, ${running} running, ${completed} completed, ${failed} failed`);
-    if (transactions.length > 0) {
-      console.log(`🔍 [Analysis Status] Sample transactions:`, transactions.slice(0, 3).map(t => ({
-        trans_id: t.trans_id,
-        merchant_name: t.merchant_name,
-        analysisStatus: t.analysisStatus,
-        analyzed: t.analyzed
-      })));
-    }
-
-    // Find currently analyzing transaction
-    const currentlyAnalyzing = transactions.find(t => t.analysisStatus === 'running');
-
-    // Calculate progress percentage
-    const progressPercentage = total > 0 ? Math.round((current / total) * 100) : 0;
-
-    // Determine overall status
-    let overallStatus = 'idle';
-    if (total === 0) {
-      overallStatus = 'no_transactions';
-    } else if (pending > 0 || running > 0) {
-      overallStatus = 'analyzing';
-    } else if (completed > 0) {
-      overallStatus = 'completed';
-    }
-
-    return NextResponse.json({
-      success: true,
-      data: {
-        overallStatus,
-        progress: {
-          current,
-          total,
-          percentage: progressPercentage
-        },
-        breakdown: {
-          pending,
-          running,
-          completed,
-          failed
-        },
-        currentlyAnalyzing: currentlyAnalyzing ? {
-          id: currentlyAnalyzing.id,
-          merchant_name: currentlyAnalyzing.merchant_name || (currentlyAnalyzing as any).name || 'Unknown',
-          amount: currentlyAnalyzing.amount,
-          category: currentlyAnalyzing.category
-        } : null,
-        summary: {
-          totalTransactions: total,
-          analyzedTransactions: current,
-          remainingTransactions: pending + running,
-          successRate: total > 0 ? Math.round((completed / total) * 100) : 0
-        }
-      }
-    });
-
-  } catch (error) {
-    console.error('Error in analysis status API:', error);
+    const total = transactions.length;
+    const percentage = total > 0 ? Math.round(completed / total * 100) : 0;
+    const overallStatus = running.length > 0 ? 'analyzing' : total === 0 ? 'no_transactions' :
+      failed > 0 || terminalJob?.status === 'failed' ? 'failed' : pending > 0 ? 'needs_analysis' : 'completed';
+    const current = running[0];
+    return NextResponse.json({ success: true, data: {
+      overallStatus,
+      progress: { current: completed, total, percentage },
+      breakdown: { pending, running: running.length, completed, failed, skipped },
+      currentlyAnalyzing: current ? { id: current.id, merchant_name: current.merchant_name || 'Unknown', amount: current.amount, category: current.category } : null,
+      ...(terminalJob ? { jobId: terminalJob.id, lastErrorCode: terminalJob.lastErrorCode ?? null } : {}),
+      summary: { totalTransactions: total, analyzedTransactions: completed,
+        remainingTransactions: pending + running.length, successRate: percentage },
+    } }, { headers: { 'cache-control': 'private, no-store' } });
+  } catch {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

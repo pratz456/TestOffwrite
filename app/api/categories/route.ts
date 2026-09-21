@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
+import { invalidJsonResponse, readJsonObject } from '@/app/api/_lib/body';
 
 export async function GET(request: NextRequest) {
   try {
@@ -126,7 +127,9 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { categoryId, is_deductible } = await request.json();
+    const body = await readJsonObject(request);
+    if (!body) return invalidJsonResponse();
+    const { categoryId, is_deductible } = body;
 
     if (!categoryId || typeof is_deductible !== 'boolean') {
       return NextResponse.json(

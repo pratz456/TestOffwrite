@@ -152,15 +152,15 @@ export function BlogGridClient({ posts, tagStyles, tagIcons }: BlogGridClientPro
         {/* CTA card */}
         <div className="animate-on-scroll flex flex-col items-center justify-center rounded-xl border border-dashed border-primary/30 bg-primary/5 p-6 text-center">
           <Sparkles className="mb-3 h-8 w-8 text-primary" />
-          <h3 className="text-lg font-semibold text-foreground">Find your deductions</h3>
+          <h3 className="text-lg font-semibold text-foreground">Organize your deductions</h3>
           <p className="mt-2 text-sm text-muted-foreground">
-            WriteOff&apos;s AI tracks expenses and finds write-offs automatically. Try free for 30 days.
+            WriteOff tracks expenses and suggests write-offs for your review. Try it free for 30 days.
           </p>
           <Link
             href="/welcome"
             className="mt-4 inline-flex items-center rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-white shadow-md transition-all hover:shadow-lg hover:brightness-110"
           >
-            Get Started Free
+            Start Free Trial
           </Link>
         </div>
       </ScrollRevealWrapper>

@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { aggregateQuarterlyEstimatesForYear, getLocalTransactionDate } from '@/lib/tax-provider/quarterly-estimates';
+import { aggregateQuarterlyEstimatesForYear, getLocalTransactionDate, sumIncomeForQuarter, sumExpensesForQuarter, sumPotentialExpensesForQuarter } from '@/lib/tax-provider/quarterly-estimates';
 
 const baseOptions = { filingStatus: 'single' as const, w2Income: 0, otherIncome: 0 };
+function calendarSummary(transactions: Parameters<typeof sumIncomeForQuarter>[0], year: number, timezone: string, _options: unknown) {
+  return { quarters: ([1, 2, 3, 4] as const).map(quarter => {
+    const gross = sumIncomeForQuarter(transactions, year, quarter, timezone).grossIncome;
+    const expense = sumExpensesForQuarter(transactions, year, quarter, timezone).confirmed_deductible_expenses;
+    return { quarter, gross_income: gross, confirmed_deductible_expenses: expense,
+      potential_deductions_needing_review: sumPotentialExpensesForQuarter(transactions, year, quarter, timezone).potential_deductions_needing_review,
+      net_profit: gross - expense };
+  }) };
+}
 
 describe('Quarterly estimated tax helpers', () => {
   it('quarter boundary uses user-local date (Tokyo: Apr1 falls in Q2)', () => {
@@ -9,14 +18,14 @@ describe('Quarterly estimated tax helpers', () => {
       id: 't1',
       trans_id: 't1',
       account_id: 'a1',
-      amount: 100,
+      amount: -100,
       category: 'revenue',
       datetime: '2024-03-31T16:30:00.000Z',
       pending: false,
       is_deductible: null,
     };
 
-    const tokyo = aggregateQuarterlyEstimatesForYear([tx], 2024, 'Asia/Tokyo', baseOptions);
+    const tokyo = calendarSummary([tx], 2024, 'Asia/Tokyo', baseOptions);
     const q1 = tokyo.quarters.find((q) => q.quarter === 1)!;
     const q2 = tokyo.quarters.find((q) => q.quarter === 2)!;
 
@@ -30,14 +39,14 @@ describe('Quarterly estimated tax helpers', () => {
       id: 't1',
       trans_id: 't1',
       account_id: 'a1',
-      amount: 100,
+      amount: -100,
       category: 'revenue',
       datetime: '2024-03-31T16:30:00.000Z',
       pending: false,
       is_deductible: null,
     };
 
-    const phoenix = aggregateQuarterlyEstimatesForYear([tx], 2024, 'America/Phoenix', baseOptions);
+    const phoenix = calendarSummary([tx], 2024, 'America/Phoenix', baseOptions);
     const q1 = phoenix.quarters.find((q) => q.quarter === 1)!;
     const q2 = phoenix.quarters.find((q) => q.quarter === 2)!;
 
@@ -51,15 +60,15 @@ describe('Quarterly estimated tax helpers', () => {
       id: 't2',
       trans_id: 't2',
       account_id: 'a1',
-      amount: 50,
+      amount: -50,
       category: 'revenue',
       datetime: '2023-12-31T23:30:00.000Z',
       pending: false,
       is_deductible: null,
     };
 
-    const tokyo2024 = aggregateQuarterlyEstimatesForYear([tx], 2024, 'Asia/Tokyo', baseOptions);
-    const tokyo2023 = aggregateQuarterlyEstimatesForYear([tx], 2023, 'Asia/Tokyo', baseOptions);
+    const tokyo2024 = calendarSummary([tx], 2024, 'Asia/Tokyo', baseOptions);
+    const tokyo2023 = calendarSummary([tx], 2023, 'Asia/Tokyo', baseOptions);
 
     const q1_2024 = tokyo2024.quarters.find((q) => q.quarter === 1)!;
     const total2023 = tokyo2023.quarters.reduce((s, q) => s + q.gross_income, 0);
@@ -81,7 +90,7 @@ describe('Quarterly estimated tax helpers', () => {
       is_deductible: true,
     };
 
-    const res = aggregateQuarterlyEstimatesForYear([tx], 2024, 'America/Phoenix', baseOptions);
+    const res = calendarSummary([tx], 2024, 'America/Phoenix', baseOptions);
     const q2 = res.quarters.find((q) => q.quarter === 2)!; // May is Q2
     expect(q2.confirmed_deductible_expenses).toBe(0);
     expect(q2.potential_deductions_needing_review).toBe(0);
@@ -92,7 +101,7 @@ describe('Quarterly estimated tax helpers', () => {
       id: 'dup',
       trans_id: 'dup',
       account_id: 'acc',
-      amount: 100,
+      amount: -100,
       category: 'revenue',
       datetime: '2024-04-10T10:00:00.000Z',
       pending: false,
@@ -101,7 +110,7 @@ describe('Quarterly estimated tax helpers', () => {
 
     const b = { ...a, id: 'dup-2' };
 
-    const res = aggregateQuarterlyEstimatesForYear([a, b], 2024, 'America/Phoenix', baseOptions);
+    const res = calendarSummary([a, b], 2024, 'America/Phoenix', baseOptions);
     const q2 = res.quarters.find((q) => q.quarter === 2)!;
     expect(q2.gross_income).toBe(100);
   });
@@ -128,7 +137,7 @@ describe('Quarterly estimated tax helpers', () => {
       is_deductible: null,
     };
 
-    const res = aggregateQuarterlyEstimatesForYear([confirmed, potential], 2024, 'America/Phoenix', baseOptions);
+    const res = calendarSummary([confirmed, potential], 2024, 'America/Phoenix', baseOptions);
     const q1 = res.quarters.find((q) => q.quarter === 1)!;
 
     expect(q1.confirmed_deductible_expenses).toBeCloseTo(5.01, 2);
@@ -159,7 +168,7 @@ describe('Quarterly estimated tax helpers', () => {
       is_deductible: true,
     };
 
-    const res = aggregateQuarterlyEstimatesForYear([mealExpense, mealCredit], 2024, 'America/Phoenix', baseOptions);
+    const res = calendarSummary([mealExpense, mealCredit], 2024, 'America/Phoenix', baseOptions);
     const q2 = res.quarters.find((q) => q.quarter === 2)!;
 
     // Net should be exactly 0.00.
@@ -168,3 +177,7 @@ describe('Quarterly estimated tax helpers', () => {
   });
 });
 
+
+it('legacy quarterly projection requires reviewed full-year and timing facts', () => {
+  expect(() => aggregateQuarterlyEstimatesForYear([], 2026, 'UTC', baseOptions)).toThrow('Review your full-year');
+});

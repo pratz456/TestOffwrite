@@ -1,8 +1,14 @@
-import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject, getMetadata } from 'firebase/storage';
-import { app } from './client';
+import { getStorage, connectStorageEmulator, ref, uploadBytes, getDownloadURL, deleteObject, getMetadata } from 'firebase/storage';
+import { app, localEmulatorConfig } from './client';
+import { connectLocalEmulatorOnce } from './local-emulator-config';
 
 // Initialize Firebase Storage
-export const storage = getStorage(app);
+export const storage = (() => {
+  const instance = getStorage(app);
+  const config = localEmulatorConfig;
+  if (config) connectLocalEmulatorOnce(instance, 'storage', config, () => connectStorageEmulator(instance, config.host, config.storagePort));
+  return instance;
+})();
 
 /**
  * Upload a receipt file to Firebase Storage

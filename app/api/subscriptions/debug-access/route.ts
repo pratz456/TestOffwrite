@@ -1,11 +1,17 @@
+import { transactionHistoryWindow } from '@/lib/subscriptions/history-window';
+import { subscriptionDate } from '@/lib/subscriptions/entitlements';
 import { NextResponse } from 'next/server';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import { adminDb } from '@/lib/firebase/admin';
 import { checkHistoricalAccess } from '@/lib/subscriptions/historical-access';
 
 export async function GET(req: Request) {
+  let uid: string;
+  try { ({ uid } = await getUserFromReqOrThrow(req)); }
+  catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
+  // Billing identifiers are exposed only for local/staging diagnosis.
+  if (process.env.NODE_ENV === 'production') return NextResponse.json({ error: 'Not found' }, { status: 404 });
   try {
-    const { uid } = await getUserFromReqOrThrow(req);
 
     // Get user profile
     const userDoc = await adminDb.doc(`user_profiles/${uid}`).get();
@@ -27,12 +33,12 @@ export async function GET(req: Request) {
           subscriptionEnd: userData?.subscriptionEnd,
         },
         accessStatus,
-        transactionDaysAvailable: 730,
+        transactionDaysAvailable: transactionHistoryWindow(userData ?? {}).days,
         debug: {
           now: new Date().toISOString(),
-          trialStartDate: userData?.trialStart ? (userData.trialStart.toDate?.() || new Date(userData.trialStart)).toISOString() : null,
-          trialEndDate: userData?.trialEnd ? (userData.trialEnd.toDate?.() || new Date(userData.trialEnd)).toISOString() : null,
-          subscriptionEndDate: userData?.subscriptionEnd ? (userData.subscriptionEnd.toDate?.() || new Date(userData.subscriptionEnd)).toISOString() : null,
+          trialStartDate: subscriptionDate(userData?.trialStart)?.toISOString() ?? null,
+          trialEndDate: subscriptionDate(userData?.trialEnd)?.toISOString() ?? null,
+          subscriptionEndDate: subscriptionDate(userData?.subscriptionEnd)?.toISOString() ?? null,
         },
       },
     });

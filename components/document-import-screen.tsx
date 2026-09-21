@@ -1,15 +1,17 @@
 "use client";
 
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Upload, FileText, CheckCircle2, AlertCircle, XCircle,
-  Loader2, Camera, DollarSign, Building2, Receipt, Info, Edit3, Eye,
+  Loader2, Camera, DollarSign, Building2, Receipt, Info, Edit3, Eye, ShieldCheck,
 } from "lucide-react";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
+import { DocumentImageConsent, type DocumentImageFallbackReason } from "@/components/document-image-consent";
+import { DOCUMENT_IMAGE_CONSENT_REQUIRED } from "@/lib/onboarding/document-import-consent";
 
 interface Props {
   user: { id: string; email?: string };
@@ -318,11 +320,25 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
   const [committing, setCommitting] = useState(false);
   const [committed, setCommitted] = useState(false);
   const [dragging, setDragging] = useState(false);
+  // §7216 consent: the account's stored record, and whether the person authorized
+  // the image fallback for the current document (reset with every new file).
+  const [consentRecord, setConsentRecord] = useState<unknown>(null);
+  const [imageConsentGranted, setImageConsentGranted] = useState(false);
+  const [consentPrompt, setConsentPrompt] = useState<{ reason: DocumentImageFallbackReason; action: "extract" | "commit" } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    makeAuthenticatedRequest("/api/database/profiles")
+      .then(async res => { if (res.ok) { const data = await res.json(); if (!cancelled) setConsentRecord(data.profile?.consents ?? null); } })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [user.id]);
 
   const handleFile = (f: File) => {
     setFile(f); setResult(null); setError(null);
     setCommitted(false); setEditedFields({});
+    setImageConsentGranted(false); setConsentPrompt(null);
     setPreview(f.type.startsWith("image/") ? URL.createObjectURL(f) : null);
   };
 
@@ -331,54 +347,43 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
     const f = e.dataTransfer.files[0]; if (f) handleFile(f);
   }, []);
 
-  const handleExtract = async () => {
+  /** Extract or commit; the image fallback flag is sent only after the person authorized it for this document. */
+  const submitDocument = async (action: "extract" | "commit", imageConsent = imageConsentGranted) => {
     if (!file) return;
-    setLoading(true); setError(null); setResult(null);
+    if (action === "extract") { setLoading(true); setResult(null); } else setCommitting(true);
+    setError(null);
     try {
       const fd = new FormData();
       fd.append("file", file);
-      fd.append("docType", docType);
-      fd.append("taxYear", year);
-      fd.append("commit", "false");
+      fd.append("docType", action === "commit" ? result?.docType || docType : docType);
+      fd.append("taxYear", action === "commit" ? String(result?.taxYear || year) : year);
+      fd.append("commit", action === "commit" ? "true" : "false");
+      if (action === "commit") fd.append("overrideFields", JSON.stringify(editedFields));
+      if (imageConsent) fd.append("documentImageConsent", "true");
       const res = await makeAuthenticatedRequest("/api/tax/import-document", { method: "POST", body: fd });
       const data = await res.json();
       if (!res.ok) {
+        if (res.status === 403 && data.code === DOCUMENT_IMAGE_CONSENT_REQUIRED) { setConsentPrompt({ reason: data.reason, action }); return; }
         if (data.tips) setError(`${data.warning}\n\nTips: ${data.tips.join(" • ")}`);
-        else throw new Error(data.error || "Extraction failed");
+        else throw new Error(data.error || (action === "commit" ? "Save failed" : "Extraction failed"));
         return;
       }
+      if (action === "commit") { setCommitted(true); return; }
       setResult(data);
       setEditedFields(data.extracted || {});
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to extract document");
-    } finally { setLoading(false); }
+      setError(e instanceof Error ? e.message : action === "commit" ? "Failed to save" : "Failed to extract document");
+    } finally { if (action === "extract") setLoading(false); else setCommitting(false); }
   };
+
+  const handleExtract = () => submitDocument("extract");
+  const handleCommit = () => submitDocument("commit");
 
   const handleFieldEdit = (key: string, val: string) => {
     setEditedFields(p => ({
       ...p,
       [key]: isNaN(parseFloat(val)) ? val : parseFloat(val),
     }));
-  };
-
-  const handleCommit = async () => {
-    if (!file) return;
-    setCommitting(true); setError(null);
-    try {
-      // Re-submit with edited fields merged in
-      const fd = new FormData();
-      fd.append("file", file);
-      fd.append("docType", result?.docType || docType);
-      fd.append("taxYear", String(result?.taxYear || year));
-      fd.append("commit", "true");
-      fd.append("overrideFields", JSON.stringify(editedFields));
-      const res = await makeAuthenticatedRequest("/api/tax/import-document", { method: "POST", body: fd });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Save failed");
-      setCommitted(true);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to save");
-    } finally { setCommitting(false); }
   };
 
   // Determine which field definitions to show
@@ -424,15 +429,31 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
       </div>
 
       <div className="max-w-2xl mx-auto px-4 sm:px-6 py-5 space-y-4">
-        {/* What this does */}
-        <div className="flex items-start gap-2 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/30 px-4 py-3 text-xs text-blue-800 dark:text-blue-300">
-          <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-          <div>
-            <p>Upload a photo or scan of your W-2, 1099, or platform summary. AI extracts every field with confidence scores - you see <strong>exactly where to find each value on your document</strong> and can edit anything before saving.</p>
-          </div>
-        </div>
+        {consentPrompt && (
+          <DocumentImageConsent
+            record={consentRecord}
+            reason={consentPrompt.reason}
+            onCancel={() => setConsentPrompt(null)}
+            onAuthorized={record => {
+              setConsentRecord(record); setImageConsentGranted(true);
+              const action = consentPrompt.action; setConsentPrompt(null);
+              void submitDocument(action, true);
+            }}
+          />
+        )}
 
-        {!result && (
+        {/* What this does */}
+        {!consentPrompt && (
+          <div className="flex items-start gap-2 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/30 px-4 py-3 text-xs text-blue-800 dark:text-blue-300">
+            <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+            <div className="space-y-1">
+              <p>Upload a photo or scan of your W-2, 1099, or platform summary. The extracted fields come with confidence scores - you see <strong>exactly where to find each value on your document</strong> and can edit anything before saving.</p>
+              <p>WriteOff reads the document on its own server first and removes Social Security, ITIN and employer identification numbers before sending only that text to OpenAI. The full image is sent only if the text cannot be read, and only with your signed consent.</p>
+            </div>
+          </div>
+        )}
+
+        {!result && !consentPrompt && (
           <>
             {/* Document type */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -475,13 +496,13 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
           </>
         )}
 
-        {error && (
+        {error && !consentPrompt && (
           <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive whitespace-pre-line">
             <AlertCircle className="w-4 h-4 inline mr-2" />{error}
           </div>
         )}
 
-        {file && !result && (
+        {file && !result && !consentPrompt && (
           <Button onClick={handleExtract} disabled={loading} className="w-full min-h-[48px] gap-2 text-base font-semibold">
             {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <FileText className="w-5 h-5" />}
             {loading ? "Extracting fields…" : "Extract with AI"}
@@ -489,7 +510,7 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
         )}
 
         {/* Results: field-by-field verification */}
-        {result && !committed && (
+        {result && !committed && !consentPrompt && (
           <>
             {/* Summary header */}
             <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -502,10 +523,18 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
                 </p>
               </div>
               <Button variant="ghost" size="sm" className="text-xs gap-1"
-                onClick={() => { setResult(null); setFile(null); setPreview(null); }}>
+                onClick={() => { setResult(null); setFile(null); setPreview(null); setImageConsentGranted(false); }}>
                 Try different file
               </Button>
             </div>
+
+            {/* What left this server */}
+            <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+              <ShieldCheck className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+              {result.disclosure === "image"
+                ? "The full image of this document was sent to OpenAI under the consent you signed."
+                : `Read from text on WriteOff's server; ${result.identifiersRedacted || 0} identification number${result.identifiersRedacted === 1 ? "" : "s"} were removed before that text was sent to OpenAI. The image itself was not sent.`}
+            </p>
 
             {/* Legend */}
             <div className="flex items-center gap-4 text-xs text-muted-foreground bg-muted/40 rounded-lg px-3 py-2">
@@ -527,6 +556,18 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
                 />
               ))}
             </div>
+
+            {/* Server-side verification notes (model warnings, locally read EIN, organizer SSN match) */}
+            {result.verificationRequired?.length > 0 && (
+              <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20 p-3">
+                <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 mb-1">Verify before saving</p>
+                <ul className="space-y-0.5">
+                  {result.verificationRequired.map((note: string, i: number) => (
+                    <li key={i} className="text-xs text-amber-700 dark:text-amber-400">• {note}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {/* Image quality issues */}
             {result.imageIssues?.length > 0 && (

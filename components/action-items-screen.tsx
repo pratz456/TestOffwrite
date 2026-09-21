@@ -69,7 +69,7 @@ const CATEGORY_META: Record<ActionCategory, { label: string; icon: React.Element
   tax_optimization: {
     label: 'Tax Optimization',
     icon: TrendingUp,
-    description: 'Opportunities to maximize your deductions',
+    description: 'Records and facts that may support additional deductions',
   },
   filing: {
     label: 'Filing Readiness',
@@ -79,7 +79,7 @@ const CATEGORY_META: Record<ActionCategory, { label: string; icon: React.Element
   compliance: {
     label: 'Compliance & Deadlines',
     icon: Shield,
-    description: 'Stay compliant and never miss a deadline',
+    description: 'Upcoming deadlines and compliance reminders',
   },
   financial_health: {
     label: 'Financial Health',

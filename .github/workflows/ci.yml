@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, master, feb-new]
+    branches: [main, master, feb-new, march-branch]
   pull_request:
-    branches: [main, master, feb-new]
+    branches: [main, master, feb-new, march-branch]
 
 jobs:
   ci:
@@ -42,11 +42,16 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version-file: ".nvmrc"
           cache: "npm"
 
       - name: Install dependencies
         run: npm ci
+
+      # Runtime dependencies must carry no known critical vulnerability with an upstream fix.
+      # Build-time findings that need a major upgrade are tracked in docs/compliance/WISP_2026-09-17.md (G8).
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=critical
 
       - name: Lint, test, and build
         run: npm run ci

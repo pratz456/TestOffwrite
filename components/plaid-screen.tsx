@@ -507,7 +507,7 @@ export const PlaidScreen: React.FC<PlaidScreenProps> = ({ user, onBack, onConnec
             <div className="flex items-start gap-2.5">
               <CheckCircle className="w-4 h-4 text-primary mt-0.5 shrink-0" />
               <div>
-                <p className="text-xs font-medium text-foreground">Bank-level Security</p>
+                <p className="text-xs font-medium text-foreground">Read-only, encrypted connection</p>
                 <p className="text-xs text-muted-foreground">256-bit encryption, read-only access</p>
               </div>
             </div>

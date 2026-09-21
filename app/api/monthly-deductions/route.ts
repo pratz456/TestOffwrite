@@ -6,6 +6,9 @@ import { getTransactionsServer } from '@/lib/firebase/transactions-server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getUserProfileServer } from '@/lib/firebase/profiles-server';
 import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
+import { FilingStatusReviewRequiredError } from '@/lib/tax-rules/filing-status';
+
+const OWNER_DATA_CACHE_CONTROL = 'private, no-store';
 
 export async function GET(request: NextRequest) {
   try {
@@ -37,8 +40,9 @@ export async function GET(request: NextRequest) {
 
     console.log('📅 [Monthly Deductions API] Processing year:', currentYear);
 
-    // Fetch all transactions for the user using Firebase server function
-    const { data: allTransactions, error } = await getTransactionsServer(user.uid);
+    // Every year's rows are needed for `availableYears`; project only the aggregate inputs to keep
+    // payload and SSR memory proportional to three fields per row rather than the full record.
+    const { data: allTransactions, error } = await getTransactionsServer(user.uid, { fields: ['date', 'amount', 'is_deductible'] });
 
     if (error) {
       console.error('❌ [Monthly Deductions API] Error fetching transactions:', error);
@@ -76,7 +80,7 @@ export async function GET(request: NextRequest) {
             avgMonthly: 0,
             monthsWithData: 0,
             yearToDateTotal: 0,
-            estimatedRefund: 0
+            estimatedTaxSavingsFromMarkedDeductions: 0
           },
           availableYears,
           diagnostics: {
@@ -85,7 +89,7 @@ export async function GET(request: NextRequest) {
             unclassifiedInYear: 0,
           },
         }
-      });
+      }, { headers: { 'Cache-Control': OWNER_DATA_CACHE_CONTROL } });
     }
 
     // Filter transactions for current year and positive amounts (expenses)
@@ -163,8 +167,8 @@ export async function GET(request: NextRequest) {
     // Calculate year-to-date total tax savings
     const yearToDateTotal = monthlyData.reduce((sum, m) => sum + m.total, 0);
 
-    // Estimated federal refund is now the same as year-to-date total since we're already calculating tax savings
-    const estimatedRefund = yearToDateTotal;
+    // This is the planning tax-savings estimate for marked deductions, never a Form 1040 refund.
+    const estimatedTaxSavingsFromMarkedDeductions = yearToDateTotal;
 
     const responseData = {
       monthlyData,
@@ -174,7 +178,7 @@ export async function GET(request: NextRequest) {
         avgMonthly,
         monthsWithData: monthsWithData.length,
         yearToDateTotal,
-        estimatedRefund
+        estimatedTaxSavingsFromMarkedDeductions
       },
       availableYears,
       diagnostics: {
@@ -188,14 +192,15 @@ export async function GET(request: NextRequest) {
       totalTransactions: transactions.length,
       deductibleTransactions: totalDeductibleTransactions,
       yearToDateTotal,
-      estimatedRefund
+      estimatedTaxSavingsFromMarkedDeductions
     });
 
     return NextResponse.json({
       success: true,
       data: responseData
-    });
+    }, { headers: { 'Cache-Control': OWNER_DATA_CACHE_CONTROL } });
   } catch (error) {
+    if (error instanceof FilingStatusReviewRequiredError) return NextResponse.json({ error: error.message, code: error.code }, { status: 422 });
     console.error('❌ [Monthly Deductions API] Unexpected error:', error);
     return NextResponse.json(
       { 

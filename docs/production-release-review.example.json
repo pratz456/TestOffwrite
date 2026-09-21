@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "project": "writeoff-23910",
+  "commit": "REPLACE_WITH_EXACT_40_CHARACTER_RELEASE_COMMIT",
+  "reviewedBy": "",
+  "reviewedAt": "",
+  "legacyProfileMigration": {
+    "reviewed": false,
+    "evidence": "REPLACE with the npm run production:plaid-migration artifacts from the private backup directory: plaid-credential-migration-plan-<timestamp>.json sha256 <plan digest printed by the dry run>; plaid-credential-migration-backup-<digest16>.json sha256 <backupDigest printed by --apply>; plaid-credential-migration-apply-<digest16>.json sha256 <resultDigest> with totals.failed 0"
+  },
+  "historicalOverlapReconciliation": {
+    "reviewed": false,
+    "evidence": "REPLACE: inventoryDigest <sha256> reviewed by <name> on <date>; decisions file sha256 <digest> (<n> duplicate / <n> distinct / <n> defer); production:overlap-reconcile evidence file <absolute private path> sha256 <digest>, planDigest <digest>, backup <absolute private path>. If the inventory reported zero potentialHistoricalOverlaps groups, cite that inventory digest instead."
+  },
+  "oldClientCompatibility": {
+    "reviewed": false,
+    "evidence": "REPLACE with the passing --verify output run immediately before npm run production:deploy: plaid-credential-migration-verify-<timestamp>.json sha256 <reportDigest> with clean true, profilesWithToken 0 and accountsWithToken 0; plus the WRITEOFF_RULES_EMULATOR_TESTS=1 run of tests/plaid-migration.emulator.test.ts (3 passed) on the release commit"
+  },
+  "plaidProductionAccess": {
+    "reviewed": false,
+    "evidence": ""
+  },
+  "stripeLiveConfiguration": {
+    "reviewed": false,
+    "evidence": ""
+  },
+  "secretManagerBindings": {
+    "reviewed": false,
+    "evidence": ""
+  },
+  "rulesAndIndexes": {
+    "reviewed": false,
+    "evidence": ""
+  },
+  "rollbackCompatibility": {
+    "reviewed": false,
+    "evidence": ""
+  }
+}

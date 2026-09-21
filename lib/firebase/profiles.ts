@@ -8,6 +8,15 @@ import {
 } from "firebase/firestore";
 import { db } from "./client";
 import { waitForAuth } from "./auth";
+import { makeAuthenticatedRequest } from "./api-client";
+import type { ConsentRecord } from "@/lib/onboarding/consents";
+
+// Admin migration runs before SDK reads: Firestore cannot redact a secret field.
+async function prepareProfileRead() {
+  const response = await makeAuthenticatedRequest("/api/database/profiles", { cache: "no-store" });
+  if (!response.ok) throw new Error("Profile could not be prepared securely. Please retry.");
+}
+
 
 export interface UserProfile {
   id: string;
@@ -20,38 +29,41 @@ export interface UserProfile {
   income: string;
   state: string;
   filing_status: string;
-  plaid_token?: string;
+  bankConnected?: boolean;
   onboardingIntroCompleted?: boolean;
   onboardingPlaidGuideCompleted?: boolean;
   year_of_birth?: string;
   created_at?: any;
   updated_at?: any;
+  /** Sign-up acknowledgments, recorded through the profile API before setup. */
+  consents?: ConsentRecord | null;
 
   // Phase 1: High Impact Fields
   itemization_status?: 'itemize' | 'standard';
   business_start_date?: string;
-  home_office_sqft?: number;
-  total_home_sqft?: number;
+  home_office_sqft?: number | null;
+  total_home_sqft?: number | null;
   home_office_method?: 'simplified' | 'actual';
-  vehicle_business_use_percentage?: number;
+  vehicle_business_use_percentage?: number | null;
   vehicle_deduction_method?: 'standard_mileage' | 'actual_expense';
 
   // Phase 2: Medium Impact Fields
   naics_code?: string;
   business_purpose?: string;
   ein?: string;
-  w2_income?: number;
-  w2_federal_withheld?: number;
-  health_insurance_premiums?: number;
-  sep_ira_contribution?: number;
-  solo_401k_contribution?: number;
-  hsa_contribution?: number;
-  business_income?: number;
+  w2_income?: number | null;
+  w2_federal_withheld?: number | null;
+  health_insurance_premiums?: number | null;
+  sep_ira_contribution?: number | null;
+  solo_401k_contribution?: number | null;
+  hsa_contribution?: number | null;
+  simple_ira_contribution?: number | null;
+  business_income?: number | null;
   other_income?: number;
-  tax_bracket?: number;
+  tax_bracket?: number | null;
   professional_licenses?: string[];
 
-  prior_year_tax?: number;
+  prior_year_tax?: number | null;
   mailing_address?: {
     street?: string;
     city?: string;
@@ -103,6 +115,7 @@ export interface UserProfile {
   stripeCustomerId?: string;
   stripeSubscriptionId?: string;
   stripeSubscriptionStatus?: string; // Stripe's subscription status (only set when paid)
+  subscriptionPlan?: 'basic' | 'premium' | null; // Verified by server from the configured Stripe price.
 
   // Tax filing partner integration (external providers).
 }
@@ -111,6 +124,7 @@ export interface UserProfile {
 export async function getUserProfileSafe(): Promise<{ data: UserProfile | null; error: any }> {
   try {
     const uid = await waitForAuth(); // gate by auth
+    await prepareProfileRead();
     const docRef = doc(db, "user_profiles", uid);
     const docSnap = await getDoc(docRef);
 
@@ -128,11 +142,12 @@ export async function getUserProfileSafe(): Promise<{ data: UserProfile | null; 
             income: data.income || '',
             state: data.state || '',
             filing_status: data.filing_status || '',
-            plaid_token: data.plaid_token,
+            bankConnected: data.bankConnected === true,
             onboardingIntroCompleted: data.onboardingIntroCompleted,
             onboardingPlaidGuideCompleted: data.onboardingPlaidGuideCompleted,
             created_at: data.created_at,
             updated_at: data.updated_at,
+            consents: data.consents,
 
             // Phase 1: High Impact Fields
             itemization_status: data.itemization_status,
@@ -148,6 +163,14 @@ export async function getUserProfileSafe(): Promise<{ data: UserProfile | null; 
             business_purpose: data.business_purpose,
             ein: data.ein,
             w2_income: data.w2_income,
+            w2_federal_withheld: data.w2_federal_withheld,
+            health_insurance_premiums: data.health_insurance_premiums,
+            sep_ira_contribution: data.sep_ira_contribution,
+            solo_401k_contribution: data.solo_401k_contribution,
+            hsa_contribution: data.hsa_contribution,
+            simple_ira_contribution: data.simple_ira_contribution,
+            prior_year_tax: data.prior_year_tax,
+            mailing_address: data.mailing_address,
             business_income: data.business_income,
             other_income: data.other_income,
             tax_bracket: data.tax_bracket,
@@ -193,6 +216,7 @@ export async function getUserProfileSafe(): Promise<{ data: UserProfile | null; 
 // Backward-compatible function (deprecated - use getUserProfileSafe instead)
 export async function getUserProfile(userId: string): Promise<{ data: UserProfile | null; error: any }> {
   try {
+    await prepareProfileRead();
     const docRef = doc(db, "user_profiles", userId);
     const docSnap = await getDoc(docRef);
 
@@ -210,11 +234,12 @@ export async function getUserProfile(userId: string): Promise<{ data: UserProfil
           income: data.income || '',
           state: data.state || '',
           filing_status: data.filing_status || '',
-          plaid_token: data.plaid_token,
+          bankConnected: data.bankConnected === true,
           onboardingIntroCompleted: data.onboardingIntroCompleted || false,
           onboardingPlaidGuideCompleted: data.onboardingPlaidGuideCompleted || false,
           created_at: data.created_at,
           updated_at: data.updated_at,
+          consents: data.consents,
 
           // Phase 1: High Impact Fields
           itemization_status: data.itemization_status,
@@ -230,6 +255,14 @@ export async function getUserProfile(userId: string): Promise<{ data: UserProfil
           business_purpose: data.business_purpose,
           ein: data.ein,
           w2_income: data.w2_income,
+          w2_federal_withheld: data.w2_federal_withheld,
+          health_insurance_premiums: data.health_insurance_premiums,
+          sep_ira_contribution: data.sep_ira_contribution,
+          solo_401k_contribution: data.solo_401k_contribution,
+          hsa_contribution: data.hsa_contribution,
+          simple_ira_contribution: data.simple_ira_contribution,
+          prior_year_tax: data.prior_year_tax,
+          mailing_address: data.mailing_address,
           business_income: data.business_income,
           other_income: data.other_income,
           tax_bracket: data.tax_bracket,
@@ -280,6 +313,7 @@ export async function upsertUserProfile(
     console.log('🔄 [Firebase Profile] Upserting profile for user:', userId);
     console.log('🔄 [Firebase Profile] Profile data:', profileData);
 
+    await prepareProfileRead();
     const docRef = doc(db, "user_profiles", userId);
 
     // Filter out undefined values as Firebase doesn't allow them (including nested objects)
@@ -348,11 +382,12 @@ export async function upsertUserProfile(
           income: data.income || '',
           state: data.state || '',
           filing_status: data.filing_status || '',
-          plaid_token: data.plaid_token,
+          bankConnected: data.bankConnected === true,
           onboardingIntroCompleted: data.onboardingIntroCompleted,
           onboardingPlaidGuideCompleted: data.onboardingPlaidGuideCompleted,
           created_at: data.created_at,
           updated_at: data.updated_at,
+          consents: data.consents,
 
           // Phase 1: High Impact Fields
           itemization_status: data.itemization_status,
@@ -368,6 +403,14 @@ export async function upsertUserProfile(
           business_purpose: data.business_purpose,
           ein: data.ein,
           w2_income: data.w2_income,
+          w2_federal_withheld: data.w2_federal_withheld,
+          health_insurance_premiums: data.health_insurance_premiums,
+          sep_ira_contribution: data.sep_ira_contribution,
+          solo_401k_contribution: data.solo_401k_contribution,
+          hsa_contribution: data.hsa_contribution,
+          simple_ira_contribution: data.simple_ira_contribution,
+          prior_year_tax: data.prior_year_tax,
+          mailing_address: data.mailing_address,
           business_income: data.business_income,
           other_income: data.other_income,
           tax_bracket: data.tax_bracket,
@@ -413,6 +456,7 @@ export async function updateUserProfile(
     console.log('🔄 [Firebase Profile] Updating profile for user:', userId);
     console.log('🔄 [Firebase Profile] Updates:', updates);
 
+    await prepareProfileRead();
     const docRef = doc(db, "user_profiles", userId);
     const updateData = {
       ...updates,
@@ -435,7 +479,7 @@ export async function updateUserProfile(
           income: data.income || '',
           state: data.state || '',
           filing_status: data.filing_status || '',
-          plaid_token: data.plaid_token,
+          bankConnected: data.bankConnected === true,
           onboardingIntroCompleted: data.onboardingIntroCompleted,
           onboardingPlaidGuideCompleted: data.onboardingPlaidGuideCompleted,
           created_at: data.created_at,

@@ -162,15 +162,14 @@ export function useTransactionPolling(
         const errorMessage = typeof fallback === 'string' ? fallback : 'Failed to sync transactions';
 
         // If the user hasn't connected a bank yet, don't spam console errors.
-        // The sync endpoint expects `user_profiles/<uid>.plaid_token` to already exist
-        // (written during the Plaid exchange-public-token step).
-        const isNoPlaidToken = typeof errorMessage === 'string' && /no plaid token/i.test(errorMessage);
-        if (isNoPlaidToken) {
+        // The server sync endpoint requires an active connection for this account.
+        const isNoBankConnection = typeof errorMessage === 'string' && /no (?:plaid token|bank connection)/i.test(errorMessage);
+        if (isNoBankConnection) {
           setError(null);
           setInfo('Connect your bank account first to enable transaction syncing.');
           if (infoTimeoutRef.current) clearTimeout(infoTimeoutRef.current);
           infoTimeoutRef.current = setTimeout(() => setInfo(null), 8000);
-          console.log('ℹ️ [Transaction Polling] Plaid token missing; waiting for bank connection.');
+          console.log('ℹ️ [Transaction Polling] Waiting for an active bank connection.');
           return;
         }
 
@@ -180,13 +179,13 @@ export function useTransactionPolling(
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
 
-      const isNoPlaidToken = typeof errorMessage === 'string' && /no plaid token/i.test(errorMessage);
-      if (isNoPlaidToken) {
+      const isNoBankConnection = typeof errorMessage === 'string' && /no (?:plaid token|bank connection)/i.test(errorMessage);
+      if (isNoBankConnection) {
         setError(null);
         setInfo('Connect your bank account first to enable transaction syncing.');
         if (infoTimeoutRef.current) clearTimeout(infoTimeoutRef.current);
         infoTimeoutRef.current = setTimeout(() => setInfo(null), 8000);
-        console.log('ℹ️ [Transaction Polling] Plaid token missing; waiting for bank connection.');
+        console.log('ℹ️ [Transaction Polling] Waiting for an active bank connection.');
         return;
       }
 

@@ -1,347 +1,440 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
-import { Card, CardContent } from "@/components/ui/card";
+import React, { useEffect, useId, useRef, useState } from "react";
+import Image from "next/image";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Send,
-  Bot,
-  User,
-  Sparkles,
-  MessageCircle,
-  Loader2,
-} from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { ArrowLeft, ArrowRight, Bot, ChevronDown, ExternalLink, ImagePlus, Loader2, Send, X } from "lucide-react";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 
 interface TaxAssistantScreenProps {
   user: { id: string; email?: string };
-  userProfile?: any;
+  userProfile?: unknown;
   onBack: () => void;
+}
+
+interface Assessment {
+  status: "needs_details" | "conditional" | "not_supported";
+  photoObservations: string[];
+  questions: string[];
+  sources: Array<{ id: string; title: string; url: string; reviewedAt: string }>;
+  taxYear: number;
+  yearNotice: string | null;
+}
+
+/** Server-composed from the signed-in user's saved profile and their own transactions. */
+interface ForYou {
+  paragraph: string;
+  action: { screen: "transactions"; merchantKey: string; count: number; label: string } | null;
 }
 
 interface Message {
   role: "user" | "assistant";
   content: string;
+  contextContent?: string;
+  imageDataUrl?: string;
+  assessment?: Assessment;
+  forYou?: ForYou | null;
 }
 
-function getPersonalizedSuggestions(profile: any): string[] {
-  const suggestions: string[] = [];
-  suggestions.push("How much do I owe in taxes this year?");
-  suggestions.push("What deductions am I missing?");
-  if (profile?.profession) {
-    const prof = Array.isArray(profile.profession) ? profile.profession[0] : profile.profession;
-    if (prof) suggestions.push(`What can I write off as a ${prof}?`);
+interface PhotoAttachment {
+  name: string;
+  previewUrl: string;
+  dataUrl: string | null;
+}
+
+const MAX_MESSAGE_LENGTH = 4000;
+const MAX_PHOTO_BYTES = 2 * 1024 * 1024;
+const PHOTO_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const STARTER_QUESTIONS = [
+  { label: "Laptop", question: "Can I write off a laptop I use for work and at home?" },
+  { label: "Client meal", question: "Can I deduct lunch with a client?" },
+  { label: "Records to keep", question: "What records should I keep for a business purchase?" },
+];
+
+const STATUS_LABELS: Record<Assessment["status"], string> = {
+  needs_details: "Details needed",
+  conditional: "Conditional guidance",
+  not_supported: "Guidance limited",
+};
+
+function safeSourceUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
   }
-  suggestions.push("Review my quarterly payment plan");
-  if (!profile?.home_office_sqft) suggestions.push("Should I claim a home office deduction?");
-  if (!profile?.sep_ira_contribution && !profile?.solo_401k_contribution) suggestions.push("How can I reduce my taxes with retirement contributions?");
-  return suggestions.slice(0, 5);
+}
+
+/** Only the transactions screen is a valid target; the merchant key is a plain search term. */
+function forYouHref(action: ForYou["action"]): string | null {
+  if (!action || action.screen !== "transactions" || typeof action.merchantKey !== "string" || !action.merchantKey.trim()) return null;
+  return `/protected/transactions?merchant=${encodeURIComponent(action.merchantKey.trim().slice(0, 80))}`;
+}
+
+function normalizeForYou(value: unknown): ForYou | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as { paragraph?: unknown; action?: unknown };
+  if (typeof candidate.paragraph !== "string" || !candidate.paragraph.trim()) return null;
+  const action = candidate.action && typeof candidate.action === "object" ? candidate.action as Record<string, unknown> : null;
+  return {
+    paragraph: candidate.paragraph,
+    action: action && action.screen === "transactions" && typeof action.merchantKey === "string" && typeof action.label === "string"
+      ? { screen: "transactions", merchantKey: action.merchantKey, count: typeof action.count === "number" ? action.count : 0, label: action.label }
+      : null,
+  };
 }
 
 function renderMarkdown(text: string): React.ReactNode {
-  const lines = text.split("\n");
-  const blocks: React.ReactNode[] = [];
-  let listItems: React.ReactNode[] = [];
-  let key = 0;
-
-  const flushList = () => {
-    if (listItems.length > 0) {
-      blocks.push(
-        <ul key={key++} className="my-2 ml-4 list-disc space-y-1">
-          {listItems}
-        </ul>
-      );
-      listItems = [];
-    }
-  };
-
-  for (const line of lines) {
-    if (/^[-*]\s+/.test(line) || /^\d+\.\s+/.test(line)) {
-      const content = line.replace(/^[-*]\s+/, "").replace(/^\d+\.\s+/, "");
-      listItems.push(
-        <li key={key++}>
-          {parseInlineMarkdown(content)}
-        </li>
-      );
-    } else {
-      flushList();
-      if (line.trim()) {
-        blocks.push(
-          <p key={key++} className="mb-2 last:mb-0">
-            {parseInlineMarkdown(line)}
-          </p>
-        );
-      }
-    }
-  }
-  flushList();
-
-  return blocks.length > 0 ? <>{blocks}</> : text;
+  return text.split("\n").map((line, index) => {
+    if (!line.trim()) return null;
+    const isListItem = /^[-*]\s+|^\d+\.\s+/.test(line);
+    const content = line.replace(/^[-*]\s+|^\d+\.\s+/, "");
+    const parts = content.split(/(\*\*[^*]+\*\*)/g).map((part, partIndex) => (
+      part.startsWith("**") && part.endsWith("**")
+        ? <strong key={partIndex} className="font-semibold">{part.slice(2, -2)}</strong>
+        : <React.Fragment key={partIndex}>{part}</React.Fragment>
+    ));
+    return <p key={index} className={`mb-2 last:mb-0 ${isListItem ? "pl-3" : ""}`}>{isListItem && "• "}{parts}</p>;
+  });
 }
 
-function parseInlineMarkdown(text: string): React.ReactNode {
-  const parts: React.ReactNode[] = [];
-  let remaining = text;
-  let key = 0;
-
-  while (remaining.length > 0) {
-    const boldMatch = remaining.match(/\*\*(.+?)\*\*|__(.+?)__/);
-    if (boldMatch) {
-      const before = remaining.slice(0, boldMatch.index);
-      const boldText = boldMatch[1] ?? boldMatch[2] ?? "";
-      if (before) parts.push(<span key={key++}>{before}</span>);
-      parts.push(
-        <strong key={key++} className="font-semibold">
-          {boldText}
-        </strong>
-      );
-      remaining = remaining.slice((boldMatch.index ?? 0) + boldMatch[0].length);
-    } else {
-      parts.push(<span key={key++}>{remaining}</span>);
-      break;
-    }
-  }
-
-  return parts.length === 1 ? parts[0] : <>{parts}</>;
-}
-
-export function TaxAssistantScreen({
-  user,
-  userProfile,
-  onBack,
-}: TaxAssistantScreenProps) {
+export function TaxAssistantScreen({ user, onBack }: TaxAssistantScreenProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
+  const [taxYear, setTaxYear] = useState<2026 | 2027>(2026);
+  const [photo, setPhoto] = useState<PhotoAttachment | null>(null);
+  const [isReadingPhoto, setIsReadingPhoto] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [taxSummary, setTaxSummary] = useState<any>(null);
+  const [answeringQuestion, setAnsweringQuestion] = useState<string | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const fileReaderRef = useRef<FileReader | null>(null);
+  const photoRef = useRef<PhotoAttachment | null>(null);
+  const previewUrlRef = useRef<string | null>(null);
+  const fileReadVersionRef = useRef(0);
+  const readingPhotoRef = useRef(false);
+  const requestInFlightRef = useRef(false);
+  const requestVersionRef = useRef(0);
+  const requestControllerRef = useRef<AbortController | null>(null);
+  const id = useId();
 
   useEffect(() => {
-    const fetchSummary = async () => {
-      try {
-        const res = await makeAuthenticatedRequest(`/api/tax/compute-1040?year=${new Date().getFullYear()}`);
-        if (res.ok) {
-          const data = await res.json();
-          setTaxSummary(data);
-        }
-      } catch {}
+    setMessages([]);
+    setInputValue("");
+    setPhoto(null);
+    setError(null);
+    setAnsweringQuestion(null);
+    setIsLoading(false);
+    setIsReadingPhoto(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    return () => {
+      requestVersionRef.current += 1;
+      requestControllerRef.current?.abort();
+      requestInFlightRef.current = false;
+      fileReadVersionRef.current += 1;
+      fileReaderRef.current?.abort();
+      readingPhotoRef.current = false;
+      photoRef.current = null;
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+      previewUrlRef.current = null;
     };
-    fetchSummary();
-  }, []);
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+  }, [user.id]);
 
   useEffect(() => {
-    scrollToBottom();
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isLoading]);
 
-  const sendMessage = async (text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed || isLoading) return;
+  const removePhoto = () => {
+    fileReadVersionRef.current += 1;
+    fileReaderRef.current?.abort();
+    fileReaderRef.current = null;
+    readingPhotoRef.current = false;
+    setIsReadingPhoto(false);
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    previewUrlRef.current = null;
+    photoRef.current = null;
+    setPhoto(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
 
-    setInputValue("");
+  const handlePhotoSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || requestInFlightRef.current) return;
+    removePhoto();
     setError(null);
+    if (!PHOTO_TYPES.has(file.type)) {
+      setError("Choose a JPEG, PNG, or WebP photo. Convert HEIC photos to JPEG first.");
+      return;
+    }
+    if (file.size === 0 || file.size > MAX_PHOTO_BYTES) {
+      setError("Choose a photo up to 2 MB. Empty files cannot be attached.");
+      return;
+    }
 
-    const userMessage: Message = { role: "user", content: trimmed };
-    setMessages((prev) => [...prev, userMessage]);
+    const version = fileReadVersionRef.current;
+    const previewUrl = URL.createObjectURL(file);
+    previewUrlRef.current = previewUrl;
+    photoRef.current = { name: file.name, previewUrl, dataUrl: null };
+    setPhoto(photoRef.current);
+    readingPhotoRef.current = true;
+    setIsReadingPhoto(true);
+    const reader = new FileReader();
+    fileReaderRef.current = reader;
+    reader.onload = () => {
+      if (version !== fileReadVersionRef.current) return;
+      if (typeof reader.result !== "string") {
+        removePhoto();
+        setError("This photo could not be read. Please choose it again.");
+        return;
+      }
+      readingPhotoRef.current = false;
+      setIsReadingPhoto(false);
+      photoRef.current = { name: file.name, previewUrl, dataUrl: reader.result };
+      setPhoto(photoRef.current);
+      fileReaderRef.current = null;
+    };
+    reader.onerror = () => {
+      if (version !== fileReadVersionRef.current) return;
+      removePhoto();
+      setError("This photo could not be read. Please choose it again.");
+    };
+    try {
+      reader.readAsDataURL(file);
+    } catch {
+      removePhoto();
+      setError("This photo could not be read. Please choose it again.");
+    }
+  };
+
+  const sendMessage = async () => {
+    if (requestInFlightRef.current || readingPhotoRef.current) return;
+    const attachedPhoto = photoRef.current;
+    const draft = inputValue.trim();
+    if (!draft && !attachedPhoto?.dataUrl) return;
+    if (answeringQuestion && !draft) return;
+    const message = answeringQuestion
+      ? `${answeringQuestion}\nMy answer: ${draft}`
+      : draft || "Can I write this off?";
+    if (message.length > MAX_MESSAGE_LENGTH) {
+      setError("Please shorten your question and answer to 4,000 characters.");
+      return;
+    }
+
+    requestInFlightRef.current = true;
+    const version = ++requestVersionRef.current;
+    const controller = new AbortController();
+    requestControllerRef.current = controller;
+    const history = messages;
+    const userMessage: Message = { role: "user", content: message, imageDataUrl: attachedPhoto?.dataUrl || undefined };
+    setMessages([...history, userMessage]);
     setIsLoading(true);
+    setError(null);
 
     try {
       const response = await makeAuthenticatedRequest("/api/ai/tax-assistant", {
         method: "POST",
+        signal: controller.signal,
         body: JSON.stringify({
-          message: trimmed,
-          conversationHistory: [...messages, userMessage].map((m) => ({
-            role: m.role,
-            content: m.content,
-          })),
+          message,
+          taxYear,
+          conversationHistory: history.slice(-12).map(({ role, content, contextContent }) => ({ role, content: (contextContent || content).slice(0, 6000) })),
+          ...(attachedPhoto?.dataUrl ? { imageDataUrl: attachedPhoto.dataUrl } : {}),
         }),
       });
-
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || `Request failed: ${response.statusText}`);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Your question could not be sent. Please try again.");
+      if (typeof data.reply !== "string" || !data.reply.trim()) {
+        throw new Error("No answer was returned. Please try again.");
       }
-
-      const data = await response.json();
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: data.reply },
-      ]);
+      if (version !== requestVersionRef.current) return;
+      const returnedHistory = Array.isArray(data.conversationHistory) ? data.conversationHistory : [];
+      const lastAssistantTurn = returnedHistory[returnedHistory.length - 1];
+      const assessment: Assessment | undefined = data.assessment;
+      const fallbackContext = [
+        data.reply,
+        assessment?.photoObservations?.length
+          ? `Unverified photo observations (not confirmed facts):\n${assessment.photoObservations.join("\n")}`
+          : null,
+        assessment?.questions?.length ? `Follow-up questions:\n${assessment.questions.join("\n")}` : null,
+      ].filter(Boolean).join("\n\n");
+      const contextContent = lastAssistantTurn?.role === "assistant" && typeof lastAssistantTurn.content === "string" && lastAssistantTurn.content.trim()
+        ? lastAssistantTurn.content
+        : fallbackContext;
+      setMessages([...history, userMessage, { role: "assistant", content: data.reply, contextContent: contextContent.slice(0, 6000), assessment, forYou: normalizeForYou(data.forYou) }]);
+      setInputValue("");
+      setAnsweringQuestion(null);
+      removePhoto();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to get response");
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: "Sorry, I couldn't process your request. Please try again.",
-        },
-      ]);
+      if (version !== requestVersionRef.current) return;
+      setMessages(history);
+      setError(err instanceof Error ? err.message : "Your question could not be sent. Please try again.");
+      // Keep the draft, answer prompt, and attachment intact for a retry.
     } finally {
-      setIsLoading(false);
-      inputRef.current?.focus();
+      if (version === requestVersionRef.current) {
+        requestInFlightRef.current = false;
+        requestControllerRef.current = null;
+        setIsLoading(false);
+        requestAnimationFrame(() => inputRef.current?.focus());
+      }
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    sendMessage(inputValue);
+  const handleYearChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    if (requestInFlightRef.current) return;
+    setTaxYear(event.target.value === "2027" ? 2027 : 2026);
+    setMessages([]);
+    setAnsweringQuestion(null);
+    setError(null);
+    inputRef.current?.focus();
   };
 
-  const handleSuggestionClick = (question: string) => {
-    sendMessage(question);
-  };
+  const busy = isLoading || isReadingPhoto;
+  const answerPrefixLength = answeringQuestion ? answeringQuestion.length + "\nMy answer: ".length : 0;
 
   return (
-    <div className="flex h-full flex-col bg-background">
-      {/* Header */}
-      <div className="sticky top-0 z-50 border-b border-border bg-background">
-        <div className="mx-auto max-w-4xl px-4 py-3 sm:px-6 sm:py-4">
-          <div className="flex items-center gap-3 sm:gap-4">
-            <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
-                <Bot className="h-4 w-4 text-primary" />
-              </div>
-              <div>
-                <h1 className="text-lg font-semibold text-foreground sm:text-xl">
-                  Tax Assistant
-                </h1>
-                <p className="text-xs text-muted-foreground">
-                  AI-powered tax guidance
-                </p>
+    <div className="flex h-full min-h-0 flex-col bg-background">
+      <div className="sticky top-0 z-10 border-b border-border bg-background">
+        <div className="mx-auto max-w-4xl px-3 py-2 sm:px-6">
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="icon" className="h-11 w-11 shrink-0 md:h-11 md:w-11" onClick={onBack} aria-label="Go back"><ArrowLeft className="h-5 w-5" /></Button>
+            <h1 className="min-w-0 flex-1 text-lg font-semibold tracking-tight text-foreground">AI assistant</h1>
+            <label htmlFor={`${id}-year`} className="sr-only">Tax year</label>
+            <select id={`${id}-year`} value={taxYear} onChange={handleYearChange} disabled={isLoading}
+              aria-describedby={`${id}-year-note`}
+              className="min-h-11 shrink-0 rounded-xl border border-border bg-card px-2 text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 sm:text-sm">
+              <option value={2026}>2026</option><option value={2027}>2027</option>
+            </select>
+          </div>
+          <p id={`${id}-year-note`} className="mt-1 text-xs leading-snug text-muted-foreground" role="status">
+            {taxYear === 2027 ? "2027 planning only · Inflation-indexed 2027 amounts are pending IRS publication." : "Guidance depends on your facts."}
+            <span className="sr-only"> Changing years starts a new conversation.</span>
+          </p>
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-4xl px-3 py-3 sm:px-6">
+          {messages.length === 0 && !isLoading && (
+            <div className="py-3 sm:py-5">
+              <h2 className="text-lg font-semibold tracking-tight text-foreground">Can I write this off?</h2>
+              <p className="mt-1 text-sm text-muted-foreground">Describe a purchase or add a photo.</p>
+              <div className="mt-3 grid grid-cols-3 gap-2">
+                {STARTER_QUESTIONS.map(({ label, question }) => (
+                  <button key={question} type="button" disabled={busy} title={question}
+                    onClick={() => { setInputValue(question); setAnsweringQuestion(null); inputRef.current?.focus(); }}
+                    className="min-h-11 rounded-xl border border-border bg-card px-2 py-2 text-xs font-medium text-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50">{label}</button>
+                ))}
               </div>
             </div>
+          )}
+
+          <div className="space-y-3" role="log" aria-label="Deduction conversation" aria-live="polite" aria-relevant="additions">
+            {messages.map((message, index) => (
+              <div key={index} className={`flex gap-2 sm:gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}>
+                {message.role === "assistant" && <div aria-hidden="true" className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 sm:flex"><Bot className="h-4 w-4 text-primary" /></div>}
+                <article aria-label={message.role === "user" ? "Your question" : "Assistant guidance"}
+                  className={`min-w-0 break-words rounded-2xl px-3 py-3 text-sm leading-relaxed sm:max-w-[85%] ${message.role === "user" ? "max-w-[90%] bg-primary text-primary-foreground" : "w-full border border-border bg-card text-foreground"}`}>
+                  {message.imageDataUrl && <Image src={message.imageDataUrl} alt="Photo included with your question" width={200} height={140} unoptimized className="mb-3 max-h-40 rounded-lg object-contain" />}
+                  {message.assessment && <p className="mb-2 text-xs font-semibold text-primary">{STATUS_LABELS[message.assessment.status]} · {message.assessment.taxYear}</p>}
+                  {message.role === "user" ? <p className="whitespace-pre-wrap">{message.content}</p> : renderMarkdown(message.content)}
+                  {message.forYou && (() => {
+                    const href = forYouHref(message.forYou.action);
+                    return (
+                      <section aria-label="For you" className="mt-3 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2.5">
+                        <h3 className="text-xs font-semibold text-primary">For you</h3>
+                        <p className="mt-1 text-sm leading-relaxed">{message.forYou.paragraph}</p>
+                        {href && message.forYou.action && (
+                          <Link href={href} className="mt-2 inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                            {message.forYou.action.label}<ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                          </Link>
+                        )}
+                      </section>
+                    );
+                  })()}
+                  {message.assessment?.yearNotice && <p className="mt-2 rounded-lg bg-muted px-2 py-1.5 text-xs text-muted-foreground">{message.assessment.yearNotice}</p>}
+                  {!!message.assessment?.questions?.length && (
+                    <div className="mt-3 space-y-1.5">
+                      <h3 className="text-xs font-semibold">Add a detail</h3>
+                      {message.assessment.questions.map((question, questionIndex) => (
+                        <button key={questionIndex} type="button" disabled={busy}
+                          onClick={() => { setAnsweringQuestion(question); inputRef.current?.focus(); }} aria-label={`Answer: ${question}`}
+                          className="block min-h-11 w-full rounded-lg border border-border px-3 py-2 text-left text-xs hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50">{question}</button>
+                      ))}
+                    </div>
+                  )}
+                  {(!!message.assessment?.sources?.length || !!message.assessment?.photoObservations?.length) && (
+                    <details className="group mt-2 border-t border-border">
+                      <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 text-xs font-medium text-muted-foreground [&::-webkit-details-marker]:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md">
+                        <span>{message.assessment?.photoObservations?.length ? 'Photo notes & sources' : 'Sources'}{message.assessment?.sources?.length ? ` (${message.assessment.sources.length})` : ''}</span>
+                        <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
+                      </summary>
+                      <div className="space-y-3 pb-1">
+                        {!!message.assessment?.photoObservations?.length && <div>
+                          <h3 className="mb-1 text-xs font-semibold">What the photo appears to show · unverified</h3>
+                          <ul className="list-disc space-y-1 pl-4 text-xs text-muted-foreground">{message.assessment.photoObservations.map((observation, observationIndex) => <li key={observationIndex}>{observation}</li>)}</ul>
+                        </div>}
+                        {!!message.assessment?.sources?.length && <ul className="space-y-1">
+                          {message.assessment.sources.map((source) => {
+                            const url = safeSourceUrl(source.url);
+                            return url ? <li key={source.id} className="text-xs">
+                              <a href={url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center gap-1 text-primary underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{source.title}<ExternalLink aria-label="opens in a new tab" className="h-3 w-3 shrink-0" /></a>
+                              <p className="text-muted-foreground">Reviewed {source.reviewedAt}</p>
+                            </li> : null;
+                          })}
+                        </ul>}
+                      </div>
+                    </details>
+                  )}
+                </article>
+              </div>
+            ))}
+            {isLoading && <div className="flex items-center gap-2 px-2 py-3 text-sm text-muted-foreground" role="status"><Loader2 className="h-4 w-4 animate-spin" />Reviewing your question…</div>}
+            <div ref={messagesEndRef} />
           </div>
         </div>
       </div>
 
-      {/* Messages area */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-4xl px-4 py-4 sm:px-6">
-          {messages.length === 0 && !isLoading ? (
-            <div className="flex flex-col items-center justify-center py-12">
-              {/* Financial summary header */}
-              {taxSummary && (
-                <div className="mb-6 flex gap-4 rounded-xl border border-border bg-card p-4 w-full max-w-md">
-                  <div className="flex-1 text-center">
-                    <p className="text-xs text-muted-foreground">Est. Tax</p>
-                    <p className="text-lg font-bold text-foreground">${Math.round(taxSummary.totalTax || 0).toLocaleString()}</p>
-                  </div>
-                  <div className="flex-1 text-center border-x border-border">
-                    <p className="text-xs text-muted-foreground">Eff. Rate</p>
-                    <p className="text-lg font-bold text-foreground">{((taxSummary.effectiveRate || 0) * 100).toFixed(1)}%</p>
-                  </div>
-                  <div className="flex-1 text-center">
-                    <p className="text-xs text-muted-foreground">AGI</p>
-                    <p className="text-lg font-bold text-foreground">${Math.round(taxSummary.agi || 0).toLocaleString()}</p>
-                  </div>
-                </div>
-              )}
-              <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
-                <MessageCircle className="h-7 w-7 text-primary" />
-              </div>
-              <h2 className="mb-2 text-lg font-medium text-foreground">
-                Ask your tax questions
-              </h2>
-              <p className="mb-6 max-w-sm text-center text-sm text-muted-foreground">
-                Get personalized guidance on deductions, quarterly taxes, and more
-                based on your profile and expenses.
-              </p>
-              <div className="flex flex-wrap justify-center gap-2">
-                {getPersonalizedSuggestions(userProfile).map((q) => (
-                  <button
-                    key={q}
-                    onClick={() => handleSuggestionClick(q)}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-4 py-2 text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-                  >
-                    <Sparkles className="h-3.5 w-3.5 text-primary" />
-                    {q}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {messages.map((msg, idx) => (
-                <div
-                  key={idx}
-                  className={`flex gap-3 ${
-                    msg.role === "user" ? "justify-end" : "justify-start"
-                  }`}
-                >
-                  {msg.role === "assistant" && (
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10">
-                      <Bot className="h-4 w-4 text-primary" />
-                    </div>
-                  )}
-                  <div
-                    className={`max-w-[85%] rounded-2xl px-4 py-3 sm:max-w-[75%] ${
-                      msg.role === "user"
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-card text-foreground border border-border"
-                    }`}
-                  >
-                    {msg.role === "user" ? (
-                      <p className="whitespace-pre-wrap text-sm">{msg.content}</p>
-                    ) : (
-                      <div className="prose prose-sm dark:prose-invert max-w-none text-sm">
-                        {renderMarkdown(msg.content)}
-                      </div>
-                    )}
-                  </div>
-                  {msg.role === "user" && (
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/20">
-                      <User className="h-4 w-4 text-primary" />
-                    </div>
-                  )}
-                </div>
-              ))}
-              {isLoading && (
-                <div className="flex gap-3">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10">
-                    <Bot className="h-4 w-4 text-primary" />
-                  </div>
-                  <div className="flex items-center gap-2 rounded-2xl border border-border bg-card px-4 py-3">
-                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                    <span className="text-sm text-muted-foreground">
-                      Thinking...
-                    </span>
-                  </div>
-                </div>
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Input bar */}
       <div className="sticky bottom-0 border-t border-border bg-background">
-        <div className="mx-auto max-w-4xl px-4 py-3 sm:px-6">
-          {error && (
-            <p className="mb-2 text-sm text-destructive">{error}</p>
-          )}
-          <form onSubmit={handleSubmit} className="flex gap-2">
-            <Input
-              ref={inputRef}
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              placeholder="Ask a tax question..."
-              disabled={isLoading}
-              className="flex-1"
-            />
-            <Button type="submit" disabled={isLoading || !inputValue.trim()}>
-              {isLoading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Send className="h-4 w-4" />
-              )}
-            </Button>
+        <div className="mx-auto max-w-4xl px-3 pt-2 pb-1 sm:px-6">
+          {error && <p role="alert" className="mb-3 text-sm text-destructive">{error} Your draft is still here.</p>}
+          {answeringQuestion && <div className="mb-2 flex items-start gap-2 rounded-lg bg-muted px-3 py-2 text-xs">
+            <p className="min-w-0 flex-1"><span className="font-semibold">Answering: </span>{answeringQuestion}</p>
+            <Button type="button" variant="ghost" size="icon" disabled={isLoading} onClick={() => setAnsweringQuestion(null)} aria-label="Stop answering this question"><X className="h-4 w-4" /></Button>
+          </div>}
+          {photo && <div className="mb-2 flex items-center gap-3 rounded-xl border border-border bg-card p-2">
+            <Image src={photo.previewUrl} alt="Selected photo preview" width={48} height={48} unoptimized className="h-12 w-12 rounded-lg object-cover" />
+            <div className="min-w-0 flex-1"><p className="truncate text-xs font-medium">{photo.name}</p><p className="mt-1 text-xs text-muted-foreground" role="status">{isReadingPhoto ? "Preparing photo…" : "Photo ready to send"}</p></div>
+            <Button type="button" variant="ghost" size="icon" disabled={isLoading} onClick={removePhoto} aria-label="Remove attached photo"><X className="h-4 w-4" /></Button>
+          </div>}
+          <form onSubmit={(event) => { event.preventDefault(); void sendMessage(); }}>
+            <label htmlFor={`${id}-message`} className="sr-only">Describe the purchase or answer a follow-up question</label>
+            <div className="flex items-end gap-1 rounded-2xl border border-border bg-card p-1.5 focus-within:ring-2 focus-within:ring-ring">
+              <input ref={fileInputRef} id={`${id}-photo`} type="file" accept="image/jpeg,image/png,image/webp" aria-label="Choose a receipt, screenshot, or photo" className="sr-only" tabIndex={-1} disabled={isLoading} onChange={handlePhotoSelect} />
+              <Button type="button" variant="ghost" size="icon" className="h-11 w-11 shrink-0 md:h-11 md:w-11" onClick={() => fileInputRef.current?.click()} disabled={isLoading} aria-label={photo ? "Replace attached photo" : "Attach a photo"}><ImagePlus className="h-4 w-4" /></Button>
+              <Textarea id={`${id}-message`} ref={inputRef} value={inputValue} onChange={(event) => setInputValue(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void sendMessage(); }
+                }} maxLength={Math.max(0, MAX_MESSAGE_LENGTH - answerPrefixLength)}
+                placeholder={answeringQuestion ? "Add your answer…" : "Ask about a purchase…"}
+                disabled={isLoading} rows={2} aria-describedby={`${id}-privacy ${id}-input-help`} className="min-h-11 max-h-40 min-w-0 resize-y border-0 bg-transparent px-1 py-2 text-base focus-visible:ring-0 focus-visible:ring-offset-0 sm:text-sm" />
+              <Button type="submit" size="icon" className="h-11 w-11 shrink-0 rounded-xl md:h-11 md:w-11" disabled={busy || (!inputValue.trim() && (!photo?.dataUrl || !!answeringQuestion))} aria-label="Send question">{isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</Button>
+            </div>
+            <details className="group">
+              <summary id={`${id}-privacy`} className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 text-xs text-muted-foreground [&::-webkit-details-marker]:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md">
+                <span>Questions & photos go to OpenAI · Photo tips</span>
+                <ChevronDown className="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
+              </summary>
+              <div className="space-y-1 pb-2 text-xs leading-relaxed text-muted-foreground">
+                <p>Sent only when you send your question. Crop out account numbers and unrelated personal details.</p>
+                <p id={`${id}-input-help`}>One JPEG, PNG, or WebP, up to 2 MB. Enter sends; Shift + Enter adds a line.</p>
+                <p>Changing tax years starts a new conversation.</p>
+              </div>
+            </details>
           </form>
         </div>
       </div>

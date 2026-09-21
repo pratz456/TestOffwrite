@@ -13,7 +13,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 export function ForgotPasswordForm({
   className,
@@ -23,23 +23,34 @@ export function ForgotPasswordForm({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const sending = useRef(false);
 
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (sending.current) return;
+    sending.current = true;
     setIsLoading(true);
     setError(null);
 
     try {
-      const { error } = await resetPassword(email);
-      if (error) throw new Error(error.message);
-      setSuccess(true);
-    } catch (error: unknown) {
-      // Only log errors in development
-      if (process.env.NODE_ENV === 'development') {
-        console.error('Password reset error:', error);
+      const { error } = await resetPassword(email.trim());
+      // Preserve the same response for unknown accounts, including projects that
+      // have not yet enabled Firebase's email enumeration protection.
+      if (error && error.code !== 'auth/user-not-found') {
+        setError(error.code === 'auth/network-request-failed'
+          ? 'We could not send the request. Check your connection and try again.'
+          : error.code === 'auth/too-many-requests'
+            ? 'Too many requests. Please wait a few minutes and try again.'
+            : error.code === 'auth/invalid-email'
+              ? 'Please enter a valid email address.'
+              : 'We could not send the reset request. Please try again.');
+        return;
       }
-      setError(error instanceof Error ? error.message : "An error occurred");
+      setSuccess(true);
+    } catch {
+      setError('We could not send the reset request. Please try again.');
     } finally {
+      sending.current = false;
       setIsLoading(false);
     }
   };
@@ -50,13 +61,16 @@ export function ForgotPasswordForm({
         <Card>
           <CardHeader>
             <CardTitle className="text-2xl">Check Your Email</CardTitle>
-            <CardDescription>Password reset instructions sent</CardDescription>
+            <CardDescription>Password reset request received</CardDescription>
           </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground">
+          <CardContent className="space-y-4">
+            <p role="status" className="text-sm text-muted-foreground">
               If you registered using your email and password, you will receive
               a password reset email.
             </p>
+            <p className="text-sm text-muted-foreground">Check your inbox and spam folder. Use the latest reset email.</p>
+            <Button variant="outline" className="w-full" onClick={() => setSuccess(false)}>Try another email</Button>
+            <Link href="/auth/login" className="block text-center text-sm underline">Back to sign in</Link>
           </CardContent>
         </Card>
       ) : (
@@ -82,7 +96,7 @@ export function ForgotPasswordForm({
                     onChange={(e) => setEmail(e.target.value)}
                   />
                 </div>
-                {error && <p className="text-sm text-red-500">{error}</p>}
+                {error && <p role="alert" className="text-sm text-red-500">{error}</p>}
                 <Button type="submit" className="w-full" disabled={isLoading}>
                   {isLoading ? "Sending..." : "Send reset email"}
                 </Button>

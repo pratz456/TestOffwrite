@@ -3,6 +3,10 @@
 import dynamic from "next/dynamic";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { getUserProfile } from "@/lib/firebase/profiles";
+import { profileLookupState } from "@/lib/onboarding/profile";
+import { notifyProfileUpdated } from "@/lib/onboarding/profile-events";
+import { protectedScreen, protectedScreenUrl, previousProtectedScreen, type ProtectedScreen } from "@/lib/navigation/protected-screens";
+import { Button } from "@/components/ui/button";
 import { ProfileSetupScreen } from "@/components/profile-setup-screen";
 import DashboardScreen from "@/components/dashboard-screen";
 import { SettingsScreen } from "@/components/settings-screen";
@@ -89,7 +93,7 @@ const TaxOrganizerScreen = dynamic(
   { ssr: false }
 );
 import { useEffect, useRef, useState } from "react";
-import { useRouter, useSearchParams, usePathname } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useTransactions } from "@/lib/firebase/hooks";
 import { useTransactionPolling } from "@/lib/hooks/use-transaction-polling";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
@@ -102,7 +106,6 @@ interface UserProfile {
   income: string;
   state: string;
   filingStatus: string;
-  plaidToken?: string;
 }
 
 // Use Transaction type from firebase library
@@ -113,7 +116,9 @@ export default function ProtectedPage() {
   const [userProfile, setUserProfile] = useState<any>(null);
   const [hasProfile, setHasProfile] = useState<boolean | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [currentScreen, setCurrentScreen] = useState<'dashboard' | 'settings' | 'add-expense' | 'receipt-upload' | 'tax-calendar' | 'transactions' | 'review-transactions' | 'schedule-c-export' | 'edit-expense' | 'deductions-detail' | 'expenses-detail' | 'banks-detail' | 'profit-loss-detail' | 'categories' | 'plaid-link' | 'plaid' | 'transaction-detail' | 'reports' | 'ai-insights' | 'quarterly-taxes' | 'mileage-tracker' | 'income-tracking' | 'tax-form-wizard' | 'state-tax-calculator' | 'tax-assistant' | 'profit-loss-report' | 'quarterly-payments' | 'action-items' | 'add-manual-transaction' | 'tax-filing-hub' | 'tax-organizer' | 'w2-income' | 'tax-preview' | 'deductions-entry' | 'form-8879' | 'document-import'>('dashboard');
+  const [profileLoadError, setProfileLoadError] = useState(false);
+  const [profileRetry, setProfileRetry] = useState(0);
+  const [currentScreen, setCurrentScreen] = useState<ProtectedScreen>('dashboard');
   const [navigationStack, setNavigationStack] = useState<string[]>(['dashboard']);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
@@ -123,7 +128,10 @@ export default function ProtectedPage() {
   const [isMobileQuickActionsVisible, setIsMobileQuickActionsVisible] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
-  const pathname = usePathname();
+  const navigateScreen = (rawScreen: string) => {
+    setCurrentScreen(protectedScreen(rawScreen));
+    router.push(protectedScreenUrl(rawScreen));
+  };
 
   // Use real-time transactions hook for instant updates
   const {
@@ -144,6 +152,8 @@ export default function ProtectedPage() {
   // One-time incremental sync when user lands on protected app with bank connected
   const hasSyncedOnVisitRef = useRef(false);
   useEffect(() => {
+    // A real-data local preview can opt out of importing new bank activity on login.
+    if (process.env.NEXT_PUBLIC_AUTO_SYNC_ON_VISIT === 'false') return;
     if (!bankConnected || !user?.id || hasSyncedOnVisitRef.current) return;
     hasSyncedOnVisitRef.current = true;
     makeAuthenticatedRequest('/api/plaid/sync-transactions', {
@@ -163,10 +173,10 @@ export default function ProtectedPage() {
   // Check bank connection and fetch transactions
   const checkBankConnectionAndFetchTransactions = async (currentUser: any) => {
     try {
-      // Check if user has a Plaid token in their profile
+      // Check the server-managed bank connection status
       const { data: profile, error } = await getUserProfile(currentUser.id);
 
-      if (profile?.plaid_token) {
+      if (profile?.bankConnected) {
         setBankConnected(true);
         // Only sync transactions if explicitly requested, not on every page load
         // This prevents the massive slowdown on home screen
@@ -185,220 +195,73 @@ export default function ProtectedPage() {
   };
 
   useEffect(() => {
+    if (loading) return;
+    let current = true;
+    if (!user?.id) {
+      setHasProfile(null);
+      setUserProfile(null);
+      setBankConnected(false);
+      setProfileLoadError(false);
+      setIsLoading(false);
+      return;
+    }
+    setIsLoading(true);
+    setProfileLoadError(false);
     const checkUserAndProfile = async () => {
-      if (!user) {
-        setIsLoading(false);
-        return;
-      }
-
       try {
-
-        // Check if user has completed profile setup
-        const { data: profile, error: profileError } = await getUserProfile(user.id);
-
-        // Debug: Log the raw response from getUserProfile
-        console.log('🔍 [Profile Check] getUserProfile response:', {
-          hasData: !!profile,
-          hasError: !!profileError,
-          errorType: typeof profileError,
-          errorKeys: profileError ? Object.keys(profileError) : [],
-                      errorStringified: profileError ? (() => {
-              try {
-                return JSON.stringify(profileError, null, 2);
-              } catch (e) {
-                return `[Circular reference or non-serializable: ${e instanceof Error ? e.message : String(e)}]`;
-              }
-            })() : 'null',
-          errorIsEmpty: profileError && Object.keys(profileError).length === 0,
-          errorIsNull: profileError === null,
-          errorIsUndefined: profileError === undefined
-        });
-
-        if (profileError) {
-          // Check for empty error objects (which can cause console errors)
-          if (profileError && typeof profileError === 'object' && Object.keys(profileError).length === 0) {
-            console.log('⚠️ [Profile Check] Empty error object detected, treating as no profile');
-            setHasProfile(false);
-            return;
-          }
-
-          // Enhanced error logging with better structure
-          const errorInfo = {
-            error: profileError,
-            errorType: typeof profileError,
-            errorCode: profileError?.code,
-            errorMessage: profileError?.message,
-            hasOriginalError: !!profileError?.originalError,
-            originalErrorMessage: profileError?.originalError?.message,
-            errorKeys: Object.keys(profileError || {}),
-            errorStringified: (() => {
-              try {
-                return JSON.stringify(profileError, null, 2);
-              } catch (e) {
-                return `[Circular reference or non-serializable: ${e instanceof Error ? e.message : String(e)}]`;
-              }
-            })()
-          };
-
-          console.log('🔍 [Profile Check] Profile error details:', errorInfo);
-
-          // Handle specific error codes
-          if (profileError.code === 'PGRST116' || profileError.code === 'PROFILE_NOT_FOUND') {
-            console.log('ℹ️ [Profile Check] No profile found for user, showing setup screen');
-            setHasProfile(false);
-          } else if (profileError.code === 'FETCH_ERROR') {
-            console.log('⚠️ [Profile Check] Fetch error occurred, checking details');
-
-            // Check if it's a permissions error
-            const isPermissionsError = profileError?.message?.includes('permissions') ||
-                                     profileError?.message?.includes('permission-denied') ||
-                                     profileError?.originalError?.message?.includes('permissions') ||
-                                     profileError?.originalError?.message?.includes('permission-denied');
-
-            if (isPermissionsError) {
-              console.log('🔒 [Profile Check] Permissions issue detected, user needs to set up profile');
-            } else {
-              console.log('⚠️ [Profile Check] Other fetch error, defaulting to profile setup');
-            }
-            setHasProfile(false);
-          } else {
-            // Handle any other error types gracefully
-            console.log('⚠️ [Profile Check] Unknown profile error, defaulting to profile setup');
-            setHasProfile(false);
-          }
-        } else if (profile) {
-          // Success case: user has a profile
-          console.log('✅ [Profile Check] Profile found, user has completed setup');
-          setHasProfile(true);
-          setUserProfile(profile);
-
-          // Check bank connection and fetch transactions
-          await checkBankConnectionAndFetchTransactions(user);
-        } else {
-          // No error but also no profile data
-          console.log('ℹ️ [Profile Check] No profile data returned, showing setup screen');
-          setHasProfile(false);
+        const { data: profile, error } = await getUserProfile(user.id);
+        if (!current) return;
+        const state = profileLookupState(profile, error);
+        if (state === 'error') {
+          setProfileLoadError(true);
+          return;
         }
-      } catch (error) {
-        // Enhanced error handling for unexpected errors
-        const errorInfo = {
-          error,
-          errorType: typeof error,
-          errorMessage: error instanceof Error ? error.message : String(error),
-          errorStack: error instanceof Error ? error.stack : undefined,
-          timestamp: new Date().toISOString()
-        };
-
-        console.error('❌ [Profile Check] Unexpected error in checkUserAndProfile:', errorInfo);
-
-        // Don't redirect to login for profile errors - just show setup screen
-        // Only redirect for authentication errors
-        if (error instanceof Error &&
-            (error.message.includes('auth') ||
-             error.message.includes('token') ||
-             error.message.includes('unauthorized'))) {
-          console.log('🔐 [Profile Check] Authentication error detected, redirecting to login');
-          router.push("/auth/login");
-        } else {
-          console.log('⚠️ [Profile Check] Non-authentication error, showing profile setup screen');
-          setHasProfile(false);
-        }
+        setHasProfile(state === 'existing');
+        setUserProfile(profile);
+        setBankConnected(Boolean(profile?.bankConnected));
+      } catch {
+        if (current) setProfileLoadError(true);
       } finally {
-        setIsLoading(false);
+        if (current) setIsLoading(false);
       }
     };
-
-    checkUserAndProfile();
-  }, [user, router]);
+    void checkUserAndProfile();
+    return () => { current = false; };
+  }, [user?.id, loading, profileRetry]);
 
   // Refresh transactions when navigating to dashboard
   // Real-time updates are handled automatically by useTransactions hook
 
-  // Handle URL parameters for navigation (single source of truth for screen when present)
+  // URL changes drive the displayed screen. Data refreshes never append history,
+  // and a late transaction request cannot reopen a screen after the user leaves it.
   useEffect(() => {
-    if (!searchParams) return;
-    const screen = searchParams.get('screen');
+    const screen = protectedScreen(searchParams.get('screen'));
     const transactionId = searchParams.get('transactionId');
-    const fromPage = searchParams.get('from');
-
-    if (screen === 'transaction-detail' && transactionId) {
-        // Try to find the transaction by id or trans_id in the loaded transactions
-        let transaction = transactions.find(t => t.id === transactionId || (t as any).trans_id === transactionId);
-        if (!transaction) {
-          // If not found locally, attempt to fetch the transaction from API as a fallback
-          (async () => {
-            try {
-              console.log('Transaction not found locally, fetching from API:', transactionId);
-              const res = await fetch(`/api/transactions/${encodeURIComponent(transactionId)}`);
-              if (res.ok) {
-                const data = await res.json();
-                if (data && data.transaction) {
-                  const fetchedTransaction = data.transaction;
-                  // Ensure trans_id is set
-                  transaction = {
-                    ...fetchedTransaction,
-                    trans_id: fetchedTransaction.trans_id || fetchedTransaction.id,
-                    id: fetchedTransaction.id || fetchedTransaction.trans_id
-                  } as Transaction;
-                }
-              } else {
-                console.warn('Failed to fetch transaction from API:', res.status);
-              }
-            } catch (err) {
-              console.error('Error fetching transaction by id:', err);
-            } finally {
-              // After fetch attempt, if transaction is now available, set state
-              if (transaction) {
-                // Use the explicit 'from' parameter to determine navigation source
-                if (fromPage === 'transactions') {
-                  console.log('Coming from transactions page, adding to navigation stack');
-                  setNavigationStack(prev => [...prev, 'transactions']);
-                } else if (fromPage) {
-                  console.log('Coming from specified page:', fromPage);
-                  setNavigationStack(prev => [...prev, fromPage]);
-                } else {
-                  setNavigationStack(prev => [...prev, currentScreen]);
-                }
-
-                setViewingTransaction(transaction as Transaction);
-                setCurrentScreen('transaction-detail');
-              }
-            }
-          })();
-        }
-
-        if (transaction) {
-          // Use the explicit 'from' parameter to determine navigation source
-          if (fromPage === 'transactions') {
-            // Coming from transactions page, add it to navigation stack
-            console.log('Coming from transactions page, adding to navigation stack');
-            setNavigationStack(prev => [...prev, 'transactions']);
-          } else if (fromPage) {
-            // Coming from another specified page
-            console.log('Coming from specified page:', fromPage);
-            setNavigationStack(prev => [...prev, fromPage]);
-          } else {
-            // Coming from internal navigation, add current screen to stack
-            setNavigationStack(prev => [...prev, currentScreen]);
-          }
-
-          setViewingTransaction(transaction);
-          setCurrentScreen('transaction-detail');
-        }
-    } else if (screen && screen !== currentScreen) {
-      // Only sync when URL screen differs from state to avoid overwriting after redirect (e.g. AI analysis → review-transactions)
-      setNavigationStack(prev => [...prev, currentScreen]);
-      setCurrentScreen(screen as any);
+    setCurrentScreen(screen);
+    if (screen !== 'transaction-detail' || !transactionId) return;
+    const transaction = transactions.find(t => t.id === transactionId || t.trans_id === transactionId);
+    if (transaction) {
+      setViewingTransaction(transaction);
+      return;
     }
-  }, [searchParams, transactions, currentScreen]);
-
-  // Don't overwrite screen when URL has ?screen= (e.g. after redirect from AI analysis to review-transactions)
-  useEffect(() => {
-    const urlScreen = searchParams?.get('screen');
-    if (pathname === '/protected' && !urlScreen) {
-      setCurrentScreen('dashboard');
-    }
-  }, [pathname, searchParams]);
+    setViewingTransaction(null);
+    const controller = new AbortController();
+    const loadTransaction = async () => {
+      try {
+        const response = await fetch(`/api/transactions/${encodeURIComponent(transactionId)}`, { signal: controller.signal });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (!controller.signal.aborted && data.transaction) {
+          const fetched = data.transaction;
+          setViewingTransaction({ ...fetched, trans_id: fetched.trans_id || fetched.id, id: fetched.id || fetched.trans_id });
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) console.error('Could not load transaction', error);
+      }
+    };
+    void loadTransaction();
+    return () => controller.abort();
+  }, [searchParams, transactions]);
 
   const handleProfileComplete = async (profile: UserProfile, redirectTo?: string) => {
     console.log('Profile setup completed:', profile);
@@ -406,6 +269,7 @@ export default function ProtectedPage() {
 
     // Fetch the complete profile from database to ensure we have all fields
     if (user) {
+      notifyProfileUpdated(user.id);
       try {
         const { data: userProfile, error: profileError } = await getUserProfile(user.id);
 
@@ -422,7 +286,7 @@ export default function ProtectedPage() {
         // Redirect to specified screen if provided
         if (redirectTo) {
           console.log(`🔄 Redirecting to ${redirectTo} after profile completion`);
-          setCurrentScreen(redirectTo as any);
+          navigateScreen(redirectTo);
         }
       } catch (error) {
         console.error('Error in handleProfileComplete:', error);
@@ -434,15 +298,17 @@ export default function ProtectedPage() {
   const handlePlaidConnectionSuccess = async () => {
     if (user) {
       try {
-        // Refresh user profile to get updated Plaid token
+        // Refresh the safe server-managed bank connection status
         const { data: userProfile, error: profileError } = await getUserProfile(user.id);
 
         if (!profileError && userProfile) {
           setUserProfile(userProfile);
+          setBankConnected(userProfile.bankConnected === true);
+          notifyProfileUpdated(user.id);
 
           // If this is the first Plaid connection and Plaid guide hasn't been shown,
           // trigger the Plaid guide tutorial
-          if (userProfile.plaid_token && !userProfile.onboardingPlaidGuideCompleted) {
+          if (userProfile.bankConnected && !userProfile.onboardingPlaidGuideCompleted) {
             // Small delay to ensure the profile update is processed
             setTimeout(() => {
               const plaidGuideButton = document.getElementById('open-plaid-guide');
@@ -458,7 +324,7 @@ export default function ProtectedPage() {
         // Transactions are now automatically managed by useTransactionState
 
         // Navigate to review transactions screen to show the newly synced transactions
-        setCurrentScreen('review-transactions');
+        navigateScreen('review-transactions');
       } catch (error) {
         console.error('Error handling Plaid connection success:', error);
       }
@@ -482,115 +348,25 @@ export default function ProtectedPage() {
     }
   };
 
-  // Handle navigation between screens with history tracking
   const handleNavigate = (rawScreen: string) => {
-    // Strip query parameters from screen name (e.g., 'plaid-link?from=settings' → 'plaid-link')
-    const screen = rawScreen.split('?')[0];
-    console.log('Navigate to:', screen);
-
-    // Add current screen to navigation stack before navigating
-    setNavigationStack(prev => [...prev, currentScreen]);
-
-    // Screens that navigate via Next.js router (separate pages)
-    if (screen === 'dashboard') {
-      router.push('/protected');
-      setCurrentScreen('dashboard');
+    if (rawScreen === 'mobile-actions') {
+      setIsMobileQuickActionsVisible(visible => !visible);
       return;
     }
-    if (screen === 'transactions') {
-      router.push('/protected/transactions');
-      return;
-    }
-    if (screen === 'reports') {
-      router.push('/protected/reports');
-      return;
-    }
-
-    // Special cases
-    if (screen === 'categorize' || screen === 'add-expense') {
-      setEditingTransaction(null);
-      setCurrentScreen('add-expense');
-      return;
-    }
-    if (screen === 'mobile-actions') {
-      setIsMobileQuickActionsVisible(!isMobileQuickActionsVisible);
-      return;
-    }
-
-    // Settings has its own route
-    if (screen === 'settings') {
-      router.push('/protected/settings');
-      return;
-    }
-
-    // All other screens are handled as in-app screen switches.
-    // Update URL for screens that benefit from deep-linking.
-    const deepLinkScreens = [
-      'review-transactions', 'categories', 'income-tracking', 'w2-income',
-      'deductions-entry', 'tax-organizer', 'tax-preview', 'tax-filing-hub',
-      'tax-assistant', 'add-manual-transaction', 'document-import', 'form-8879',
-      'receipt-upload', 'ai-insights', 'quarterly-taxes', 'mileage-tracker',
-      'plaid', 'action-items', 'schedule-c-export', 'tax-calendar',
-    ];
-    if (deepLinkScreens.includes(screen)) {
-      router.push(`/protected?screen=${screen}`);
-    }
-    setCurrentScreen(screen as any);
+    const screen = protectedScreen(rawScreen);
+    if (screen === 'add-expense') setEditingTransaction(null);
+    if (screen !== currentScreen) setNavigationStack(previous => [...previous, currentScreen]);
+    navigateScreen(rawScreen);
   };
 
-  // Handle going back to previous screen
   const handleGoBack = () => {
-    console.log('Navigation stack:', navigationStack);
-
-    // If we're going back from a screen that should go to dashboard, use router
-    if (currentScreen === 'transactions' || currentScreen === 'reports' || currentScreen === 'review-transactions') {
-      router.push('/protected');
-      setCurrentScreen('dashboard');
-      // Clear navigation stack when going to dashboard
-      setNavigationStack(['dashboard']);
-      return;
-    }
-
-    // Get the previous screen from the navigation stack
-    if (navigationStack.length > 0) {
-      const previousScreen = navigationStack[navigationStack.length - 1];
-      console.log('Going back from', currentScreen, 'to', previousScreen);
-
-      // Remove the current screen from the stack
-      setNavigationStack(prev => prev.slice(0, -1));
-
-      // Special handling for going back to transactions page
-      if (previousScreen === 'transactions') {
-        router.push('/protected/transactions');
-        setCurrentScreen('transactions');
-      } else {
-        // Go back to the previous screen
-        setCurrentScreen(previousScreen as any);
-      }
-    } else {
-      // Fallback to dashboard if no navigation history
-      console.log('No navigation history, going to dashboard');
-      setCurrentScreen('dashboard');
-    }
-  };
-
-  // Handle navigation from external pages back to main app
-  const handleExternalPageBack = (fromPage: string) => {
-    console.log('Coming back from external page:', fromPage);
-
-    // If we have navigation history, go back to the last screen
-    if (navigationStack.length > 0) {
-      const lastScreen = navigationStack[navigationStack.length - 1];
-      console.log('Going back to last screen:', lastScreen);
-      setCurrentScreen(lastScreen as any);
-    } else {
-      // Otherwise go to dashboard
-      setCurrentScreen('dashboard');
-    }
+    const previous = previousProtectedScreen(currentScreen, navigationStack, searchParams.get('from'));
+    setNavigationStack(previous.stack);
+    navigateScreen(previous.screen);
   };
 
   // Handle viewing transaction details
-  const handleViewTransaction = (transaction: Transaction & { _source?: string }) => {
+  const handleViewTransaction = (transaction: Transaction & { _source?: string }, initialSection?: 'details') => {
     // Use the source information if available, otherwise use current screen
     const sourceScreen = transaction._source || currentScreen;
     console.log('Viewing transaction from source:', sourceScreen);
@@ -603,7 +379,7 @@ export default function ProtectedPage() {
     // Update URL so the transaction detail can be opened directly and back-button works
     try {
       const transactionIdForUrl = (transaction as any).trans_id || transaction.id;
-      const url = `/protected?screen=transaction-detail&transactionId=${encodeURIComponent(transactionIdForUrl)}&from=${encodeURIComponent(sourceScreen)}`;
+      const url = `/protected?screen=transaction-detail&transactionId=${encodeURIComponent(transactionIdForUrl)}&from=${encodeURIComponent(sourceScreen)}${initialSection === 'details' ? '&section=details' : ''}`;
       router.push(url);
     } catch (e) {
       console.error('Failed to push router state for transaction detail:', e);
@@ -651,7 +427,7 @@ export default function ProtectedPage() {
   // Handle editing a transaction
   const handleEditTransaction = (transaction: Transaction) => {
     setEditingTransaction(transaction);
-    setCurrentScreen('add-expense');
+    navigateScreen('add-expense');
   };
 
   // Handle transaction update (for review screen) - now handled by real-time updates
@@ -705,11 +481,22 @@ export default function ProtectedPage() {
     );
   }
 
+  if (user && profileLoadError) {
+    return <div className="min-h-screen flex items-center justify-center p-6">
+      <div className="max-w-md space-y-4 text-center">
+        <h1 className="text-xl font-semibold">We couldn&apos;t load your profile</h1>
+        <p role="alert" className="text-muted-foreground">Check your connection and try again. Your saved details are safe.</p>
+        <Button onClick={() => setProfileRetry(value => value + 1)}>Try again</Button>
+      </div>
+    </div>;
+  }
+
   // Show profile setup screen if user hasn't completed their profile
   if (user && hasProfile === false) {
     return (
       <ProfileSetupScreen
         user={user}
+        existingConsents={userProfile?.consents}
         onBack={handleBack}
         onComplete={handleProfileComplete}
       />
@@ -804,16 +591,17 @@ export default function ProtectedPage() {
       return (
         <ReviewTransactionsScreen
           user={safeUser}
+          focusedTransactionId={searchParams.get('transactionId')}
           onBack={handleGoBack}
           transactions={transactions as any}
           onTransactionUpdate={handleTransactionUpdate as any}
-          onTransactionClick={(transaction) => {
+          onTransactionClick={(transaction, initialSection) => {
             // Add source to transaction
             const transactionWithSource = {
               ...transaction,
               _source: 'review-transactions'
             };
-            handleViewTransaction(transactionWithSource as any);
+            handleViewTransaction(transactionWithSource as any, initialSection);
           }}
         />
       );
@@ -858,9 +646,8 @@ export default function ProtectedPage() {
         <BanksDetailScreen
           user={safeUser}
           onBack={handleGoBack}
-          onConnectBank={() => {
-            // You can implement Plaid connection here or navigate to a connect screen
-            router.push('/protected');
+          onConnectBank={(itemId) => {
+            router.push(`/protected?screen=plaid-link&from=settings${itemId ? `&itemId=${encodeURIComponent(itemId)}` : ''}`);
           }}
         />
       );
@@ -905,6 +692,7 @@ export default function ProtectedPage() {
           onSuccess={handlePlaidConnectionSuccess}
           onBack={handleGoBack}
           fromSettings={isFromSettings || false}
+          updateItemId={searchParams.get('itemId') || undefined}
         />
       );
     }
@@ -915,7 +703,7 @@ export default function ProtectedPage() {
         <PlaidScreen
           user={safeUser}
           onBack={handleGoBack}
-          onConnect={() => setCurrentScreen('plaid-link')}
+          onConnect={() => handleNavigate('plaid-link')}
         />
       );
     }
@@ -924,6 +712,8 @@ export default function ProtectedPage() {
       return (
         <TransactionDetailScreen
           transaction={viewingTransaction}
+          transactions={transactions as any}
+          initialSection={searchParams.get('section') === 'details' ? 'details' : 'summary'}
           onBack={handleGoBack}
           onSave={handleSaveTransaction}
         />
@@ -944,6 +734,8 @@ export default function ProtectedPage() {
         <IncomeTrackingScreen
           user={{ id: user.id, email: user.email ?? undefined }}
           onBack={handleGoBack}
+          initialTab={searchParams.get('tab')}
+          initialYear={searchParams.get('year')}
         />
       );
     }

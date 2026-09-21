@@ -1,433 +1,69 @@
-"use client";
+'use client';
 
-import React, { useState, useMemo } from "react";
-import Link from "next/link";
-import { LandingHeader } from "@/components/landing/landing-header";
-import Image from "next/image";
-import { Calculator, DollarSign, Info, ArrowRight, CalendarDays, AlertTriangle } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { calcScheduleSE } from "@/lib/reports/calcSE";
-import {
-  calculateFederalIncomeTax,
-  STANDARD_DEDUCTIONS_2025,
-} from "@/lib/tax-rules/federal-brackets";
+import React, { useState } from 'react';
+import { LandingHeader } from '@/components/landing/landing-header';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { calculateRegularEstimatedPayments } from '@/lib/tax-provider/regular-estimated-payments';
 
-const FILING_STATUSES = [
-  { value: "single", label: "Single" },
-  { value: "married_filing_jointly", label: "Married Filing Jointly" },
-  { value: "married_filing_separately", label: "Married Filing Separately" },
-  { value: "head_of_household", label: "Head of Household" },
-];
-
-const QUARTERS = [
-  { q: "Q1", period: "Jan 1 – Mar 31", due: "April 15, 2025" },
-  { q: "Q2", period: "Apr 1 – May 31", due: "June 16, 2025" },
-  { q: "Q3", period: "Jun 1 – Aug 31", due: "September 15, 2025" },
-  { q: "Q4", period: "Sep 1 – Dec 31", due: "January 15, 2026" },
-];
-
-function fmt(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(value);
-}
-
-function calculateQuarterly(annualIncome: number, annualExpenses: number, filingStatus: string, w2Wages: number, priorYearTax: number) {
-  const netProfit = Math.max(0, annualIncome - annualExpenses);
-
-  const se = calcScheduleSE(
-    { scheduleCNetProfit: netProfit, taxYear: 2025 },
-    filingStatus === "married_filing_jointly" ? "married" : "single",
-    w2Wages
-  );
-
-  const standardDeduction = STANDARD_DEDUCTIONS_2025[filingStatus as keyof typeof STANDARD_DEDUCTIONS_2025] ?? 15750;
-  const totalIncome = netProfit + w2Wages;
-  const agi = Math.max(0, totalIncome - se.halfSEDeduction);
-  const taxableBeforeQBI = Math.max(0, agi - standardDeduction);
-
-  // Simplified QBI
-  const qbiThreshold = filingStatus === "married_filing_jointly" ? 394600 : 197300;
-  let qbiDeduction = 0;
-  if (netProfit > 0 && taxableBeforeQBI <= qbiThreshold) {
-    const qualifiedBI = Math.max(0, netProfit - se.halfSEDeduction);
-    qbiDeduction = Math.min(qualifiedBI * 0.20, taxableBeforeQBI * 0.20);
-  }
-
-  const taxableIncome = Math.max(0, taxableBeforeQBI - qbiDeduction);
-  const incomeTax = calculateFederalIncomeTax(taxableIncome, filingStatus);
-  const totalTax = incomeTax + se.totalSETax;
-
-  // Safe harbor: 100% of prior year tax (110% if AGI > $150k)
-  const safeHarborMultiplier = agi > 150000 ? 1.10 : 1.00;
-  const safeHarborAmount = priorYearTax > 0 ? priorYearTax * safeHarborMultiplier : totalTax;
-
-  // Recommended quarterly = lower of current-year method or safe harbor / 4
-  const currentYearQuarterly = totalTax / 4;
-  const safeHarborQuarterly = safeHarborAmount / 4;
-  const recommendedQuarterly = priorYearTax > 0
-    ? Math.min(currentYearQuarterly, safeHarborQuarterly)
-    : currentYearQuarterly;
-
-  const annualPayment = recommendedQuarterly * 4;
-
-  return {
-    netProfit,
-    totalTax,
-    incomeTax,
-    seTax: se.totalSETax,
-    safeHarborAmount: priorYearTax > 0 ? safeHarborAmount : null,
-    currentYearQuarterly,
-    safeHarborQuarterly: priorYearTax > 0 ? safeHarborQuarterly : null,
-    recommendedQuarterly,
-    annualPayment,
-  };
-}
-
+const money = (value: number) => value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+const moneyInput = (value: string, label: string) => {
+  const cleaned = value.replace(/[$,\s]/g, '');
+  if (!/^-?\d+(?:\.\d{1,2})?$/.test(cleaned)) throw new Error(`Enter ${label}, including zero when applicable.`);
+  return Number(cleaned);
+};
+type Result = ReturnType<typeof calculateRegularEstimatedPayments>;
 export function QuarterlyEstimateClient() {
-  const [annualIncome, setAnnualIncome] = useState("");
-  const [annualExpenses, setAnnualExpenses] = useState("");
-  const [filingStatus, setFilingStatus] = useState("single");
-  const [w2Wages, setW2Wages] = useState("");
-  const [priorYearTax, setPriorYearTax] = useState("");
-
-  const parsedIncome = parseFloat(annualIncome.replace(/[,$]/g, "")) || 0;
-  const parsedExpenses = parseFloat(annualExpenses.replace(/[,$]/g, "")) || 0;
-  const parsedW2 = parseFloat(w2Wages.replace(/[,$]/g, "")) || 0;
-  const parsedPriorTax = parseFloat(priorYearTax.replace(/[,$]/g, "")) || 0;
-
-  const calc = useMemo(() => {
-    if (parsedIncome <= 0) return null;
-    return calculateQuarterly(parsedIncome, parsedExpenses, filingStatus, parsedW2, parsedPriorTax);
-  }, [parsedIncome, parsedExpenses, filingStatus, parsedW2, parsedPriorTax]);
-
-  return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white">
-      <LandingHeader />
-
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-        <div className="text-center mb-10">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-green-50 text-green-700 text-sm font-medium mb-4">
-            <Calculator className="w-4 h-4" />
-            Free Tool
-          </div>
-          <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-gray-900 mb-3">
-            Quarterly Estimated Tax Calculator
-          </h1>
-          <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-            Calculate how much to pay each quarter in 2025 to avoid IRS underpayment penalties.
-            Uses both the current-year and safe harbor methods.
-          </p>
-        </div>
-
-        <div className="grid gap-8 lg:grid-cols-2">
-          {/* Input */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <DollarSign className="w-5 h-5 text-green-600" />
-                Projected Annual Income
-              </CardTitle>
-              <CardDescription>
-                Enter your expected 2025 income and expenses
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-5">
-              <div>
-                <label htmlFor="annual-income" className="block text-sm font-medium text-gray-700 mb-1.5">
-                  Expected 1099 / Self-Employment Income
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
-                  <input
-                    id="annual-income"
-                    type="text"
-                    inputMode="decimal"
-                    placeholder="e.g. 100,000"
-                    value={annualIncome}
-                    onChange={(e) => setAnnualIncome(e.target.value)}
-                    className="w-full pl-7 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-gray-900"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label htmlFor="annual-expenses" className="block text-sm font-medium text-gray-700 mb-1.5">
-                  Expected Business Expenses
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
-                  <input
-                    id="annual-expenses"
-                    type="text"
-                    inputMode="decimal"
-                    placeholder="e.g. 20,000"
-                    value={annualExpenses}
-                    onChange={(e) => setAnnualExpenses(e.target.value)}
-                    className="w-full pl-7 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-gray-900"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label htmlFor="filing-status" className="block text-sm font-medium text-gray-700 mb-1.5">
-                  Filing Status
-                </label>
-                <select
-                  id="filing-status"
-                  value={filingStatus}
-                  onChange={(e) => setFilingStatus(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-gray-900 bg-white"
-                >
-                  {FILING_STATUSES.map((s) => (
-                    <option key={s.value} value={s.value}>{s.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label htmlFor="w2-wages" className="block text-sm font-medium text-gray-700 mb-1.5">
-                  W-2 Wages (optional)
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
-                  <input
-                    id="w2-wages"
-                    type="text"
-                    inputMode="decimal"
-                    placeholder="0"
-                    value={w2Wages}
-                    onChange={(e) => setW2Wages(e.target.value)}
-                    className="w-full pl-7 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-gray-900"
-                  />
-                </div>
-                <p className="mt-1 text-xs text-gray-500">W-2 withholding counts toward your tax payments</p>
-              </div>
-
-              <div>
-                <label htmlFor="prior-year-tax" className="block text-sm font-medium text-gray-700 mb-1.5">
-                  Prior Year Total Tax (optional)
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
-                  <input
-                    id="prior-year-tax"
-                    type="text"
-                    inputMode="decimal"
-                    placeholder="e.g. 12,000"
-                    value={priorYearTax}
-                    onChange={(e) => setPriorYearTax(e.target.value)}
-                    className="w-full pl-7 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-gray-900"
-                  />
-                </div>
-                <p className="mt-1 text-xs text-gray-500">
-                  From your 2024 Form 1040, Line 24. Enables safe harbor calculation.
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Results */}
-          <div className="space-y-6">
-            {calc ? (
-              <>
-                {/* Recommended Payment */}
-                <Card className="border-green-200 bg-green-50/50">
-                  <CardContent className="pt-6">
-                    <div className="text-center">
-                      <p className="text-sm font-medium text-green-700 mb-1">Recommended Quarterly Payment</p>
-                      <p className="text-4xl font-extrabold text-green-800">{fmt(calc.recommendedQuarterly)}</p>
-                      <p className="text-sm text-green-600 mt-2">
-                        {fmt(calc.annualPayment)} per year ({fmt(calc.totalTax)} total estimated tax)
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Quarterly Schedule */}
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <CalendarDays className="w-4 h-4 text-blue-600" />
-                      2025 Payment Schedule
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-3">
-                      {QUARTERS.map((q) => (
-                        <div key={q.q} className="flex items-center justify-between py-2.5 border-b border-gray-100 last:border-0">
-                          <div>
-                            <p className="text-sm font-semibold text-gray-900">{q.q}: {q.period}</p>
-                            <p className="text-xs text-gray-500">Due {q.due}</p>
-                          </div>
-                          <p className="text-sm font-bold text-gray-900">{fmt(calc.recommendedQuarterly)}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Methods comparison */}
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base">How We Calculated This</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="flex justify-between items-center py-2 border-b border-gray-100">
-                      <div>
-                        <p className="text-sm font-medium text-gray-900">Current-Year Method</p>
-                        <p className="text-xs text-gray-500">90% of 2025 estimated tax / 4</p>
-                      </div>
-                      <p className="text-sm font-semibold">{fmt(calc.currentYearQuarterly)}/qtr</p>
-                    </div>
-                    {calc.safeHarborQuarterly !== null && (
-                      <div className="flex justify-between items-center py-2 border-b border-gray-100">
-                        <div>
-                          <p className="text-sm font-medium text-gray-900">Safe Harbor Method</p>
-                          <p className="text-xs text-gray-500">
-                            {calc.safeHarborAmount !== null && calc.safeHarborAmount > parsedPriorTax * 1.05
-                              ? "110% of prior year tax / 4 (AGI > $150k)"
-                              : "100% of prior year tax / 4"}
-                          </p>
-                        </div>
-                        <p className="text-sm font-semibold">{fmt(calc.safeHarborQuarterly)}/qtr</p>
-                      </div>
-                    )}
-                    <div className="flex justify-between items-center py-2 border-b border-gray-100">
-                      <div>
-                        <p className="text-sm font-medium text-gray-900">Federal Income Tax</p>
-                      </div>
-                      <p className="text-sm font-semibold">{fmt(calc.incomeTax)}</p>
-                    </div>
-                    <div className="flex justify-between items-center py-2 border-b border-gray-100">
-                      <div>
-                        <p className="text-sm font-medium text-gray-900">Self-Employment Tax</p>
-                      </div>
-                      <p className="text-sm font-semibold">{fmt(calc.seTax)}</p>
-                    </div>
-                    <div className="flex justify-between items-center py-2 bg-gray-50 -mx-6 px-6 rounded-lg">
-                      <p className="text-sm font-bold text-gray-900">Total Estimated Annual Tax</p>
-                      <p className="text-sm font-bold text-gray-900">{fmt(calc.totalTax)}</p>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Penalty warning */}
-                <div className="flex items-start gap-3 p-4 bg-amber-50 rounded-lg border border-amber-200">
-                  <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
-                  <div className="text-sm text-amber-800">
-                    <p className="font-medium mb-1">Avoid the Underpayment Penalty</p>
-                    <p>
-                      The IRS charges a penalty if you don&apos;t pay at least 90% of your current year tax or
-                      100% of your prior year tax (110% if AGI &gt; $150k) through withholding and estimated payments.
-                    </p>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="text-center py-8 text-gray-500">
-                    <Calculator className="w-10 h-10 mx-auto mb-3 opacity-40" />
-                    <p className="font-medium">Enter your projected income to see results</p>
-                    <p className="text-sm mt-1">Your quarterly payment schedule will appear here.</p>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-          </div>
-        </div>
-
-        {/* Educational Content */}
-        <div className="mt-16 space-y-10">
-          <section>
-            <h2 className="text-2xl font-bold text-gray-900 mb-4">
-              What Are Quarterly Estimated Taxes?
-            </h2>
-            <p className="text-gray-600 leading-relaxed mb-3">
-              Quarterly estimated taxes are how self-employed workers pay their income tax and self-employment tax
-              throughout the year. Since no employer withholds taxes from your 1099 income, the IRS expects you to
-              make payments four times a year using Form 1040-ES.
-            </p>
-            <p className="text-gray-600 leading-relaxed">
-              You generally need to make estimated payments if you expect to owe $1,000 or more in tax when you file
-              your return. Missing these payments (or underpaying) can result in an underpayment penalty calculated
-              using the federal short-term interest rate plus 3%.
-            </p>
-          </section>
-
-          <section>
-            <h2 className="text-2xl font-bold text-gray-900 mb-4">
-              Two Ways to Avoid the Penalty
-            </h2>
-            <div className="grid sm:grid-cols-2 gap-4">
-              <div className="rounded-lg border border-gray-200 p-5">
-                <h3 className="text-sm font-semibold text-gray-900 mb-2">Current-Year Method</h3>
-                <p className="text-sm text-gray-600">
-                  Pay at least 90% of your current year&apos;s total tax liability through quarterly payments and withholding.
-                  Best if your income is lower this year than last year.
-                </p>
-              </div>
-              <div className="rounded-lg border border-gray-200 p-5">
-                <h3 className="text-sm font-semibold text-gray-900 mb-2">Safe Harbor Method</h3>
-                <p className="text-sm text-gray-600">
-                  Pay 100% of last year&apos;s total tax (110% if your AGI exceeded $150,000). This guarantees no penalty
-                  regardless of how much you earn this year.
-                </p>
-              </div>
-            </div>
-          </section>
-
-          {/* CTA */}
-          <Card className="bg-gradient-to-r from-green-600 to-emerald-600 text-white border-0">
-            <CardContent className="py-8">
-              <div className="text-center space-y-4">
-                <h3 className="text-xl font-bold">Let WriteOff Calculate Your Quarterlies Automatically</h3>
-                <p className="text-green-100 max-w-lg mx-auto">
-                  WriteOff connects to your bank, tracks your income and expenses in real time, and tells you
-                  exactly how much to pay each quarter  - updated as your income changes.
-                </p>
-                <Link href="/auth/sign-up">
-                  <Button size="lg" className="bg-white text-green-700 hover:bg-green-50 mt-2">
-                    Start Free Trial
-                    <ArrowRight className="w-4 h-4 ml-2" />
-                  </Button>
-                </Link>
-              </div>
-            </CardContent>
-          </Card>
-
-          <div className="flex items-start gap-3 p-4 bg-blue-50 rounded-lg border border-blue-200">
-            <Info className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
-            <div className="text-sm text-blue-800">
-              <p className="font-medium mb-1">Disclaimer</p>
-              <p>
-                This calculator provides estimates based on 2025 IRS tax rates (Rev. Proc. 2024-40, OBBB P.L. 119-21).
-                It does not account for state taxes, credits, or annualized income installment method. Consult a
-                qualified tax professional for your specific situation.
-              </p>
-            </div>
-          </div>
-        </div>
-      </main>
-
-      <footer className="border-t border-gray-200 mt-16">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex flex-wrap items-center justify-between gap-4 text-sm text-gray-500">
-            <p>&copy; {new Date().getFullYear()} WriteOff. All rights reserved.</p>
-            <div className="flex gap-4">
-              <Link href="/about" className="hover:text-gray-700">About</Link>
-              <Link href="/blog" className="hover:text-gray-700">Blog</Link>
-              <Link href="/privacy" className="hover:text-gray-700">Privacy</Link>
-              <Link href="/contact" className="hover:text-gray-700">Contact</Link>
-            </div>
-          </div>
-        </div>
-      </footer>
-    </div>
-  );
+  const [form, setForm] = useState({ taxYear: '2026', filingStatus: 'single', expectedTax: '', withholding: '', priorAvailability: '', priorAGI: '', priorTax: '', reviewed: false, regular: false, priorEligible: false, priorExceptionReviewed: false });
+  const [result, setResult] = useState<Result | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const change = (key: keyof typeof form, value: string | boolean) => { setForm(previous => ({ ...previous, [key]: value })); setResult(null); setError(null); };
+  const calculate = (event: React.FormEvent) => {
+    event.preventDefault(); setResult(null); setError(null);
+    try {
+      if (!form.priorAvailability) throw new Error('Choose whether a full-year prior return is available. Unknown facts need review before comparing methods.');
+      setResult(calculateRegularEstimatedPayments({
+        taxYear: Number(form.taxYear), filingStatus: form.filingStatus,
+        expectedTaxAfterCredits: moneyInput(form.expectedTax, 'your reviewed full-year federal tax'),
+        expectedAnnualWithholding: moneyInput(form.withholding, 'expected full-year withholding'),
+        reviewedTaxAmounts: form.reviewed, regularMethodConfirmed: form.regular,
+        priorYear: form.priorAvailability === 'unavailable' ? { available: false, noPriorTaxExceptionRuledOut: form.priorExceptionReviewed } : {
+          available: true, adjustedGrossIncome: moneyInput(form.priorAGI, 'prior-year AGI'),
+          taxAfterAdjustments: moneyInput(form.priorTax, 'prior-year tax after worksheet adjustments'),
+          fullTwelveMonths: form.priorEligible, sameTaxpayersAndFilingStatus: form.priorEligible, fullYearUSResident: form.priorEligible,
+        },
+      }));
+    } catch (err) { setError(err instanceof Error ? err.message : 'Review the inputs before calculating.'); }
+  };
+  return <div className="min-h-screen bg-background"><LandingHeader /><main className="mx-auto max-w-4xl space-y-6 px-4 py-10">
+    <header><h1 className="text-3xl font-bold">Quarterly Payment Planning</h1><p className="mt-3 text-muted-foreground">Compare ordinary federal estimated-payment methods using a reviewed annual tax forecast. This is a planning estimate: it does not calculate your income tax return or decide what you should pay today.</p></header>
+    <div className="grid gap-6 lg:grid-cols-2"><Card><CardHeader><CardTitle>Review your inputs</CardTitle></CardHeader><CardContent>
+      <form onSubmit={calculate} className="space-y-4">
+        <label className="block">Tax year<select aria-label="Tax year" className="mt-1 w-full rounded border bg-background p-2" value={form.taxYear} onChange={e => change('taxYear', e.target.value)}>{[2026, 2025, 2024].map(year => <option key={year}>{year}</option>)}</select></label>
+        <label className="block">Filing status<select aria-label="Filing status" className="mt-1 w-full rounded border bg-background p-2" value={form.filingStatus} onChange={e => change('filingStatus', e.target.value)}>{[['single', 'Single'], ['married_filing_jointly', 'Married Filing Jointly'], ['married_filing_separately', 'Married Filing Separately'], ['head_of_household', 'Head of Household']].map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+        <label className="block">Expected annual federal tax after refundable credits<input aria-label="Expected annual federal tax" inputMode="decimal" value={form.expectedTax} onChange={e => change('expectedTax', e.target.value)} className="mt-1 w-full rounded border bg-background p-2" /></label>
+        <p className="text-xs text-muted-foreground">Use the selected year’s 1040-ES worksheet line 11c. A partial-year dashboard total is not automatically a full-year forecast.</p>
+        <label className="block">Expected full-year federal withholding<input aria-label="Expected annual withholding" inputMode="decimal" value={form.withholding} onChange={e => change('withholding', e.target.value)} className="mt-1 w-full rounded border bg-background p-2" /></label>
+        <label className="block">Prior-year return<select aria-label="Prior-year return" className="mt-1 w-full rounded border bg-background p-2" value={form.priorAvailability} onChange={e => change('priorAvailability', e.target.value)}><option value="">Choose after reviewing your return</option><option value="eligible">I have a full 12-month prior-year return</option><option value="unavailable">No prior return, or it covered less than 12 months</option></select></label>
+        {form.priorAvailability === 'eligible' && <>
+          <label className="block">{Number(form.taxYear) - 1} adjusted gross income<input aria-label="Prior-year AGI" inputMode="decimal" value={form.priorAGI} onChange={e => change('priorAGI', e.target.value)} className="mt-1 w-full rounded border bg-background p-2" /></label>
+          <label className="block">{Number(form.taxYear) - 1} tax after 1040-ES adjustments<input aria-label="Prior-year tax" inputMode="decimal" value={form.priorTax} onChange={e => change('priorTax', e.target.value)} className="mt-1 w-full rounded border bg-background p-2" /></label>
+          <label className="flex gap-2 text-sm"><input type="checkbox" checked={form.priorEligible} onChange={e => change('priorEligible', e.target.checked)} />My prior return covers 12 months, the taxpayer(s) and filing status are unchanged, and I was a U.S. citizen or resident for the entire prior year.</label>
+        </>}
+        {form.priorAvailability === 'unavailable' && <label className="flex gap-2 text-sm"><input type="checkbox" checked={form.priorExceptionReviewed} onChange={e => change('priorExceptionReviewed', e.target.checked)} />I reviewed the no-prior-tax exception and it does not exempt me. A full 12-month prior year with no tax liability and full-year U.S. citizenship/residency can qualify even if no return was required.</label>}
+        <label className="flex gap-2 text-sm"><input type="checkbox" checked={form.reviewed} onChange={e => change('reviewed', e.target.checked)} />I reviewed tax adjustments, refundable credits and full-year withholding using the 1040-ES instructions. These are not just a balance due or payments made.</label>
+        <label className="flex gap-2 text-sm"><input type="checkbox" checked={form.regular} onChange={e => change('regular', e.target.checked)} />The ordinary calendar-year regular method applies, with income from the first period. I do not need annualization, farming/fishing, nonresident, fiscal-year, section 1062 or special-relief rules.</label>
+        <Button type="submit">Compare original installments</Button>
+      </form>
+    </CardContent></Card>
+    <div className="space-y-4">
+      {error && <p role="alert" className="rounded border p-4">{error}</p>}
+      {result ? <Card><CardHeader><CardTitle>{result.taxYear} Regular-method illustration</CardTitle></CardHeader><CardContent className="space-y-4">
+        <dl className="space-y-2"><div><dt>90% current-year tax target</dt><dd>{money(result.currentYearTarget)}</dd></div><div><dt>Prior-year target using prior-year AGI</dt><dd>{result.priorYearTarget === null ? 'Unavailable; current-year method only' : money(result.priorYearTarget)}</dd></div><div><dt>Annual estimated payments after expected withholding</dt><dd className="text-2xl font-semibold">{money(result.annualEstimatedPayments)}</dd></div></dl>
+        {result.installments.map(item => <div key={item.quarter} className="flex justify-between gap-2 border-t pt-2"><span>Q{item.quarter} · {item.dueDate}</span><span>{money(item.amount)}</span></div>)}
+        <p className="text-sm">{result.note}</p>
+      </CardContent></Card> : <p className="rounded border p-4 text-sm">Complete the facts to show an illustration. Missing inputs are not treated as zero.</p>}
+      <div className="space-y-3 text-sm"><p>Keep a record of each actual payment date and amount. Prior payments are not subtracted and redistributed across four past deadlines. No “paid,” “on track” or penalty verdict is produced.</p><a className="block underline" href="https://www.irs.gov/publications/p505" target="_blank" rel="noopener noreferrer">IRS Publication 505: estimated-tax rules</a><a className="block underline" href="https://www.irs.gov/forms-pubs/about-form-1040-es" target="_blank" rel="noopener noreferrer">IRS Form 1040-ES worksheet and official vouchers (choose the {form.taxYear} edition)</a><p className="text-xs text-muted-foreground">Installment dates shown already move to the next business day when the 15th falls on a weekend or legal holiday.</p></div>
+    </div></div>
+  </main></div>;
 }

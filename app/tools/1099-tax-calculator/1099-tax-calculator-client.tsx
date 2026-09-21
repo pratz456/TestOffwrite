@@ -3,22 +3,22 @@
 import React, { useState, useMemo } from "react";
 import Link from "next/link";
 import { LandingHeader } from "@/components/landing/landing-header";
-import Image from "next/image";
 import { Calculator, DollarSign, Info, ArrowRight, TrendingDown, Percent, PiggyBank } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { calcScheduleSE } from "@/lib/reports/calcSE";
 import {
-  calculateFederalIncomeTax,
-  STANDARD_DEDUCTIONS_2025,
-} from "@/lib/tax-rules/federal-brackets";
+  estimate1099FederalTax,
+  estimatedTaxDueDates,
+  isPublicCalculatorTaxYear,
+  PUBLIC_CALCULATOR_TAX_YEARS,
+  PUBLIC_FILING_STATUSES,
+  socialSecurityWageBase,
+  standardDeduction,
+  type PublicCalculatorTaxYear,
+} from "@/lib/tax-rules/public-calculators";
 
-const FILING_STATUSES = [
-  { value: "single", label: "Single" },
-  { value: "married_filing_jointly", label: "Married Filing Jointly" },
-  { value: "married_filing_separately", label: "Married Filing Separately" },
-  { value: "head_of_household", label: "Head of Household" },
-];
+const FILING_STATUSES = PUBLIC_FILING_STATUSES;
+const DEFAULT_TAX_YEAR: PublicCalculatorTaxYear = 2026;
 
 function fmt(value: number): string {
   return new Intl.NumberFormat("en-US", {
@@ -33,56 +33,8 @@ function fmtPct(value: number): string {
   return value.toFixed(1) + "%";
 }
 
-// Simplified 1040 for the public calculator
-function calculate1099Tax(netProfit: number, filingStatus: string, w2Wages: number, expenses: number) {
-  const adjustedProfit = Math.max(0, netProfit - expenses);
-
-  // SE tax
-  const se = calcScheduleSE(
-    { scheduleCNetProfit: adjustedProfit, taxYear: 2025 },
-    filingStatus === "married_filing_jointly" ? "married" : "single",
-    w2Wages
-  );
-
-  // QBI deduction (simplified  - 20% of net profit for income under threshold)
-  const standardDeduction = STANDARD_DEDUCTIONS_2025[filingStatus as keyof typeof STANDARD_DEDUCTIONS_2025] ?? 15750;
-  const totalIncome = adjustedProfit + w2Wages;
-  const agi = Math.max(0, totalIncome - se.halfSEDeduction);
-  const taxableBeforeQBI = Math.max(0, agi - standardDeduction);
-
-  // QBI: 20% of qualified business income, capped at 20% of taxable income
-  const qbiThreshold = filingStatus === "married_filing_jointly" ? 394600 : 197300;
-  let qbiDeduction = 0;
-  if (adjustedProfit > 0 && taxableBeforeQBI <= qbiThreshold) {
-    const qualifiedBI = Math.max(0, adjustedProfit - se.halfSEDeduction);
-    qbiDeduction = Math.min(qualifiedBI * 0.20, taxableBeforeQBI * 0.20);
-  }
-
-  const taxableIncome = Math.max(0, taxableBeforeQBI - qbiDeduction);
-  const incomeTax = calculateFederalIncomeTax(taxableIncome, filingStatus);
-
-  const totalTax = incomeTax + se.totalSETax;
-  const effectiveRate = totalIncome > 0 ? (totalTax / totalIncome) * 100 : 0;
-  const quarterlyPayment = totalTax / 4;
-
-  return {
-    adjustedProfit,
-    totalIncome,
-    agi,
-    standardDeduction,
-    qbiDeduction,
-    taxableIncome,
-    incomeTax,
-    seTax: se.totalSETax,
-    halfSEDeduction: se.halfSEDeduction,
-    totalTax,
-    effectiveRate,
-    quarterlyPayment,
-    seBreakdown: se,
-  };
-}
-
 export function TaxCalculator1099Client() {
+  const [taxYear, setTaxYear] = useState<PublicCalculatorTaxYear>(DEFAULT_TAX_YEAR);
   const [netProfit, setNetProfit] = useState("");
   const [filingStatus, setFilingStatus] = useState("single");
   const [w2Wages, setW2Wages] = useState("");
@@ -94,8 +46,18 @@ export function TaxCalculator1099Client() {
 
   const calc = useMemo(() => {
     if (parsedProfit <= 0) return null;
-    return calculate1099Tax(parsedProfit, filingStatus, parsedW2, parsedExpenses);
-  }, [parsedProfit, filingStatus, parsedW2, parsedExpenses]);
+    return estimate1099FederalTax({ grossIncome: parsedProfit, expenses: parsedExpenses, w2Wages: parsedW2, filingStatus, taxYear });
+  }, [parsedProfit, filingStatus, parsedW2, parsedExpenses, taxYear]);
+
+  const dueDates = useMemo(() => estimatedTaxDueDates(taxYear), [taxYear]);
+  const singleDeduction = standardDeduction(taxYear, "single");
+  const jointDeduction = standardDeduction(taxYear, "married_filing_jointly");
+  const wageBase = socialSecurityWageBase(taxYear);
+
+  const handleYearChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const next = Number(event.target.value);
+    if (isPublicCalculatorTaxYear(next)) setTaxYear(next);
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white">
@@ -112,7 +74,7 @@ export function TaxCalculator1099Client() {
             1099 Tax Calculator
           </h1>
           <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-            Estimate your total 2025 federal tax bill as a freelancer or 1099 contractor.
+            A planning estimate of your {taxYear} federal tax as a freelancer or 1099 contractor.
             See income tax, self-employment tax, QBI deduction, and your effective rate.
           </p>
         </div>
@@ -130,6 +92,25 @@ export function TaxCalculator1099Client() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
+              <div>
+                <label htmlFor="tax-year" className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Tax Year
+                </label>
+                <select
+                  id="tax-year"
+                  value={taxYear}
+                  onChange={handleYearChange}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-gray-900 bg-white"
+                >
+                  {PUBLIC_CALCULATOR_TAX_YEARS.map((year) => (
+                    <option key={year} value={year}>{year}</option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-gray-500">
+                  Uses the published {taxYear} brackets, standard deduction and Social Security wage base. 2027 amounts are not yet published.
+                </p>
+              </div>
+
               <div>
                 <label htmlFor="gross-income" className="block text-sm font-medium text-gray-700 mb-1.5">
                   Gross 1099 Income
@@ -248,8 +229,9 @@ export function TaxCalculator1099Client() {
                   <Card>
                     <CardContent className="pt-4 pb-4 text-center">
                       <Calculator className="w-5 h-5 text-amber-600 mx-auto mb-1" />
-                      <p className="text-xs text-gray-500">Quarterly Payment</p>
-                      <p className="text-lg font-bold text-gray-900">{fmt(calc.quarterlyPayment)}</p>
+                      <p className="text-xs text-gray-500">One Quarter of Total Tax</p>
+                      <p className="text-lg font-bold text-gray-900">{fmt(calc.quarterOfTotalTax)}</p>
+                      <p className="text-[11px] text-gray-500 mt-1">Before any W-2 withholding; not a safe-harbor installment</p>
                     </CardContent>
                   </Card>
                 </div>
@@ -264,20 +246,26 @@ export function TaxCalculator1099Client() {
                     {parsedExpenses > 0 && (
                       <Row label="Business Expenses" value={`-${fmt(parsedExpenses)}`} sub="Schedule C deductions" green />
                     )}
-                    <Row label="Net Self-Employment Profit" value={fmt(calc.adjustedProfit)} sub="Schedule C, Line 31" bold />
+                    <Row label="Net Self-Employment Profit" value={fmt(calc.netProfit)} sub="Schedule C, Line 31" bold />
                     {parsedW2 > 0 && <Row label="W-2 Wages" value={fmt(parsedW2)} />}
                     <Row label="Total Income" value={fmt(calc.totalIncome)} />
                     <div className="border-t border-gray-200 my-2" />
                     <Row label="Half SE Tax Deduction" value={`-${fmt(calc.halfSEDeduction)}`} sub="Schedule 1, Line 15" green />
                     <Row label="Adjusted Gross Income" value={fmt(calc.agi)} bold />
-                    <Row label="Standard Deduction" value={`-${fmt(calc.standardDeduction)}`} green />
+                    <Row label={`${taxYear} Standard Deduction`} value={`-${fmt(calc.standardDeduction)}`} green />
                     {calc.qbiDeduction > 0 && (
                       <Row label="QBI Deduction (20%)" value={`-${fmt(calc.qbiDeduction)}`} sub="Section 199A" green />
+                    )}
+                    {calc.qbiAboveThreshold && (
+                      <Row label="QBI Deduction" value="Not estimated" sub="Taxable income is above the Section 199A threshold; wage/property limits need more facts" />
                     )}
                     <Row label="Taxable Income" value={fmt(calc.taxableIncome)} bold />
                     <div className="border-t border-gray-200 my-2" />
                     <Row label="Federal Income Tax" value={fmt(calc.incomeTax)} />
-                    <Row label="Self-Employment Tax" value={fmt(calc.seTax)} sub="Social Security + Medicare" />
+                    <Row label="Self-Employment Tax" value={fmt(calc.seTax)} sub="Social Security + Medicare (Schedule SE)" />
+                    {calc.additionalMedicareTax > 0 && (
+                      <Row label="Additional Medicare Tax (0.9%)" value={fmt(calc.additionalMedicareTax)} sub="Form 8959" />
+                    )}
                     <div className="flex justify-between items-center py-2 bg-gray-50 -mx-6 px-6 rounded-lg">
                       <p className="text-sm font-bold text-gray-900">Total Federal Tax</p>
                       <p className="text-sm font-bold text-gray-900">{fmt(calc.totalTax)}</p>
@@ -312,9 +300,9 @@ export function TaxCalculator1099Client() {
             </p>
             <p className="text-gray-600 leading-relaxed">
               Your total tax bill as a 1099 contractor includes two main components: federal income tax (based on tax
-              brackets) and self-employment tax (15.3% for Social Security and Medicare). The good news is that you can
-              deduct business expenses, take the QBI deduction (up to 20% off your business income), and deduct half of
-              your SE tax  - all of which significantly reduce your bill.
+              brackets) and self-employment tax (15.3% for Social Security and Medicare). You can deduct ordinary and
+              necessary business expenses, may qualify for the QBI deduction (up to 20% of qualified business income),
+              and deduct half of your SE tax  - all of which reduce the bill.
             </p>
           </section>
 
@@ -324,10 +312,10 @@ export function TaxCalculator1099Client() {
             </h2>
             <div className="grid sm:grid-cols-2 gap-4">
               {[
-                { title: "Federal Income Tax", desc: "2025 tax brackets applied to your taxable income after all deductions." },
-                { title: "Self-Employment Tax", desc: "15.3% SE tax (Social Security 12.4% + Medicare 2.9%) on 92.35% of net profit." },
-                { title: "QBI Deduction", desc: "Section 199A qualified business income deduction  - up to 20% off your business profit." },
-                { title: "Standard Deduction", desc: "2025 standard deduction ($15,750 single, $31,500 MFJ) applied automatically." },
+                { title: "Federal Income Tax", desc: `${taxYear} tax brackets applied to your taxable income after the deductions below.` },
+                { title: "Self-Employment Tax", desc: `15.3% SE tax (Social Security 12.4% up to the ${fmt(wageBase)} ${taxYear} wage base + Medicare 2.9%) on 92.35% of net profit, plus 0.9% Additional Medicare Tax above $200,000 ($250,000 joint, $125,000 married filing separately).` },
+                { title: "QBI Deduction", desc: "Section 199A deduction of up to 20% of qualified business income when taxable income is below the annual threshold. Above it, the deduction is not estimated." },
+                { title: "Standard Deduction", desc: `${taxYear} standard deduction (${fmt(singleDeduction)} single, ${fmt(jointDeduction)} married filing jointly) applied automatically.` },
               ].map((item) => (
                 <div key={item.title} className="rounded-lg border border-gray-200 p-4">
                   <h3 className="text-sm font-semibold text-gray-900 mb-1">{item.title}</h3>
@@ -339,7 +327,7 @@ export function TaxCalculator1099Client() {
 
           <section>
             <h2 className="text-2xl font-bold text-gray-900 mb-4">
-              2025 Quarterly Estimated Tax Due Dates
+              {taxYear} Quarterly Estimated Tax Due Dates
             </h2>
             <div className="overflow-x-auto">
               <table className="w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
@@ -351,23 +339,30 @@ export function TaxCalculator1099Client() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
-                  <tr><td className="py-3 px-4">Q1</td><td className="py-3 px-4">Jan 1 – Mar 31</td><td className="py-3 px-4 font-medium">April 15, 2025</td></tr>
-                  <tr><td className="py-3 px-4">Q2</td><td className="py-3 px-4">Apr 1 – May 31</td><td className="py-3 px-4 font-medium">June 16, 2025</td></tr>
-                  <tr><td className="py-3 px-4">Q3</td><td className="py-3 px-4">Jun 1 – Aug 31</td><td className="py-3 px-4 font-medium">September 15, 2025</td></tr>
-                  <tr><td className="py-3 px-4">Q4</td><td className="py-3 px-4">Sep 1 – Dec 31</td><td className="py-3 px-4 font-medium">January 15, 2026</td></tr>
+                  {dueDates.map((due) => (
+                    <tr key={due.quarter}>
+                      <td className="py-3 px-4">Q{due.quarter}</td>
+                      <td className="py-3 px-4">{due.incomePeriod}</td>
+                      <td className="py-3 px-4 font-medium">{due.label}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
+            <p className="mt-2 text-xs text-gray-500">
+              Dates that fall on a weekend or legal holiday move to the next business day. Source:{" "}
+              <a href="https://www.irs.gov/businesses/small-businesses-self-employed/estimated-taxes" className="underline" target="_blank" rel="noopener noreferrer">IRS Estimated Taxes</a>.
+            </p>
           </section>
 
           {/* CTA */}
           <Card className="bg-gradient-to-r from-green-600 to-emerald-600 text-white border-0">
             <CardContent className="py-8">
               <div className="text-center space-y-4">
-                <h3 className="text-xl font-bold">Want to Find Every Deduction You Qualify For?</h3>
+                <h3 className="text-xl font-bold">Want Help Tracking Your Deductions?</h3>
                 <p className="text-green-100 max-w-lg mx-auto">
-                  WriteOff automatically tracks your expenses, categorizes them for Schedule C,
-                  and finds deductions you might be missing  - reducing both income tax and SE tax.
+                  WriteOff tracks your expenses, organizes them for Schedule C, and flags
+                  possible deductions for you to confirm  - so fewer write-offs slip through.
                 </p>
                 <Link href="/auth/sign-up">
                   <Button size="lg" className="bg-white text-green-700 hover:bg-green-50 mt-2">
@@ -382,11 +377,18 @@ export function TaxCalculator1099Client() {
           <div className="flex items-start gap-3 p-4 bg-blue-50 rounded-lg border border-blue-200">
             <Info className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
             <div className="text-sm text-blue-800">
-              <p className="font-medium mb-1">Disclaimer</p>
+              <p className="font-medium mb-1">Planning estimate, not tax advice</p>
               <p>
-                This calculator provides estimates based on 2025 IRS tax rates and brackets (Rev. Proc. 2024-40,
-                updated by OBBB P.L. 119-21). It does not account for state taxes, credits (EITC, CTC), or
-                itemized deductions. Consult a qualified tax professional for your specific situation.
+                This calculator is a planning estimate based on published federal parameters for {taxYear}
+                {taxYear === 2025
+                  ? " (Rev. Proc. 2024-40 as amended by P.L. 119-21)"
+                  : " (Rev. Proc. 2025-32)"}
+                , the Schedule SE formula and the {fmt(wageBase)} Social Security wage base. It does not account for
+                state taxes, credits (EITC, Child Tax Credit), itemized deductions, the 2025–2028 deductions for tips,
+                overtime, vehicle loan interest or seniors, retirement or health insurance deductions, or withholding.
+                Verify figures at{" "}
+                <a href="https://www.irs.gov/businesses/small-businesses-self-employed/self-employed-individuals-tax-center" className="underline" target="_blank" rel="noopener noreferrer">IRS.gov</a>{" "}
+                and consult a qualified tax professional for your specific situation.
               </p>
             </div>
           </div>

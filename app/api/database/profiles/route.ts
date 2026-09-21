@@ -1,42 +1,65 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
-import { getUserProfile, upsertUserProfile } from '@/lib/firebase/profiles';
+import { adminDb, FieldValue } from '@/lib/firebase/admin';
+import { migrateLegacyPlaidConnection } from '@/lib/plaid/connections';
+import { EDITABLE_PROFILE_FIELDS, publicProfile } from '@/lib/firebase/profile-fields';
+import { parseConsentRecord, storedDocumentImportSignature } from '@/lib/onboarding/consents';
 
 export async function GET(request: NextRequest) {
+  const { user } = await getAuthenticatedUser(request);
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
-    const { user, error: authError } = await getAuthenticatedUser(request);
-    if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-    // Users can only fetch their own profile
-    const { data: profile, error } = await getUserProfile(user.uid);
-    if (error) {
-      console.error('Error fetching profile:', error);
-      return NextResponse.json({ error: 'Failed to fetch profile' }, { status: 500 });
-    }
-    return NextResponse.json({ success: true, profile });
-  } catch (error) {
-    console.error('Profile GET error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    await migrateLegacyPlaidConnection(user.uid);
+    const snapshot = await adminDb.doc(`user_profiles/${user.uid}`).get();
+    return NextResponse.json({ success: true, profile: snapshot.exists ? publicProfile(snapshot.data()!, user.uid) : null },
+      { headers: { 'Cache-Control': 'private, no-store' } });
+  } catch {
+    return NextResponse.json({ error: 'Failed to fetch profile' }, { status: 503 });
   }
 }
 
 export async function POST(request: NextRequest) {
+  const { user } = await getAuthenticatedUser(request);
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  let body;
+  try { body = await request.json(); }
+  catch { return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 }); }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return NextResponse.json({ error: 'A profile object is required' }, { status: 400 });
+  }
+  if (Object.keys(body).some(key => !EDITABLE_PROFILE_FIELDS.has(key))) {
+    return NextResponse.json({ error: 'Profile contains fields that cannot be edited' }, { status: 400 });
+  }
+  if (JSON.stringify(body).length > 32_768) return NextResponse.json({ error: 'Profile is too large' }, { status: 413 });
+  const stamps: Record<string, unknown> = {};
+  if ('consents' in body) {
+    const consents = parseConsentRecord(body.consents);
+    if (!consents) return NextResponse.json({ error: 'Consent record is incomplete or not the current terms' }, { status: 400 });
+    body.consents = consents;
+    stamps.consents_recorded_at = FieldValue.serverTimestamp();
+  }
   try {
-    const { user, error: authError } = await getAuthenticatedUser(request);
-    if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-    const body = await request.json();
-    // Strip any attempt to override userId
-    const { userId: _ignored, ...safeFields } = body;
-    
-    const { error } = await upsertUserProfile(user.uid, safeFields);
-    if (error) {
-      console.error('Error upserting profile:', error);
-      return NextResponse.json({ error: 'Failed to save profile' }, { status: 500 });
-    }
+    const ref = adminDb.doc(`user_profiles/${user.uid}`);
+    await adminDb.runTransaction(async transaction => {
+      const snapshot = await transaction.get(ref);
+      const stored = snapshot.exists ? snapshot.data()?.consents : undefined;
+      let consents = 'consents' in body ? body.consents : undefined;
+      // Re-acknowledging updated terms re-collects the acknowledgments, not the separately signed §7216
+      // document consent: a current signature travels into the new record. A withdrawal (same terms
+      // version, signature omitted) still removes it.
+      const storedVersion = stored && typeof stored === 'object' ? (stored as Record<string, unknown>).version : undefined;
+      const carried = consents && consents.source === 'reacknowledgment' && !consents.document_import_signature
+        && storedVersion !== consents.version ? storedDocumentImportSignature(stored) : null;
+      if (consents && carried) consents = { ...consents, document_import: true, document_import_signature: carried };
+      // A merge keeps nested fields, so a withdrawn §7216 signature is removed explicitly.
+      const withdrawn = consents && !consents.document_import_signature
+        && stored && typeof stored === 'object' && 'document_import_signature' in stored;
+      transaction.set(ref, { ...body, ...(consents ? { consents: withdrawn ? { ...consents, document_import_signature: FieldValue.delete() } : consents } : {}),
+        ...stamps, updated_at: FieldValue.serverTimestamp(),
+        ...(!snapshot.exists ? { created_at: FieldValue.serverTimestamp() } : {}) }, { merge: true });
+    });
     return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error('Profile POST error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  } catch {
+    return NextResponse.json({ error: 'Failed to save profile' }, { status: 503 });
   }
 }

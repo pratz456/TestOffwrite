@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { usePlaidLink } from 'react-plaid-link';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { PlaidProgress } from './PlaidProgress';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -11,8 +12,9 @@ import { Badge } from '@/components/ui/badge';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import { auth } from '@/lib/firebase/client';
 import { useJobProgress } from '@/lib/hooks/useJobProgress';
-import { errorLogger, logPollingError, logAPIError } from '@/lib/error-logger';
+import { analysisJobView, parseAnalysisJob, parseAnalysisQueue, type AnalysisJob } from '@/lib/ai/client-job-progress';
 import { debugLog } from '@/lib/utils/debug';
+import { clearPlaidOAuthSession, readPlaidOAuthResume, savePlaidOAuthSession, type PlaidOAuthResume } from '@/lib/plaid/oauth-session';
 
 // Global flag to prevent duplicate Plaid script loading
 let plaidScriptLoaded = false;
@@ -22,9 +24,11 @@ interface PlaidLinkScreenProps {
   onSuccess: () => void;
   onBack: () => void;
   fromSettings?: boolean; // If true, hide subscription options and connect directly
+  updateItemId?: string;
+  oauthResume?: PlaidOAuthResume;
 }
 
-export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess, onBack, fromSettings = false }) => {
+export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess, onBack, fromSettings = false, updateItemId, oauthResume }) => {
   const router = useRouter();
   // Capture the app origin from the top-level page. Some Plaid callbacks can run
   // in a different browsing context (e.g. iframe), where relative URLs might
@@ -34,27 +38,111 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
   // Consent for Plaid data access
   const [bankConsent, setBankConsent] = useState(false);
   const [linkToken, setLinkToken] = useState<string | null>(null);
+  const [linkOwner, setLinkOwner] = useState<string | null>(null);
+  const [redirectUri, setRedirectUri] = useState<string | undefined>();
+  const resumedToken = useRef<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Removed subscription selection state - free trial is automatically started
   const [isConnected, setIsConnected] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState({ current: 0, total: 0, status: 'running' as const });
-  const [analysisStatus, setAnalysisStatus] = useState<'connecting' | 'importing' | 'analyzing' | 'completed' | 'error'>('connecting');
+  const [analysisStatus, setAnalysisStatus] = useState<'connecting' | 'importing' | 'queued' | 'idle' | 'analyzing' | 'completed' | 'error'>('connecting');
   const [accountId, setAccountId] = useState<string | null>(null);
-  const [jobId, setJobId] = useState<string | null>(null);
   const [currentTransaction, setCurrentTransaction] = useState<string>('');
+  // Where the user fixes a paused job's cause (for example the profile fields), from the job's last code.
+  const [jobLink, setJobLink] = useState<{ href: string; label: string } | null>(null);
   const [estimatedTimeRemaining, setEstimatedTimeRemaining] = useState<number>(0);
-  const [startTime, setStartTime] = useState<number>(0);
-  const [importProgress, setImportProgress] = useState({ imported: 0, total: 0 });
+  const [importProgress] = useState({ imported: 0, total: 0 });
 
   // Ref to store the polling interval so we can clear it properly
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const isPollingRef = useRef<boolean>(false);
+  const monitorRequest = useRef(0);
 
   // Real-time job subscription (fallback to avoid polling). When `accountId` is
   // present we subscribe to the job document `${uid}_${accountId}` and react to
   // status changes (done -> redirect to review screen).
-  const { job: jobProgress, error: jobProgressError, loading: jobProgressLoading } = useJobProgress(accountId ?? '');
+  const { job: jobProgress, error: jobProgressError } = useJobProgress(accountId ?? '');
+
+  const applyJobProgress = useCallback((job: AnalysisJob) => {
+    const view = analysisJobView(job);
+    setAnalysisStatus(view.status);
+    setCurrentTransaction(view.message);
+    setJobLink(view.outcome?.link ?? null);
+    setAnalysisProgress({ current: job.processed, total: job.total, status: 'running' });
+    setEstimatedTimeRemaining(0);
+    if (view.terminal) {
+      ++monitorRequest.current;
+      if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+      isPollingRef.current = false;
+    }
+    return view;
+  }, []);
+
+  // Monitor analysis progress with detailed tracking
+  const monitorAnalysisProgress = useCallback(async (targetAccount: string, queueAgain = false) => {
+    if (!targetAccount || isPollingRef.current) return;
+    const request = ++monitorRequest.current;
+    const uid = auth.currentUser?.uid;
+    const isCurrent = () => monitorRequest.current === request && auth.currentUser?.uid === uid;
+    const stop = () => {
+      if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+      isPollingRef.current = false;
+    };
+    const fail = (message: string) => {
+      if (!isCurrent()) return;
+      stop(); setAnalysisStatus('error'); setCurrentTransaction(message);
+    };
+    if (!uid) { fail('Sign in again to check analysis progress.'); return; }
+    isPollingRef.current = true;
+    const targetJob = `${uid}_${targetAccount}`;
+    let idle = false;
+    if (queueAgain) {
+      setAnalysisStatus('queued'); setCurrentTransaction('Requesting analysis for eligible saved bank transactions…');
+      try {
+        const response = await makeAuthenticatedRequest('/api/plaid/auto-analyze', {
+          method: 'POST', body: JSON.stringify({ accountId: targetAccount }), signal: AbortSignal.timeout(10_000),
+        });
+        const body = await response.json().catch(() => null);
+        if (!isCurrent()) return;
+        if (!response.ok) { fail(body?.error || 'Analysis could not be queued. Review records manually or retry later.'); return; }
+        const queued = parseAnalysisQueue(body);
+        if (!queued || queued.jobId !== targetJob) { fail('The analysis queue response could not be verified. Please retry.'); return; }
+        idle = queued.status === 'idle';
+        setAnalysisStatus(idle ? 'idle' : 'queued');
+        setCurrentTransaction(idle ? 'No additional analysis was queued. You can review your saved records.' : `${queued.queued} records queued. Waiting for saved suggestions.`);
+      } catch { fail('Analysis could not be queued. You can still review transactions manually.'); return; }
+    }
+    let polls = 0, errors = 0, inFlight = false;
+    const poll = async () => {
+      if (!isCurrent() || inFlight) return;
+      if (++polls > 100) { fail('Progress monitoring timed out. Analysis may continue in the background; review records or check again.'); return; }
+      inFlight = true;
+      try {
+        const response = await makeAuthenticatedRequest(`/api/analysis-job?jobId=${encodeURIComponent(targetJob)}`, {
+          cache: 'no-store', signal: AbortSignal.timeout(10_000),
+        });
+        if (!isCurrent()) return;
+        if (response.status === 404) {
+          if (idle) { stop(); return; }
+          setAnalysisStatus('queued'); setCurrentTransaction('Waiting for the analysis job. No completed analysis has been confirmed.'); return;
+        }
+        if (!response.ok) throw new Error('Could not load analysis progress.');
+        const body = await response.json();
+        if (!isCurrent()) return;
+        const job = parseAnalysisJob(body.data);
+        if (!body.success || !job) throw new Error('Analysis progress is incomplete.');
+        errors = 0;
+        applyJobProgress(job);
+      } catch {
+        if (++errors >= 3) fail('Could not load analysis progress. Review transactions manually or check again.');
+      } finally { inFlight = false; }
+    };
+    pollingIntervalRef.current = setInterval(() => { void poll(); }, 3000);
+    await poll();
+  }, [applyJobProgress]);
 
   // Fallback: If real-time subscription fails, start polling after a delay
   useEffect(() => {
@@ -69,45 +157,22 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
 
       return () => clearTimeout(fallbackTimer);
     }
-  }, [accountId, jobProgressError, jobProgress]);
+  }, [accountId, jobProgressError, jobProgress, monitorAnalysisProgress]);
 
 
   useEffect(() => {
-    if (!accountId) return;
-
-    // When the job document reports 'done', consider analysis complete and redirect
-    if (jobProgress && jobProgress.status === 'done') {
-      console.log('📣 [PlaidLink] Job completed via real-time subscription, redirecting to review');
-      setAnalysisStatus('completed');
-      setCurrentTransaction('All transactions analyzed successfully!');
-      setEstimatedTimeRemaining(0);
-
-      // Clean up any polling interval if it exists
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-        pollingIntervalRef.current = null;
-      }
-      isPollingRef.current = false;
-
-      // Small delay to allow UI to show completion state
-      setTimeout(() => {
-        router.push(`/protected?screen=review-transactions&accountId=${accountId}`);
-      }, 1000);
-      return;
-    }
-
-    // If job is running, update progress UI to reflect real-time values
-    if (jobProgress && jobProgress.status === 'running') {
-      setAnalysisStatus('analyzing');
-      setAnalysisProgress({ current: jobProgress.processed || 0, total: jobProgress.total || 0, status: 'running' });
-      if ((jobProgress.processed ?? 0) < (jobProgress.total ?? 0)) {
-        setCurrentTransaction(`Analyzing transactions (${jobProgress.processed} of ${jobProgress.total})`);
-      }
-    }
-  }, [jobProgress, accountId]);
+    if (!accountId || !jobProgress) return;
+    const view = applyJobProgress(jobProgress);
+    if (view.status !== 'completed') return;
+    const redirect = setTimeout(() => {
+      router.push(`/protected?screen=review-transactions&accountId=${encodeURIComponent(accountId)}`);
+    }, 1000);
+    return () => clearTimeout(redirect);
+  }, [jobProgress, accountId, applyJobProgress, router]);
 
   // Check if we're redirected from account usage page with analyzing state
   useEffect(() => {
+    const requests = monitorRequest;
     const urlParams = new URLSearchParams(window.location.search);
     const accountIdParam = urlParams.get('accountId');
     const analyzingParam = urlParams.get('analyzing');
@@ -116,12 +181,14 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
       console.log('🔄 [PlaidLink] Redirected from account usage page, starting analysis monitoring');
       setAccountId(accountIdParam);
       setIsConnected(true);
-      setAnalysisStatus('analyzing');
-      monitorAnalysisProgress(accountIdParam);
+      setAnalysisStatus('queued');
+      setCurrentTransaction('Checking analysis progress…');
+      void monitorAnalysisProgress(accountIdParam);
     }
 
     // Cleanup function to clear any intervals when component unmounts
     return () => {
+      ++requests.current;
       console.log('🧹 [PlaidLink] Component unmounting, cleaning up...');
       if (pollingIntervalRef.current) {
         console.log('🧹 [PlaidLink] Clearing polling interval');
@@ -130,12 +197,25 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
       }
       isPollingRef.current = false;
     };
-  }, []);
+  }, [user.id, monitorAnalysisProgress]);
 
   // Create link token on component mount (only if not redirected from account usage)
   useEffect(() => {
     if (typeof window !== 'undefined') {
       appOriginRef.current = window.location.origin;
+    }
+
+    if (oauthResume) {
+      const resumed = readPlaidOAuthResume(window.sessionStorage, user.id, window.location.href);
+      if (!resumed || resumed.session.token !== oauthResume.session.token || resumed.session.itemId !== updateItemId) {
+        setError('This bank sign-in session has expired. Return to your banks and connect again.');
+        return;
+      }
+      setLinkToken(resumed.session.token);
+      setLinkOwner(user.id);
+      setRedirectUri(resumed.session.redirectUri);
+      setBankConsent(true);
+      return; // Reuse the original Link token; creating another would lose the bank OAuth state.
     }
 
     const urlParams = new URLSearchParams(window.location.search);
@@ -147,6 +227,9 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
       return;
     }
 
+    let cancelled = false;
+    setLinkToken(null);
+    setLinkOwner(null);
     const createLinkToken = async () => {
       try {
         // Get Firebase auth token for authentication
@@ -164,6 +247,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`,
           },
+          body: JSON.stringify(updateItemId ? { itemId: updateItemId } : {}),
         });
 
         if (!response.ok) {
@@ -197,664 +281,41 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
         }
 
         const data = await response.json();
+        if (cancelled || auth.currentUser?.uid !== user.id) return;
         setLinkToken(data.link_token);
+        setLinkOwner(user.id);
+        setRedirectUri(data.redirect_uri);
       } catch (err: any) {
+        if (cancelled) return;
         console.error('Error creating link token:', err);
         setError(err.message || 'Failed to initialize bank connection. Please try again.');
       }
     };
 
     createLinkToken();
-  }, [user.id]);
-
-  // Monitor analysis progress with detailed tracking
-  const monitorAnalysisProgress = async (accountId: string) => {
-    console.log('🔄 [Progress Monitor] Starting to monitor analysis for account:', accountId);
-
-    // Guard clause to ensure accountId is valid
-    if (!accountId || accountId.trim() === '') {
-      console.error('❌ [Progress Monitor] Invalid accountId provided:', accountId);
-      setAnalysisStatus('error');
-      setCurrentTransaction('Invalid account ID - please try again');
-      return;
-    }
-
-    // Clear any existing interval first
-    if (pollingIntervalRef.current) {
-      console.log('🧹 [Progress Monitor] Clearing existing interval before starting new one');
-      clearInterval(pollingIntervalRef.current);
-      pollingIntervalRef.current = null;
-    }
-
-    // Prevent multiple monitoring sessions
-    if (isPollingRef.current) {
-      console.log('⚠️ [Progress Monitor] Monitoring already in progress, skipping');
-      return;
-    }
-
-    // Set polling flag
-    isPollingRef.current = true;
-
-    const importComplete = false;
-    const analysisStarted = false;
-    let pollCount = 0;
-    const maxPolls = 200; // Maximum 200 polls (5 minutes at 1.5s intervals)
-    const startTime = Date.now();
-    setStartTime(startTime);
-
-    // Set initial status to show monitoring has started
-    setCurrentTransaction('Starting analysis...');
-
-    // Use deterministic jobId - one job per (user, account)
-    const deterministicJobId = `${user.id}_${accountId}`;
-    setJobId(deterministicJobId);
-
-    // Start analysis if not already running
-    try {
-      const currentUser = auth.currentUser;
-      if (!currentUser) {
-        console.error('❌ [Auto-Analyze] No authenticated user found');
-        setAnalysisStatus('error');
-        setCurrentTransaction('Authentication error - please log in again');
-        return;
-      }
-
-      const token = await currentUser.getIdToken();
-      if (!token) {
-        console.error('❌ [Auto-Analyze] Failed to get authentication token');
-        setAnalysisStatus('error');
-        setCurrentTransaction('Authentication error - please log in again');
-        return;
-      }
-
-      console.log('🔄 [Auto-Analyze] Starting analysis for account:', accountId);
-      console.log('🔍 [Auto-Analyze] Request details:', { accountId, userId: currentUser.uid });
-
-      const response = await fetch('/api/plaid/auto-analyze', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({ accountId })
-      });
-
-        if (response.ok) {
-          const result = await response.json();
-          console.log('✅ [Auto-Analyze] Analysis started:', result);
-          // jobId should match our deterministic one
-          if (result.jobId && result.jobId === deterministicJobId) {
-            console.log('📊 [Auto-Analyze] Job ID confirmed:', result.jobId);
-          }
-        } else {
-          console.error('❌ [Auto-Analyze] Failed to start analysis:', response.status);
-          // Get more details about the error
-          try {
-            const errorData = await response.json();
-            console.error('❌ [Auto-Analyze] Error details:', errorData);
-          } catch (e) {
-            console.error('❌ [Auto-Analyze] Could not parse error response');
-          }
-        }
-    } catch (error) {
-      console.error('❌ [Auto-Analyze] Error starting analysis:', error);
-    }
-
-    // Simple fallback polling mechanism
-    const pollInterval = setInterval(async () => {
-      pollCount++;
-
-      // Safety check - prevent infinite polling
-      if (pollCount > maxPolls) {
-        console.warn('⚠️ [Progress Monitor] Maximum polls reached, forcing completion');
-        setAnalysisStatus('completed');
-        setCurrentTransaction('Analysis complete - redirecting...');
-        if (pollingIntervalRef.current) {
-          clearInterval(pollingIntervalRef.current);
-          pollingIntervalRef.current = null;
-        }
-        isPollingRef.current = false;
-        setTimeout(() => {
-          router.push(`/protected?screen=review-transactions&accountId=${accountId}`);
-        }, 1000);
-        return;
-      }
-
-      try {
-        // Get Firebase auth token
-        const currentUser = auth.currentUser;
-        if (!currentUser) {
-          console.error('❌ No authenticated user found for progress monitoring');
-          if (pollingIntervalRef.current) {
-            clearInterval(pollingIntervalRef.current);
-            pollingIntervalRef.current = null;
-          }
-          isPollingRef.current = false;
-          return;
-        }
-
-        const token = await currentUser.getIdToken();
-
-        // Check analysis status using the API
-        console.log('🔍 [Progress Monitor] Fetching analysis status for account:', accountId);
-
-        const response = await fetch(`/api/transactions/analysis-status?accountId=${accountId}`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        });
-
-        if (response.ok) {
-          const result = await response.json();
-          console.log('📊 [Progress Monitor] API Response data:', result);
-
-          if (result.success && result.data) {
-            const { overallStatus, progress, breakdown } = result.data;
-
-            // Update progress
-            setAnalysisProgress({ current: progress.current, total: progress.total, status: 'running' });
-
-            // Check if analysis is complete
-            if (overallStatus === 'completed' ||
-                (progress.current >= progress.total && progress.total > 0) ||
-                (breakdown?.pending === 0 && breakdown?.running === 0 && progress.total > 0)) {
-              console.log('✅ [Progress Monitor] Analysis complete!');
-              setAnalysisStatus('completed');
-              setCurrentTransaction('All transactions analyzed successfully!');
-              setEstimatedTimeRemaining(0);
-              if (pollingIntervalRef.current) {
-                clearInterval(pollingIntervalRef.current);
-                pollingIntervalRef.current = null;
-              }
-              isPollingRef.current = false;
-
-              // Redirect to review transactions
-              setTimeout(() => {
-                router.push(`/protected?screen=review-transactions&accountId=${accountId}`);
-              }, 2000);
-              return;
-            }
-          }
-        } else {
-          console.error('❌ [Progress Monitor] API request failed:', response.status);
-        }
-      } catch (error) {
-        console.error('❌ [Progress Monitor] Error checking progress:', error);
-
-        // If we get too many errors, stop polling
-        if (pollCount > 10) {
-          console.error('❌ [Progress Monitor] Too many errors, stopping polling');
-          if (pollingIntervalRef.current) {
-            clearInterval(pollingIntervalRef.current);
-            pollingIntervalRef.current = null;
-          }
-          isPollingRef.current = false;
-          setAnalysisStatus('error');
-          setCurrentTransaction('Analysis failed - please try again');
-          return;
-        }
-      }
-    }, 3000); // Poll every 3 seconds
-
-    // Store the interval in the ref
-    pollingIntervalRef.current = pollInterval;
-  };
-
-  // FALLBACK POLLING CODE - DISABLED (commented out)
-  /*
-    const pollInterval = setInterval(async () => {
-      pollCount++;
-
-      // Safety check - prevent infinite polling
-      if (pollCount > maxPolls) {
-        console.warn('⚠️ [Progress Monitor] Maximum polls reached, forcing completion');
-        setAnalysisStatus('completed');
-        setCurrentTransaction('Analysis complete - redirecting...');
-        if (pollingIntervalRef.current) {
-          clearInterval(pollingIntervalRef.current);
-          pollingIntervalRef.current = null;
-        }
-        isPollingRef.current = false;
-        setTimeout(() => {
-          router.push(`/protected?screen=review-transactions&accountId=${accountId}`);
-        }, 1000);
-        return;
-      }
-      try {
-        // Get Firebase auth token
-        const currentUser = auth.currentUser;
-        if (!currentUser) {
-          console.error('❌ No authenticated user found for progress monitoring');
-          if (pollingIntervalRef.current) {
-            clearInterval(pollingIntervalRef.current);
-            pollingIntervalRef.current = null;
-          }
-          isPollingRef.current = false;
-          return;
-        }
-
-        const token = await currentUser.getIdToken();
-
-        // Security check: Validate token
-        if (!token || token.length < 10) {
-          console.error('❌ [Security] Invalid auth token');
-          if (pollingIntervalRef.current) {
-            clearInterval(pollingIntervalRef.current);
-            pollingIntervalRef.current = null;
-          }
-          isPollingRef.current = false;
-          return;
-        }
-
-        // Check analysis status using the new API
-        console.log('🔍 [Progress Monitor] Fetching analysis status for account:', accountId);
-        console.log('🔍 [Progress Monitor] Poll count:', pollCount, 'Max polls:', maxPolls);
-
-        let response = await fetch(`/api/transactions/analysis-status?accountId=${accountId}`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        });
-
-        console.log('🔍 [Progress Monitor] API response status:', response.status);
-
-        console.log('📡 [Progress Monitor] API Response status:', response.status);
-
-        // Fallback to regular transactions API if analysis-status fails
-        if (!response.ok) {
-          console.warn('⚠️ [Progress Monitor] Analysis-status API failed, falling back to transactions API');
-          console.warn('⚠️ [Progress Monitor] Error details:', response.status, response.statusText);
-
-          response = await fetch('/api/transactions', {
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json',
-            },
-          });
-
-          if (!response.ok) {
-            console.error('❌ [Progress Monitor] Fallback API also failed:', response.status);
-            logAPIError(new Error(`Fallback API failed`), '/api/transactions', response.status, {
-              userId: user?.id,
-              accountId: accountId,
-              message: 'Both analysis-status and transactions APIs failed',
-            });
-            throw new Error(`API failed with status ${response.status}`);
-          }
-        }
-
-        if (response.ok) {
-          const result = await response.json();
-          console.log('📊 [Progress Monitor] API Response data:', result);
-
-          // Handle both new API format and fallback format
-          if (result.success && result.data) {
-            // New API format
-            const { overallStatus, progress, breakdown, currentlyAnalyzing, summary } = result.data;
-
-            console.log('📊 [Progress Monitor] Analysis Status:', { overallStatus, progress, breakdown });
-
-            // IMMEDIATE COMPLETION CHECK - if all transactions are done, redirect immediately
-            if (overallStatus === 'completed' ||
-                (progress.current >= progress.total && progress.total > 0) ||
-                (breakdown?.pending === 0 && breakdown?.running === 0 && progress.total > 0)) {
-              console.log('🚀 [Progress Monitor] IMMEDIATE COMPLETION DETECTED!', { overallStatus, progress, breakdown });
-              console.log('🧹 [Progress Monitor] Clearing interval and stopping polling...');
-              setAnalysisStatus('completed');
-              setCurrentTransaction('All transactions analyzed successfully!');
-              setEstimatedTimeRemaining(0);
-              if (pollingIntervalRef.current) {
-                clearInterval(pollingIntervalRef.current);
-                pollingIntervalRef.current = null;
-              }
-              isPollingRef.current = false;
-              console.log('✅ [Progress Monitor] Interval cleared, polling stopped');
-
-              // Redirect immediately
-              setTimeout(() => {
-                console.log('🔄 [Progress Monitor] Redirecting to review transactions...');
-                router.push(`/protected?screen=review-transactions&accountId=${accountId}`);
-              }, 1000); // 1 second delay
-              return; // CRITICAL: Exit the polling loop immediately
-            }
-
-            // Handle different statuses
-            if (overallStatus === 'no_transactions' && !importComplete) {
-              console.log('⏳ [Progress Monitor] No transactions yet, still importing...');
-              setAnalysisStatus('importing');
-              setAnalysisProgress({ current: 0, total: 0, status: 'running' });
-              setImportProgress({ imported: 0, total: 0 });
-              setCurrentTransaction('Connecting to your bank...');
-              return;
-            }
-
-            // Mark import as complete once we see transactions
-            if (summary.totalTransactions > 0 && !importComplete) {
-              console.log('✅ [Progress Monitor] Import complete, found', summary.totalTransactions, 'transactions');
-              importComplete = true;
-              setAnalysisStatus('analyzing');
-              setImportProgress({ imported: summary.totalTransactions, total: summary.totalTransactions });
-            }
-
-            // Update progress
-            if (importComplete) {
-              setAnalysisProgress({ current: progress.current, total: progress.total, status: 'running' });
-
-              // Calculate estimated time remaining
-              if (progress.current > 0 && progress.total > 0) {
-                const elapsedTime = Date.now() - startTime;
-                const avgTimePerTransaction = elapsedTime / progress.current;
-                const remainingTransactions = progress.total - progress.current;
-                const estimatedRemaining = Math.round((remainingTransactions * avgTimePerTransaction) / 1000);
-                setEstimatedTimeRemaining(estimatedRemaining);
-              }
-
-              // Show current transaction being analyzed with real-time updates
-              if (currentlyAnalyzing) {
-                const merchantName = currentlyAnalyzing.merchant_name || 'Unknown merchant';
-                const progressText = `Analyzing: ${merchantName} ($${Math.abs(currentlyAnalyzing.amount || 0).toFixed(2)})`;
-                setCurrentTransaction(progressText);
-                console.log(`📊 [Progress Monitor] ${progress.current}/${progress.total} (${progress.percentage}%) - ${progressText}`);
-              } else if (breakdown.pending > 0) {
-                const progressText = `Preparing to analyze ${breakdown.pending} remaining transactions...`;
-                setCurrentTransaction(progressText);
-                console.log(`📊 [Progress Monitor] ${progress.current}/${progress.total} (${progress.percentage}%) - ${progressText}`);
-              } else {
-                const progressText = 'Finalizing analysis...';
-                setCurrentTransaction(progressText);
-                console.log(`📊 [Progress Monitor] ${progress.current}/${progress.total} (${progress.percentage}%) - ${progressText}`);
-              }
-
-            // Check if analysis is complete - be more aggressive about detection
-            console.log('🔍 [Progress Monitor] Checking completion (main):', { overallStatus, progress, breakdown });
-            if (overallStatus === 'completed' ||
-                (progress.current >= progress.total && progress.total > 0) ||
-                (breakdown?.pending === 0 && breakdown?.running === 0 && progress.total > 0)) {
-              console.log('✅ [Progress Monitor] Analysis complete!', { overallStatus, progress, breakdown });
-              setAnalysisStatus('completed');
-              setCurrentTransaction('All transactions analyzed successfully!');
-              setEstimatedTimeRemaining(0);
-              if (pollingIntervalRef.current) {
-                clearInterval(pollingIntervalRef.current);
-                pollingIntervalRef.current = null;
-              }
-
-              // Redirect to review transactions after a short delay
-              setTimeout(() => {
-                console.log('🔄 [Progress Monitor] Redirecting to review transactions...');
-                router.push(`/protected?screen=review-transactions&accountId=${accountId}`);
-              }, 2000); // 2 second delay to show completion message
-              return; // Exit the polling loop
-            }
-            }
-          } else if (result.success && result.transactions) {
-            // Fallback format - regular transactions API
-            console.log('📊 [Progress Monitor] Using fallback transactions API');
-            const accountTransactions = result.transactions.filter((t: any) => t.account_id === accountId);
-
-            console.log('📊 [Progress Monitor] Found transactions:', accountTransactions.length);
-
-            // First, check if transactions are still being imported
-            if (accountTransactions.length === 0 && !importComplete) {
-              console.log('⏳ [Progress Monitor] No transactions yet, still importing...');
-              setAnalysisStatus('importing');
-              setAnalysisProgress({ current: 0, total: 0, status: 'running' });
-              setImportProgress({ imported: 0, total: 0 });
-              setCurrentTransaction('Connecting to your bank...');
-              return;
-            }
-
-            // Mark import as complete once we see transactions
-            if (accountTransactions.length > 0 && !importComplete) {
-              console.log('✅ [Progress Monitor] Import complete, found', accountTransactions.length, 'transactions');
-              importComplete = true;
-              setAnalysisStatus('analyzing');
-              setImportProgress({ imported: accountTransactions.length, total: accountTransactions.length });
-            }
-
-            // Now track analysis progress
-            if (importComplete) {
-              const pending = accountTransactions.filter((t: any) =>
-                t.analysisStatus === 'pending' ||
-                t.analysis_status === 'pending' ||
-                (t.is_deductible === null && !t.analyzed)
-              ).length;
-              const running = accountTransactions.filter((t: any) =>
-                t.analysisStatus === 'running' || t.analysis_status === 'running'
-              ).length;
-              const completed = accountTransactions.filter((t: any) =>
-                t.analysisStatus === 'completed' ||
-                t.analysis_status === 'completed' ||
-                t.analyzed === true
-              ).length;
-              const failed = accountTransactions.filter((t: any) => t.analysisStatus === 'failed').length;
-
-              const total = pending + running + completed + failed;
-              const current = completed + failed;
-
-              console.log('📊 [Progress Monitor] Analysis Status:', { pending, running, completed, failed, total, current });
-
-              // IMMEDIATE COMPLETION CHECK for fallback
-              if (pending === 0 && running === 0 && total > 0) {
-                console.log('🚀 [Progress Monitor] IMMEDIATE COMPLETION DETECTED (fallback)!', { pending, running, completed, failed, total, current });
-                console.log('🧹 [Progress Monitor] Clearing interval and stopping polling (fallback)...');
-                setAnalysisStatus('completed');
-                setCurrentTransaction('All transactions analyzed successfully!');
-                setEstimatedTimeRemaining(0);
-                clearInterval(pollInterval);
-                pollingIntervalRef.current = null;
-                console.log('✅ [Progress Monitor] Interval cleared, polling stopped (fallback)');
-
-                // Redirect immediately
-                setTimeout(() => {
-                  console.log('🔄 [Progress Monitor] Redirecting to review transactions...');
-                  router.push(`/protected?screen=review-transactions&accountId=${accountId}`);
-                }, 1000); // 1 second delay
-                return;
-              }
-
-              setAnalysisProgress({ current, total, status: 'running' });
-
-              // Calculate estimated time remaining
-              if (current > 0 && total > 0) {
-                const elapsedTime = Date.now() - startTime;
-                const avgTimePerTransaction = elapsedTime / current;
-                const remainingTransactions = total - current;
-                const estimatedRemaining = Math.round((remainingTransactions * avgTimePerTransaction) / 1000);
-                setEstimatedTimeRemaining(estimatedRemaining);
-              }
-
-              // Show current transaction being analyzed
-              const currentlyAnalyzing = accountTransactions.find((t: any) => t.analysisStatus === 'running');
-              if (currentlyAnalyzing) {
-                const merchantName = currentlyAnalyzing.merchant_name || currentlyAnalyzing.name || 'Unknown merchant';
-                setCurrentTransaction(`Analyzing: ${merchantName} ($${Math.abs(currentlyAnalyzing.amount || 0).toFixed(2)})`);
-              } else if (pending > 0) {
-                setCurrentTransaction(`Preparing to analyze ${pending} remaining transactions...`);
-              } else {
-                setCurrentTransaction('Finalizing analysis...');
-              }
-
-              // Check if analysis is complete - be more aggressive about detection
-              console.log('🔍 [Progress Monitor] Checking completion:', { pending, running, completed, failed, total, current });
-              if (pending === 0 && running === 0 && total > 0) {
-                console.log('✅ [Progress Monitor] Analysis complete!', { pending, running, completed, failed, total, current });
-                console.log('🧹 [Progress Monitor] Clearing interval and stopping polling (main check)...');
-                setAnalysisStatus('completed');
-                setCurrentTransaction('All transactions analyzed successfully!');
-                setEstimatedTimeRemaining(0);
-                clearInterval(pollInterval);
-                pollingIntervalRef.current = null;
-                console.log('✅ [Progress Monitor] Interval cleared, polling stopped (main check)');
-
-                // Redirect to review transactions after a short delay
-                setTimeout(() => {
-                  console.log('🔄 [Progress Monitor] Redirecting to review transactions...');
-                  router.push(`/protected?screen=review-transactions&accountId=${accountId}`);
-                }, 2000); // 2 second delay to show completion message
-                return; // Exit the polling loop
-              }
-            }
-          } else {
-            console.error('❌ [Progress Monitor] API request failed:', response.status);
-            const errorText = await response.text();
-            console.error('❌ [Progress Monitor] Error response:', errorText);
-          }
-        } else {
-          console.error('❌ [Progress Monitor] API request failed:', response.status);
-          const errorText = await response.text();
-          console.error('❌ [Progress Monitor] Error response:', errorText);
-
-          // If API fails multiple times, stop polling to prevent infinite loop
-          if (pollCount > 10) {
-            console.error('❌ [Progress Monitor] Too many API failures, stopping polling');
-            if (pollingIntervalRef.current) {
-              clearInterval(pollingIntervalRef.current);
-              pollingIntervalRef.current = null;
-            }
-            isPollingRef.current = false;
-            setAnalysisStatus('error');
-            setCurrentTransaction('Analysis failed - please try again');
-            return;
-          }
-        }
-      } catch (error) {
-        console.error('❌ [Progress Monitor] Error checking progress:', error);
-
-        // Log the error with detailed context
-        logPollingError(error, pollCount, {
-          userId: user?.id,
-          accountId: accountId,
-          message: `Polling error at attempt ${pollCount}`,
-        });
-
-        // If we get too many errors, stop polling
-        if (pollCount > 10) {
-          console.error('❌ [Progress Monitor] Too many errors, stopping polling');
-          errorLogger.log({
-            level: 'error',
-            component: 'plaid-link-screen',
-            function: 'monitorAnalysisProgress',
-            message: 'Polling stopped due to too many errors',
-            details: { pollCount, maxPolls, accountId },
-            userId: user?.id,
-            accountId: accountId,
-          });
-
-          if (pollingIntervalRef.current) {
-            clearInterval(pollingIntervalRef.current);
-            pollingIntervalRef.current = null;
-          }
-          isPollingRef.current = false;
-          setAnalysisStatus('error');
-          setCurrentTransaction('Analysis failed - please try again');
-          return;
-        }
-      }
-    }, 2000); // Poll every 2 seconds
-
-    // Store the interval in the ref IMMEDIATELY after creation
-    pollingIntervalRef.current = pollInterval;
-
-    // IMMEDIATE FALLBACK: Check if analysis is already done and redirect
-    setTimeout(async () => {
-      try {
-        const currentUser = auth.currentUser;
-        if (currentUser) {
-          const token = await currentUser.getIdToken();
-
-          // Check if analysis is already complete
-          const statusResponse = await fetch(`/api/transactions/analysis-status?accountId=${accountId}`, {
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json',
-            },
-          });
-
-          if (statusResponse.ok) {
-            const statusResult = await statusResponse.json();
-            console.log('🔍 [IMMEDIATE CHECK] Analysis status:', statusResult);
-
-            if (statusResult.success && statusResult.data) {
-              const { overallStatus, progress } = statusResult.data;
-
-              if (overallStatus === 'completed' || (progress?.current >= progress?.total && progress?.total > 0)) {
-                console.log('✅ [IMMEDIATE CHECK] Analysis already complete, redirecting immediately');
-                setAnalysisStatus('completed');
-                setCurrentTransaction('Analysis complete! Redirecting...');
-                setTimeout(() => onSuccess(), 1000);
-                return;
-              }
-            }
-          }
-
-          // Use deterministic jobId - one job per (user, account)
-          const deterministicJobId = `${user.id}_${accountId}`;
-          setJobId(deterministicJobId);
-
-          // If not complete, trigger analysis
-          if ((analysisProgress?.current ?? 0) === 0 && (analysisProgress?.total ?? 0) === 0) {
-            console.log('🔄 [IMMEDIATE CHECK] No progress detected, triggering analysis...');
-            const response = await fetch('/api/plaid/auto-analyze', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`,
-              },
-              body: JSON.stringify({ accountId })
-            });
-
-            if (response.ok) {
-              const result = await response.json();
-              console.log('✅ [IMMEDIATE CHECK] Analysis trigger result:', result);
-              // jobId should match our deterministic one
-              if (result.jobId && result.jobId === deterministicJobId) {
-                console.log('📊 [Auto-Analyze] Job ID confirmed:', result.jobId);
-              }
-            }
-          }
-        }
-      } catch (error) {
-        console.error('❌ [IMMEDIATE CHECK] Error:', error);
-      }
-    }, 1500); // Check every 1.5 seconds for real-time updates
-
-    // AGGRESSIVE FALLBACK: Redirect after 2 minutes regardless
-    setTimeout(() => {
-      clearInterval(pollInterval);
-      pollingIntervalRef.current = null;
-      console.warn('⚠️ [AGGRESSIVE FALLBACK] 2 minutes reached, redirecting to review transactions');
-      setAnalysisStatus('completed');
-      setCurrentTransaction('Redirecting to review transactions...');
-      setTimeout(() => onSuccess(), 1000);
-    }, 120000); // 2 minutes
-
-    // EMERGENCY FALLBACK: Redirect after 30 seconds if no progress at all
-    setTimeout(() => {
-      if ((analysisProgress?.current ?? 0) === 0 && (analysisProgress?.total ?? 0) === 0) {
-        console.warn('⚠️ [EMERGENCY FALLBACK] No progress after 30s, redirecting anyway');
-        if (pollingIntervalRef.current) {
-          clearInterval(pollingIntervalRef.current);
-          pollingIntervalRef.current = null;
-        }
-        isPollingRef.current = false;
-        setAnalysisStatus('completed');
-        setCurrentTransaction('Redirecting to review transactions...');
-        setTimeout(() => onSuccess(), 1000);
-      }
-    }, 30000); // 30 seconds
-    */
+    return () => { cancelled = true; };
+  }, [user.id, updateItemId, oauthResume]);
 
   const onPlaidSuccess = useCallback(async (public_token: string) => {
     setLoading(true);
     setError(null);
+    clearPlaidOAuthSession(window.sessionStorage);
 
     // Note: Free trial is automatically started when creating link token or exchanging public token
     // No need to pass subscription info - trial is app-managed
 
     try {
+      if (linkOwner !== user.id || auth.currentUser?.uid !== user.id) throw new Error('Sign in to the same WriteOff account and reconnect your bank.');
+      // Link update repairs an existing item; it does not exchange a new public token.
+      if (updateItemId) {
+        const response = await makeAuthenticatedRequest('/api/plaid/sync-transactions', {
+          method: 'POST', body: JSON.stringify({ itemId: updateItemId, incremental: true }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || 'Bank sign-in was updated, but sync needs another try.');
+        onSuccess();
+        return;
+      }
       // Guard Plaid public_token early
       if (!public_token) {
         console.error('Plaid returned empty public_token');
@@ -883,7 +344,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
         },
         body: JSON.stringify({
           public_token,
-          // Backend always requests 24 months (730 days); import_timeframe is display/filter only.
+          // The server chooses the permitted history window for the current plan.
         }),
       });
 
@@ -936,14 +397,19 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
     } finally {
       setLoading(false);
     }
-  }, [user.id, onSuccess]);
+  }, [user.id, onSuccess, updateItemId, router, linkOwner]);
 
   const onPlaidExit = useCallback((err: any) => {
+    clearPlaidOAuthSession(window.sessionStorage);
+    if (oauthResume) {
+      setError('Bank sign-in was not completed. Return to your banks and try again.');
+      return;
+    }
     if (err) {
       console.error('Plaid Link exit error:', err);
       setError('Bank connection was cancelled or failed. Please try again.');
     }
-  }, []);
+  }, [oauthResume]);
 
   // Check for duplicate script loading and warn if detected
   useEffect(() => {
@@ -958,10 +424,17 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
   }, [linkToken]);
 
   const { open, ready } = usePlaidLink({
-    token: linkToken,
+    token: linkOwner === user.id ? linkToken : null,
+    ...(oauthResume ? { receivedRedirectUri: oauthResume.receivedRedirectUri } : {}),
     onSuccess: onPlaidSuccess,
     onExit: onPlaidExit,
   });
+
+  useEffect(() => {
+    if (!oauthResume || !ready || !linkToken || linkOwner !== user.id || resumedToken.current === linkToken) return;
+    resumedToken.current = linkToken;
+    open();
+  }, [oauthResume, ready, linkToken, open, linkOwner, user.id]);
 
   const handleConnectBank = async () => {
     if (!bankConsent) return;
@@ -969,13 +442,31 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
     // Free trial is automatically started when creating link token
     // Just connect the bank - no subscription selection needed
     if (ready) {
-      open();
+      try {
+        if (!linkToken || linkOwner !== user.id || auth.currentUser?.uid !== user.id) throw new Error('Sign in again before connecting your bank.');
+        if (redirectUri) savePlaidOAuthSession(window.sessionStorage, { version: 1, uid: user.id, token: linkToken,
+          redirectUri, createdAt: Date.now(), fromSettings, ...(updateItemId ? { itemId: updateItemId } : {}) }, window.location.origin);
+        else clearPlaidOAuthSession(window.sessionStorage);
+        open();
+      } catch (err) { setError(err instanceof Error ? err.message : 'Bank sign-in could not start. Please retry.'); }
     }
   };
 
   const handleSkip = () => {
+    clearPlaidOAuthSession(window.sessionStorage);
     onSuccess(); // Continue to next step without connecting bank
   };
+
+  if (oauthResume) return (
+    <main className="mx-auto flex min-h-[60vh] max-w-md items-center p-4">
+      <Card className="w-full space-y-4 p-6">
+        <h1 className="text-xl font-semibold">{error ? 'Bank sign-in needs another try' : 'Finishing bank sign-in'}</h1>
+        {error ? <p role="alert" className="text-sm text-muted-foreground">{error}</p>
+          : <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Returning securely to your bank connection…</p>}
+        <Button variant="outline" onClick={() => { clearPlaidOAuthSession(window.sessionStorage); onBack(); }}>Return to banks</Button>
+      </Card>
+    </main>
+  );
 
   if (isConnected) {
     const getStatusMessage = () => {
@@ -986,8 +477,11 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
           return 'Importing transactions...';
         case 'analyzing':
           return 'Analyzing transactions with AI...';
+        case 'queued': return 'Analysis queued';
+        case 'idle': return 'No additional analysis queued';
+        case 'error': return 'Analysis needs attention';
         case 'completed':
-          return 'Analysis complete! Preparing your review...';
+          return 'Analysis complete! Review the saved suggestions.';
         default:
           return 'Processing...';
       }
@@ -1019,7 +513,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
               <CheckCircle className="w-4 h-4 text-white" />
             </div>
             <h1 className="text-sm font-bold text-foreground mb-1">Bank Connected Successfully</h1>
-            <p className="text-xs text-muted-foreground">Your account is now linked and ready for analysis</p>
+            <p className="text-xs text-muted-foreground">Your account is linked. Analysis status is shown below.</p>
           </div>
 
           {/* Main Progress Card */}
@@ -1033,7 +527,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
                 )}
               </div>
               <h2 className="text-xs font-bold text-card-foreground mb-1">{getStatusMessage()}</h2>
-              <p className="text-xs text-muted-foreground">Our AI is working to categorize your transactions</p>
+              <p className="text-xs text-muted-foreground">AI suggestions require your review before confirming deductions.</p>
             </div>
 
             {/* Analysis Progress */}
@@ -1082,13 +576,14 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
             )}
 
             {/* Current Transaction Being Analyzed */}
-            {currentTransaction && analysisStatus === 'analyzing' && (
+            {currentTransaction && (
               <div className="bg-blue-500/10 border border-blue-500/20 rounded-md p-2 mb-2">
                 <div className="flex items-center gap-1 mb-1">
                   <div className="w-1 h-1 bg-blue-500 rounded-full animate-pulse shadow-sm"></div>
-                  <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide">Currently Analyzing</span>
+                  <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide">Analysis status</span>
                 </div>
                 <p className="text-card-foreground font-medium text-xs">{currentTransaction}</p>
+                {jobLink && analysisStatus === 'error' && <Link href={jobLink.href} className="mt-1 inline-flex min-h-11 items-center gap-1 text-xs font-medium text-primary underline underline-offset-2">{jobLink.label}<ArrowRight className="h-3 w-3 shrink-0" aria-hidden="true" /></Link>}
               </div>
             )}
 
@@ -1100,15 +595,15 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
                   <div className="space-y-0.5 text-xs text-muted-foreground">
                     <div className="flex items-center justify-center gap-1">
                       <div className="w-1 h-1 bg-blue-500 rounded-full"></div>
-                      <span>AI is analyzing each transaction for tax deductibility</span>
+                      <span>AI is preparing suggestions for eligible posted transactions</span>
                     </div>
                     <div className="flex items-center justify-center gap-1">
                       <div className="w-1 h-1 bg-blue-500 rounded-full"></div>
-                      <span>Applying profession-specific rules and IRS guidelines</span>
+                      <span>Check the business purpose and supporting records yourself</span>
                     </div>
                     <div className="flex items-center justify-center gap-1">
                       <div className="w-1 h-1 bg-blue-500 rounded-full"></div>
-                      <span>This typically takes 1-3 minutes</span>
+                      <span>Timing depends on the queue and provider availability</span>
                     </div>
                   </div>
                 </div>
@@ -1120,7 +615,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
                 <div className="text-center">
                   <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400 mx-auto mb-1" />
                   <h4 className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 mb-0.5">Analysis Complete!</h4>
-                  <p className="text-xs text-emerald-600 dark:text-emerald-400">All transactions have been analyzed and categorized</p>
+                  <p className="text-xs text-emerald-600 dark:text-emerald-400">The queued suggestions were saved. Confirm their treatment yourself.</p>
                 </div>
               </div>
             )}
@@ -1195,6 +690,12 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
               </div>
             )}
 
+            {accountId && analysisStatus !== 'completed' && (
+              <div className="space-y-2 mt-3">
+                {(analysisStatus === 'error' || analysisStatus === 'idle') && <Button variant="outline" className="w-full" onClick={() => void monitorAnalysisProgress(accountId, true)}>Retry AI analysis</Button>}
+                <Button variant="outline" className="w-full" onClick={() => router.push(`/protected?screen=review-transactions&accountId=${encodeURIComponent(accountId)}`)}>Review transactions manually</Button>
+              </div>
+            )}
             {/* Analysis Complete - Review Button */}
             {analysisStatus === 'completed' && (
               <div className="text-center">
@@ -1209,7 +710,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
                   </div>
                 </button>
                 <p className="text-sm text-muted-foreground mt-4">
-                  All transactions have been analyzed and are ready for your review
+                  Saved suggestions are ready for your review
                 </p>
               </div>
             )}
@@ -1224,7 +725,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
       <div className="bg-card border-b border-border sticky top-0 z-50 shadow-sm">
         <div className="flex items-center justify-between p-4 max-w-4xl mx-auto">
           <button
-            onClick={onBack}
+            onClick={() => { clearPlaidOAuthSession(window.sessionStorage); onBack(); }}
             className="w-10 h-10 bg-card border border-border rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-all duration-200 shadow-sm"
           >
             <ArrowLeft className="w-4 h-4" />
@@ -1280,7 +781,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
               <div className="flex items-center gap-2 p-3 bg-muted/30 rounded-lg">
                 <Shield className="w-4 h-4 text-primary" />
                 <div>
-                  <p className="font-medium text-foreground text-xs">Bank-level security</p>
+                  <p className="font-medium text-foreground text-xs">Read-only, encrypted connection</p>
                   <p className="text-xs text-muted-foreground">256-bit encryption</p>
                 </div>
               </div>
@@ -1296,8 +797,8 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
               <div className="flex items-center gap-2 p-3 bg-muted/30 rounded-lg">
                 <CheckCircle className="w-4 h-4 text-primary" />
                 <div>
-                  <p className="font-medium text-foreground text-xs">Tax optimization</p>
-                  <p className="text-xs text-muted-foreground">Maximize deductions</p>
+                  <p className="font-medium text-foreground text-xs">Deduction review</p>
+                  <p className="text-xs text-muted-foreground">You confirm each suggestion</p>
                 </div>
               </div>
             </div>
@@ -1353,7 +854,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
                 ) : (
                   <>
                     <Building2 className="w-4 h-4" />
-                    <span>{fromSettings ? 'Connect Bank Account' : 'Connect Bank Account (Start Free Trial)'}</span>
+                    <span>{updateItemId ? 'Repair bank connection' : fromSettings ? 'Connect Bank Account' : 'Connect Bank Account (Start Free Trial)'}</span>
                   </>
                 )}
               </Button>
@@ -1369,7 +870,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
 
           <div className="text-center">
             <p className="text-xs text-muted-foreground max-w-md mx-auto">
-              By connecting your bank account, you agree to Plaid's Privacy Policy and Terms of Service. WriteOff uses bank-level security and never stores your banking credentials.
+              By connecting your bank account, you agree to Plaid's Privacy Policy and Terms of Service. WriteOff receives read-only access through Plaid and never stores your banking credentials.
             </p>
           </div>
         </div>

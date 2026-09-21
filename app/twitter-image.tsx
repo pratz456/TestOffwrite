@@ -210,7 +210,7 @@ export default async function Image() {
                 letterSpacing: "-0.03em",
               }}
             >
-              Stop overpaying taxes.
+              Know your write-offs.
               <span style={{ paddingLeft: 12 }}>
                 <span
                   style={{
@@ -223,7 +223,7 @@ export default async function Image() {
                   WriteOff
                 </span>
               </span>{" "}
-              finds every deduction.
+              tracks your deductions.
             </div>
 
             <div

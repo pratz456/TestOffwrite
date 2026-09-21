@@ -14,17 +14,28 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { resolveLocalEmulatorConfig } from './lib/firebase/local-emulator-config';
+import { gaMeasurementId, GOOGLE_TAG_CSP_SOURCES } from './lib/analytics/ga-measurement-id';
 
 // ── In-memory rate limit store (resets on cold start) ──────────────────────
-// For production at scale, swap for Upstash Redis using @upstash/ratelimit
+// First line only. Middleware runs in the edge runtime, so it cannot use
+// firebase-admin, and each hosting instance keeps its own counters: an
+// attacker spread across instances or cold starts is bounded per instance, not
+// globally. The authoritative, durable per-owner limits live in the route
+// handlers through lib/security/rate-limit.ts (Firestore `rate_limits`).
 const ipRateMap   = new Map<string, { count: number; windowStart: number }>();
 const userRateMap = new Map<string, { count: number; windowStart: number }>();
 
+// These counters live in one instance's memory, so they are a per-IP flood ceiling,
+// not the abuse control: costly routes enforce durable per-user limits in
+// lib/security/rate-limit.ts. A single dashboard load fans out to a dozen API calls
+// and many customers share one NAT address, so the ceilings must sit well above
+// legitimate bursts.
 const WINDOW_MS  = 60_000; // 1 minute window
-const IP_LIMIT   = 120;    // 120 requests/min per IP (normal browsing)
-const API_LIMIT  = 60;     // 60 requests/min per IP for /api/* routes
-const AUTH_LIMIT = 10;     // 10 auth attempts/min per IP (brute force protection)
-const UPLOAD_LIMIT = 5;    // 5 document uploads/min per IP
+const IP_LIMIT   = 600;    // page and RSC/prefetch requests per minute per IP
+const API_LIMIT  = 600;    // /api/* requests per minute per IP
+const AUTH_LIMIT = 30;     // session create/renew per minute per IP (Firebase Auth throttles credential guessing itself)
+const UPLOAD_LIMIT = 10;   // document-import (vision) uploads per minute per IP
 
 function rateLimit(map: Map<string, { count: number; windowStart: number }>, key: string, limit: number): boolean {
   const now = Date.now();
@@ -50,7 +61,7 @@ function getClientIP(request: NextRequest): string {
 }
 
 // ── Security headers applied to every response ────────────────────────────
-function addSecurityHeaders(response: NextResponse): NextResponse {
+function addSecurityHeaders(response: NextResponse, hostname: string): NextResponse {
   // Prevent clickjacking
   response.headers.set('X-Frame-Options', 'DENY');
 
@@ -66,7 +77,7 @@ function addSecurityHeaders(response: NextResponse): NextResponse {
   // Restrict browser features
   response.headers.set(
     'Permissions-Policy',
-    'camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=()'
+    'camera=(self), microphone=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=()'
   );
 
   // Content Security Policy
@@ -75,21 +86,39 @@ function addSecurityHeaders(response: NextResponse): NextResponse {
   // - style-src: self + inline styles (Tailwind)
   // - img-src: self + data URIs + Plaid images + Firebase Storage
   // - connect-src: self + all API endpoints we call
-  // - frame-src: none (no iframes)
+  // - frame-src: Plaid Link, Stripe, and the configured Firebase Auth helper
   // - object-src: none (no Flash/plugins)
+  const filingSandbox = process.env.COLUMN_TAX_MODE === 'sandbox' && process.env.COLUMN_TAX_SANDBOX_APPROVED === 'true'
+    && process.env.WRITEOFF_ENV === 'staging' && process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID === 'writeoff-production-testing';
+  const filingOrigin = filingSandbox ? ' https://app-sandbox.columnapi.com' : '';
+  // Failed local configuration receives the normal restrictive policy. The
+  // client rejects it before initializing Firebase; never expand production CSP.
+  let localEmulators = null;
+  try {
+    localEmulators = resolveLocalEmulatorConfig({ enabled: process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATORS,
+      nodeEnv: process.env.NODE_ENV, appEnv: process.env.NEXT_PUBLIC_APP_ENV,
+      projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID, apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+      appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID, authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+      storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET }, hostname);
+  } catch { /* Keep the default CSP when an emulator guard fails. */ }
+  const localConnections = localEmulators ? ` ${localEmulators.authOrigin} ${localEmulators.firestoreOrigin} ${localEmulators.storageOrigin}` : '';
+  // Google tag origins are admitted only when app/layout.tsx renders the tag
+  // (NEXT_PUBLIC_GA_MEASUREMENT_ID set at build time, not staging).
+  const googleTag = gaMeasurementId() ? GOOGLE_TAG_CSP_SOURCES : null;
+  const googleTagSources = (key: keyof typeof GOOGLE_TAG_CSP_SOURCES) => googleTag ? ` ${googleTag[key].join(' ')}` : '';
   const csp = [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://cdn.plaid.com",
+    `script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://cdn.plaid.com https://apis.google.com${filingOrigin}${googleTagSources('scriptSrc')}`,
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob: https://firebasestorage.googleapis.com https://storage.googleapis.com",
+    `img-src 'self' data: blob: https://firebasestorage.googleapis.com https://storage.googleapis.com${localEmulators ? ` ${localEmulators.storageOrigin}` : ''}${googleTagSources('imgSrc')}`,
     "font-src 'self' data:",
-    "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://api.stripe.com https://api.plaid.com https://sandbox.plaid.com https://production.plaid.com https://api.openai.com",
-    "frame-src https://js.stripe.com https://hooks.stripe.com",
+    `connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://api.stripe.com https://api.plaid.com https://sandbox.plaid.com https://production.plaid.com https://api.openai.com${localConnections}${googleTagSources('connectSrc')}`,
+    `frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://cdn.plaid.com https://${process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || 'writeoff-23910.firebaseapp.com'}${filingOrigin}${localEmulators ? ` ${localEmulators.authOrigin}` : ''}`,
     "frame-ancestors 'none'",
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
-    "upgrade-insecure-requests",
+    ...(!localEmulators ? ["upgrade-insecure-requests"] : []),
   ].join('; ');
 
   response.headers.set('Content-Security-Policy', csp);
@@ -98,6 +127,16 @@ function addSecurityHeaders(response: NextResponse): NextResponse {
   response.headers.delete('X-Powered-By');
   response.headers.delete('Server');
 
+  return response;
+}
+
+// ── API cache policy ──────────────────────────────────────────────────────
+// Every /api/* response carries owner-scoped or secret-gated data. This header is applied before
+// the route handler runs; handler headers are appended, so a handler can only tighten, never loosen.
+const API_CACHE_CONTROL = 'private, no-store';
+
+function withApiCachePolicy(response: NextResponse, pathname: string): NextResponse {
+  if (pathname.startsWith('/api/')) response.headers.set('Cache-Control', API_CACHE_CONTROL);
   return response;
 }
 
@@ -179,7 +218,7 @@ export function middleware(request: NextRequest) {
     pathname === '/api/plaid/sync-transactions-internal'
   ) {
     const response = NextResponse.next();
-    return addSecurityHeaders(response);
+    return withApiCachePolicy(addSecurityHeaders(response, request.nextUrl.hostname), pathname);
   }
 
   // ── Enforce HTTPS in production ────────────────────────────────────────
@@ -193,7 +232,7 @@ export function middleware(request: NextRequest) {
 
   // ── Apply security headers to all responses ───────────────────────────
   const response = NextResponse.next();
-  return addSecurityHeaders(response);
+  return withApiCachePolicy(addSecurityHeaders(response, request.nextUrl.hostname), pathname);
 }
 
 export const config = {

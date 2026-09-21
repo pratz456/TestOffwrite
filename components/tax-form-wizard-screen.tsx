@@ -33,7 +33,7 @@ const QUESTIONS: { key: string; question: string }[] = [
   },
   {
     key: "equipment",
-    question: "Did you purchase business equipment or assets over $2,500?",
+    question: "Did you purchase business equipment or depreciable assets?",
   },
   {
     key: "investments",
@@ -45,7 +45,7 @@ const QUESTIONS: { key: string; question: string }[] = [
   },
   {
     key: "contractors",
-    question: "Did you pay any contractors over $600?",
+    question: "Did you make business payments to contractors?",
   },
   {
     key: "partnership",
@@ -105,7 +105,7 @@ const FORMS = [
   {
     key: "form_1099_nec",
     name: "Form 1099-NEC (for contractors)",
-    description: "Report payments to contractors over $600",
+    description: "Review the tax-year reporting threshold, payment method and exceptions; a Yes answer does not establish a filing requirement",
     neededIf: (a: Record<string, boolean>) => a.contractors,
   },
   {
@@ -200,7 +200,7 @@ export function TaxFormWizardScreen({
                 Tax Form Wizard
               </h1>
               <p className="text-xs sm:text-sm text-muted-foreground">
-                Find out which forms you need to file
+                Identify topics and forms to review with your preparer
               </p>
             </div>
           </div>
@@ -274,7 +274,7 @@ export function TaxFormWizardScreen({
                 </div>
                 <p className="text-sm text-muted-foreground">
                   Based on your answers, here are the IRS forms that may apply to
-                  your situation.
+                  your situation. This short checklist is not a complete filing determination, and these forms are not all prepared or submitted by WriteOff.
                 </p>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -300,12 +300,12 @@ export function TaxFormWizardScreen({
                           </span>
                           {needed && (
                             <Badge variant="default" className="text-xs">
-                              Needed
+                              Review
                             </Badge>
                           )}
                           {!needed && !form.alwaysShow && (
                             <Badge variant="secondary" className="text-xs">
-                              Not needed
+                              Not flagged
                             </Badge>
                           )}
                         </div>

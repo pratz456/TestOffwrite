@@ -1,167 +1,60 @@
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { generateUserDataExport, generateDataPackage, validateExportData } from '@/lib/reports/data-export';
-import { adminDb } from '@/lib/firebase/admin';
+import { exportYear, ExportReviewRequiredError } from '@/lib/reports/transaction-export';
+import { enforceRateLimit, peekRateLimit, RATE_LIMITS, rateLimitResponse, refundRateLimit, type RateLimitResult } from '@/lib/security/rate-limit';
 
-// Rate limiting: 1 export per hour per user
-const EXPORT_RATE_LIMIT = 60 * 60 * 1000; // 1 hour in milliseconds
-const rateLimitMap = new Map<string, number>();
-
-/**
- * Check if user can request export (rate limiting)
- */
-function canRequestExport(userId: string): boolean {
-  const lastExport = rateLimitMap.get(userId);
-  const now = Date.now();
-  
-  if (!lastExport) {
-    return true;
-  }
-  
-  return (now - lastExport) >= EXPORT_RATE_LIMIT;
-}
-
-/**
- * Record export request for rate limiting
- */
-function recordExportRequest(userId: string): void {
-  rateLimitMap.set(userId, Date.now());
-}
-
-/**
- * Log export request for audit trail
- */
-async function logExportRequest(userId: string, exportId: string): Promise<void> {
-  try {
-    await adminDb.collection('export_logs').add({
-      userId,
-      exportId,
-      requestedAt: new Date(),
-      ipAddress: 'unknown', // Could be extracted from request headers
-      userAgent: 'unknown'  // Could be extracted from request headers
-    });
-  } catch (error) {
-    console.warn('⚠️ [Export API] Failed to log export request:', error);
-    // Don't fail the export if logging fails
-  }
-}
-
+// Owner data portability remains available on every plan. One completed archive
+// per hour is enforced durably across hosting instances; a failed attempt is
+// refunded so a broken read never locks out recovery, while total attempts stay
+// bounded. The in-flight set coalesces duplicates on this instance.
+const inFlight = new Set<string>();
+const headers = { 'Cache-Control': 'private, no-store' };
+const exportLimit = (uid: string) => ({ ...RATE_LIMITS.userExport, key: uid });
+const busyResponse = () => NextResponse.json({ error: 'Export already requested', code: 'RATE_LIMITED', message: 'Your export is already being prepared.', retryAfter: 5 },
+  { status: 429, headers: { ...headers, 'Retry-After': '5' } });
 export async function POST(request: NextRequest) {
+  const { user, error } = await getAuthenticatedUser(request);
+  if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers });
+  let year: number | undefined;
   try {
-    // Get the authenticated user
-    const { user, error: authError } = await getAuthenticatedUser(request);
-    
-    if (authError || !user) {
-      console.error('❌ [Export API] Authentication failed:', authError);
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    console.log(`📊 [Export API] Export request from user: ${user.uid}`);
-
-    // Check rate limiting
-    if (!canRequestExport(user.uid)) {
-      const lastExport = rateLimitMap.get(user.uid);
-      const timeRemaining = Math.ceil((EXPORT_RATE_LIMIT - (Date.now() - lastExport!)) / 1000 / 60);
-      
-      return NextResponse.json({
-        error: 'Rate limit exceeded',
-        message: `You can only export your data once per hour. Please wait ${timeRemaining} minutes.`,
-        retryAfter: timeRemaining * 60 // seconds
-      }, { status: 429 });
-    }
-
-    // Record the export request
-    recordExportRequest(user.uid);
-
-    // Generate the data export
-    console.log(`🔄 [Export API] Generating data export for user: ${user.uid}`);
-    const userData = await generateUserDataExport(user.uid);
-    
-    // Validate the export data
-    const validation = validateExportData(userData);
-    if (!validation.isValid) {
-      console.error('❌ [Export API] Export validation failed:', validation.errors);
-      return NextResponse.json({
-        error: 'Export validation failed',
-        details: validation.errors
-      }, { status: 500 });
-    }
-
-    // Log warnings if any
-    if (validation.warnings.length > 0) {
-      console.warn('⚠️ [Export API] Export warnings:', validation.warnings);
-    }
-
-    // Generate the data package
-    const dataPackage = generateDataPackage(userData);
-    
-    // Log the export request for audit trail
-    await logExportRequest(user.uid, userData.exportInfo.exportId);
-
-    console.log(`✅ [Export API] Export completed for user: ${user.uid}`, {
-      exportId: userData.exportInfo.exportId,
-      transactionCount: userData.transactions.length,
-      accountCount: userData.accounts.length,
-      receiptCount: userData.receipts.length
-    });
-
-    // Return the export data
-    return NextResponse.json({
-      success: true,
-      exportId: userData.exportInfo.exportId,
-      exportDate: userData.exportInfo.exportDate,
-      data: dataPackage,
-      summary: {
-        accounts: userData.accounts.length,
-        transactions: userData.transactions.length,
-        receipts: userData.receipts.length,
-        aiAnalysis: userData.aiAnalysis.length
-      },
-      warnings: validation.warnings
-    });
-
+    const text = await request.text();
+    const body = text ? JSON.parse(text) : {};
+    if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => key !== 'year')) throw new Error();
+    year = exportYear(body.year);
+  } catch { return NextResponse.json({ error: 'Provide an optional four-digit year from 2000 through 2100.' }, { status: 400, headers }); }
+  // Keep the availability check and acquisition adjacent: body reading yields,
+  // so checking before it allows two simultaneous requests through the lock.
+  if (inFlight.has(user.uid)) return busyResponse();
+  inFlight.add(user.uid);
+  let claimed: RateLimitResult | null = null;
+  let completed = false;
+  try {
+    const attempts = await enforceRateLimit({ ...RATE_LIMITS.userExportAttempts, key: user.uid });
+    if (!attempts.allowed) return rateLimitResponse(attempts, { error: 'Too many export attempts. Please wait before trying again.' });
+    claimed = await enforceRateLimit(exportLimit(user.uid));
+    if (!claimed.allowed) return rateLimitResponse(claimed, { error: 'Export already requested. Please wait before downloading another archive.' });
+    const data = await generateUserDataExport(user.uid, year), validation = validateExportData(data);
+    if (!validation.isValid) throw new Error('Invalid archive');
+    const packaged = generateDataPackage(data);
+    completed = true;
+    return NextResponse.json({ success: true, exportId: data.exportInfo.exportId, exportDate: data.exportInfo.exportDate,
+      data: packaged, summary: packaged.summary.counts, warnings: validation.warnings }, { headers });
   } catch (error) {
-    console.error('❌ [Export API] Export failed:', error);
-    
-    return NextResponse.json({
-      error: 'Export failed',
-      message: error instanceof Error ? error.message : 'Unknown error occurred',
-      details: process.env.NODE_ENV === 'development' ? String(error) : undefined
-    }, { status: 500 });
+    if (error instanceof ExportReviewRequiredError) return NextResponse.json({ error: error.message, code: error.code }, { status: 422, headers });
+    return NextResponse.json({ error: 'Export unavailable', message: 'Could not load a complete export. Please retry.' }, { status: 503, headers });
+  } finally {
+    if (claimed?.allowed && !completed) await refundRateLimit(exportLimit(user.uid), claimed);
+    inFlight.delete(user.uid);
   }
 }
-
-/**
- * GET endpoint to check export status and rate limiting
- */
 export async function GET(request: NextRequest) {
-  try {
-    // Get the authenticated user
-    const { user, error: authError } = await getAuthenticatedUser(request);
-    
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const canExport = canRequestExport(user.uid);
-    const lastExport = rateLimitMap.get(user.uid);
-    
-    let timeRemaining = 0;
-    if (lastExport && !canExport) {
-      timeRemaining = Math.ceil((EXPORT_RATE_LIMIT - (Date.now() - lastExport)) / 1000 / 60);
-    }
-
-    return NextResponse.json({
-      canExport,
-      timeRemaining,
-      rateLimitHours: EXPORT_RATE_LIMIT / (1000 * 60 * 60)
-    });
-
-  } catch (error) {
-    console.error('❌ [Export API] Status check failed:', error);
-    return NextResponse.json({ error: 'Status check failed' }, { status: 500 });
-  }
+  const { user, error } = await getAuthenticatedUser(request);
+  if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers });
+  // Status is read-only; if the store is unreachable the POST fails closed instead.
+  const status = await peekRateLimit({ ...exportLimit(user.uid), onUnavailable: 'allow' });
+  const retrySeconds = status.allowed ? 0 : status.retryAfterSeconds;
+  return NextResponse.json({ canExport: status.allowed && !inFlight.has(user.uid), timeRemaining: Math.ceil(retrySeconds / 60), rateLimitHours: 1 }, { headers });
 }

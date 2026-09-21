@@ -7,6 +7,7 @@ import { Shield, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import writeOffLogo from '@/public/writeofflogo.png';
 import Image from 'next/image';
+import { CONSENT_TERMS_VERSION } from '@/lib/onboarding/consents';
 
 export default function PrivacyPolicyPageClient() {
   return (
@@ -36,7 +37,7 @@ export default function PrivacyPolicyPageClient() {
               Privacy Policy
             </CardTitle>
             <CardDescription className="text-sm text-muted-foreground mb-8 font-tabular-nums">
-              Last updated: September 11, 2025
+              Effective date: September 18, 2026 (version {CONSENT_TERMS_VERSION})
             </CardDescription>
           </CardHeader>
           <CardContent className="p-8 md:p-10 pt-4 space-y-6 [&>div:not(:first-child)]:mt-10 [&>div:not(:first-child)]:border-t [&>div:not(:first-child)]:border-border [&>div:not(:first-child)]:pt-8 [&_p]:text-base [&_p]:leading-[1.75] [&_p]:text-muted-foreground [&_p]:mb-4 [&_h3]:text-lg md:[&_h3]:text-xl [&_h3]:font-bold [&_h3]:text-foreground [&_h3]:mb-3 [&_ul]:list-disc [&_ul]:list-inside [&_ul]:ml-5 md:[&_ul]:ml-6 [&_ul]:mt-2 [&_ul]:mb-4 [&_ul]:space-y-2 [&_ul]:text-muted-foreground [&_ul]:[&_li]:marker:text-muted-foreground">
@@ -52,11 +53,11 @@ export default function PrivacyPolicyPageClient() {
                 <li><strong>Personal Information:</strong> name, email address, state, profession, filing status, income</li>
                 <li><strong>Financial Data:</strong> bank account and transaction data via Plaid integration</li>
                 <li><strong>Receipt Data:</strong> receipt images and OCR-extracted transaction details</li>
-                <li><strong>User Corrections:</strong> corrections to AI classifications for machine learning improvement</li>
+                <li><strong>User Corrections:</strong> corrections to AI suggestions, kept in your account to personalize future suggestions for you; they are not used to train AI models</li>
                 <li><strong>Tax Data:</strong> quarterly tax calculation data, payment tracking, and tax bracket information</li>
                 <li><strong>Mobile Data:</strong> device information for PWA functionality and mobile optimization</li>
                 <li><strong>Preferences:</strong> notification settings, user preferences, and customization data</li>
-                <li><strong>Voice Data:</strong> voice input for expense tracking (processed locally when possible)</li>
+                <li><strong>Voice Data:</strong> if you use voice entry, your browser&apos;s speech recognition converts your speech to text and the text is sent to our AI provider to identify the expense; we do not store audio</li>
                 <li><strong>Usage Analytics:</strong> app usage patterns, feature interactions, and performance data</li>
                 <li><strong>Inferences:</strong> tax deduction analysis, personalized insights, and optimization recommendations</li>
               </ul>
@@ -67,16 +68,16 @@ export default function PrivacyPolicyPageClient() {
               <ul>
                 <li>To provide AI-powered tax deduction analysis and generate comprehensive reports</li>
                 <li>To automatically process receipts and extract transaction details using OCR</li>
-                <li>To calculate quarterly tax estimates using real-time federal tax brackets</li>
+                <li>To calculate federal planning estimates using the published tax brackets for the selected tax year</li>
                 <li>To provide personalized AI insights and tax optimization recommendations</li>
                 <li>To learn from your corrections and improve AI accuracy over time</li>
-                <li>To generate Schedule C, Form 4562, and other tax forms automatically</li>
+                <li>To build Schedule C and Form 8829 summaries from your confirmed records</li>
                 <li>To process voice input for hands-free expense tracking</li>
                 <li>To provide mobile-responsive experience with PWA functionality</li>
                 <li>To integrate with bank accounts via Plaid for automatic transaction import</li>
-                <li>To personalize tax education content and deliver IRS-backed information</li>
+                <li>To personalize tax education content that cites IRS publications</li>
                 <li>To send smart notifications for quarterly tax deadlines and important updates</li>
-                <li>To provide real-time tax savings calculations based on your specific tax bracket</li>
+                <li>To show planning estimates of tax effects based on your selected filing status and tax year</li>
                 <li>To manage your account and provide comprehensive customer support</li>
                 <li>To improve our services, user experience, and AI capabilities</li>
                 <li>To comply with legal obligations and maintain security standards</li>
@@ -86,33 +87,38 @@ export default function PrivacyPolicyPageClient() {
             <div>
               <h3>Data Retention</h3>
               <p className="mb-3">
-                We retain your data as long as your account is active or as needed to provide services, comply with legal obligations, or resolve disputes. You may request deletion at any time.
+                We retain your data as long as your account is active or as needed to provide services, comply with legal obligations, or resolve disputes. You can delete your account at any time from Settings, or ask us to.
+              </p>
+              <p className="mb-3">
+                Deleting your account removes your records from the live database right away. Copies can remain in point-in-time recovery for up to 7 days and in scheduled backups for up to 14 weeks, and Google&apos;s infrastructure may hold backup copies for up to about six months before they expire. Backups are used only to recover the service from an outage; after any restore, deletions requested before it are carried out again. We keep a minimal record that a deletion was requested and completed.
               </p>
             </div>
 
             <div>
               <h3>Third Parties</h3>
               <ul>
-                <li>Plaid (for bank data aggregation)</li>
-                <li>Firebase (for authentication, storage, and hosting)</li>
-                <li>OCR processing providers (for receipt scanning)</li>
-                <li>AI models (for receipt processing and insights generation)</li>
-                <li>Other service providers as required to operate our service</li>
+                <li>Plaid (for bank data aggregation; you connect your bank inside Plaid and we never receive your bank login)</li>
+                <li>Google Firebase and Google Cloud (for authentication, database, file storage, and hosting)</li>
+                <li>OpenAI (for AI analysis of your transactions and of tax documents, bank statements, or receipts you choose to upload for extraction; a W-2, 1099 or platform summary is first read on our own server and sent as text with Social Security, ITIN and employer identification numbers removed, and its full image is sent only with your signed consent; prompts are sent with storage disabled and are not used to train OpenAI models)</li>
+                <li>Stripe (for subscription payments; your card details are entered on Stripe&apos;s payment page and never reach our servers)</li>
+                <li>Resend (for delivering email when you send a question to a tax professional through the app)</li>
+                <li>Google Analytics (only when enabled for a release, for site usage measurement)</li>
+                <li>Receipt text recognition for individual receipts runs on our own servers and is not sent to a third party</li>
               </ul>
             </div>
 
             <div>
               <h3>Security Measures</h3>
               <ul>
-                <li>Bank-level encryption and secure connections</li>
-                <li>Access controls and regular security reviews</li>
+                <li>Encryption in transit and at rest, and read-only bank connections</li>
+                <li>Owner-scoped access controls enforced by database security rules, automated security tests on every release, and a written information security program</li>
                 <li>Partnerships with audited and compliant service providers</li>
                 <li>Secure processing of receipt images and OCR data</li>
-                <li>Protected AI model training with user corrections</li>
+                <li>Your corrections stay within your account and are not used to train AI models</li>
               </ul>
               <p className="mt-3">
                 While no system is 100% secure, we continuously work to safeguard your data.
-                All data processing is done securely and in compliance with applicable privacy regulations.
+                Processing follows our written information security program, which we review at least annually.
               </p>
             </div>
 

@@ -12,8 +12,10 @@ import { useMonthlyDeductions, useTransactions } from '@/lib/react-query/hooks';
 import { ReportsChartSkeleton, PageHeaderSkeleton } from '@/components/ui/skeleton';
 import { ToastContainer, useToasts } from '@/components/ui/toast';
 import { useSubscription } from '@/lib/hooks/use-subscription';
+import { PremiumFeatureGate } from '@/components/premium-feature-gate';
 import { getUserProfile } from '@/lib/firebase/profiles';
-import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
+import { getUserTaxRateDisplay } from '@/lib/tax-rules/federal-brackets';
+import { AuditSupportRecordsCard } from './components/AuditSupportRecordsCard';
 
 interface MonthlyData {
   month: number;
@@ -36,7 +38,7 @@ interface ReportsData {
     avgMonthly: number;
     monthsWithData: number;
     yearToDateTotal: number;
-    estimatedRefund: number;
+    estimatedTaxSavingsFromMarkedDeductions: number;
   };
   /** Years that have transaction activity (for year selector); may be absent from older API */
   availableYears?: number[];
@@ -135,7 +137,8 @@ export default function ReportsPage() {
   }, [user?.id]);
 
   // Check subscription status for feature gating
-  const { hasAccess, isLoading: subscriptionLoading } = useSubscription();
+  const { canAccess, isLoading: subscriptionLoading } = useSubscription();
+  const hasAccess = canAccess('exports');
 
   // Use React Query for data fetching with caching (year param for viewing previous years)
   const {
@@ -152,7 +155,7 @@ export default function ReportsPage() {
   const allTransactions = (transactionsResponse?.transactions ?? transactionsResponse?.data ?? []) as ReportTransaction[];
 
   // Memoized aggregates: per-month and summary for chart year (paid, received, deductible, receipts)
-  const taxRate = getUserTaxRate(profile);
+  const { rate: taxRate, reviewMessage: taxReviewMessage } = getUserTaxRateDisplay(profile);
   const transactionAggregates = useMemo(() => {
     if (!allTransactions.length) {
       return {
@@ -196,7 +199,7 @@ export default function ReportsPage() {
       } else {
         perMonth[month].paid += abs;
         totalPaid += abs;
-        if (t.is_deductible === true) {
+        if (t.is_deductible === true && taxRate !== null) {
           perMonth[month].deductibleSavings += abs * taxRate;
         }
       }
@@ -321,72 +324,27 @@ export default function ReportsPage() {
 
     setIsGeneratingReport(true);
     try {
-      const reportData = {
-        user: user?.email,
-        generatedAt: new Date().toISOString(),
-        summary: reportsData.summary,
-        monthlyData: reportsData.monthlyData,
-        format: exportFormat
-      };
-
-      if (exportFormat === 'PDF') {
-        // Generate PDF report
-        console.log('🔄 [Reports Page] Generating PDF report...');
-        const response = await fetch('/api/reports/generate-pdf', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          credentials: 'include',
-          body: JSON.stringify(reportData)
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-          console.error('❌ [Reports Page] PDF generation failed:', errorData);
-
-          // Check if it's a subscription required error
-          if (errorData.requiresSubscription) {
-            toast.warning('An active subscription is required to export reports. Please subscribe to access this feature.');
-            router.push('/protected/subscriptions');
-            setShowExportModal(false);
-            return;
-          }
-
-          throw new Error(errorData.error || `Failed to generate PDF: ${response.status} ${response.statusText}`);
+      const response = await fetch(exportFormat === 'PDF' ? '/api/reports/generate-pdf' : `/api/transactions/export-csv?year=${chartYear}`, {
+        ...(exportFormat === 'PDF' ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ year: chartYear }) } : {}),
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        if (errorData.code === 'SUBSCRIPTION_REQUIRED') {
+          toast.warning('An active subscription is required to export reports.');
+          router.push('/protected/subscriptions');
+          return;
         }
-
-        const blob = await response.blob();
-        if (!blob || blob.size === 0) {
-          throw new Error('PDF generation returned empty file');
-        }
-
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `tax-report-${new Date().toISOString().split('T')[0]}.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
-
-        console.log('✅ [Reports Page] PDF generated and downloaded successfully');
-      } else {
-        // Generate CSV report
-        console.log('🔄 [Reports Page] Generating CSV report...');
-        const csvContent = generateCSVReport(reportData);
-        const blob = new Blob([csvContent], { type: 'text/csv' });
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `tax-report-${new Date().toISOString().split('T')[0]}.csv`;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
-
-        console.log('✅ [Reports Page] CSV generated and downloaded successfully');
+        throw new Error(errorData.error || 'Could not prepare the export. Please retry.');
       }
+      const blob = await response.blob();
+      if (!blob.size) throw new Error('The export was empty. Please retry.');
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `writeoff-preparer-${chartYear}.${exportFormat.toLowerCase()}`;
+      document.body.appendChild(link); link.click(); link.remove();
+      window.URL.revokeObjectURL(url);
 
       setShowExportModal(false);
     } catch (error) {
@@ -396,20 +354,6 @@ export default function ReportsPage() {
     } finally {
       setIsGeneratingReport(false);
     }
-  };
-
-  // Function to generate CSV content
-  const generateCSVReport = (data: any): string => {
-    const headers = ['Month', 'Tax Savings', 'Transaction Count', 'Year to Date Total', 'Estimated Refund'];
-    const rows = data.monthlyData.map((month: MonthlyData) => [
-      month.monthName,
-      month.total.toFixed(2),
-      month.count,
-      data.summary.yearToDateTotal.toFixed(2),
-      data.summary.estimatedRefund.toFixed(2)
-    ]);
-
-    return [headers, ...rows].map(row => row.join(',')).join('\n');
   };
 
   // Show loading state while auth is loading or data is fetching
@@ -431,14 +375,14 @@ export default function ReportsPage() {
     );
   }
 
-  if (error) {
+  if (error || taxReviewMessage) {
     return (
       <div className="p-4 sm:p-6 bg-background min-h-screen max-w-7xl mx-auto">
         <div className="text-center py-12">
           <AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4" />
-          <h2 className="text-xl font-semibold text-foreground mb-2">Error Loading Reports</h2>
+          <h2 className="text-xl font-semibold text-foreground mb-2">{taxReviewMessage ? 'Review filing status' : 'Error Loading Reports'}</h2>
           <p className="text-muted-foreground mb-4">
-            {error instanceof Error ? error.message : 'Failed to load reports data'}
+            {taxReviewMessage || (error instanceof Error ? error.message : 'Failed to load reports data')}
           </p>
           <Button
             onClick={() => refetch()}
@@ -447,6 +391,7 @@ export default function ReportsPage() {
             <RefreshCw className="w-4 h-4 mr-2" />
             Try Again
           </Button>
+          {taxReviewMessage && <a className="block mt-4 underline" href="/protected/settings">Review profile</a>}
         </div>
       </div>
     );
@@ -566,10 +511,10 @@ export default function ReportsPage() {
             <span className="ml-2 text-sm font-medium">Schedule C</span>
           </Button>
           <a
-            href={`/api/transactions/export-csv?year=${currentYear}&filter=deductible`}
+            href={`/api/transactions/export-csv?year=${chartYear}`}
             download
             className="inline-flex items-center gap-2 min-h-[44px] h-11 px-4 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors"
-            title="Export deductible transactions as CSV for your accountant"
+            title="Export all saved transactions for the selected year for preparer review"
           >
             <Download className="w-4 h-4" />
             <span className="ml-2 text-sm font-medium">Export CSV</span>
@@ -1080,6 +1025,9 @@ export default function ReportsPage() {
         </Card>
       </div>
 
+      {/* Audit support records: confirmed deductions with the records on file and what is still missing */}
+      <AuditSupportRecordsCard year={chartYear} enabled={Boolean(user?.id)} />
+
       {/* Monthly Breakdown Modal */}
       {showMonthlyModal && selectedMonth && (
         <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50 p-4">
@@ -1201,31 +1149,8 @@ export default function ReportsPage() {
             <div className="p-6">
               {/* Subscription Required Banner */}
               {!subscriptionLoading && !hasAccess && (
-                <div className="mb-6 p-4 bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
-                  <div className="flex items-start gap-3">
-                    <div className="p-2 bg-purple-100 dark:bg-purple-800/50 rounded-lg">
-                      <Lock className="w-5 h-5 text-purple-600 dark:text-purple-400" />
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-1">
-                        Subscription Required
-                      </h3>
-                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-                        Export reports as PDF or CSV with an active subscription.
-                      </p>
-                      <Button
-                        onClick={() => {
-                          setShowExportModal(false);
-                          router.push('/protected/subscriptions');
-                        }}
-                        className="bg-purple-600 hover:bg-purple-700 text-white"
-                        size="sm"
-                      >
-                        <Sparkles className="w-4 h-4 mr-2" />
-                        Subscribe Now
-                      </Button>
-                    </div>
-                  </div>
+                <div className="mb-6">
+                  <PremiumFeatureGate feature="exports" featureName="report exports" inline>{null}</PremiumFeatureGate>
                 </div>
               )}
 
@@ -1244,8 +1169,8 @@ export default function ReportsPage() {
                       disabled={!hasAccess}
                     />
                     <div>
-                      <div className="font-medium text-card-foreground">PDF Report</div>
-                      <div className="text-xs text-muted-foreground">Formatted document with charts and summaries</div>
+                      <div className="font-medium text-card-foreground">Preparer Summary PDF</div>
+                      <div className="text-xs text-muted-foreground">Monthly cash amounts by currency, with review notes</div>
                     </div>
                   </label>
                   <label className={`flex items-center p-3 border-2 border-border rounded-lg transition-colors ${hasAccess ? 'cursor-pointer hover:bg-muted/50 dark:hover:bg-muted/30' : 'opacity-50 cursor-not-allowed'}`}>
@@ -1258,7 +1183,7 @@ export default function ReportsPage() {
                       disabled={!hasAccess}
                     />
                     <div>
-                      <div className="font-medium text-card-foreground">CSV Spreadsheet</div>
+                      <div className="font-medium text-card-foreground">Transaction CSV</div>
                       <div className="text-xs text-muted-foreground">Raw data for Excel or Google Sheets</div>
                     </div>
                   </label>
@@ -1311,4 +1236,3 @@ export default function ReportsPage() {
     </div>
   );
 }
-

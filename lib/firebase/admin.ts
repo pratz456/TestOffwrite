@@ -1,6 +1,9 @@
 import { initializeApp, getApps, cert } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { assertStagingFirebaseEnvironment } from './staging-isolation';
+
+const stagingOptions = assertStagingFirebaseEnvironment();
 
 // Initialize Firebase Admin SDK
 const hasEnvCredentials = Boolean(
@@ -15,7 +18,7 @@ if (process.env.NODE_ENV === 'development' && !hasEnvCredentials) {
 }
 
 // Initialize the app only if it hasn't been initialized yet
-const app = getApps().length === 0
+export const adminApp = getApps().length === 0
   ? (() => {
       if (hasEnvCredentials) {
         const firebaseAdminConfig = {
@@ -26,16 +29,19 @@ const app = getApps().length === 0
         return initializeApp({
           credential: cert(firebaseAdminConfig),
           projectId: firebaseAdminConfig.projectId,
+          ...stagingOptions,
         });
       }
       // Fallback: use Application Default Credentials (works on Firebase/Cloud Functions)
-      return initializeApp();
+      return stagingOptions ? initializeApp(stagingOptions) : initializeApp();
     })()
   : getApps()[0];
 
+assertStagingFirebaseEnvironment(process.env, adminApp.options);
+
 // Export Firebase Admin services
-export const adminAuth = getAuth(app);
-export const adminDb = getFirestore(app);
+export const adminAuth = getAuth(adminApp);
+export const adminDb = getFirestore(adminApp);
 export const admin = { firestore: { FieldValue, Timestamp } };
 export { FieldValue, Timestamp };
 
@@ -71,5 +77,3 @@ export async function updateEmailVerified(uid: string, emailVerified: boolean) {
     return { success: false, error };
   }
 }
-
-

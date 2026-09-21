@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { Home, Calculator, User, Save, Plus, Trash2 } from 'lucide-react';
 import { useToasts } from '@/components/ui/toast';
+import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import { useAuth } from '@/lib/firebase/auth-context';
 
 interface HomeOfficeSettings {
@@ -61,6 +62,7 @@ export function TaxFormsSetupScreen() {
   
   // Assets
   const [assets, setAssets] = useState<Asset[]>([]);
+  const [savedAssetIds, setSavedAssetIds] = useState<string[]>([]);
   const [newAsset, setNewAsset] = useState<Partial<Asset>>({
     description: '',
     datePlacedInService: '',
@@ -79,27 +81,62 @@ export function TaxFormsSetupScreen() {
     adjustments: 0,
   });
 
+  const [loadedUid, setLoadedUid] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState('');
+  const [retry, setRetry] = useState(0);
+  const identity = useRef(user?.id);
+  identity.current = user?.id;
+  const operationRef = useRef<symbol | null>(null);
+  const beginOperation = () => {
+    if (!user || identity.current !== user.id || loadedUid !== user.id || operationRef.current) return null;
+    const uid = user.id, token = Symbol('settings-operation');
+    operationRef.current = token; setIsLoading(true);
+    const current = () => identity.current === uid && operationRef.current === token;
+    return { current, finish() { if (current()) { operationRef.current = null; setIsLoading(false); } } };
+  };
+  useEffect(() => {
+    let cancelled = false;
+    operationRef.current = null; setIsLoading(false);
+    setLoadedUid(null); setLoadError('');
+    if (!user?.id) return;
+    const uid = user.id;
+    void Promise.all(['home-office', 'assets', 'tax-summary'].map(async section => {
+      const response = await makeAuthenticatedRequest(`/api/settings/${section}`);
+      const result = await response.json();
+      if (!response.ok || result.success !== true) throw new Error('Could not load saved tax settings. Retry before editing or saving.');
+      return result.data;
+    })).then(([home, savedAssets, summary]) => {
+      if (cancelled || identity.current !== uid) return;
+      if (!Array.isArray(savedAssets)) throw new Error('Could not load saved assets. Retry before editing or saving.');
+      setHomeOfficeSettings(home ?? { totalHomeSqFt: 0, officeSqFt: 0, rentOrMortgageInterest: 0, utilities: 0, insurance: 0, repairsMaintenance: 0, propertyTax: 0, other: 0 });
+      setAssets(savedAssets); setSavedAssetIds(savedAssets.map((asset: Asset) => asset.id));
+      setTaxSummary(summary ?? { scheduleCNetProfit: 0, taxYear: new Date().getFullYear(), adjustments: 0 });
+      setNewAsset({ description: '', datePlacedInService: '', cost: 0, businessUsePercent: 100, category: 'other', method: 'MACRS_5YR', section179Requested: false, bonusEligible: false });
+      setLoadedUid(uid);
+    }).catch(() => { if (!cancelled) setLoadError('Could not load saved tax settings. Retry before editing or saving.'); });
+    return () => { cancelled = true; operationRef.current = null; };
+  }, [user?.id, retry]);
+
   const handleSaveHomeOffice = async () => {
-    if (!user) return;
-    
-    setIsLoading(true);
+    const operation = beginOperation();
+    if (!operation) return;
     try {
-      const response = await fetch('/api/settings/home-office', {
+      const response = await makeAuthenticatedRequest('/api/settings/home-office', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(homeOfficeSettings),
       });
       
+      if (!operation.current()) return;
       if (response.ok) {
         showSuccess('Home Office Settings Saved', 'Your home office settings have been saved successfully.');
       } else {
         throw new Error('Failed to save home office settings');
       }
-    } catch (error) {
+    } catch {
+      if (!operation.current()) return;
       showError('Save Failed', 'Failed to save home office settings. Please try again.');
-    } finally {
-      setIsLoading(false);
-    }
+    } finally { operation.finish(); }
   };
 
   const handleAddAsset = () => {
@@ -113,7 +150,7 @@ export function TaxFormsSetupScreen() {
       description: newAsset.description,
       datePlacedInService: newAsset.datePlacedInService,
       cost: newAsset.cost,
-      businessUsePercent: newAsset.businessUsePercent || 100,
+      businessUsePercent: newAsset.businessUsePercent ?? 100,
       category: newAsset.category || 'other',
       method: newAsset.method || 'MACRS_5YR',
       section179Requested: newAsset.section179Requested || false,
@@ -135,63 +172,82 @@ export function TaxFormsSetupScreen() {
     showSuccess('Asset Added', 'Asset has been added to your list.');
   };
 
-  const handleRemoveAsset = (assetId: string) => {
-    setAssets(assets.filter(asset => asset.id !== assetId));
-    showSuccess('Asset Removed', 'Asset has been removed from your list.');
+  const handleRemoveAsset = async (assetId: string) => {
+    const operation = beginOperation();
+    if (!operation) return;
+    try {
+      if (savedAssetIds.includes(assetId)) {
+        const response = await makeAuthenticatedRequest('/api/settings/assets', {
+          method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ assetId }),
+        });
+        if (!operation.current()) return;
+        if (!response.ok) throw new Error('Delete failed');
+      }
+      setAssets(current => current.filter(asset => asset.id !== assetId));
+      setSavedAssetIds(current => current.filter(id => id !== assetId));
+      showSuccess('Asset Removed', 'Asset has been removed from your records.');
+    } catch { if (!operation.current()) return; showError('Remove Failed', 'The saved asset was not removed. Please retry.'); }
+    finally { operation.finish(); }
   };
 
   const handleSaveAssets = async () => {
-    if (!user) return;
-    
-    setIsLoading(true);
+    const pending = assets.filter(asset => !savedAssetIds.includes(asset.id));
+    if (!pending.length) return;
+    const operation = beginOperation();
+    if (!operation) return;
     try {
-      const response = await fetch('/api/settings/assets', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assets }),
-      });
-      
-      if (response.ok) {
-        showSuccess('Assets Saved', 'Your business assets have been saved successfully.');
-      } else {
-        throw new Error('Failed to save assets');
+      // Existing assets are already saved; posting them again would create duplicates.
+      for (const asset of pending) {
+        if (!operation.current()) return;
+        const response = await makeAuthenticatedRequest('/api/settings/assets', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ assets: [asset] }),
+        });
+        const result = await response.json();
+        if (!operation.current()) return;
+        const saved = result.data?.[0];
+        if (!response.ok || !saved?.id) throw new Error('Save failed');
+        setAssets(current => current.map(row => row.id === asset.id ? saved : row));
+        setSavedAssetIds(current => [...current, saved.id]);
       }
-    } catch (error) {
-      showError('Save Failed', 'Failed to save assets. Please try again.');
-    } finally {
-      setIsLoading(false);
-    }
+      showSuccess('Assets Saved', 'Your new business assets have been saved.');
+    } catch { if (!operation.current()) return; showError('Save Failed', 'Some assets could not be saved. Reload your saved records before retrying to avoid duplicates.'); setLoadedUid(null); setLoadError('A save could not be confirmed. Reload saved settings before retrying to avoid duplicates. Reloading discards unsaved asset drafts.'); }
+    finally { operation.finish(); }
   };
 
   const handleSaveTaxSummary = async () => {
-    if (!user) return;
-    
-    setIsLoading(true);
+    const operation = beginOperation();
+    if (!operation) return;
     try {
-      const response = await fetch('/api/settings/tax-summary', {
+      const response = await makeAuthenticatedRequest('/api/settings/tax-summary', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(taxSummary),
       });
       
+      if (!operation.current()) return;
       if (response.ok) {
         showSuccess('Tax Summary Saved', 'Your tax summary settings have been saved successfully.');
       } else {
         throw new Error('Failed to save tax summary');
       }
-    } catch (error) {
+    } catch {
+      if (!operation.current()) return;
       showError('Save Failed', 'Failed to save tax summary. Please try again.');
-    } finally {
-      setIsLoading(false);
-    }
+    } finally { operation.finish(); }
   };
+
+  if (!user) return <p className="p-6">Sign in to load your saved tax settings.</p>;
+  if (loadedUid !== user.id) return <div className="p-6" role="status">
+    <p>{loadError || 'Loading saved tax settings…'}</p>
+    {loadError && <Button onClick={() => setRetry(value => value + 1)}>Retry loading settings</Button>}
+  </div>;
 
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
       <div className="max-w-4xl mx-auto">
         <div className="mb-6">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Tax Forms Setup</h1>
-          <p className="text-gray-600">Configure your settings for generating tax forms</p>
+          <p className="text-gray-600">Keep planning records for preparer review. These settings do not complete or file an IRS return.</p>
         </div>
 
         {/* Tabs */}
@@ -235,7 +291,7 @@ export function TaxFormsSetupScreen() {
         {activeTab === 'homeOffice' && (
           <Card className="p-6">
             <h2 className="text-xl font-semibold mb-4">Home Office Settings</h2>
-            <p className="text-gray-600 mb-6">Configure your home office information for Form 8829</p>
+            <p className="text-gray-600 mb-6">Record allocation inputs. Form 8829 export remains unavailable until eligibility, housing type, income limits and carryovers can be reviewed.</p>
             
             <div className="grid grid-cols-2 gap-4 mb-6">
               <div>
@@ -460,6 +516,8 @@ export function TaxFormsSetupScreen() {
                       <Button
                         variant="outline"
                         size="sm"
+                        disabled={isLoading}
+                        aria-label={`Remove ${asset.description}`}
                         onClick={() => handleRemoveAsset(asset.id)}
                       >
                         <Trash2 className="w-4 h-4" />
@@ -470,7 +528,7 @@ export function TaxFormsSetupScreen() {
               </div>
             )}
             
-            <Button onClick={handleSaveAssets} disabled={isLoading || assets.length === 0}>
+            <Button onClick={handleSaveAssets} disabled={isLoading || assets.every(asset => savedAssetIds.includes(asset.id))}>
               <Save className="w-4 h-4 mr-2" />
               {isLoading ? 'Saving...' : 'Save Assets'}
             </Button>
@@ -481,7 +539,7 @@ export function TaxFormsSetupScreen() {
         {activeTab === 'taxSummary' && (
           <Card className="p-6">
             <h2 className="text-xl font-semibold mb-4">Tax Summary Settings</h2>
-            <p className="text-gray-600 mb-6">Configure your tax summary for Schedule SE calculations</p>
+            <p className="text-gray-600 mb-6">Optional planning notes. Schedule SE downloads calculate from selected-year income, confirmed expenses, assets and W-2 records; these cached values do not override that calculation.</p>
             
             <div className="grid grid-cols-2 gap-4 mb-6">
               <div>

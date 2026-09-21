@@ -35,12 +35,12 @@ interface UploadedFile {
   error?: string;
 }
 
-const SUPPORTED_PDF_TYPES = [
+const SUPPORTED_IMAGE_TYPES = [
   {
     icon: '🏦',
     title: 'Bank Statements',
     desc: 'Chase, Bank of America, Wells Fargo, etc.',
-    examples: 'Monthly or quarterly PDF statements',
+    examples: 'Clear PNG, JPEG, or WebP images',
     color: 'blue',
   },
   {
@@ -53,25 +53,34 @@ const SUPPORTED_PDF_TYPES = [
   {
     icon: '🧾',
     title: 'Receipts & Invoices',
-    desc: 'Photos or PDFs of business receipts',
+    desc: 'Clear photos of business receipts',
     examples: 'Restaurant, supplies, subscriptions',
     color: 'emerald',
-  },
-  {
-    icon: '📊',
-    title: 'Expense Reports',
-    desc: 'Spreadsheet exports or PDF summaries',
-    examples: 'Expense tracker exports',
-    color: 'orange',
   },
 ];
 
 const MANUAL_TIPS = [
-  { icon: '📅', text: 'Enter transactions one at a time or in bulk' },
-  { icon: '📸', text: 'Upload receipt photos to auto-fill details' },
-  { icon: '🤖', text: 'AI will suggest which expenses are deductible' },
+  { icon: '📅', text: 'Add income and expenses manually without connecting a bank' },
+  { icon: '📸', text: 'Attach receipt photos and review or enter the details yourself' },
+  { icon: '✅', text: 'Review each expense and record its business purpose' },
   { icon: '📤', text: 'You can connect your bank anytime later in Settings' },
 ];
+
+export async function uploadOnboardingDocument(file: File, year: number): Promise<NonNullable<UploadedFile['result']>> {
+  const body = new FormData();
+  body.append('file', file);
+  body.append('docType', 'auto');
+  body.append('year', String(year));
+  const response = await makeAuthenticatedRequest('/api/tax/import-bank-statement', { method: 'POST', body });
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data || data.error) {
+    throw new Error(typeof data?.error === 'string' ? data.error : 'Upload failed. Please try again.');
+  }
+  if (data.redirect) {
+    throw new Error(data.message || 'Use Import Document to upload this tax form.');
+  }
+  return data;
+}
 
 export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: DataSourceScreenProps) {
   const [selected, setSelected] = useState<DataSource>(null);
@@ -80,45 +89,32 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
   const [dragOver, setDragOver] = useState(false);
   const [currentYear] = useState(new Date().getFullYear());
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pendingUploads = useRef(0);
 
   async function uploadFile(file: File) {
-    const fd = new FormData();
-    fd.append('file', file);
-    fd.append('docType', 'auto');
-    fd.append('year', String(currentYear));
-
+    pendingUploads.current += 1;
     setUploadState('uploading');
     try {
-      const res = await makeAuthenticatedRequest('/api/tax/import-bank-statement', {
-        method: 'POST',
-        body: fd,
-      });
-
-      const data = await res.json();
+      const data = await uploadOnboardingDocument(file, currentYear);
       const uploaded: UploadedFile = { name: file.name, type: file.type, result: data };
-
-      // If GPT detected it's a tax form, redirect to doc import
-      if (data.redirect) {
-        uploaded.error = data.message;
-      }
-
       setUploadedFiles(prev => [...prev, uploaded]);
-      setUploadState('success');
     } catch (err: any) {
       setUploadedFiles(prev => [...prev, { name: file.name, type: file.type, error: err.message || 'Upload failed' }]);
-      setUploadState('error');
+    } finally {
+      pendingUploads.current -= 1;
+      if (pendingUploads.current === 0) setUploadState('idle');
     }
   }
 
   function handleFiles(files: FileList | File[]) {
     const arr = Array.from(files);
-    const valid = arr.filter(f =>
-      f.type.startsWith('image/') ||
-      f.type === 'application/pdf' ||
-      f.name.endsWith('.pdf')
-    );
-    if (valid.length === 0) return;
-    valid.forEach(uploadFile);
+    for (const file of arr) {
+      if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+        setUploadedFiles(prev => [...prev, { name: file.name, type: file.type, error: 'Use a PNG, JPEG, or WebP image. Export PDF pages as images before uploading.' }]);
+      } else {
+        void uploadFile(file);
+      }
+    }
   }
 
   const totalImported = uploadedFiles.reduce((sum, f) => sum + (f.result?.transactionsImported || 0), 0);
@@ -193,9 +189,9 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-0.5">
                     <span className="text-sm font-semibold text-foreground">Connect Bank Account</span>
-                    <span className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded-full font-medium">Recommended</span>
+                    <span className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded-full font-medium">Optional</span>
                   </div>
-                  <p className="text-xs text-muted-foreground">Automatically imports all transactions. AI categorizes them and flags deductibles.</p>
+                  <p className="text-xs text-muted-foreground">Optional: request transaction sync from a supported bank, then review the imported records.</p>
                   <div className="flex flex-wrap gap-1 mt-2">
                     {['Chase', 'Bank of America', 'Wells Fargo', 'Citi', '12,000+ banks'].map(bank => (
                       <span key={bank} className="text-xs bg-background/80 border border-border px-1.5 py-0.5 rounded text-muted-foreground">{bank}</span>
@@ -206,7 +202,7 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
               </div>
             </button>
 
-            {/* Option 2: Upload PDFs */}
+            {/* Option 2: Upload document images */}
             <button
               type="button"
               onClick={() => setSelected('upload')}
@@ -218,9 +214,9 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
                 </div>
                 <div className="flex-1 min-w-0">
                   <span className="text-sm font-semibold text-foreground block mb-0.5">Upload Bank Statements or Receipts</span>
-                  <p className="text-xs text-muted-foreground">Upload PDF statements, receipt photos, or expense reports. AI reads and imports all transactions.</p>
+                  <p className="text-xs text-muted-foreground">Upload statement or receipt images with explicit USD currency and review the extracted records. Manual entry is available if import cannot complete.</p>
                   <div className="flex flex-wrap gap-1 mt-2">
-                    {['Bank statements', 'Credit card PDFs', 'Receipt photos', 'Expense reports'].map(t => (
+                    {['Bank statement images', 'Credit card images', 'Receipt photos'].map(t => (
                       <span key={t} className="text-xs bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 px-1.5 py-0.5 rounded text-emerald-700 dark:text-emerald-400">{t}</span>
                     ))}
                   </div>
@@ -243,7 +239,7 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
                   <span className="text-sm font-semibold text-foreground block mb-0.5">Enter Manually</span>
                   <p className="text-xs text-muted-foreground">Type in your income and expenses one by one. Best for people with fewer transactions.</p>
                   <div className="flex flex-wrap gap-1 mt-2">
-                    {['Add income', 'Log expenses', 'Full privacy', 'No bank required'].map(t => (
+                    {['Add income', 'Log expenses', 'No bank login', 'No bank required'].map(t => (
                       <span key={t} className="text-xs bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-800 px-1.5 py-0.5 rounded text-violet-700 dark:text-violet-400">{t}</span>
                     ))}
                   </div>
@@ -270,14 +266,14 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
                 <Building2 className="w-7 h-7 text-white" />
               </div>
               <h2 className="text-lg font-bold text-foreground">Connect Your Bank</h2>
-              <p className="text-sm text-muted-foreground mt-1">Securely import up to 2 years of transactions in minutes</p>
+              <p className="text-sm text-muted-foreground mt-1">Available transaction history depends on your bank and plan</p>
             </div>
 
             <div className="rounded-xl border border-border bg-card p-4 space-y-3">
               {[
-                { icon: '⚡', label: 'Instant import', desc: 'All transactions pulled automatically' },
-                { icon: '🤖', label: 'AI categorization', desc: 'Every expense analyzed for deductibility' },
-                { icon: '🔒', label: 'Bank-level security', desc: 'Read-only access via Plaid  -  WriteOff cannot move money' },
+                { icon: '📥', label: 'Transaction sync', desc: 'Request available records from a supported account' },
+                { icon: '✅', label: 'Your review', desc: 'Check categories and business purpose before confirming expenses' },
+                { icon: '🔒', label: 'Read-only access', desc: 'Encrypted connection via Plaid  -  WriteOff cannot move money' },
                 { icon: '🔌', label: 'Disconnect anytime', desc: 'Revoke access in Settings at any time' },
               ].map(item => (
                 <div key={item.label} className="flex items-start gap-3">
@@ -308,7 +304,7 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
           </div>
         )}
 
-        {/* ── PDF UPLOAD DETAIL ── */}
+        {/* ── IMAGE UPLOAD DETAIL ── */}
         {selected === 'upload' && (
           <div className="space-y-4 py-2">
             <div className="text-center">
@@ -316,12 +312,12 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
                 <Upload className="w-7 h-7 text-white" />
               </div>
               <h2 className="text-lg font-bold text-foreground">Upload Your Documents</h2>
-              <p className="text-sm text-muted-foreground mt-1">AI reads your statements and imports all transactions</p>
+              <p className="text-sm text-muted-foreground mt-1">Review extracted records before using them. If document import is unavailable, you can enter records manually.</p>
             </div>
 
             {/* What works */}
             <div className="grid grid-cols-2 gap-2">
-              {SUPPORTED_PDF_TYPES.map(item => (
+              {SUPPORTED_IMAGE_TYPES.map(item => (
                 <div key={item.title} className="rounded-xl border border-border bg-card p-3">
                   <div className="text-xl mb-1">{item.icon}</div>
                   <p className="text-xs font-semibold text-foreground">{item.title}</p>
@@ -345,14 +341,17 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
                 ref={fileInputRef}
                 type="file"
                 multiple
-                accept=".pdf,image/*"
+                accept="image/png,image/jpeg,image/webp"
                 className="hidden"
-                onChange={e => e.target.files && handleFiles(e.target.files)}
+                onChange={e => {
+                  if (e.target.files) handleFiles(e.target.files);
+                  e.target.value = '';
+                }}
               />
               {uploadState === 'uploading' ? (
                 <div className="flex flex-col items-center gap-2">
                   <Loader2 className="w-8 h-8 text-primary animate-spin" />
-                  <p className="text-sm text-muted-foreground">Reading document with AI...</p>
+                  <p className="text-sm text-muted-foreground">Processing document...</p>
                 </div>
               ) : (
                 <div className="flex flex-col items-center gap-2">
@@ -360,7 +359,7 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
                     <Upload className="w-5 h-5 text-muted-foreground" />
                   </div>
                   <p className="text-sm font-medium text-foreground">Drop files here or tap to upload</p>
-                  <p className="text-xs text-muted-foreground">PDF, JPG, PNG  -  bank statements, credit card statements, receipts</p>
+                  <p className="text-xs text-muted-foreground">PNG, JPEG, WebP up to 10 MB — bank statements, credit cards, receipts with explicit USD currency</p>
                 </div>
               )}
             </div>

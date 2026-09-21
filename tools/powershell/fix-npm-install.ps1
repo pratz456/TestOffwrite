@@ -66,12 +66,12 @@ Write-Host "`nStep 4: Checking Node version..." -ForegroundColor Yellow
 $nodeVersion = node --version
 Write-Host "  Current Node version: $nodeVersion" -ForegroundColor Cyan
 
-if ($nodeVersion -notmatch "^v20\.") {
-    Write-Host "  ⚠ Warning: Project requires Node 20, but you have $nodeVersion" -ForegroundColor Yellow
-    Write-Host "  The install may still work, but using Node 20 is recommended." -ForegroundColor Yellow
-    Write-Host "  Consider using nvm-windows to switch to Node 20:" -ForegroundColor Yellow
-    Write-Host "    nvm install 20" -ForegroundColor Cyan
-    Write-Host "    nvm use 20" -ForegroundColor Cyan
+if ($nodeVersion -notmatch "^v22\.") {
+    Write-Host "  ⚠ Warning: Project requires Node 22, but you have $nodeVersion" -ForegroundColor Yellow
+    Write-Host "  The install may still work, but using Node 22 is recommended." -ForegroundColor Yellow
+    Write-Host "  Consider using nvm-windows to switch to Node 22:" -ForegroundColor Yellow
+    Write-Host "    nvm install 22.23.2" -ForegroundColor Cyan
+    Write-Host "    nvm use 22.23.2" -ForegroundColor Cyan
     $continue = Read-Host "`n  Continue with current Node version? (y/n)"
     if ($continue -ne "y") {
         exit
@@ -101,7 +101,7 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "  1. Run PowerShell as Administrator" -ForegroundColor White
     Write-Host "  2. Close all file explorers and code editors" -ForegroundColor White
     Write-Host "  3. Disable antivirus temporarily" -ForegroundColor White
-    Write-Host "  4. Switch to Node 20 using nvm-windows" -ForegroundColor White
+    Write-Host "  4. Switch to Node 22 using nvm-windows" -ForegroundColor White
     exit 1
 }
 

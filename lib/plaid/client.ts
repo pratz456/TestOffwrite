@@ -1,44 +1,22 @@
-import { Configuration, PlaidApi, PlaidEnvironments } from 'plaid'
+import { Configuration, PlaidApi, PlaidEnvironments } from 'plaid';
+import { getPlaidConfig } from './config';
 
-// Helper function to get Plaid config from both environment variables and functions.config()
-function getPlaidConfig() {
-  // Try to read from functions.config() first (for Firebase Functions)
-  let plaidClientId: string | undefined;
-  let plaidSecret: string | undefined;
-  let plaidEnv: string | undefined;
-  
-  try {
-     
-    const functions = require('firebase-functions');
-    const config = functions.config();
-    if (config.plaid) {
-      plaidClientId = config.plaid.client_id || config.plaid.clientId;
-      plaidSecret = config.plaid.secret;
-      plaidEnv = config.plaid.env;
-    }
-  } catch (e) {
-    // functions.config() not available, continue to process.env
-  }
-  
-  // Fall back to process.env (for Next.js/local dev)
-  plaidClientId = plaidClientId || process.env.PLAID_CLIENT_ID;
-  plaidSecret = plaidSecret || process.env.PLAID_SECRET;
-  plaidEnv = plaidEnv || process.env.PLAID_ENV || 'sandbox';
-  
-  return { plaidClientId, plaidSecret, plaidEnv };
+/** Read configuration when a bank operation runs, not while unrelated routes load. */
+export function createPlaidClient() {
+  const { plaidClientId, plaidSecret, plaidEnv } = getPlaidConfig();
+  if (!plaidClientId || !plaidSecret) throw new Error('Plaid credentials are not configured');
+  return new PlaidApi(new Configuration({
+    basePath: PlaidEnvironments[plaidEnv],
+    baseOptions: { headers: { 'PLAID-CLIENT-ID': plaidClientId, 'PLAID-SECRET': plaidSecret } },
+  }));
 }
 
-const { plaidClientId, plaidSecret, plaidEnv } = getPlaidConfig();
-
-// Plaid client configuration
-const configuration = new Configuration({
-  basePath: PlaidEnvironments[plaidEnv as keyof typeof PlaidEnvironments] || PlaidEnvironments.sandbox,
-  baseOptions: {
-    headers: {
-      'PLAID-CLIENT-ID': plaidClientId || '',
-      'PLAID-SECRET': plaidSecret || '',
-    },
+// Preserve existing consumers while preventing a default Sandbox or blank-key client.
+// A new instance per operation also prevents a warm process from pinning old keys.
+export const plaidClient = new Proxy({} as PlaidApi, {
+  get(_target, property) {
+    const client = createPlaidClient();
+    const value = Reflect.get(client, property);
+    return typeof value === 'function' ? value.bind(client) : value;
   },
-})
-
-export const plaidClient = new PlaidApi(configuration) 
+});

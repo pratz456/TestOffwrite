@@ -1,5 +1,11 @@
 import { adminDb } from '@/lib/firebase/admin';
-import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
+import { getUserTaxRateDisplay } from '@/lib/tax-rules/federal-brackets';
+import { runUserProfileBatch, type BatchOptions, type BatchResult, type PageableQuery } from './user-profile-batch';
+import { getEstimatedTaxDeadline } from '@/lib/tax-provider/payment-deadlines';
+
+/** Memory guard for the 30-day deductible sum; far above any realistic month of confirmed expenses. */
+const CELEBRATION_SCAN_LIMIT = 2000;
+import { isCountableRecord } from '@/lib/transactions/record-scope';
 
 export interface Notification {
   id: string;
@@ -35,6 +41,18 @@ export interface NotificationPreferences {
 
 export class NotificationEngine {
   private get db() { return adminDb; }
+
+  /**
+   * One collection-group query per user replaces the accounts read plus one query per account.
+   * Rows are matched by the canonical `userId` owner field written on every server-created transaction.
+   */
+  private userTransactions(userId: string): FirebaseFirestore.Query {
+    return this.db.collectionGroup('transactions').where('userId', '==', userId);
+  }
+
+  private profiles(): PageableQuery {
+    return this.db.collection('user_profiles') as unknown as PageableQuery;
+  }
 
   /**
    * Send a notification to a user
@@ -211,52 +229,51 @@ export class NotificationEngine {
   }
 
   /**
-   * Generate tax deadline notifications
+   * Generate tax deadline notifications.
+   * Pages `user_profiles` (business_income > 0) 200 at a time and stops at the time budget; the
+   * returned cursor lets the next run continue instead of restarting from the first profile.
    */
-  async generateTaxDeadlineNotifications(): Promise<void> {
+  async generateTaxDeadlineNotifications(options: BatchOptions = {}): Promise<BatchResult | null> {
     try {
       const now = new Date();
-      const currentQuarter = Math.floor((now.getMonth() + 3) / 3);
-      const nextDeadline = this.getNextTaxDeadline(currentQuarter);
-      
-      if (!nextDeadline) return;
+      const upcoming = this.getNextTaxDeadline(now);
+      if (!upcoming) return null;
+      const { quarter: currentQuarter, date: nextDeadline } = upcoming;
 
       const daysUntilDeadline = Math.ceil((nextDeadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-      
+
       // Only send notifications for upcoming deadlines (within 30 days)
-      if (daysUntilDeadline > 30) return;
+      if (daysUntilDeadline > 30 || daysUntilDeadline < 0) return null;
+      const dueLabel = nextDeadline.toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' });
 
-      // Get all users with business income
-      const usersSnapshot = await adminDb.collection('user_profiles')
-        .where('business_income', '>', 0)
-        .get();
-
-      for (const userDoc of usersSnapshot.docs) {
+      // Range filter => the page order must start with that field (single-field index).
+      const base = this.db.collection('user_profiles').where('business_income', '>', 0) as unknown as PageableQuery;
+      return await runUserProfileBatch(base, 'business_income', async userDoc => {
         const userData = userDoc.data();
         const userId = userDoc.id;
 
         // Calculate estimated tax amount
         const estimatedTax = this.calculateEstimatedTax(userData);
+        if (estimatedTax === null) return;
         
+        // The profile-based figure is a rough annual planning estimate; describe one installment
+        // as a quarter of it and point at the planner rather than presenting it as the amount owed.
+        const installmentEstimate = Math.max(0, Math.round(estimatedTax / 4));
+        const message = `Your Q${currentQuarter} federal estimated tax payment is due ${dueLabel} (${daysUntilDeadline} days). Planning estimate for this installment: about $${installmentEstimate.toLocaleString('en-US')}. Confirm the amount in the quarterly planner; state due dates can differ.`;
         let title: string;
-        let message: string;
         let priority: 'low' | 'medium' | 'high' | 'urgent';
 
         if (daysUntilDeadline <= 3) {
           title = '🚨 Tax Deadline Approaching!';
-          message = `Your Q${currentQuarter} estimated tax payment of $${estimatedTax.toFixed(0)} is due in ${daysUntilDeadline} days.`;
           priority = 'urgent';
         } else if (daysUntilDeadline <= 7) {
           title = '⚠️ Tax Deadline Next Week';
-          message = `Your Q${currentQuarter} estimated tax payment of $${estimatedTax.toFixed(0)} is due in ${daysUntilDeadline} days.`;
           priority = 'high';
         } else if (daysUntilDeadline <= 14) {
           title = '📅 Tax Deadline Reminder';
-          message = `Your Q${currentQuarter} estimated tax payment of $${estimatedTax.toFixed(0)} is due in ${daysUntilDeadline} days.`;
           priority = 'medium';
         } else {
           title = '📊 Upcoming Tax Deadline';
-          message = `Your Q${currentQuarter} estimated tax payment of $${estimatedTax.toFixed(0)} is due in ${daysUntilDeadline} days.`;
           priority = 'low';
         }
 
@@ -274,100 +291,92 @@ export class NotificationEngine {
             quarter: currentQuarter
           }
         });
-      }
+      }, options);
     } catch (error) {
       console.error('❌ [Notifications] Error generating tax deadline notifications:', error);
+      return null;
     }
   }
 
   /**
-   * Generate unreviewed transactions notifications
+   * Generate unreviewed transactions notifications.
+   * Per user: one `count()` aggregation (billed per 1,000 index entries, no document transfer)
+   * instead of reading every pending row of every account.
    */
-  async generateUnreviewedTransactionsNotifications(): Promise<void> {
+  async generateUnreviewedTransactionsNotifications(options: BatchOptions = {}): Promise<BatchResult | null> {
     try {
-      // Get all users
-      const usersSnapshot = await adminDb.collection('user_profiles').get();
-
-      for (const userDoc of usersSnapshot.docs) {
+      return await runUserProfileBatch(this.profiles(), null, async userDoc => {
         const userId = userDoc.id;
         
-        const unreviewedSnapshot = await this.db
-          .collection('user_profiles').doc(userId)
-          .collection('accounts').doc('default')
-          .collection('transactions')
-          .where('analysis_status', '==', 'pending')
-          .get();
-        const unreviewedCount = unreviewedSnapshot.size;
+        // count() cannot exclude superseded duplicates (no negative field filter); they are rare and only inflate this reminder's number.
+        const aggregate = await this.userTransactions(userId).where('analysis_status', '==', 'pending').count().get();
+        const unreviewedCount = aggregate.data().count;
 
         if (unreviewedCount >= 5) {
           await this.sendNotification({
             userId,
             type: 'unreviewed_transactions',
             title: '📋 Transactions Need Review',
-            message: `You have ${unreviewedCount} transactions waiting for review. Review them to maximize your deductions.`,
+            message: `You have ${unreviewedCount} transactions waiting for review. Confirmed records are what count toward your Schedule C totals.`,
             priority: unreviewedCount >= 20 ? 'high' : 'medium',
-            actionUrl: '/protected/transactions?filter=unreviewed',
+            actionUrl: '/protected?screen=review-transactions',
             actionText: 'Review Transactions',
             data: { count: unreviewedCount }
           });
         }
-      }
+      }, options);
     } catch (error) {
       console.error('❌ [Notifications] Error generating unreviewed transactions notifications:', error);
+      return null;
     }
   }
 
   /**
-   * Generate mileage reminder notifications
+   * Generate mileage reminder notifications.
+   * Per user: an existence check (`limit(1)`) on vehicle expenses in the last 7 days.
    */
-  async generateMileageReminders(): Promise<void> {
+  async generateMileageReminders(options: BatchOptions = {}): Promise<BatchResult | null> {
     try {
-      // Get users who haven't logged mileage in the last 7 days
-      const usersSnapshot = await adminDb.collection('user_profiles')
-        .where('vehicle_business_use_percentage', '>', 0)
-        .get();
-
-      for (const userDoc of usersSnapshot.docs) {
+      const base = this.db.collection('user_profiles').where('vehicle_business_use_percentage', '>', 0) as unknown as PageableQuery;
+      return await runUserProfileBatch(base, 'vehicle_business_use_percentage', async userDoc => {
         const userId = userDoc.id;
         
         // Check if user has logged mileage recently
         const sevenDaysAgo = new Date();
         sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
         
-        const mileageSnapshot = await this.db
-          .collection('user_profiles').doc(userId)
-          .collection('accounts').doc('default')
-          .collection('transactions')
+        const recentVehicle = await this.userTransactions(userId)
           .where('category', '==', 'vehicle_expense')
           .where('date', '>=', sevenDaysAgo.toISOString().split('T')[0])
+          .orderBy('date', 'desc')
+          .limit(1)
           .get();
-        
-        if (mileageSnapshot.size === 0) {
+
+        if (recentVehicle.empty) {
           await this.sendNotification({
             userId,
             type: 'mileage_reminder',
             title: '🚗 Log Your Mileage',
-            message: 'You haven\'t logged any business mileage this week. Don\'t miss out on valuable deductions!',
+            message: 'You haven\'t logged any business mileage this week. A dated log is required to support a vehicle deduction.',
             priority: 'low',
             actionUrl: '/protected?screen=mileage-tracker',
             actionText: 'Log Mileage'
           });
         }
-      }
+      }, options);
     } catch (error) {
       console.error('❌ [Notifications] Error generating mileage reminders:', error);
+      return null;
     }
   }
 
   /**
-   * Generate celebration notifications
+   * Generate celebration notifications.
+   * Per user: one bounded query over the last 30 days of deductible rows.
    */
-  async generateCelebrationNotifications(): Promise<void> {
+  async generateCelebrationNotifications(options: BatchOptions = {}): Promise<BatchResult | null> {
     try {
-      // Get users with recent high-value deductions
-      const usersSnapshot = await adminDb.collection('user_profiles').get();
-
-      for (const userDoc of usersSnapshot.docs) {
+      return await runUserProfileBatch(this.profiles(), null, async userDoc => {
         const userId = userDoc.id;
         const userData = userDoc.data();
         
@@ -375,64 +384,69 @@ export class NotificationEngine {
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
         
-        const deductionsSnapshot = await this.db
-          .collection('user_profiles').doc(userId)
-          .collection('accounts').doc('default')
-          .collection('transactions')
+        const confirmedDeductions = await this.userTransactions(userId)
           .where('is_deductible', '==', true)
           .where('date', '>=', thirtyDaysAgo.toISOString().split('T')[0])
+          .orderBy('date', 'desc')
+          .limit(CELEBRATION_SCAN_LIMIT)
           .get();
         let totalDeductions = 0;
-        
-        deductionsSnapshot.forEach(doc => {
-          const data = doc.data();
-          totalDeductions += Math.abs(data.amount || 0);
-        });
 
-        // Send celebration for significant savings
+        for (const doc of confirmedDeductions.docs) {
+          const data = doc.data();
+          // Unresolved tax facts and non-countable records do not count toward confirmed totals.
+          if (data.tax_review_required === true || !isCountableRecord(data)) continue;
+          totalDeductions += Math.abs(data.amount || 0);
+        }
+
+        // Acknowledge confirmed review work; the rate is only a planning indicator.
         if (totalDeductions >= 1000) {
+          const { rate } = getUserTaxRateDisplay(userData);
+          if (rate === null) return;
           await this.sendNotification({
             userId,
             type: 'celebration',
             title: '🎉 Great Job!',
-            message: `You've identified $${totalDeductions.toFixed(0)} in deductions this month. That's potential tax savings of $${(totalDeductions * getUserTaxRate(userData)).toFixed(0)}!`,
+            message: `You've confirmed $${totalDeductions.toFixed(0)} in business expenses this month. At your planning rate of ${Math.round(rate * 100)}%, that is roughly $${(totalDeductions * rate).toFixed(0)} in potential federal tax impact, subject to your full-year review.`,
             priority: 'low',
             actionUrl: '/protected?screen=ai-insights',
             actionText: 'View Insights',
             data: { totalDeductions }
           });
         }
-      }
+      }, options);
     } catch (error) {
       console.error('❌ [Notifications] Error generating celebration notifications:', error);
+      return null;
     }
   }
 
-  private getNextTaxDeadline(currentQuarter: number): Date | null {
-    const year = new Date().getFullYear();
-    const deadlines = [
-      new Date(year, 3, 15), // Q1: April 15
-      new Date(year, 5, 15), // Q2: June 15
-      new Date(year, 8, 15), // Q3: September 15
-      new Date(year, 0, 15)  // Q4: January 15 (next year)
+  /**
+   * Next Form 1040-ES due date on or after `now`, with the weekend and DC-holiday shifts applied.
+   * The January payment is the prior tax year's Q4 installment.
+   * https://www.irs.gov/forms-pubs/about-form-1040-es
+   */
+  getNextTaxDeadline(now: Date = new Date()): { quarter: 1 | 2 | 3 | 4; date: Date } | null {
+    const year = now.getFullYear();
+    const candidates: Array<{ quarter: 1 | 2 | 3 | 4; date: Date }> = [
+      { quarter: 4, date: getEstimatedTaxDeadline(year - 1, 4) },
+      { quarter: 1, date: getEstimatedTaxDeadline(year, 1) },
+      { quarter: 2, date: getEstimatedTaxDeadline(year, 2) },
+      { quarter: 3, date: getEstimatedTaxDeadline(year, 3) },
+      { quarter: 4, date: getEstimatedTaxDeadline(year, 4) },
     ];
-
-    // If we're past Q4 deadline, use next year's Q1
-    if (currentQuarter === 4 && new Date() > deadlines[3]) {
-      return new Date(year + 1, 3, 15);
-    }
-
-    return deadlines[currentQuarter - 1] || null;
+    return candidates.find(candidate => candidate.date.getTime() >= now.getTime()) ?? null;
   }
 
-  private calculateEstimatedTax(userData: any): number {
+  private calculateEstimatedTax(userData: any): number | null {
     const businessIncome = userData.business_income || 0;
     const w2Income = userData.w2_income || 0;
     const totalIncome = businessIncome + w2Income;
     
     // Use effective tax rate from profile for estimation
-    const profileForRate = { income: totalIncome, filing_status: userData.filing_status || 'single' };
-    return businessIncome * getUserTaxRate(profileForRate);
+    const profileForRate = { income: totalIncome, filing_status: userData.filing_status };
+    const { rate } = getUserTaxRateDisplay(profileForRate);
+    return rate === null ? null : businessIncome * rate;
   }
 
   private async sendPushNotification(notification: Notification): Promise<void> {

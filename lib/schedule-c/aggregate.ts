@@ -7,11 +7,18 @@
  * - Deductible: is_deductible === true OR (is_deductible == null AND category in business list AND amount > 0). Refunds (negative) excluded.
  * - Meals (line 24b): 50% deductible.
  * - Year filter: transaction date year === selected year.
+ * - confirmed-only: posted records whose deduction the server confirmed
+ *   (review_status === 'confirmed', or a legacy pre-cutoff decision; see
+ *   lib/transactions/confirmed-deduction.ts), excluding tax-method placeholders.
+ * - Superseded records (`superseded_by`, set by historical-overlap reconciliation)
+ *   are excluded in both modes; see lib/transactions/record-scope.ts.
  *
  * PDF generation path: route → getTransactionsServer(uid) → aggregateScheduleC → pdf-lib.
  */
 
 import { safeTaxYear } from './taxDate';
+import { isServerConfirmedDeduction } from '@/lib/transactions/confirmed-deduction';
+import { isCountableRecord, isSupersededRecord } from '@/lib/transactions/record-scope';
 
 export type CategoryMapEntry = { line: string; name: string; code: string };
 
@@ -28,6 +35,7 @@ export const CATEGORY_MAP: Record<string, CategoryMapEntry> = {
   'TRANSPORTATION_AUTO_SERVICE': { line: '9', name: 'Car and truck expenses', code: '9' },
   'TRANSPORTATION_FUEL': { line: '9', name: 'Car and truck expenses', code: '9' },
   'TRANSPORTATION_TOLLS': { line: '9', name: 'Car and truck expenses', code: '9' },
+  'TRANSPORTATION_PARKING_AND_TOLLS': { line: '9', name: 'Car and truck expenses', code: '9' },
   'TRANSPORTATION_PUBLIC_TRANSIT': { line: '9', name: 'Car and truck expenses', code: '9' },
   'TRANSPORTATION_CAR_WASH': { line: '9', name: 'Car and truck expenses', code: '9' },
 
@@ -53,6 +61,7 @@ export const CATEGORY_MAP: Record<string, CategoryMapEntry> = {
   'SERVICE_ACCOUNTING': { line: '17', name: 'Legal and professional services', code: '17' },
   'SERVICE_CONSULTING': { line: '17', name: 'Legal and professional services', code: '17' },
   'SERVICE_LEGAL': { line: '17', name: 'Legal and professional services', code: '17' },
+  'SERVICE_LEGAL_AND_PROFESSIONAL': { line: '17', name: 'Legal and professional services', code: '17' },
   'SERVICE_SECURITY': { line: '17', name: 'Legal and professional services', code: '17' },
   'SERVICE_TAX_PREPARATION': { line: '17', name: 'Legal and professional services', code: '17' },
 
@@ -71,12 +80,18 @@ export const CATEGORY_MAP: Record<string, CategoryMapEntry> = {
   'RENT_RENT': { line: '20b', name: 'Rent (other business property)', code: '20b' },
   'RENT_COWORKING': { line: '20b', name: 'Rent (other business property)', code: '20b' },
 
+  // ── Line 21: Repairs and maintenance ─────────────────────────────────
+  'SERVICE_REPAIRS_AND_MAINTENANCE': { line: '21', name: 'Repairs and maintenance', code: '21' },
+
   // ── Line 22: Supplies ────────────────────────────────────────────────
   'GENERAL_MERCHANDISE_OFFICE_SUPPLIES': { line: '22', name: 'Supplies', code: '22' },
   'SERVICE_SHIPPING': { line: '22', name: 'Supplies', code: '22' },
   'SERVICE_PRINTING_AND_COPYING': { line: '22', name: 'Supplies', code: '22' },
   'GENERAL_MERCHANDISE_HARDWARE_STORE': { line: '22', name: 'Supplies', code: '22' },
   'GENERAL_MERCHANDISE_BOOKSTORES_AND_NEWSSTANDS': { line: '22', name: 'Supplies', code: '22' },
+
+  // ── Line 23: Taxes and licenses ──────────────────────────────────────
+  'GOVERNMENT_TAXES_AND_LICENSES': { line: '23', name: 'Taxes and licenses', code: '23' },
 
   // ── Line 24a: Travel ─────────────────────────────────────────────────
   'TRAVEL_FLIGHTS': { line: '24a', name: 'Travel', code: '24a' },
@@ -125,6 +140,9 @@ export interface ScheduleCTransactionLike {
   category: string;
   is_deductible?: boolean | null;
   pending?: boolean | null;
+  tax_review_required?: boolean;
+  /** Server-only: path of the earlier record this one duplicates; such records never count. */
+  superseded_by?: string | null;
   merchant_name?: string;
   id?: string;
   [key: string]: unknown;
@@ -140,6 +158,13 @@ export function isBusinessExpense(tx: ScheduleCTransactionLike): boolean {
   if (tx.is_deductible === true) return true;
   if (tx.is_deductible == null && BUSINESS_CATEGORY_KEYS.has(tx.category) && tx.amount > 0) return true;
   return false;
+}
+
+/** confirmed-only filter: countable (posted, not superseded), server-confirmed, and not a tax-method placeholder category. */
+export function isConfirmedScheduleCExpense(tx: ScheduleCTransactionLike): boolean {
+  return isCountableRecord(tx)
+    && !(typeof tx.category === 'string' && tx.category.endsWith('_REVIEW_REQUIRED'))
+    && isServerConfirmedDeduction(tx);
 }
 
 export interface LineItemSummary {
@@ -176,19 +201,21 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
   const yearStr = year.toString();
   const mode: AggregateScheduleCMode = options.mode ?? 'default';
   // Use timezone-safe year extraction (avoid local Date parsing shifting around year boundaries).
+  // Superseded duplicates of an earlier reviewed record never reach either mode.
   const yearTransactions = transactions.filter((t) => {
+    if (isSupersededRecord(t)) return false;
     const y = safeTaxYear(t.date);
     return y !== null && y.toString() === yearStr;
   });
 
   // CPA-grade logic:
   // - default mode preserves current "confirmed or potential" behavior
-  // - confirmed-only counts only explicitly confirmed deductible transactions
+  // - confirmed-only counts only server-confirmed deductible transactions
   //   and nets credits/refunds (negative amounts) against their mapped lines
   // - pending transactions are excluded when present
   const deductibleTransactions =
     mode === 'confirmed-only'
-      ? yearTransactions.filter((t) => t.pending !== true && t.is_deductible === true)
+      ? yearTransactions.filter(isConfirmedScheduleCExpense)
       : yearTransactions.filter(isBusinessExpense);
 
   const lineItems: Record<string, LineItemSummary> = {};

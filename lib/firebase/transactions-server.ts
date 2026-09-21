@@ -1,7 +1,20 @@
+import { FieldPath } from 'firebase-admin/firestore';
+import { taxDecisionUpdate } from '@/lib/transactions/tax-decision';
+import { recordedTransactionType, reviewHydrationFields, type AiReviewSuggestion, type TransactionKind } from '@/lib/transactions/ai-review-contract';
+import { isSupersededRecord } from '@/lib/transactions/record-scope';
+import type { AiExplanation } from '@/lib/transactions/review-proposals';
 // lib/firebase/transactions-server.ts
 import { adminDb } from './admin';
 
 export interface Transaction {
+  ai_suggestion?: AiReviewSuggestion | null;
+  ai_missing_fields?: string[];
+  ai_customized_reason?: string | null;
+  ai_explanation?: AiExplanation | null;
+  transaction_kind?: TransactionKind;
+  review_status?: string;
+  review_source?: string;
+  tax_review_required?: boolean;
   id: string;
   trans_id: string;
   merchant_name: string;
@@ -43,6 +56,8 @@ export interface Transaction {
   pending_transaction_id?: string;
   account_owner?: string;
   transaction_code?: string;
+  /** Server-only: path of the earlier reviewed record this bank import duplicates. */
+  superseded_by?: string | null;
 
   account_id?: string;
   accountId?: string;
@@ -129,7 +144,7 @@ function normalizeDoc(doc: FirebaseFirestore.QueryDocumentSnapshot): Transaction
     amount,
     category: data.category || '',
     date: dateIso,
-    type: amount < 0 ? 'income' : 'expense',
+    type: recordedTransactionType({ ...data, amount }),
     is_deductible: data.is_deductible ?? data.deductible ?? null,
     pending: data.pending ?? null,
     deductible_reason: data.deductible_reason || null,
@@ -151,20 +166,13 @@ function normalizeDoc(doc: FirebaseFirestore.QueryDocumentSnapshot): Transaction
     created_at: data.created_at,
     updated_at: data.updated_at,
     ai: data.ai || null,
+    ...reviewHydrationFields(data),
   };
 }
 
 /**
- * getTransactionsServer - attempt multiple strategies to find a user's transactions.
- *
- * Strategies tried (in order):
- *  1) Top-level collection 'transactions' where 'user_id' == userId
- *  2) Top-level collection 'transactions' where 'userId' == userId
- *  3) collectionGroup('transactions') where 'userId' == userId
- *  4) collectionGroup('transactions') where 'user_id' == userId
- *  5) Fallback: iterate user_profiles/{userId}/accounts/{accountId}/transactions
- *
- * Returns { data: Transaction[], error }
+ * getTransactionServer - one row by `trans_id`, trying the canonical `userId` owner field first and
+ * the legacy `user_id` field only when nothing matched (indexes: (trans_id, userId) / (trans_id, user_id)).
  */
 export async function getTransactionServer(
   userId: string,
@@ -202,22 +210,107 @@ export async function getTransactionServer(
   }
 }
 
+export interface GetTransactionsOptions {
+  /**
+   * Page size. When set, results are ordered by `date desc` (then document path) and at most
+   * `limit` rows are returned together with `nextCursor`. Omit for the legacy full read.
+   */
+  limit?: number;
+  /** Opaque cursor returned as `nextCursor` by the previous page. Only used together with `limit`. */
+  cursor?: string | null;
+  /**
+   * Field projection. Reads are billed per document either way, but projecting the few fields an
+   * aggregate needs cuts payload size and SSR memory. Identity fields are always included.
+   */
+  fields?: string[];
+  /** Include records superseded by historical-overlap reconciliation; lists, totals and analysis never want them. */
+  includeSuperseded?: boolean;
+}
+
+export interface TransactionsResult {
+  data: Transaction[];
+  error: any;
+  /** Present only for paged reads; `null` when the page was the last one. */
+  nextCursor: string | null;
+}
+
+/** Hard ceiling for a single paged read; callers wanting more must page. */
+export const MAX_TRANSACTIONS_PAGE_SIZE = 500;
+
+/** Fields the normalizer and dedupe key rely on; always projected. */
+// Record-scope fields (superseded_by, pending, bank_removed) travel with every projection: the
+// in-reader superseded filter and the callers' countable checks read them, and a select() that
+// omitted them would silently let excluded rows back into totals.
+const PROJECTION_IDENTITY_FIELDS = ['trans_id', 'account_id', 'accountId', 'userId', 'user_id', 'date', 'created_at', 'updated_at', 'amount',
+  'superseded_by', 'pending', 'bank_removed'];
+
+interface TransactionsCursor { date: string; path: string }
+
+export function encodeTransactionsCursor(cursor: TransactionsCursor): string {
+  return Buffer.from(JSON.stringify({ d: cursor.date, p: cursor.path }), 'utf8').toString('base64url');
+}
+
+export function decodeTransactionsCursor(value: string | null | undefined): TransactionsCursor | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
+    if (typeof parsed?.d !== 'string' || typeof parsed?.p !== 'string' || parsed.p.split('/').at(-2) !== 'transactions') return null;
+    return { date: parsed.d, path: parsed.p };
+  } catch {
+    return null;
+  }
+}
+
+function normalizeGetTransactionsOptions(options?: GetTransactionsOptions | string[]): Required<Pick<GetTransactionsOptions, 'fields'>> & { limit: number | null; cursor: TransactionsCursor | null; includeSuperseded: boolean } {
+  const opts: GetTransactionsOptions = Array.isArray(options) ? { fields: options } : options ?? {};
+  const limit = typeof opts.limit === 'number' && Number.isFinite(opts.limit) && opts.limit > 0
+    ? Math.min(Math.floor(opts.limit), MAX_TRANSACTIONS_PAGE_SIZE)
+    : null;
+  return { fields: opts.fields ?? [], limit, cursor: limit ? decodeTransactionsCursor(opts.cursor) : null, includeSuperseded: opts.includeSuperseded === true };
+}
+
+function sortNewestFirst(rows: Transaction[]): Transaction[] {
+  return rows.sort((a, b) => {
+    const ad = a.date ? new Date(a.date).getTime() : 0;
+    const bd = b.date ? new Date(b.date).getTime() : 0;
+    return bd - ad;
+  });
+}
+
+function isMissingIndexError(error: any): boolean {
+  return error?.code === 9 || error?.code === 'FAILED_PRECONDITION' || error?.code === 'failed-precondition';
+}
+
+/**
+ * getTransactionsServer - load a user's transactions with a short-circuiting strategy chain.
+ *
+ * Strategies (each one runs only when the previous returned nothing):
+ *  1) collectionGroup('transactions') where 'userId' == uid  — canonical field written by createTransactionServer.
+ *     A collection group includes root-level `transactions` too, so no separate top-level query is needed.
+ *  2) collectionGroup('transactions') where 'user_id' == uid — legacy snake_case rows.
+ *  3) user_profiles/{uid}/accounts/{accountId}/transactions per account — rows with neither owner field.
+ *
+ * Pass `{ limit, cursor }` to page (ordered by `date desc`, document path as the tiebreaker; rows
+ * without a `date` field are not part of paged results). Without `limit` the legacy full read is
+ * preserved: all rows, sorted newest first in memory.
+ */
 export async function getTransactionsServer(
   userId: string,
-  fields?: string[]
-): Promise<{ data: Transaction[]; error: any }> {
+  options?: GetTransactionsOptions | string[]
+): Promise<TransactionsResult> {
   try {
-    console.log('🔍 [getTransactionsServer] Fetching transactions for user:', userId);
-    if (!userId) return { data: [], error: 'Missing userId' };
+    if (!userId) return { data: [], error: 'Missing userId', nextCursor: null };
+    const { fields, limit, cursor, includeSuperseded } = normalizeGetTransactionsOptions(options);
+    const projection = fields.length > 0 ? [...new Set([...PROJECTION_IDENTITY_FIELDS, ...fields])] : null;
 
     const foundMap = new Map<string, Transaction>(); // dedupe by trans_id (+ account_id when available)
 
-    // Helper to add docs, dedupe by doc.ref.path (if available) or trans_id
-    const addDocs = (docs: FirebaseFirestore.QueryDocumentSnapshot[] | FirebaseFirestore.QuerySnapshot) => {
-      const arr = Array.isArray(docs) ? docs : docs.docs;
-      arr.forEach((doc: FirebaseFirestore.QueryDocumentSnapshot) => {
+    const addDocs = (docs: FirebaseFirestore.QueryDocumentSnapshot[]) => {
+      for (const doc of docs) {
         try {
           const data: any = doc.data() || {};
+          // Superseded duplicates of an earlier reviewed record never reach lists or totals.
+          if (!includeSuperseded && isSupersededRecord(data)) continue;
           const transId: string | undefined = data?.trans_id || data?.transId || doc.id;
           const accountId: string | undefined = data?.account_id || data?.accountId;
 
@@ -228,113 +321,67 @@ export async function getTransactionsServer(
               ? `${accountId}::${transId}`
               : `${transId}`
             : doc.ref?.path || doc.id;
-          if (foundMap.has(key)) return;
-          const tx = normalizeDoc(doc);
-          foundMap.set(key, tx);
+          if (foundMap.has(key)) continue;
+          foundMap.set(key, normalizeDoc(doc));
         } catch (e) {
           console.warn('[getTransactionsServer] failed to normalize doc', e);
         }
-      });
+      }
     };
 
-    // 1) Try top-level 'transactions' with userId (camelCase) - PRIMARY
-    try {
-      const topSnap = await adminDb.collection('transactions').where('userId', '==', userId).get();
-      console.log('📂 [getTransactionsServer] top-level "transactions" (userId) size:', topSnap.size);
-      if (!topSnap.empty) addDocs(topSnap);
-    } catch (e: any) {
-      if (e?.code !== 9 && e?.code !== 'FAILED_PRECONDITION') {
-        console.warn('[getTransactionsServer] top-level (userId) query failed:', e?.message ?? e);
-      }
-    }
+    for (const ownerField of ['userId', 'user_id'] as const) {
+      try {
+        let query: FirebaseFirestore.Query = adminDb.collectionGroup('transactions').where(ownerField, '==', userId);
+        if (projection) query = query.select(...projection);
+        if (limit) {
+          query = query.orderBy('date', 'desc').orderBy(FieldPath.documentId(), 'desc');
+          if (cursor) query = query.startAfter(cursor.date, adminDb.doc(cursor.path));
+          query = query.limit(limit + 1);
+        }
+        const snapshot = await query.get();
+        if (snapshot.empty) continue;
 
-    // 2) Try collectionGroup('transactions') with userId - PRIMARY
-    try {
-      const cg1 = await adminDb.collectionGroup('transactions').where('userId', '==', userId).get();
-      console.log('🔎 [getTransactionsServer] collectionGroup(userId) size:', cg1.size);
-      if (!cg1.empty) addDocs(cg1);
-    } catch (e: any) {
-      if (e?.code !== 9 && e?.code !== 'FAILED_PRECONDITION') {
-        console.warn('[getTransactionsServer] collectionGroup(userId) query failed:', e?.message ?? e);
-      }
-    }
-
-    // 3) Try top-level 'transactions' with user_id (snake_case) - FALLBACK
-    try {
-      const topSnap2 = await adminDb.collection('transactions').where('user_id', '==', userId).get();
-      console.log('📂 [getTransactionsServer] top-level "transactions" (user_id) size:', topSnap2.size);
-      if (!topSnap2.empty) addDocs(topSnap2);
-    } catch (e: any) {
-      if (e?.code !== 9 && e?.code !== 'FAILED_PRECONDITION') {
-        console.warn('[getTransactionsServer] top-level (user_id) query failed:', e?.message ?? e);
-      }
-    }
-
-    // 4) Try collectionGroup('transactions') with user_id - FALLBACK
-    try {
-      const cg2 = await adminDb.collectionGroup('transactions').where('user_id', '==', userId).get();
-      console.log('🔎 [getTransactionsServer] collectionGroup(user_id) size:', cg2.size);
-      if (!cg2.empty) addDocs(cg2);
-    } catch (e: any) {
-      if (e?.code !== 9 && e?.code !== 'FAILED_PRECONDITION') {
-        console.warn('[getTransactionsServer] collectionGroup(user_id) query failed:', e?.message ?? e);
-      }
-    }
-
-    // If we found docs via the above, return them
-    if (foundMap.size > 0) {
-      const arr = Array.from(foundMap.values());
-      arr.sort((a, b) => {
-        const ad = a.date ? new Date(a.date).getTime() : 0;
-        const bd = b.date ? new Date(b.date).getTime() : 0;
-        return bd - ad;
-      });
-      console.log(`✅ [getTransactionsServer] Successfully loaded ${arr.length} transactions (found via top-level / collectionGroup)`);
-      return { data: arr, error: null };
-    }
-
-    // 5) Fallback: iterate user_profiles/{userId}/accounts/{accountId}/transactions
-    try {
-      console.log('[getTransactionsServer] No docs found via collectionGroup/top-level queries — trying per-account fallback');
-      const accountsSnap = await adminDb.collection('user_profiles').doc(userId).collection('accounts').get();
-      console.log('[getTransactionsServer] accounts found:', accountsSnap.size);
-
-      for (const accountDoc of accountsSnap.docs) {
-        try {
-          const txSnap = await adminDb
-            .collection('user_profiles')
-            .doc(userId)
-            .collection('accounts')
-            .doc(accountDoc.id)
-            .collection('transactions')
-            .get();
-          console.log(`[getTransactionsServer] account ${accountDoc.id} transactions:`, txSnap.size);
-          if (!txSnap.empty) addDocs(txSnap);
-        } catch (e: any) {
-          console.warn(`[getTransactionsServer] failed to get transactions for account ${accountDoc.id}:`, e?.message ?? e);
+        let docs = snapshot.docs;
+        let nextCursor: string | null = null;
+        if (limit && docs.length > limit) {
+          docs = docs.slice(0, limit);
+          const last = docs[docs.length - 1];
+          nextCursor = encodeTransactionsCursor({ date: String(last.get('date') ?? ''), path: last.ref.path });
+        }
+        addDocs(docs);
+        const data = Array.from(foundMap.values());
+        return { data: limit ? data : sortNewestFirst(data), error: null, nextCursor };
+      } catch (e: any) {
+        if (!isMissingIndexError(e)) {
+          console.warn(`[getTransactionsServer] collectionGroup(${ownerField}) query failed:`, e?.message ?? e);
         }
       }
+    }
 
-      if (foundMap.size > 0) {
-        const arr = Array.from(foundMap.values());
-        arr.sort((a, b) => {
-          const ad = a.date ? new Date(a.date).getTime() : 0;
-          const bd = b.date ? new Date(b.date).getTime() : 0;
-          return bd - ad;
-        });
-        console.log(`[getTransactionsServer] Returning ${arr.length} transactions (found via per-account fallback)`);
-        return { data: arr, error: null };
-      } else {
-        console.log('[getTransactionsServer] No transactions found for user after fallback');
-        return { data: [], error: null };
-      }
+    // 3) Fallback: iterate user_profiles/{userId}/accounts/{accountId}/transactions
+    try {
+      const accountsSnap = await adminDb.collection('user_profiles').doc(userId).collection('accounts').get();
+      const perAccount = await Promise.all(accountsSnap.docs.map(async accountDoc => {
+        try {
+          let query: FirebaseFirestore.Query = accountDoc.ref.collection('transactions');
+          if (projection) query = query.select(...projection);
+          return (await query.get()).docs;
+        } catch (e: any) {
+          console.warn(`[getTransactionsServer] failed to get transactions for account ${accountDoc.id}:`, e?.message ?? e);
+          return [] as FirebaseFirestore.QueryDocumentSnapshot[];
+        }
+      }));
+      addDocs(perAccount.flat());
+      const data = sortNewestFirst(Array.from(foundMap.values()));
+      // Per-account rows carry no collection-group cursor; a paged caller gets the newest slice.
+      return { data: limit ? data.slice(0, limit) : data, error: null, nextCursor: null };
     } catch (fallbackError) {
       console.error('[getTransactionsServer] per-account fallback failed:', fallbackError);
-      return { data: [], error: fallbackError };
+      return { data: [], error: fallbackError, nextCursor: null };
     }
   } catch (error: any) {
     console.error('[getTransactionsServer] Unexpected error:', error);
-    return { data: [], error };
+    return { data: [], error, nextCursor: null };
   }
 }
 
@@ -386,6 +433,7 @@ export async function updateTransactionServerWithUserId(
         const docRef = querySnapshot.docs[0].ref;
         const updateData: any = stripUndefinedDeep({
           ...updates,
+          ...taxDecisionUpdate(querySnapshot.docs[0].data(), updates),
           updated_at: new Date(),
         });
 
@@ -454,6 +502,7 @@ export async function updateTransactionServerWithUserId(
           const docRef = targetTransaction.ref;
           const updateData: any = stripUndefinedDeep({
             ...updates,
+            ...taxDecisionUpdate(targetTransaction.data(), updates),
             updated_at: new Date(),
           });
 
@@ -666,17 +715,17 @@ export async function getPaginatedTransactionsServer(
       query = query.orderBy('merchant_name', sortOrder);
     }
 
-    // Get total count first
+    // Total count via aggregation: billed per 1,000 index entries instead of one read per document.
     const countQuery = query;
-    const countSnapshot = await countQuery.get();
-    const totalCount = countSnapshot.size;
+    const countSnapshot = await countQuery.count().get();
+    const totalCount: number = countSnapshot.data().count;
 
     // Apply pagination (offset-based)
     query = query.limit(limit);
     if (offset > 0) {
-      // For offset-based pagination, we need to skip documents
-      // Note: This is not efficient for large offsets, consider using cursor-based pagination
-      const skipSnapshot = await countQuery.limit(offset).get();
+      // Skipped rows are still billed as reads, so page numbers should stay small; the projection
+      // keeps the skip cheap on payload. Cursor paging lives in getTransactionsServer({ limit, cursor }).
+      const skipSnapshot = await countQuery.select(effectiveSortBy).limit(offset).get();
       const lastDoc = skipSnapshot.docs[skipSnapshot.docs.length - 1];
       if (lastDoc) {
         query = query.startAfter(lastDoc);
@@ -689,6 +738,8 @@ export async function getPaginatedTransactionsServer(
     const transactions: Transaction[] = [];
     querySnapshot.forEach((doc: any) => {
       const data = doc.data();
+      // Superseded duplicates of an earlier reviewed record never reach a list; like the other in-memory filters below.
+      if (isSupersededRecord(data)) return;
       const transaction: Transaction = {
         id: data.trans_id || doc.id,
         trans_id: data.trans_id || doc.id,
@@ -704,6 +755,8 @@ export async function getPaginatedTransactionsServer(
         user_classification_reason: data.user_classification_reason || null,
         description: data.description,
         notes: data.notes,
+        receipt_url: data.receipt_url,
+        receipt_filename: data.receipt_filename,
 
         account_id: data.account_id,
         userId: data.userId || data.user_id,
@@ -717,6 +770,7 @@ export async function getPaginatedTransactionsServer(
 
         // Include AI analysis data
         ai: data.ai || null,
+    ...reviewHydrationFields(data),
       };
 
       // Apply search filter if specified
@@ -826,6 +880,8 @@ export async function createTransactionServer(
           deduction_score: existingData?.deduction_score,
           description: existingData?.description,
           notes: existingData?.notes,
+          receipt_url: existingData?.receipt_url,
+          receipt_filename: existingData?.receipt_filename,
           analyzed: existingData?.analyzed,
           analysis_status: existingData?.analysis_status,
           analysisStatus: existingData?.analysisStatus,
@@ -883,6 +939,8 @@ export async function createTransactionServer(
           deduction_score: data?.deduction_score,
           description: data?.description,
           notes: data?.notes,
+          receipt_url: data?.receipt_url,
+          receipt_filename: data?.receipt_filename,
 
           account_id: data?.account_id,
           userId: data?.userId || data?.user_id,

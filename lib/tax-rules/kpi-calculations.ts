@@ -9,7 +9,9 @@
  *   IRS Publication 505 - Estimated tax / safe harbor
  */
 
-import { calculateFederalIncomeTax, STANDARD_DEDUCTIONS_2025 } from './federal-brackets';
+import { calculateFederalIncomeTax } from './federal-brackets';
+import { getFederalTaxRules, LATEST_PUBLISHED_TAX_YEAR, nearestPublishedTaxYear } from './federal-year-rules';
+import { normalizeFilingStatus } from './filing-status';
 
 // ── Schedule C Net Profit ─────────────────────────────────────────────────────
 /**
@@ -40,6 +42,7 @@ export function calcCombinedSERate(
   scheduleCNetProfit: number,
   filingStatus: string,
   aboveLineDeductions = 0,
+  taxYear: number = LATEST_PUBLISHED_TAX_YEAR,
 ): {
   seTaxRate: number;          // SE tax as % of net profit (always ~14.13%)
   incomeTaxEffectiveRate: number; // Income tax / net profit
@@ -49,6 +52,7 @@ export function calcCombinedSERate(
   incomeTaxDollars: number;
   totalTaxDollars: number;
 } {
+  const status = normalizeFilingStatus(filingStatus);
   if (scheduleCNetProfit <= 0) {
     return { seTaxRate: 0, incomeTaxEffectiveRate: 0, combinedEffectiveRate: 0, combinedMarginalRate: 0, seTaxDollars: 0, incomeTaxDollars: 0, totalTaxDollars: 0 };
   }
@@ -59,10 +63,12 @@ export function calcCombinedSERate(
   const halfSE = seTax / 2;
 
   // Income tax
-  const stdDed = STANDARD_DEDUCTIONS_2025[filingStatus as keyof typeof STANDARD_DEDUCTIONS_2025] ?? 15750;
+  const year = nearestPublishedTaxYear(taxYear);
+  const rules = getFederalTaxRules(year);
+  const stdDed = rules.standardDeductions[status];
   const agi = Math.max(0, scheduleCNetProfit - halfSE - aboveLineDeductions);
   const taxableIncome = Math.max(0, agi - stdDed);
-  const incomeTax = calculateFederalIncomeTax(taxableIncome, filingStatus);
+  const incomeTax = calculateFederalIncomeTax(taxableIncome, status, year);
 
   const totalTax = seTax + incomeTax;
   const seTaxRate = (seTax / scheduleCNetProfit) * 100;
@@ -72,21 +78,7 @@ export function calcCombinedSERate(
   // Marginal: SE tax on next dollar is always 14.13%, plus marginal income bracket
   const seMarginal = 0.9235 * 0.153; // 14.13%
   // Determine income tax marginal bracket
-  const brackets2025: Record<string, { min: number; rate: number }[]> = {
-    single: [
-      { min: 0, rate: 0.10 }, { min: 11925, rate: 0.12 }, { min: 48475, rate: 0.22 },
-      { min: 103350, rate: 0.24 }, { min: 197300, rate: 0.32 }, { min: 250525, rate: 0.35 }, { min: 626350, rate: 0.37 },
-    ],
-    married_filing_jointly: [
-      { min: 0, rate: 0.10 }, { min: 23850, rate: 0.12 }, { min: 96950, rate: 0.22 },
-      { min: 206700, rate: 0.24 }, { min: 394600, rate: 0.32 }, { min: 501050, rate: 0.35 }, { min: 751600, rate: 0.37 },
-    ],
-    head_of_household: [
-      { min: 0, rate: 0.10 }, { min: 17000, rate: 0.12 }, { min: 64850, rate: 0.22 },
-      { min: 103350, rate: 0.24 }, { min: 197300, rate: 0.32 }, { min: 250500, rate: 0.35 }, { min: 626350, rate: 0.37 },
-    ],
-  };
-  const bkts = brackets2025[filingStatus] ?? brackets2025.single;
+  const bkts = rules.brackets[status];
   let marginalIncomeBracket = bkts[0].rate;
   for (const b of bkts) {
     if (taxableIncome >= b.min) marginalIncomeBracket = b.rate;
@@ -160,59 +152,13 @@ export function calcUncapturedDeductions(
   };
 }
 
-// ── Quarterly Payment Status ──────────────────────────────────────────────────
-/**
- * Which quarter are we in, how much is due, and are we on track?
- * Source: IRS Publication 505, Form 1040-ES instructions
- */
-export function calcQuarterlyStatus(
-  estimatedAnnualTax: number,
-  totalPaidYTD: number,
-  priorYearTax?: number,
-): {
-  quarterLabel: string;        // "Q2 (Jun 16)"
-  quarterDueDate: string;
-  quarterAmount: number;       // recommended payment this quarter
-  totalOwedYTD: number;        // how much should have been paid by now
-  onTrack: boolean;
-  behindBy: number;            // 0 if on track
-  safeHarborAmount: number;    // 100% or 110% of prior year / 4
-} {
-  const now = new Date();
-  const month = now.getMonth() + 1; // 1-12
-
-  // IRS quarterly due dates and cumulative % of annual tax due
-  const quarters = [
-    { label: 'Q1', dueDate: 'Apr 15', dueDateFull: `Apr 15, ${now.getFullYear()}`, cumPct: 0.25, month: 4 },
-    { label: 'Q2', dueDate: 'Jun 16', dueDateFull: `Jun 16, ${now.getFullYear()}`, cumPct: 0.50, month: 6 },
-    { label: 'Q3', dueDate: 'Sep 15', dueDateFull: `Sep 15, ${now.getFullYear()}`, cumPct: 0.75, month: 9 },
-    { label: 'Q4', dueDate: 'Jan 15', dueDateFull: `Jan 15, ${now.getFullYear() + 1}`, cumPct: 1.00, month: 1 },
-  ];
-
-  // Determine current quarter
-  let currentQ = quarters[0];
-  if (month > 9 || month === 1) currentQ = quarters[3];
-  else if (month > 6) currentQ = quarters[2];
-  else if (month > 4) currentQ = quarters[1];
-
-  // Safe harbor: 100% of prior year tax (or 110% if prior AGI > $150k)
-  // We use estimated annual tax if no prior year available
-  const safeHarborBase = priorYearTax ?? estimatedAnnualTax;
-  const safeHarborAmount = safeHarborBase / 4;
-  const quarterAmount = estimatedAnnualTax / 4;
-
-  const totalOwedYTD = estimatedAnnualTax * currentQ.cumPct;
-  const behindBy = Math.max(0, totalOwedYTD - totalPaidYTD);
-  const onTrack = behindBy < 100; // $100 buffer for rounding
-
+// ── Legacy quarterly status boundary ──────────────────────────────────────────
+// Annual tax / total paid alone cannot determine timing or safe-harbor eligibility.
+export function calcQuarterlyStatus(_estimatedAnnualTax: number, _totalPaidYTD: number, _priorYearTax?: number) {
   return {
-    quarterLabel: currentQ.label,
-    quarterDueDate: currentQ.dueDateFull,
-    quarterAmount: Math.round(quarterAmount),
-    totalOwedYTD: Math.round(totalOwedYTD),
-    onTrack,
-    behindBy: Math.round(behindBy),
-    safeHarborAmount: Math.round(safeHarborAmount),
+    status: 'review_required' as const,
+    message: 'Review prior-year AGI, full-year withholding and dated payments before choosing an installment.',
+    quarterAmount: null, totalOwedYTD: null, onTrack: null, behindBy: null, safeHarborAmount: null,
   };
 }
 

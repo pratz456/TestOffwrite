@@ -2,6 +2,8 @@
 title: "Sole Proprietor vs. LLC vs. S-Corp: Which Business Structure Saves the Most in Taxes?"
 description: "A clear comparison of how sole proprietorships, single-member LLCs, and S-corporations are taxed. Learn when forming an S-corp actually saves money on self-employment tax and when it's not worth the cost."
 date: "2026-04-01"
+reviewed: "2026-09-17"
+reviewedFor: "tax years 2025–2026"
 author: "WriteOff Team"
 tags:
  - Business Structure
@@ -22,7 +24,7 @@ Here's how each structure is taxed and at what income level each one makes finan
 If you freelance without any formal business structure, you're a sole proprietor by default. Your business income is reported on **Schedule C** (attached to your personal Form 1040), and you pay:
 
 - **Federal income tax** on your net profit, at your marginal bracket
-- **Self-employment tax**: 15.3% on the first $176,100 of net SE earnings (for 2025; the 2026 wage base will be announced later), then 2.9% above that
+- **Self-employment tax**: 15.3% on net SE earnings up to the Social Security wage base ($176,100 for 2025; $184,500 for 2026), then 2.9% above that
 
 The self-employment tax consists of Social Security (12.4%) and Medicare (2.9%), the same taxes W-2 employees pay. You cover both the employee and employer halves because you're both.
 
@@ -50,19 +52,19 @@ This is the S-corp tax advantage in a nutshell: you pay payroll taxes only on yo
 
 ## The S-Corp Savings Math
 
-Let's compare a freelancer earning $150,000 net profit under each structure:
+Let's compare a freelancer earning $150,000 net profit under each structure (2025 figures):
 
 **As a sole proprietor/single-member LLC**:
-- SE tax (approximate): ~$18,228 (15.3% on first $176,100 x 92.35%)
-- Deductible half of SE tax: ~$9,114
-- Taxable income: ~$140,886
+- Net earnings subject to SE tax: $150,000 x 92.35% = $138,525 (below the $176,100 wage base)
+- SE tax: $138,525 x 15.3% = ~$21,194
+- Deductible half of SE tax: ~$10,597
 
-**As an S-corp (salary $70,000, distribution $80,000)**:
-- Payroll taxes on salary: $70,000 x 15.3% = $10,710 (split employer/employee)
-- Distribution: $80,000, no SE tax
-- Net payroll tax savings: ~$7,518
+**As an S-corp (salary $75,000, distribution $75,000)**:
+- Payroll taxes on salary: $75,000 x 15.3% = $11,475 (split employer/employee)
+- Distribution: $75,000, no SE or payroll tax
+- Gross payroll tax savings: ~$9,700
 
-At $150,000 of income, the S-corp saves roughly **$7,500 per year** in payroll taxes. That sounds compelling, but you need to offset it against the real costs of running an S-corp.
+At $150,000 of income, the S-corp saves roughly **$9,700 per year** in Social Security and Medicare taxes before overhead. Two offsets shrink that number: the corporation's half of payroll tax is deductible (much like the half-SE-tax deduction you give up), and your salary is not qualified business income, so the 20% QBI deduction is computed on the smaller distribution share. For many freelancers the QBI effect claws back a quarter or more of the payroll tax savings. You also need to offset the real costs of running an S-corp.
 
 ## S-Corp Costs: What Eats Into the Savings
 
@@ -86,14 +88,14 @@ A common rule of thumb: **the S-corp election rarely pays off below $80,000 to $
 
 Rough savings estimates at different income levels:
 
-| Net Profit | Estimated SE Tax Savings (S-corp vs. sole prop) | Typical S-Corp Overhead | Net Benefit |
+| Net Profit | Payroll Tax Savings (S-corp vs. sole prop, salary set at 50% of profit, 2025) | Typical S-Corp Overhead | Net Before QBI Offset |
 |---|---|---|---|
-| $60,000 | ~$2,000 | $3,000 to $4,000 | Likely negative |
-| $100,000 | ~$4,500 | $3,000 to $4,000 | Marginal ($500 to $1,500) |
-| $150,000 | ~$7,500 | $3,000 to $4,000 | Meaningful ($3,500 to $4,500) |
-| $200,000 | ~$9,200 | $3,000 to $4,000 | Strong ($5,200 to $6,200) |
+| $60,000 | ~$3,900 | $3,000 to $4,000 | Roughly break-even |
+| $100,000 | ~$6,500 | $3,000 to $4,000 | $2,500 to $3,500 |
+| $150,000 | ~$9,700 | $3,000 to $4,000 | $5,700 to $6,700 |
+| $200,000 | ~$11,900 | $3,000 to $4,000 | $7,900 to $8,900 |
 
-Note: These are approximations. Actual savings depend on your state taxes, the reasonable salary amount you set, and your specific expenses. Work with a CPA to model your situation.
+Note: These are approximations that ignore the QBI offset described above, state taxes and the deductibility of the employer payroll share. Actual savings depend on the reasonable salary you set and your specific expenses. Work with a CPA to model your situation.
 
 ## The "Reasonable Salary" Problem
 
@@ -130,5 +132,6 @@ If you're not yet at the income threshold, the single-member LLC is typically th
 - [IRS S Corporations](https://www.irs.gov/businesses/small-businesses-self-employed/s-corporations) - S-corp requirements and tax treatment
 - [IRS Single Member LLC](https://www.irs.gov/businesses/small-businesses-self-employed/single-member-limited-liability-companies) - Default disregarded entity treatment
 - [IRS Form 2553: S-Corp Election](https://www.irs.gov/forms-pubs/about-form-2553) - March 15 deadline for S-corp election
+- [IRS Topic No. 554: Self-Employment Tax](https://www.irs.gov/taxtopics/tc554) and [SSA contribution and benefit base](https://www.ssa.gov/oact/cola/cbb.html) - SE tax mechanics and the $176,100 (2025) / $184,500 (2026) wage base
 
 *An LLC is a state-law entity with no federal tax category of its own. It is taxed as a disregarded entity, partnership, or corporation depending on elections made. Source: [Treas. Reg. § 301.7701-3](https://www.law.cornell.edu/cfr/text/26/301.7701-3).*

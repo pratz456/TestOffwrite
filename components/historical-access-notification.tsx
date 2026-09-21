@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -67,8 +67,8 @@ export function HistoricalAccessNotification() {
         <AlertDescription className="text-foreground">
           <div className="flex items-center justify-between">
             <span>
-              Your free trial has ended. You're now seeing 3 months of transaction history.
-              Upgrade to restore 1-year access.
+              Your free trial has ended. Free accounts can import the last 90 days; your saved records remain accessible.
+              Upgrade to request up to 2 years of bank history, depending on bank availability.
             </span>
             <div className="flex items-center gap-2 ml-4">
               <Button
@@ -94,4 +94,3 @@ export function HistoricalAccessNotification() {
 
   return null;
 }
-

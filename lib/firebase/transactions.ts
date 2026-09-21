@@ -1,3 +1,6 @@
+import { recordedTransactionType, reviewHydrationFields, type AiReviewSuggestion, type TransactionKind } from '@/lib/transactions/ai-review-contract';
+import { isSupersededRecord } from '@/lib/transactions/record-scope';
+import type { AiExplanation } from '@/lib/transactions/review-proposals';
 import {
   collection,
   doc,
@@ -17,6 +20,20 @@ import {
 import { db } from "./client";
 
 export interface Transaction {
+  ai_suggestion?: AiReviewSuggestion | null;
+  /** Facts the last analysis asked for (for example `business_purpose`); drives the review chips. */
+  ai_missing_fields?: string[];
+  /** The model's tailored reason; a fallback proposed business purpose when the suggestion has none. */
+  ai_customized_reason?: string | null;
+  ai_explanation?: AiExplanation | null;
+  transaction_kind?: TransactionKind;
+  review_status?: string;
+  review_source?: string;
+  review_suggestion_id?: string | null;
+  reviewed_at?: string;
+  tax_review_required?: boolean;
+  analysisErrorCode?: string | null;
+  analysisJobId?: string;
   id: string;
   trans_id: string;
   merchant_name: string;
@@ -79,6 +96,13 @@ export interface Transaction {
   pending_transaction_id?: string;
   account_owner?: string;
   transaction_code?: string;
+
+  /**
+   * Server-only (historical-overlap reconciliation): full path of the earlier
+   * record this bank import duplicates. Superseded records are hidden from
+   * lists and excluded from every total; the detail view explains why.
+   */
+  superseded_by?: string | null;
 
   // AI Analysis Fields from initial analysis
   ai?: {
@@ -174,17 +198,15 @@ const normalizeAiPayload = (rawAi: any, rawAiAnalysis: any): NormalizedAiResult 
 
   const deductionStatus =
     source.deductionStatus ||
-    source.status ||
     source.status_label ||
+    source.status ||
     undefined;
 
   const confidence =
     typeof source.confidence === "number"
       ? source.confidence
       : typeof source.score_pct === "number"
-      ? source.score_pct
-      : typeof source.deductible_percent === "number"
-      ? source.deductible_percent / 100
+      ? source.score_pct / 100
       : undefined;
 
   const analysisUpdatedAt =
@@ -202,9 +224,7 @@ const normalizeAiPayload = (rawAi: any, rawAiAnalysis: any): NormalizedAiResult 
   const ai: Transaction["ai"] = {
     status_label: deductionStatus,
     score_pct:
-      typeof source.deductible_percent === "number"
-        ? source.deductible_percent
-        : typeof source.score_pct === "number"
+      typeof source.score_pct === "number"
         ? source.score_pct
         : undefined,
     reasoning,
@@ -255,7 +275,7 @@ export const hydrateTransactionRecord = (data: DocumentData, fallbackId: string)
     category: data.category || '',
     date: data.date || '',
     datetime: data.datetime,
-    type: data.amount < 0 ? 'income' : 'expense',
+    type: recordedTransactionType(data),
     is_deductible: data.is_deductible,
     pending: data.pending ?? null,
     deductible_reason: data.deductible_reason || normalizedAi.reasoning,
@@ -266,6 +286,8 @@ export const hydrateTransactionRecord = (data: DocumentData, fallbackId: string)
     notes: data.notes,
     receipt_url: data.receipt_url,
     receipt_filename: data.receipt_filename,
+
+    ...reviewHydrationFields(data),
 
     // AI analysis data
     ai: normalizedAi.ai,
@@ -307,6 +329,7 @@ export async function getTransactions(userId: string): Promise<{ data: Transacti
 
     querySnapshot.forEach((doc) => {
       const data = doc.data() as DocumentData;
+      if (isSupersededRecord(data)) return; // Duplicate of an earlier reviewed bank record; hidden from lists.
       console.log('🔍 [Firebase] Processing transaction:', {
         id: data.trans_id || doc.id,
         merchant: data.merchant_name,
@@ -453,7 +476,7 @@ export async function createTransaction(
             amount: data.amount || 0,
             category: data.category || '',
             date: data.date || '',
-            type: data.amount < 0 ? 'income' : 'expense',
+            type: recordedTransactionType(data),
             is_deductible: data.is_deductible,
             deductible_reason: data.deductible_reason,
             deduction_score: data.deduction_score,

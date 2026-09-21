@@ -63,7 +63,7 @@ export async function exchangePublicToken(publicToken: string, userId: string) {
     }
 
     const data = await response.json();
-    return { success: true, accessToken: data.access_token, itemId: data.item_id };
+    return { success: true, itemId: data.itemId || data.item_id };
   } catch (error) {
     console.error('Error exchanging public token:', error);
     return { success: false, error: 'Network error' };

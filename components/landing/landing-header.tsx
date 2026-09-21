@@ -3,50 +3,57 @@
 import Image from "next/image";
 import writeOffLogo from "@/public/writeofflogo.png";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Menu, X } from "lucide-react";
-import { AuthButtons } from "./cta-button";
+import { CtaButton } from "./cta-button";
 
 const NAV_LINKS = [
-  { label: "Home", href: "/" },
-  { label: "Problem", href: "/#problem" },
-  { label: "Features", href: "/#features" },
-  { label: "How It Works", href: "/#how-it-works" },
-  { label: "Reviews", href: "/#reviews" },
-  { label: "Blog", href: "/blog" },
-  { label: "Tools", href: "/tools" },
+  { label: "How it works", href: "/#how-it-works" },
+  { label: "Plans & questions", href: "/#availability" },
+  { label: "Free tools", href: "/tools" },
 ];
 
 export function LandingHeader() {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const menuButton = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setMobileOpen(false);
+      menuButton.current?.focus();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [mobileOpen]);
 
   return (
-    <header className="sticky top-0 z-50 w-full bg-background/80 backdrop-blur-xl">
-      <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-        <Link href="/" className="flex items-center gap-2.5 no-tap-highlight">
-          <Image src={writeOffLogo} alt="WriteOff" width={32} height={32} className="rounded-md" />
-          <span className="text-lg font-bold tracking-tight text-foreground">WriteOff</span>
+    <header className="sticky top-0 z-50 border-b border-slate-200/80 bg-[#f5f5f7]/95 backdrop-blur-xl">
+      <div className="mx-auto flex h-14 max-w-5xl items-center justify-between gap-2 px-4 sm:px-6">
+        <Link href="/" className="flex min-h-11 shrink-0 items-center gap-2 no-tap-highlight" aria-label="WriteOff home">
+          <Image src={writeOffLogo} alt="" width={28} height={28} className="rounded-md" />
+          <span className="text-lg font-semibold tracking-tight">WriteOff</span>
         </Link>
-        <nav className="hidden items-center gap-1 md:flex">
-          {NAV_LINKS.map((l) => (
-            <a key={l.label} href={l.href} className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">{l.label}</a>
+        <nav className="hidden items-center gap-1 md:flex" aria-label="Main navigation">
+          {NAV_LINKS.map((link) => (
+            <a key={link.href} href={link.href} className="inline-flex min-h-11 items-center rounded-md px-3 text-sm text-slate-600 hover:text-blue-600">{link.label}</a>
           ))}
         </nav>
-        <div className="hidden md:block"><AuthButtons size="default" /></div>
-        <button type="button" className="inline-flex items-center justify-center rounded-md p-2 text-muted-foreground hover:text-foreground md:hidden no-tap-highlight" onClick={() => setMobileOpen(!mobileOpen)} aria-label="Toggle navigation">
-          {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-        </button>
+        <div className="flex items-center gap-1">
+          <CtaButton label="Get started" />
+          <button ref={menuButton} type="button" className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 md:hidden no-tap-highlight" onClick={() => setMobileOpen(!mobileOpen)} aria-label={mobileOpen ? "Close navigation" : "Open navigation"} aria-expanded={mobileOpen} aria-controls="landing-mobile-navigation">
+            {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
+        </div>
       </div>
       {mobileOpen && (
-        <div className="border-t border-border/40 bg-background px-4 pb-4 pt-2 md:hidden">
-          <nav className="flex flex-col gap-1">
-            {NAV_LINKS.map((l) => (
-              <a key={l.label} href={l.href} onClick={() => setMobileOpen(false)} className="rounded-md px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">{l.label}</a>
-            ))}
-          </nav>
-          <div className="mt-3"><AuthButtons size="default" className="w-full flex-col" /></div>
-        </div>
+        <nav id="landing-mobile-navigation" className="border-t border-slate-200 bg-white px-4 py-2 md:hidden" aria-label="Mobile navigation">
+          {NAV_LINKS.map((link) => (
+            <a key={link.href} href={link.href} onClick={() => setMobileOpen(false)} className="flex min-h-11 items-center rounded-lg px-3 text-sm text-slate-600 hover:bg-slate-50 hover:text-blue-600">{link.label}</a>
+          ))}
+          <Link href="/auth/login" onClick={() => setMobileOpen(false)} className="flex min-h-11 items-center rounded-lg px-3 text-sm font-medium text-blue-600">Sign in</Link>
+        </nav>
       )}
     </header>
   );

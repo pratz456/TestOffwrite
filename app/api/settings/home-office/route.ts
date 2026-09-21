@@ -1,4 +1,8 @@
-import { getHomeOfficeSettings } from '@/lib/firebase/settings-server';
+import { NextRequest, NextResponse } from 'next/server';
+import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
+import { getHomeOfficeSettings, saveHomeOfficeSettings } from '@/lib/firebase/settings-server';
+import { validateHomeOfficePayload } from '@/lib/settings/home-office-payload';
+
 export async function GET(request: NextRequest) {
   try {
     // Get the authenticated user
@@ -7,17 +11,15 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     const { data, error } = await getHomeOfficeSettings(user.uid);
+    if (error?.code === 'NOT_FOUND') return NextResponse.json({ success: true, data: null });
     if (error) {
-      return NextResponse.json({ error: error.message || 'Failed to load home office settings' }, { status: 500 });
+      return NextResponse.json({ error: 'Failed to load home office settings' }, { status: 500 });
     }
     return NextResponse.json({ success: true, data });
-  } catch (error) {
-    return NextResponse.json({ error: 'Failed to load home office settings', details: error instanceof Error ? error.message : 'Unknown error' }, { status: 500 });
+  } catch {
+    return NextResponse.json({ error: 'Failed to load home office settings' }, { status: 500 });
   }
 }
-import { NextRequest, NextResponse } from 'next/server';
-import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
-import { saveHomeOfficeSettings } from '@/lib/firebase/settings-server';
 
 export async function POST(request: NextRequest) {
   try {
@@ -33,22 +35,11 @@ export async function POST(request: NextRequest) {
 
     console.log('✅ [Home Office Settings API] User authenticated:', user.uid);
 
-    const settings = await request.json();
-
-    // Validate required fields
-    if (!settings.totalHomeSqFt || !settings.officeSqFt) {
-      return NextResponse.json(
-        { error: 'Total home square footage and office square footage are required' },
-        { status: 400 }
-      );
-    }
-
-    if (settings.officeSqFt >= settings.totalHomeSqFt) {
-      return NextResponse.json(
-        { error: 'Office square footage must be less than total home square footage' },
-        { status: 400 }
-      );
-    }
+    let body: unknown;
+    try { body = await request.json(); } catch { return NextResponse.json({ error: 'Send the home office settings as JSON.' }, { status: 400 }); }
+    const { settings, errors } = validateHomeOfficePayload(body);
+    if (errors.length) return NextResponse.json({ error: errors.join(' '), code: 'INVALID_HOME_OFFICE_INPUT' }, { status: 400 });
+    if (!Object.keys(settings).length) return NextResponse.json({ error: 'Provide at least one home office setting to save.' }, { status: 400 });
 
     // Save settings
     const { data, error } = await saveHomeOfficeSettings(user.uid, settings);
@@ -72,8 +63,7 @@ export async function POST(request: NextRequest) {
     console.error('❌ [Home Office Settings API] Unexpected error:', error);
     return NextResponse.json(
       { 
-        error: 'Failed to save home office settings',
-        details: error instanceof Error ? error.message : 'Unknown error'
+        error: 'Failed to save home office settings'
       },
       { status: 500 }
     );

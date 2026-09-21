@@ -1,117 +1,111 @@
 import { adminAuth, adminDb } from './admin';
 import { disconnectPlaidItem } from '@/lib/plaid/delete-item';
-import { deleteSubcollection, deleteQueryBatch } from './delete-helpers';
+import { listPlaidConnectionSummaries } from '@/lib/plaid/connections';
+import { recoverPendingPlaidLinks } from '@/lib/plaid/link-operations';
+import { deleteQueryBatch } from './delete-helpers';
+import { receiptBucket } from './receipt-security';
 import { cancelUserStripeSubscriptions } from '@/lib/stripe/cancel-subscription';
 
-/**
- * Delete all user data from Firestore and Firebase Auth.
- * This includes:
- * - All Plaid items and related accounts/transactions
- * - User profile
- * - All user-scoped collections (accounts, transactions, categories, etc.)
- * - Storage assets (if any)
- * - Firebase Auth user
- * @param {string} uid - The user's UID.
- * @returns {Promise<{ error?: any }>}
- */
-export async function deleteUserData(uid: string): Promise<{ error?: any }> {
+export class AccountDeletionError extends Error {
+  constructor(message: string, public readonly code: string, public readonly retryable: boolean, public readonly status = 503) {
+    super(message);
+  }
+}
+
+const OWNED_COLLECTIONS: Record<string, string[]> = {
+  categories: ['user_id'], rules: ['user_id'], budgets: ['user_id'], exports: ['user_id'], audit_logs: ['user_id'],
+  analysis_jobs: ['userId', 'user_id'], analysis_tasks: ['userId'], analysis_status: ['userId', 'user_id'],
+  transactions: ['userId', 'user_id'], receipts: ['userId', 'user_id'], plaid_connections: ['uid'], processed_webhooks: ['user_id'],
+  gross_receipts: ['userId', 'user_id'], income_1099: ['userId', 'user_id'], income_reconciliations: ['userId'], w2_income: ['userId', 'user_id'],
+  tax_deductions: ['userId', 'user_id'], tax_organizers: ['userId', 'user_id'], user_corrections: ['userId'],
+};
+
+/** Revoke bank access first; retain the login and recovery metadata whenever cleanup fails. */
+export async function deleteUserData(uid: string): Promise<{ error?: AccountDeletionError }> {
   try {
-    console.log(`🔄 [Delete User Data] Starting deletion for user ${uid}`);
+    // The UID becomes a Firestore document segment and an exact Storage prefix.
+    if (!uid || uid.length > 128 || /[\/\\\u0000-\u001f\u007f]/.test(uid) || ['.', '..'].includes(uid)) {
+      throw new AccountDeletionError('Account identity could not be verified.', 'INVALID_ACCOUNT', false, 400);
+    }
+    // Provider operations acquire a lease against this same document. Keeping
+    // the marker outside the profile also blocks already-issued authentication
+    // tokens from creating new bank/billing access after the profile is erased.
+    const deletionRef = adminDb.doc(`account_deletions/${uid}`);
+    await adminDb.runTransaction(async tx => {
+      await tx.get(deletionRef);
+      tx.set(deletionRef, { deletionRequested: true }, { merge: true });
+    });
+    try { await recoverPendingPlaidLinks(uid); }
+    catch {
+      throw new AccountDeletionError('A pending bank connection could not be revoked. Your account has not been deleted. Please retry.', 'BANK_LINK_RECOVERY_REQUIRED', true);
+    }
+    const deletion = (await deletionRef.get()).data();
+    if (Object.keys(deletion?.linkOperations ?? {}).length || Object.keys(deletion?.billingOperations ?? {}).length) {
+      throw new AccountDeletionError(
+        'A bank or billing operation is still unresolved. Your account has not been deleted. Retry after it finishes, or contact support if it persists.',
+        'ACCOUNT_OPERATION_PENDING', true, 409);
+    }
+    const profileRef = adminDb.doc(`user_profiles/${uid}`);
+    const connections = await listPlaidConnectionSummaries(uid);
+    const privateConnections = await adminDb.collection('plaid_connections').where('uid', '==', uid).get();
+    // Retain old-provider credentials for manual revocation. Never try them with
+    // the replacement Plaid account or erase the only remaining recovery record.
+    const unresolved = privateConnections.docs.some(doc => {
+      const bank = doc.data();
+      return bank.status !== 'disconnected' && (!process.env.PLAID_CLIENT_ID || !process.env.PLAID_ENV ||
+        bank.clientId !== process.env.PLAID_CLIENT_ID || bank.environment !== process.env.PLAID_ENV || bank.status !== 'active');
+    });
+    if (unresolved) throw new AccountDeletionError(
+      'An older bank connection needs manual revocation before your account can be deleted. Contact support to complete the deletion request; your account and bank recovery information have been retained.',
+      'LEGACY_BANK_REVOCATION_REQUIRED', false, 409);
 
-    // Step 0: Cancel all Stripe subscriptions and delete customer
+    for (const connection of connections) {
+      const result = await disconnectPlaidItem(uid, connection.itemId);
+      if (!result.success) throw new AccountDeletionError(
+        'A bank connection could not be revoked. Your account has not been deleted. Please retry.', 'BANK_REVOCATION_FAILED', true);
+    }
+    // A completed individual disconnect removes its encrypted token. Refuse to
+    // erase recovery information if a connection appeared or changed mid-run.
+    const remaining = await adminDb.collection('plaid_connections').where('uid', '==', uid).get();
+    if (remaining.docs.some(doc => doc.data().status !== 'disconnected' || doc.data().encryptedAccessToken)) {
+      throw new AccountDeletionError('Bank cleanup is incomplete. Your account has not been deleted. Please retry.', 'BANK_REVOCATION_FAILED', true);
+    }
+
+    const billing = await cancelUserStripeSubscriptions(uid);
+    if (!billing.success) throw new AccountDeletionError(
+      'Billing could not be closed. Your account has not been deleted. Please retry.', 'BILLING_CLEANUP_FAILED', true);
+
     try {
-      const stripeResult = await cancelUserStripeSubscriptions(uid);
-      if (stripeResult.success) {
-        console.log(`✅ [Delete User Data] Canceled ${stripeResult.canceledSubscriptions || 0} Stripe subscription(s)`);
-      } else {
-        console.warn(`⚠️ [Delete User Data] Stripe cancellation had issues:`, stripeResult.error);
-        // Continue with deletion even if Stripe cancellation fails
-      }
-    } catch (stripeError) {
-      console.warn(`⚠️ [Delete User Data] Error canceling Stripe subscriptions, continuing:`, stripeError);
-      // Continue with deletion
+      // Trailing slash prevents deleting another user's similarly prefixed UID.
+      await receiptBucket().deleteFiles({ prefix: `receipts/${uid}/` });
+    } catch {
+      throw new AccountDeletionError('Receipt cleanup could not finish. Your account has not been deleted. Please retry.', 'RECEIPT_CLEANUP_FAILED', true);
     }
 
-    // Step 1: Disconnect all Plaid items
-    try {
-      const plaidResult = await disconnectPlaidItem(uid);
-      if (plaidResult.success) {
-        console.log(`✅ [Delete User Data] Disconnected Plaid items`);
-      } else {
-        console.warn(`⚠️ [Delete User Data] Plaid disconnection had issues:`, plaidResult.error);
-        // Continue with deletion even if Plaid disconnection fails
-      }
-    } catch (plaidError) {
-      console.warn(`⚠️ [Delete User Data] Error disconnecting Plaid, continuing:`, plaidError);
-      // Continue with deletion
-    }
-
-    // Step 2: Delete all accounts and their subcollections
-    // (This should already be done by disconnectPlaidItem, but do it again to be safe)
-    const accountsRef = adminDb.collection('user_profiles').doc(uid).collection('accounts');
-    const accountsSnapshot = await accountsRef.get();
-
-    for (const accountDoc of accountsSnapshot.docs) {
-      const accountRef = accountDoc.ref;
-
-      // Delete transactions subcollection
-      await deleteSubcollection(accountRef, 'transactions');
-
-      // Delete the account document
-      await accountRef.delete();
-    }
-    console.log(`✅ [Delete User Data] Deleted ${accountsSnapshot.docs.length} accounts`);
-
-    // Step 3: Delete user profile document
-    await adminDb.collection('user_profiles').doc(uid).delete();
-    console.log(`✅ [Delete User Data] Deleted user profile`);
-
-    // Step 4: Delete any other user-scoped collections
-    // Categories, rules, budgets, exports, audit logs, etc.
-    const collectionsToCheck = [
-      'categories',
-      'rules',
-      'budgets',
-      'exports',
-      'audit_logs',
-      'analysis_jobs',
-      'analysis_status',
-    ];
-
-    for (const collectionName of collectionsToCheck) {
-      try {
-        const collectionRef = adminDb.collection(collectionName);
-        const query = collectionRef.where('user_id', '==', uid);
-        const deleted = await deleteQueryBatch(query, 500);
-        if (deleted > 0) {
-          console.log(`✅ [Delete User Data] Deleted ${deleted} documents from ${collectionName}`);
+    // Missing collections yield empty queries. Database errors must propagate.
+    for (const [collection, ownerFields] of Object.entries(OWNED_COLLECTIONS)) {
+      for (const field of ownerFields) await deleteQueryBatch(adminDb.collection(collection).where(field, '==', uid), 500, data => {
+        if (['userId', 'user_id', 'uid'].some(owner => data[owner] != null && data[owner] !== uid)) {
+          throw new AccountDeletionError('A record ownership conflict needs support review before deletion can finish.', 'ACCOUNT_OWNERSHIP_CONFLICT', false, 409);
         }
-      } catch (error) {
-        // Collection might not exist or have different field names, continue
-        console.log(`ℹ️ [Delete User Data] Skipping ${collectionName} (may not exist)`);
-      }
+        if (collection === 'plaid_connections' && (data.status !== 'disconnected' || data.encryptedAccessToken)) {
+          throw new AccountDeletionError('Bank cleanup is incomplete. Your account has not been deleted. Please retry.', 'BANK_REVOCATION_FAILED', true);
+        }
+      });
     }
-
-    // Step 5: Delete user from Firebase Auth
-    try {
-      await adminAuth.deleteUser(uid);
-      console.log(`✅ [Delete User Data] Deleted user from Firebase Auth`);
-    } catch (authError: any) {
-      // User might already be deleted
-      if (authError.code === 'auth/user-not-found') {
-        console.log(`ℹ️ [Delete User Data] User already deleted from Auth`);
-      } else {
-        throw authError;
-      }
+    for (const collection of ['learning_patterns', 'filing_security_metadata', 'tax_filing_connections']) {
+      await adminDb.doc(`${collection}/${uid}`).delete();
     }
+    // Includes nested accounts/transactions, mileage, settings, assets, and payments.
+    await adminDb.recursiveDelete(profileRef);
 
-    // Note: Storage files would need to be deleted separately if you store receipts
-    // This would require Firebase Storage Admin SDK
-
-    console.log(`✅ [Delete User Data] Successfully deleted all data for user ${uid}`);
+    try { await adminAuth.deleteUser(uid); }
+    catch (error) {
+      if ((error as { code?: string }).code !== 'auth/user-not-found') throw error;
+    }
     return {};
   } catch (error) {
-    console.error(`❌ [Delete User Data] Error deleting user data:`, error);
-    return { error };
+    return { error: error instanceof AccountDeletionError ? error : new AccountDeletionError(
+      'Account cleanup could not finish. Please retry or contact support.', 'ACCOUNT_CLEANUP_FAILED', true) };
   }
 }

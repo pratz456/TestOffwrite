@@ -2,12 +2,35 @@
 
 import { initializeApp, getApps, getApp } from "firebase/app";
 import {
-  getAuth, initializeAuth, indexedDBLocalPersistence,
-  browserLocalPersistence, browserSessionPersistence,
+  getAuth,
+  initializeAuth,
+  indexedDBLocalPersistence,
+  browserLocalPersistence,
+  browserSessionPersistence,
+  connectAuthEmulator,
 } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { getFirestore, connectFirestoreEmulator } from "firebase/firestore";
+import { resolveLocalEmulatorConfig, LOCAL_FIREBASE_OPTIONS, assertLocalEmulatorApp, connectLocalEmulatorOnce } from './local-emulator-config';
 
-const firebaseConfig = {
+// Keep literal NEXT_PUBLIC reads so Next can inline these values in browser code.
+export const localEmulatorConfig = resolveLocalEmulatorConfig({
+  enabled: process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATORS, nodeEnv: process.env.NODE_ENV,
+  appEnv: process.env.NEXT_PUBLIC_APP_ENV, projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY, appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN, storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+}, typeof window === 'undefined' ? null : window.location.hostname);
+
+// A staging build must never silently connect to production data.
+if (process.env.NEXT_PUBLIC_APP_ENV === 'staging' && (
+  process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID !== 'writeoff-production-testing' ||
+  process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN !== 'writeoff-production-testing.firebaseapp.com' ||
+  !process.env.NEXT_PUBLIC_FIREBASE_API_KEY || !process.env.NEXT_PUBLIC_FIREBASE_APP_ID ||
+  process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET !== 'writeoff-production-testing.firebasestorage.app'
+)) {
+  throw new Error('Staging Firebase configuration is incomplete or points outside the testing project.');
+}
+
+const firebaseConfig = localEmulatorConfig ? LOCAL_FIREBASE_OPTIONS : {
   apiKey:            process.env.NEXT_PUBLIC_FIREBASE_API_KEY            || "AIzaSyCVvpY-M571W0I3Faz-i8mAyofLobqm5ZE",
   authDomain:        process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN        || "writeoff-23910.firebaseapp.com",
   projectId:         process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID         || "writeoff-23910",
@@ -18,17 +41,28 @@ const firebaseConfig = {
 };
 
 export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+assertLocalEmulatorApp(app.options, localEmulatorConfig);
 export const firebaseApp = app;
-// Keep email/password initialization independent of the cross-origin OAuth helper.
-// OAuth calls supply browserPopupRedirectResolver explicitly when needed.
+// Load the Google popup/redirect helper only for an OAuth operation. Preloading
+// it can delay all auth initialization when an embedded browser blocks it.
+// Keep Firebase's default persistence order so existing sessions still restore.
 export const auth = (() => {
+  let instance;
   try {
-    return initializeAuth(app, {
+    instance = initializeAuth(app, {
       persistence: [indexedDBLocalPersistence, browserLocalPersistence, browserSessionPersistence],
     });
   } catch (error) {
-    if ((error as { code?: string }).code === 'auth/already-initialized') return getAuth(app);
-    throw error;
+    // Fast Refresh or another entry point may already have initialized Auth.
+    if ((error as { code?: string }).code === 'auth/already-initialized') instance = getAuth(app);
+    else throw error;
   }
+  // Firebase requires this synchronously after initializeAuth, before any operations.
+  if (localEmulatorConfig) connectLocalEmulatorOnce(instance, 'auth', localEmulatorConfig, () => connectAuthEmulator(instance, localEmulatorConfig.authOrigin, { disableWarnings: true }));
+  return instance;
 })();
-export const db = getFirestore(app);
+export const db = (() => {
+  const instance = getFirestore(app);
+  if (localEmulatorConfig) connectLocalEmulatorOnce(instance, 'firestore', localEmulatorConfig, () => connectFirestoreEmulator(instance, localEmulatorConfig.host, localEmulatorConfig.firestorePort));
+  return instance;
+})();

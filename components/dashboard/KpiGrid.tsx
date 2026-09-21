@@ -1,110 +1,77 @@
 'use client';
 
 import React from 'react';
-import { KpiCard } from './KpiCard';
-import {
-  DollarSign,
-  TrendingUp,
-  Receipt,
-  AlertTriangle,
-  Info,
-  CalendarClock,
-} from 'lucide-react';
+import { ArrowUpRight, ChevronDown, Info } from 'lucide-react';
+import { TaxCalculationNotice } from '@/components/tax-calculation-notice';
+import { reviewTargetForCode, type DashboardTaxState } from '@/lib/tax/dashboard-snapshot';
 
 interface KpiGridProps {
-  scheduleCProfit: number;
-  grossIncome: number;
-  totalExpenses: number;
-  totalDeductions: number;
-  deductibleCount: number;
-  estimatedTaxRate: number;
-  quarterlyTaxes: number;
+  state: DashboardTaxState;
+  taxYear: number;
+  onRetry: () => void;
+  onReview: (screen: string) => void;
 }
 
-function formatUSD(n: number): string {
-  const abs = Math.abs(n);
-  const formatted = abs.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-  return n < 0 ? `-$${formatted}` : `$${formatted}`;
-}
+const formatUSD = (value: number) => value.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-/** SE tax effective rate: 15.3% on 92.35% of net earnings */
-const SE_TAX_EFFECTIVE_RATE = 15.3 * 0.9235; // ~14.13%
-
-/**
- * Determine if the user is behind on quarterly estimated tax payments.
- * Q1: Jan-Mar (due Apr 15), Q2: Apr-May (due Jun 15),
- * Q3: Jun-Aug (due Sep 15), Q4: Sep-Dec (due Jan 15 next year).
- */
-function getQuarterlyTaxInfo(): { currentQuarter: number; dueDate: string; isBehind: boolean } {
-  const now = new Date();
-  const month = now.getMonth(); // 0-indexed
-
-  // Determine which quarter we're in and when payment is due
-  if (month <= 2) {
-    return { currentQuarter: 1, dueDate: 'Apr 15', isBehind: false };
-  } else if (month <= 4) {
-    return { currentQuarter: 2, dueDate: 'Jun 15', isBehind: month >= 3 }; // Behind if past Q1 due date
-  } else if (month <= 7) {
-    return { currentQuarter: 3, dueDate: 'Sep 15', isBehind: month >= 5 };
-  } else {
-    return { currentQuarter: 4, dueDate: 'Jan 15', isBehind: month >= 8 };
+export function KpiGrid({ state, taxYear, onRetry, onReview }: KpiGridProps) {
+  if (state.status === 'loading') {
+    return <div role="status" aria-live="polite" className="rounded-xl border p-4 text-sm">Loading your {taxYear} federal estimate…</div>;
   }
-}
-
-export function KpiGrid({
-  scheduleCProfit,
-  grossIncome,
-  totalExpenses,
-  totalDeductions,
-  deductibleCount,
-  estimatedTaxRate,
-  quarterlyTaxes,
-}: KpiGridProps) {
-  const combinedTaxRate = SE_TAX_EFFECTIVE_RATE + estimatedTaxRate;
-  const seRateDisplay = SE_TAX_EFFECTIVE_RATE.toFixed(1);
-  const incomeRateDisplay = estimatedTaxRate.toFixed(1);
-  const { currentQuarter, dueDate, isBehind } = getQuarterlyTaxInfo();
-
-  return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
-      <KpiCard
-        title="Schedule C Profit"
-        value={formatUSD(scheduleCProfit)}
-        subtitle={`${formatUSD(grossIncome)} gross - ${formatUSD(totalExpenses)} expenses`}
-        accent="blue"
-        icon={
-          <div className="relative">
-            <DollarSign className="h-5 w-5" />
+  if (state.status !== 'ready') {
+    const target = reviewTargetForCode(state.code);
+    return <div role="alert" className="rounded-xl border p-4 text-sm">
+      <h2 className="font-medium">{taxYear} federal estimate {state.status === 'review' ? 'needs review' : 'unavailable'}</h2>
+      <p className="mt-1">{state.message}</p>
+      <div className="mt-2 flex flex-wrap gap-x-4">
+        {state.status === 'review' && <button className="min-h-[44px] underline underline-offset-4" onClick={() => onReview(target.screen)}>{target.label}</button>}
+        <button className="min-h-[44px] underline underline-offset-4" onClick={onRetry}>Retry estimate</button>
+      </div>
+    </div>;
+  }
+  const { income, form1040 } = state.snapshot;
+  const warningCount = new Set(form1040.calculationWarnings.filter(note => note.trim())).size;
+  return <section className="overflow-hidden rounded-2xl border border-border/70 bg-card" aria-label={`${taxYear} preliminary federal estimate`}>
+    <div className="px-4 pt-1 pb-3">
+      <div className="flex min-h-11 items-center justify-between gap-3">
+        <h2 className="text-xs font-medium text-muted-foreground">{taxYear} · Federal taxes</h2>
+        <button className="inline-flex min-h-11 shrink-0 items-center gap-1 text-xs font-medium text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md" onClick={() => onReview('tax-preview')}>
+          Tax details <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
+        </button>
+      </div>
+      <dl>
+        <div>
+          <dt className="text-sm text-muted-foreground">{form1040.refund > 0 ? 'Estimated federal refund' : 'Estimated federal balance'}</dt>
+          <dd className="mt-0.5 break-words text-3xl font-semibold tracking-tight tabular-nums">{formatUSD(form1040.refund > 0 ? form1040.refund : form1040.balanceDue)}</dd>
+          <p className="mt-1 text-xs text-muted-foreground">After recorded payments and withholding</p>
+        </div>
+      </dl>
+      <dl className="mt-3 grid grid-cols-2 gap-3 border-t border-border/60 pt-3">
+          <div className="min-w-0">
+            <dt className="text-xs text-muted-foreground">Schedule C profit</dt>
+            <dd className="mt-0.5 break-words text-base font-semibold tabular-nums">{formatUSD(income.scheduleCNetProfit)}</dd>
           </div>
-        }
-      />
-      <KpiCard
-        title="Total Deductions"
-        value={formatUSD(totalDeductions)}
-        subtitle={`${deductibleCount} deductible`}
-        accent="emerald"
-        icon={<TrendingUp className="h-5 w-5" />}
-      />
-      <KpiCard
-        title="Combined Tax Rate"
-        value={combinedTaxRate > 0 ? `${combinedTaxRate.toFixed(1)}%` : '--'}
-        subtitle={combinedTaxRate > 0 ? `${seRateDisplay}% SE + ${incomeRateDisplay}% income tax` : 'Connect data to estimate'}
-        accent="amber"
-        icon={<Receipt className="h-5 w-5" />}
-      />
-      <KpiCard
-        title="Quarterly Taxes"
-        value={formatUSD(quarterlyTaxes)}
-        subtitle={`Q${currentQuarter} due ${dueDate} - ${formatUSD(quarterlyTaxes)}/qtr`}
-        accent="amber"
-        icon={
-          isBehind ? (
-            <AlertTriangle className="h-5 w-5" />
-          ) : (
-            <CalendarClock className="h-5 w-5" />
-          )
-        }
-      />
+          <div className="min-w-0">
+            <dt className="text-xs text-muted-foreground">Confirmed expenses</dt>
+            <dd className="mt-0.5 break-words text-base font-semibold tabular-nums">{formatUSD(income.totalDeductible)}</dd>
+          </div>
+      </dl>
     </div>
-  );
+    <details className="group border-t border-border/60">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-4 py-2 text-xs text-muted-foreground [&::-webkit-details-marker]:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+        <Info className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        <span className="flex-1 leading-snug"><span className="font-medium text-foreground">Preliminary.</span>{' '}{warningCount > 0 ? `Review ${warningCount} calculation ${warningCount === 1 ? 'limit' : 'limits'}` : 'Review assumptions'} before filing.</span>
+        <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
+      </summary>
+      <div className="space-y-3 border-t border-border/60 px-4 py-3">
+        <dl className="space-y-3 text-xs">
+          <div className="flex flex-wrap items-center justify-between gap-2"><dt className="font-medium">Annual federal tax estimate</dt><dd className="font-semibold tabular-nums">{formatUSD(form1040.totalTax)}</dd></div>
+          <div><dt className="font-medium">Schedule C profit</dt><dd className="mt-1 leading-relaxed">{formatUSD(income.grossReceipts)} receipts minus {formatUSD(income.totalDeductible)} confirmed expenses, before depreciation and any home office deduction.</dd></div>
+          <div><dt className="font-medium">Confirmed business expenses</dt><dd className="mt-1 leading-relaxed">Posted, confirmed deductions for {taxYear}, after category limits and refunds. Depreciation and the home office deduction are separate.</dd></div>
+        </dl>
+        <p className="text-xs leading-relaxed text-muted-foreground">Federal only, based on saved records. This balance is not a quarterly payment schedule. Review assumptions before filing or paying.</p>
+        <TaxCalculationNotice warnings={form1040.calculationWarnings} taxYear={taxYear} />
+      </div>
+    </details>
+  </section>;
 }

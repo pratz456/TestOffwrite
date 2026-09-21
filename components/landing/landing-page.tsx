@@ -1,29 +1,19 @@
 "use client";
 
-import { PageBackground } from "@/components/graphics/page-background";
-import { SubtlePattern } from "@/components/graphics/subtle-pattern";
 import { LandingHeader } from "./landing-header";
 import { HeroSection } from "./hero-section";
-import { ProblemSection } from "./problem-section";
-import { FeaturesSection } from "./features-section";
 import { ComparisonSection } from "./comparison-section";
 import { HowItWorksSection } from "./how-it-works-section";
-import { TestimonialsSection } from "./testimonials-section";
 import { LandingFooter } from "./landing-footer";
 
 export function LandingPage() {
   return (
-    <div className="light relative min-h-screen overflow-x-hidden bg-background text-foreground" style={{ colorScheme: "light" }}>
-      <PageBackground />
-      <SubtlePattern />
+    <div className="light min-h-screen bg-[#f5f5f7] text-slate-950" style={{ colorScheme: "light", fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
       <LandingHeader />
       <main>
         <HeroSection />
-        <ProblemSection />
-        <FeaturesSection />
-        <ComparisonSection />
         <HowItWorksSection />
-        <TestimonialsSection />
+        <ComparisonSection />
       </main>
       <LandingFooter />
     </div>

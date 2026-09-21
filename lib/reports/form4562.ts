@@ -1,349 +1,63 @@
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
-import { UserProfile } from '@/lib/firebase/profiles-server';
-import { Asset, calc4562 } from './calc4562';
-
+import type { UserProfile } from '@/lib/firebase/profiles-server';
+import { type Asset, type DepreciationElections, calc4562, DE_MINIMIS_SAFE_HARBOR_LIMIT } from './calc4562';
+import { createPlanningPDF, formatExportMoney as money } from './planning-pdf';
 export interface Form4562Data {
-  userProfile: UserProfile;
-  assetsSettings: Asset[];
-  transactions: any[];
-  taxYear: number;
+  userProfile: UserProfile; assetsSettings: Asset[]; transactions: unknown[]; taxYear: number;
+  /** §179(b)(3)(A) business taxable income supplied by the shared Schedule C ordering; omitted means none was established. */
+  businessIncome?: number;
+  elections?: DepreciationElections | null;
 }
-
+const TREATMENT_LABELS = { de_minimis_expense: 'De minimis safe harbor expense (not depreciated)', section_179: 'Section 179 election plus MACRS on the remaining basis', macrs: 'MACRS half-year' } as const;
 export async function generateForm4562PDF(data: Form4562Data): Promise<Uint8Array> {
-  const { userProfile, assetsSettings, taxYear } = data;
-  
-  // Calculate Form 4562 values
-  // For now, we'll use a default business income - this should come from Schedule C
-  const businessIncome = 100000; // Default business income - should be replaced with actual Schedule C data when available
-  const calculation = calc4562(assetsSettings, businessIncome);
-
-  // Create PDF document
-  const pdfDoc = await PDFDocument.create();
-  const page = pdfDoc.addPage([612, 792]); // Standard US Letter size
-  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-
-  const pageWidth = page.getWidth();
-  const pageHeight = page.getHeight();
-  const margin = 50;
-  let yPosition = pageHeight - margin;
-
-  // Header
-  page.drawText('Form 4562 - Depreciation and Amortization', {
-    x: margin,
-    y: yPosition,
-    size: 18,
-    font: boldFont,
-    color: rgb(0, 0, 0)
-  });
-  yPosition -= 30;
-
-  page.drawText(`Tax Year: ${taxYear}`, {
-    x: margin,
-    y: yPosition,
-    size: 12,
-    font: font,
-    color: rgb(0, 0, 0)
-  });
-  yPosition -= 20;
-
-  page.drawText(`Generated for: ${userProfile.name}`, {
-    x: margin,
-    y: yPosition,
-    size: 12,
-    font: font,
-    color: rgb(0, 0, 0)
-  });
-  yPosition -= 20;
-
-  page.drawText(`Generated: ${new Date().toLocaleDateString()}`, {
-    x: margin,
-    y: yPosition,
-    size: 10,
-    font: font,
-    color: rgb(0.5, 0.5, 0.5)
-  });
-  yPosition -= 40;
-
-  // Summary Section
-  page.drawText('Depreciation Summary', {
-    x: margin,
-    y: yPosition,
-    size: 14,
-    font: boldFont,
-    color: rgb(0, 0, 0)
-  });
-  yPosition -= 25;
-
-  const summaryItems = [
-    { label: 'Total Section 179 Deduction:', value: `$${calculation.totalSection179.toFixed(2)}` },
-    { label: 'Total Bonus Depreciation:', value: `$${calculation.totalBonusDepreciation.toFixed(2)}` },
-    { label: 'Total Regular Depreciation:', value: `$${calculation.totalRegularDepreciation.toFixed(2)}` },
-    { label: 'Total Depreciation:', value: `$${calculation.totalDepreciation.toFixed(2)}` },
-    { label: 'Total Carryover:', value: `$${calculation.totalCarryover.toFixed(2)}` },
-  ];
-
-  summaryItems.forEach(item => {
-    page.drawText(item.label, {
-      x: margin + 20,
-      y: yPosition,
-      size: 11,
-      font: font,
-      color: rgb(0, 0, 0)
-    });
-    
-    page.drawText(item.value, {
-      x: margin + 300,
-      y: yPosition,
-      size: 11,
-      font: boldFont,
-      color: rgb(0, 0, 0)
-    });
-    yPosition -= 18;
-  });
-
-  yPosition -= 30;
-
-  // Assets Detail
-  page.drawText('Asset Details', {
-    x: margin,
-    y: yPosition,
-    size: 14,
-    font: boldFont,
-    color: rgb(0, 0, 0)
-  });
-  yPosition -= 25;
-
-  // Table headers
-  const col1 = margin + 10;
-  const col2 = margin + 120;
-  const col3 = margin + 200;
-  const col4 = margin + 280;
-  const col5 = margin + 360;
-  const col6 = margin + 440;
-  const col7 = margin + 520;
-
-  const headers = [
-    { text: 'Description', x: col1 },
-    { text: 'Cost', x: col2 },
-    { text: 'Business %', x: col3 },
-    { text: 'Section 179', x: col4 },
-    { text: 'Bonus', x: col5 },
-    { text: 'Regular', x: col6 },
-    { text: 'Total', x: col7 },
-  ];
-
-  headers.forEach(header => {
-    page.drawText(header.text, {
-      x: header.x,
-      y: yPosition,
-      size: 9,
-      font: boldFont,
-      color: rgb(0, 0, 0)
-    });
-  });
-
-  yPosition -= 15;
-
-  // Draw line separator
-  page.drawLine({
-    start: { x: margin + 10, y: yPosition },
-    end: { x: pageWidth - margin, y: yPosition },
-    thickness: 1,
-    color: rgb(0, 0, 0)
-  });
-
-  yPosition -= 10;
-
-  // Asset rows
-  calculation.assets.forEach((assetCalc, index) => {
-    // Check if we need a new page
-    if (yPosition < margin + 100) {
-      const newPage = pdfDoc.addPage([612, 792]);
-      yPosition = newPage.getHeight() - margin - 50;
-      
-      // Redraw headers on new page
-      headers.forEach(header => {
-        newPage.drawText(header.text, {
-          x: header.x,
-          y: yPosition,
-          size: 9,
-          font: boldFont,
-          color: rgb(0, 0, 0)
-        });
-      });
-      yPosition -= 15;
-      
-      newPage.drawLine({
-        start: { x: margin + 10, y: yPosition },
-        end: { x: pageWidth - margin, y: yPosition },
-        thickness: 1,
-        color: rgb(0, 0, 0)
-      });
-      yPosition -= 10;
-    }
-
-    const asset = assetCalc.asset;
-    
-    // Truncate description if too long
-    const description = asset.description.length > 15 
-      ? asset.description.substring(0, 15) + '...' 
-      : asset.description;
-
-    page.drawText(description, {
-      x: col1,
-      y: yPosition,
-      size: 8,
-      font: font,
-      color: rgb(0, 0, 0)
-    });
-
-    page.drawText(`$${asset.cost.toFixed(0)}`, {
-      x: col2,
-      y: yPosition,
-      size: 8,
-      font: font,
-      color: rgb(0, 0, 0)
-    });
-
-    page.drawText(`${asset.businessUsePercent}%`, {
-      x: col3,
-      y: yPosition,
-      size: 8,
-      font: font,
-      color: rgb(0, 0, 0)
-    });
-
-    page.drawText(`$${assetCalc.section179Deduction.toFixed(0)}`, {
-      x: col4,
-      y: yPosition,
-      size: 8,
-      font: font,
-      color: rgb(0, 0, 0)
-    });
-
-    page.drawText(`$${assetCalc.bonusDepreciation.toFixed(0)}`, {
-      x: col5,
-      y: yPosition,
-      size: 8,
-      font: font,
-      color: rgb(0, 0, 0)
-    });
-
-    page.drawText(`$${assetCalc.regularDepreciation.toFixed(0)}`, {
-      x: col6,
-      y: yPosition,
-      size: 8,
-      font: font,
-      color: rgb(0, 0, 0)
-    });
-
-    page.drawText(`$${assetCalc.totalDepreciation.toFixed(0)}`, {
-      x: col7,
-      y: yPosition,
-      size: 8,
-      font: boldFont,
-      color: rgb(0, 0, 0)
-    });
-
-    yPosition -= 12;
-  });
-
-  yPosition -= 20;
-
-  // Draw line separator
-  page.drawLine({
-    start: { x: margin + 10, y: yPosition },
-    end: { x: pageWidth - margin, y: yPosition },
-    thickness: 1,
-    color: rgb(0, 0, 0)
-  });
-
-  yPosition -= 15;
-
-  // Totals row
-  page.drawText('TOTALS:', {
-    x: col1,
-    y: yPosition,
-    size: 9,
-    font: boldFont,
-    color: rgb(0, 0, 0)
-  });
-
-  page.drawText(`$${calculation.totalSection179.toFixed(0)}`, {
-    x: col4,
-    y: yPosition,
-    size: 9,
-    font: boldFont,
-    color: rgb(0, 0, 0)
-  });
-
-  page.drawText(`$${calculation.totalBonusDepreciation.toFixed(0)}`, {
-    x: col5,
-    y: yPosition,
-    size: 9,
-    font: boldFont,
-    color: rgb(0, 0, 0)
-  });
-
-  page.drawText(`$${calculation.totalRegularDepreciation.toFixed(0)}`, {
-    x: col6,
-    y: yPosition,
-    size: 9,
-    font: boldFont,
-    color: rgb(0, 0, 0)
-  });
-
-  page.drawText(`$${calculation.totalDepreciation.toFixed(0)}`, {
-    x: col7,
-    y: yPosition,
-    size: 9,
-    font: boldFont,
-    color: rgb(0, 0, 0)
-  });
-
-  yPosition -= 40;
-
-  // Important Notes
-  page.drawText('Important Notes:', {
-    x: margin,
-    y: yPosition,
-    size: 12,
-    font: boldFont,
-    color: rgb(0, 0, 0)
-  });
-  yPosition -= 20;
-
-  const notes = [
-    '• This is an unofficial rendering of Form 4562 calculations',
-    '• Values map 1:1 to IRS Form 4562 fields',
-    '• Consult a tax professional for proper filing',
-    '• Section 179 limit for 2024: $1,160,000',
-    '• Bonus depreciation rate for 2024: 60%',
-    '• Keep detailed records of all business assets',
-  ];
-
-  notes.forEach(note => {
-    page.drawText(note, {
-      x: margin + 20,
-      y: yPosition,
-      size: 9,
-      font: font,
-      color: rgb(0, 0, 0)
-    });
-    yPosition -= 12;
-  });
-
-  // Footer
-  yPosition = margin + 30;
-  page.drawText('Generated by WriteOff App - Unofficial tax form rendering', {
-    x: margin,
-    y: yPosition,
-    size: 8,
-    font: font,
-    color: rgb(0.5, 0.5, 0.5)
-  });
-
-  // Generate PDF bytes
-  return await pdfDoc.save();
+  const businessIncome = data.businessIncome ?? 0;
+  const c = calc4562(data.assetsSettings, businessIncome, data.taxYear, data.elections ?? null);
+  const pdf = await createPlanningPDF('Form 4562 - supported depreciation worksheet', data.taxYear);
+  pdf.paragraph('Preparer review only, not an IRS Form 4562 or complete depreciation schedule. Supported cases: first-year nonlisted 5/7-year property (MACRS half-year), Section 179 elections for 2025-2026 property with more than 50% business use, and de minimis safe harbor items in an elected year. Bonus depreciation, vehicles and listed property, prior-year basis, straight-line and mid-quarter cases require review.', true);
+  pdf.paragraph(`Name as saved: ${data.userProfile.name || 'Not provided'}. Assets calculated: ${c.assets.length}.`);
+  pdf.table(['Supported calculation', 'Amount'], [
+    ['De minimis safe harbor items expensed on Schedule C (not Form 4562)', money(c.totalDeMinimisExpense)],
+    ['Section 179 deduction allowed this year (Form 4562 line 12)', money(c.totalSection179)],
+    ['Regular MACRS depreciation', money(c.totalRegularDepreciation)],
+    ['Total supported depreciation (Form 4562 line 22 equivalent)', money(c.totalDepreciation)],
+    ['Section 179 carryover to next year (Form 4562 line 13)', money(c.totalCarryover)],
+  ], [398, 130]);
+  if (c.section179) {
+    pdf.section(`Section 179 limits applied for ${c.section179.electionYear}`);
+    pdf.table(['Limit', 'Amount'], [
+      [`Maximum §179 deduction (${c.section179.source})`, money(c.section179.limit)],
+      ['Phaseout threshold (§179(b)(2))', money(c.section179.phaseoutThreshold)],
+      ['Cost of §179 property placed in service this year', money(c.section179.costOfSection179Property)],
+      ['Dollar limit after phaseout', money(c.section179.dollarLimitAfterPhaseout)],
+      ['Business taxable income limit supplied (§179(b)(3)(A); Schedule C profit before §179 plus W-2 wages)', money(c.section179.businessIncomeLimit)],
+      ['Amount elected (reduces basis now, Reg. §1.179-1(f))', money(c.section179.elected)],
+      ['Amount allowed this year', money(c.section179.allowed)],
+      ['Carryover (§179(b)(3)(B))', money(c.section179.carryover)],
+    ], [398, 130]);
+  }
+  for (const note of c.notes) pdf.paragraph(note);
+  pdf.section('Complete asset detail');
+  for (const item of c.assets) {
+    const a = item.asset;
+    const rawDate = a.datePlacedInService as unknown;
+    const date = rawDate && typeof rawDate === 'object' && 'toDate' in rawDate && typeof rawDate.toDate === 'function' ? rawDate.toDate() as Date : new Date(rawDate as string | Date);
+    pdf.section(a.description);
+    pdf.table(['Recorded fact / calculation', 'Value'], [
+      ['Asset identifier', a.id], ['Placed in service', date.toISOString().slice(0, 10)], ['Cost', money(a.cost)],
+      ['Business-use percentage', `${a.businessUsePercent}%`], ['Business basis', money(a.cost * a.businessUsePercent / 100)],
+      ['Treatment', TREATMENT_LABELS[item.treatment]],
+      ...(item.treatment === 'de_minimis_expense'
+        ? [['Current-year expense (Reg. §1.263(a)-1(f); item cost at or under $' + DE_MINIMIS_SAFE_HARBOR_LIMIT.toLocaleString('en-US') + ')', money(item.deMinimisExpense)]]
+        : [
+          ['Method / convention', `${a.method}; half-year`],
+          ['Section 179 elected / allowed this year', `${money(item.section179Elected)} / ${money(item.section179Deduction)}`],
+          ['Current-year regular depreciation', money(item.regularDepreciation)],
+          ['Total current-year depreciation', money(item.totalDepreciation)],
+          ['Section 179 carryover', money(item.carryoverToNextYear)],
+          ['Remaining business basis', money(item.remainingBasis)],
+        ]),
+    ], [295, 233]);
+  }
+  pdf.paragraph('Review recovery class, acquisition/service dates, any required elections, business-use evidence, and prior depreciation with your preparer. This export does not claim that omitted elections or carryovers are zero. Retain the source documents; this worksheet cannot be filed instead of Form 4562.');
+  pdf.paragraph('Reference: irs.gov/publications/p946 (chapter 2 Section 179, Tables A-1/A-2), irs.gov/instructions/i4562 and Reg. §1.263(a)-1(f) (de minimis safe harbor election statement).');
+  return pdf.save();
 }
