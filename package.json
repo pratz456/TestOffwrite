@@ -78,6 +78,7 @@
     "gray-matter": "^4.0.3",
     "idb": "^8.0.3",
     "input-otp": "^1.4.2",
+    "js-yaml": "4.3.2",
     "lucide-react": "^0.511.0",
     "next": "^15.1.4",
     "next-themes": "^0.4.6",
@@ -127,6 +128,6 @@
   },
   "overrides": {
     "cookie": ">=0.7.0",
-    "js-yaml": ">=4.1.1"
+    "js-yaml": "$js-yaml"
   }
 }
