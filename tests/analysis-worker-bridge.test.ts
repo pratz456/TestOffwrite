@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { callAnalysisWorker, shouldProcessTask, shouldQueueBankWrite } from '../functions-analysis/src/bridge';
 
+import { hasAnalysisProfileChange } from '../functions-analysis/src/profile-fields';
+
 const posted = { amount: 40, pending: false, analysisStatus: 'pending' };
 describe('Firebase analysis event bridge', () => {
   it('queues created posted expenses and pending-to-posted changes, not workflow writes', () => {
@@ -76,5 +78,22 @@ describe('Firebase analysis event bridge', () => {
     const config = options(); config.eventTime = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     await callAnalysisWorker({ action: 'process' }, config);
     expect(config.fetcher).not.toHaveBeenCalled();
+  });
+});
+
+describe('profile refresh event selection', () => {
+  const before = { profession: 'Designer', income: '90000', business_vehicle: { model: 'Example', business_use_percentage: 50 } };
+  it('ignores cosmetic, billing and synchronization metadata', () => {
+    expect(hasAnalysisProfileChange(before, { ...before, name: 'New name', email: 'synthetic@example.com', updated_at: 'new', subscriptionPlan: 'premium', last_scheduled_sync: 'today' })).toBe(false);
+    expect(hasAnalysisProfileChange(before, undefined)).toBe(false);
+  });
+  it('detects changed, removed and newly supplied analysis facts', () => {
+    expect(hasAnalysisProfileChange(before, { ...before, profession: 'Photographer' })).toBe(true);
+    expect(hasAnalysisProfileChange(before, { profession: 'Designer' })).toBe(true);
+    expect(hasAnalysisProfileChange(undefined, before)).toBe(true);
+    expect(hasAnalysisProfileChange(before, { ...before, business_vehicle: { model: 'Example', business_use_percentage: 75 } })).toBe(true);
+  });
+  it('ignores object key order and absent versus null fields', () => {
+    expect(hasAnalysisProfileChange(before, { ...before, state: null, business_vehicle: { business_use_percentage: 50, model: 'Example' } })).toBe(false);
   });
 });

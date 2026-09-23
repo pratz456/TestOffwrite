@@ -27,6 +27,7 @@ vi.mock('@/lib/ai/analyzeTransaction', () => ({ analyzeTransactionWithRetry: moc
 import { adminDb } from '@/lib/firebase/admin';
 import { analysisTaskId, enqueueBankTransactionAnalysis, enqueueAccountAnalysis, processAnalysisTask, updateImportedTransactionForAnalysis } from '@/lib/ai/analysis-jobs';
 import { claimAnalysisLease, persistAnalysisSuggestion, releaseAnalysisLease, analysisSuggestionUpdate } from '@/lib/ai/analysis-persistence';
+import { analysisProfileHash } from '@/lib/ai/profile-context';
 
 const address = { userId: 'synthetic-user', accountId: 'bank-account', transactionId: 'posted-transaction' };
 const profilePath = `user_profiles/${address.userId}`;
@@ -36,6 +37,7 @@ const taskPath = `analysis_tasks/${analysisTaskId(address)}`;
 const jobPath = `analysis_jobs/${address.userId}_${address.accountId}`;
 const suggestion = { status: 'ok' as const, is_deductible: true, expense_type: 'business' as const, deductible_percent: 100, category: 'supplies_small_tools' as const, confidence: 0.9, customized_reason: 'A suggestion requiring confirmation', irs_refs: ['Synthetic reference'] };
 function generation() { return mocks.docs.get(taskPath)!.generation; }
+function currentProfileHash() { return analysisProfileHash(mocks.docs.get(profilePath)!, mocks.docs.get(path)!.date); }
 function change(p: string, values: Record<string, unknown>) { mocks.docs.set(p, { ...mocks.docs.get(p), ...values }); }
 async function run() { return processAnalysisTask(analysisTaskId(address), generation()); }
 beforeEach(() => {
@@ -47,7 +49,8 @@ beforeEach(() => {
     merchant_name: 'Synthetic office store', category: 'supplies', date: '2026-09-15',
     iso_currency_code: 'USD', pending: false, analysisStatus: 'pending', analyzed: false,
     is_deductible: null, expense_type: null, notes: 'Original context' });
-  mocks.context.mockReturnValue({ user_id: address.userId, profession: ['Designer'] });
+  mocks.context.mockImplementation(profile => ({ user_id: address.userId, profession: [profile.profession],
+    annual_gross_income_usd: profile.income, filing_state: profile.state }));
   mocks.missing.mockReturnValue([]);
   mocks.analyze.mockResolvedValue({ success: true, result: suggestion });
 });
@@ -140,7 +143,7 @@ describe('durable bank transaction analysis', () => {
     expect(await run()).toMatchObject({ retry: true });
     expect(mocks.docs.get(taskPath)?.attempts).toBe(0);
     if (claim.status !== 'claimed') throw new Error('Expected claim');
-    await persistAnalysisSuggestion(adminDb.doc(path), suggestion, claim.lease);
+    await persistAnalysisSuggestion(adminDb.doc(path), suggestion, claim.lease, currentProfileHash());
     expect(await run()).toMatchObject({ status: 'finished', retry: false });
     expect(mocks.analyze).not.toHaveBeenCalled();
     expect(mocks.docs.get(jobPath)).toMatchObject({ succeeded: 1, failed: 0, status: 'done' });
@@ -283,5 +286,128 @@ describe('durable bank transaction analysis', () => {
     expect(mocks.analyze).toHaveBeenCalledTimes(2);
     expect(mocks.docs.get(path)).toMatchObject({ analyzed: true, analysisStatus: 'completed', review_status: 'confirmed',
       is_deductible: true, user_classification_reason: 'Confirmed supplies', receipt_url: '/receipt' });
+  });
+});
+
+describe('profile-aware analysis refresh', () => {
+  const refresh = () => enqueueBankTransactionAnalysis(address, false, { refreshProfile: true });
+
+  it('refreshes completed suggestions using the current profile and preserves every recorded decision', async () => {
+    await enqueueBankTransactionAnalysis(address); await run();
+    const oldGeneration = generation();
+    const oldSuggestion = mocks.docs.get(path)!.ai_suggestion;
+    const decision = { category: 'OFFICE_EXPENSE', is_deductible: true, expense_type: 'business',
+      review_status: 'confirmed', review_source: 'user', review_action: 'confirm', reviewed_at: 123,
+      reviewed_suggestion_id: oldSuggestion.id, business_use_percentage: 100, deductible_reason: 'My reason',
+      user_classification_reason: 'Confirmed by me', receipt_url: '/receipt' };
+    change(path, decision);
+    change(profilePath, { profession: 'Architect', income: 85_000 });
+    expect(await refresh()).toMatchObject({ status: 'queued', enqueued: true });
+    expect(generation()).not.toBe(oldGeneration);
+    expect(mocks.docs.get(taskPath)?.profileHash).toBe(currentProfileHash());
+    expect(mocks.docs.get(path)).toMatchObject({ ...decision, ai_suggestion: null, ai_explanation: null, ai: null,
+      confidence: null, reasoning: null, analyzed: false, analysisStatus: 'pending', analysisRefreshReason: 'profile_changed' });
+    await run();
+    expect(mocks.analyze.mock.calls.at(-1)?.[1]).toMatchObject({ profession: ['Architect'], annual_gross_income_usd: 85_000 });
+    expect(mocks.docs.get(path)).toMatchObject({ ...decision, analyzed: true, analysisRefreshReason: null,
+      ai_suggestion: { profileHash: currentProfileHash() } });
+  });
+
+  it('does not reanalyze a cosmetic profile edit or duplicate same-profile refresh', async () => {
+    await enqueueBankTransactionAnalysis(address); await run();
+    const originalGeneration = generation();
+    const originalSuggestion = mocks.docs.get(path)!.ai_suggestion.id;
+    change(profilePath, { name: 'New display name', photoURL: '/avatar', updated_at: new Date(), subscriptionStatus: 'active' });
+    expect(await refresh()).toMatchObject({ status: 'completed' });
+    expect(generation()).toBe(originalGeneration);
+    expect(mocks.docs.get(path)!.ai_suggestion.id).toBe(originalSuggestion);
+    expect(mocks.analyze).toHaveBeenCalledTimes(1);
+
+    change(profilePath, { state: 'NY' });
+    const requests = await Promise.all(Array.from({ length: 8 }, refresh));
+    expect(requests.filter(result => 'enqueued' in result && result.enqueued)).toHaveLength(1);
+    expect(mocks.docs.get(jobPath)).toMatchObject({ total: 1, processed: 0 });
+    const freshGeneration = generation();
+    await refresh();
+    expect(generation()).toBe(freshGeneration);
+  });
+
+  it.each([undefined, ''])('replaces a legacy completed suggestion without a profile fingerprint (%s)', async profileHash => {
+    await enqueueBankTransactionAnalysis(address); await run();
+    const previousGeneration = generation();
+    change(path, { ai_suggestion: { ...mocks.docs.get(path)!.ai_suggestion, profileHash } });
+    expect(await refresh()).toMatchObject({ status: 'queued', enqueued: true });
+    expect(generation()).not.toBe(previousGeneration);
+    await run();
+    expect(mocks.docs.get(path)!.ai_suggestion.profileHash).toBe(currentProfileHash());
+  });
+
+  it('coalesces active work for the latest profile and prevents superseded model completions from publishing', async () => {
+    await enqueueBankTransactionAnalysis(address);
+    let complete!: (value: any) => void;
+    let started!: () => void;
+    const began = new Promise<void>(resolve => { started = resolve; });
+    mocks.analyze.mockImplementationOnce(() => { started(); return new Promise(resolve => { complete = resolve; }); });
+    const oldGeneration = generation();
+    const running = run(); await began;
+    change(profilePath, { profession: 'Attorney' });
+    expect(await refresh()).toMatchObject({ status: 'queued', enqueued: true });
+    const replacementGeneration = generation();
+    expect(replacementGeneration).not.toBe(oldGeneration);
+    expect(await refresh()).toMatchObject({ status: 'queued', enqueued: false });
+    expect(generation()).toBe(replacementGeneration);
+    expect(mocks.docs.get(jobPath)).toMatchObject({ total: 1, processed: 0 });
+    complete({ success: true, result: suggestion });
+    expect(await running).toMatchObject({ status: 'obsolete', retry: false });
+    expect(mocks.docs.get(path)?.ai_suggestion).toBeUndefined();
+    expect(await run()).toMatchObject({ status: 'completed' });
+    expect(mocks.docs.get(path)!.ai_suggestion.profileHash).toBe(currentProfileHash());
+    expect(mocks.docs.get(jobPath)).toMatchObject({ total: 1, processed: 1, succeeded: 1, failed: 0 });
+  });
+
+  it.each(['change', 'delete'])('rejects a profile %s during a provider request before the fanout catches up', async mutation => {
+    await enqueueBankTransactionAnalysis(address);
+    mocks.analyze.mockImplementationOnce(async () => {
+      if (mutation === 'delete') mocks.docs.delete(profilePath);
+      else change(profilePath, { income: 150_000 });
+      return { success: true, result: suggestion };
+    });
+    expect(await run()).toMatchObject({ status: 'failed', retry: false, code: 'AI_INPUT_CHANGED' });
+    expect(mocks.docs.get(path)?.ai_suggestion).toBeUndefined();
+    expect(mocks.docs.get(path)).toMatchObject({ analysisStatus: 'failed', analysisLeaseToken: null });
+  });
+
+  it('does not skip a stale structured result that arrives before a queued worker starts', async () => {
+    await enqueueBankTransactionAnalysis(address); await run();
+    const oldResult = mocks.docs.get(path)!;
+    change(profilePath, { income: 40_000 });
+    await refresh();
+    change(path, { ai_suggestion: oldResult.ai_suggestion, analyzed: true, analysisStatus: 'completed', analysis_status: 'completed' });
+    expect(await run()).toMatchObject({ status: 'completed' });
+    expect(mocks.analyze).toHaveBeenCalledTimes(2);
+    expect(mocks.docs.get(path)!.ai_suggestion.profileHash).toBe(currentProfileHash());
+  });
+
+  it('rejects stale manual results after relevant profile edits but allows cosmetic changes', async () => {
+    const first = await claimAnalysisLease(adminDb.doc(path));
+    if (first.status !== 'claimed') throw new Error('Expected claim');
+    const oldHash = currentProfileHash();
+    change(profilePath, { income: 70_000 });
+    expect(await persistAnalysisSuggestion(adminDb.doc(path), suggestion, first.lease, oldHash)).toEqual({ status: 'stale' });
+    expect(mocks.docs.get(path)?.ai_suggestion).toBeUndefined();
+    await releaseAnalysisLease(adminDb.doc(path), first.lease);
+    const second = await claimAnalysisLease(adminDb.doc(path));
+    if (second.status !== 'claimed') throw new Error('Expected claim');
+    const hash = currentProfileHash();
+    change(profilePath, { name: 'Display name', updatedAt: new Date() });
+    expect(await persistAnalysisSuggestion(adminDb.doc(path), suggestion, second.lease, hash)).toMatchObject({ status: 'saved' });
+    expect(mocks.docs.get(path)!.ai_suggestion.profileHash).toBe(hash);
+  });
+
+  it('will not save an unverifiable manual result without the analyzed profile fingerprint', async () => {
+    const claim = await claimAnalysisLease(adminDb.doc(path));
+    if (claim.status !== 'claimed') throw new Error('Expected claim');
+    expect(await persistAnalysisSuggestion(adminDb.doc(path), suggestion, claim.lease)).toEqual({ status: 'stale' });
+    expect(mocks.docs.get(path)?.ai_suggestion).toBeUndefined();
   });
 });

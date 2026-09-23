@@ -111,7 +111,7 @@ async function waitForAnalysisFunctions() {
       const response = await fetch('http://127.0.0.1:5001/backends', { signal: AbortSignal.timeout(1000) });
       const data = await response.json();
       const names = data.backends?.flatMap(backend => backend.functionTriggers?.map(trigger => trigger.entryPoint) || []) || [];
-      if (['queueBankTransactionAnalysis', 'processBankTransactionAnalysis'].every(name => names.includes(name))) return;
+      if (['queueBankTransactionAnalysis', 'processBankTransactionAnalysis', 'queueProfileAnalysisRefresh', 'processProfileAnalysisRefresh'].every(name => names.includes(name))) return;
     } catch { /* Startup only. */ }
     await new Promise(resolve => setTimeout(resolve, 1000));
   }

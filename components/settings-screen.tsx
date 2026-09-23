@@ -16,6 +16,7 @@ import {
   MapPin
 } from '@/lib/icons';
 import { getUserProfile, upsertUserProfile } from '@/lib/firebase/profiles';
+import { hasAnalysisProfileChange } from '@/functions-analysis/src/profile-fields';
 import { useSubscription } from '@/lib/hooks/use-subscription';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { APP_NAVIGATION_EVENT } from '@/lib/navigation/navigation-guard';
@@ -736,6 +737,12 @@ const initialProfile = (user: SettingsScreenProps['user']) => ({
     prior_year_deductions: [] as string[]
   });
 
+function analysisSettingsProfile(profile: ReturnType<typeof initialProfile>) {
+  return { ...profile, business_entity_type: profile.businessEntityType,
+    profession: profile.profession.filter(value => value !== 'Other')
+      .concat(profile.profession.includes('Other') && profile.customProfession.trim() ? [profile.customProfession.trim()] : []).join(', ') };
+}
+
 export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   user,
   onBack,
@@ -749,6 +756,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState('');
+  const [profileAiRefresh, setProfileAiRefresh] = useState(false);
+  const savedProfileRef = useRef(profile);
   const settingsSearchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<SettingsTab>(() => settingsSearchParams.get('tab') === 'account' || settingsSearchParams.get('tab') === 'payment' ? 'account' : settingsSearchParams.get('tab') === 'tax' ? 'tax' : 'profile');
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -957,6 +966,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         return;
       }
 
+      const changedAnalysisFacts = hasAnalysisProfileChange(analysisSettingsProfile(savedProfileRef.current), analysisSettingsProfile(profile));
+      savedProfileRef.current = profile;
+      setProfileAiRefresh(changedAnalysisFacts);
+
       if (profileRevision.current === revision) {
         setSaveStatus('saved');
         dirtyRef.current = false;
@@ -1017,6 +1030,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       if (value === undefined && typeof previous === 'number') clearedNumericFields.current.add(key);
       else if (typeof value === 'number') clearedNumericFields.current.delete(key);
     }
+    setProfileAiRefresh(false);
     profileRef.current = { ...profileRef.current, ...changes };
     profileRevision.current += 1;
     setProfile(profileRef.current);
@@ -1063,6 +1077,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     saveInFlight.current = null;
     const initial = initialProfile({ id: user.id, email: user.email, user_metadata: { name: user.user_metadata?.name } });
     profileRef.current = initial;
+    savedProfileRef.current = initial;
+    setProfileAiRefresh(false);
     setProfile(initial);
     profileRevision.current += 1;
     dirtyRef.current = false;
@@ -1152,6 +1168,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           };
 
           profileRef.current = loadedProfile;
+          savedProfileRef.current = loadedProfile;
           profileRevision.current += 1;
           setProfile(loadedProfile);
           setHasUnsavedChanges(false);
@@ -1229,6 +1246,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       </div>
 
       <div className="max-w-3xl mx-auto px-4 py-4 sm:px-6 space-y-3">
+        {saveStatus === 'saved' && profileAiRefresh && <p role="status" className="text-xs text-muted-foreground">AI reviews will update using your new profile. Confirmed categories stay saved.</p>}
         {/* Tab Navigation */}
         <nav aria-label="Settings sections" className="flex gap-1 bg-muted rounded-xl p-1 border border-border">
           {([

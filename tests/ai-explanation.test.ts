@@ -286,6 +286,8 @@ describe('Schedule C placement and stored payloads', () => {
     expect(ok.ai_explanation.headline).toMatch(/^Likely deductible: Software and subscriptions — Adobe, \$54\.99$/);
     expect(reviewHydrationFields({ ai_explanation: ok.ai_explanation }).ai_explanation).toEqual(ok.ai_explanation);
     expect(reviewHydrationFields({}).ai_explanation).toBeNull();
+    expect(reviewHydrationFields({ analysisRefreshReason: 'profile_changed' }).analysisRefreshReason).toBe('profile_changed');
+    expect(reviewHydrationFields({ analysisRefreshReason: 'unknown' }).analysisRefreshReason).toBeNull();
   });
 
   it('keeps ai_explanation out of every client update allow-list in firestore.rules', () => {

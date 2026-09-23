@@ -44,6 +44,11 @@ service cloud.firestore {
       allow create, delete: if false;
     }
 
+    // Durable profile refresh coordination is server-only.
+    match /profile_analysis_refresh/{userId} {
+      allow read, write: if false;
+    }
+
     // ── Analysis Jobs ──────────────────────────────────────────────────────
     // For tracking analysis progress (new system).
     // Uses `get` for single-doc reads (may target a non-existent doc) and

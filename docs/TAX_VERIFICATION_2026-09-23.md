@@ -45,3 +45,7 @@ Evidence: [synthetic live scorecard](validation/tax-audit-live-2026-09-23.json),
 - Monthly Reports uses an average income-tax rate approximation, not the actual before/after change in a full return. The transaction explanation's basic tax-effect calculation is different and explicitly excludes QBI, credits and other personal deductions.
 - The tested key came from the existing server configuration. Production revision metadata was inspected, but an attempted deployed-source key comparison timed out and its temporary archive was removed. The newly audited code is not live.
 - Review and merge the stacked candidate, then follow the existing production preparation/migration/preflight process and deploy the coordinated app/rules/functions release. A production smoke test must follow the actual deployment. These local checks do not complete the release.
+
+## Follow-up: automatic profile refresh
+
+The follow-up now refreshes affected transaction suggestions after relevant profile changes, without altering confirmed classifications. The updated suite passes 5,536 tests, and a fresh real-provider/emulator run verifies the automatic flow. See [profile refresh implementation and evidence](PROFILE_ANALYSIS_REFRESH_2026-09-23.md).

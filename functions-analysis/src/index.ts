@@ -1,3 +1,4 @@
+import { hasAnalysisProfileChange } from './profile-fields';
 import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { defineInt, defineSecret, defineString } from 'firebase-functions/params';
 import { callAnalysisWorker, shouldProcessTask, shouldQueueBankWrite } from './bridge';
@@ -26,4 +27,16 @@ export const processBankTransactionAnalysis = onDocumentWritten({ ...options, do
   const after = event.data?.after.data();
   if (!shouldProcessTask(event.data?.before.data(), after)) return;
   await callAnalysisWorker({ action: 'process', taskId: event.params.taskId, generation: after!.generation }, settings(event.time));
+});
+
+// Tax/business facts only: names, emails, billing and sync metadata never trigger model work.
+export const queueProfileAnalysisRefresh = onDocumentWritten({ ...options, document: 'user_profiles/{userId}' }, async event => {
+  if (!hasAnalysisProfileChange(event.data?.before.data(), event.data?.after.data())) return;
+  await callAnalysisWorker({ action: 'enqueue-profile-refresh', userId: event.params.userId }, settings(event.time));
+});
+
+export const processProfileAnalysisRefresh = onDocumentWritten({ ...options, document: 'profile_analysis_refresh/{userId}' }, async event => {
+  const after = event.data?.after.data();
+  if (!shouldProcessTask(event.data?.before.data(), after)) return;
+  await callAnalysisWorker({ action: 'process-profile-refresh', userId: event.params.userId, generation: after!.generation }, settings(event.time));
 });

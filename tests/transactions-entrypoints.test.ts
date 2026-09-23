@@ -245,6 +245,49 @@ describe('transaction detail preserves manual work without guessed tax impact or
   const action = (page: Element, label: string) => walk(page).find(node => typeof node.props.onClick === 'function' && text(node).trim() === label)!;
   const analyzed = () => Response.json({ success: true, analysis: { deductionStatus: 'Possibly Deductible', reasoning: 'Review the saved business purpose.', confidence: 0.7, updatedAt: '2026-09-16T12:00:00Z' } });
 
+  it.each(['pending', 'running'] as const)('hides earlier AI amounts and confirmation while a profile refresh is %s', status => {
+    const stale = { headline: 'Old profile estimate', why: 'Earlier business facts', yourFacts: [], scheduleCLine: null,
+      estimatedTaxEffect: { low: 35, high: 35, basis: 'Old profile' }, strengthen: [], nextQuestion: null };
+    const view = detail({ analysisStatus: status, analysisJobId: 'profile-refresh-job', analysisRefreshReason: 'profile_changed',
+      ai_suggestion: categorySuggestion, ai_explanation: stale, is_deductible: true, review_status: 'confirmed' });
+    expect(text(view)).toContain('Updating AI review using your new profile. Confirmed categories stay saved.');
+    expect(text(view)).toContain('Deduction recorded');
+    expect(walk(view).some(node => node.type === ExplanationCard)).toBe(false);
+    expect(text(view)).not.toContain('Confirm or change category');
+    expect(harness.fetch).not.toHaveBeenCalled();
+  });
+
+  it('refreshes a pending background result through the saved-record API and stops polling on completion', async () => {
+    harness.runEffects = true;
+    const fresh = { headline: 'Updated review', why: 'Current profile facts', yourFacts: [], scheduleCLine: null,
+      estimatedTaxEffect: null, strengthen: [], nextQuestion: null };
+    const completed = { ...base, analysisStatus: 'completed' as const, analysisRefreshReason: null,
+      ai_suggestion: categorySuggestion, ai_explanation: fresh, business_purpose: 'Original purpose' };
+    harness.request.mockResolvedValue(Response.json({ transaction: completed }));
+    detail({ analysisStatus: 'pending', analysisJobId: 'profile-refresh-job', analysisRefreshReason: 'profile_changed' });
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(harness.request).toHaveBeenCalledExactlyOnceWith('/api/transactions/detail-id', expect.objectContaining({ cache: 'no-store' }));
+    expect(harness.save).toHaveBeenCalledWith(completed);
+    const view = detail(completed);
+    expect(walk(view).find(node => node.type === ExplanationCard)?.props).toMatchObject({ explanation: fresh });
+    expect(text(view)).not.toContain('Updating AI review');
+    await vi.advanceTimersByTimeAsync(15000);
+    expect(harness.request).toHaveBeenCalledOnce();
+    expect(harness.fetch).not.toHaveBeenCalled();
+  });
+
+  it('does not apply a late background result after leaving the transaction', async () => {
+    harness.runEffects = true;
+    let complete!: (response: Response) => void;
+    harness.request.mockReturnValueOnce(new Promise<Response>(resolve => { complete = resolve; }));
+    detail({ analysisStatus: 'running', analysisJobId: 'profile-refresh-job' });
+    await vi.advanceTimersByTimeAsync(5000);
+    detail({ id: 'next-record', trans_id: 'next-record', analysisStatus: 'completed' });
+    complete(Response.json({ transaction: { ...base, analysisStatus: 'completed' } }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(harness.save).not.toHaveBeenCalled();
+  });
+
   it('replaces the displayed explanation after saving purpose and rerunning AI, without confirming the deduction', async () => {
     const stale: NonNullable<DetailTransaction['ai_explanation']> = { headline: 'Confirm the business purpose', why: 'The bank record alone does not establish a business use.', yourFacts: [], scheduleCLine: null, estimatedTaxEffect: null, strengthen: ['Save the purpose'], nextQuestion: 'What was this for?' };
     const fresh = { ...stale, headline: 'Client design supplies', why: 'These supplies support the documented client design work.', yourFacts: ['Purpose: Client design supplies'], scheduleCLine: 'Schedule C line 22 (Supplies)', strengthen: ['Keep the itemized receipt'], nextQuestion: null };

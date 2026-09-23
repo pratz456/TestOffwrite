@@ -27,6 +27,7 @@ it('account deletion includes durable tasks using their actual owner field and n
       expect(mocks.deleteQuery).toHaveBeenCalledWith(expect.objectContaining({ name, field, operator: '==', value: 'synthetic-deleted-owner' }), 500, expect.any(Function));
     }
   }
+  expect(mocks.deleteQuery).toHaveBeenCalledWith(expect.objectContaining({ name: 'profile_analysis_refresh', field: 'userId', operator: '==', value: 'synthetic-deleted-owner' }), 500, expect.any(Function));
   expect(mocks.deleteQuery.mock.calls.filter(([query]) => query.name === 'analysis_tasks')).toHaveLength(1);
   expect(mocks.deleteQuery.mock.calls.every(([query]) => query.value === 'synthetic-deleted-owner' && query.operator === '==')).toBe(true);
   expect(mocks.deleteUser).toHaveBeenCalledWith('synthetic-deleted-owner');

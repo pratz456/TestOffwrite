@@ -19,6 +19,7 @@ vi.mock('@/lib/hooks/use-ai-availability', () => ({ useAiAvailability: () => ({ 
 vi.mock('sonner', () => ({ toast: { success: harness.toast } }));
 import { AiTaxAnalysisDialog, AiTaxExplanation } from '../components/ai-tax-explanation';
 import { AnalysisStatusNotice } from '../components/analysis-status-notice';
+import { ExplanationCard } from '../components/ai/explanation-card';
 import { ReviewTransactionsScreen } from '../components/review-transactions-screen';
 
 type Props = { children?: unknown; id?: string; disabled?: boolean; value?: unknown; 'aria-label'?: string; onClick?: () => unknown; onChange?: (event: { target: { value: string; checked?: boolean } }) => void; onTouchStart?: (event: unknown) => void; onTouchMove?: (event: unknown) => void; onTouchEnd?: () => void };
@@ -250,6 +251,24 @@ describe('AI category swipe review', () => {
     await action(page(), 'Run AI analysis').props.onClick!();
     expect(harness.request.mock.calls.map(call => call[0])).toEqual(['/api/ai/analyze-transaction', '/api/transactions/tx-1']);
     expect(text(page())).toContain(suggestion.reasoning); expect(text(page())).toContain('1 needs review'); expect(harness.toast).not.toHaveBeenCalled();
+  });
+
+  it.each(['pending', 'running'] as const)('replaces stale review guidance while profile analysis is %s, then displays the fresh snapshot', status => {
+    const staleExplanation = { headline: 'Earlier profile savings', why: 'Old profile reason', yourFacts: [], scheduleCLine: null,
+      estimatedTaxEffect: { low: 35, high: 35, basis: 'Old profile' }, strengthen: [], nextQuestion: null };
+    records = [base({ analysisStatus: status, analysisJobId: 'refresh-job', analysisRefreshReason: 'profile_changed', ai_explanation: staleExplanation })];
+    const pending = page();
+    expect(text(pending)).toContain('Updating AI review using your new profile. Confirmed categories stay saved.');
+    expect(text(pending)).not.toContain(suggestion.reasoning);
+    expect(walk(pending).some(node => node.type === ExplanationCard || node.type === AiTaxAnalysisDialog)).toBe(false);
+    expect(action(pending, 'Confirm category').props.disabled).toBe(true);
+    const fresh = { ...staleExplanation, headline: 'Updated profile explanation', estimatedTaxEffect: null };
+    records = [base({ ai_suggestion: { ...suggestion, id: 'updated-suggestion' }, ai_explanation: fresh, analysisRefreshReason: null })];
+    const completed = page();
+    expect(walk(completed).find(node => node.type === ExplanationCard)?.props).toMatchObject({ explanation: fresh });
+    expect(text(completed)).not.toContain('Updating AI review');
+    expect(action(completed, 'Confirm deduction').props.disabled).toBe(false);
+    expect(harness.request).not.toHaveBeenCalled();
   });
 
   it('shows a real queued job separately from no analysis and allows an explicit analysis request', () => {

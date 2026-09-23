@@ -132,6 +132,7 @@ export interface Transaction {
   // Analysis status
   analyzed?: boolean;
   analysisStatus?: 'pending' | 'running' | 'completed' | 'failed';
+  analysisRefreshReason?: 'profile_changed' | null;
 
   // New AI Analysis Fields (for re-run analysis)
   deductionStatus?: 'Likely Deductible' | 'Possibly Deductible' | 'Non-Deductible';

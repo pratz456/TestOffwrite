@@ -14,7 +14,7 @@ export class AccountDeletionError extends Error {
 
 const OWNED_COLLECTIONS: Record<string, string[]> = {
   categories: ['user_id'], rules: ['user_id'], budgets: ['user_id'], exports: ['user_id'], audit_logs: ['user_id'],
-  analysis_jobs: ['userId', 'user_id'], analysis_tasks: ['userId'], analysis_status: ['userId', 'user_id'],
+  profile_analysis_refresh: ['userId'], analysis_jobs: ['userId', 'user_id'], analysis_tasks: ['userId'], analysis_status: ['userId', 'user_id'],
   transactions: ['userId', 'user_id'], receipts: ['userId', 'user_id'], plaid_connections: ['uid'], processed_webhooks: ['user_id'],
   gross_receipts: ['userId', 'user_id'], income_1099: ['userId', 'user_id'], income_reconciliations: ['userId'], w2_income: ['userId', 'user_id'],
   tax_deductions: ['userId', 'user_id'], tax_organizers: ['userId', 'user_id'], user_corrections: ['userId'],

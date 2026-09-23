@@ -25,6 +25,7 @@ import type { Transaction as StoredTransaction } from '@/lib/firebase/transactio
 import { bulkOfferFor, canOfferPurposeConfirmation, confirmPurposeUpdates, firstOpenQuestion, proposedBusinessPurpose, rejectProposalUpdates,
   type AiExplanation, type BulkConfirmRequest } from '@/lib/transactions/review-proposals';
 import { auth } from '@/lib/firebase/client';
+import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import { useAiAvailability } from '@/lib/hooks/use-ai-availability';
 import { consolidateCategory } from '@/lib/utils';
 import { getTransactionId } from '@/lib/utils/transaction-id';
@@ -75,6 +76,7 @@ interface TransactionDetailScreenProps {
     analysis_status?: StoredTransaction['analysis_status'];
     analysisErrorCode?: StoredTransaction['analysisErrorCode'];
     analysisJobId?: StoredTransaction['analysisJobId'];
+    analysisRefreshReason?: 'profile_changed' | null;
     ai_suggestion?: AiReviewSuggestion | null;
     ai_missing_fields?: string[];
     ai_customized_reason?: string | null;
@@ -233,7 +235,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
   const currentUser = auth.currentUser;
   const userId = currentUser?.uid;
 
-  // AI runs only after an explicit click, independently of record saves.
+  // Manual analysis is explicit; persisted automatic results arrive through the parent subscription.
   const aiAvailability = useAiAvailability(userId);
   const isAnalyzingRef = useRef(false);
   const [analysisUnavailable, setAnalysisUnavailable] = useState(false);
@@ -262,6 +264,35 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
   const analysisBlocked = analysisUnavailable || aiAvailability.status !== 'configured';
   // What the durable pipeline last did with this record, explained when no suggestion exists.
   const pipeline = analysisRecordState(transaction);
+  const analysisRunning = transaction.analysisStatus === 'running' || transaction.analysis_status === 'running';
+  const analysisQueued = !!transaction.analysisJobId && (transaction.analysisStatus === 'pending' || transaction.analysis_status === 'pending');
+  const backgroundAnalysis = analysisRunning || analysisQueued;
+  const profileRefresh = backgroundAnalysis && transaction.analysisRefreshReason === 'profile_changed';
+  const refreshSavedTransaction = useRef(onSave); refreshSavedTransaction.current = onSave;
+
+  // The parent receives Firestore snapshots. A pending-only fallback also works when its
+  // subscription has fallen back to the REST API; viewing never starts a provider call.
+  useEffect(() => {
+    if (!userId || !backgroundAnalysis) return;
+    let canceled = false;
+    let pending = false;
+    const controller = new AbortController();
+    const timer = setInterval(async () => {
+      if (pending || typeof document !== 'undefined' && document.hidden) return;
+      pending = true;
+      try {
+        const response = await makeAuthenticatedRequest(`/api/transactions/${encodeURIComponent(getTransactionId(transaction))}`, { cache: 'no-store', signal: controller.signal });
+        const payload = await response.json().catch(() => null);
+        if (response.ok && payload?.transaction && !canceled && auth.currentUser?.uid === userId && activeAnalysisContext.current === analysisContext) {
+          refreshSavedTransaction.current(payload.transaction);
+        }
+      } catch { /* The persisted state and manual retry remain available. */ }
+      finally { pending = false; }
+    }, 5000);
+    return () => { canceled = true; controller.abort(); clearInterval(timer); };
+    // Only identity/status changes restart the fallback; current callbacks live in refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [analysisContext, userId, backgroundAnalysis]);
 
   // Use React Query mutation with optimistic updates for instant UI feedback
   const updateTransactionMutation = useUpdateTransaction();
@@ -400,7 +431,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
   useEffect(() => { setBulkOffer(null); }, [analysisContext]);
   const proposal = proposedBusinessPurpose(transaction);
   const openQuestion = firstOpenQuestion(transaction);
-  const offerPurpose = !isAnalyzing && canOfferPurposeConfirmation(transaction);
+  const offerPurpose = !isAnalyzing && !backgroundAnalysis && canOfferPurposeConfirmation(transaction);
   const handleProposalDecision = async (updates: Record<string, unknown>, title: string, detail: string) => {
     if (proposalSaving) return;
     if (!userId) { showError('Authentication Error', 'Please sign in to save changes'); return; }
@@ -809,8 +840,8 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
           <div className="space-y-3 p-4">
             <div className="flex items-center justify-between gap-2">
               <h3 className="flex items-center gap-2 text-sm font-semibold"><Bot className="h-4 w-4 text-primary" />AI review</h3>
-              <Button onClick={handleAnalyzeTransaction} disabled={isAnalyzing || analysisBlocked} variant="ghost" size="sm" className="h-11 shrink-0 px-2 text-primary">
-                {isAnalyzing ? 'Analyzing…' : aiAvailability.status === 'checking' ? 'Checking AI…' : analysisBlocked ? 'AI unavailable' : 'Run AI Analysis'}
+              <Button onClick={handleAnalyzeTransaction} disabled={isAnalyzing || analysisRunning || analysisBlocked} variant="ghost" size="sm" className="h-11 shrink-0 px-2 text-primary">
+                {isAnalyzing || analysisRunning ? 'Analyzing…' : aiAvailability.status === 'checking' ? 'Checking AI…' : analysisBlocked ? 'AI unavailable' : 'Run AI Analysis'}
               </Button>
             </div>
             {(aiAvailability.status !== 'configured' || analysisUnavailable) && !analysisError && <div className="rounded-lg bg-muted p-3 text-sm" role="status">
@@ -824,7 +855,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
             </div>}
             {(analysisUnavailable || aiAvailability.status === 'unavailable') && <Button variant="outline" size="sm" className="h-11" onClick={checkAiAvailability} disabled={isAnalyzing || aiAvailability.status === 'checking'}>Check AI availability</Button>}
 
-            {isAnalyzing ? <div className="space-y-3 py-2" role="status"><p className="text-sm text-muted-foreground">Analyzing transaction…</p><div className="h-4 animate-pulse rounded bg-muted" /><div className="h-4 w-3/4 animate-pulse rounded bg-muted" /></div>
+            {isAnalyzing || backgroundAnalysis ? <div className="space-y-3 py-2" role="status"><p className="text-sm text-muted-foreground">{profileRefresh ? 'Updating AI review using your new profile. Confirmed categories stay saved.' : analysisQueued ? 'Queued for automatic analysis. Results refresh here.' : 'Analyzing transaction…'}</p><div className="h-4 animate-pulse rounded bg-muted" /><div className="h-4 w-3/4 animate-pulse rounded bg-muted" /></div>
               : transaction.ai_explanation ? <div className="space-y-2"><ExplanationCard explanation={normalizeExplanation(transaction.ai_explanation)} compact onAnswer={() => changeDetailSection('details')} />{transaction.ai_suggestion && <AiTaxAnalysisDialog key={transaction.ai_suggestion.id} suggestion={transaction.ai_suggestion} />}</div>
               : transaction.ai_suggestion ? <AiTaxExplanation key={transaction.ai_suggestion.id} suggestion={transaction.ai_suggestion} compact onAddContext={() => changeDetailSection('details')} />
               : <div className="space-y-2 text-sm text-muted-foreground">
@@ -842,7 +873,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
               onReject={() => handleProposalDecision(rejectProposalUpdates(), 'Marked not business', 'No deduction is recorded for this transaction.')} />}
             {bulkOffer && <BulkConfirmOffer key={`${bulkOffer.merchantKey}:${bulkOffer.decision}`} offer={bulkOffer} disabled={isSaving || proposalSaving}
               onApplied={(outcome, offer) => showSuccess('Applied to similar charges', bulkOutcomeMessage(offer, outcome))} onDismiss={() => setBulkOffer(null)} />}
-            {transaction.ai_suggestion && <Button className="h-11 w-full" onClick={() => navigateFromTransaction(protectedScreenUrl(`review-transactions?transactionId=${encodeURIComponent(getTransactionId(transaction))}`))}>Confirm or change category<ArrowRight className="h-4 w-4" /></Button>}
+            {!backgroundAnalysis && transaction.ai_suggestion && <Button className="h-11 w-full" onClick={() => navigateFromTransaction(protectedScreenUrl(`review-transactions?transactionId=${encodeURIComponent(getTransactionId(transaction))}`))}>Confirm or change category<ArrowRight className="h-4 w-4" /></Button>}
           </div>
             </Card>
           <details className="group rounded-xl border border-border bg-card">

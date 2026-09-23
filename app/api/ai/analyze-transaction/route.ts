@@ -141,7 +141,7 @@ export async function POST(request: NextRequest) {
     const saved = await persistAnalysisSuggestion(ref, analysis.result, lease, analysisProfileHash(profile, date), context);
     if (saved.status !== 'saved') {
       releaseCode = 'AI_RECORD_CHANGED';
-      return NextResponse.json({ code: releaseCode, error: 'The transaction changed during analysis. Review the latest record and run analysis again.' }, { status: 409 });
+      return NextResponse.json({ code: releaseCode, error: 'Your transaction or business profile changed during analysis. Review the latest details and run analysis again.' }, { status: 409 });
     }
     lease = null;
     const fields = analysisSuggestionUpdate(analysis.result);
