@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { describeUnsupportedTaxYear, getFederalTaxRules, LATEST_PUBLISHED_TAX_YEAR, nearestPublishedTaxYear, SUPPORTED_TAX_YEARS, TAX_YEAR_2027_STATUS, UnsupportedTaxYearError } from '../lib/tax-rules/federal-year-rules';
-import { calculateEffectiveTaxRate, calculateFederalIncomeTax, getMarginalTaxRate, getUserTaxRate, getUserTaxRateDisplay } from '../lib/tax-rules/federal-brackets';
+import { calculateEffectiveTaxRate, calculateFederalIncomeTax, getMarginalTaxRate, getUserTaxRate, getUserTaxRateDisplay, TaxRateReviewRequiredError } from '../lib/tax-rules/federal-brackets';
 import { calcCombinedSERate } from '../lib/tax-rules/kpi-calculations';
 
 describe('published parameter registry versus primary sources (Rev. Proc. 2024-40 / 2025-32, SSA, P.L. 119-21)', () => {
@@ -40,16 +40,16 @@ describe('published parameter registry versus primary sources (Rev. Proc. 2024-4
     const profile = { income: 100000, filing_status: 'Single' };
     expect(calculateEffectiveTaxRate(profile, 2026)).not.toBe(calculateEffectiveTaxRate(profile, 2025));
     expect(calculateEffectiveTaxRate(profile)).toBe(calculateEffectiveTaxRate(profile, 2026));
-    expect(getMarginalTaxRate({ income: 60000, filing_status: 'Single' }, 2026)).toBe(22);
+    expect(getMarginalTaxRate({ income: 60000, filing_status: 'Single' }, 2026)).toBe(12);
     expect(calcCombinedSERate(60000, 'Single', 0, 2026).incomeTaxDollars).not.toBe(calcCombinedSERate(60000, 'Single', 0, 2025).incomeTaxDollars);
   });
 
-  it.each([2024, 2025, 2026])('preserves missing-income and zero-profit behavior for supported year %i', taxYear => {
+  it.each([2024, 2025, 2026])('distinguishes missing income from a valid zero for supported year %i', taxYear => {
     const profile = { income: 0, filing_status: 'Single' };
-    expect(calculateEffectiveTaxRate(profile, taxYear)).toBe(25);
-    expect(getMarginalTaxRate(profile, taxYear)).toBe(25);
-    expect(getUserTaxRate(undefined, taxYear)).toBe(0.25);
-    expect(getUserTaxRate(profile, taxYear)).toBe(0.25);
+    expect(calculateEffectiveTaxRate(profile, taxYear)).toBe(0);
+    expect(getMarginalTaxRate(profile, taxYear)).toBe(0);
+    expect(() => getUserTaxRate(undefined, taxYear)).toThrow(TaxRateReviewRequiredError);
+    expect(getUserTaxRate(profile, taxYear)).toBe(0);
     expect(calcCombinedSERate(0, 'Single', 0, taxYear).totalTaxDollars).toBe(0);
   });
 

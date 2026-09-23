@@ -1,3 +1,4 @@
+import { assertWageOwnershipScope } from '@/lib/tax-rules/calculation-scope';
 import { readTaxExportTransactions } from './tax-export-transactions';
 import { getUserProfileServer } from '@/lib/firebase/profiles-server';
 import { getScheduleCSettings } from '@/lib/firebase/settings-server';
@@ -59,6 +60,9 @@ export async function loadScheduleSEData(uid: string, taxYear: number) {
   const scheduleC = scheduleCProfitFromRecords(records);
   const netProfitBeforeDepreciation = scheduleC.profitBeforeAssets;
   const { depreciationDeduction, deMinimisExpense, homeOfficeDeduction, netProfit } = scheduleC;
+  assertWageOwnershipScope(filingStatus, netProfit, w2.wages, {
+    socialSecurityWages: w2.socialSecurityWages, medicareWages: w2.medicareWagesForSE,
+  });
   const calculation = calcScheduleSE({ scheduleCNetProfit: netProfit, taxYear }, filingStatus, w2.socialSecurityWages, w2.medicareWagesForSE);
   const ded = records.deductions;
   const amount = (value: unknown) => {

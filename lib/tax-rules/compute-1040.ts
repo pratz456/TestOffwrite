@@ -24,6 +24,8 @@ import { calculateStandardDeduction, calculateEnhancedSeniorDeduction } from './
 import { assertEITCDependencyScope, readNoChildEITCAge } from './credit-scope';
 import { calculateAllowedBusinessLoss, type BusinessLossResult } from './business-losses';
 import { calculateOBBBADeductions, type OBBBADeductionResult } from './obbba-deductions';
+import { QBIReviewRequiredError } from './qbi';
+import { assertWageOwnershipScope, TaxCalculationScopeReviewRequiredError } from './calculation-scope';
 
 export interface Form1040Input {
   taxYear: number;
@@ -34,6 +36,7 @@ export interface Form1040Input {
   // Income sources
   scheduleCNetProfit: number;       // From Schedule C Line 31
   w2Wages: number;                  // Total W-2 Box 1 wages
+  w2SocialSecurityWages?: number;   // Boxes 3 + 7; also requires spouse ownership even when Box 1 is zero
   w2MedicareWages?: number;         // Total W-2 Box 5; omitted legacy inputs use Box 1 as an approximation
   otherIncome?: number;             // Interest, dividends, capital gains, etc.
 
@@ -84,6 +87,14 @@ export interface Form1040Result {
   scheduleCAllowed: number;
   businessLoss?: BusinessLossResult;
   adjustments: number;             // Schedule 1 above-the-line deductions
+  /** Amounts actually used after modeled limits, for a breakdown that reconciles to adjustments. */
+  appliedAdjustments: {
+    halfSEDeduction: number;
+    healthInsuranceDeduction: number;
+    retirementContributions: number;
+    hsaDeduction: number;
+    studentLoanInterestDeduction: number;
+  };
   agi: number;                     // Line 11 (Adjusted Gross Income)
 
   // Deduction
@@ -248,6 +259,9 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
   // other income only with the organizer's at-risk, participation and profit-motive facts
   // (§465, §469, §183) and is capped by §461(l); it is never clamped silently.
   const scheduleCLine31 = scheduleCNetProfit - (input.deMinimisExpense || 0) - (input.depreciationDeduction || 0) - (input.homeOfficeDeduction || 0);
+  assertWageOwnershipScope(filingStatus, scheduleCLine31, w2Wages, {
+    socialSecurityWages: input.w2SocialSecurityWages, medicareWages: input.w2MedicareWages,
+  });
   const scheduleCAfterDepreciation = scheduleCLine31;
   const businessLoss = scheduleCLine31 < 0
     ? calculateAllowedBusinessLoss({ taxYear, filingStatus, netLoss: -scheduleCLine31, organizer: input.personalDeductionOrganizer })
@@ -323,13 +337,7 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
   const usingStandardDeduction = personalDeductions?.standard.standardDeductionAllowed !== false && standardDeduction >= itemizedDeductions;
   const deductionUsed = Math.max(standardDeduction, itemizedDeductions);
   if (personalDeductions?.standard.reason) calculationWarnings.push(personalDeductions.standard.reason);
-  // §68 (P.L. 119-21 §70111): from 2026, itemized deductions are reduced by 2/37 of the lesser of the
-  // deductions or taxable income (plus those deductions) above the 37% bracket start. The IRS worksheet
-  // is not published yet, so the reduction is flagged rather than computed.
   const topBracketStart = yearRules.brackets[filingStatus][yearRules.brackets[filingStatus].length - 1].min;
-  if (taxYear >= 2026 && !usingStandardDeduction && agi - enhancedSeniorDeduction > topBracketStart) {
-    calculationWarnings.push(`Taxable income before itemized deductions exceeds the 37% bracket start ($${topBracketStart.toLocaleString('en-US')}); section 68 reduces itemized deductions by 2/37 of the amount in that bracket for ${taxYear}. That reduction is not included in this estimate.`);
-  }
 
   // ── Step 4b: Schedule 1-A Parts II–IV and §170(p) (below AGI, before the Form 8995 cap) ──
   const obbbaDeductions = input.personalDeductionOrganizer === undefined ? undefined : calculateOBBBADeductions({
@@ -347,8 +355,6 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
   // ── Step 5: QBI Deduction (Section 199A / Form 8995) ──
   // Annual threshold is separate from the ordinary income-tax brackets.
   const qbiThreshold = yearRules.qbiThreshold[filingStatus];
-  const qbiPhaseOutRange = yearRules.qbiPhaseInWidth * (filingStatus === 'married_filing_jointly' ? 2 : 1);
-  const qbiPhaseOutEnd = qbiThreshold + qbiPhaseOutRange;
   let qbiDeduction = 0;
   if (adjustedScheduleC < 0) {
     // §199A(c)(2): a qualified business loss carries forward and reduces the next year's QBI (Form 8995 line 16).
@@ -366,30 +372,24 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
     const capGains = Math.max(0, input.longTermCapGains ?? 0);
     const qbiCap = Math.max(0, taxableIncomeBeforeQBI - capGains) * 0.20;
     const fullQBI = Math.min(qualifiedBusinessIncome * 0.20, qbiCap);
-    if (taxableIncomeBeforeQBI > qbiThreshold) {
-      calculationWarnings.push('QBI above the annual threshold requires business type, business W-2 wages and qualified-property data. The simplified phaseout is not a validated Form 8995-A result.');
+    if (qualifiedBusinessIncome > 0 && taxableIncomeBeforeQBI > qbiThreshold) {
+      throw new QBIReviewRequiredError(taxYear, qbiThreshold);
     }
     if (taxYear >= 2026 && qualifiedBusinessIncome >= 1000 && fullQBI < 400) {
-      calculationWarnings.push('The new active-business minimum QBI deduction requires material-participation facts and is not included.');
+      throw new TaxCalculationScopeReviewRequiredError('The 2026 $400 minimum QBI deduction may change this result, but eligibility requires at least $1,000 of aggregate QBI from materially participating active businesses');
     }
 
-    if (taxableIncomeBeforeQBI <= qbiThreshold) {
-      // Below threshold: full deduction
-      qbiDeduction = Math.max(0, fullQBI);
-    } else if (taxableIncomeBeforeQBI >= qbiPhaseOutEnd) {
-      // Above phase-out range: $0 for SSTBs (most freelancers)
-      // Non-SSTBs still get W-2 wage limited amount — for self-employed with no W-2 wages = $0
-      qbiDeduction = 0;
-    } else {
-      // In phase-out range: linear reduction
-      // IRS Form 8995-A Schedule A: deduction phases out proportionally
-      const phaseOutFraction = (taxableIncomeBeforeQBI - qbiThreshold) / qbiPhaseOutRange;
-      qbiDeduction = Math.max(0, fullQBI * (1 - phaseOutFraction));
-    }
+    qbiDeduction = Math.max(0, fullQBI);
   }
 
   // ── Step 6: Taxable Income (Line 15) ──
   const taxableIncome = Math.max(0, agi - belowAGIDeductions - qbiDeduction);
+  // §68 applies after other itemized limits and is ignored when determining QBI.
+  // Gate only when its statutory comparison would produce a positive reduction.
+  if (taxYear >= 2026 && !usingStandardDeduction && itemizedDeductions > 0
+    && taxableIncome + itemizedDeductions > topBracketStart) {
+    throw new TaxCalculationScopeReviewRequiredError(`The ${taxYear} section 68 reduction changes itemized deductions above the $${topBracketStart.toLocaleString('en-US')} top-bracket threshold`);
+  }
 
   // ── Step 7: Income Tax (Line 16) ──
   // Ordinary long-term gains stack above ordinary taxable income; do not estimate
@@ -478,7 +478,7 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
   const stateTax = input.stateCode?.trim()
     ? estimateStateTax({
       stateCode: input.stateCode, taxYear, filingStatus, federalAGI: agi,
-      scheduleCNetProfit: scheduleCNetProfit - (input.depreciationDeduction || 0), w2Wages, otherIncome,
+      scheduleCNetProfit: scheduleCLine31, w2Wages, otherIncome,
       hsaContribution, taxableSocialSecurityBenefits: input.taxableSocialSecurityBenefits, dependents: input.numDependents ?? 0,
     })
     : null;
@@ -493,6 +493,13 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
     scheduleCAllowed: round2(adjustedScheduleC),
     businessLoss,
     adjustments: round2(adjustments),
+    appliedAdjustments: {
+      halfSEDeduction: round2(halfSEDeduction),
+      healthInsuranceDeduction: round2(healthInsuranceDeduction),
+      retirementContributions: round2(retirementContributions),
+      hsaDeduction: round2(hsa.deduction),
+      studentLoanInterestDeduction: round2(studentLoanInterestDeduction),
+    },
     agi: round2(agi),
     standardDeduction,
     itemizedDeductions,

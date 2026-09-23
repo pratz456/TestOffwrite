@@ -22,23 +22,23 @@ describe('curated transaction tax grounding', () => {
   it('derives federal year, source URLs, policy version and model provenance on the server', () => {
     expect(analyze({ irs_refs: ['Fake source https://evil.invalid'] })).toMatchObject({
       status: 'ok', category: 'supplies_small_tools', deductible_percent: 100, tax_year: 2026,
-      jurisdiction: 'US-federal', policy_version: 'federal-transactions-2026-09-18.3',
+      jurisdiction: 'US-federal', policy_version: 'federal-transactions-2026-09-23.2',
       sources: [
         { id: 'business-162', title: '26 USC 162 — Trade or business expenses', url: expect.stringContaining('https://uscode.house.gov/'), reviewed_at: '2026-09-16' },
         // The category-specific rule is attached by the server so the user sees the applicable test.
-        { id: 'supplies-263a', title: expect.stringContaining('§1.263(a)-1(f)'), url: expect.stringContaining('https://www.ecfr.gov/'), reviewed_at: '2026-09-17' },
+        { id: 'supplies-263a', title: expect.stringContaining('§1.263(a)-1(f)'), url: expect.stringContaining('https://www.ecfr.gov/'), reviewed_at: '2026-09-23' },
       ],
       irs_refs: ['26 USC 162 — Trade or business expenses', 'Treas. Reg. §1.263(a)-1(f) — Supplies and the de minimis safe harbor'],
       provenance: { provider: 'openai', model: 'synthetic-model', kind: 'model_with_curated_tax_policy' },
     });
-    expect(TRANSACTION_TAX_POLICY_VERSION).toBe('federal-transactions-2026-09-18.3');
+    expect(TRANSACTION_TAX_POLICY_VERSION).toBe('federal-transactions-2026-09-23.2');
   });
   it('ships a reviewed packet of primary sources with a category-specific rule for every expense category', () => {
     expect(TRANSACTION_TAX_EVIDENCE.length).toBeGreaterThanOrEqual(22);
     expect(new Set(TRANSACTION_EVIDENCE_IDS).size).toBe(TRANSACTION_TAX_EVIDENCE.length);
     for (const item of TRANSACTION_TAX_EVIDENCE) {
       expect(item.url, item.id).toMatch(/^https:\/\/(?:uscode\.house\.gov|www\.ecfr\.gov|www\.irs\.gov)\//);
-      expect(item.reviewed_at, item.id).toMatch(/^2026-09-1[678]$/);
+      expect(item.reviewed_at, item.id).toMatch(/^2026-09-(?:1[678]|23)$/);
       expect(item.rule.split(/(?<=[.!?])\s+/).length, item.id).toBeGreaterThanOrEqual(2);
       expect(item.rule, item.id).not.toMatch(/https?:\/\//);
     }
@@ -269,8 +269,8 @@ describe('merchant- and profession-aware grounding (2026-09-17.2)', () => {
   });
   it('personal_likely and transfer merchants need a stated sentence; the merchant question and rule are attached', () => {
     const label = analyze({}, { merchant: 'Whole Foods', business_purpose: undefined, note: 'Client snacks' });
-    expect(label).toMatchObject({ status: 'needs_more_info', missing_fields: ['business_purpose'], evidence_ids: ['business-162', 'personal-262', 'supplies-263a'], questions: [expect.stringContaining('Groceries are personal')] });
-    expect(analyze({}, { merchant: 'Whole Foods', business_purpose: 'Snacks and drinks for the client shoot day' })).toMatchObject({ status: 'ok', deductible_percent: 100 });
+    expect(label).toMatchObject({ status: 'needs_more_info', missing_fields: ['food_expense_treatment'], evidence_ids: expect.arrayContaining(['meals-274', 'personal-262']), questions: [expect.stringContaining('personal groceries')] });
+    expect(analyze({}, { merchant: 'Whole Foods', business_purpose: 'Snacks and drinks for the client shoot day' })).toMatchObject({ status: 'needs_more_info', missing_fields: ['food_expense_treatment'] });
     const venmo = analyze({ category: 'contract_labor', evidence_ids: ['contract-labor-334'] }, { merchant: 'Venmo', business_purpose: undefined, note: 'Alex logo' });
     expect(venmo).toMatchObject({ status: 'needs_more_info', missing_fields: ['transaction_kind'], evidence_ids: ['records-334', 'contract-labor-334'] });
     expect(venmo?.schedule_c_line).toBeUndefined();
@@ -289,7 +289,7 @@ describe('merchant- and profession-aware grounding (2026-09-17.2)', () => {
     const result = analyze({ category: 'other', evidence_ids: ['taxes-licenses-sch-c'] }, { merchant: 'IRS USATAXPYMT', business_purpose: 'Paid from the business account for the business this month' });
     expect(result).toMatchObject({ status: 'blocked', missing_fields: ['tax_payment_recorded'], evidence_ids: expect.arrayContaining(['taxes-licenses-sch-c', 'records-334']) });
     expect(result?.is_deductible).toBeUndefined();
-    expect(result?.customized_reason).toContain('not business expenses');
+    expect(result?.customized_reason).toContain('does not yet establish a deductible business tax');
   });
   it('the same gym is a rent question for a trainer and a club-dues question for a designer; both still ask', () => {
     const forTrainer = analyze({ category: 'rent', evidence_ids: ['rent-334'] }, { merchant: 'Planet Fitness', business_purpose: 'Monthly floor fee to train my clients' }, trainer);
@@ -480,10 +480,10 @@ describe('taxonomy expansion (2026-09-18.3): confirmable lines 9, 15, 17, 21 and
       expect(analyze(model('taxes_licenses', 'taxes-licenses-sch-c'), { merchant: 'WA DEPT OF REVENUE', amount_usd: 800, business_purpose: 'Quarterly business taxes' }))
         .toMatchObject({ status: 'blocked', missing_fields: ['tax_payment_recorded'] });
     });
-    it('sales tax collected on sales and remitted to a state agency is a line 23 expense in the taxpayer\'s own words', () => {
+    it('collected sales tax needs incidence review; stated state employer payroll tax remains distinct', () => {
       const remitted = analyze(model('taxes_licenses', 'taxes-licenses-sch-c'), { merchant: 'WA DEPT OF REVENUE', amount_usd: 640, business_purpose: 'Sales tax collected from customers, remitted for Q2' });
-      expect(remitted).toMatchObject(ok('taxes_licenses', '23'));
-      expect(analyze(model('other', 'business-162'), { merchant: 'NYS DTF SALES', amount_usd: 640, business_purpose: 'Sales tax return payment for the shop' })).toMatchObject(ok('taxes_licenses', '23'));
+      expect(remitted).toMatchObject({ status: 'needs_more_info', missing_fields: ['sales_tax_incidence'] });
+      expect(analyze(model('other', 'business-162'), { merchant: 'NYS DTF SALES', amount_usd: 640, business_purpose: 'Sales tax return payment for the shop' })).toMatchObject({ status: 'needs_more_info', missing_fields: ['sales_tax_incidence'] });
       expect(analyze(model('other', 'business-162'), { merchant: 'EDD', amount_usd: 640, business_purpose: 'Employer share of payroll taxes for my assistant' })).toMatchObject(ok('taxes_licenses', '23'));
     });
     it('property tax on the home is a home-office question; on business property it is line 23', () => {
@@ -519,5 +519,53 @@ describe('taxonomy expansion (2026-09-18.3): confirmable lines 9, 15, 17, 21 and
       expect(analyze(model('repairs_maintenance', 'business-162'), { merchant: 'DAVES GARAGE', amount_usd: 480, business_purpose: 'Fixed the alternator on the delivery truck' }))
         .toMatchObject({ missing_fields: ['vehicle_method'], category: 'vehicle_expense' });
     });
+  });
+});
+
+
+describe('2026-09-23 source-audit regressions', () => {
+  it.each([
+    'Dinner alone while away overnight for a client conference in Boston.',
+    'Solo lunch on my overnight business trip to meet a client.',
+    'My morning coffee during overnight business travel away from my tax home.',
+    'Lunch alone at my desk during a normal workday.',
+  ])('eating alone needs travel facts and does not infer eligibility: %s', business_purpose => {
+    const result = analyze({ category: 'meals_50', evidence_ids: ['meals-274'] }, { business_purpose });
+    expect(result).toMatchObject({ status: 'needs_more_info', transaction_kind: 'expense', missing_fields: ['solo_meal_context'] });
+    expect(result?.is_deductible).toBeUndefined();
+    expect(result?.questions?.[0]).toContain('tax home');
+  });
+  it('an explicit personal meal still overrides travel words', () => {
+    const result = analyze({ category: 'meals_50', evidence_ids: ['meals-274'] }, { business_purpose: 'Dinner alone for personal use on the personal part of my overnight business trip.' });
+    expect(result).toMatchObject({ transaction_kind: 'personal', is_deductible: false });
+  });
+  it.each([
+    'Employer share of payroll taxes for my assistant.',
+    'Form 941 deposit includes employer taxes and employee withholding.',
+    'FUTA for the business employees, Form 940.',
+    'Federal highway use tax on my business truck, Form 2290.',
+  ])('a federal business-tax payment needs components, not blanket rejection: %s', business_purpose => {
+    const result = analyze({ category: 'other', evidence_ids: ['taxes-licenses-sch-c'] }, { merchant: 'IRS EFTPS', business_purpose });
+    expect(result).toMatchObject({ category: 'taxes_licenses', status: 'needs_more_info', missing_fields: ['business_tax_components'] });
+    expect(result?.is_deductible).toBeUndefined();
+    expect(result?.customized_reason).toContain('employee withholding is already part of gross wages');
+  });
+  it('an explicit income-tax purpose cannot masquerade as employer payroll tax', () => {
+    expect(analyze({ category: 'taxes_licenses', evidence_ids: ['taxes-licenses-sch-c'] }, { merchant: 'IRS EFTPS', business_purpose: 'My estimated income tax, entered as employer payroll tax.' }))
+      .toMatchObject({ status: 'blocked', missing_fields: ['tax_payment_recorded'] });
+  });
+  it('exactly $200 property is not forced into an annual safe-harbor election', () => {
+    expect(analyze({}, { amount_usd: 200, business_purpose: 'A printer used exclusively for client projects.' }))
+      .toMatchObject({ status: 'ok', deductible_percent: 100 });
+    expect(analyze({}, { amount_usd: 200.01, business_purpose: 'A printer used exclusively for client projects.' }))
+      .toMatchObject({ status: 'needs_more_info', missing_fields: ['asset_treatment'] });
+  });
+  it('a bulk supply invoice asks item cost without asserting the entire invoice must be capitalized', () => {
+    const result = analyze({}, { amount_usd: 3000, business_purpose: 'Bulk consumable paper used for the client print project.' });
+    expect(result).toMatchObject({ status: 'needs_more_info', missing_fields: ['asset_treatment'] });
+    expect(result?.customized_reason).toContain('per-item or per-invoice');
+    expect(result?.customized_reason).toContain('$5,000');
+    expect(result?.customized_reason).toContain('may be current expenses without that election');
+    expect(result?.customized_reason).not.toContain('looks like an asset');
   });
 });

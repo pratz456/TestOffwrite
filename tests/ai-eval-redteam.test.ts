@@ -199,7 +199,7 @@ describe('red team: findings from the 2026-09-17 live evaluation', () => {
       unresolved(result);
       expect(result!.status).toBe('blocked');
       expect(result!.missing_fields).toEqual(['tax_payment_recorded']);
-      expect(result!.customized_reason).toMatch(/not business expenses/i);
+      expect(result!.customized_reason).toMatch(/income tax and self-employment tax are never Schedule C expenses/i);
       expect(result!.evidence_ids).toContain('records-334');
     }
   });
@@ -284,10 +284,11 @@ describe('red team: findings from live evaluation round 2 (category "other" bypa
     const stripe = ground(payout, { merchant: 'STRIPE TRANSFER', amount_usd: -1850, business_purpose: 'Client invoices paid through Stripe' });
     expect(stripe).toMatchObject({ status: 'ok', transaction_kind: 'income' });
   });
-  it('a solo coffee or meal described as the taxpayer\'s own is personal even when the model approves it (round 4 finding 4)', () => {
+  it('a solo coffee or meal requires travel context before tax treatment, even when the model approves it', () => {
     for (const note of ['My morning coffee', 'Coffee before work', 'Lunch by myself between rides']) {
       const solo = ground({ category: 'meals_50', deductible_percent: 50, evidence_ids: ['meals-274'] }, { merchant: 'STARBUCKS STORE 08812', amount_usd: 6.45, business_purpose: undefined, note });
-      expect(solo, note).toMatchObject({ status: 'ok', transaction_kind: 'personal', is_deductible: false });
+      expect(solo, note).toMatchObject({ status: 'needs_more_info', transaction_kind: 'expense', missing_fields: ['solo_meal_context'] });
+      unresolved(solo);
     }
     const client = ground({ category: 'meals_50', deductible_percent: 50, evidence_ids: ['meals-274'] }, { merchant: 'STARBUCKS STORE 08812', amount_usd: 12.9, business_purpose: 'Coffee meeting with client Dana about the rebrand', attendees: ['Dana Reyes'] });
     expect(client!.transaction_kind).toBe('expense');
@@ -295,7 +296,7 @@ describe('red team: findings from live evaluation round 2 (category "other" bypa
   it('the taxpayer\'s personal words settle an expense the model only asked about or denied, not just one it approved (round 5 P1)', () => {
     const asked = ground({ status: 'needs_more_info', is_deductible: undefined, expense_type: undefined, deductible_percent: undefined, category: 'meals_50', evidence_ids: ['meals-274'],
       missing_fields: ['business_purpose'], questions: ['Who was at this meal and what business was discussed?'] },
-      { merchant: 'STARBUCKS STORE 08812', amount_usd: 6.45, business_purpose: undefined, note: 'My morning coffee' });
+      { merchant: 'STARBUCKS STORE 08812', amount_usd: 6.45, business_purpose: undefined, note: 'My morning coffee, for personal use' });
     expect(asked).toMatchObject({ status: 'ok', transaction_kind: 'personal', is_deductible: false });
     expect(asked!.questions).toBeUndefined();
     // A personal denial that cites §162 keeps its answer instead of turning into a generic purpose question.
@@ -707,7 +708,7 @@ describe('red team: the five confirmable categories of 2026-09-18.3 cannot be us
   });
   it('taxes_licenses: income, estimated and self-employment tax to any agency stay blocked, and a saved "sales tax" note cannot unblock a federal payee', () => {
     for (const [merchant, purpose] of [
-      ['IRS USATAXPYMT', 'Quarterly estimated tax for the business'], ['IRS USATAXPYMT', 'Sales tax remitted for the business'], ['EFTPS PAYMENT', 'Payroll taxes for my assistant'],
+      ['IRS USATAXPYMT', 'Quarterly estimated tax for the business'], ['IRS USATAXPYMT', 'Sales tax remitted for the business'],
       ['FRANCHISE TAX BD', 'State income tax estimate for the business'], ['WA DEPT OF REVENUE', 'Quarterly business taxes'], ['NYS DTF PIT', 'Income tax balance due for the business'],
     ] as const) {
       const result = ground({ category: 'taxes_licenses', evidence_ids: ['taxes-licenses-sch-c'] }, { merchant, amount_usd: 1500, business_purpose: purpose });
@@ -717,6 +718,9 @@ describe('red team: the five confirmable categories of 2026-09-18.3 cannot be us
       expect(result!.category, `${merchant}: ${purpose}`).toBe('other');
       expect(result!.schedule_c_line, `${merchant}: ${purpose}`).toBeUndefined();
     }
+    const employerTax = ground({ category: 'taxes_licenses', evidence_ids: ['taxes-licenses-sch-c'] }, { merchant: 'EFTPS PAYMENT', amount_usd: 1500, business_purpose: 'Payroll taxes for my assistant' });
+    unresolved(employerTax);
+    expect(employerTax).toMatchObject({ status: 'needs_more_info', category: 'taxes_licenses', missing_fields: ['business_tax_components'] });
     const penalty = ground({ category: 'taxes_licenses', evidence_ids: ['taxes-licenses-sch-c'] }, { merchant: 'CITY OF AUSTIN', amount_usd: 120, business_purpose: 'Late filing penalty on the city business return' });
     unresolved(penalty); expect(penalty!.missing_fields).toEqual(['expense_review']);
     const homeTax = ground({ category: 'taxes_licenses', evidence_ids: ['taxes-licenses-sch-c'] }, { merchant: 'COUNTY TAX COLLECTOR', amount_usd: 2100, business_purpose: 'Property tax on my house; I work from a home office' });

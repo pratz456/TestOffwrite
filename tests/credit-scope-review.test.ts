@@ -129,8 +129,12 @@ describe('annual JSON/PDF review response', () => {
   it.each(['dependent parent', 'claimable taxpayer'])('returns422 without fabricated totals or a PDF for %s', async kind => {
     state.organizer = kind === 'dependent parent'
       ? { dependents: '1', dependentDetails: 'Dependent parent, age78' }
-      : reviewedPersonalDeductionOrganizer(2026, { taxpayerDependent: 'yes', dependentEarnedIncome: '3717.41' });
-    if (kind === 'claimable taxpayer') state.receipts = 4000;
+      : reviewedPersonalDeductionOrganizer(2026, { taxpayerDependent: 'yes', dependentEarnedIncome: '4000' });
+    if (kind === 'claimable taxpayer') {
+      // Isolate the dependent/EITC review contract from the business QBI minimum.
+      state.receipts = 0;
+      state.w2 = [{ wages: 4000, federalWithheld: 0 }];
+    }
     const original = JSON.stringify(state.organizer);
     const createPdf = vi.spyOn(PDFDocument, 'create');
     const responses = [

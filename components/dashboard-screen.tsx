@@ -57,9 +57,6 @@ export default function DashboardScreen({
 
   const transactions = realtimeTransactions.length > 0 ? realtimeTransactions : propTransactions;
 
-  // --- Tax savings state (unchanged) ---
-  const [taxSavingsData, setTaxSavingsData] = useState<any>(null);
-  const [isLoadingTaxSavings, setIsLoadingTaxSavings] = useState(false);
   const [isRefreshingBalances, setIsRefreshingBalances] = useState(false);
   const [lastSync, setLastSync] = useState<number | null>(null);
   const [bankConnection, setBankConnection] = useState<{ uid: string; connected: boolean } | null>(null);
@@ -90,26 +87,6 @@ export default function DashboardScreen({
     };
     fetchSyncAndAnalysis();
   }, [userId]);
-
-  useEffect(() => {
-    const fetchTaxSavings = async () => {
-      if (!profile?.id) return;
-      setTaxSavingsData(null);
-      try {
-        setIsLoadingTaxSavings(true);
-        const response = await makeAuthenticatedRequest('/api/tax-savings');
-        if (response.ok) {
-          const data = await response.json();
-          setTaxSavingsData(data.data);
-        }
-      } catch (error) {
-        console.error('Error fetching tax savings:', error);
-      } finally {
-        setIsLoadingTaxSavings(false);
-      }
-    };
-    fetchTaxSavings();
-  }, [profile?.id, profile?.filing_status]);
 
   // The current-year tax cards use the same authenticated calculation as Tax Preview.
   // Include source data in the key so even the first render after an edit cannot
@@ -153,15 +130,6 @@ export default function DashboardScreen({
     );
   }
 
-  // --- Derived data (unchanged business logic) ---
-  const currentDate = new Date();
-  const currentMonth = currentDate.getMonth();
-  const currentYear = currentDate.getFullYear();
-  const monthsElapsed = currentMonth + 1;
-  const fallbackProjectedAnnual = monthsElapsed > 0 ? (0 / monthsElapsed) * 12 : 0;
-
-  const taxSavings = taxSavingsData?.taxSavings?.yearToDate ?? 0;
-  const projectedAnnual = taxSavingsData?.taxSavings?.projectedAnnual ?? fallbackProjectedAnnual;
   const taxRateDisplay = getUserTaxRateDisplay(profile);
 
   const recordSummary = summarizeDashboardRecords(transactions);
@@ -286,7 +254,7 @@ export default function DashboardScreen({
                 {!taxRateDisplay.reviewMessage && <AiAdvisoryCard
                   needsReviewCount={needsReviewCount}
                   needsAnalysisCount={needsAnalysisCount}
-                  taxSavings={taxSavings}
+                  confirmedCount={recordSummary.deductibleCount}
                   onNavigate={onNavigate}
                 />}
                 <OptimizationCard

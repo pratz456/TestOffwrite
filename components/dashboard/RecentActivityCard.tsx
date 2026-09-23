@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { ChevronRight, FileText } from 'lucide-react';
 import { consolidateCategory } from '@/lib/utils';
 import { dashboardRecordStatus } from '@/lib/dashboard/record-summary';
+import { formatRecordedTransactionAmount } from '@/lib/transactions/amount-display';
 
 interface RecentActivityCardProps {
   transactions: any[];
@@ -38,7 +39,7 @@ export function RecentActivityCard({ transactions, onTransactionClick, onViewAll
           <div className="divide-y divide-border/50">
             {recent.map((tx) => {
               const isCredit = tx.amount < 0;
-              const amount = Math.abs(tx.amount);
+              const amount = formatRecordedTransactionAmount(tx);
               const status = dashboardRecordStatus(tx);
               const needsReview = status === 'pending' || status === 'review';
               const isMarkedExpense = status === 'deductible';
@@ -72,7 +73,7 @@ export function RecentActivityCard({ transactions, onTransactionClick, onViewAll
                   </div>
                   <div className="text-right shrink-0 ml-2">
                     <span className={`text-sm font-semibold tabular-nums ${isCredit ? 'text-success' : 'text-foreground'}`}>
-                      {isCredit ? '+' : '-'}${amount.toFixed(2)}
+                      {amount === 'Amount needs review' ? amount : `${isCredit ? '+' : '-'}${amount}`}
                     </span>
                     <span className="block text-xs text-muted-foreground">
                       {formatTransactionDate(tx.date, 'en-US', { month: 'short', day: 'numeric' })}

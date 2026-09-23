@@ -93,7 +93,7 @@ try {
     assert.ok(suggestion, `${scenario.id}: no saved AI suggestion (${record.analysisErrorCode || task?.status})`);
     assert.equal(record.is_deductible, null, 'AI must not silently confirm tax decisions');
     assert.ok(suggestion.sources.length > 0, 'Official sources required');
-    assert.ok(suggestion.sources.every(source => /^(www\.)?irs\.gov$|^uscode\.house\.gov$/.test(new URL(source.url).hostname)));
+    assert.ok(suggestion.sources.every(source => /^(www\.)?(irs\.gov|ecfr\.gov)$|^uscode\.house\.gov$/.test(new URL(source.url).hostname)));
     if (scenario.expectKind) assert.equal(suggestion.transactionKind, scenario.expectKind, `${scenario.id}: kind`);
     if (scenario.expectCategory) assert.equal(suggestion.category, scenario.expectCategory, `${scenario.id}: category`);
     if (scenario.unresolved) assert.equal(suggestion.isDeductible, null, `${scenario.id}: must withhold eligibility`);

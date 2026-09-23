@@ -20,7 +20,7 @@ export async function readTaxExportTransactions(uid: string, taxYear: number): P
     const amount = transactionAmount(record);
     const currency = record.iso_currency_code;
     if (amount === null) throw new ExportReviewRequiredError('A saved transaction has an invalid amount. Correct it before creating a tax summary.');
-    if (currency && currency !== 'USD' || record.unofficial_currency_code) throw new ExportReviewRequiredError('Non-USD transactions require reviewed U.S. dollar conversion before creating a tax summary.');
+    if (currency !== 'USD' || record.unofficial_currency_code) throw new ExportReviewRequiredError('Missing or non-USD transaction currencies require reviewed U.S. dollar amounts before creating a tax summary.');
     if ((record.is_deductible ?? record.deductible) === true && record.pending !== true) {
       const allocations = ['business_percent', 'business_use_percent', 'business_use_percentage', 'businessUsePercent']
         .filter(key => Object.prototype.hasOwnProperty.call(record, key)).map(key => record[key]);
@@ -28,6 +28,10 @@ export async function readTaxExportTransactions(uid: string, taxYear: number): P
       if (equipment && typeof equipment === 'object' && 'business_use_percentage' in equipment) allocations.push(equipment.business_use_percentage);
       if (allocations.some(value => typeof value !== 'number' || !Number.isFinite(value) || value !== 100)) {
         throw new ExportReviewRequiredError('A confirmed expense has a mixed-use or invalid business-use percentage. Review and reconcile the allocation before creating a tax summary; the current calculation cannot apply that percentage safely.');
+      }
+      if (['deduction_override', 'deductible_amount', 'deduction_amount', 'deductible_amount_override', 'deduction_percentage']
+        .some(key => record[key] !== undefined && record[key] !== null)) {
+        throw new ExportReviewRequiredError('A confirmed expense has a recorded deduction override. Review and reconcile that adjustment before creating a tax summary; the current calculation cannot apply it safely.');
       }
     }
     return { ...record, id: String(record.trans_id ?? record.id ?? ''), trans_id: String(record.trans_id ?? record.id ?? ''), amount,

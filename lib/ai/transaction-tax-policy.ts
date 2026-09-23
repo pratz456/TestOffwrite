@@ -5,7 +5,7 @@ import { redactIdentifierText } from '@/lib/security/identifier-redaction';
 import { BUSINESS_STANDARD_MILEAGE_RATES } from '@/lib/tax-rules/mileage-rates';
 
 /** Selected, reviewed federal rules. This is not retrieval over the entire tax code. */
-export const TRANSACTION_TAX_POLICY_VERSION = 'federal-transactions-2026-09-18.3';
+export const TRANSACTION_TAX_POLICY_VERSION = 'federal-transactions-2026-09-23.2';
 export const TRANSACTION_KINDS = ['expense', 'income', 'transfer', 'refund', 'personal', 'unknown'] as const;
 /** Expense categories the model may return; the single source for the zod enum, JSON schema and intelligence tables. */
 export const EXPENSE_CATEGORIES = [
@@ -82,8 +82,8 @@ export const TRANSACTION_TAX_EVIDENCE = [
     'Service charges, wire and ACH fees, merchant processing fees (Stripe, Square, PayPal) and annual fees on cards or accounts used for the business are deductible (Schedule C line 10, commissions and fees, or line 27a). Fees on a personal account, interest and overdraft charges from personal spending, and ATM fees for personal cash are not. Eligibility needs the account or processor the fee came from and that the account carries business activity.'),
   added('platform-fees-1099k', 'IRS — Understanding your Form 1099-K (gross receipts vs. platform fees)', 'https://www.irs.gov/businesses/understanding-your-form-1099-k', 'IRS page as reviewed 2026-09-17; selected rule; Schedule C line 10',
     'Marketplace and payment-platform payouts (Etsy, Amazon, Shopify Payments, Stripe, Upwork, rideshare and delivery apps) usually arrive net of fees while Form 1099-K reports the gross amount: report gross receipts and deduct the commissions and processing fees separately (Schedule C line 10). Treating a net payout as income understates receipts and hides the deductible fees. Eligibility needs the platform statement showing gross sales and the fees withheld.'),
-  added('dues-274a3', '26 USC 274(a)(3) — Club dues disallowed; professional and trade association dues', codeUrl(274), 'Current Code; selected rule with Publication 334 ch. 8; Schedule C line 27a',
-    'No deduction is allowed for membership in any club organized for business, pleasure, recreation or other social purpose: gyms, health and athletic clubs, country and golf clubs, airline and hotel clubs, and social or dining clubs, even when networking or fitness supports your work. Dues to professional and trade associations, chambers of commerce, boards of trade, licensing boards and civic or public-service organizations remain ordinary business expenses (Schedule C line 27a) when membership serves the business. Eligibility needs the organization type and its role in your business; a facility used exclusively in the business, such as space you rent to train clients, is a rent question rather than a dues question.'),
+  source('dues-274a3', '26 USC 274(a)(3) — Club dues disallowed; professional and trade association dues', codeUrl(274), 'Current Code; selected rule with Publication 334 ch. 8; Schedule C line 27a',
+    'No deduction is allowed for membership in any club organized for business, pleasure, recreation or other social purpose: gyms, health and athletic clubs, country and golf clubs, airline and hotel clubs, and social or dining clubs, even when networking or fitness supports your work. Dues to professional and trade associations, chambers of commerce, boards of trade, licensing boards and civic or public-service organizations remain ordinary business expenses (Schedule C line 27a) when membership serves the business. Exclude lobbying and political portions using the association notice (§162(e)); an unspecified business-use percentage does not establish that allocation. Eligibility needs the organization type and its role in your business; a facility used exclusively in the business, such as space you rent to train clients, is a rent question rather than a dues question.', '2026-09-23'),
   added('gifts-274b', '26 USC 274(b) — Business gifts limited to $25 per recipient per year', codeUrl(274), 'Current Code; selected rule; Schedule C line 27a',
     'Gifts to clients, referral sources or vendors are deductible only up to $25 per recipient per year (Schedule C line 27a); items costing $4 or less with your business name permanently imprinted and distributed widely, and signs or displays used on the recipient\'s premises, fall outside the cap. Common false positives: gifts to family or friends, gift cards used personally, and event tickets given away, which follow the entertainment disallowance. Eligibility needs the recipient, the business relationship, the cost and the date.'),
   added('phone-internet-262', '26 USC 262(b) — Telephone and internet: business-use allocation', codeUrl(262), 'Current Code; selected rule with Publication 334 ch. 8; Schedule C line 25',
@@ -93,14 +93,14 @@ export const TRANSACTION_TAX_EVIDENCE = [
     'Costs paid before the business actually began operating (market research, pre-opening advertising, training, travel to line up suppliers, formation-related consulting) are start-up costs rather than current expenses: up to $5,000 may be deducted in the first active year, reduced dollar-for-dollar once total start-up costs exceed $50,000, and the rest is amortized over 180 months beginning with the month the business begins. Common false positive: deducting pre-opening spending as an ordinary expense in the year paid. Eligibility needs the business start date, the nature of the cost and the total pre-opening spending.'),
   added('professional-fees-334', 'IRS Publication 334, ch. 8 — Legal and professional fees', PUB_334, '2025 publication; Schedule C line 17',
     'Fees to attorneys, accountants, bookkeepers, consultants and tax preparers that are ordinary and directly related to operating the business are deductible (Schedule C line 17); for tax preparation only the part attributable to the business schedules counts, fees to acquire a business asset are added to its basis, and pre-opening fees are start-up costs. Common false positives: personal legal matters such as wills, divorce or personal injury, the personal part of a return fee, and fees for buying a personal residence. Eligibility needs the matter or service and its link to the business.'),
-  added('taxes-licenses-sch-c', 'Instructions for Schedule C — Line 23 taxes and licenses; nondeductible federal and self-employment tax', 'https://www.irs.gov/instructions/i1040sc', '2025 instructions; selected rule with §164(f) and §275',
-    'Business licenses, permits and regulatory fees paid to state or local governments, sales tax you collected and included in receipts, personal property tax on business assets and the employer share of payroll taxes are deductible on Schedule C line 23. Federal income tax, estimated tax payments and self-employment tax are never Schedule C expenses (§275); one-half of self-employment tax is a Schedule 1 adjustment under §164(f), and state income tax is a personal itemized deduction. Eligibility needs the government payee and what the payment was for.'),
+  source('taxes-licenses-sch-c', 'Instructions for Schedule C — Line 23 business taxes; nondeductible income and self-employment tax', 'https://www.irs.gov/instructions/i1040sc', '2025 instructions; selected rule with §164(f) and §275',
+    'Business licenses, permits and regulatory fees paid to state or local governments, sales tax legally imposed on you as seller and included in gross receipts, personal property tax on business assets and the employer share of payroll taxes are deductible on Schedule C line 23. Federal income tax, estimated tax payments and self-employment tax are never Schedule C expenses (§275); one-half of self-employment tax is a Schedule 1 adjustment under §164(f), and state income tax is a personal itemized deduction. Buyer-imposed sales tax collected and remitted is excluded from both gross receipts and deductions; tax on a business purchase follows that purchase cost. Federal unemployment and federal highway-use tax may also qualify. A combined payroll deposit includes employee withholding already included in gross wages: do not deduct it twice. Eligibility needs the tax type, period, return and component amounts.', '2026-09-23'),
   added('mileage-rates', 'IRS standard mileage rates — annual notices (dated rate table in lib/tax-rules/mileage-rates.ts)', 'https://www.irs.gov/tax-professionals/standard-mileage-rates',
     `IRS notice per period; ${BUSINESS_STANDARD_MILEAGE_RATES.length} dated rate periods on file (${mileageYears}); Schedule C line 9`,
     'The optional standard mileage rate is set by IRS notice for each period and applied by this app from its dated rate table, so never state a per-mile rate or compute a vehicle deduction in this analysis. Standard mileage replaces fuel, repairs, insurance, depreciation and lease payments for the same miles (parking and tolls stay separately deductible), must be chosen in the first year the vehicle is used for business, and cannot follow accelerated depreciation or Section 179 on the same vehicle. Either method requires §274(d) records for each trip: date, miles, destination and business purpose; commuting and personal driving are excluded.',
     'Rates and their notices (Notice 2025-5 for 2025; Notice 2026-10 and Announcement 2026-11 for 2026) live in lib/tax-rules/mileage-rates.ts and are never restated here.'),
-  added('supplies-263a', 'Treas. Reg. §1.263(a)-1(f) — Supplies and the de minimis safe harbor', 'https://www.ecfr.gov/current/title-26/section-1.263(a)-1', 'Current eCFR text; $2,500 per item or invoice without an applicable financial statement; Schedule C line 22',
-    'Consumable supplies, materials and small tools used up within the year are current expenses (Schedule C line 22). A unit of property that lasts beyond the year is a capital asset unless the de minimis safe harbor election is made on a timely return for that year, which lets items costing $2,500 or less per item or invoice be expensed; without the election, items over the threshold or durable equipment need depreciation or Section 179 review. Eligibility needs the item, its cost per unit and whether the annual election statement is being filed.'),
+  source('supplies-263a', 'Treas. Reg. §1.263(a)-1(f) — Supplies and the de minimis safe harbor', 'https://www.ecfr.gov/current/title-26/section-1.263(a)-1', 'Current eCFR text; $2,500 per item or invoice without an applicable financial statement; Schedule C line 22',
+    'Ordinary materials and supplies may be current expenses under §1.162-3, including qualifying items with cost of $200 or less or useful life of 12 months or less. The de minimis safe harbor is a separate annual election with consistent book-expensing requirements and a per-invoice or per-item ceiling: $2,500 without an applicable financial statement, $5,000 with one. The ceiling is not a universal capitalization rule; larger supplies and ordinary repairs may still be current expenses. For assets, establish the item, unit cost, placed-in-service date, business use and applicable expensing or depreciation treatment.', '2026-09-23'),
   added('rent-334', 'IRS Publication 334, ch. 8 — Rent expense (business property vs. your home)', PUB_334, '2025 publication; Schedule C lines 20a/20b; home rent only through §280A',
     'Rent for property you use in the business but do not own — an office, studio, chair or booth, storage unit or coworking desk — is deductible when paid (Schedule C line 20b; equipment and vehicle rentals on line 20a). Rent for the home you live in is not business rent even if you work there; only a qualifying home office deduction (§280A, Form 8829 or the simplified method) can include part of it, and payments that build equity or are really purchases are not rent. Eligibility needs the location, what it is used for and the lease or booth agreement.'),
   added('utilities-334', 'IRS Publication 334, ch. 8 — Utilities for a business location', PUB_334, '2025 publication; Schedule C line 25',
@@ -163,6 +163,7 @@ const SECTION_EVIDENCE: Record<string, readonly string[]> = {
   '164': ['taxes-licenses-sch-c'], '275': ['taxes-licenses-sch-c'],
 };
 const REGULATION_EVIDENCE: Record<string, readonly string[]> = {
+  '1.162-3': ['supplies-263a'],
   '1.162-5': ['education-reg-1.162-5'],
   '1.263(a)-1': ['supplies-263a'],
 };
@@ -265,12 +266,23 @@ function percentage(value: unknown): number | null {
 const HEALTH_INSURANCE_PATTERN = /\b(?:health|medical|dental|vision|long-?term\s+care)\s+(?:insurance|premiums?|plan|coverage)\b|\b(?:blue\s?cross|blue\s?shield|aetna|cigna|kaiser|unitedhealth(?:care)?|humana|oscar\s+health|anthem|ambetter|molina|healthcare\.gov)\b/i;
 const CLUB_DUES_PATTERN = /\b(?:gym|fitness\s+(?:center|club|membership)|health\s+club|athletic\s+club|country\s+club|golf\s+club|planet\s+fitness|equinox|crossfit|orangetheory|la\s+fitness|24\s+hour\s+fitness|peloton|soulcycle|barry'?s\s+bootcamp)\b/i;
 const HOME_RENT_PATTERN = /\b(?:apartment|apt\.?|home|house|residence|residential|landlord|housing|mortgage|rent\s+for\s+(?:my|our)\s+place)\b/i;
-/** Payments to tax authorities are never Schedule C expenses (federal income and SE tax are nondeductible; state income tax belongs on Schedule A). */
+/** Tax-agency payees need the tax type: income/SE tax is not Schedule C; employer payroll and some business excise taxes can be. */
 const TAX_AUTHORITY_PATTERN = /\b(?:IRS|internal revenue|us treasury|u\.s\. treasury|usataxpymt|irs usataxpymt|estimated tax|1040-?es|form 1040|franchise tax b(?:oar)?d|\bftb\b|nys dtf|ny state tax|dept\.? of revenue|department of revenue|dept\.? of taxation|department of taxation|comptroller of|state tax payment|tax payment|edd|eftps)\b/i;
-/** Federal payees and the individual-payment descriptors: always the tax-payment block, whatever the saved words say. */
+/** Federal payees and individual-payment descriptors; the payee alone does not establish the tax treatment. */
 const FEDERAL_TAX_AUTHORITY_PATTERN = /\b(?:IRS|internal revenue|us treasury|u\.s\. treasury|usataxpymt|1040-?es|form 1040|eftps|estimated tax)\b/i;
 /** Business taxes remitted to a state or local agency: sales/use tax collected on sales and employer payroll taxes (Schedule C line 23). */
 const BUSINESS_TAX_REMITTANCE_PATTERN = /\b(?:sales\s+(?:and\s+use\s+)?tax|use\s+tax|seller'?s?\s+permit|sales\s+tax\s+(?:remit\w*|return|filing)|payroll\s+tax(?:es)?|unemployment\s+(?:insurance|tax)|\bsuta\b|\bsui\b|employer\s+(?:share|portion|tax(?:es)?)|form\s+94[01]|withholding\s+deposit)\b/i;
+/** Federal business-tax words trigger review, never approval of a combined EFTPS/payroll deposit. */
+const FEDERAL_BUSINESS_TAX_PATTERN = /\b(?:payroll\s+tax(?:es)?|employer\s+(?:share|portion|tax(?:es)?)|federal\s+unemployment|futa|form\s+94[01]|withholding\s+deposit|(?:federal\s+)?highway\s+use\s+tax|form\s+2290|(?:business\s+)?excise\s+tax)\b/i;
+/** Collected sales/use tax needs legal incidence and gross-receipts reconciliation. */
+const SALES_TAX_WORDS = /\b(?:sales\s+(?:and\s+use\s+)?tax|use\s+tax)\b/i;
+/** Formation differs from recurring compliance and ordinary operating legal work. */
+const FORMATION_COST_WORDS = /\b(?:formation|incorporat\w*|articles\s+of\s+(?:organization|incorporation)|organizational\s+(?:costs?|fees?|filing)|form(?:ing)?\s+(?:an?\s+|my\s+)?(?:llc|corporation|partnership))\b/i;
+/** Food type/recipient must be settled before a business-use allocation can be applied. */
+const FOOD_PURPOSE_WORDS = /\b(?:snacks?|groceries|protein\s+bars?|food|beverages?|coffee|lunch|dinner|breakfast|meals?)\b/i;
+/** Only an explicitly named platform fee is repaired; a freelancer payment remains contract labor. */
+const UPWORK_PLATFORM_FEE_WORDS = /\b(?:upwork(?:'s)?\s+(?:service|platform|marketplace|escrow)\s+fees?|(?:platform|marketplace|escrow)\s+(?:service\s+)?fees?)\b/i;
+const REALTOR_ASSOCIATION_WORDS = /\bnational\s+association\s+of\s+realtors|\brealtors?\s+(?:association|dues)|\bnar\s+(?:dues|membership)\b/i;
 /** Words that mark a payment as the taxpayer's own income or self-employment tax, which no saved purpose can turn into an expense. */
 const INCOME_TAX_WORDS = /\b(?:income\s+tax|estimated\s+tax|self[- ]employment\s+tax|\bse\s+tax|quarterly\s+(?:tax|estimate)|1040|schedule\s+se|tax\s+bill|balance\s+due|extension\s+payment)\b/i;
 /** Property tax: on the home it is a home-office item (Form 8829); on business assets or a business location it is line 23. */
@@ -328,7 +340,9 @@ const UNCONDITIONAL_CLAIM = /\b((?:(?:is|are|it's|its|was|were|be|being|been|bec
  * A negated phrase ("not for personal use", "zero personal use") and a business object
  * ("vacation rental", "vacation photography", "paid vacation") are not personal notes.
  */
-const EXPLICIT_PERSONAL_NOTE = /\b(?:(?<!\b(?:not?|zero|without|never|excludes?|excluding)\s+(?:for\s+|any\s+|of\s+)?)personal (?:use|expense|purchase|item|trip|dinner|meal|coffee|ride|subscription|only)|not (?:for )?(?:the )?business|non-?business|not deductible|not a business expense|family (?:dinner|trip|vacation|meal|purchase)|(?<!\bpaid\s)vacation(?!\s+(?:rental|rentals|home|homes|propert(?:y|ies)|photograph\w*|pay|payroll|package\w*|planning|tours?|clients?|business|listing))|date night|for (?:my|our) (?:kids?|family|wife|husband|spouse|partner)|for (?:my|our) (?:home|house)(?! office| studio| workspace| business|-based| based)|my own use|my (?:morning|daily|usual) coffee|coffee before work|(?:coffee|lunch|dinner|breakfast|meal) (?:by myself|alone|on my own)|(?:solo|my own) (?:coffee|lunch|dinner|breakfast|meal))\b/i;
+const EXPLICIT_PERSONAL_NOTE = /\b(?:(?<!\b(?:not?|zero|without|never|excludes?|excluding)\s+(?:for\s+|any\s+|of\s+)?)personal (?:use|expense|purchase|item|trip|dinner|meal|coffee|ride|subscription|only)|not (?:for )?(?:the )?business|non-?business|not deductible|not a business expense|family (?:dinner|trip|vacation|meal|purchase)|(?<!\bpaid\s)vacation(?!\s+(?:rental|rentals|home|homes|propert(?:y|ies)|photograph\w*|pay|payroll|package\w*|planning|tours?|clients?|business|listing))|date night|for (?:my|our) (?:kids?|family|wife|husband|spouse|partner)|for (?:my|our) (?:home|house)(?! office| studio| workspace| business|-based| based)|my own use)\b/i;
+/** Eating alone is not itself personal: qualifying overnight-business-travel meals may qualify (Pub 463). */
+const SOLO_MEAL_NOTE = /\b(?:my (?:morning|daily|usual) coffee|coffee before work|(?:coffee|lunch|dinner|breakfast|meal) (?:by myself|alone|on my own)|(?:solo|my own) (?:coffee|lunch|dinner|breakfast|meal))\b/i;
 /** Saved wording that establishes business income for a credit (a customer payment, an invoice, a platform payout). */
 const INCOME_CONTEXT = /\b(client|customer|invoice|business sales|service revenue|platform payout)\b/i;
 const LIKELY_ASSET_PATTERN = /\b(?:laptop|computer|macbook|imac|desktop|monitor|camera|lens|drone|printer|tablet|ipad|iphone|smartphone|desk|chair|tripod|microphone|mixer|guitar|piano|keyboard|server|router|projector|television|appliance|machine|equipment|furniture|tools?)\b/i;
@@ -359,7 +373,7 @@ export function groundTransactionAnalysis(
   const result: OutputType = { ...input };
   // Server-owned; a caller or model never supplies them.
   delete result.proposed_purpose; delete result.schedule_c_line;
-  const ids = result.evidence_ids ?? [];
+  const ids = [...(result.evidence_ids ?? [])];
   if (!Array.isArray(ids) || !ids.length || ids.length > 3 || ids.some(id => !TRANSACTION_EVIDENCE_IDS.includes(id)) || new Set(ids).size !== ids.length) return null;
   const year = transactionTaxYear(transaction);
   const amount = transaction.amount_usd ?? transaction.amount;
@@ -409,8 +423,11 @@ export function groundTransactionAnalysis(
   const federalPayee = FEDERAL_TAX_AUTHORITY_PATTERN.test(savedAndMerchant);
   /**
    * A business tax in the taxpayer's own words — sales/use tax collected on sales, employer payroll tax, property tax on
-   * business property — remitted to a state or local agency, with no income-tax words. Federal payees never qualify.
+   * business property — remitted to a state or local agency, with no income-tax words. Federal business taxes need a separate split review.
    */
+  const upworkPlatformFee = /\bupwork\b/i.test(savedAndMerchant) && UPWORK_PLATFORM_FEE_WORDS.test(purpose);
+  const salesTaxRemittance = !federalPayee && SALES_TAX_WORDS.test(purpose) && !STATE_FILING_PATTERN.test(purpose);
+  const federalBusinessTax = federalPayee && !INCOME_TAX_WORDS.test(purpose) && FEDERAL_BUSINESS_TAX_PATTERN.test(purpose);
   const remittedBusinessTax = !federalPayee && !INCOME_TAX_WORDS.test(purpose) &&
     (BUSINESS_TAX_REMITTANCE_PATTERN.test(purpose) || (PROPERTY_TAX_PATTERN.test(purpose) && BUSINESS_PROPERTY_WORDS.test(purpose)));
   /** A licence, permit or state filing fee paid to a payee that is not a tax authority. */
@@ -429,10 +446,14 @@ export function groundTransactionAnalysis(
     } else if (placeable && REPAIR_WORDS.test(purpose) && !NON_PROPERTY_MAINTENANCE.test(purpose) && !VEHICLE_COST_PATTERN.test(savedAndMerchant)) {
       result.category = 'repairs_maintenance';
     }
+    if (upworkPlatformFee) {
+      result.category = 'bank_and_payment_fees';
+      ids.splice(0, ids.length, 'bank-fees-334', 'platform-fees-1099k');
+    }
     if (taxPrep && (!result.category || ['other', 'contract_labor', 'legal_professional', 'software_subscriptions'].includes(result.category))) {
       result.category = 'legal_professional';
     }
-    if ((remittedBusinessTax || stateFilingFee) && (!result.category || ['other', 'legal_professional'].includes(result.category))) {
+    if ((remittedBusinessTax || federalBusinessTax || stateFilingFee) && (!result.category || ['other', 'legal_professional'].includes(result.category))) {
       result.category = 'taxes_licenses';
     }
   }
@@ -514,6 +535,12 @@ export function groundTransactionAnalysis(
       'The bank record and saved context do not establish the type of money movement. Confirm its purpose before using it in tax totals.');
   }
 
+  if (kind === 'expense' && upworkPlatformFee && result.is_deductible === true) {
+    const feeReason = 'Your saved note identifies an Upwork platform service fee on client work. This is a platform fee, not a payment for a freelancer’s labor. Keep the fee statement and reconcile gross client receipts before fees so the cost is not deducted twice.';
+    result.customized_reason = feeReason; result.reasoning_summary = feeReason;
+    result.key_analysis_factor = feeReason; result.reason = feeReason;
+    result.documentation_required = ['Platform statement separately showing the fee', 'Gross client receipts and fee reconciliation'];
+  }
   if (offCategoryCitation && result.status === 'ok' && result.is_deductible === true) {
     requireInfo(result, 'business_purpose', 'What did you buy or pay for, and how was it used in your business?',
       'The category is a suggestion; the tax basis the analysis relied on did not match this kind of expense, so confirm the purpose before including a deduction.');
@@ -524,6 +551,11 @@ export function groundTransactionAnalysis(
     // Live evaluation: models approved, or asked about, Zoom, Starbucks and Uber charges whose saved note said personal.
     markPersonal('Your note records this as personal, so it stays out of business deductions. Edit the note if part of it was for your business.',
       'Recorded as personal by your note.');
+  }
+  if (openExpense && SOLO_MEAL_NOTE.test(saved) && !EXPLICIT_PERSONAL_NOTE.test(saved)) {
+    addEvidence('meals-274'); addEvidence('travel-463');
+    requireInfo(result, 'solo_meal_context', 'Was this a local personal meal, or were you traveling away from your tax home for business long enough to need substantial sleep or rest? Record the destination, dates and business purpose.',
+      'Eating alone does not decide the deduction. Routine local meals and coffee are personal; a non-lavish meal during qualifying business travel away from your tax home may qualify, generally subject to the 50% limit. Confirm the travel facts before including any deduction.');
   }
   if (openExpense && PARKING_TOLL_PATTERN.test(savedAndMerchant) && COMMUTING_PATTERN.test(purpose) && !NEGATED_COMMUTING_PATTERN.test(purpose)) {
     // Pub 463: parking at a regular workplace and tolls on the drive there are commuting, whatever the model approved.
@@ -546,6 +578,38 @@ export function groundTransactionAnalysis(
     markPersonal('Your note describes life, disability, accident or pet coverage on yourself or your household. Those premiums are personal, not business insurance; only coverage of a business risk or business property belongs on Schedule C line 15. Edit the note if this policy covers your business.',
       'Recorded as personal coverage by your note.');
   }
+  if (openExpense && kind === 'expense' && federalBusinessTax) {
+    addEvidence('taxes-licenses-sch-c');
+    result.category = 'taxes_licenses';
+    requireInfo(result, 'business_tax_components', 'Which tax and period did this payment cover? Match the return and payroll ledger, separating the employer tax from employee withholding, income tax, penalties and interest.',
+      'An IRS payee does not automatically make this a personal tax payment. Employer Social Security/Medicare, FUTA and qualifying business excise taxes such as federal highway-use tax can belong on Schedule C line 23. A combined payroll deposit cannot all be deducted again: employee withholding is already part of gross wages. Verify each component and any credits before recording the business-tax amount.');
+  }
+  if (kind === 'expense' && result.is_deductible === true && context?.taxpayer_context?.priors.merchant?.decision === 'personal'
+      && context.taxpayer_context.priors.merchant.personalCount >= 2) {
+    // A prior confirmation must be resolved before asking about the legal treatment of a new business claim.
+    requireInfo(result, 'prior_decision_conflict', 'You previously marked purchases from this merchant as personal. Is this one different, and how was it used in your business?',
+      'Your earlier confirmed decisions treated this merchant as personal. Confirm what changed before a business deduction is proposed.');
+  }
+  if (kind === 'expense' && result.is_deductible === true && ['legal_professional', 'taxes_licenses', 'other'].includes(result.category ?? 'other') && FORMATION_COST_WORDS.test(purpose)) {
+    addEvidence('capital-263'); addEvidence('startup-195');
+    requireInfo(result, 'formation_cost_treatment', 'What entity was formed, what services and filing fees were included, when did active business operations begin, and what formation/start-up totals and elections apply?',
+      'Entity formation and organization costs are not automatically current legal fees on Schedule C line 17. Separate recurring operating services from formation costs and review capitalization, start-up or organization-cost rules for the entity before claiming any amount.');
+  }
+  if (kind === 'expense' && result.is_deductible === true && FOOD_PURPOSE_WORDS.test(purpose) && ['supplies_small_tools', 'other'].includes(result.category ?? 'other')) {
+    addEvidence('meals-274'); addEvidence('personal-262');
+    requireInfo(result, 'food_expense_treatment', 'Were these personal groceries, client meals, food for your own employees, food for resale, or another business use? Separate the items and identify who received the food and why.',
+      'A business-use percentage alone does not establish the tax treatment of food. Personal groceries stay excluded; qualifying client meals generally have a 50% limit, and some employer-provided meals are disallowed after 2025. Food for resale or other uses needs its own treatment. Do not claim the office-food share as ordinary supplies until the facts are resolved.');
+  }
+  if (kind === 'expense' && result.is_deductible === true && salesTaxRemittance) {
+    addEvidence('taxes-licenses-sch-c');
+    requireInfo(result, 'sales_tax_incidence', 'Was this tax legally imposed on the buyer or on your business as seller, and was it included in gross receipts? Reconcile the sales-tax return and receipts before classifying the remittance.',
+      'Sales tax imposed on buyers that you collect and remit is generally excluded from both gross receipts and deductions. Tax imposed on you as seller may be included in gross receipts and deducted on Schedule C line 23. A remittance by itself does not establish a deductible expense; sales tax on business purchases generally follows the cost of what you bought.');
+  }
+  if (kind === 'expense' && result.is_deductible === true && result.category === 'dues_and_memberships' && REALTOR_ASSOCIATION_WORDS.test(savedAndMerchant)) {
+    addEvidence('dues-274a3');
+    requireInfo(result, 'association_dues_allocation', 'What does the association’s dues notice identify as nondeductible lobbying or political activity, and what separate MLS or other deductible charges remain?',
+      'Business association dues can qualify, but lobbying and political amounts do not become deductible merely because they are included in a membership bill. Use the association’s tax notice to separate those amounts before claiming REALTOR association and MLS dues.');
+  }
   if (result.is_deductible === true && kind !== 'refund' && !remittedBusinessTax &&
       (TAX_AUTHORITY_PATTERN.test(savedAndMerchant) || (taxAgencyPayee && INCOME_TAX_WORDS.test(purpose)))) {
     // A live model approved a $1,500 IRS estimated-tax payment at 100%. Income tax and
@@ -555,7 +619,7 @@ export function groundTransactionAnalysis(
     addEvidence('taxes-licenses-sch-c'); addEvidence('records-334');
     result.category = 'other';
     requireInfo(result, 'tax_payment_recorded', 'Was this a federal or state income tax payment (including estimated tax)? Record it in the quarterly planner instead of as an expense.',
-      'Payments to the IRS or a state tax agency are not business expenses. Federal income tax and self-employment tax are never deductible on Schedule C; record estimated payments in the quarterly planner so they count toward what you have already paid.', true);
+      'The payment does not yet establish a deductible business tax. Federal income tax and self-employment tax are never Schedule C expenses, and state income tax is not a Schedule C expense. Record estimated income-tax payments in the quarterly planner; employer payroll and business excise taxes need their own tax-type and component review.', true);
   }
   if (year !== 2025 && year !== 2026) {
     requireInfo(result, 'supported_tax_year', 'Confirm the transaction date and review this tax year with your tax professional.',
@@ -617,11 +681,6 @@ export function groundTransactionAnalysis(
       addEvidence('personal-262');
       requireInfo(result, 'personal_use_exception', hint?.question ?? merchant.question ?? 'Is this item unusable outside your business (a uniform, costume or protective gear) or a product used on your own clients, rather than clothing or grooming for yourself?',
         'Clothing, grooming and similar items suitable for everyday use are personal living costs even when bought for work or on-camera use. Only items unusable outside the business, such as uniforms, costumes or protective gear, or products used on your own clients can qualify; confirm which this was.');
-    } else if (result.is_deductible === true && context?.taxpayer_context?.priors.merchant?.decision === 'personal'
-      && context.taxpayer_context.priors.merchant.personalCount >= 2) {
-      // The user's own repeated decisions outrank a model guess and the merchant table's proposed purpose.
-      requireInfo(result, 'prior_decision_conflict', 'You previously marked purchases from this merchant as personal. Is this one different, and how was it used in your business?',
-        'Your earlier confirmed decisions treated this merchant as personal. Confirm what changed before a business deduction is proposed.');
     } else if (result.is_deductible === true && purposeMissing) {
       const generic = 'What did you buy, and how did you use it in your business?';
       if (merchant.disposition === 'transfer_or_deposit') {
@@ -706,15 +765,15 @@ export function groundTransactionAnalysis(
       // Reg. §1.263(a)-3: a betterment, restoration or replacement of a major component is capitalized; a repair keeps property in ordinary working order.
       addEvidence('capital-263');
       requireInfo(result, 'asset_treatment', 'Did this work keep existing property in its ordinary operating condition (a repair), or improve, restore or replace it (an improvement)? When was the property first used in your business?',
-        `A repair that keeps business property in ordinary working order is a current expense (Schedule C line 21), but a betterment, restoration or replacement of a major component is a capital improvement that is depreciated. ${amount > DE_MINIMIS_ITEM_CEILING ? `At over $${DE_MINIMIS_ITEM_CEILING.toLocaleString('en-US')} this` : 'The saved description of this'} work points to an improvement or replacement; review the treatment before deducting it in full.`);
+        `A repair that keeps business property in ordinary working order is a current expense (Schedule C line 21), but a betterment, restoration or replacement of a major component is a capital improvement that is depreciated. ${amount > DE_MINIMIS_ITEM_CEILING ? `The amount over $${DE_MINIMIS_ITEM_CEILING.toLocaleString('en-US')} alone does not establish capitalization; review whether this` : 'Review whether the saved description of this'} work identifies an improvement or replacement. Ordinary repairs may remain current expenses regardless of the safe-harbor ceiling.`);
     } else if (result.is_deductible === true && (!result.category || ['supplies_small_tools', 'other'].includes(result.category))
-      && (amount > DE_MINIMIS_ITEM_CEILING || (amount >= ASSET_REVIEW_FLOOR &&
-        // Between $200 and $2,500 the taxpayer's words and the descriptor decide; the model's prose counts only when it names a specific item.
+      && (amount > DE_MINIMIS_ITEM_CEILING || (amount > ASSET_REVIEW_FLOOR &&
+        // Above $200 and through $2,500 the taxpayer's words and the descriptor decide; the model's prose counts only when it names a specific item.
         (LIKELY_ASSET_PATTERN.test(savedAndMerchant) || LIKELY_ASSET_ITEM_PATTERN.test(explanation))))) {
       // Choosing "supplies" must not bypass the asset gate that the equipment category triggers.
       addEvidence('capital-263');
       requireInfo(result, 'asset_treatment', hint?.question ?? 'What was purchased, when was it first used for business, and have you recorded the de minimis safe harbor election or a depreciation election for this year?',
-        `This purchase looks like an asset rather than a supply. Items over $${DE_MINIMIS_ITEM_CEILING.toLocaleString('en-US')} generally must be capitalized and depreciated; items at or under that amount can be expensed only when the de minimis safe harbor election is recorded for the year. Review the asset treatment before deducting it in full.`);
+        `This purchase needs item-level review to distinguish supplies from assets. The de minimis safe harbor generally uses a $${DE_MINIMIS_ITEM_CEILING.toLocaleString('en-US')} per-item or per-invoice ceiling without an applicable financial statement ($5,000 with one), plus consistent book-expensing and an annual election. A bank-charge total does not establish item cost or capitalization: qualifying materials, supplies and repairs may be current expenses without that election, while assets may need depreciation or a separate expensing election. Review the asset treatment before deducting it in full.`);
     } else if (result.is_deductible === true && ['equipment', 'home_office', 'vehicle_expense', 'travel'].includes(result.category ?? '')) {
       const questions: Record<string, [string, string]> = {
         equipment: ['asset_treatment', 'What was purchased, when was it first used for business, and what business-use records and depreciation elections apply?'],

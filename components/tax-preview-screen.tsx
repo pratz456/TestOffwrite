@@ -27,7 +27,7 @@ interface TaxLine {
 
 const fmt = (n: number, opts?: { abs?: boolean }) => {
   const v = opts?.abs ? Math.abs(n) : n;
-  return v.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  return v.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 2 });
 };
 const pct = (n: number) => `${n.toFixed(1)}%`;
 const sourceLabel = (url: string) => { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; } };
@@ -151,6 +151,8 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
               <Button className="mt-3 min-h-11" variant="outline" onClick={() => onNavigate('tax-organizer')}>Review Tax Organizer</Button>}
             {onNavigate && reviewCode === 'FILING_STATUS_REVIEW_REQUIRED' &&
               <Button className="mt-3 min-h-11" variant="outline" onClick={() => onNavigate('settings')}>Review profile</Button>}
+            {reviewCode === 'QBI_REVIEW_REQUIRED' && <p className="mt-3 text-xs">A tax professional needs to review your business type, qualified wages and property for the QBI deduction at this income level. WriteOff cannot calculate this case from the information currently collected.</p>}
+            {reviewCode === 'TAX_CALCULATION_SCOPE_REVIEW_REQUIRED' && <p className="mt-3 text-xs">This return needs a calculation that WriteOff does not yet support. Have a tax professional review the issue above and your supporting records before relying on a tax amount.</p>}
             {reviewCode === 'INCOME_RECONCILIATION_REQUIRED' && reviewConflicts.length > 0 && (
               <ul aria-label="Records that need a reconciliation decision" className="mt-2 space-y-1 text-xs text-foreground">
                 {reviewConflicts.map((conflict, index) => (
@@ -337,8 +339,8 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
               <div>
                 <div className="flex min-h-12 items-center justify-between gap-3 pl-4 pr-2">
                   <div className="min-w-0 py-2">
-                    <h2 className="text-sm font-medium">Full tax calculation</h2>
-                    <p className="text-xs text-muted-foreground">Form 1040 line-by-line</p>
+                    <h2 className="text-sm font-medium">Federal estimate breakdown</h2>
+                    <p className="text-xs text-muted-foreground">Modeled income, deductions, tax and payments</p>
                   </div>
                   <Button variant="ghost" size="sm" onClick={() => setShowDetails(!showDetails)} aria-expanded={showDetails} aria-controls="tax-calculation-breakdown" className="min-h-11 gap-1.5 px-3 text-xs">
                     {showDetails ? <><ChevronUp aria-hidden="true" className="h-3.5 w-3.5" />Hide</> : <><ChevronDown aria-hidden="true" className="h-3.5 w-3.5" />Show</>}
@@ -352,24 +354,29 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
                         <p>Total Tax <span className="font-semibold text-foreground tabular-nums">{fmt(f1040.totalTax)}</span></p>
                         <p>Effective federal rate (incl. SE tax) <span className="font-semibold text-foreground tabular-nums">{pct(f1040.effectiveRate)}</span></p>
                       </div>
-                      <p>The rate is federal income tax divided by total income. Total Tax also includes modeled self-employment and other federal taxes.</p>
+                      <p>The rate is total modeled federal tax divided by total income, including self-employment and Additional Medicare tax and after nonrefundable credits.</p>
                       <p>Estimated — based on your current data. Review with a tax professional before filing.</p>
                     </div>
                   {([
                     { section: "INCOME" as string, lines: [
                       { num: "1a", label: "W-2 wages", value: data.income.w2Wages },
+                      { num: "2b", label: "Taxable interest", value: data.income.interest },
+                      { num: "3b", label: "Dividends", value: data.income.dividends },
+                      { num: "4b", label: "Taxable retirement distributions", value: data.income.iraDist },
                       { num: "6a", label: "Net Social Security benefits", value: data.income.socialSecurityNetBenefits },
                       { num: "6b", label: "Taxable Social Security benefits", value: data.income.socialSecurity },
                       { num: "7", label: "Capital gain or (loss) after the annual loss limit", value: data.income.capGains || undefined },
-                      { num: "8", label: "Schedule C net profit", value: data.income.scheduleCNetProfit },
+                      { num: "8", label: "Schedule C profit or allowed loss", value: f1040.scheduleCAllowed },
+                      { num: "8", label: "Rental income", value: data.income.rental },
+                      { num: "8", label: "Other ordinary income", value: data.income.otherOrdinaryIncome },
                       { num: "9", label: "Total income", value: f1040.totalIncome, bold: true },
                     ]},
                     { section: "ADJUSTMENTS (Schedule 1)", lines: [
-                      { num: "15", label: "Half of SE tax deduction", value: data.seCalc?.halfSEDeduction },
-                      { num: "17", label: "Self-employed health insurance", value: data.deductions?.healthInsurancePremiums },
-                      { num: "16", label: "SEP-IRA / 401(k) contributions", value: (data.deductions?.sepIraContribution || 0) + (data.deductions?.solo401kContribution || 0) },
-                      { num: "13", label: "HSA contribution", value: data.deductions?.hsaContribution },
-                      { num: "21", label: "Student loan interest", value: data.deductions?.studentLoanInterest },
+                      { num: "15", label: "Half of SE tax deduction", value: f1040.appliedAdjustments?.halfSEDeduction },
+                      { num: "17", label: "Allowed self-employed health insurance", value: f1040.appliedAdjustments?.healthInsuranceDeduction },
+                      { num: "16", label: "SEP-IRA / 401(k) / SIMPLE contributions", value: f1040.appliedAdjustments?.retirementContributions },
+                      { num: "13", label: "Allowed HSA deduction", value: f1040.appliedAdjustments?.hsaDeduction },
+                      { num: "21", label: "Allowed student loan interest", value: f1040.appliedAdjustments?.studentLoanInterestDeduction },
                       { num: "26", label: "Total adjustments", value: f1040.adjustments, bold: true, negative: true },
                     ]},
                     { section: "AGI & DEDUCTIONS", lines: [
@@ -385,13 +392,16 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
                     ]},
                     { section: "TAX", lines: [
                       { num: "16", label: "Federal income tax", value: f1040.incomeTax },
+                      { num: "21", label: "Nonrefundable credits", value: f1040.totalCredits, negative: true },
                       { num: "SE", label: "Self-employment tax (Sch. SE)", value: f1040.selfEmploymentTax },
+                      { num: "8959", label: "Additional Medicare tax", value: f1040.additionalMedicareTax },
                       { num: "24", label: "Total tax", value: f1040.totalTax, bold: true },
                     ]},
                     { section: "PAYMENTS", lines: [
                       { num: "25a", label: "W-2 federal withholding", value: f1040.w2FederalWithheld, negative: true },
                       { num: "25b", label: "Social Security / RRB withholding", value: f1040.socialSecurityFederalWithheld, negative: true },
                       { num: "26", label: "Estimated tax payments", value: f1040.estimatedPayments, negative: true },
+                      { num: "32", label: "Refundable credits (EITC / additional child tax credit)", value: f1040.totalRefundableCredits, negative: true },
                       { num: "33", label: "Total payments", value: f1040.totalPayments, bold: true, negative: true },
                     ]},
                     { section: "RESULT", lines: [

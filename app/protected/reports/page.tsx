@@ -15,12 +15,18 @@ import { useSubscription } from '@/lib/hooks/use-subscription';
 import { PremiumFeatureGate } from '@/components/premium-feature-gate';
 import { getUserProfile } from '@/lib/firebase/profiles';
 import { getUserTaxRateDisplay } from '@/lib/tax-rules/federal-brackets';
+import { summarizeConfirmedDeductions } from '@/lib/tax/display-deductions';
+import { summarizeRecordedCashFlow } from '@/lib/dashboard/cash-flow-summary';
+import { exportDate } from '@/lib/reports/transaction-export';
+import { isCountableRecord, type ScopedRecord } from '@/lib/transactions/record-scope';
+import { isServerConfirmedDeduction } from '@/lib/transactions/confirmed-deduction';
 import { AuditSupportRecordsCard } from './components/AuditSupportRecordsCard';
 
 interface MonthlyData {
   month: number;
   monthName: string;
   total: number;
+  deductionBasis: number;
   count: number;
 }
 
@@ -31,6 +37,8 @@ interface ReportsDiagnostics {
 }
 
 interface ReportsData {
+  taxYear: number;
+  estimateNotice: string;
   monthlyData: MonthlyData[];
   summary: {
     currentMonthTotal: number;
@@ -39,6 +47,7 @@ interface ReportsData {
     monthsWithData: number;
     yearToDateTotal: number;
     estimatedTaxSavingsFromMarkedDeductions: number;
+    deductionBasis: number;
   };
   /** Years that have transaction activity (for year selector); may be absent from older API */
   availableYears?: number[];
@@ -53,6 +62,7 @@ interface TransactionDetail {
   category: string;
   is_deductible: boolean;
   deduction_score?: number;
+  deductionBasis: number;
 }
 
 function formatLastSyncReport(ms: number): string {
@@ -70,8 +80,9 @@ function formatLastSyncReport(ms: number): string {
 }
 
 /** Transaction from API may have type, receipt_url (if API includes it) */
-interface ReportTransaction {
-  date: string;
+interface ReportTransaction extends Record<string, unknown>, ScopedRecord {
+  date?: string;
+  datetime?: string;
   amount: number;
   type?: 'expense' | 'income';
   is_deductible?: boolean | null;
@@ -83,6 +94,7 @@ interface MonthlyBreakdown {
   month: string;
   monthName: string;
   total: number;
+  deductionBasis: number;
   transactionCount: number;
   transactions: TransactionDetail[];
   categoryBreakdown: Record<string, number>;
@@ -97,7 +109,7 @@ export default function ReportsPage() {
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportFormat, setExportFormat] = useState<'PDF' | 'CSV'>('PDF');
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
-  const currentYear = new Date().getFullYear();
+  const currentYear = new Date().getUTCFullYear();
   const [chartYear, setChartYear] = useState(currentYear);
   const { toasts, removeToast } = useToasts();
   const [lastSync, setLastSync] = useState<number | null>(null);
@@ -144,6 +156,7 @@ export default function ReportsPage() {
   const {
     data: reportsResult,
     isLoading,
+    isFetching,
     error,
     refetch
   } = useMonthlyDeductions(user?.id || '', chartYear, !authLoading);
@@ -151,83 +164,31 @@ export default function ReportsPage() {
   const reportsData = reportsResult?.data as ReportsData | undefined;
 
   // Transactions for Paid/Received and receipts (existing API, no backend change)
-  const { data: transactionsResponse } = useTransactions(user?.id || '');
-  const allTransactions = (transactionsResponse?.transactions ?? transactionsResponse?.data ?? []) as ReportTransaction[];
+  const { data: transactionsResponse, isLoading: transactionsLoading, isFetching: transactionsFetching, error: transactionsError } = useTransactions(user?.id || '');
+  const allTransactions = useMemo(() => (transactionsResponse?.transactions ?? transactionsResponse?.data ?? []) as ReportTransaction[], [transactionsResponse]);
 
   // Memoized aggregates: per-month and summary for chart year (paid, received, deductible, receipts)
-  const { rate: taxRate, reviewMessage: taxReviewMessage } = getUserTaxRateDisplay(profile);
+  const { reviewMessage: taxReviewMessage } = getUserTaxRateDisplay(profile, chartYear);
   const transactionAggregates = useMemo(() => {
-    if (!allTransactions.length) {
-      return {
-        perMonth: [] as { paid: number; received: number; deductibleSavings: number; withReceipt: number; missingReceipt: number }[],
-        totalPaid: 0,
-        totalReceived: 0,
-        categorizedCount: 0,
-        totalCount: 0,
-        missingReceipts: 0,
-        hasReceiptField: false,
-        readyPct: 0
-      };
-    }
-    const yearStart = new Date(chartYear, 0, 1);
-    const yearEnd = new Date(chartYear, 11, 31, 23, 59, 59);
-    const inYear = allTransactions.filter((t) => {
-      const d = new Date(t.date);
-      return d >= yearStart && d <= yearEnd;
+    const today = new Date().toISOString().slice(0, 10);
+    const rows = allTransactions.filter(record => {
+      const date = exportDate(record.date ?? record.datetime);
+      return !date || chartYear !== currentYear || date <= today;
     });
-    const hasReceiptField = 'receipt_url' in (inYear[0] || {}) || 'receipt_filename' in (inYear[0] || {});
-    const perMonth = Array.from({ length: 12 }, () => ({
-      paid: 0,
-      received: 0,
-      deductibleSavings: 0,
-      withReceipt: 0,
-      missingReceipt: 0
-    }));
-    let totalPaid = 0;
-    let totalReceived = 0;
-    let categorizedCount = 0;
-    let missingReceipts = 0;
-
-    inYear.forEach((t) => {
-      const amount = Number(t.amount);
-      const abs = Math.abs(amount);
-      const isIncome = amount < 0 || t.type === 'income';
-      const month = new Date(t.date).getMonth();
-      if (isIncome) {
-        perMonth[month].received += abs;
-        totalReceived += abs;
-      } else {
-        perMonth[month].paid += abs;
-        totalPaid += abs;
-        if (t.is_deductible === true && taxRate !== null) {
-          perMonth[month].deductibleSavings += abs * taxRate;
-        }
-      }
-      if (t.is_deductible !== null && t.is_deductible !== undefined) categorizedCount++;
-      if (hasReceiptField) {
-        const hasReceipt = !!(t.receipt_url || t.receipt_filename);
-        if (hasReceipt) perMonth[month].withReceipt++;
-        else {
-          perMonth[month].missingReceipt++;
-          missingReceipts++;
-        }
-      }
-    });
-
-    const totalCount = inYear.length;
-    const readyPct = totalCount > 0 ? Math.round((categorizedCount / totalCount) * 100) : 0;
-
+    const cash = summarizeRecordedCashFlow(rows, chartYear);
+    const cashReviewMessage = transactionsError || transactionsLoading || transactionsFetching
+      ? 'Cash amounts are unavailable while transaction records are loading or need a retry.' : cash.reviewMessage;
+    const perMonth = cashReviewMessage ? [] : cash.months.map(month => ({ paid: month.expenses, received: month.income }));
+    const inYear = rows.filter(record => isCountableRecord(record) && exportDate(record.date ?? record.datetime)?.startsWith(`${chartYear}-`));
     return {
-      perMonth,
-      totalPaid,
-      totalReceived,
-      categorizedCount,
-      totalCount,
-      missingReceipts,
-      hasReceiptField,
-      readyPct
+      perMonth, inYear, cashReviewMessage,
+      totalPaid: cashReviewMessage ? null : perMonth.reduce((sum, month) => sum + month.paid, 0),
+      totalReceived: cashReviewMessage ? null : perMonth.reduce((sum, month) => sum + month.received, 0),
+      totalCount: inYear.length,
     };
-  }, [allTransactions, chartYear, taxRate]);
+  }, [allTransactions, chartYear, currentYear, transactionsError, transactionsLoading, transactionsFetching]);
+
+  useEffect(() => { setShowMonthlyModal(false); setSelectedMonth(null); }, [chartYear, reportsResult, transactionsResponse, isFetching]);
 
   // Calculate additional metrics
   const metrics = useMemo(() => {
@@ -236,10 +197,10 @@ export default function ReportsPage() {
     const { monthlyData, summary } = reportsData;
     const dataValues = monthlyData.map(m => m.total).filter(val => val > 0);
     const dataMax = Math.max(...dataValues, 0);
-    const currentMonth = new Date().getMonth();
+    const currentMonth = chartYear === currentYear ? new Date().getUTCMonth() : 11;
 
     // Find best and worst months
-    const monthsWithData = monthlyData.filter(m => m.total > 0);
+    const monthsWithData = monthlyData.filter(m => m.count > 0);
     const bestMonth = monthsWithData.reduce((best, current) =>
       current.total > best.total ? current : best, monthsWithData[0] || { monthName: 'N/A', total: 0 });
     const worstMonth = monthsWithData.reduce((worst, current) =>
@@ -257,7 +218,7 @@ export default function ReportsPage() {
 
     // Fix month-over-month change display
     const monthOverMonthChange = summary.monthOverMonthChange || 0;
-    const isPositiveChange = monthOverMonthChange >= 0;
+    const isPositiveChange = monthOverMonthChange > 0;
 
     return {
       dataMax,
@@ -270,7 +231,7 @@ export default function ReportsPage() {
       last3Avg,
       prev3Avg
     };
-  }, [reportsData]);
+  }, [reportsData, chartYear, currentYear]);
 
   // Years that have transaction activity (from API); fallback to current year while loading
   const availableYears = reportsData?.availableYears ?? [currentYear];
@@ -283,26 +244,37 @@ export default function ReportsPage() {
   }, [reportsData?.availableYears, chartYear]);
 
   // Function to handle monthly breakdown
-  const handleMonthClick = async (monthData: MonthlyData) => {
+  const handleMonthClick = (monthData: MonthlyData) => {
     try {
-      // Fetch detailed transactions for the selected month
-      const response = await fetch(`/api/transactions?month=${monthData.month}&year=${chartYear}`);
-      const { data: transactions } = await response.json();
-
-      // Filter for deductible transactions
-      const deductibleTransactions = transactions?.filter((t: TransactionDetail) => t.is_deductible === true) || [];
-
-      // Calculate category breakdown
+      if (transactionsError || transactionsLoading || transactionsFetching) throw new Error('Wait for transaction records to finish loading, then retry.');
+      const today = new Date().toISOString().slice(0, 10);
+      const confirmed = summarizeConfirmedDeductions(allTransactions.filter(record => {
+        const date = exportDate(record.date ?? record.datetime);
+        return !date || chartYear !== currentYear || date <= today;
+      }), chartYear);
+      if (confirmed.reviewMessage) throw new Error(confirmed.reviewMessage);
       const categoryBreakdown: Record<string, number> = {};
-      deductibleTransactions.forEach((transaction: TransactionDetail) => {
-        const category = transaction.category || 'Uncategorized';
-        categoryBreakdown[category] = (categoryBreakdown[category] || 0) + Math.abs(transaction.amount);
-      });
+      const deductibleTransactions: TransactionDetail[] = [];
+      for (const [transaction, contribution] of confirmed.contributions) {
+        const date = exportDate(transaction.date ?? transaction.datetime)!;
+        if (Number(date.slice(5, 7)) - 1 !== monthData.month) continue;
+        const category = typeof transaction.category === 'string' ? transaction.category : 'Uncategorized';
+        categoryBreakdown[category] = Math.round(((categoryBreakdown[category] || 0) + contribution) * 100) / 100;
+        deductibleTransactions.push({ id: String(transaction.trans_id ?? transaction.id ?? deductibleTransactions.length), date,
+          amount: transaction.amount, merchant_name: String(transaction.merchant_name ?? transaction.name ?? 'Unknown Merchant'),
+          category, is_deductible: true, deductionBasis: contribution });
+      }
+      const deductionBasis = Math.round(deductibleTransactions.reduce((sum, transaction) => sum + transaction.deductionBasis, 0) * 100) / 100;
+      if (deductibleTransactions.length !== monthData.count || deductionBasis !== monthData.deductionBasis) {
+        refetch();
+        throw new Error('Report and transaction records changed. Refreshing the estimate; retry the month when loading finishes.');
+      }
 
       const monthlyBreakdown: MonthlyBreakdown = {
         month: monthData.month.toString(),
         monthName: monthData.monthName,
         total: monthData.total,
+        deductionBasis,
         transactionCount: monthData.count,
         transactions: deductibleTransactions,
         categoryBreakdown
@@ -311,7 +283,7 @@ export default function ReportsPage() {
       setSelectedMonth(monthlyBreakdown);
       setShowMonthlyModal(true);
     } catch (error) {
-      console.error('Error fetching monthly breakdown:', error);
+      toast.error(error instanceof Error ? error.message : 'Could not prepare this month’s confirmed deductions.');
     }
   };
 
@@ -357,7 +329,7 @@ export default function ReportsPage() {
   };
 
   // Show loading state while auth is loading or data is fetching
-  if (authLoading || isLoading) {
+  if (authLoading || isLoading || isFetching) {
     return (
       <div className="p-4 sm:p-6 bg-background min-h-screen max-w-7xl mx-auto">
         <PageHeaderSkeleton />
@@ -380,7 +352,7 @@ export default function ReportsPage() {
       <div className="p-4 sm:p-6 bg-background min-h-screen max-w-7xl mx-auto">
         <div className="text-center py-12">
           <AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4" />
-          <h2 className="text-xl font-semibold text-foreground mb-2">{taxReviewMessage ? 'Review filing status' : 'Error Loading Reports'}</h2>
+          <h2 className="text-xl font-semibold text-foreground mb-2">{taxReviewMessage ? 'Review tax estimate inputs' : 'Error Loading Reports'}</h2>
           <p className="text-muted-foreground mb-4">
             {taxReviewMessage || (error instanceof Error ? error.message : 'Failed to load reports data')}
           </p>
@@ -452,7 +424,7 @@ export default function ReportsPage() {
 
   // Calculate dynamic Y-axis scaling
   const maxAmount = dataMax > 0 ? Math.ceil(dataMax * 1.2) : 100;
-  const hasData = monthlyData.some(m => m.total > 0);
+  const hasData = monthlyData.some(m => m.count > 0);
   const canExport = reportsData && reportsData.summary && reportsData.monthlyData && reportsData.monthlyData.length > 0;
 
   // Format Y-axis labels properly
@@ -465,9 +437,9 @@ export default function ReportsPage() {
   ];
 
   const { perMonth, totalPaid, totalReceived } = transactionAggregates;
-  const currentMonthIdx = new Date().getMonth();
+  const currentMonthIdx = chartYear === currentYear ? new Date().getUTCMonth() : 11;
   const thisMonthAgg = perMonth[currentMonthIdx];
-  const formatCur = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const formatCur = (n: number | null) => n === null ? 'Review needed' : n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 
   return (
     <div className="p-4 sm:p-6 bg-background min-h-screen overflow-x-hidden min-w-0 max-w-7xl mx-auto">
@@ -488,7 +460,7 @@ export default function ReportsPage() {
               )}
             </p>
           )}
-          <p className="text-xs sm:text-sm text-muted-foreground">Comprehensive tax deduction analysis and savings insights</p>
+          <p className="text-xs sm:text-sm text-muted-foreground">Confirmed deductions and income-tax planning approximations</p>
         </div>
         {/* Action Bar - Refresh (outline) + Schedule C (emerald accent) */}
         <div className="flex flex-wrap gap-2 sm:gap-3">
@@ -522,6 +494,11 @@ export default function ReportsPage() {
         </div>
       </div>
 
+      <p className="text-sm text-muted-foreground mb-4" role="note">{reportsData.estimateNotice}</p>
+      {transactionAggregates.cashReviewMessage && (
+        <p className="text-sm text-amber-700 dark:text-amber-300 mb-4" role="status">Paid/Received amounts need review: {transactionAggregates.cashReviewMessage}</p>
+      )}
+
       {/* KPI Summary Cards - semantic accents (2-3px left border + soft glow), no full fills; mobile 2-col then 1-col */}
       <div className="grid grid-cols-1 min-[480px]:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-5">
         {/* Year to Date - Savings: emerald accent */}
@@ -531,25 +508,25 @@ export default function ReportsPage() {
               <DollarSign className="w-4 h-4 text-[hsl(var(--success))]" />
             </div>
             <div className="flex items-center gap-1">
-              <span className="text-[10px] sm:text-xs text-muted-foreground/80 uppercase tracking-wide">YTD Tax Savings</span>
+              <span className="text-[10px] sm:text-xs text-muted-foreground/80 uppercase tracking-wide">{chartYear === currentYear ? 'YTD' : 'Annual'} Income-Tax Approx.</span>
               <KpiTooltip content={{
-                what: 'Total estimated tax dollars saved this year through confirmed deductions.',
-                how: 'Sum of all deductible transactions multiplied by your effective combined tax rate (income tax + SE tax). Based only on transactions you have confirmed as deductible.',
-                action: 'Review more transactions to increase this number. Unreviewed transactions may contain additional deductions.',
+                what: 'A planning approximation for confirmed transaction deductions in the selected year.',
+                how: 'Confirmed deduction amounts, net of refunds and meal limits, multiplied by your average federal income-tax rate. This is not a before-and-after tax calculation. It excludes SE tax, QBI, credits and state tax.',
+                action: 'Review transaction facts and the Tax Organizer before relying on a return estimate.',
                 irsRef: 'Based on IRS Schedule C Part II deductions',
               }} />
             </div>
           </div>
           <div className="text-xl sm:text-2xl font-bold text-foreground tabular-nums whitespace-nowrap overflow-hidden text-ellipsis">${summary.yearToDateTotal.toFixed(2)}</div>
           <div className="text-[10px] sm:text-xs text-muted-foreground/80 mt-0.5">
-            {summary.yearToDateTotal === 0 && totalPaid > 0
-              ? (analysisInProgress ? 'Calculating - analysis in progress' : 'No deductible expenses classified yet')
-              : 'Total tax savings'}
+            {monthlyData.some(month => month.count > 0)
+              ? `${formatCur(summary.deductionBasis)} confirmed deduction basis; approximation may be zero`
+              : 'No confirmed deduction records in this period'}
           </div>
           <div className="text-[10px] text-muted-foreground/75 mt-2 flex flex-wrap gap-x-2 gap-y-0.5">
-            <span>Paid: <span className="tabular-nums text-destructive/85">${formatCur(totalPaid)}</span></span>
+            <span>Paid: <span className="tabular-nums text-destructive/85">{formatCur(totalPaid)}</span></span>
             <span aria-hidden>·</span>
-            <span>Received: <span className="tabular-nums text-[hsl(var(--success))]">${formatCur(totalReceived)}</span></span>
+            <span>Received: <span className="tabular-nums text-[hsl(var(--success))]">{formatCur(totalReceived)}</span></span>
           </div>
         </Card>
 
@@ -557,20 +534,30 @@ export default function ReportsPage() {
         <Card
           className="p-4 sm:p-5 bg-card border border-border border-l-[3px] border-l-[hsl(var(--success)/0.7)] shadow-[0_0_0_1px_hsl(var(--success)/0.05),0_2px_6px_-2px_hsl(var(--success)/0.08)] rounded-xl cursor-pointer hover:shadow-[0_0_0_1px_hsl(var(--success)/0.1),0_4px_10px_-2px_hsl(var(--success)/0.12)] transition-all duration-150 no-tap-highlight min-h-[44px]"
           onClick={() => {
-            const currentMonth = monthlyData.find(m => m.month === new Date().getMonth());
-            if (currentMonth && currentMonth.total > 0) handleMonthClick(currentMonth);
+            const currentMonth = monthlyData.find(m => m.month === currentMonthIdx);
+            if (currentMonth && currentMonth.count > 0) handleMonthClick(currentMonth);
+          }}
+          role="button"
+          tabIndex={0}
+          aria-label={`Review ${monthlyData[currentMonthIdx]?.monthName ?? 'month'} income-tax approximation and deduction basis`}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              const month = monthlyData[currentMonthIdx];
+              if (month?.count > 0) handleMonthClick(month);
+            }
           }}
         >
           <div className="flex items-center justify-between mb-1">
             <div className="w-8 h-8 rounded-lg bg-[hsl(var(--success)/0.15)] flex items-center justify-center">
               <Calendar className="w-4 h-4 text-[hsl(var(--success))]" />
             </div>
-            <span className="text-[10px] sm:text-xs text-muted-foreground/80 uppercase tracking-wide">This Month</span>
+            <span className="text-[10px] sm:text-xs text-muted-foreground/80 uppercase tracking-wide">{chartYear === currentYear ? 'This Month' : 'December'} Approx.</span>
           </div>
           <div className="text-xl sm:text-2xl font-bold text-foreground tabular-nums whitespace-nowrap overflow-hidden text-ellipsis">${summary.currentMonthTotal.toFixed(2)}</div>
           <div className="text-[10px] sm:text-xs text-muted-foreground/80 mt-0.5">
-            {summary.currentMonthTotal === 0 && thisMonthAgg && (thisMonthAgg.paid > 0 || thisMonthAgg.received > 0)
-              ? (analysisInProgress ? 'Analysis in progress' : 'No deductible expenses yet')
+            {summary.currentMonthTotal === 0
+              ? (monthlyData[currentMonthIdx]?.count > 0 ? 'Confirmed deductions; $0 income-tax approximation' : 'No confirmed deduction records this month')
               : (
                 <span className="flex items-center gap-0.5">
                   {isPositiveChange ? <><ArrowUpRight className="w-3 h-3 text-[hsl(var(--success))]" /><span>{Math.abs(monthOverMonthChange).toFixed(1)}%</span></> : monthOverMonthChange !== 0 ? <><ArrowDownRight className="w-3 h-3 text-destructive/80" /><span>{Math.abs(monthOverMonthChange).toFixed(1)}%</span></> : <span>No change</span>}
@@ -580,19 +567,19 @@ export default function ReportsPage() {
           </div>
           {thisMonthAgg && (thisMonthAgg.paid > 0 || thisMonthAgg.received > 0) && (
             <div className="text-[10px] text-muted-foreground/75 mt-2 flex flex-wrap gap-x-2 gap-y-0.5">
-              <span>Paid: <span className="tabular-nums text-destructive/85">${formatCur(thisMonthAgg.paid)}</span></span>
+              <span>Paid: <span className="tabular-nums text-destructive/85">{formatCur(thisMonthAgg.paid)}</span></span>
               <span aria-hidden>·</span>
-              <span>Received: <span className="tabular-nums text-[hsl(var(--success))]">${formatCur(thisMonthAgg.received)}</span></span>
+              <span>Received: <span className="tabular-nums text-[hsl(var(--success))]">{formatCur(thisMonthAgg.received)}</span></span>
             </div>
           )}
         </Card>
 
         {/* Deduction Capture Rate */}
         {(() => {
-          const reviewed = allTransactions.filter((t: any) => t.is_deductible === true || t.is_deductible === false);
-          const deductible = reviewed.filter((t: any) => t.is_deductible === true);
+          const reviewed = transactionAggregates.inYear.filter(t => isServerConfirmedDeduction(t) || t.is_deductible === false);
+          const deductible = reviewed.filter(t => isServerConfirmedDeduction(t));
           const rate = reviewed.length > 0 ? Math.round((deductible.length / reviewed.length) * 100) : 0;
-          const unreviewed = allTransactions.filter((t: any) => t.is_deductible === null || t.is_deductible === undefined);
+          const unreviewed = transactionAggregates.inYear.filter(t => !isServerConfirmedDeduction(t) && t.is_deductible !== false);
           return (
             <Card className="p-4 sm:p-5 bg-card border border-border border-l-[3px] border-l-violet-500/70 rounded-xl overflow-hidden">
               <div className="flex items-center justify-between mb-1">
@@ -605,13 +592,13 @@ export default function ReportsPage() {
                   <span className="text-[10px] sm:text-xs text-muted-foreground/80 uppercase tracking-wide">Capture Rate</span>
                   <KpiTooltip content={{
                     what: 'What percentage of your reviewed transactions are deductible.',
-                    how: 'Confirmed deductible divided by total reviewed (yes + no). Does not include unreviewed transactions. A typical freelancer deducts 40-65% of reviewed spending.',
+                    how: 'Confirmed deductible record count divided by reviewed records in the selected year. This is a record count, not a percentage of spending.',
                     action: unreviewed.length > 0 ? `You have ${unreviewed.length} unreviewed transactions. Review them to improve accuracy.` : 'All transactions reviewed. Good work.',
                     irsRef: 'IRS Schedule C Part II',
                   }} />
                 </div>
               </div>
-              <div className="text-xl sm:text-2xl font-bold text-foreground tabular-nums">{rate > 0 ? `${rate}%` : '--'}</div>
+              <div className="text-xl sm:text-2xl font-bold text-foreground tabular-nums">{reviewed.length > 0 ? `${rate}%` : '--'}</div>
               <div className="text-[10px] sm:text-xs text-muted-foreground/80 mt-0.5">{deductible.length} of {reviewed.length} reviewed</div>
               {unreviewed.length > 0 && (
                 <div className="text-[10px] text-orange-500 mt-1">{unreviewed.length} unreviewed</div>
@@ -627,10 +614,10 @@ export default function ReportsPage() {
               <Target className="w-4 h-4 text-primary" />
             </div>
             <div className="flex items-center gap-1">
-              <span className="text-[10px] sm:text-xs text-muted-foreground/80 uppercase tracking-wide">Projected Annual</span>
+              <span className="text-[10px] sm:text-xs text-muted-foreground/80 uppercase tracking-wide">Annualized Approx.</span>
               <KpiTooltip content={{
-                what: 'Your estimated tax savings for the full year if your current rate continues.',
-                how: 'Year-to-date savings divided by months with data, multiplied by 12. Requires at least 3 months of data to be meaningful.',
+                what: 'An illustration of the income-tax approximation at the average monthly deduction pace.',
+                how: 'The approximation divided by months containing confirmed deduction records, multiplied by 12. This is not a tax forecast or a payment target.',
                 action: 'If this is lower than expected, review unconfirmed transactions or check that your income is entered correctly.',
                 irsRef: 'Based on current deduction run rate',
               }} />
@@ -639,12 +626,12 @@ export default function ReportsPage() {
           <div className="text-xl sm:text-2xl font-bold text-foreground tabular-nums whitespace-nowrap overflow-hidden text-ellipsis">${projectedAnnual.toFixed(2)}</div>
           <div className="text-[10px] sm:text-xs text-muted-foreground/80 mt-0.5">
             <span className="sm:hidden">Yearly</span>
-            <span className="hidden sm:inline">Based on {summary.monthsWithData} month{summary.monthsWithData !== 1 ? 's' : ''} of data{summary.monthsWithData < 3 ? ' (needs 3+ for accuracy)' : ''}</span>
+            <span className="hidden sm:inline">Illustration from {summary.monthsWithData} active month{summary.monthsWithData !== 1 ? 's' : ''}</span>
           </div>
           <div className="text-[10px] text-muted-foreground/75 mt-2 flex flex-wrap gap-x-2 gap-y-0.5">
-            <span>Paid: <span className="tabular-nums text-destructive/85">${formatCur(totalPaid)}</span></span>
+            <span>Paid: <span className="tabular-nums text-destructive/85">{formatCur(totalPaid)}</span></span>
             <span aria-hidden>·</span>
-            <span>Received: <span className="tabular-nums text-[hsl(var(--success))]">${formatCur(totalReceived)}</span></span>
+            <span>Received: <span className="tabular-nums text-[hsl(var(--success))]">{formatCur(totalReceived)}</span></span>
           </div>
         </Card>
       </div>
@@ -655,8 +642,8 @@ export default function ReportsPage() {
         <Card className="relative p-4 sm:p-6 bg-card border border-border shadow-[0_2px_12px_-4px_rgba(0,0,0,0.08)] dark:shadow-[0_2px_12px_-4px_rgba(0,0,0,0.25)] rounded-xl overflow-hidden">
           <div className="flex flex-col gap-4 mb-5">
             <div className="min-w-0">
-              <h2 className="text-lg sm:text-xl font-semibold text-foreground mb-0.5">Monthly Tax Savings Trend</h2>
-              <p className="text-sm text-muted-foreground">Click on any bar to see detailed breakdown</p>
+              <h2 className="text-lg sm:text-xl font-semibold text-foreground mb-0.5">Monthly Income-Tax Approximation</h2>
+              <p className="text-sm text-muted-foreground">Select a month to review its confirmed deduction basis. Negative amounts reflect net expense refunds.</p>
             </div>
             {/* Year + legend: mobile stack year under title, full-width year */}
             <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
@@ -671,7 +658,7 @@ export default function ReportsPage() {
                 </span>
                 <span className="flex items-center gap-1.5">
                   <span className="rounded-full w-2 h-2 bg-primary" aria-hidden />
-                  Tax Savings
+                  Income-tax approximation
                 </span>
               </div>
               <div className="flex items-center gap-3 flex-wrap">
@@ -712,7 +699,7 @@ export default function ReportsPage() {
                     <p className="text-muted-foreground mb-2 text-lg font-medium">Analysis in progress</p>
                     <p className="text-sm text-muted-foreground/70 max-w-md mx-auto">
                       Your {diag?.expensesInYear ?? ''} transactions are being analyzed.
-                      Tax savings will appear once classification completes.
+                      Confirmed deduction records will appear after review; the approximation may still be zero.
                     </p>
                   </>
                 );
@@ -739,9 +726,9 @@ export default function ReportsPage() {
               if (hasExpenses) {
                 return (
                   <>
-                    <p className="text-muted-foreground mb-2 text-lg font-medium">No deductible expenses found</p>
+                    <p className="text-muted-foreground mb-2 text-lg font-medium">No confirmed deduction records</p>
                     <p className="text-sm text-muted-foreground/70 max-w-md mx-auto">
-                      You have {diag?.expensesInYear ?? transactionAggregates.totalCount} transactions in {chartYear}, but none are marked as deductible.
+                      You have {diag?.expensesInYear ?? transactionAggregates.totalCount} transactions in {chartYear}, but none enter the confirmed deduction total.
                       Review and classify your business expenses.
                     </p>
                     <Button
@@ -759,7 +746,7 @@ export default function ReportsPage() {
                 <>
                   <p className="text-muted-foreground mb-2 text-lg font-medium">No transaction data for {chartYear}</p>
                   <p className="text-sm text-muted-foreground/70 max-w-md mx-auto">
-                    Import and analyze your transactions to see your tax savings breakdown by month.
+                    Import and review your transactions to see confirmed deductions by month.
                   </p>
                 </>
               );
@@ -820,8 +807,8 @@ export default function ReportsPage() {
                     <div className="relative h-full flex items-end justify-between gap-1.5 px-2">
                       {monthlyData.map((month) => {
                         const barHeight = month.total > 0 ? Math.max((month.total / maxAmount) * 100, 2) : 0;
-                        const isCurrentMonth = month.month === new Date().getMonth();
-                        const isClickable = month.total > 0;
+                        const isCurrentMonth = chartYear === currentYear && month.month === new Date().getUTCMonth();
+                        const isClickable = month.count > 0;
                         const agg = perMonth[month.month];
 
                         return (
@@ -845,17 +832,17 @@ export default function ReportsPage() {
                                 onClick={() => isClickable && handleMonthClick(month)}
                                 role="button"
                                 tabIndex={isClickable ? 0 : -1}
-                                aria-label={`${month.monthName}: tax savings $${month.total.toFixed(2)}. Click for breakdown.`}
+                                aria-label={`${month.monthName}: income-tax approximation $${month.total.toFixed(2)}. Click for breakdown.`}
                                 onKeyDown={(e) => isClickable && (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), handleMonthClick(month))}
                               >
                                 {/* Tooltip - glass, never off-screen */}
                                 <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-popover/95 backdrop-blur-sm border border-border text-popover-foreground text-xs rounded-xl shadow-xl opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-200 pointer-events-none z-20 min-w-[140px] max-w-[min(200px,90vw)]">
                                   <div className="font-semibold">{month.monthName}</div>
-                                  <div className="text-primary font-bold tabular-nums">${month.total.toFixed(2)} <span className="text-muted-foreground font-normal text-[10px]">savings</span></div>
+                                  <div className="text-primary font-bold tabular-nums">${month.total.toFixed(2)} <span className="text-muted-foreground font-normal text-[10px]">approximation</span></div>
                                   {agg && (agg.paid > 0 || agg.received > 0) && (
                                     <div className="mt-1 space-y-0.5 text-[10px]">
-                                      <div className="text-destructive/90 tabular-nums">Paid: ${formatCur(agg.paid)}</div>
-                                      <div className="text-[hsl(var(--success))] tabular-nums">Received: ${formatCur(agg.received)}</div>
+                                      <div className="text-destructive/90 tabular-nums">Paid: {formatCur(agg.paid)}</div>
+                                      <div className="text-[hsl(var(--success))] tabular-nums">Received: {formatCur(agg.received)}</div>
                                     </div>
                                   )}
                                   <div className="text-muted-foreground text-[10px] mt-0.5">{month.count} transactions</div>
@@ -863,7 +850,9 @@ export default function ReportsPage() {
                                 </div>
                               </div>
                             ) : (
-                              <div className="w-full max-w-[44px] mx-auto h-1 bg-transparent" />
+                              month.count > 0 ? <button className="text-xs text-primary underline" onClick={() => handleMonthClick(month)}
+                                aria-label={`${month.monthName}: income-tax approximation ${formatCur(month.total)}. Review deductions.`}>{formatCur(month.total)}</button>
+                                : <div className="w-full max-w-[44px] mx-auto h-1 bg-transparent" />
                             )}
                           </div>
                         );
@@ -940,8 +929,8 @@ export default function ReportsPage() {
                   <div className="relative h-full flex items-end justify-between gap-1 px-1">
                     {monthlyData.map((month) => {
                       const barHeight = month.total > 0 ? Math.max((month.total / maxAmount) * 100, 2) : 0;
-                      const isCurrentMonth = month.month === new Date().getMonth();
-                      const isClickable = month.total > 0;
+                      const isCurrentMonth = chartYear === currentYear && month.month === new Date().getUTCMonth();
+                      const isClickable = month.count > 0;
                       const agg = perMonth[month.month];
 
                       return (
@@ -964,18 +953,18 @@ export default function ReportsPage() {
                             onClick={() => isClickable && handleMonthClick(month)}
                             role={isClickable ? 'button' : undefined}
                             tabIndex={isClickable ? 0 : undefined}
-                            aria-label={isClickable ? `${month.monthName}: $${month.total.toFixed(2)} savings. Tap for breakdown.` : undefined}
+                            aria-label={isClickable ? `${month.monthName}: $${month.total.toFixed(2)} income-tax approximation. Tap for breakdown.` : undefined}
                             onKeyDown={isClickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleMonthClick(month); } } : undefined}
                           >
                             {/* Tooltip */}
                             {month.total > 0 && (
                               <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1.5 bg-popover/95 backdrop-blur-sm border border-border text-popover-foreground text-xs rounded-xl shadow-xl opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-200 pointer-events-none z-20 min-w-[120px] max-w-[min(180px,90vw)]">
                                 <div className="font-semibold">{month.monthName}</div>
-                                <div className="text-primary font-bold tabular-nums">${month.total.toFixed(2)} savings</div>
+                                <div className="text-primary font-bold tabular-nums">${month.total.toFixed(2)} approximation</div>
                                 {agg && (agg.paid > 0 || agg.received > 0) && (
                                   <div className="mt-1 space-y-0.5 text-[10px]">
-                                    <div className="text-destructive/90 tabular-nums">Paid: ${formatCur(agg.paid)}</div>
-                                    <div className="text-[hsl(var(--success))] tabular-nums">Received: ${formatCur(agg.received)}</div>
+                                    <div className="text-destructive/90 tabular-nums">Paid: {formatCur(agg.paid)}</div>
+                                    <div className="text-[hsl(var(--success))] tabular-nums">Received: {formatCur(agg.received)}</div>
                                   </div>
                                 )}
                                 <div className="text-muted-foreground text-[10px]">{month.count} txns</div>
@@ -984,6 +973,8 @@ export default function ReportsPage() {
                           </div>
 
                           {/* Month label */}
+                          {month.count > 0 && month.total <= 0 && <button className="text-xs text-primary underline" onClick={() => handleMonthClick(month)}
+                            aria-label={`${month.monthName}: income-tax approximation ${formatCur(month.total)}. Review deductions.`}>{formatCur(month.total)}</button>}
                           <div className="mt-1.5 text-[10px] text-card-foreground font-medium text-center w-full truncate">
                             {month.monthName.substring(0, 3)}
                           </div>
@@ -1003,9 +994,9 @@ export default function ReportsPage() {
                     <TrendingUp className="w-5 h-5 text-[hsl(var(--success))]" />
                   </div>
                   <div className="min-w-0">
-                    <div className="text-xs text-muted-foreground uppercase tracking-wide">Highest Deduction Month</div>
+                    <div className="text-xs text-muted-foreground uppercase tracking-wide">Highest Approximation</div>
                     <div className="font-semibold text-foreground">{bestMonth.monthName}</div>
-                    <div className="text-sm font-medium text-[hsl(var(--success))] tabular-nums">${bestMonth.total.toFixed(0)} in deductions</div>
+                    <div className="text-sm font-medium text-[hsl(var(--success))] tabular-nums">${bestMonth.total.toFixed(0)} income-tax approximation</div>
                   </div>
                 </div>
                 <div className="flex items-center gap-3 p-4 bg-card rounded-xl border border-border shadow-sm">
@@ -1048,13 +1039,15 @@ export default function ReportsPage() {
             </div>
 
             <div className="p-6">
+              <p className="text-sm text-muted-foreground mb-3">{reportsData.estimateNotice}</p>
+              <p className="text-sm font-medium mb-4">Confirmed deduction basis: {formatCur(selectedMonth.deductionBasis)}. Meals use the allowed share; refunds reduce the signed total.</p>
               {/* Summary Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
                 <div className="text-center p-5 bg-blue-500/10 dark:bg-blue-500/20 rounded-lg border border-blue-500/20">
                   <div className="text-3xl font-bold text-blue-600 dark:text-blue-400 mb-1 tabular-nums">
                     ${selectedMonth.total.toFixed(2)}
                   </div>
-                  <div className="text-sm text-muted-foreground font-medium">Tax Savings (Deductible)</div>
+                  <div className="text-sm text-muted-foreground font-medium">Income-Tax Approximation</div>
                 </div>
                 <div className="text-center p-5 bg-green-500/10 dark:bg-green-500/20 rounded-lg border border-green-500/20">
                   <div className="text-3xl font-bold text-green-600 dark:text-green-400 mb-1">
@@ -1075,8 +1068,8 @@ export default function ReportsPage() {
                 if (modalAgg && (modalAgg.paid > 0 || modalAgg.received > 0)) {
                   return (
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-6 text-sm text-muted-foreground">
-                      <span>Paid: <span className="tabular-nums font-medium text-red-600 dark:text-red-400">${formatCur(modalAgg.paid)}</span></span>
-                      <span>Received: <span className="tabular-nums font-medium text-green-600 dark:text-green-400">${formatCur(modalAgg.received)}</span></span>
+                      <span>Paid: <span className="tabular-nums font-medium text-red-600 dark:text-red-400">{formatCur(modalAgg.paid)}</span></span>
+                      <span>Received: <span className="tabular-nums font-medium text-green-600 dark:text-green-400">{formatCur(modalAgg.received)}</span></span>
                     </div>
                   );
                 }
@@ -1085,7 +1078,7 @@ export default function ReportsPage() {
 
               {/* Category Breakdown */}
               <div className="mb-6">
-                <h3 className="text-lg font-semibold text-card-foreground mb-4">Category Breakdown</h3>
+                <h3 className="text-lg font-semibold text-card-foreground mb-4">Confirmed Deduction Basis by Category</h3>
                 <div className="space-y-2">
                   {Object.entries(selectedMonth.categoryBreakdown)
                     .sort(([,a], [,b]) => b - a)
@@ -1107,10 +1100,11 @@ export default function ReportsPage() {
                       <div className="flex-1">
                         <div className="font-medium text-card-foreground">{transaction.merchant_name || 'Unknown Merchant'}</div>
                         <div className="text-sm text-muted-foreground">{transaction.category?.replace(/_/g, ' ') || 'Uncategorized'}</div>
-                        <div className="text-xs text-muted-foreground/70">{new Date(transaction.date).toLocaleDateString()}</div>
+                        <div className="text-xs text-muted-foreground/70">{transaction.date}</div>
                       </div>
                       <div className="text-right ml-4">
-                        <div className="font-semibold text-green-600 dark:text-green-400 text-lg">${Math.abs(transaction.amount).toFixed(2)}</div>
+                        <div className="font-semibold text-green-600 dark:text-green-400 text-lg">{formatCur(transaction.deductionBasis)}</div>
+                        <div className="text-xs text-muted-foreground">Deduction basis · recorded {formatCur(transaction.amount)}</div>
                         {transaction.deduction_score && (
                           <div className="text-xs text-muted-foreground">Score: {transaction.deduction_score}%</div>
                         )}

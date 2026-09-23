@@ -37,7 +37,7 @@ describe('state registry sanity', () => {
         expect(source.note.length, source.url).toBeGreaterThan(20);
       }
       expect(found.sources.some(source => /20(25|26)|2021|1980/.test(source.note)), `${stateCode} ${taxYear} note lacks an effective year`).toBe(true);
-      expect(found.reviewedAt).toBe('2026-09-17');
+      expect(found.reviewedAt).toBe(stateCode === 'GA' && taxYear === 2026 ? '2026-09-23' : '2026-09-17');
       expect(Array.isArray(found.unmodeled)).toBe(true);
       expect(found.stateCode).toBe(stateCode); expect(found.taxYear).toBe(taxYear);
     }
@@ -92,7 +92,8 @@ describe('state registry sanity', () => {
     expect(flat('GA', 2025).rate).toBe(0.0519); expect(flat('GA', 2026).rate).toBe(0.0499);
     expect(flat('GA', 2025).standardDeduction).toMatchObject({ single: 12000, married_filing_jointly: 24000, married_filing_separately: 12000, head_of_household: 12000 });
     expect(flat('GA', 2026).standardDeduction).toMatchObject({ single: 15000, married_filing_jointly: 30000, married_filing_separately: 15000, head_of_household: 15000 });
-    expect(flat('GA', 2025).dependentExemption).toBe(4000); expect(flat('GA', 2026).dependentExemption).toBeUndefined();
+    expect(flat('GA', 2025).dependentExemption).toBe(4000); expect(flat('GA', 2026).dependentExemption).toBe(5000);
+    expect(flat('GA', 2026).sources.map(source => source.url)).toContain('https://gov.georgia.gov/document/2026-signed-legislation/hb-463/download');
     // The 2025 IT-511 booklet lives under /document/document/; the older /document/booklet/ path is a 404.
     expect(flat('GA', 2025).sources.map(source => source.url)).toContain('https://dor.georgia.gov/document/document/2025-it-511-individual-income-tax-booklet/download');
     expect(flat('GA', 2026).sources.map(source => source.url)).toContain('https://dor.georgia.gov/document/document/2025-it-511-individual-income-tax-booklet/download');

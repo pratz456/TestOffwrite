@@ -95,7 +95,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
       const income = tax1040.income;
       if (Number(tax1040.taxYear) !== Number(year) || ![
         federalEstimate?.totalIncome, federalEstimate?.totalTax, federalEstimate?.balanceDue, federalEstimate?.refund,
-        income?.grossReceipts, income?.income1099, income?.scheduleCNetProfit, income?.totalDeductible, income?.w2Wages,
+        income?.grossReceipts, income?.income1099, income?.scheduleCLine31NetProfit, income?.totalDeductible, income?.w2Wages,
         tax1040.seCalc?.totalSETax, tax1040.w2?.withheld, tax1040.payments?.estimatedPayments,
       ].every(value => typeof value === "number" && Number.isFinite(value))) {
         throw new Error("The federal estimate is incomplete or belongs to another year. Open Tax Preview to retry.");
@@ -105,7 +105,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
       setCalculationWarnings(federalEstimate.calculationWarnings);
 
       const totalExpenses = income.totalDeductible;
-      const netProfit = income.scheduleCNetProfit;
+      const netProfit = income.scheduleCLine31NetProfit;
       const seTax = tax1040.seCalc.totalSETax;
 
       setSummary({

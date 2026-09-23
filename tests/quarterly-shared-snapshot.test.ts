@@ -16,7 +16,7 @@ import { POST as legacy } from '../app/api/tax/quarterly-estimates/route';
 import { POST as voucher } from '../app/api/tax/generate-1040es/route';
 const req = (year = 2026) => new NextRequest(`http://localhost/api/tax/quarterly-reminders?year=${year}`);
 const post = (body: unknown) => new NextRequest('http://localhost/api/tax/quarterly-estimates', { method: 'POST', body: JSON.stringify(body) });
-beforeEach(() => { state.uid = 'quarterly-owner'; state.error = null; state.records = { tax_organizers: [reviewedPersonalDeductionOrganizer()] }; state.tx = [{ amount: -100000, date: '2026-02-01', category: 'income' }, { amount: 1000, date: '2026-02-01', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', is_deductible: true }]; });
+beforeEach(() => { state.uid = 'quarterly-owner'; state.error = null; state.records = { tax_organizers: [reviewedPersonalDeductionOrganizer()] }; state.tx = [{ iso_currency_code: 'USD', amount: -100000, date: '2026-02-01', category: 'income' }, { iso_currency_code: 'USD', amount: 1000, date: '2026-02-01', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', is_deductible: true }]; });
 
 describe('quarterly summary uses the shared saved-record annual engine', () => {
   it('matches annual JSON tax including QBI and records payments without claiming an installment is paid', async () => {

@@ -1,3 +1,5 @@
+import { TaxCalculationScopeReviewRequiredError } from '@/lib/tax-rules/calculation-scope';
+import { QBIReviewRequiredError } from '@/lib/tax-rules/qbi';
 import { requireFeatureAccess } from '@/lib/subscriptions/feature-access';
 import { IDENTIFIER_PROVIDED_SEPARATELY, maskOrganizerIdentifier } from '@/lib/tax-organizer/identifiers';
 import { readOrganizerDocument } from '@/lib/tax-organizer/organizer-server';
@@ -474,8 +476,8 @@ export async function POST(request: NextRequest) {
     });
   } catch (err) {
     if (err instanceof IncomeReconciliationRequiredError) return NextResponse.json(incomeReconciliationReviewBody(err, requestedYear), { status: 422 });
-    if (err instanceof ExportReviewRequiredError || err instanceof IncomeReconciliationRequiredError || err instanceof FilingStatusReviewRequiredError || err instanceof SocialSecurityReviewRequiredError || err instanceof PersonalDeductionReviewRequiredError || err instanceof DependentCreditReviewRequiredError
-      || err instanceof CapitalGainReviewRequiredError || err instanceof BusinessLossReviewRequiredError || err instanceof OBBBADeductionReviewRequiredError) return NextResponse.json({ error: err.message, code: err.code }, { status: 422 });
+    if (err instanceof ExportReviewRequiredError || err instanceof IncomeReconciliationRequiredError || err instanceof TaxCalculationScopeReviewRequiredError || err instanceof FilingStatusReviewRequiredError || err instanceof SocialSecurityReviewRequiredError || err instanceof PersonalDeductionReviewRequiredError || err instanceof DependentCreditReviewRequiredError
+      || err instanceof CapitalGainReviewRequiredError || err instanceof BusinessLossReviewRequiredError || err instanceof OBBBADeductionReviewRequiredError || err instanceof QBIReviewRequiredError) return NextResponse.json({ error: err.message, code: err.code }, { status: 422 });
     const reviewCode = scheduleCReviewCode(err);
     if (reviewCode) return NextResponse.json({ error: err instanceof Error ? err.message : 'Schedule C records need review', code: reviewCode }, { status: 422 });
     if (err instanceof ExportDataUnavailableError) return NextResponse.json({ error: err.message, code: err.code }, { status: 503 });

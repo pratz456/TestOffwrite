@@ -108,7 +108,7 @@ describe('capital-gain character through the routes', () => {
 
 describe('Schedule C loss through the routes', () => {
   beforeEach(() => {
-    state.tx = [{ amount: 9000, date: '2026-03-01', category: 'office_expense', is_deductible: true }];
+    state.tx = [{ iso_currency_code: 'USD', amount: 9000, date: '2026-03-01', category: 'office_expense', is_deductible: true }];
     state.records.gross_receipts = [{ userId: 'tier1-owner', taxYear: 2026, amount: 4000 }];
   });
 

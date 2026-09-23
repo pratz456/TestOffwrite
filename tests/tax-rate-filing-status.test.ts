@@ -7,7 +7,7 @@ import { FilingStatusReviewRequiredError } from '../lib/tax-rules/filing-status'
 const fixture = vi.hoisted(() => ({ status: 'Single', income: 100000 }));
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({ user: { uid: 'synthetic' }, error: null }) }));
 vi.mock('@/lib/firebase/profiles-server', () => ({ getUserProfileServer: async () => ({ data: { income: fixture.income, filing_status: fixture.status }, error: null }) }));
-vi.mock('@/lib/firebase/transactions-server', () => ({ getTransactionsServer: async () => ({ data: [{ id: 'expense', amount: 1000, date: '2026-09-01', is_deductible: true }], error: null }) }));
+vi.mock('@/lib/firebase/transactions-server', () => ({ getTransactionsServer: async () => ({ data: [{ id: 'expense', amount: 1000, date: '2026-09-01', iso_currency_code: 'USD', is_deductible: true }], error: null }) }));
 vi.mock('@/lib/reports/export-records', () => ({ readOwnedTransactions: async () => [{ amount: -100000, date: '2026-09-01', iso_currency_code: 'USD' }] }));
 vi.mock('@/lib/subscriptions/feature-access', () => ({ requireFeatureAccess: async () => null }));
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collection: (path: string) => ({ get: async () => ({ docs: path.endsWith('/accounts') ? [{ id: 'manual' }] : [{ data: () => ({ amount: -100000, category: 'income', date: '2026-09-01' }) }] }) }) } }));

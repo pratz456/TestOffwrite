@@ -6,6 +6,7 @@ import { Calculator, DollarSign, Info, ArrowRight } from "lucide-react";
 import { LandingHeader } from "@/components/landing/landing-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { assertWageOwnershipScope } from "@/lib/tax-rules/calculation-scope";
 import { calcScheduleSE } from "@/lib/reports/calcSE";
 import {
   additionalMedicareThreshold,
@@ -37,21 +38,22 @@ export function SETaxCalculatorClient() {
   const [filingStatus, setFilingStatus] = useState("single");
   const [w2Wages, setW2Wages] = useState("");
 
-  const parsedProfit = parseFloat(netProfit.replace(/[,$]/g, "")) || 0;
-  const parsedW2 = parseFloat(w2Wages.replace(/[,$]/g, "")) || 0;
+  const parsedProfit = Number(netProfit.replace(/[,$\s]/g, ""));
+  const parsedW2 = Number(w2Wages.replace(/[,$\s]/g, ""));
   const wageBase = socialSecurityWageBase(taxYear);
   const medicareThreshold = additionalMedicareThreshold(filingStatus);
 
-  const calculation = useMemo(() => {
-    if (parsedProfit <= 0) return null;
-    // W-2 wages count against both the Social Security wage base and the Additional Medicare threshold.
-    return calcScheduleSE(
-      { scheduleCNetProfit: parsedProfit, taxYear },
-      filingStatus,
-      parsedW2,
-      parsedW2
-    );
+  const outcome = useMemo(() => {
+    try {
+      if (![parsedProfit, parsedW2].every(value => Number.isFinite(value) && value >= 0)) throw new Error('Enter valid nonnegative profit and wages.');
+      if (parsedProfit === 0) return { value: null, error: null };
+      assertWageOwnershipScope(filingStatus, parsedProfit, parsedW2);
+      return { value: calcScheduleSE({ scheduleCNetProfit: parsedProfit, taxYear }, filingStatus, parsedW2, parsedW2), error: null };
+    } catch (error) {
+      return { value: null, error: error instanceof Error ? error.message : 'This calculation requires review.' };
+    }
   }, [parsedProfit, filingStatus, parsedW2, taxYear]);
+  const calculation = outcome.value;
 
   const handleYearChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
     const next = Number(event.target.value);
@@ -174,7 +176,7 @@ export function SETaxCalculatorClient() {
 
           {/* Results */}
           <div className="space-y-6">
-            {calculation && calculation.totalSETax > 0 ? (
+            {outcome.error ? <Card><CardContent className="pt-6"><p role="alert" className="text-sm text-destructive">{outcome.error}</p></CardContent></Card> : calculation ? (
               <>
                 {/* Total SE Tax */}
                 <Card className="border-green-200 bg-green-50/50">

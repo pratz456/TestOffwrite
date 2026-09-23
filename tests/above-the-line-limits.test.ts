@@ -15,13 +15,14 @@ describe('statutory above-the-line limits in the federal planning estimate', () 
     expect(result.adjustments).toBe(1413 + 4000 + 14587);
     expect(result.agi).toBe(0);
     expect(result.calculationWarnings.join(' ')).toContain('health insurance deduction is limited');
-    const within = compute1040({ ...base, healthInsurancePremiums: 5000 });
+    // Keep the ordinary QBI deduction above the separate 2026 minimum-QBI review boundary.
+    const within = compute1040({ ...base, otherIncome: 10000, healthInsurancePremiums: 5000 });
     expect(within.adjustments).toBe(1413 + 5000);
     expect(within.calculationWarnings.join(' ')).not.toContain('health insurance deduction is limited');
   });
 
   it('caps student loan interest at $2,500 and denies it when married filing separately', () => {
-    const capped = compute1040({ ...base, studentLoanInterest: 4000 });
+    const capped = compute1040({ ...base, otherIncome: 10000, studentLoanInterest: 4000 });
     expect(capped.adjustments).toBe(1413 + 2500);
     expect(capped.calculationWarnings.join(' ')).toContain('limited to $2,500');
     expect(capped.calculationWarnings.join(' ')).toContain('qualified education loan');

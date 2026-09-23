@@ -56,6 +56,7 @@ import TransactionsPage from '../app/protected/transactions/page';
 import { AddManualTransactionScreen } from '../components/add-manual-transaction-screen';
 import { SyncStatusIndicator } from '../components/sync-status-indicator';
 import { TransactionDetailScreen } from '../components/transaction-detail-screen';
+import { ExplanationCard } from '../components/ai/explanation-card';
 import { AddExpenseScreen } from '../components/add-expense-screen';
 import { requestAppNavigation } from '../lib/navigation/navigation-guard';
 
@@ -243,6 +244,34 @@ describe('transaction detail preserves manual work without guessed tax impact or
   }
   const action = (page: Element, label: string) => walk(page).find(node => typeof node.props.onClick === 'function' && text(node).trim() === label)!;
   const analyzed = () => Response.json({ success: true, analysis: { deductionStatus: 'Possibly Deductible', reasoning: 'Review the saved business purpose.', confidence: 0.7, updatedAt: '2026-09-16T12:00:00Z' } });
+
+  it('replaces the displayed explanation after saving purpose and rerunning AI, without confirming the deduction', async () => {
+    const stale: NonNullable<DetailTransaction['ai_explanation']> = { headline: 'Confirm the business purpose', why: 'The bank record alone does not establish a business use.', yourFacts: [], scheduleCLine: null, estimatedTaxEffect: null, strengthen: ['Save the purpose'], nextQuestion: 'What was this for?' };
+    const fresh = { ...stale, headline: 'Client design supplies', why: 'These supplies support the documented client design work.', yourFacts: ['Purpose: Client design supplies'], scheduleCLine: 'Schedule C line 22 (Supplies)', strengthen: ['Keep the itemized receipt'], nextQuestion: null };
+    const freshSuggestion = { ...categorySuggestion, id: 'fresh-suggestion', status: 'ok' as const, category: 'supplies_small_tools' as const, isDeductible: true, deductiblePercent: 100, questions: [] };
+    const changes = { is_deductible: null, ai_explanation: stale, ai_suggestion: categorySuggestion };
+    harness.fetch.mockResolvedValueOnce(Response.json({ ...await analyzed().json(), ai_suggestion: freshSuggestion, explanation: fresh }));
+    walk(detail(changes)).find(node => node.props.id === 'business-purpose')!.props.onChange!({ target: { value: 'Client design supplies' } });
+    await action(detail(changes), 'Run AI Analysis').props.onClick!();
+    expect(harness.mutate).toHaveBeenCalledWith(expect.objectContaining({ updates: expect.objectContaining({ business_purpose: 'Client design supplies' }) }));
+    expect(harness.save).toHaveBeenLastCalledWith(expect.objectContaining({ ai_explanation: fresh, ai_suggestion: freshSuggestion, is_deductible: null }));
+    const saved: DetailTransaction = harness.save.mock.lastCall![0];
+    const card = walk(detail(saved)).find(node => node.type === ExplanationCard) as ReactElement<Parameters<typeof ExplanationCard>[0]>;
+    expect(card.props.explanation).toEqual(fresh);
+    expect(card.props.explanation?.nextQuestion).toBeNull();
+    expect(card.props.compact).toBe(true);
+    expect(harness.error).not.toHaveBeenCalled();
+  });
+
+  it.each([null, undefined, { headline: 'Incomplete payload' }])('clears an old explanation when a successful rerun returns %j', async explanation => {
+    const stale: NonNullable<DetailTransaction['ai_explanation']> = { headline: 'Old question', why: 'Older reasoning', yourFacts: [], scheduleCLine: null, estimatedTaxEffect: null, strengthen: [], nextQuestion: 'Old unresolved question?' };
+    harness.fetch.mockResolvedValueOnce(Response.json({ ...await analyzed().json(), ai_suggestion: categorySuggestion, explanation }));
+    await action(detail({ ai_explanation: stale, is_deductible: null }), 'Run AI Analysis').props.onClick!();
+    expect(harness.save).toHaveBeenLastCalledWith(expect.objectContaining({ ai_explanation: null, is_deductible: null }));
+    const saved: DetailTransaction = harness.save.mock.lastCall![0];
+    expect(walk(detail(saved)).some(node => node.type === ExplanationCard)).toBe(false);
+    expect(harness.error).not.toHaveBeenCalled();
+  });
 
   it('explains a superseded duplicate opened by direct link and shows nothing extra otherwise', () => {
     const notice = 'This bank record duplicates an earlier one you already reviewed; it is excluded from totals.';

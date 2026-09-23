@@ -146,6 +146,33 @@ describe('assistant topic catalogue', () => {
     expect(system).not.toContain('"id":"personal-expenses"');
     expect(system).not.toMatch(FORBIDDEN_CLAIMS);
     const citationOnly = GUIDANCE_SOURCES.filter(source => !(SELECTABLE_TOPICS as readonly string[]).includes(source.id)).map(source => source.id);
-    expect(citationOnly).toEqual(['authority', 'vehicle-classification', 'personal-expenses', 'hsa-2027-limits', 'hsa-expanded-eligibility', 'aca-2026-percentages', 'aca-2027-percentages', 'savers-match-implementation', 'scholarship-credit-conditions', 'employee-expense-exceptions']);
+    expect(citationOnly).toEqual(['authority', 'vehicle-classification', 'personal-expenses', 'hsa-2027-limits', 'hsa-expanded-eligibility', 'aca-2026-percentages', 'aca-2027-percentages', 'savers-match-implementation', 'scholarship-credit-conditions', 'employee-expense-exceptions', 'passive-losses-925']);
   });
+});
+
+
+it('business-loss advice checks material participation before claiming a wage offset', () => {
+  const source = packet('business-losses');
+  expect(source.requiredFacts.join(' ')).toContain('materially participate');
+  expect(source.citations).toContain('passive-losses-925');
+  for (const year of TAX_YEARS) {
+    const answer = answerFor('business-losses', year);
+    expect(answer).toContain('passive-activity rules');
+    expect(answer).toContain('Form 8582');
+    expect(answer).not.toContain('when three tests are passed');
+  }
+});
+
+
+it('vehicle-interest guidance uses the final expected-personal-use test and prevents double benefits', () => {
+  const source = packet('vehicle-loan-interest');
+  expect(source.url).toBe('https://www.irs.gov/irb/2026-39_irb');
+  expect(source.requiredFacts.join(' ')).toContain('When the debt was incurred');
+  for (const year of TAX_YEARS) {
+    const answer = answerFor('vehicle-loan-interest', year);
+    expect(answer).toContain('more than 50% personal use');
+    expect(answer).toContain('Mixed business use alone does not disqualify');
+    expect(answer).toContain('Never deduct the same interest twice');
+    expect(answer).toContain('gross vehicle weight rating below 14,000 pounds');
+  }
 });

@@ -133,7 +133,7 @@ describe('coordinated production deployment', () => {
     expect(execute.mock.calls.slice(0, 6).map(([file, args, options]) => [
       file,
       args,
-      path.relative(cwd, options.cwd) || '.',
+      path.relative(fs.realpathSync(cwd), fs.realpathSync(options.cwd)) || '.',
     ])).toEqual([
       ['npm', ['ci', '--include=dev'], '.'],
       ['npm', ['run', 'build'], '.'],

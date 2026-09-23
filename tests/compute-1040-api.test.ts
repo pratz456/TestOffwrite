@@ -33,6 +33,18 @@ beforeEach(() => {
 function request(year = '2026') { return new NextRequest(`http://localhost/api/tax/compute-1040?year=${year}`); }
 
 describe('Form1040 API integration', () => {
+  it.each([
+    ['hsa_contribution', 'HSA eligibility'],
+    ['health_insurance_premiums', 'self-employed health-insurance eligibility'],
+    ['sep_ira_contribution', 'retirement-plan eligibility'],
+    ['solo_401k_contribution', 'retirement-plan eligibility'],
+  ])('requires eligibility review for legacy saved profile %s', async (field, missingFacts) => {
+    state.profile[field] = 1000;
+    const response = await GET(request());
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ code: 'TAX_CALCULATION_SCOPE_REVIEW_REQUIRED', error: expect.stringContaining(missingFacts) });
+  });
+
   it('uses saved quarterly payments and does not add duplicate profile withholding over W-2 forms', async () => {
     const response = await GET(request());
     expect(response.status).toBe(200);
@@ -99,6 +111,41 @@ describe('Form1040 API integration', () => {
     const response = await GET(request());
     expect(response.status).toBe(503);
     expect(await response.text()).not.toContain('internal provider details');
+  });
+
+  it.each([
+    { name: 'above-threshold QBI without Form 8995-A facts', profit: 300000, wages: 0, status: 'single', code: 'QBI_REVIEW_REQUIRED', detail: 'business' },
+    { name: '2026 minimum QBI without active-business eligibility', profit: 2000, wages: 0, status: 'single', code: 'TAX_CALCULATION_SCOPE_REVIEW_REQUIRED', detail: '$400 minimum QBI' },
+    { name: 'joint wages without self-employed spouse ownership', profit: 100000, wages: 100000, status: 'married_filing_jointly', code: 'TAX_CALCULATION_SCOPE_REVIEW_REQUIRED', detail: 'spouse' },
+  ])('returns actionable 422 without annual amounts for $name', async ({ profit, wages, status, code, detail }) => {
+    state.profile.filing_status = status;
+    state.collections.gross_receipts = [{ amount: profit }];
+    state.collections.w2_income = wages ? [{ wages, socialSecurityWages: wages, medicareWages: wages }] : [];
+    const response = await GET(request());
+    expect(response.status).toBe(422);
+    const body = await response.json();
+    expect(body).toMatchObject({ code, error: expect.stringContaining(detail) });
+    expect(body.error).toContain('review');
+    for (const field of ['form1040', 'totalTax', 'seCalc', 'refund', 'stateTax']) expect(body).not.toHaveProperty(field);
+  });
+  it.each(['box3SocialSecurityWages', 'box7SocialSecurityTips', 'box5MedicareWages'])('withholds joint annual totals with zero Box 1 but positive %s', field => {
+    state.profile.filing_status = 'married_filing_jointly';
+    state.collections.gross_receipts = [{ amount: 100000 }];
+    state.collections.w2_income = [{ box1Wages: 0, box3SocialSecurityWages: 0, box5MedicareWages: 0, [field]: 20000 }];
+    return GET(request()).then(async response => {
+      expect(response.status).toBe(422);
+      const body = await response.json();
+      expect(body).toMatchObject({ code: 'TAX_CALCULATION_SCOPE_REVIEW_REQUIRED', error: expect.stringContaining('spouse') });
+      expect(body).not.toHaveProperty('form1040'); expect(body).not.toHaveProperty('seCalc');
+    });
+  });
+  it('keeps the joint ownership guard when another W-2 has missing Medicare wages', async () => {
+    state.profile.filing_status = 'married_filing_jointly';
+    state.collections.gross_receipts = [{ amount: 100000 }];
+    state.collections.w2_income = [{ box1Wages: 0, box3SocialSecurityWages: 0, box5MedicareWages: 20000 }, { box1Wages: 0, box3SocialSecurityWages: 0 }];
+    const response = await GET(request());
+    expect(response.status).toBe(422);
+    expect(await response.json()).toMatchObject({ code: 'TAX_CALCULATION_SCOPE_REVIEW_REQUIRED' });
   });
 
   it.each([

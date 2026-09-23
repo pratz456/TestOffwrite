@@ -49,10 +49,18 @@ const transactions = {
 };
 type Key = keyof typeof corpus;
 const explain = (key: Key, overrides: Partial<ExplainableResult> = {}, saved = profile, taxYear = corpus[key].tax_year) =>
-  composeExplanation({ result: { ...corpus[key], ...overrides }, transaction: transactions[key], profile: saved, taxYear });
+  composeExplanation({ result: { ...corpus[key], ...overrides }, transaction: { iso_currency_code: 'USD', ...transactions[key] }, profile: saved, taxYear });
 const everyString = (value: unknown): string => JSON.stringify(value);
 
 describe('composeExplanation over corpus-style results', () => {
+  it('explains the applicable expense rule without unrelated refund and income paragraphs', () => {
+    const explanation = explain('okSoftware', { category: 'supplies_small_tools', sources: [
+      source('business-162', 'Business expenses'), source('records-334', 'Records'), source('supplies-263a', 'Supplies'),
+    ] });
+    expect(explanation.why).toContain('documented business use');
+    expect(explanation.why).not.toMatch(/refund|customer receipts|prior-year recovery/i);
+    expect(explanation.why.length).toBeLessThan(250);
+  });
   it.each(Object.keys(corpus) as Key[])('%s: returns the full shape with no forbidden claims and no model-authored amounts', (key) => {
     const explanation = explain(key);
     expect(Object.keys(explanation).sort()).toEqual(['estimatedTaxEffect', 'headline', 'nextQuestion', 'scheduleCLine', 'strengthen', 'why', 'yourFacts'].sort());
@@ -79,9 +87,9 @@ describe('composeExplanation over corpus-style results', () => {
     expect(effect.low).toBeGreaterThanOrEqual(Math.floor(54.99 * 0.1413));
     expect(effect.low).toBeLessThanOrEqual(effect.high);
     expect(effect.high).toBeLessThanOrEqual(Math.ceil(54.99 * (0.1413 + 0.37)));
-    expect(effect.basis).toContain('$54.99 deductible from this $54.99 charge');
-    expect(effect.basis).toContain('single filing status for 2026');
-    expect(effect.basis).toMatch(/not a refund amount/);
+    expect(effect.basis).toContain('$54.99 deductible from $54.99');
+    expect(effect.basis).toContain('single status and 2026');
+    expect(effect.basis).toMatch(/not a refund/i);
     expect(explanation.strengthen).toEqual(['Subscription invoice', 'Note of the business work this tool is used for']);
     expect(formatEstimatedTaxEffect(effect)).toMatch(/^\$\d+–\$\d+$|^about \$\d+$/);
   });
@@ -92,7 +100,7 @@ describe('composeExplanation over corpus-style results', () => {
     expect(explanation.why).toMatch(/^26 USC 274 limits a qualifying business meal to 50%/);
     expect(explanation.scheduleCLine).toBe('Schedule C line 24b (Meals)');
     expect(explanation.yourFacts).toContain('Attendees: Dana Lee (client), me');
-    expect(explanation.estimatedTaxEffect!.basis).toContain('$43.20 deductible at 50% from this $86.40 charge');
+    expect(explanation.estimatedTaxEffect!.basis).toContain('$43.20 deductible at 50% from $86.40');
     expect(explanation.estimatedTaxEffect!.high).toBeLessThanOrEqual(Math.ceil(43.2 * (0.1413 + 0.37)));
     expect(explanation.strengthen).toEqual(['Receipt', 'Attendee names', 'Receipt showing the restaurant, date and amount',
       'Names and business relationship of everyone present', 'Business purpose of the meal, written at the time']);
@@ -129,7 +137,7 @@ describe('composeExplanation over corpus-style results', () => {
     expect(explanation.headline).toBe('Needs one fact: which original purchase this refund matches — Amazon, $35.50');
     expect(explanation.scheduleCLine).toBeNull();
     expect(explanation.strengthen).toEqual(['Refund record and matching original invoice', 'Refund record and the original invoice', 'Tax year and treatment of the original purchase']);
-    expect(explanation.why).toContain('a refund reduces the original expense instead of creating a deduction');
+    expect(explanation.why).toContain('a refund needs the original purchase and tax year checked');
   });
 
   it('income and personal flows: state the flow, keep the effect and Schedule C line empty, and ask for nothing personal', () => {
@@ -147,6 +155,44 @@ describe('composeExplanation over corpus-style results', () => {
 });
 
 describe('estimated tax effect boundaries', () => {
+  it.each(['w2_income', 'w2_social_security_wages', 'w2_medicare_wages'])('withholds estimates for malformed recorded %s rather than substituting zero or another box', field => {
+    for (const invalid of [-1, NaN, Infinity, '100000', false]) {
+      expect(explain('okSoftware', {}, { ...profile, [field]: invalid }).estimatedTaxEffect).toBeNull();
+    }
+  });
+
+  it('preserves explicit zero W-2 SS and Medicare boxes', () => {
+    const wages = { income: 100000, w2_income: 200000, filing_status: 'single' };
+    const defaultBoxes = explain('okSoftware', {}, wages).estimatedTaxEffect!;
+    const zeroBoxes = composeExplanation({ result: corpus.okSoftware,
+      transaction: { ...transactions.okSoftware, iso_currency_code: 'USD' },
+      profile: { ...wages, w2_social_security_wages: 0, w2_medicare_wages: 0 }, taxYear: 2026 }).estimatedTaxEffect!;
+    expect(zeroBoxes.high).toBeGreaterThan(defaultBoxes.high);
+  });
+
+  it.each(['ok', 'blocked'] as const)('never labels a raw EUR charge as dollars in a %s explanation', status => {
+    const explanation = composeExplanation({ result: { ...corpus.okSoftware, status },
+      transaction: { merchant_name: 'Adobe', amount: 54.99, iso_currency_code: 'EUR' }, profile, taxYear: 2026 });
+    expect(explanation.headline).toContain('EUR');
+    expect(explanation.headline).not.toContain('$');
+    expect(explanation.estimatedTaxEffect).toBeNull();
+  });
+
+  it.each([{}, { iso_currency_code: 'USD', unofficial_currency_code: 'USDC' }])('withholds raw dollar amounts and tax effects without unambiguous currency: %j', currency => {
+    const explanation = composeExplanation({ result: corpus.okSoftware,
+      transaction: { merchant_name: 'Adobe', amount: 54.99, ...currency }, profile, taxYear: 2026 });
+    expect(explanation.headline).toMatch(/ — Adobe$/);
+    expect(explanation.headline).not.toContain('$');
+    expect(explanation.estimatedTaxEffect).toBeNull();
+  });
+
+  it('accepts explicit USD input separately from a raw foreign amount', () => {
+    const explanation = composeExplanation({ result: corpus.okSoftware,
+      transaction: { merchant_name: 'Adobe', amount_usd: 54.99, amount: 50, iso_currency_code: 'EUR' }, profile, taxYear: 2026 });
+    expect(explanation.headline).toContain('$54.99');
+    expect(explanation.estimatedTaxEffect?.basis).toContain('$54.99 deductible');
+  });
+
   it('is absent unless status is ok and the deduction is supported', () => {
     expect(explain('okSoftware', { status: 'needs_more_info' }).estimatedTaxEffect).toBeNull();
     expect(explain('okSoftware', { is_deductible: false }).estimatedTaxEffect).toBeNull();
@@ -162,12 +208,22 @@ describe('estimated tax effect boundaries', () => {
     expect(explain('okSoftware', {}, { ...profile, filing_status: 42 as unknown as string }).estimatedTaxEffect).toBeNull();
   });
 
-  it('with no saved income, floors the range at self-employment tax and says a fallback rate was used', () => {
-    const effect = explain('okSoftware', {}, { filing_status: 'single' }).estimatedTaxEffect!;
-    expect(effect.low).toBe(Math.round(54.99 * 0.9235 * 0.153));
-    expect(effect.high).toBe(Math.round(54.99 * (0.9235 * 0.153 + 0.25)));
-    expect(effect.basis).toContain('No income is saved in your profile');
-    expect(explain('okSoftware', {}, { filing_status: 'single' }).yourFacts).toContain('Filing status used for the estimate: single');
+  it('with no saved income, withholds the estimate instead of inventing a 25% rate', () => {
+    expect(explain('okSoftware', {}, { filing_status: 'single' }).estimatedTaxEffect).toBeNull();
+  });
+
+  it('does not add Social Security tax when W-2 wages already exhaust the wage base', () => {
+    const effect = explain('okSoftware', {}, { income: 20000, w2_income: 200000, filing_status: 'single' }).estimatedTaxEffect!;
+    // 2026 single taxable income exceeds $201,775: 32% marginal income tax.
+    // $54.99 reduces net SE earnings by $50.78: $1.47 Medicare + $0.46 additional
+    // Medicare + $17.36 income tax after the half-SE adjustment = about $19.
+    expect(effect.low).toBe(19);
+    expect(effect.high).toBe(19);
+  });
+
+  it('withholds an effect that requires loss or joint wage-ownership facts', () => {
+    expect(explain('okSoftware', {}, { income: 20, filing_status: 'single' }).estimatedTaxEffect).toBeNull();
+    expect(explain('okSoftware', {}, { income: 20000, w2_income: 100000, filing_status: 'married_filing_jointly' }).estimatedTaxEffect).toBeNull();
   });
 
   it('lets saved W-2 wages raise the bracket used for the top of the range', () => {
@@ -181,7 +237,7 @@ describe('estimated tax effect boundaries', () => {
     const high = explain('okSoftware', {}, { income: 400000, filing_status: 'married_filing_jointly' }).estimatedTaxEffect!;
     const mid = explain('okSoftware', {}, { income: 85000, filing_status: 'married_filing_jointly' }).estimatedTaxEffect!;
     expect(high.high).toBeLessThanOrEqual(Math.ceil(54.99 * (0.9235 * 0.029 + 0.37)));
-    expect(high.basis).toContain('married filing jointly filing status for 2026');
+    expect(high.basis).toContain('married filing jointly status and 2026');
     expect(mid.low).toBeGreaterThanOrEqual(Math.floor(54.99 * 0.9235 * 0.153));
   });
 

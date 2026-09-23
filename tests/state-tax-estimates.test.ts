@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { businessTaxNotices, estimateStateTax, readProfileLocation, type StateTaxEstimateInput, type SupportedStateTaxEstimate } from '../lib/tax-rules/state';
 import { compute1040, type Form1040Input } from '../lib/tax-rules/compute-1040';
+import { QBIReviewRequiredError } from '../lib/tax-rules/qbi';
 
 const base: StateTaxEstimateInput = { stateCode: 'IL', taxYear: 2025, filingStatus: 'single', federalAGI: 100000, scheduleCNetProfit: 100000, w2Wages: 0 };
 function supported(overrides: Partial<StateTaxEstimateInput>): SupportedStateTaxEstimate {
@@ -68,8 +69,9 @@ describe('flat-rate states', () => {
     expect(supported({ stateCode: 'GA', taxYear: 2026 }).estimate).toBeCloseTo((100000 - 15000) * 0.0499, 2);
     expect(supported({ stateCode: 'GA', taxYear: 2026, filingStatus: 'married_filing_jointly' }).estimate).toBeCloseTo((100000 - 30000) * 0.0499, 2);
     const dependents2026 = supported({ stateCode: 'GA', taxYear: 2026, dependents: 2 });
-    expect(dependents2026.estimate).toBeCloseTo((100000 - 15000) * 0.0499, 2);
-    expect(dependents2026.warnings.join(' ')).toMatch(/2026 Georgia dependent exemption has not been published/);
+    expect(dependents2026.estimate).toBeCloseTo((100000 - 15000 - 10000) * 0.0499, 2);
+    expect(supported({ stateCode: 'GA', taxYear: 2026, dependents: 1 }).estimate - dependents2026.estimate).toBeCloseTo(249.50, 2);
+    expect(dependents2026.warnings.join(' ')).not.toMatch(/dependent exemption has not been published/);
   });
 
   it('North Carolina: 4.25% in 2025 and 3.99% in 2026 after the standard deduction and AGI-stepped child deduction', () => {
@@ -322,18 +324,10 @@ describe('compute1040 state contract', () => {
     expect(texas.calculationWarnings.some(note => /state estimate/i.test(note))).toBe(false);
   });
 
-  it('passes the adjusted Schedule C profit, taxable benefits and HSA add-back through to the state engine', () => {
-    const result = compute1040({
+  it('withholds the combined snapshot when high business income requires federal QBI review', () => {
+    expect(() => compute1040({
       ...input, taxYear: 2025, stateCode: 'OH', w2Wages: 0, w2MedicareWages: 0, scheduleCNetProfit: 320000, depreciationDeduction: 20000,
       selfEmploymentTax: 30000, halfSEDeduction: 15000,
-    });
-    if (!result.stateTax?.supported) throw new Error('expected Ohio 2025 support');
-    expect(result.agi).toBe(285000); // 320,000 - 20,000 depreciation - 15,000 half SE tax
-    expect(result.stateTax.components.federalAGI).toBe(285000);
-    expect(result.stateTax.components.modifications[0]).toEqual({ label: 'Business income deduction (first $250,000 of Schedule C profit)', amount: -250000 });
-    expect(result.stateTax.components.stateAGI).toBe(35000);
-    // Business income above the deduction ($50,000) is capped at Ohio taxable income after the $1,900 exemption.
-    expect(result.stateTax.components.detail.find(item => /Taxable business income/.test(item.label))?.amount).toBe(33100);
-    expect(result.stateTax.estimate).toBeCloseTo(33100 * 0.03, 2);
+    })).toThrow(QBIReviewRequiredError);
   });
 });

@@ -13,7 +13,7 @@ import { makeAuthenticatedRequest } from './api-client';
 import { auth } from './client';
 import { Transaction } from './transactions';
 import { queryKeys } from './hooks';
-import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
+import { summarizeConfirmedDeductions } from '@/lib/tax/display-deductions';
 import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 
 // Types for transaction updates
@@ -74,10 +74,9 @@ function calculateLocalStats(transactions: Transaction[]) {
   const totalTransactions = transactions.length;
   const deductibleTransactions = transactions.filter(t => t.is_deductible === true && !transactionNeedsTaxReview(t)).length;
   const needsReviewTransactions = transactions.filter((t) => transactionNeedsTaxReview(t)).length;
-  const totalDeductibleAmount = transactions
-    .filter(t => t.is_deductible === true && !transactionNeedsTaxReview(t))
-    .reduce((sum, t) => sum + Math.abs(t.amount || 0), 0);
-  const potentialSavings = totalDeductibleAmount * getUserTaxRate();
+  const totalDeductibleAmount = summarizeConfirmedDeductions(transactions).totalDeductible;
+  // No income profile is loaded at this optimistic boundary; do not invent a tax rate.
+  const potentialSavings = null;
 
   return {
     totalTransactions,

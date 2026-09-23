@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(data, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (error) {
     const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
-    if (['EXPORT_REVIEW_REQUIRED', 'INCOME_RECONCILIATION_REQUIRED', 'FILING_STATUS_REVIEW_REQUIRED', 'DEPRECIATION_REVIEW_REQUIRED', 'HOME_OFFICE_REVIEW_REQUIRED', 'BUSINESS_LOSS_REVIEW_REQUIRED'].includes(code)) {
+    if (['TAX_CALCULATION_SCOPE_REVIEW_REQUIRED', 'EXPORT_REVIEW_REQUIRED', 'INCOME_RECONCILIATION_REQUIRED', 'FILING_STATUS_REVIEW_REQUIRED', 'DEPRECIATION_REVIEW_REQUIRED', 'HOME_OFFICE_REVIEW_REQUIRED', 'BUSINESS_LOSS_REVIEW_REQUIRED'].includes(code)) {
       return NextResponse.json({ error: error instanceof Error ? error.message : 'Review the tax records before calculating.', code }, { status: 422 });
     }
     return NextResponse.json({ error: 'Could not load all records needed for this calculation. Please retry.' }, { status: 503 });

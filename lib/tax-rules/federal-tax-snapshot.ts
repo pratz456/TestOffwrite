@@ -2,11 +2,12 @@ import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import type { Asset, DepreciationElections } from '@/lib/reports/calc4562';
 import type { HomeOfficeSettings } from '@/lib/reports/calc8829';
 import { calcScheduleSE } from '@/lib/reports/calcSE';
-import { compute1040, limitHSADeduction, limitSelfEmployedHealthInsurance } from './compute-1040';
+import { compute1040 } from './compute-1040';
 import { computeScheduleCProfit } from './schedule-c-profit';
 import { reconcileBusinessIncome, type IncomeRecord } from './business-income';
 import { summarizeW2Income } from './w2-income';
 import { normalizeFilingStatus } from './filing-status';
+import { assertSavedAdjustmentScope, assertWageOwnershipScope } from './calculation-scope';
 import { assertGenericDependentCreditScope } from './credit-scope';
 import { readSocialSecurityFacts, calculateSocialSecurityWorksheet, assertSocialSecurityAdjustmentRecords, SocialSecurityReviewRequiredError } from './social-security';
 import { calculateCapitalGainCharacter, hasCapitalGainAmounts, readCapitalGainFacts } from './capital-gains';
@@ -55,6 +56,9 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
   const scheduleCNetProfit = scheduleC.profitBeforeAssets;
   const { depreciationDeduction, deMinimisExpense, homeOfficeDeduction } = scheduleC;
   const scheduleCLine31NetProfit = scheduleC.netProfit;
+  assertWageOwnershipScope(filingStatus, scheduleCLine31NetProfit, w2.wages, {
+    socialSecurityWages: w2.socialSecurityWages, medicareWages: w2.medicareWagesForSE,
+  });
   const seCalc = calcScheduleSE({ scheduleCNetProfit: scheduleCLine31NetProfit, taxYear }, filingStatus, w2.socialSecurityWages, w2.medicareWagesForSE);
 
   const interest = amount(org.amount1099INT);
@@ -67,9 +71,10 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
   const otherOrdinaryIncome = amount(org.amountOtherIncome);
   const healthInsurancePremiums = amount(ded.healthInsurancePremiums ?? profile.health_insurance_premiums);
   const sepIraContribution = amount(ded.sepIraContribution ?? profile.sep_ira_contribution);
-  const solo401kContribution = ded.solo401kEmployeeContribution !== undefined || ded.solo401kEmployerContribution !== undefined
-    ? amount(ded.solo401kEmployeeContribution) + amount(ded.solo401kEmployerContribution)
-    : amount(profile.solo_401k_contribution);
+  const solo401kComponents = ded.solo401kEmployeeContribution !== undefined || ded.solo401kEmployerContribution !== undefined
+    ? [amount(ded.solo401kEmployeeContribution), amount(ded.solo401kEmployerContribution)]
+    : [amount(profile.solo_401k_contribution)];
+  const solo401kContribution = solo401kComponents.reduce((total, contribution) => total + contribution, 0);
   const simpleIraContribution = amount(ded.simpleIraContribution);
   const hsaContribution = amount(ded.hsaContribution ?? profile.hsa_contribution);
   const studentLoanInterest = amount(ded.studentLoanInterest);
@@ -93,6 +98,12 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
       throw new SocialSecurityReviewRequiredError('Answer whether you lived apart from your spouse for the entire tax year.');
     }
   }
+  // Preserve the Social Security-specific reconciliation/review errors above.
+  // Raw saved totals cannot establish the eligibility that the conditional math helpers assume.
+  assertSavedAdjustmentScope({
+    healthInsurancePremiums, hsaContribution,
+    retirementContributions: [sepIraContribution, ...solo401kComponents, simpleIraContribution],
+  });
   // Schedule D character (short-term ordinary, long-term preferential, §1211(b) loss limit).
   // Read after the benefit gates so a nonzero legacy total keeps its existing review code.
   const capitalGains = calculateCapitalGainCharacter({ taxYear, filingStatus, ...readCapitalGainFacts(org) });
@@ -100,17 +111,12 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
   const nonBenefitOtherIncome = interest + dividends + capGains + iraDist + rental + otherOrdinaryIncome;
   if (benefitFacts) {
     const livedApart = org.socialSecurityLivedApartAllYear;
-    // Pub 915 Worksheet 1 line 7 takes the Schedule 1 adjustments as allowed on the return, so the
-    // §162(l) and §223(b) limits applied by compute1040 are applied here too (the business-loss gate
-    // above guarantees the net profit used for the §162(l) limit is the allowed amount).
-    const retirementContributions = Math.max(0, sepIraContribution) + Math.max(0, solo401kContribution) + Math.max(0, simpleIraContribution);
+    // HSA/retirement/insurance claims are review-blocked above. The supported adjustment
+    // here is half of regular SE tax; Pub915 line7 excludes student-loan interest.
     socialSecurityWorksheet = calculateSocialSecurityWorksheet({
       taxYear, filingStatus, ...benefitFacts,
       otherIncome: scheduleCLine31NetProfit + w2.wages + nonBenefitOtherIncome,
-      // Pub915 line7 excludes student-loan interest (Schedule1 line21).
-      allowedAdjustments: seCalc.halfSEDeduction
-        + limitSelfEmployedHealthInsurance(healthInsurancePremiums, scheduleCLine31NetProfit, seCalc.halfSEDeduction, retirementContributions)
-        + retirementContributions + limitHSADeduction(taxYear, filingStatus, hsaContribution).deduction,
+      allowedAdjustments: seCalc.halfSEDeduction,
       livedApartAllYear: livedApart === 'yes',
     });
   }
@@ -122,7 +128,8 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
   const priorYearTotalTax = amount(ded.priorYearTotalTax ?? profile.prior_year_tax);
   const location = readProfileLocation(profile);
   const result = compute1040({
-    taxYear, filingStatus, personalDeductionOrganizer: org, scheduleCNetProfit, w2Wages: w2.wages, w2MedicareWages: w2.medicareWages,
+    taxYear, filingStatus, personalDeductionOrganizer: org, scheduleCNetProfit, w2Wages: w2.wages,
+    w2SocialSecurityWages: w2.socialSecurityWages, w2MedicareWages: w2.medicareWages,
     w2FederalWithheld, socialSecurityFederalWithheld, estimatedPayments: input.estimatedPayments,
     selfEmploymentTax: seCalc.totalSETax, halfSEDeduction: seCalc.halfSEDeduction,
     otherIncome, numDependents: 0, numEITCChildren: 0,
@@ -153,7 +160,7 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
       socialSecurity, socialSecurityNetBenefits, taxExemptInterest, iraDist, rental,
     },
     w2: { wages: w2.wages, withheld: w2FederalWithheld, count: input.w2Entries.length, stateWithheld: w2.stateWithheld },
-    deductions: { healthInsurancePremiums, sepIraContribution, solo401kContribution, hsaContribution, studentLoanInterest },
+    deductions: { healthInsurancePremiums, sepIraContribution, solo401kContribution, simpleIraContribution, hsaContribution, studentLoanInterest },
     payments: { estimatedPayments: input.estimatedPayments, w2FederalWithheld, socialSecurityFederalWithheld, totalFederalWithheld: w2FederalWithheld + socialSecurityFederalWithheld },
   };
 }

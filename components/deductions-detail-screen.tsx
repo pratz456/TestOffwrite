@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ArrowLeft, DollarSign, FileText, TrendingUp, Calendar } from 'lucide-react';
 import { formatCategory } from '@/lib/utils';
-import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
+import { summarizeConfirmedDeductions } from '@/lib/tax/display-deductions';
 
 interface Transaction {
   id: string;
@@ -82,8 +82,9 @@ export const DeductionsDetailScreen: React.FC<DeductionsDetailScreenProps> = ({
     );
   }
 
-  // Filter deductible expenses
-  const deductibleTransactions = transactions.filter(t => t.type === 'expense' && t.is_deductible);
+  const summary = summarizeConfirmedDeductions(transactions);
+  if (summary.reviewMessage) return <div className="p-6"><h1 className="text-xl font-semibold">Deductions</h1><p role="alert" className="mt-3 text-sm text-muted-foreground">{summary.reviewMessage}</p><Button className="mt-3" onClick={onBack}>Back</Button></div>;
+  const deductibleTransactions = summary.transactions;
   
   // Get unique categories
   const categories = ['All Categories', ...Array.from(new Set(deductibleTransactions.map(t => t.category)))];
@@ -97,33 +98,33 @@ export const DeductionsDetailScreen: React.FC<DeductionsDetailScreenProps> = ({
 
     // Period filter
     if (selectedPeriod !== 'All Time') {
-      const transactionDate = new Date(transaction.date);
+      const transactionDate = new Date(`${transaction.date.slice(0, 10)}T12:00:00Z`);
       const now = new Date();
       
       switch (selectedPeriod) {
         case 'This Month':
-          if (transactionDate.getMonth() !== now.getMonth() || 
-              transactionDate.getFullYear() !== now.getFullYear()) {
+          if (transactionDate.getUTCMonth() !== now.getMonth() ||
+              transactionDate.getUTCFullYear() !== now.getFullYear()) {
             return false;
           }
           break;
         case 'Last Month':
           const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1);
-          if (transactionDate.getMonth() !== lastMonth.getMonth() || 
-              transactionDate.getFullYear() !== lastMonth.getFullYear()) {
+          if (transactionDate.getUTCMonth() !== lastMonth.getMonth() ||
+              transactionDate.getUTCFullYear() !== lastMonth.getFullYear()) {
             return false;
           }
           break;
         case 'This Quarter':
           const quarter = Math.floor(now.getMonth() / 3);
-          const transactionQuarter = Math.floor(transactionDate.getMonth() / 3);
+          const transactionQuarter = Math.floor(transactionDate.getUTCMonth() / 3);
           if (transactionQuarter !== quarter || 
-              transactionDate.getFullYear() !== now.getFullYear()) {
+              transactionDate.getUTCFullYear() !== now.getFullYear()) {
             return false;
           }
           break;
         case 'This Year':
-          if (transactionDate.getFullYear() !== now.getFullYear()) {
+          if (transactionDate.getUTCFullYear() !== now.getFullYear()) {
             return false;
           }
           break;
@@ -133,15 +134,15 @@ export const DeductionsDetailScreen: React.FC<DeductionsDetailScreenProps> = ({
     return true;
   });
 
-  const totalDeductions = filteredTransactions.reduce((sum, t) => sum + t.amount, 0);
-  const estimatedTaxSavings = totalDeductions * getUserTaxRate();
+  const totalDeductions = filteredTransactions.reduce((sum, t) => sum + Math.round(summary.contributions.get(t)! * 100), 0) / 100;
+  const totalRecordedAmount = filteredTransactions.reduce((sum, t) => sum + Math.round(t.amount * 100), 0) / 100;
 
   // Group by category for breakdown
   const categoryBreakdown = filteredTransactions.reduce((acc, transaction) => {
     if (!acc[transaction.category]) {
       acc[transaction.category] = 0;
     }
-    acc[transaction.category] += transaction.amount;
+    acc[transaction.category] += summary.contributions.get(transaction)!;
     return acc;
   }, {} as Record<string, number>);
 
@@ -160,13 +161,14 @@ export const DeductionsDetailScreen: React.FC<DeductionsDetailScreenProps> = ({
             </Button>
             <div>
               <h1 className="text-xl font-semibold text-slate-900">Tax Deductions Breakdown</h1>
-              <p className="text-sm text-slate-600">Detailed view of your deductible business expenses</p>
+              <p className="text-sm text-slate-600">Confirmed transaction deductions for the selected period</p>
             </div>
           </div>
         </div>
       </div>
 
       <div className="max-w-6xl mx-auto p-6">
+        <p className="mb-4 text-xs text-slate-600">Refunds reduce deductions; the meals limit is applied. Vehicle methods, assets and home-office deductions need separate review in Tax Preview. These amounts are not tax savings.</p>
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <Card className="p-6 bg-white border-0 shadow-xl">
@@ -175,7 +177,7 @@ export const DeductionsDetailScreen: React.FC<DeductionsDetailScreenProps> = ({
                 <DollarSign className="w-6 h-6 text-emerald-600" />
               </div>
               <div>
-                <p className="text-sm text-slate-600">Total Deductions</p>
+                <p className="text-sm text-slate-600">Confirmed Transaction Deductions</p>
                 <p className="text-2xl font-bold text-slate-900">${totalDeductions.toLocaleString()}</p>
               </div>
             </div>
@@ -187,8 +189,8 @@ export const DeductionsDetailScreen: React.FC<DeductionsDetailScreenProps> = ({
                 <TrendingUp className="w-6 h-6 text-green-600" />
               </div>
               <div>
-                <p className="text-sm text-slate-600">Estimated Tax Savings</p>
-                <p className="text-2xl font-bold text-slate-900">${estimatedTaxSavings.toLocaleString()}</p>
+                <p className="text-sm text-slate-600">Confirmed Net Outflows</p>
+                <p className="text-2xl font-bold text-slate-900">${totalRecordedAmount.toLocaleString()}</p>
               </div>
             </div>
           </Card>
@@ -199,7 +201,7 @@ export const DeductionsDetailScreen: React.FC<DeductionsDetailScreenProps> = ({
                 <FileText className="w-6 h-6 text-blue-600" />
               </div>
               <div>
-                <p className="text-sm text-slate-600">Deductible Items</p>
+                <p className="text-sm text-slate-600">Confirmed Records</p>
                 <p className="text-2xl font-bold text-slate-900">{filteredTransactions.length}</p>
               </div>
             </div>
@@ -211,7 +213,7 @@ export const DeductionsDetailScreen: React.FC<DeductionsDetailScreenProps> = ({
           <div className="lg:col-span-2">
             <Card className="p-6 bg-white border-0 shadow-xl">
               <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-semibold text-slate-900">Deductible Expenses</h3>
+                <h3 className="text-lg font-semibold text-slate-900">Confirmed Expenses and Refunds</h3>
                 <div className="flex gap-3">
                   <select
                     value={selectedPeriod}
@@ -247,7 +249,7 @@ export const DeductionsDetailScreen: React.FC<DeductionsDetailScreenProps> = ({
                     </h4>
                     <p className="text-sm text-slate-500 max-w-sm mx-auto">
                       {deductibleTransactions.length === 0
-                        ? 'Once your transactions are classified as deductible, they will appear here with estimated tax savings.'
+                        ? 'Confirmed business transactions appear here after review, including refunds and the meals limit.'
                         : 'Try changing the time period or category filter to see more expenses.'}
                     </p>
                   </div>
@@ -265,13 +267,13 @@ export const DeductionsDetailScreen: React.FC<DeductionsDetailScreenProps> = ({
                             <div className="flex items-center gap-2 text-sm text-slate-600">
                               <span>{formatCategory(transaction.category)}</span>
                               <span>•</span>
-                              <span>{new Date(transaction.date).toLocaleDateString()}</span>
+                              <span>{transaction.date.slice(0, 10)}</span>
                             </div>
                           </div>
                         </div>
                         <div className="text-right">
-                          <p className="font-bold text-slate-900">${transaction.amount.toFixed(2)}</p>
-                          <p className="text-xs text-emerald-600">Deductible</p>
+                          <p className="font-bold text-slate-900">${summary.contributions.get(transaction)!.toFixed(2)}</p>
+                          <p className="text-xs text-emerald-600">Deduction contribution</p>
                         </div>
                       </div>
                     ))
@@ -286,7 +288,8 @@ export const DeductionsDetailScreen: React.FC<DeductionsDetailScreenProps> = ({
               <h3 className="text-lg font-semibold text-slate-900 mb-4">Category Breakdown</h3>
               <div className="space-y-3">
                 {categoryEntries.map(([category, amount]) => {
-                  const percentage = totalDeductions > 0 ? (amount / totalDeductions) * 100 : 0;
+                  const magnitude = categoryEntries.reduce((sum, [, value]) => sum + Math.abs(value), 0);
+                  const percentage = magnitude > 0 ? Math.abs(amount) / magnitude * 100 : 0;
                   return (
                     <div key={category} className="space-y-1">
                       <div className="flex justify-between items-center">
@@ -299,7 +302,7 @@ export const DeductionsDetailScreen: React.FC<DeductionsDetailScreenProps> = ({
                           style={{ width: `${percentage}%` }}
                         ></div>
                       </div>
-                      <div className="text-xs text-slate-500">{percentage.toFixed(1)}% of total</div>
+                      <div className="text-xs text-slate-500">{percentage.toFixed(1)}% of category magnitude</div>
                     </div>
                   );
                 })}

@@ -40,14 +40,20 @@ export function TaxCalculator1099Client() {
   const [w2Wages, setW2Wages] = useState("");
   const [expenses, setExpenses] = useState("");
 
-  const parsedProfit = parseFloat(netProfit.replace(/[,$]/g, "")) || 0;
-  const parsedW2 = parseFloat(w2Wages.replace(/[,$]/g, "")) || 0;
-  const parsedExpenses = parseFloat(expenses.replace(/[,$]/g, "")) || 0;
+  const parsedProfit = Number(netProfit.replace(/[,$\s]/g, ""));
+  const parsedW2 = Number(w2Wages.replace(/[,$\s]/g, ""));
+  const parsedExpenses = Number(expenses.replace(/[,$\s]/g, ""));
 
-  const calc = useMemo(() => {
-    if (parsedProfit <= 0) return null;
-    return estimate1099FederalTax({ grossIncome: parsedProfit, expenses: parsedExpenses, w2Wages: parsedW2, filingStatus, taxYear });
+  const outcome = useMemo(() => {
+    try {
+      if (![parsedProfit, parsedW2, parsedExpenses].every(value => Number.isFinite(value) && value >= 0)) throw new Error('Enter valid nonnegative income, wages and expenses.');
+      if (parsedProfit === 0) return { value: null, error: null };
+      return { value: estimate1099FederalTax({ grossIncome: parsedProfit, expenses: parsedExpenses, w2Wages: parsedW2, filingStatus, taxYear }), error: null };
+    } catch (error) {
+      return { value: null, error: error instanceof Error ? error.message : 'This calculation requires review.' };
+    }
   }, [parsedProfit, filingStatus, parsedW2, parsedExpenses, taxYear]);
+  const calc = outcome.value;
 
   const dueDates = useMemo(() => estimatedTaxDueDates(taxYear), [taxYear]);
   const singleDeduction = standardDeduction(taxYear, "single");
@@ -107,7 +113,7 @@ export function TaxCalculator1099Client() {
                   ))}
                 </select>
                 <p className="mt-1 text-xs text-gray-500">
-                  Uses the published {taxYear} brackets, standard deduction and Social Security wage base. 2027 amounts are not yet published.
+                  Uses the published {taxYear} brackets, standard deduction and Social Security wage base. A 2027 federal estimate is unavailable while required annual parameters are pending.
                 </p>
               </div>
 
@@ -188,7 +194,7 @@ export function TaxCalculator1099Client() {
 
           {/* Results */}
           <div className="space-y-6">
-            {calc ? (
+            {outcome.error ? <Card><CardContent className="pt-6"><p role="alert" className="text-sm text-destructive">{outcome.error}</p></CardContent></Card> : calc ? (
               <>
                 {/* Total Tax */}
                 <Card className="border-green-200 bg-green-50/50">

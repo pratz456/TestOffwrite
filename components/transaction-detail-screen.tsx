@@ -1,5 +1,6 @@
 "use client";
 
+import { formatRecordedTransactionAmount } from '@/lib/transactions/amount-display';
 import { formatTransactionDate } from '@/lib/transactions/calendar-date';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
@@ -49,6 +50,8 @@ interface TransactionDetailScreenProps {
     id: string;
     merchant_name: string;
     amount: number;
+    iso_currency_code?: string;
+    unofficial_currency_code?: string;
     date: string;
     datetime?: string; // Full datetime from Plaid (ISO format)
     category: string;
@@ -714,6 +717,9 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
           irsSection: result.analysis.irsReference?.section,
           analysisUpdatedAt: result.analysis.updatedAt,
           ai_suggestion: result.ai_suggestion ?? null,
+          // Replace the old question/facts with the explanation actually saved by this run.
+          // A missing or invalid payload clears the stale card instead of retaining it.
+          ai_explanation: normalizeExplanation(result.explanation),
           // Keep nested `ai` in sync so list/detail views that read key_analysis_factors see fresh text.
           ai: transaction.ai
             ? {
@@ -784,7 +790,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
             <p className="mt-0.5 text-xs text-muted-foreground">{formatTransactionDate(transaction.date, 'en-US', { month: 'short', day: 'numeric', year: 'numeric' })}{transaction.amount < 0 ? ' · Money in' : ' · Money out'}</p>
           </div>
           <div className="shrink-0 text-right">
-            <p className="text-lg font-semibold tabular-nums">${Math.abs(transaction.amount).toFixed(2)}</p>
+            <p className="text-lg font-semibold tabular-nums">{formatRecordedTransactionAmount(transaction)}</p>
             <span className="text-xs text-muted-foreground" role="status">{isSaving ? 'Saving…' : hasUnsavedChanges ? 'Unsaved changes' : 'Saved'}</span>
           </div>
         </div>
@@ -819,7 +825,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
             {(analysisUnavailable || aiAvailability.status === 'unavailable') && <Button variant="outline" size="sm" className="h-11" onClick={checkAiAvailability} disabled={isAnalyzing || aiAvailability.status === 'checking'}>Check AI availability</Button>}
 
             {isAnalyzing ? <div className="space-y-3 py-2" role="status"><p className="text-sm text-muted-foreground">Analyzing transaction…</p><div className="h-4 animate-pulse rounded bg-muted" /><div className="h-4 w-3/4 animate-pulse rounded bg-muted" /></div>
-              : transaction.ai_explanation ? <div className="space-y-2"><ExplanationCard explanation={normalizeExplanation(transaction.ai_explanation)} />{transaction.ai_suggestion && <AiTaxAnalysisDialog key={transaction.ai_suggestion.id} suggestion={transaction.ai_suggestion} />}</div>
+              : transaction.ai_explanation ? <div className="space-y-2"><ExplanationCard explanation={normalizeExplanation(transaction.ai_explanation)} compact onAnswer={() => changeDetailSection('details')} />{transaction.ai_suggestion && <AiTaxAnalysisDialog key={transaction.ai_suggestion.id} suggestion={transaction.ai_suggestion} />}</div>
               : transaction.ai_suggestion ? <AiTaxExplanation key={transaction.ai_suggestion.id} suggestion={transaction.ai_suggestion} compact onAddContext={() => changeDetailSection('details')} />
               : <div className="space-y-2 text-sm text-muted-foreground">
                 {pipeline.outcome ? <AnalysisStatusNotice compact outcome={pipeline.outcome} accountIds={transaction.account_id ? [transaction.account_id] : []} disabled={isAnalyzing} className="text-foreground" />

@@ -77,6 +77,7 @@ describe('prior-decision gate in the tax policy', () => {
     const result = groundTransactionAnalysis(model, bare, { ...profile, taxpayer_context: priorBusiness }, 'test-model');
     expect(result).toMatchObject({ status: 'needs_more_info', missing_fields: ['business_purpose'] });
     const withPurpose = groundTransactionAnalysis(model, transaction, { ...profile, taxpayer_context: priorBusiness }, 'test-model');
-    expect(withPurpose).toMatchObject({ status: 'ok', is_deductible: true, deductible_percent: 100 });
+    expect(withPurpose).toMatchObject({ status: 'needs_more_info', missing_fields: ['food_expense_treatment'] });
+    expect(withPurpose?.is_deductible).toBeUndefined();
   });
 });
