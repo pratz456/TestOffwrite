@@ -10,7 +10,7 @@
  */
 
 import { calculateFederalIncomeTax } from './federal-brackets';
-import { getFederalTaxRules, LATEST_PUBLISHED_TAX_YEAR, nearestPublishedTaxYear } from './federal-year-rules';
+import { getFederalTaxRules, LATEST_PUBLISHED_TAX_YEAR } from './federal-year-rules';
 import { normalizeFilingStatus } from './filing-status';
 
 // ── Schedule C Net Profit ─────────────────────────────────────────────────────
@@ -52,6 +52,7 @@ export function calcCombinedSERate(
   incomeTaxDollars: number;
   totalTaxDollars: number;
 } {
+  const rules = getFederalTaxRules(taxYear);
   const status = normalizeFilingStatus(filingStatus);
   if (scheduleCNetProfit <= 0) {
     return { seTaxRate: 0, incomeTaxEffectiveRate: 0, combinedEffectiveRate: 0, combinedMarginalRate: 0, seTaxDollars: 0, incomeTaxDollars: 0, totalTaxDollars: 0 };
@@ -63,12 +64,10 @@ export function calcCombinedSERate(
   const halfSE = seTax / 2;
 
   // Income tax
-  const year = nearestPublishedTaxYear(taxYear);
-  const rules = getFederalTaxRules(year);
   const stdDed = rules.standardDeductions[status];
   const agi = Math.max(0, scheduleCNetProfit - halfSE - aboveLineDeductions);
   const taxableIncome = Math.max(0, agi - stdDed);
-  const incomeTax = calculateFederalIncomeTax(taxableIncome, status, year);
+  const incomeTax = calculateFederalIncomeTax(taxableIncome, status, taxYear);
 
   const totalTax = seTax + incomeTax;
   const seTaxRate = (seTax / scheduleCNetProfit) * 100;

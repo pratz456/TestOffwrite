@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ArrowLeft, ArrowRight, Bot, ChevronDown, ExternalLink, ImagePlus, Loader2, Send, X } from "lucide-react";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
+import { TaxYear2027Readiness } from "@/components/tax-year-2027-readiness";
 
 interface TaxAssistantScreenProps {
   user: { id: string; email?: string };
@@ -311,7 +312,7 @@ export function TaxAssistantScreen({ user, onBack }: TaxAssistantScreenProps) {
             </select>
           </div>
           <p id={`${id}-year-note`} className="mt-1 text-xs leading-snug text-muted-foreground" role="status">
-            {taxYear === 2027 ? "2027 planning only · Inflation-indexed 2027 amounts are pending IRS publication." : "Guidance depends on your facts."}
+            {taxYear === 2027 ? "2027 guidance · Some limits published; complete tax estimates pending." : "Guidance depends on your facts."}
             <span className="sr-only"> Changing years starts a new conversation.</span>
           </p>
         </div>
@@ -319,6 +320,7 @@ export function TaxAssistantScreen({ user, onBack }: TaxAssistantScreenProps) {
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-4xl px-3 py-3 sm:px-6">
+          {taxYear === 2027 && <TaxYear2027Readiness />}
           {messages.length === 0 && !isLoading && (
             <div className="py-3 sm:py-5">
               <h2 className="text-lg font-semibold tracking-tight text-foreground">Can I write this off?</h2>
@@ -356,7 +358,12 @@ export function TaxAssistantScreen({ user, onBack }: TaxAssistantScreenProps) {
                       </section>
                     );
                   })()}
-                  {message.assessment?.yearNotice && <p className="mt-2 rounded-lg bg-muted px-2 py-1.5 text-xs text-muted-foreground">{message.assessment.yearNotice}</p>}
+                  {message.assessment?.yearNotice && (
+                    <details className="mt-2 rounded-lg bg-muted text-xs text-muted-foreground">
+                      <summary className="cursor-pointer rounded-lg px-2 py-3 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Tax-year guidance limits</summary>
+                      <p className="px-2 pb-2 leading-relaxed">{message.assessment.yearNotice}</p>
+                    </details>
+                  )}
                   {!!message.assessment?.questions?.length && (
                     <div className="mt-3 space-y-1.5">
                       <h3 className="text-xs font-semibold">Add a detail</h3>

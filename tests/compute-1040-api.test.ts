@@ -69,6 +69,21 @@ describe('Form1040 API integration', () => {
     expect(state.reads).toEqual([]);
   });
 
+  it('returns published 2027 planning parameters without a fabricated annual return', async () => {
+    const response = await GET(request('2027'));
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      code: 'TAX_YEAR_UNAVAILABLE',
+      yearStatus: {
+        taxYear: 2027, usualFilingYear: 2028, annualEstimateAvailable: false,
+        publishedParameters: { hsa: { selfOnly: 4500, family: 9000 }, marketplace: { employerAffordabilityPercent: 10.22 } },
+      },
+    });
+    expect(body).not.toHaveProperty('form1040');
+    expect(state.reads).toEqual([]);
+  });
+
   it.each([undefined, reviewedPersonalDeductionOrganizer(2025)])('requires current-year personal deduction facts before exposing an annual amount', async organizer => {
     state.collections.tax_organizers = organizer ? [organizer] : [];
     const response = await GET(request());

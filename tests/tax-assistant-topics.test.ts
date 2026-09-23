@@ -29,7 +29,7 @@ describe('assistant topic catalogue', () => {
     for (const expected of [
       'cell-phone', 'home-internet', 'computer-equipment', 'software-subscriptions', 'office-rent', 'home-rent', 'car-mileage-vs-actual',
       'parking-tolls', 'business-travel', 'meals', 'solo-meals', 'clothing-uniforms', 'grooming', 'gym-membership', 'health-insurance',
-      'dental-vision', 'retirement-plans', 'hsa', 'education-courses', 'conferences', 'books-publications', 'advertising', 'website-domain',
+      'marketplace-premium-credit', 'dental-vision', 'retirement-plans', 'hsa', 'education-courses', 'conferences', 'books-publications', 'advertising', 'website-domain',
       'contract-labor', 'family-employees', 'owner-draws', 'estimated-taxes', 'state-taxes-licenses', 'bank-payment-fees', 'business-interest',
       'business-insurance', 'legal-professional-fees', 'startup-costs', 'business-gifts', 'charitable-gifts', 'hobby-loss', 'side-hustle-w2',
       'information-returns', 'bartering', 'cash-income', 'business-losses', 'qbi-deduction', 'when-to-see-a-cpa',
@@ -73,17 +73,20 @@ describe('assistant topic catalogue', () => {
 
   it('never states a 2026 annual amount as the 2027 figure', () => {
     const yearDependent = SELECTABLE_TOPICS.filter(topic => typeof packet(topic).answer === 'function');
+    const newlyEffectiveTopics = new Set(['savers-match', 'scholarship-contribution-credit']);
     expect(yearDependent.length).toBeGreaterThanOrEqual(7);
     for (const topic of yearDependent) {
       const later = answerFor(topic, 2027);
       expect(later).not.toBe(answerFor(topic, 2026));
-      expect(later, topic).toMatch(/not been published|will be published|2027 the limits are/);
+      if (!newlyEffectiveTopics.has(topic)) expect(later, topic).toMatch(/pending verification|not been verified as published|will be published|2027 the limits are|published employer-coverage affordability percentage/);
       expect(later, topic).not.toMatch(/for 2026\b|made in 2026 in the course/);
     }
     expect(answerFor('hsa', 2027)).toContain('$4,500');
     expect(answerFor('hsa', 2026)).toContain('$4,400');
+    expect(answerFor('marketplace-premium-credit', 2027)).toContain('10.22%');
+    expect(answerFor('marketplace-premium-credit', 2026)).toContain('9.96%');
     expect(answerFor('retirement-plans', 2027)).not.toContain('$72,000');
-    expect(answerFor('retirement-plans', 2027)).toContain('The 2027 dollar limits have not been published');
+    expect(answerFor('retirement-plans', 2027)).toContain('The 2027 dollar limits have not been verified as published');
     expect(answerFor('business-losses', 2027)).not.toContain('$256,000');
     expect(answerFor('car-mileage-vs-actual', 2027)).not.toContain('72.5');
   });
@@ -143,6 +146,6 @@ describe('assistant topic catalogue', () => {
     expect(system).not.toContain('"id":"personal-expenses"');
     expect(system).not.toMatch(FORBIDDEN_CLAIMS);
     const citationOnly = GUIDANCE_SOURCES.filter(source => !(SELECTABLE_TOPICS as readonly string[]).includes(source.id)).map(source => source.id);
-    expect(citationOnly).toEqual(['authority', 'vehicle-classification', 'personal-expenses']);
+    expect(citationOnly).toEqual(['authority', 'vehicle-classification', 'personal-expenses', 'hsa-2027-limits', 'hsa-expanded-eligibility', 'aca-2026-percentages', 'aca-2027-percentages', 'savers-match-implementation', 'scholarship-credit-conditions', 'employee-expense-exceptions']);
   });
 });
