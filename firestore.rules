@@ -151,7 +151,7 @@ service cloud.firestore {
                          'subscriptionEnd', 'stripeCustomerId', 'stripeSubscriptionId',
                          'stripeSubscriptionStatus', 'subscriptionPlan',
                          'plaid_token', 'access_token', 'plaid_item_id', 'plaid_transactions_cursor',
-                         'bankConnected', 'plaid_credentials_migrated',
+                         'bankConnected', 'plaid_credentials_migrated', 'bank_reconnect_session_id',
                          'consents', 'consents_recorded_at'
                        ]);
 
@@ -170,7 +170,7 @@ service cloud.firestore {
                          'stripeSubscriptionId',
                          'stripeSubscriptionStatus', 'subscriptionPlan',
                          'plaid_token', 'access_token', 'plaid_item_id', 'plaid_transactions_cursor',
-                         'bankConnected', 'plaid_credentials_migrated',
+                         'bankConnected', 'plaid_credentials_migrated', 'bank_reconnect_session_id',
                          'consents', 'consents_recorded_at' // validated and stamped by /api/database/profiles
                        ]);
 
@@ -181,6 +181,9 @@ service cloud.firestore {
       match /meta/{docId} {
         allow read, write: if request.auth != null && request.auth.uid == uid;
       }
+
+      // Owner history review is available only through the authenticated, validated API.
+      match /bank_reconnects/{sessionId}/{document=**} { allow read, write: if false; }
 
       // Accounts subcollection
       match /accounts/{accountId} {

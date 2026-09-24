@@ -1,6 +1,7 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
-const mock = vi.hoisted(() => ({ auth: vi.fn(), connection: vi.fn(), link: vi.fn(), trial: vi.fn(), history: vi.fn(), historyReady: vi.fn() }));
+const mock = vi.hoisted(() => ({ auth: vi.fn(), connection: vi.fn(), link: vi.fn(), trial: vi.fn(), history: vi.fn(), historyReady: vi.fn(), reconnectCanLink: vi.fn() }));
+vi.mock('@/lib/plaid/reconnect', () => ({ assertReconnectCanLink: mock.reconnectCanLink }));
 vi.mock('@/lib/plaid/history-review', () => ({ assertBankHistoryReadyForNewConnection: mock.historyReady,
   BANK_HISTORY_REVIEW_REQUIRED: 'BANK_HISTORY_REVIEW_REQUIRED', BANK_HISTORY_REVIEW_MESSAGE: 'Review saved bank history with WriteOff support.' }));
 vi.mock('@/app/api/_lib/auth', () => ({ getUserFromReqOrThrow: mock.auth }));
@@ -46,7 +47,7 @@ describe('authenticated bank Link update mode', () => {
     expect(response.status).toBe(200);
     const body = await response.json(); expect(body).toEqual({ link_token: 'public-link-token', mode: 'update', itemId: 'owned-item' });
     expect(JSON.stringify(body)).not.toContain('private-token');
-    expect(mock.connection).toHaveBeenCalledWith('owner', 'owned-item');
+    expect(mock.connection).toHaveBeenCalledWith('owner', 'owned-item', true);
     expect(mock.link.mock.calls[0][0]).toMatchObject({ access_token: 'synthetic-private-token', webhook: 'https://staging.example.test/api/plaid/webhook' });
     expect(mock.link.mock.calls[0][0]).not.toHaveProperty('products'); expect(mock.link.mock.calls[0][0]).not.toHaveProperty('transactions');
     expect(mock.trial).not.toHaveBeenCalled(); expect(mock.history).not.toHaveBeenCalled();
@@ -96,3 +97,14 @@ describe('authenticated bank Link update mode', () => {
     expect(mock.link).not.toHaveBeenCalled(); expect(mock.trial).not.toHaveBeenCalled();
   });
 });
+
+ it('issues a create-mode Link token only after validating the owner reconnect session', async () => {
+  expect((await POST(req({ reconnectSessionId: 'review' }))).status).toBe(200);
+  expect(mock.reconnectCanLink).toHaveBeenCalledWith('owner', 'review');
+  expect(mock.historyReady).not.toHaveBeenCalled();
+  expect(mock.link.mock.calls[0][0]).toHaveProperty('products');
+ });
+ it('rejects mixing Item update mode with a new reconnect session', async () => {
+  expect((await POST(req({ itemId: 'existing', reconnectSessionId: 'review' }))).status).toBe(400);
+  expect(mock.link).not.toHaveBeenCalled();
+ });

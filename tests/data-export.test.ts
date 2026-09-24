@@ -111,3 +111,12 @@ describe('owner export source completeness and privacy', () => {
     expect((await generateUserDataExport('owner')).transactions).toHaveLength(4);
   });
 });
+
+ it('reports private unresolved bank history metadata without adding staged amounts to exported transactions', async () => {
+  seed('user_profiles/owner/bank_reconnects/review', { uid: 'owner', phase: 'active', mappingComplete: true, historyReady: true });
+  seed('user_profiles/owner/bank_reconnects/review/import_records/private', { uid: 'owner', status: 'deferred', payload: { date: '2026-08-01', amount: 987654 } });
+  const result = await generateUserDataExport('owner', 2026);
+  expect(result.bankHistoryReview).toMatchObject({ ready: false, deferredRecords: 1 });
+  expect(result.transactions.some(record => record.amount === 987654)).toBe(false);
+  expect(JSON.stringify(result.bankHistoryReview)).not.toContain('987654');
+ });

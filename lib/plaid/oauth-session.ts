@@ -9,6 +9,7 @@ export interface PlaidOAuthSession {
   createdAt: number;
   fromSettings: boolean;
   itemId?: string;
+  reconnectSessionId?: string;
 }
 export type PlaidOAuthResume = { session: PlaidOAuthSession; receivedRedirectUri: string };
 type SessionStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
@@ -27,7 +28,9 @@ function validSession(value: unknown, uid: string, origin: string, now: number):
     && typeof session.redirectUri === 'string' && validCallback(session.redirectUri, origin)
     && typeof session.createdAt === 'number' && Number.isFinite(session.createdAt)
     && now >= session.createdAt && now - session.createdAt < PLAID_OAUTH_MAX_AGE_MS
-    && typeof session.fromSettings === 'boolean' && (session.itemId === undefined || validItem(session.itemId));
+    && typeof session.fromSettings === 'boolean' && (session.itemId === undefined || validItem(session.itemId))
+    && (session.reconnectSessionId === undefined || validItem(session.reconnectSessionId))
+    && !(session.itemId && session.reconnectSessionId);
 }
 export function clearPlaidOAuthSession(storage: SessionStorage): void {
   try { storage.removeItem(PLAID_OAUTH_STORAGE_KEY); } catch { /* Storage may be disabled. */ }

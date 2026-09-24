@@ -42,14 +42,14 @@ beforeEach(() => {
 });
 afterEach(() => { h.slots.forEach(slot => slot?.cleanup?.()); vi.unstubAllGlobals(); });
 describe('Plaid OAuth client resume', () => {
-  it('shows a concrete support and return path instead of retrying a blocked history reconnect', async () => {
+  it('offers guided review and a return path for a blocked history reconnect', async () => {
     h.fetch.mockResolvedValue(Response.json({ code: 'BANK_HISTORY_REVIEW_REQUIRED', error: 'Your saved bank history needs a review. Your existing records are safe.' }, { status: 409 }));
     const back = vi.fn();
     const component = () => PlaidLinkScreen({ user: { id: 'owner' }, onSuccess() {}, onBack: back });
     render(component); await flush(); const tree = render(component);
     expect(content(tree)).toContain('Review saved bank history');
     expect(content(tree)).toContain('Your existing records are safe');
-    expect(walk(tree).find(node => node.props?.href?.startsWith('mailto:writeoffapp@gmail.com'))).toBeTruthy();
+    expect(walk(tree).find(node => node.props?.href === '/plaid/reconnect')).toBeTruthy();
     walk(tree).find(node => node.props?.onClick && content(node) === 'Return to banks').props.onClick();
     expect(back).toHaveBeenCalledOnce(); expect(h.open).not.toHaveBeenCalled(); expect(h.link.token).toBeNull();
   });
@@ -60,7 +60,7 @@ describe('Plaid OAuth client resume', () => {
     render(component); render(component); await h.link.onSuccess('public-sandbox-fixture');
     const tree = render(component);
     expect(content(tree)).toContain('Review saved bank history');
-    expect(content(tree)).toContain('Contact WriteOff support');
+    expect(content(tree)).toContain('Start or resume history review');
     expect(h.push).not.toHaveBeenCalled(); expect(storage.getItem(PLAID_OAUTH_STORAGE_KEY)).toBeNull();
   });
   it('reopens the original Link token with the full received URI without issuing a second Link token', () => {
@@ -123,6 +123,38 @@ describe('Plaid OAuth client resume', () => {
     render(component); expect(h.link.token).toBeNull();
   });
 });
+describe('guided reconnect OAuth', () => {
+  it('persists reconnect identity before Link and sends it when requesting a token', async () => {
+    window.location.href = `${origin}/plaid/reconnect`; window.location.search = '';
+    const component = () => PlaidLinkScreen({ user: { id: 'owner' }, reconnectSessionId: 'review-1', onSuccess() {}, onBack() {}, fromSettings: true });
+    render(component); await flush(); let tree = render(component);
+    expect(h.fetch).toHaveBeenCalledWith('/api/plaid/create-link-token', expect.objectContaining({ body: JSON.stringify({ reconnectSessionId: 'review-1' }) }));
+    walk(tree).find(node => node.props?.type === 'checkbox').props.onChange({ target: { checked: true } }); tree = render(component);
+    await walk(tree).find(node => node.props?.onClick && content(node).includes('Connect bank for history review')).props.onClick();
+    expect(JSON.parse(storage.getItem(PLAID_OAUTH_STORAGE_KEY)!)).toMatchObject({ reconnectSessionId: 'review-1', uid: 'owner' });
+  });
+  it('exchanges a resumed reconnect into review without starting normal import', async () => {
+    const saved = { ...session(), reconnectSessionId: 'review-1' }; savePlaidOAuthSession(storage, saved, origin); const done = vi.fn();
+    h.fetch.mockResolvedValue(Response.json({ success: true, reconnectSessionId: 'review-1', historyReviewRequired: true }));
+    const component = () => PlaidLinkScreen({ user: { id: 'owner' }, reconnectSessionId: 'review-1', oauthResume: { session: saved, receivedRedirectUri: href }, onSuccess: done, onBack() {} });
+    render(component); render(component); await h.link.onSuccess('public-sandbox-fixture');
+    expect(h.fetch).toHaveBeenCalledExactlyOnceWith(`${origin}/api/plaid/exchange-public-token`, expect.objectContaining({ body: JSON.stringify({ public_token: 'public-sandbox-fixture', reconnectSessionId: 'review-1' }) }));
+    expect(done).toHaveBeenCalledOnce(); expect(h.push).not.toHaveBeenCalled(); expect(h.request).not.toHaveBeenCalled();
+  });
+  it('does not accept a different session in an exchange response', async () => {
+    const saved = { ...session(), reconnectSessionId: 'review-1' }; savePlaidOAuthSession(storage, saved, origin); const done = vi.fn();
+    h.fetch.mockResolvedValue(Response.json({ success: true, reconnectSessionId: 'other-review', historyReviewRequired: true }));
+    const component = () => PlaidLinkScreen({ user: { id: 'owner' }, reconnectSessionId: 'review-1', oauthResume: { session: saved, receivedRedirectUri: href }, onSuccess: done, onBack() {} });
+    render(component); render(component); await h.link.onSuccess('public-sandbox-fixture');
+    expect(done).not.toHaveBeenCalled(); expect(h.push).not.toHaveBeenCalled(); expect(content(render(component))).toContain('could not be verified');
+  });
+  it('rejects callback session mismatch before opening Link', () => {
+    const saved = { ...session(), reconnectSessionId: 'review-1' }; savePlaidOAuthSession(storage, saved, origin);
+    const component = () => PlaidLinkScreen({ user: { id: 'owner' }, reconnectSessionId: 'other-review', oauthResume: { session: saved, receivedRedirectUri: href }, onSuccess() {}, onBack() {} });
+    render(component); render(component);
+    expect(h.open).not.toHaveBeenCalled(); expect(h.fetch).not.toHaveBeenCalled(); expect(content(render(component))).toContain('session has expired');
+  });
+});
 describe('OAuth callback page recovery', () => {
   it('routes a signed-out user back through sign-in with the original state URL', () => {
     h.authUser = null; render(PlaidOAuthPage); const tree = render(PlaidOAuthPage);
@@ -133,6 +165,14 @@ describe('OAuth callback page recovery', () => {
   it('shows safe restart when the original browser session is missing instead of connecting another bank', () => {
     render(PlaidOAuthPage); const tree = render(PlaidOAuthPage);
     expect(content(tree)).toContain('Restart your bank connection'); expect(h.fetch).not.toHaveBeenCalled();
+  });
+  it('returns reconnect OAuth to the same saved review on success or back', () => {
+    const saved = { ...session(), reconnectSessionId: 'review-1' }; savePlaidOAuthSession(storage, saved, origin);
+    render(PlaidOAuthPage); const tree = render(PlaidOAuthPage);
+    expect(tree.props.reconnectSessionId).toBe('review-1');
+    tree.props.onSuccess(); tree.props.onBack();
+    expect(h.replace).toHaveBeenNthCalledWith(1, '/plaid/reconnect?sessionId=review-1');
+    expect(h.replace).toHaveBeenNthCalledWith(2, '/plaid/reconnect?sessionId=review-1');
   });
   it('passes the stored update Item to Link and returns to the bank list', () => {
     const saved = session('owned-item'); savePlaidOAuthSession(storage, saved, origin);

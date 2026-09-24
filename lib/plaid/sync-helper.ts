@@ -54,7 +54,7 @@ async function saveTransaction(uid: string, connection: PlaidConnection, transac
 async function eachConnection(uid: string, itemId: string | undefined,
   work: (connection: PlaidConnection, leaseId: string) => Promise<number>): Promise<SyncResult> {
   try {
-    const all = await listPlaidConnections(uid);
+    const all = await listPlaidConnections(uid, true);
     const connections = itemId ? all.filter(connection => connection.itemId === itemId) : all;
     if (!connections.length) return { success: false, transactionsSaved: 0, error: 'No bank connection found' };
     let transactionsSaved = 0;
@@ -67,9 +67,10 @@ async function eachConnection(uid: string, itemId: string | undefined,
           const { data } = await plaidClient.itemGet({ access_token: current.accessToken });
           if (data.item.item_id !== current.itemId || data.item.error !== null) throw new Error('Bank sign-in is required');
           await updatePlaidConnection(uid, current.itemId, { reauthenticationRequired: false }, leaseId);
+          current.reauthenticationRequired = false;
         }
         return work(current, leaseId);
-      }); }
+      }, false, true); }
       catch { failed = true; }
     }
     return { success: !failed, transactionsSaved, accountsProcessed: connections.reduce((count, connection) => count + connection.accountIds.length, 0),
@@ -80,6 +81,10 @@ async function eachConnection(uid: string, itemId: string | undefined,
 /** An omitted item syncs all banks; webhooks always provide their verified item ID. */
 export async function syncUserTransactionsIncremental(uid: string, itemId?: string): Promise<SyncResult> {
   return eachConnection(uid, itemId, async (connection, leaseId) => {
+    if (connection.reconnectSessionId) {
+      const { syncReconnectUnderLease } = await import('./reconnect');
+      return syncReconnectUnderLease(uid, connection, leaseId);
+    }
     const startCursor = connection.cursor || undefined;
     let added: Transaction[] = [], modified: Transaction[] = [];
     let removed: Array<{ transaction_id: string; account_id?: string }> = [];
@@ -146,6 +151,10 @@ export async function syncUserTransactionsIncremental(uid: string, itemId?: stri
 /** Full history backfill is capped by the server plan and can target one owned account. */
 export async function syncUserTransactions(uid: string, importTimeframe = '1year', itemId?: string, accountId?: string): Promise<SyncResult> {
   return eachConnection(uid, itemId, async (connection, leaseId) => {
+    if (connection.reconnectSessionId) {
+      const { backfillReconnectUnderLease } = await import('./reconnect');
+      return backfillReconnectUnderLease(uid, connection, leaseId, accountId);
+    }
     if (accountId && !connection.accountIds.includes(accountId)) throw new Error('Bank account not found');
     const window = await getTransactionHistoryWindow(uid);
     const result = await fetchAllPlaidTransactions(plaidClient, { access_token: connection.accessToken,

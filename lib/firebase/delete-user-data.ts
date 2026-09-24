@@ -54,7 +54,7 @@ export async function deleteUserData(uid: string): Promise<{ error?: AccountDele
     const unresolved = privateConnections.docs.some(doc => {
       const bank = doc.data();
       return bank.status !== 'disconnected' && (!process.env.PLAID_CLIENT_ID || !process.env.PLAID_ENV ||
-        bank.clientId !== process.env.PLAID_CLIENT_ID || bank.environment !== process.env.PLAID_ENV || bank.status !== 'active');
+        bank.clientId !== process.env.PLAID_CLIENT_ID || bank.environment !== process.env.PLAID_ENV || !['active', 'pending_history_review'].includes(bank.status));
     });
     if (unresolved) throw new AccountDeletionError(
       'An older bank connection needs manual revocation before your account can be deleted. Contact support to complete the deletion request; your account and bank recovery information have been retained.',

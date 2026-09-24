@@ -22,23 +22,49 @@ const walk = (node: any): Element[] => Array.isArray(node) ? node.flatMap(walk) 
 const text = (node: any): string => Array.isArray(node) ? node.map(text).join('') : node && typeof node === 'object' ? text(node.props?.children) : String(node ?? '');
 let owner = 'bank-owner';
 let items: any[], accounts: any[];
+let reconnect: any;
 function render() { h.cursor = 0; const tree = BanksDetailScreen({ user: { id: owner }, onBack() {}, onConnectBank: h.connect }); h.effects.splice(0).forEach(f => f()); return tree; }
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
 async function mount() { render(); await flush(); return render(); }
 function button(label: string) { return walk(render()).find(n => n.props?.onClick && (text(n) === label || n.props['aria-label'] === label))!; }
 beforeEach(() => {
-  h.slots = []; h.cursor = 0; h.effects = []; vi.clearAllMocks(); owner = 'bank-owner';
+  h.slots = []; h.cursor = 0; h.effects = []; vi.clearAllMocks(); owner = 'bank-owner'; reconnect = null;
   items = [ { itemId: 'item-one', accountIds: ['acc-one'], status: 'active', relinkRequired: false }, { itemId: 'item-two', accountIds: ['acc-two'], status: 'active', relinkRequired: false } ];
   accounts = [ { account_id: 'acc-one', plaid_item_id: 'item-one', name: 'First Bank', balance: 25 }, { account_id: 'acc-two', plaid_item_id: 'item-two', name: 'Second Bank', balance: 100 }, { account_id: 'manual', name: 'Manual records' } ];
   h.request.mockImplementation(async (url: string, options: RequestInit = {}) => {
     if (options.method === 'DELETE') { items = items.filter(item => !url.endsWith(item.itemId)); return Response.json({ success: true }); }
     if (url === '/api/plaid/items') return Response.json({ items });
+    if (url === '/api/plaid/reconnect') return Response.json({ success: true, reconnect });
     if (url === '/api/database/accounts') return Response.json({ accounts });
     return Response.json({ transactions_saved: 1 });
   });
 });
 
 describe('bank management keeps each connection and saved records separate', () => {
+  it('shows an active connection with unresolved history as a resumable review', async () => {
+    reconnect = { sessionId: 'review-1', phase: 'active', pendingCount: 0, deferredCount: 4 };
+    const tree = await mount(); expect(text(tree)).toContain('Bank connected · history review remains');
+    expect(text(tree)).toContain('4 set aside for later');
+    expect(walk(tree).find(node => text(node) === 'Resume history review' && node.props.href)?.props.href).toBe('/plaid/reconnect?sessionId=review-1');
+    expect(h.request).toHaveBeenCalledWith('/api/plaid/reconnect', { cache: 'no-store' });
+    expect(h.request.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false);
+  });
+  it('retains a review link per bank when several reconnect sessions exist', async () => {
+    items[0].reconnectSessionId = 'review-one'; items[1].reconnectSessionId = 'review-two';
+    const tree = await mount();
+    const links = walk(tree).filter(node => node.props.href?.startsWith('/plaid/reconnect?')).map(node => node.props.href);
+    expect(links).toContain('/plaid/reconnect?sessionId=review-one'); expect(links).toContain('/plaid/reconnect?sessionId=review-two');
+  });
+  it('routes a pending history item back to its existing review without starting another bank link', async () => {
+    items = [{ ...items[0], status: 'pending_history_review', relinkRequired: true, reconnectSessionId: 'review-one' }];
+    const tree = await mount(); expect(text(tree)).toContain('History review required'); expect(text(tree)).not.toContain('provider has changed');
+    expect(walk(tree).find(node => text(node) === 'Resume history review' && node.props.href)?.props.href).toBe('/plaid/reconnect?sessionId=review-one');
+    expect(walk(tree).some(node => node.props.onClick && text(node) === 'Reconnect bank')).toBe(false);
+  });
+  it('does not label completed or cancelled reviews as outstanding', async () => {
+    reconnect = { sessionId: 'review-1', phase: 'active', pendingCount: 0, deferredCount: 0 };
+    expect(text(await mount())).not.toContain('Resume history review');
+  });
   it('repairs a current-provider login error using the existing Item instead of creating another bank', async () => {
     items[0] = { ...items[0], status: 'relink_required', relinkRequired: true, reauthenticationRequired: true };
     await mount(); button('Repair connection').props.onClick();

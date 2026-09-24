@@ -25,10 +25,11 @@ interface PlaidLinkScreenProps {
   onBack: () => void;
   fromSettings?: boolean; // If true, hide subscription options and connect directly
   updateItemId?: string;
+  reconnectSessionId?: string;
   oauthResume?: PlaidOAuthResume;
 }
 
-export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess, onBack, fromSettings = false, updateItemId, oauthResume }) => {
+export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess, onBack, fromSettings = false, updateItemId, reconnectSessionId, oauthResume }) => {
   const router = useRouter();
   // Capture the app origin from the top-level page. Some Plaid callbacks can run
   // in a different browsing context (e.g. iframe), where relative URLs might
@@ -208,7 +209,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
 
     if (oauthResume) {
       const resumed = readPlaidOAuthResume(window.sessionStorage, user.id, window.location.href);
-      if (!resumed || resumed.session.token !== oauthResume.session.token || resumed.session.itemId !== updateItemId) {
+      if (!resumed || resumed.session.token !== oauthResume.session.token || resumed.session.itemId !== updateItemId || resumed.session.reconnectSessionId !== reconnectSessionId) {
         setError('This bank sign-in session has expired. Return to your banks and connect again.');
         return;
       }
@@ -250,7 +251,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`,
           },
-          body: JSON.stringify(updateItemId ? { itemId: updateItemId } : {}),
+          body: JSON.stringify(reconnectSessionId ? { reconnectSessionId } : updateItemId ? { itemId: updateItemId } : {}),
         });
 
         if (!response.ok) {
@@ -300,7 +301,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
 
     createLinkToken();
     return () => { cancelled = true; };
-  }, [user.id, updateItemId, oauthResume]);
+  }, [user.id, updateItemId, reconnectSessionId, oauthResume]);
 
   const onPlaidSuccess = useCallback(async (public_token: string) => {
     setLoading(true);
@@ -351,6 +352,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
         },
         body: JSON.stringify({
           public_token,
+          ...(reconnectSessionId ? { reconnectSessionId } : {}),
           // The server chooses the permitted history window for the current plan.
         }),
       });
@@ -388,6 +390,14 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
       }
 
       const data = await response.json();
+      if (auth.currentUser?.uid !== user.id) throw new Error('Sign in to the same WriteOff account and reconnect your bank.');
+      if (reconnectSessionId) {
+        if (!data.success || data.reconnectSessionId !== reconnectSessionId || !data.historyReviewRequired) {
+          throw new Error('The bank connection could not be verified. Return to your saved history review and refresh its status.');
+        }
+        onSuccess();
+        return;
+      }
       console.log('Bank account connected successfully:', data);
       console.log(`📊 [Plaid Success] Imported ${data.imported} transactions`);
       setIsConnected(true);
@@ -409,7 +419,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
     } finally {
       setLoading(false);
     }
-  }, [user.id, onSuccess, updateItemId, router, linkOwner]);
+  }, [user.id, onSuccess, updateItemId, reconnectSessionId, router, linkOwner]);
 
   const onPlaidExit = useCallback((err: any) => {
     clearPlaidOAuthSession(window.sessionStorage);
@@ -457,7 +467,8 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
       try {
         if (!linkToken || linkOwner !== user.id || auth.currentUser?.uid !== user.id) throw new Error('Sign in again before connecting your bank.');
         if (redirectUri) savePlaidOAuthSession(window.sessionStorage, { version: 1, uid: user.id, token: linkToken,
-          redirectUri, createdAt: Date.now(), fromSettings, ...(updateItemId ? { itemId: updateItemId } : {}) }, window.location.origin);
+          redirectUri, createdAt: Date.now(), fromSettings, ...(updateItemId ? { itemId: updateItemId } : {}),
+          ...(reconnectSessionId ? { reconnectSessionId } : {}) }, window.location.origin);
         else clearPlaidOAuthSession(window.sessionStorage);
         open();
       } catch (err) { setError(err instanceof Error ? err.message : 'Bank sign-in could not start. Please retry.'); }
@@ -474,8 +485,8 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
       <Card className="w-full space-y-4 p-6">
         <h1 className="text-xl font-semibold">Review saved bank history</h1>
         <p role="alert" className="text-sm text-muted-foreground">{error}</p>
-        <a className="inline-flex min-h-11 items-center font-medium text-primary underline underline-offset-2"
-          href="mailto:writeoffapp@gmail.com?subject=Bank%20history%20reconnect%20review">Contact WriteOff support</a>
+        <p className="text-sm text-muted-foreground">Connect your bank, match its accounts to your saved accounts, and choose how to handle overlapping transactions. You can save progress and return later.</p>
+        <Button asChild className="w-full"><Link href="/plaid/reconnect">Start or resume history review</Link></Button>
         <Button className="w-full" variant="outline" onClick={() => { clearPlaidOAuthSession(window.sessionStorage); onBack(); }}>Return to banks</Button>
       </Card>
     </main>
@@ -878,7 +889,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
                 ) : (
                   <>
                     <Building2 className="w-4 h-4" />
-                    <span>{updateItemId ? 'Repair bank connection' : fromSettings ? 'Connect Bank Account' : 'Connect Bank Account (Start Free Trial)'}</span>
+                    <span>{reconnectSessionId ? 'Connect bank for history review' : updateItemId ? 'Repair bank connection' : fromSettings ? 'Connect Bank Account' : 'Connect Bank Account (Start Free Trial)'}</span>
                   </>
                 )}
               </Button>
@@ -888,7 +899,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
                 variant="outline"
                 className="w-full h-10 border-2 border-border bg-card hover:bg-muted text-foreground rounded-xl transition-all duration-200 text-sm font-medium"
               >
-                Skip for now (connect later)
+                {reconnectSessionId ? 'Return to history review' : 'Skip for now (connect later)'}
               </Button>
           </Card>
 

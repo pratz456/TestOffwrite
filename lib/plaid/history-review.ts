@@ -3,7 +3,7 @@ import { adminDb } from '@/lib/firebase/admin';
 import { isCurrent, validId } from './connection-primitives';
 
 export const BANK_HISTORY_REVIEW_REQUIRED = 'BANK_HISTORY_REVIEW_REQUIRED';
-export const BANK_HISTORY_REVIEW_MESSAGE = 'Your saved bank history needs a review before adding a new connection, so the same transactions are not counted twice. Your existing records are safe. Contact WriteOff support to review your bank history.';
+export const BANK_HISTORY_REVIEW_MESSAGE = 'Your saved bank history needs a review before adding a new connection, so the same transactions are not counted twice. Your existing records are safe. Continue to the guided bank review to map your accounts and review any repeated records.';
 
 const hasLegacyTokenField = (data: DocumentData) => 'plaid_token' in data || 'access_token' in data;
 

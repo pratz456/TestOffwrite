@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({ auth: vi.fn(), exchange: vi.fn(), accounts: vi.fn(), remove: vi.fn(), save: vi.fn(), sync: vi.fn(),
-  begin: vi.fn(), retain: vi.fn(), finish: vi.fn(), unresolved: vi.fn(), owner: vi.fn(), quarantine: vi.fn(), historyReady: vi.fn() }));
+  begin: vi.fn(), retain: vi.fn(), finish: vi.fn(), unresolved: vi.fn(), owner: vi.fn(), quarantine: vi.fn(), historyReady: vi.fn(), reconnectCanLink: vi.fn(), saveReconnect: vi.fn() }));
+vi.mock('@/lib/plaid/reconnect', () => ({ assertReconnectCanLink: m.reconnectCanLink, saveReconnectConnection: m.saveReconnect }));
 vi.mock('@/lib/plaid/history-review', () => ({ assertBankHistoryReadyForNewConnection: m.historyReady,
   BANK_HISTORY_REVIEW_REQUIRED: 'BANK_HISTORY_REVIEW_REQUIRED', BANK_HISTORY_REVIEW_MESSAGE: 'Review saved bank history with WriteOff support.' }));
 vi.mock('@/app/api/_lib/auth', () => ({ getUserFromReqOrThrow: m.auth }));
@@ -11,7 +12,7 @@ vi.mock('@/lib/plaid/link-operations', () => ({ ACCOUNT_DELETION_IN_PROGRESS: 'A
   retainPlaidLinkRecovery: m.retain, finishPlaidLinkOperation: m.finish, markPlaidLinkOperationUnresolved: m.unresolved,
   existingPlaidLinkOwner: m.owner, quarantinePlaidLinkRecovery: m.quarantine }));
 import { POST } from '@/app/api/plaid/exchange-public-token/route';
-const req = () => new Request('https://writeoff.test/api/plaid/exchange-public-token', { method: 'POST', body: JSON.stringify({ public_token: 'public-sandbox-test' }) });
+const req = (extra = {}) => new Request('https://writeoff.test/api/plaid/exchange-public-token', { method: 'POST', body: JSON.stringify({ public_token: 'public-sandbox-test', ...extra }) });
 beforeEach(() => {
   vi.resetAllMocks(); m.auth.mockResolvedValue({ uid: 'owner' }); m.begin.mockResolvedValue('operation');
   m.exchange.mockResolvedValue({ data: { access_token: 'access-sandbox-test', item_id: 'created-item' } });
@@ -75,3 +76,25 @@ describe('bank exchange excludes account deletion and preserves compensation', (
     expect((await POST(req())).status).toBe(502); expect(m.remove).toHaveBeenCalledOnce(); expect(m.finish).toHaveBeenCalledOnce();
   });
 });
+
+ describe('guided bank exchange', () => {
+  it('saves replacement Item pending review and never invokes the normal connection save', async () => {
+    const response = await POST(req({ reconnectSessionId: 'owner-review' }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ success: true, reconnectSessionId: 'owner-review', historyReviewRequired: true });
+    expect(m.reconnectCanLink).toHaveBeenCalledWith('owner', 'owner-review');
+    expect(m.saveReconnect).toHaveBeenCalledWith(expect.objectContaining({ uid: 'owner', sessionId: 'owner-review', itemId: 'created-item' }));
+    expect(m.save).not.toHaveBeenCalled(); expect(m.historyReady).not.toHaveBeenCalled();
+  });
+  it('rejects an unowned session before exchanging a token', async () => {
+    m.reconnectCanLink.mockRejectedValue(new Error('Bank review not found'));
+    expect((await POST(req({ reconnectSessionId: 'foreign' }))).status).toBe(502);
+    expect(m.exchange).not.toHaveBeenCalled(); expect(m.begin).not.toHaveBeenCalled();
+  });
+  it('revokes the unused new Item when the review was cancelled or linked by another request', async () => {
+    m.saveReconnect.mockRejectedValue(new Error('BANK_REVIEW_SESSION_CHANGED'));
+    expect((await POST(req({ reconnectSessionId: 'owner-review' }))).status).toBe(502);
+    expect(m.remove).toHaveBeenCalledExactlyOnceWith({ access_token: 'access-sandbox-test' });
+    expect(m.finish).toHaveBeenCalledWith('owner', 'operation'); expect(m.quarantine).not.toHaveBeenCalled();
+  });
+ });

@@ -174,3 +174,12 @@ describe('account deletion boundaries', () => {
     expect(h.authDelete).not.toHaveBeenCalled(); expect(h.records.has('user_profiles/owner')).toBe(true);
   });
 });
+
+ it('revokes pending current-client history review before recursive deletion', async () => {
+  bank('pending', { status: 'pending_history_review' });
+  h.records.set('user_profiles/owner/bank_reconnects/review/import_records/private', { uid: 'owner', amount: 10 });
+  const result = await deleteUserData('owner');
+  expect(result.error).toBeUndefined();
+  expect(h.disconnect).toHaveBeenCalledWith('owner', 'pending');
+  expect(h.records.has('user_profiles/owner/bank_reconnects/review/import_records/private')).toBe(false);
+ });

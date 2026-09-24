@@ -1,3 +1,4 @@
+import { readBankHistoryReviewSummary, type BankHistoryReviewSummary } from '@/lib/plaid/reconnect-summary';
 import { adminDb } from '@/lib/firebase/admin';
 import { validateReceiptPreviewPath } from '@/lib/receipts/preview-path';
 import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
@@ -75,6 +76,7 @@ export interface RetentionNote {
   notes: string[]; source: string;
 }
 export interface AuditSupportPacket {
+  bankHistoryReview?: BankHistoryReviewSummary;
   packetInfo: { title: string; taxYear: number; generatedAt: string; version: string; purpose: string; receiptBinariesIncluded: false; owner: string };
   coverNote: string[];
   deductions: AuditEvidenceRecord[];
@@ -366,7 +368,10 @@ export async function readAuditSupportPacket(uid: string, year: number): Promise
     trips = tripSnapshot.docs.map(doc => ownedExportRecord(doc, uid, true));
     receipts = [...new Map(receiptSnapshots.flatMap(snapshot => snapshot.docs.map(doc => [doc.ref.path, doc] as const))).values()].map(doc => ownedExportRecord(doc, uid));
   } catch { throw new ExportDataUnavailableError(); }
-  return assembleAuditSupportPacket(uid, year, { transactions, trips, receipts });
+  const bankHistoryReview = await readBankHistoryReviewSummary(uid, year);
+  const packet = assembleAuditSupportPacket(uid, year, { transactions, trips, receipts });
+  if (!bankHistoryReview.ready) packet.coverNote.push(`Bank history review is unfinished: ${bankHistoryReview.pendingRecords} records pending and ${bankHistoryReview.deferredRecords} deferred. Private imports are excluded from this packet. Pending corrections retain the prior reviewed record.`);
+  return { ...packet, bankHistoryReview };
 }
 
 export const AUDIT_SUPPORT_CSV_HEADERS = [
