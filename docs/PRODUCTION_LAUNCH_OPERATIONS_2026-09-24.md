@@ -15,8 +15,8 @@ not a recurring backup. Both application schedules were enabled.
 The release operator applied the minimal recovery and monitoring configuration.
 Independent read-back confirmed PITR and delete protection enabled, one daily
 backup schedule with 14-week retention, one uptime check, four enabled alert
-policies and two log metrics. The throttle TTL policy is still **CREATING** at
-this check; do not treat cleanup as active yet. The first scheduled backup,
+policies and two log metrics. A subsequent independent read-back confirmed the
+throttle TTL policy **ACTIVE**. The first scheduled backup,
 heartbeat detection, alert delivery and restore drill are not yet verified.
 There are no notification channels; recipient approval is pending.
 
@@ -25,7 +25,7 @@ There are no notification channels; recipient approval is pending.
 | Database delete protection | ENABLED | Read-back confirmed; protects database deletion, not document deletion. |
 | Point-in-time recovery | ENABLED, retention 604,800 seconds | Read-back confirmed; earliest recoverable time was September 24, 17:46 UTC. The seven-day window builds after enablement. |
 | Managed backups | One daily schedule, retention 8,467,200 seconds (14 weeks) | Schedule `d518b9b8-4ebe-49ab-b20f-43bb5a4a4eb3` read back. First completed backup and restore drill remain unverified. |
-| Expired throttle records | TTL on `rate_limits.expiresAt`, CREATING | Five sampled live records used Firestore timestamps; source stores a Date. Await ACTIVE. Rate decisions already ignore expired windows. |
+| Expired throttle records | TTL on `rate_limits.expiresAt`, ACTIVE | Read-back confirmed. Five sampled live records used Firestore timestamps; source stores a Date. Actual deletions are asynchronous; rate decisions already ignore expired windows. |
 | Public uptime | HTTPS `/auth/login`, every 5 minutes, 30-second timeout, US/Europe/Asia-Pacific checkers | Tests public availability, DNS and TLS. Does not sign in or test a bank/payment. |
 | Availability incident | More than one checker fails for 5 minutes | Filters one-checker blips; investigate in Cloud Monitoring. |
 | Server incident | At least 5 SSR 5xx responses in 5 minutes | Ignores ordinary 4xx review/authorization responses. Inspect affected route/revision. |
