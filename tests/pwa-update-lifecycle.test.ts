@@ -111,8 +111,8 @@ describe('PWA updates preserve in-progress work', () => {
 function configuredPwaOptions() {
   let options: any;
   const compiled = ts.transpileModule(fs.readFileSync('next.config.ts', 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
-  const module = { exports: {} };
-  vm.runInNewContext(compiled, { module, exports: module.exports, process: { env: { NODE_ENV: 'production' } }, require: (name: string) => {
+  const loadedModule = { exports: {} };
+  vm.runInNewContext(compiled, { module: loadedModule, exports: loadedModule.exports, process: { env: { NODE_ENV: 'production' } }, require: (name: string) => {
     if (name === '@ducanh2912/next-pwa') return { default: (value: any) => { options = value; return (config: any) => config; } };
     if (name === './lib/pwa/cache-policy') return { privacyRuntimeCaching };
     throw new Error(`Unexpected config dependency ${name}`);
