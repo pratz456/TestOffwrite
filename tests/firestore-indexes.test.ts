@@ -22,7 +22,7 @@ interface CatalogEntry {
 }
 interface IndexField { fieldPath: string; order?: Dir; arrayConfig?: 'CONTAINS' }
 interface CompositeIndex { collectionGroup: string; queryScope: Scope; fields: IndexField[] }
-interface FieldOverride { collectionGroup: string; fieldPath: string; indexes: Array<{ order?: Dir; arrayConfig?: 'CONTAINS'; queryScope: Scope }> }
+interface FieldOverride { collectionGroup: string; fieldPath: string; ttl?: boolean; indexes: Array<{ order?: Dir; arrayConfig?: 'CONTAINS'; queryScope: Scope }> }
 
 const file = JSON.parse(readFileSync(new URL('../firestore.indexes.json', import.meta.url), 'utf8')) as
   { indexes: CompositeIndex[]; fieldOverrides?: FieldOverride[] };
@@ -104,6 +104,14 @@ export function servesQuery(index: CompositeIndex, entry: CatalogEntry): boolean
 }
 
 describe('firestore.indexes.json structure', () => {
+  it('retains throttle cleanup on deploy without expiring financial records', () => {
+    const expiringFields = (file.fieldOverrides ?? []).filter(field => field.ttl);
+    expect(expiringFields.map(field => [field.collectionGroup, field.fieldPath])).toEqual([
+      ['rate_limits', 'expiresAt'],
+    ]);
+    expect(expiringFields[0].ttl).toBe(true);
+  });
+
   it('is comment-free JSON with well-formed composite entries and no duplicates', () => {
     const seen = new Set<string>();
     for (const index of file.indexes) {
