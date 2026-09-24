@@ -73,7 +73,7 @@
     "exceljs": "^4.4.0",
     "firebase": "^12.2.1",
     "firebase-admin": "^13.5.0",
-    "firebase-frameworks": "^0.11.8",
+    "firebase-frameworks": "file:vendor/firebase-frameworks-0.11.8-writeoff.1.tgz",
     "firebase-functions": "^7.0.5",
     "gray-matter": "^4.0.3",
     "ical.js": "2.2.1",
