@@ -111,7 +111,7 @@ export function HistoricalAccessUpgradeCard({ variant = 'default' }: { variant?:
 
   // Calculate savings for yearly plan
   const monthlyPrice = 14.99;
-  const yearlyPrice = 150;
+  const yearlyPrice = 149.99;
   const yearlySavings = (monthlyPrice * 12) - yearlyPrice;
   const yearlySavingsPercent = Math.round((yearlySavings / (monthlyPrice * 12)) * 100);
 
@@ -211,7 +211,7 @@ export function HistoricalAccessUpgradeCard({ variant = 'default' }: { variant?:
           <Badge variant="default" className="text-[10px] px-1.5 py-0">{daysRemaining}d left</Badge>
           <div className="flex items-center gap-2 ml-auto">
             <span className="text-xs font-semibold tabular-nums text-foreground">
-              ${billingInterval === 'monthly' ? '14.99/mo' : '150/yr'}
+              ${billingInterval === 'monthly' ? '14.99/mo' : '149.99/yr'}
             </span>
             <Button
               onClick={handleUpgrade}
@@ -234,7 +234,7 @@ export function HistoricalAccessUpgradeCard({ variant = 'default' }: { variant?:
         <span className="text-[10px] text-muted-foreground">Reports, exports & extended history</span>
         <div className="flex items-center gap-2 ml-auto">
           <span className="text-xs font-semibold tabular-nums text-foreground">
-            ${billingInterval === 'monthly' ? '14.99/mo' : '150/yr'}
+            ${billingInterval === 'monthly' ? '14.99/mo' : '149.99/yr'}
           </span>
           <Button
             onClick={handleUpgrade}
@@ -302,7 +302,7 @@ export function HistoricalAccessUpgradeCard({ variant = 'default' }: { variant?:
             <p className="text-xs text-muted-foreground">Subscribe to keep access to reports, exports & history.</p>
           </div>
           <div className="mt-3 flex items-center justify-between">
-            <span className="text-lg font-semibold tabular-nums">${billingInterval === 'monthly' ? '14.99' : '150'}<span className="text-xs text-muted-foreground font-normal">/{billingInterval === 'monthly' ? 'mo' : 'yr'}</span></span>
+            <span className="text-lg font-semibold tabular-nums">${billingInterval === 'monthly' ? '14.99' : '149.99'}<span className="text-xs text-muted-foreground font-normal">/{billingInterval === 'monthly' ? 'mo' : 'yr'}</span></span>
             <Button onClick={handleUpgrade} disabled={checkoutLoading} size="sm" className="text-xs px-4">
               {checkoutLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Subscribe'}
             </Button>
@@ -324,7 +324,7 @@ export function HistoricalAccessUpgradeCard({ variant = 'default' }: { variant?:
           <p className="text-xs text-muted-foreground">Full access to reports, exports, and extended history.</p>
         </div>
         <div className="mt-3 flex items-center justify-between">
-          <span className="text-lg font-semibold tabular-nums">${billingInterval === 'monthly' ? '14.99' : '150'}<span className="text-xs text-muted-foreground font-normal">/{billingInterval === 'monthly' ? 'mo' : 'yr'}</span></span>
+          <span className="text-lg font-semibold tabular-nums">${billingInterval === 'monthly' ? '14.99' : '149.99'}<span className="text-xs text-muted-foreground font-normal">/{billingInterval === 'monthly' ? 'mo' : 'yr'}</span></span>
           <Button onClick={handleUpgrade} disabled={checkoutLoading} size="sm" className="text-xs px-4">
             {checkoutLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Subscribe'}
           </Button>
