@@ -1,5 +1,6 @@
-import Stripe from 'stripe';
+import type Stripe from 'stripe';
 import { adminDb } from '@/lib/firebase/admin';
+import { getStripeClient } from '@/lib/stripe/subscription-sync';
 
 /** Account deletion must not discard billing identifiers while charges can continue. */
 export async function cancelUserStripeSubscriptions(userId: string): Promise<{
@@ -10,9 +11,8 @@ export async function cancelUserStripeSubscriptions(userId: string): Promise<{
     const customerId = profile?.stripeCustomerId;
     const subscriptionId = profile?.stripeSubscriptionId;
     if (!customerId && !subscriptionId) return { success: true, canceledSubscriptions: 0 };
-    const key = process.env.STRIPE_SECRET_KEY;
-    if (!key) throw new Error('Billing is not configured');
-    const stripe = new Stripe(key, { apiVersion: '2025-10-29.clover' });
+    const stripe = getStripeClient();
+    if (!stripe) throw new Error('Billing is not configured');
 
     let subscription: Stripe.Subscription | undefined;
     if (subscriptionId) {
@@ -25,6 +25,7 @@ export async function cancelUserStripeSubscriptions(userId: string): Promise<{
       const subscriptionCustomer = typeof subscription?.customer === 'string'
         ? subscription.customer : subscription?.customer?.id;
       if (customerId && subscription && subscriptionCustomer !== customerId) throw new Error('Billing ownership mismatch');
+      if (subscription?.metadata?.firebase_uid && subscription.metadata.firebase_uid !== userId) throw new Error('Billing ownership mismatch');
     }
     if (customerId) {
       const customer = await stripe.customers.retrieve(customerId);
@@ -32,6 +33,7 @@ export async function cancelUserStripeSubscriptions(userId: string): Promise<{
         if (subscription && !['canceled', 'incomplete_expired'].includes(subscription.status)) throw new Error('Billing status is inconsistent');
         return { success: true, canceledSubscriptions: 0 };
       }
+      if (customer.metadata?.firebase_uid && customer.metadata.firebase_uid !== userId) throw new Error('Billing ownership mismatch');
       // Stripe customer deletion immediately cancels every active subscription,
       // including subscriptions beyond a single paginated list response.
       const deleted = await stripe.customers.del(customerId);

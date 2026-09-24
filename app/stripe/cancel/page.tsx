@@ -17,9 +17,9 @@ export default function StripeCancelPage() {
               <XCircle className="w-8 h-8 text-red-600 dark:text-red-400" />
             </div>
           </div>
-          <CardTitle className="text-2xl">Payment Cancelled</CardTitle>
+          <CardTitle className="text-2xl">Checkout closed</CardTitle>
           <CardDescription className="mt-2">
-            Your payment was cancelled. No charges were made.
+            You left checkout. If you already submitted a payment, review billing to confirm its status before trying again.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -38,11 +38,11 @@ export default function StripeCancelPage() {
             </Button>
             <Button
               variant="outline"
-              onClick={() => router.push('/protected')}
+              onClick={() => router.push('/protected/subscriptions')}
               className="w-full"
             >
               <ArrowLeft className="mr-2 w-4 h-4" />
-              Back to Dashboard
+              Review billing and plans
             </Button>
           </div>
         </CardContent>
@@ -50,4 +50,3 @@ export default function StripeCancelPage() {
     </div>
   );
 }
-

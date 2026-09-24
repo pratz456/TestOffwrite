@@ -1,21 +1,15 @@
 import { NextResponse } from 'next/server';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
-import Stripe from 'stripe';
+import { getStripeClient } from '@/lib/stripe/subscription-sync';
 import { adminDb } from '@/lib/firebase/admin';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
-
-function getStripeOrNull() {
-  const key = process.env.STRIPE_SECRET_KEY;
-  if (!key) return null;
-  return new Stripe(key, { apiVersion: '2025-10-29.clover' });
-}
 
 export async function POST(req: Request) {
   let uid: string;
   try { ({ uid } = await getUserFromReqOrThrow(req)); }
   catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
   try {
-    const stripe = getStripeOrNull();
+    const stripe = getStripeClient();
     if (!stripe) {
       return NextResponse.json({ error: 'Billing is temporarily unavailable' }, { status: 503 });
     }
@@ -67,8 +61,8 @@ export async function POST(req: Request) {
       success: true,
       url: portalSession.url,
     });
-  } catch (error) {
-    console.error('Error creating billing portal session:', error);
+  } catch {
+    console.error('Billing portal could not be opened');
     return NextResponse.json(
       { error: 'Billing is temporarily unavailable. Please try again.' },
       { status: 503 }

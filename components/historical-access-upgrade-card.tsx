@@ -135,8 +135,10 @@ export function HistoricalAccessUpgradeCard({ variant = 'default' }: { variant?:
     );
   }
 
-  const basicPlan = accessStatus?.entitlements.plan === 'basic' ||
-    (accessStatus?.entitlements.plan === 'free' && accessStatus.subscription?.plan === 'basic');
+  const existingSubscription = accessStatus?.subscription &&
+    !['canceled', 'incomplete_expired'].includes(accessStatus.subscription.status);
+  const basicPlan = existingSubscription && (accessStatus?.entitlements.plan === 'basic' ||
+    (accessStatus?.entitlements.plan === 'free' && accessStatus.subscription?.plan === 'basic'));
   const historyIncluded = canUseSubscriptionFeature(accessStatus, 'extended_history');
   const reportsIncluded = canUseSubscriptionFeature(accessStatus, 'reports');
   const exportsIncluded = canUseSubscriptionFeature(accessStatus, 'exports');
@@ -154,7 +156,7 @@ export function HistoricalAccessUpgradeCard({ variant = 'default' }: { variant?:
           {subscription.planCurrency?.toLowerCase() === 'usd' ? '$' : `${subscription.planCurrency?.toUpperCase() || ''} `}{subscription.planAmount.toFixed(2)}{subscription.planInterval ? `/${subscription.planInterval}` : ''}
         </p>}
         {basicActive && accessStatus?.cancelAtPeriodEnd && <p className="text-sm">Basic access continues until {accessStatus.currentPeriodEnd?.toLocaleDateString() || 'the current period ends'}. Renewal is off.</p>}
-        <Button variant="outline" className="min-h-11" onClick={() => router.push('/protected/settings?tab=account')}>Manage billing</Button>
+        <Button variant="outline" className="min-h-11" onClick={() => router.push('/protected/settings?tab=payment')}>Manage billing</Button>
       </Card>
     );
   }
@@ -167,7 +169,23 @@ export function HistoricalAccessUpgradeCard({ variant = 'default' }: { variant?:
         <p className="font-semibold">WriteOff Premium is active</p>
         <p className="text-sm text-muted-foreground">Reports, exports and extended bank history are included.</p>
         {accessStatus.subscriptionEnd && <p className="text-sm">Current period ends {accessStatus.subscriptionEnd.toLocaleDateString()}.</p>}
-        <Button variant="outline" onClick={() => router.push('/protected/settings?tab=account')}>Manage billing</Button>
+        <Button variant="outline" onClick={() => router.push('/protected/settings?tab=payment')}>Manage billing</Button>
+      </Card>
+    );
+  }
+
+  // A failed/pending payment or a Stripe-managed trial still has a subscription.
+  // Sending it to Checkout would be rejected and cannot repair that subscription.
+  if (existingSubscription && !(accessStatus?.isPaid && reportsIncluded && exportsIncluded && historyIncluded)) {
+    const paymentPending = accessStatus?.subscription?.status === 'payment_pending';
+    return (
+      <Card className={variant === 'default' ? 'p-5 space-y-3' : 'p-3 space-y-2'}>
+        <p className="font-semibold">{paymentPending ? 'Payment confirmation is pending'
+          : accessStatus?.isTrial ? 'Your trial subscription is active' : 'Your subscription needs attention'}</p>
+        <p className="text-sm text-muted-foreground">{paymentPending
+          ? 'Bank payments can take 4–5 business days to clear. Check billing for your latest payment status.'
+          : 'Review your existing subscription and payment details in billing.'} Your saved records remain available.</p>
+        <Button variant="outline" className="min-h-11" onClick={() => router.push('/protected/settings?tab=payment')}>Manage billing</Button>
       </Card>
     );
   }

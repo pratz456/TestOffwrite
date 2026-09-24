@@ -1,21 +1,14 @@
-import { assertSubscriptionOwner, refreshSubscriptionForUser } from '@/lib/stripe/subscription-sync';
+import { assertSubscriptionOwner, getStripeClient, refreshSubscriptionForUser } from '@/lib/stripe/subscription-sync';
 import { NextResponse } from 'next/server';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
-import Stripe from 'stripe';
 import { adminDb } from '@/lib/firebase/admin';
-
-function getStripeOrNull() {
-  const key = process.env.STRIPE_SECRET_KEY;
-  if (!key) return null;
-  return new Stripe(key, { apiVersion: '2025-10-29.clover' });
-}
 
 export async function POST(req: Request) {
   let uid: string;
   try { ({ uid } = await getUserFromReqOrThrow(req)); }
   catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
   try {
-    const stripe = getStripeOrNull();
+    const stripe = getStripeClient();
     if (!stripe) {
       return NextResponse.json({ error: 'Billing is temporarily unavailable' }, { status: 503 });
     }
@@ -39,6 +32,7 @@ export async function POST(req: Request) {
 
     // If subscription is already cancelled, return success
     if (subscription.status === 'canceled') {
+      await refreshSubscriptionForUser(uid, stripe, subscriptionId);
       return NextResponse.json({
         success: true,
         message: 'Subscription is already cancelled',
@@ -46,21 +40,22 @@ export async function POST(req: Request) {
     }
 
     // Cancel at period end (user keeps access until end of billing period)
-    await stripe.subscriptions.update(subscriptionId, {
-      cancel_at_period_end: true,
-    });
+    if (!subscription.cancel_at_period_end) {
+      await stripe.subscriptions.update(subscriptionId, {
+        cancel_at_period_end: true,
+      });
+    }
     await refreshSubscriptionForUser(uid, stripe, subscriptionId);
 
     return NextResponse.json({
       success: true,
-      message: 'Subscription cancelled successfully',
+      message: 'Renewal is off. Your subscription will end at the close of the current billing period.',
     });
-  } catch (error: any) {
-    console.error('Error cancelling subscription:', error);
+  } catch {
+    console.error('Subscription cancellation could not be verified');
     return NextResponse.json(
       { error: 'Failed to cancel subscription. Please try again.' },
-      { status: 500 }
+      { status: 503 }
     );
   }
 }
-

@@ -40,8 +40,8 @@ export default function SubscriptionsPage() {
     },
     {
       icon: Zap,
-      title: 'Instant Access',
-      description: 'Start using premium features immediately',
+      title: 'Access After Payment',
+      description: 'Premium starts when payment is confirmed. Bank payments can take 4–5 business days.',
     },
   ];
 
@@ -81,7 +81,7 @@ export default function SubscriptionsPage() {
         <div className="max-w-xl mx-auto mb-10 sm:mb-14">
           <HistoricalAccessUpgradeCard />
           <div className="mt-4 text-center space-y-2">
-            <Button variant="outline" onClick={() => router.push('/protected/settings?tab=account')}>Manage billing and payment methods</Button>
+            <Button variant="outline" onClick={() => router.push('/protected/settings?tab=payment')}>Manage billing and payment methods</Button>
             <p className="text-xs text-muted-foreground">Billing and your saved records remain accessible when a plan ends.</p>
           </div>
         </div>
@@ -136,4 +136,3 @@ export default function SubscriptionsPage() {
     </div>
   );
 }
-
