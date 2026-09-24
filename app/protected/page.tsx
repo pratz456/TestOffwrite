@@ -625,7 +625,6 @@ export default function ProtectedPage() {
           user={safeUser}
           onBack={handleGoBack}
           transactions={transactions}
-          profile={userProfile}
         />
       );
     }
