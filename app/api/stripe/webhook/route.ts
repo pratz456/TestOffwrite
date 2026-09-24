@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { getStripeClient, refreshSubscriptionForUser } from '@/lib/stripe/subscription-sync';
+import { adminDb } from '@/lib/firebase/admin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -42,6 +43,14 @@ export async function POST(req: Request) {
       if (!uid) {
         const customer = typeof subscription.customer === 'string' ? await stripe.customers.retrieve(subscription.customer) : subscription.customer;
         if (!customer.deleted) uid = customer.metadata?.firebase_uid;
+      }
+      if (!uid) {
+        // Legacy subscriptions can predate Firebase UID metadata. Only a unique,
+        // server-owned customer mapping is identity evidence; never use email.
+        const customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer.id;
+        const owners = await adminDb.collection('user_profiles').where('stripeCustomerId', '==', customerId).limit(2).get();
+        if (owners.size > 1) throw new Error('Ambiguous subscription owner');
+        uid = owners.docs[0]?.id;
       }
       // Unrelated Stripe products/customers do not belong to this application.
       if (uid) await refreshSubscriptionForUser(uid, stripe, subscriptionId, { id: event.id, created: event.created }, deleted ?? undefined);

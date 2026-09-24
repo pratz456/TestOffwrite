@@ -14,6 +14,10 @@ vi.mock('@/lib/firebase/admin', () => {
   } } };
 });
 vi.mock('@/app/api/_lib/auth', () => ({ getUserFromReqOrThrow: async () => ({ uid: 'owner' }) }));
+vi.mock('@/lib/stripe/checkout-session', async original => ({
+  ...await original<typeof import('@/lib/stripe/checkout-session')>(),
+  getOrCreateCheckoutSession: (_uid: string, _stripe: unknown, params: unknown) => h.session(params),
+}));
 vi.mock('@/lib/stripe/subscription-sync', () => ({
   getStripeClient: () => ({ customers: { create: h.create, retrieve: h.retrieve, del: h.remove },
     subscriptions: { list: async () => ({ data: [] }) }, checkout: { sessions: { create: h.session } } }),

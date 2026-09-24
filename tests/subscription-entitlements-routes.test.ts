@@ -2,10 +2,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mock = vi.hoisted(() => ({ auth: vi.fn(), startTrial: vi.fn(), reconcile: vi.fn(), sync: vi.fn(),
   profile: {} as Record<string, unknown>, configured: true, exists: true,
   customersRetrieve: vi.fn(), customersCreate: vi.fn(), subscriptionsList: vi.fn(), subscriptionsRetrieve: vi.fn(),
-  checkoutCreate: vi.fn(), constructEvent: vi.fn(), profileUpdate: vi.fn() }));
+  checkoutCreate: vi.fn(), constructEvent: vi.fn(), profileUpdate: vi.fn(), ownerLookup: vi.fn(), ownerWhere: vi.fn() }));
 vi.mock('@/app/api/_lib/auth', () => ({ getUserFromReqOrThrow: mock.auth }));
 vi.mock('@/lib/subscriptions/trial-manager', () => ({ startFreeTrial: mock.startTrial }));
-vi.mock('@/lib/firebase/admin', () => ({ adminDb: { doc: () => ({ get: async () => ({ exists: mock.exists, data: () => mock.profile }), update: mock.profileUpdate }) } }));
+vi.mock('@/lib/firebase/admin', () => ({ adminDb: {
+  doc: () => ({ get: async () => ({ exists: mock.exists, data: () => mock.profile }), update: mock.profileUpdate }),
+  collection: () => ({ where: mock.ownerWhere }),
+} }));
+vi.mock('@/lib/stripe/checkout-session', async original => ({
+  ...await original<typeof import('@/lib/stripe/checkout-session')>(),
+  getOrCreateCheckoutSession: (_uid: string, _stripe: unknown, params: unknown) => mock.checkoutCreate(params),
+}));
 vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
 vi.mock('@/lib/stripe/checkout-operations', async original => ({
   ...await original<typeof import('@/lib/stripe/checkout-operations')>(),
@@ -37,6 +44,8 @@ beforeEach(() => {
   mock.startTrial.mockResolvedValue({ success: true }); mock.reconcile.mockResolvedValue(null); mock.sync.mockResolvedValue(undefined);
   mock.customersCreate.mockResolvedValue({ id: 'cus_1' }); mock.customersRetrieve.mockResolvedValue({ id: 'cus_1', metadata: { firebase_uid: 'u1' } });
   mock.subscriptionsList.mockResolvedValue({ data: [] }); mock.checkoutCreate.mockResolvedValue({ id: 'cs_1', url: 'https://checkout.stripe.test/session' });
+  mock.ownerWhere.mockReturnValue({ limit: () => ({ get: mock.ownerLookup }) });
+  mock.ownerLookup.mockResolvedValue({ size: 0, docs: [] });
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); });
 
@@ -118,7 +127,7 @@ describe('checkout creation', () => {
     mock.subscriptionsList.mockResolvedValue({ data: [{ status, items: { data: [{ price: { id: 'price_month' } }] } }] });
     expect((await checkout(req())).status).toBe(409); expect(mock.checkoutCreate).not.toHaveBeenCalled();
   });
-  it('uses server prices and an idempotency key, while accepting monthly renewal after cancellation', async () => {
+  it('uses server prices and the durable checkout flow, while accepting monthly renewal after cancellation', async () => {
     mock.profile.stripeCustomerId = 'cus_1';
     mock.subscriptionsList.mockResolvedValue({ data: [{ status: 'canceled', items: { data: [{ price: { id: 'price_month' } }] } }] });
     expect((await checkout(req({ interval: 'monthly' }))).status).toBe(200);
@@ -127,11 +136,36 @@ describe('checkout creation', () => {
       payment_method_options: { us_bank_account: { financial_connections: { permissions: ['payment_method'] } } },
       subscription_data: { metadata: { firebase_uid: 'u1', payment_policy: 'settled_invoice' } },
     });
-    expect(mock.checkoutCreate.mock.calls[0][1].idempotencyKey).toMatch(/^writeoff-checkout-u1-monthly-/);
   });
 });
 
 describe('signed Stripe lifecycle notifications', () => {
+  it('recovers legacy identity only from one stored customer mapping', async () => {
+    mock.constructEvent.mockReturnValue({ id: 'evt_legacy', created: 6, type: 'customer.subscription.deleted', data: { object: { id: 'sub_old' } } });
+    mock.subscriptionsRetrieve.mockResolvedValue({ id: 'sub_old', customer: 'cus_legacy', metadata: {} });
+    mock.customersRetrieve.mockResolvedValue({ id: 'cus_legacy', metadata: {} });
+    mock.ownerLookup.mockResolvedValue({ size: 1, docs: [{ id: 'u_legacy' }] });
+    expect((await webhook(req({}, true))).status).toBe(200);
+    expect(mock.ownerWhere).toHaveBeenCalledWith('stripeCustomerId', '==', 'cus_legacy');
+    expect(mock.sync).toHaveBeenCalledWith('u_legacy', expect.any(Object), 'sub_old', { id: 'evt_legacy', created: 6 }, { id: 'sub_old' });
+  });
+  it.each(['ambiguous', 'database'])('retries instead of losing a legacy event when mapping is %s', async failure => {
+    mock.constructEvent.mockReturnValue({ id: 'evt_legacy', created: 6, type: 'customer.subscription.updated', data: { object: { id: 'sub_old' } } });
+    mock.subscriptionsRetrieve.mockResolvedValue({ id: 'sub_old', customer: 'cus_legacy', metadata: {} });
+    mock.customersRetrieve.mockResolvedValue({ id: 'cus_legacy', metadata: {} });
+    if (failure === 'ambiguous') mock.ownerLookup.mockResolvedValue({ size: 2, docs: [{ id: 'u1' }, { id: 'u2' }] });
+    else mock.ownerLookup.mockRejectedValue(Error('private store failure'));
+    expect((await webhook(req({}, true))).status).toBe(500);
+    expect(mock.sync).not.toHaveBeenCalled();
+  });
+  it('does not guess ownership of an unmapped customer by email', async () => {
+    mock.constructEvent.mockReturnValue({ id: 'evt_other', type: 'customer.subscription.updated', data: { object: { id: 'sub_other' } } });
+    mock.subscriptionsRetrieve.mockResolvedValue({ id: 'sub_other', customer: 'cus_other', metadata: {} });
+    mock.customersRetrieve.mockResolvedValue({ id: 'cus_other', email: 'fixture@example.test', metadata: {} });
+    expect((await webhook(req({}, true))).status).toBe(200);
+    expect(mock.sync).not.toHaveBeenCalled();
+    expect(mock.ownerWhere).toHaveBeenCalledExactlyOnceWith('stripeCustomerId', '==', 'cus_other');
+  });
   it.each(['checkout.session.async_payment_failed', 'checkout.session.async_payment_succeeded', 'invoice.paid', 'invoice.payment_failed', 'invoice.voided', 'invoice.marked_uncollectible'])(
     'reconciles current provider state for %s', type => {
       const object = type.startsWith('checkout.') ? { mode: 'subscription', subscription: 'sub_bank' }

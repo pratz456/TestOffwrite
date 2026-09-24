@@ -65,7 +65,7 @@ const BODYLESS_MUTATIONS: Record<string, Expectation> = {
   'POST /api/plaid/transactions': { statuses: [404], reason: 'Legacy alias of POST /api/plaid/sync-transactions.' },
   'POST /api/plaid/create-link-token': { statuses: [503], reason: 'Optional itemId only; the Plaid double refuses network, so the provider is reported unavailable.' },
   'POST /api/plaid/link-token': { statuses: [503], reason: 'Legacy alias of POST /api/plaid/create-link-token.' },
-  'POST /api/stripe/create-portal-session': { statuses: [503], reason: 'No body; the Stripe double refuses network, so billing is reported unavailable.' },
+  'POST /api/stripe/create-portal-session': { statuses: [409], reason: 'No linked billing customer; portal never creates a customer outside the protected checkout flow.' },
   'POST /api/plaid/reset-transactions': { statuses: [403, 404], reason: 'Disabled unless explicitly enabled outside production.' },
   'DELETE /api/plaid/items/[itemId]': { statuses: [404], reason: 'Unknown connection on an empty account.' },
   'POST /api/tax/form-8879': { statuses: [409], reason: 'Always refuses: e-file authorization comes from a filing provider.' },
