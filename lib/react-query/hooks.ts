@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { auth } from '@/lib/firebase/client';
 import { getTransactions as getTransactionsClient } from '@/lib/firebase/transactions';
 import { getUserProfile } from '@/lib/firebase/profiles';
-import { getUserTaxRateDisplay } from '@/lib/tax-rules/federal-brackets';
+import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
 
 async function computeMonthlyDeductionsClient(userId: string, year = new Date().getUTCFullYear()) {
   const [profile, transactions] = await Promise.all([getUserProfile(userId), getTransactionsClient(userId)]);
