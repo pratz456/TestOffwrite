@@ -20,7 +20,8 @@ ACTIVE, then the next coordinated deployment removed its undeclared field
 override. Read-back at 18:58:52 UTC returned no TTL policy. Declarative retention
 in `firestore.indexes.json` and a subsequent deployment are pending; do not
 manually reapply it during the release. The first scheduled backup,
-heartbeat detection, alert delivery and restore drill are not yet verified.
+heartbeat detection and restore drill are not yet verified. Alert inbox delivery
+was verified with the intentional test described below.
 One explicitly authorized email notification channel is enabled and attached to
 all five production policies; the exact recipient is retained in private evidence.
 
@@ -38,9 +39,20 @@ all five production policies; the exact recipient is retained in private evidenc
 | Scheduled-sync silence | No completion heartbeat for 6 hours | Three expected two-hour runs. Absence detection requires an initial observed heartbeat; a completion can include partial failures. |
 
 These policies now route to the one authorized operator inbox. Channel and policy
-read-back confirms configuration; actual inbox delivery is not yet verified.
+read-back confirms configuration. At **19:00 UTC**, the release operator opened
+an actual Cloud Monitoring email for the clearly labeled synthetic delivery test;
+its body matched the exact temporary policy, unique sentinel and intentional-test
+documentation. Its subject was `[ALERT - No severity] TEST sentinel only;
+production is not failing on writeoff-23910`. The test used a separate metric and
+policy; no real outage was simulated and no production threshold was changed.
+The exact temporary policy and metric were deleted after inbox proof, with both
+returning 404. The five enabled production policies and their single approved
+channel remain configured. This establishes inbox routing, not the detection
+latency or behavior of every real failure condition.
+
 The channel does not require an email verification code. There is no alert for
-every ordinary tax review or isolated model retry.
+every ordinary tax review or isolated model retry. Operational-alert approval
+does not authorize unrelated application emails or marketing sends.
 
 The private evidence directory retains the applied monitoring read-back, an
 independent recovery read-back and the exact narrowly scoped setup scripts.
