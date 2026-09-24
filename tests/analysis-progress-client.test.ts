@@ -50,7 +50,10 @@ function walk(node: unknown): Element[] { return Array.isArray(node) ? node.flat
 function text(node: unknown): string { return Array.isArray(node) ? node.map(text).join('') : isValidElement<Props>(node) ? text(node.props.children) : typeof node === 'string' || typeof node === 'number' ? String(node) : ''; }
 function render<T>(component: () => T): T { h.cursor = 0; const result = component(); h.effects.splice(0).forEach(effect => effect()); return result; }
 function HookHarness() { return useJobProgress(h.accountId); }
-const link = () => PlaidLinkScreen({ user: { id: h.uid }, onSuccess() {}, onBack() {} });
+const link = () => {
+  const tree = PlaidLinkScreen({ user: { id: h.uid }, onSuccess() {}, onBack() {} }) as ReactElement;
+  return typeof tree.type === 'function' ? (tree.type as (props: unknown) => unknown)(tree.props) : tree;
+};
 const queuedJob = (): AnalysisJob => ({ status: 'running', phase: 'queued', total: 2, processed: 0, succeeded: 0, failed: 0 });
 const finishedJob = (failed = 0): AnalysisJob => ({ status: failed ? 'failed' : 'done', total: 2, processed: 2, succeeded: 2 - failed, failed });
 function publish(job: unknown, call = h.subscribe.mock.calls.length - 1) {

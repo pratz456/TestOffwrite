@@ -51,7 +51,27 @@ function formatBalance(account: BankAccount) {
   catch { return `${amount.toFixed(2)} ${currency}`; }
 }
 
-export const BanksDetailScreen: React.FC<BanksDetailScreenProps> = ({ user, onBack, onConnectBank }) => {
+/** A local real-account preview hands provider operations to the live app. */
+export const BanksDetailScreen: React.FC<BanksDetailScreenProps> = (props) => {
+  if (process.env.NEXT_PUBLIC_APP_ENV === 'local-account-preview') {
+    return <main className="mx-auto w-full max-w-md space-y-4 px-4 py-5">
+      <header className="flex items-center gap-2">
+        <Button variant="ghost" size="icon" aria-label="Back" onClick={props.onBack}><ArrowLeft className="h-5 w-5" /></Button>
+        <h1 className="text-xl font-semibold">Bank accounts</h1>
+      </header>
+      <Card className="space-y-4 p-5">
+        <h2 className="font-semibold">Manage your banks on live WriteOff</h2>
+        <p className="text-sm text-muted-foreground">Connect, sync or repair your bank in the live app. Sign in with {props.user.email ? <strong className="break-words font-medium">{props.user.email}</strong> : 'the same WriteOff account'}.</p>
+        <Button asChild className="w-full"><a href="https://writeoffapp.com/protected?screen=banks-detail" target="_blank" rel="noopener noreferrer">Open live bank connections</a></Button>
+        <p className="text-xs text-muted-foreground">Complete any bank sign-in and history review there, then return here and refresh to see your saved records.</p>
+        <Button className="w-full" variant="outline" onClick={props.onBack}>Back to preview</Button>
+      </Card>
+    </main>;
+  }
+  return <ActiveBanksDetailScreen {...props} />;
+};
+
+const ActiveBanksDetailScreen: React.FC<BanksDetailScreenProps> = ({ user, onBack, onConnectBank }) => {
   const loadGeneration = useRef(0);
   const [loadedOwner, setLoadedOwner] = useState<string | null>(null);
   const [storedAccounts, setAccounts] = useState<BankAccount[]>([]);

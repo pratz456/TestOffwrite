@@ -29,6 +29,13 @@ const walk = (node: any): any[] => Array.isArray(node) ? node.flatMap(walk) : no
 const content = (node: any): string => Array.isArray(node) ? node.map(content).join('') : node && typeof node === 'object' ? content(node.props?.children) : String(node ?? '');
 function render(component: () => any) { h.cursor = 0; const tree = component(); h.effects.splice(0).forEach(f => f()); return tree; }
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
+// Render the provider child under the public preview boundary, as React does.
+function renderPlaidLink(props: Parameters<typeof PlaidLinkScreen>[0]) {
+  let tree: any = PlaidLinkScreen(props);
+  while (tree && typeof tree.type === 'function') tree = tree.type(tree.props);
+  return tree;
+}
+
 beforeEach(() => {
   h.slots = []; h.cursor = 0; h.effects = []; vi.clearAllMocks(); h.link = null;
   h.currentUser = { uid: 'owner', getIdToken: vi.fn().mockResolvedValue('synthetic-id-token') }; h.authUser = { id: 'owner' }; h.authLoading = false;
@@ -40,12 +47,12 @@ beforeEach(() => {
   h.fetch.mockImplementation(async () => Response.json({ link_token: 'link-sandbox-new', redirect_uri: `${origin}/plaid/oauth` }));
   h.request.mockResolvedValue(Response.json({ success: true, transactions_saved: 0 }));
 });
-afterEach(() => { h.slots.forEach(slot => slot?.cleanup?.()); vi.unstubAllGlobals(); });
+afterEach(() => { h.slots.forEach(slot => slot?.cleanup?.()); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 describe('Plaid OAuth client resume', () => {
   it('offers guided review and a return path for a blocked history reconnect', async () => {
     h.fetch.mockResolvedValue(Response.json({ code: 'BANK_HISTORY_REVIEW_REQUIRED', error: 'Your saved bank history needs a review. Your existing records are safe.' }, { status: 409 }));
     const back = vi.fn();
-    const component = () => PlaidLinkScreen({ user: { id: 'owner' }, onSuccess() {}, onBack: back });
+    const component = () => renderPlaidLink({ user: { id: 'owner' }, onSuccess() {}, onBack: back });
     render(component); await flush(); const tree = render(component);
     expect(content(tree)).toContain('Review saved bank history');
     expect(content(tree)).toContain('Your existing records are safe');
@@ -56,7 +63,7 @@ describe('Plaid OAuth client resume', () => {
   it('presents the same history-review action if an already issued OAuth public token is denied', async () => {
     const saved = session(); savePlaidOAuthSession(storage, saved, origin);
     h.fetch.mockResolvedValue(Response.json({ code: 'BANK_HISTORY_REVIEW_REQUIRED', error: 'Review saved bank history with WriteOff support.' }, { status: 409 }));
-    const component = () => PlaidLinkScreen({ user: { id: 'owner' }, oauthResume: { session: saved, receivedRedirectUri: href }, onSuccess() {}, onBack() {} });
+    const component = () => renderPlaidLink({ user: { id: 'owner' }, oauthResume: { session: saved, receivedRedirectUri: href }, onSuccess() {}, onBack() {} });
     render(component); render(component); await h.link.onSuccess('public-sandbox-fixture');
     const tree = render(component);
     expect(content(tree)).toContain('Review saved bank history');
@@ -65,14 +72,14 @@ describe('Plaid OAuth client resume', () => {
   });
   it('reopens the original Link token with the full received URI without issuing a second Link token', () => {
     const saved = session(); savePlaidOAuthSession(storage, saved, origin);
-    const component = () => PlaidLinkScreen({ user: { id: 'owner' }, oauthResume: { session: saved, receivedRedirectUri: href }, onSuccess() {}, onBack() {} });
+    const component = () => renderPlaidLink({ user: { id: 'owner' }, oauthResume: { session: saved, receivedRedirectUri: href }, onSuccess() {}, onBack() {} });
     render(component); render(component); render(component);
     expect(h.fetch).not.toHaveBeenCalled(); expect(h.open).toHaveBeenCalledOnce();
     expect(h.link).toMatchObject({ token: 'link-sandbox-original', receivedRedirectUri: href });
   });
   it('finishes resumed repair with exact-item sync and no public token exchange, then clears session', async () => {
     const saved = session('owned-item'); savePlaidOAuthSession(storage, saved, origin); const done = vi.fn();
-    const component = () => PlaidLinkScreen({ user: { id: 'owner' }, updateItemId: 'owned-item', oauthResume: { session: saved, receivedRedirectUri: href }, onSuccess: done, onBack() {} });
+    const component = () => renderPlaidLink({ user: { id: 'owner' }, updateItemId: 'owned-item', oauthResume: { session: saved, receivedRedirectUri: href }, onSuccess: done, onBack() {} });
     render(component); render(component); await h.link.onSuccess(null);
     expect(h.request).toHaveBeenCalledWith('/api/plaid/sync-transactions', { method: 'POST', body: JSON.stringify({ itemId: 'owned-item', incremental: true }) });
     expect(h.fetch).not.toHaveBeenCalled(); expect(done).toHaveBeenCalledOnce();
@@ -81,7 +88,7 @@ describe('Plaid OAuth client resume', () => {
   it('exchanges the returned public token only after a resumed new connection succeeds', async () => {
     const saved = session(); savePlaidOAuthSession(storage, saved, origin);
     h.fetch.mockResolvedValue(Response.json({ accountId: 'saved-account', imported: 3 }));
-    const component = () => PlaidLinkScreen({ user: { id: 'owner' }, oauthResume: { session: saved, receivedRedirectUri: href }, onSuccess() {}, onBack() {} });
+    const component = () => renderPlaidLink({ user: { id: 'owner' }, oauthResume: { session: saved, receivedRedirectUri: href }, onSuccess() {}, onBack() {} });
     render(component); render(component); await h.link.onSuccess('public-sandbox-fixture');
     expect(h.fetch).toHaveBeenCalledExactlyOnceWith(`${origin}/api/plaid/exchange-public-token`, expect.objectContaining({ body: JSON.stringify({ public_token: 'public-sandbox-fixture' }) }));
     expect(h.push).toHaveBeenCalledWith('/protected/account-usage/saved-account?imported=3');
@@ -89,21 +96,21 @@ describe('Plaid OAuth client resume', () => {
   });
   it('clears canceled sessions and never exchanges or syncs on exit', () => {
     const saved = session(); savePlaidOAuthSession(storage, saved, origin);
-    const component = () => PlaidLinkScreen({ user: { id: 'owner' }, oauthResume: { session: saved, receivedRedirectUri: href }, onSuccess() {}, onBack() {} });
+    const component = () => renderPlaidLink({ user: { id: 'owner' }, oauthResume: { session: saved, receivedRedirectUri: href }, onSuccess() {}, onBack() {} });
     render(component); render(component); h.link.onExit(null);
     expect(storage.getItem(PLAID_OAUTH_STORAGE_KEY)).toBeNull(); expect(h.request).not.toHaveBeenCalled();
     expect(content(render(component))).toContain('Bank sign-in was not completed');
   });
   it('rejects account switching before processing provider completion', async () => {
     const saved = session('owned-item'); savePlaidOAuthSession(storage, saved, origin);
-    const component = () => PlaidLinkScreen({ user: { id: 'owner' }, updateItemId: 'owned-item', oauthResume: { session: saved, receivedRedirectUri: href }, onSuccess() {}, onBack() {} });
+    const component = () => renderPlaidLink({ user: { id: 'owner' }, updateItemId: 'owned-item', oauthResume: { session: saved, receivedRedirectUri: href }, onSuccess() {}, onBack() {} });
     render(component); render(component); h.currentUser.uid = 'other-owner'; await h.link.onSuccess(null);
     expect(h.request).not.toHaveBeenCalled(); expect(h.fetch).not.toHaveBeenCalled();
     expect(content(render(component))).toContain('same WriteOff account');
   });
   it('persists a normal connection only after consent and before opening Link', async () => {
     window.location.href = `${origin}/protected?screen=plaid-link`; window.location.search = '?screen=plaid-link';
-    const component = () => PlaidLinkScreen({ user: { id: 'owner' }, onSuccess() {}, onBack() {}, fromSettings: true });
+    const component = () => renderPlaidLink({ user: { id: 'owner' }, onSuccess() {}, onBack() {}, fromSettings: true });
     render(component); await flush(); let tree = render(component);
     expect(storage.getItem(PLAID_OAUTH_STORAGE_KEY)).toBeNull();
     const checkbox = walk(tree).find(node => node.props?.type === 'checkbox');
@@ -116,7 +123,7 @@ describe('Plaid OAuth client resume', () => {
   it('does not expose a previous account Link token while the next account token request is pending', async () => {
     window.location.href = `${origin}/protected?screen=plaid-link`; window.location.search = '?screen=plaid-link';
     let uid = 'owner';
-    const component = () => PlaidLinkScreen({ user: { id: uid }, onSuccess() {}, onBack() {} });
+    const component = () => renderPlaidLink({ user: { id: uid }, onSuccess() {}, onBack() {} });
     render(component); await flush(); render(component);
     expect(h.link.token).toBe('link-sandbox-new');
     uid = 'other-owner'; h.currentUser.uid = uid; h.fetch.mockImplementation(() => new Promise(() => {}));
@@ -126,7 +133,7 @@ describe('Plaid OAuth client resume', () => {
 describe('guided reconnect OAuth', () => {
   it('persists reconnect identity before Link and sends it when requesting a token', async () => {
     window.location.href = `${origin}/plaid/reconnect`; window.location.search = '';
-    const component = () => PlaidLinkScreen({ user: { id: 'owner' }, reconnectSessionId: 'review-1', onSuccess() {}, onBack() {}, fromSettings: true });
+    const component = () => renderPlaidLink({ user: { id: 'owner' }, reconnectSessionId: 'review-1', onSuccess() {}, onBack() {}, fromSettings: true });
     render(component); await flush(); let tree = render(component);
     expect(h.fetch).toHaveBeenCalledWith('/api/plaid/create-link-token', expect.objectContaining({ body: JSON.stringify({ reconnectSessionId: 'review-1' }) }));
     walk(tree).find(node => node.props?.type === 'checkbox').props.onChange({ target: { checked: true } }); tree = render(component);
@@ -136,7 +143,7 @@ describe('guided reconnect OAuth', () => {
   it('exchanges a resumed reconnect into review without starting normal import', async () => {
     const saved = { ...session(), reconnectSessionId: 'review-1' }; savePlaidOAuthSession(storage, saved, origin); const done = vi.fn();
     h.fetch.mockResolvedValue(Response.json({ success: true, reconnectSessionId: 'review-1', historyReviewRequired: true }));
-    const component = () => PlaidLinkScreen({ user: { id: 'owner' }, reconnectSessionId: 'review-1', oauthResume: { session: saved, receivedRedirectUri: href }, onSuccess: done, onBack() {} });
+    const component = () => renderPlaidLink({ user: { id: 'owner' }, reconnectSessionId: 'review-1', oauthResume: { session: saved, receivedRedirectUri: href }, onSuccess: done, onBack() {} });
     render(component); render(component); await h.link.onSuccess('public-sandbox-fixture');
     expect(h.fetch).toHaveBeenCalledExactlyOnceWith(`${origin}/api/plaid/exchange-public-token`, expect.objectContaining({ body: JSON.stringify({ public_token: 'public-sandbox-fixture', reconnectSessionId: 'review-1' }) }));
     expect(done).toHaveBeenCalledOnce(); expect(h.push).not.toHaveBeenCalled(); expect(h.request).not.toHaveBeenCalled();
@@ -144,13 +151,13 @@ describe('guided reconnect OAuth', () => {
   it('does not accept a different session in an exchange response', async () => {
     const saved = { ...session(), reconnectSessionId: 'review-1' }; savePlaidOAuthSession(storage, saved, origin); const done = vi.fn();
     h.fetch.mockResolvedValue(Response.json({ success: true, reconnectSessionId: 'other-review', historyReviewRequired: true }));
-    const component = () => PlaidLinkScreen({ user: { id: 'owner' }, reconnectSessionId: 'review-1', oauthResume: { session: saved, receivedRedirectUri: href }, onSuccess: done, onBack() {} });
+    const component = () => renderPlaidLink({ user: { id: 'owner' }, reconnectSessionId: 'review-1', oauthResume: { session: saved, receivedRedirectUri: href }, onSuccess: done, onBack() {} });
     render(component); render(component); await h.link.onSuccess('public-sandbox-fixture');
     expect(done).not.toHaveBeenCalled(); expect(h.push).not.toHaveBeenCalled(); expect(content(render(component))).toContain('could not be verified');
   });
   it('rejects callback session mismatch before opening Link', () => {
     const saved = { ...session(), reconnectSessionId: 'review-1' }; savePlaidOAuthSession(storage, saved, origin);
-    const component = () => PlaidLinkScreen({ user: { id: 'owner' }, reconnectSessionId: 'other-review', oauthResume: { session: saved, receivedRedirectUri: href }, onSuccess() {}, onBack() {} });
+    const component = () => renderPlaidLink({ user: { id: 'owner' }, reconnectSessionId: 'other-review', oauthResume: { session: saved, receivedRedirectUri: href }, onSuccess() {}, onBack() {} });
     render(component); render(component);
     expect(h.open).not.toHaveBeenCalled(); expect(h.fetch).not.toHaveBeenCalled(); expect(content(render(component))).toContain('session has expired');
   });
@@ -179,5 +186,29 @@ describe('OAuth callback page recovery', () => {
     render(PlaidOAuthPage); const tree = render(PlaidOAuthPage);
     expect(tree.type).toBe(PlaidLinkScreen); expect(tree.props).toMatchObject({ updateItemId: 'owned-item', oauthResume: { session: saved, receivedRedirectUri: href } });
     tree.props.onSuccess(); expect(h.replace).toHaveBeenCalledWith('/protected?screen=banks-detail');
+  });
+});
+
+
+describe('restricted local bank preview', () => {
+  it.each(['normal', 'oauth', 'analysis'])('does not initialize provider work for %s entry', async mode => {
+    vi.stubEnv('NEXT_PUBLIC_APP_ENV', 'local-account-preview');
+    const back = vi.fn();
+    const saved = session();
+    savePlaidOAuthSession(storage, saved, origin);
+    if (mode === 'analysis') window.location.search = '?accountId=saved-account&analyzing=true';
+    const tree = render(() => renderPlaidLink({ user: { id: 'owner' }, onSuccess() {}, onBack: back,
+      ...(mode === 'oauth' ? { oauthResume: { session: saved, receivedRedirectUri: href } } : {}) }));
+    await flush();
+    expect(content(tree)).toContain('Connect your bank on WriteOff');
+    const live = walk(tree).find(node => node.type === 'a');
+    expect(live.props).toMatchObject({ href: 'https://writeoffapp.com/protected?screen=banks-detail', target: '_blank', rel: 'noopener noreferrer' });
+    walk(tree).find(node => node.props?.onClick && content(node) === 'Back to preview').props.onClick();
+    expect(back).toHaveBeenCalledOnce();
+    expect(h.fetch).not.toHaveBeenCalled(); expect(h.request).not.toHaveBeenCalled();
+    expect(h.currentUser.getIdToken).not.toHaveBeenCalled();
+    expect(h.link).toBeNull(); expect(h.open).not.toHaveBeenCalled();
+    expect(h.slots).toHaveLength(0);
+    expect(storage.getItem(PLAID_OAUTH_STORAGE_KEY)).not.toBeNull();
   });
 });

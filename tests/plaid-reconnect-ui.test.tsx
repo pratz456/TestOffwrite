@@ -26,14 +26,46 @@ const account = (id: string) => ({ id, name: id, mask: '1234', type: 'checking',
 const record = (extra: Partial<ReconnectRecord> = {}): ReconnectRecord => ({ id: 'new-tx', version: 'reviewed-version', accountId: 'new-account', date: '2026-08-01', amount: 25, merchant: 'Coffee', currency: 'USD', status: 'pending', event: 'added', correction: false, candidates: [{ reference: 'saved/reference', version: 'saved-version', accountId: 'old-account', date: '2026-08-01', amount: 25, merchant: 'Coffee', currency: 'USD', confirmed: true, exact: true }], ...extra });
 const view = (extra: Partial<ReconnectView> = {}): ReconnectView => ({ sessionId: 'review-1', phase: 'review', itemId: 'item-1', accounts: [account('new-account')], legacyAccounts: [account('old-account'), account('second-old-account')], mappings: {}, historyReady: true, mappingComplete: false, pendingCount: 1, deferredCount: 0, resolvedCount: 0, records: [record()], nextCursor: null, cutoverDate: null, ...extra });
 let responseView: ReconnectView;
-const screen = (sessionId = 'review-1') => () => PlaidReconnectScreen({ user: { id: 'owner' }, sessionId });
+function renderReconnect(props: Parameters<typeof PlaidReconnectScreen>[0]) {
+  let tree: any = PlaidReconnectScreen(props);
+  while (tree && typeof tree.type === 'function') tree = tree.type(tree.props);
+  return tree;
+}
+const screen = (sessionId = 'review-1') => () => renderReconnect({ user: { id: 'owner' }, sessionId });
 async function mount(component: () => any) { render(component); await flush(); return render(component); }
 beforeEach(() => {
   h.slots = []; h.cursor = 0; h.effects = []; h.uid = 'owner'; vi.clearAllMocks(); responseView = view();
   vi.stubGlobal('window', { history: { replaceState: h.replace } });
   h.request.mockImplementation(async () => Response.json({ success: true, reconnect: responseView }));
 });
-afterEach(() => { h.slots.forEach(slot => slot?.cleanup?.()); vi.unstubAllGlobals(); });
+afterEach(() => { h.slots.forEach(slot => slot?.cleanup?.()); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
+
+describe('local bank history handoff', () => {
+  it.each([undefined, 'review-1', 'review?next=https://other.example/&extra=yes'])('preserves the review context on the fixed live origin for %s', async sessionId => {
+    vi.stubEnv('NEXT_PUBLIC_APP_ENV', 'local-account-preview');
+    const tree = render(() => renderReconnect({ user: { id: 'owner', email: 'owner@example.com' }, sessionId }));
+    await flush();
+    expect(content(tree)).toContain('Review bank history on live WriteOff');
+    expect(content(tree)).toContain('owner@example.com');
+    expect(content(tree)).toContain('refresh after completing the review');
+    const live = walk(tree).find(node => node.type === 'a');
+    expect(live.props).toMatchObject({ target: '_blank', rel: 'noopener noreferrer' });
+    const url = new URL(live.props.href);
+    expect(url.origin).toBe('https://writeoffapp.com');
+    expect(url.pathname).toBe('/plaid/reconnect');
+    expect([...url.searchParams.entries()]).toEqual(sessionId ? [['sessionId', sessionId]] : []);
+    expect(walk(tree).find(node => content(node) === 'Back to preview banks' && node.props.href)?.props.href).toBe('/protected?screen=banks-detail');
+    expect(h.slots).toHaveLength(0);
+    expect(h.request).not.toHaveBeenCalled();
+    expect(h.replace).not.toHaveBeenCalled();
+  });
+
+  it('asks for the same account when the current email is unavailable', () => {
+    vi.stubEnv('NEXT_PUBLIC_APP_ENV', 'local-account-preview');
+    expect(content(render(screen()))).toContain('the same WriteOff account');
+    expect(h.request).not.toHaveBeenCalled();
+  });
+});
 
 describe('owner-guided account mapping', () => {
   it('requires explicit mapping for every account and a final account confirmation', async () => {
@@ -155,7 +187,7 @@ describe('resumable review, pagination and activation', () => {
     expect(button(tree, 'Activate bank connection').props.disabled).toBe(true);
   });
   it('does not show a stale previous-owner review after account switching', async () => {
-    let uid = 'owner'; const component = () => PlaidReconnectScreen({ user: { id: uid }, sessionId: 'review-1' });
+    let uid = 'owner'; const component = () => renderReconnect({ user: { id: uid }, sessionId: 'review-1' });
     await mount(component); h.request.mockImplementation(() => new Promise(() => {})); uid = 'other'; h.uid = 'other';
     const tree = render(component); expect(content(tree)).not.toContain('Reconnect in progress'); expect(content(tree)).not.toContain('Coffee');
   });

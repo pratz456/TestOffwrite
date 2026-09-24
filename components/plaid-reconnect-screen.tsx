@@ -65,7 +65,26 @@ export function ReconnectRecordReview({ record, accountName, legacyAccountNames 
   </Card>;
 }
 
-export function PlaidReconnectScreen({ user, sessionId }: { user: { id: string }; sessionId?: string }) {
+type PlaidReconnectScreenProps = { user: { id: string; email?: string | null }; sessionId?: string };
+
+/** Do not start or read a provider review through a restricted local server. */
+export function PlaidReconnectScreen(props: PlaidReconnectScreenProps) {
+  if (process.env.NEXT_PUBLIC_APP_ENV === 'local-account-preview') {
+    const liveReview = `https://writeoffapp.com/plaid/reconnect${props.sessionId ? `?sessionId=${encodeURIComponent(props.sessionId)}` : ''}`;
+    return <main className="mx-auto w-full max-w-md px-4 py-5">
+      <Card className="space-y-4 p-5">
+        <h1 className="text-xl font-semibold">Review bank history on live WriteOff</h1>
+        <p className="text-sm text-muted-foreground">Sign in with {props.user.email ? <strong className="break-words font-medium">{props.user.email}</strong> : 'the same WriteOff account'} to connect your bank and review its saved history.</p>
+        <Button asChild className="w-full"><a href={liveReview} target="_blank" rel="noopener noreferrer">Open live history review</a></Button>
+        <p className="text-xs text-muted-foreground">Your choices are saved to your account. Return to this preview and refresh after completing the review.</p>
+        <Button asChild className="w-full" variant="outline"><Link href="/protected?screen=banks-detail">Back to preview banks</Link></Button>
+      </Card>
+    </main>;
+  }
+  return <ActivePlaidReconnectScreen {...props} />;
+}
+
+function ActivePlaidReconnectScreen({ user, sessionId }: PlaidReconnectScreenProps) {
   const [view, setView] = useState<ReconnectView | null>(null);
   const [loadedOwner, setLoadedOwner] = useState<string | null>(null);
   const [mappings, setMappings] = useState<Record<string, string[]>>({});

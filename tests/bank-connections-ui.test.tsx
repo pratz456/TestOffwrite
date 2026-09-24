@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactElement } from 'react';
 
 const h = vi.hoisted(() => ({ slots: [] as any[], cursor: 0, effects: [] as (() => void)[], request: vi.fn(), notify: vi.fn(), success: vi.fn(), error: vi.fn(), connect: vi.fn() }));
@@ -23,7 +23,14 @@ const text = (node: any): string => Array.isArray(node) ? node.map(text).join(''
 let owner = 'bank-owner';
 let items: any[], accounts: any[];
 let reconnect: any;
-function render() { h.cursor = 0; const tree = BanksDetailScreen({ user: { id: owner }, onBack() {}, onConnectBank: h.connect }); h.effects.splice(0).forEach(f => f()); return tree; }
+function renderScreen(props: Parameters<typeof BanksDetailScreen>[0]) {
+  h.cursor = 0;
+  let tree: any = BanksDetailScreen(props);
+  while (tree && typeof tree.type === 'function') tree = tree.type(tree.props);
+  h.effects.splice(0).forEach(f => f());
+  return tree;
+}
+function render() { return renderScreen({ user: { id: owner }, onBack() {}, onConnectBank: h.connect }); }
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
 async function mount() { render(); await flush(); return render(); }
 function button(label: string) { return walk(render()).find(n => n.props?.onClick && (text(n) === label || n.props['aria-label'] === label))!; }
@@ -37,6 +44,27 @@ beforeEach(() => {
     if (url === '/api/plaid/reconnect') return Response.json({ success: true, reconnect });
     if (url === '/api/database/accounts') return Response.json({ accounts });
     return Response.json({ transactions_saved: 1 });
+  });
+});
+afterEach(() => { h.slots.forEach(slot => slot?.cleanup?.()); vi.unstubAllEnvs(); });
+
+describe('local bank management handoff', () => {
+  it.each([undefined, 'owner@example.com'])('offers live banking without loading blocked local APIs for %s', async email => {
+    vi.stubEnv('NEXT_PUBLIC_APP_ENV', 'local-account-preview');
+    const back = vi.fn();
+    const tree = renderScreen({ user: { id: owner, email }, onBack: back, onConnectBank: h.connect });
+    await flush();
+    expect(text(tree)).toContain('Manage your banks on live WriteOff');
+    expect(text(tree)).toContain(email || 'the same WriteOff account');
+    expect(text(tree)).toContain('refresh to see your saved records');
+    const live = walk(tree).find(node => node.type === 'a');
+    expect(live?.props).toMatchObject({ href: 'https://writeoffapp.com/protected?screen=banks-detail', target: '_blank', rel: 'noopener noreferrer' });
+    expect(h.slots).toHaveLength(0);
+    expect(h.request).not.toHaveBeenCalled();
+    expect(h.connect).not.toHaveBeenCalled();
+    expect(h.notify).not.toHaveBeenCalled();
+    walk(tree).find(node => node.props.onClick && text(node) === 'Back to preview')!.props.onClick();
+    expect(back).toHaveBeenCalledOnce();
   });
 });
 

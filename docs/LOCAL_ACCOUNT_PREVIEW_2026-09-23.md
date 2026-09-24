@@ -26,3 +26,17 @@ An owner-authorized walkthrough found that legacy imports omitted transaction cu
 The walkthrough also exposed a purpose-confirmation defect: explanatory AI rationale could be shown as a proposed business fact, and saving a purpose could record a deduction. The shared helper now accepts only dedicated purpose proposals, rejects copied rationale, offers an empty answer field for missing facts, and saves only `business_purpose`. Existing classification and unresolved tax-review state are preserved. The detail and swipe interfaces no longer describe purpose entry as deduction confirmation.
 
 After these changes, the complete suite passed **5,856 tests**, with 45 opt-in checks skipped. The new guard subset passed 198 checks, the purpose/review regression subset passed 216 checks, and TypeScript passed. Subset counts overlap the full suite and must not be added to it.
+
+## Bank-screen preview correction (September 24)
+
+Earlier real-data localhost setups allowed explicit bank actions; this restricted preview does not. The UI now checks the public preview mode before mounting any Plaid hook, OAuth resume effect or analysis monitor. It displays a fixed live bank-management link and a Back action instead of attempting a known-blocked Link-token request. The server-side 403 boundary is unchanged. New production bank connections and history review happen on the live site; saved records become available in the owner preview after refresh.
+
+129 focused preview, OAuth and analysis-progress tests passed, including three new cases for normal, OAuth-resume and analysis-query entry. TypeScript passed. A fresh local browser load displayed the handoff notice without console errors. This UI correction does not enable local bank/billing operations or constitute a new production deployment.
+
+### Real Plaid and Stripe actions from the preview
+
+Bank management, reconnect and Link entry screens now hand off to fixed live WriteOff URLs in a new tab, preserving a reconnect session when supplied. Stripe upgrade, subscription and payment actions similarly open the live plans or Payment settings screen before any local provider call. The user completes bank consent/MFA or any payment change on the live origin with the same account. No credential, authentication token or Stripe session is passed between origins. Account deletion remains disabled in the preview.
+
+Saved transactions already use Firestore listeners. Saved subscription access refreshes when the local app regains focus. Users can also refresh after completing bank-history review. This is a functional handoff from localhost to production provider flows; it does not run production provider callbacks on localhost.
+
+Additional validation: 122 bank/reconnect/preview checks and 127 billing/plan/preview checks passed (overlapping groups, not additive). Combined TypeScript passed. The local billing button opened the fixed live Payment settings URL, and the live portal successfully displayed the existing owner's Stripe subscription and payment-management controls. The live Plaid reconnect reached the unchecked consent step; no new bank access or payment was accepted by the agent. These changes are local only pending owner review.

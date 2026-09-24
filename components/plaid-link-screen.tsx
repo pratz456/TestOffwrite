@@ -29,7 +29,23 @@ interface PlaidLinkScreenProps {
   oauthResume?: PlaidOAuthResume;
 }
 
-export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess, onBack, fromSettings = false, updateItemId, reconnectSessionId, oauthResume }) => {
+/** Keep provider hooks and OAuth/analysis effects out of the restricted preview. */
+export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = (props) => {
+  if (process.env.NEXT_PUBLIC_APP_ENV === 'local-account-preview') {
+    return <main className="mx-auto flex min-h-[50vh] max-w-md items-center p-4">
+      <Card className="w-full space-y-4 p-5">
+        <h1 className="text-xl font-semibold">Connect your bank on WriteOff</h1>
+        <p className="text-sm text-muted-foreground">This local preview uses your saved account data. New bank connections are available on the live site.</p>
+        <Button asChild className="w-full"><a href="https://writeoffapp.com/protected?screen=banks-detail" target="_blank" rel="noopener noreferrer">Open live bank connections</a></Button>
+        <p className="text-xs text-muted-foreground">After connecting and reviewing your bank history, return here and refresh to see the saved records.</p>
+        <Button className="w-full" variant="outline" onClick={props.onBack}>Back to preview</Button>
+      </Card>
+    </main>;
+  }
+  return <ActivePlaidLinkScreen {...props} />;
+};
+
+const ActivePlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess, onBack, fromSettings = false, updateItemId, reconnectSessionId, oauthResume }) => {
   const router = useRouter();
   // Capture the app origin from the top-level page. Some Plaid callbacks can run
   // in a different browsing context (e.g. iframe), where relative URLs might
