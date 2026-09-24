@@ -159,4 +159,21 @@ describe('confirmed-history memo', () => {
     seedConfirmed(CONFIRMED_HISTORY_CAP + 25);
     expect(await loadConfirmedTransactionRecords(uid)).toHaveLength(CONFIRMED_HISTORY_CAP);
   });
+
+  it.each(['indexed', 'legacy'] as const)('excludes withdrawn, pending and superseded confirmations from %s merchant history', async (source) => {
+    const owner = source === 'indexed' ? { userId: uid } : { user_id: uid };
+    seedConfirmed(1, owner);
+    const confirmed = fake.docs.get(`${account}/transactions/confirmed-01`)!;
+    for (const [id, excluded] of [
+      ['withdrawn', { bank_removed: true }],
+      ['pending', { pending: true }],
+      ['superseded', { superseded_by: `${account}/transactions/confirmed-01` }],
+    ] as const) fake.docs.set(`${account}/transactions/${id}`, { ...confirmed, ...excluded });
+
+    const history = await loadConfirmedTransactionRecords(uid);
+    expect(history).toHaveLength(1);
+    const context = await loadTaxpayerContext(uid, profile, 'Adobe Creative Cloud', '2026-09-01');
+    expect(context.priors.merchant).toMatchObject({ decision: 'business', confirmations: 1 });
+    expect(context.priors.recurrence.isRecurring).toBe(false);
+  });
 });
