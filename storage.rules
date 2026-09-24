@@ -3,17 +3,10 @@ service firebase.storage {
   match /b/{bucket}/o {
     // Receipt files: receipts/{userId}/{transactionId}/{filename}
     match /receipts/{userId}/{transactionId}/{filename} {
-      // Users can only access their own receipts
-      allow read: if request.auth != null && request.auth.uid == userId;
-      // Validate both new uploads and replacements; deletes have no request.resource.
-      allow create, update: if request.auth != null && request.auth.uid == userId
-                            && request.resource.size > 0
-                            && request.resource.size <= 10 * 1024 * 1024
-                            && request.resource.contentType in [
-                              'image/jpeg', 'image/jpg', 'image/png', 'image/gif',
-                              'image/webp', 'application/pdf'
-                            ];
-      allow delete: if request.auth != null && request.auth.uid == userId;
+      // Receipt bytes are private server data. Upload, download and deletion go through
+      // authenticated API routes that verify email, transaction ownership, byte signatures,
+      // size and MIME type. The Admin SDK bypasses these client rules.
+      allow read, write, delete: if false;
     }
     
     // Deny all other paths

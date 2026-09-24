@@ -107,10 +107,9 @@ async function seed(path: string, values: Record<string, string | number | boole
     await expect(updateDoc(tx, { amount: deleteField() })).rejects.toMatchObject({ code: 'permission-denied' });
     await expect(deleteDoc(tx)).rejects.toMatchObject({ code: 'permission-denied' });
   });
-  it('keeps is_deductible owner-editable only until the server records a review', async () => {
-    // Pre-review records keep the current client flow, on both storage paths.
-    await updateDoc(doc(alice, 'user_profiles/alice_uid/accounts/account/transactions/tx'), { is_deductible: true, expense_type: 'business' });
-    await updateDoc(doc(alice, 'transactions/legacy'), { is_deductible: false });
+  it('keeps every tax decision server-owned before and after review', async () => {
+    await expect(updateDoc(doc(alice, 'user_profiles/alice_uid/accounts/account/transactions/tx'), { is_deductible: true, expense_type: 'business' })).rejects.toMatchObject({ code: 'permission-denied' });
+    await expect(updateDoc(doc(alice, 'transactions/legacy'), { is_deductible: false })).rejects.toMatchObject({ code: 'permission-denied' });
     for (const path of ['user_profiles/alice_uid/accounts/account/transactions/reviewed', 'transactions/legacy-reviewed']) {
       await seed(path, { userId: owner, amount: 100, is_deductible: true, review_status: 'confirmed', notes: 'before' });
       const reviewed = doc(alice, path);
@@ -159,6 +158,8 @@ async function seed(path: string, values: Record<string, string | number | boole
     await seed('user_profiles/bob', { name: 'Bob', subscriptionPlan: 'basic' });
     await expect(updateDoc(doc(bob, 'user_profiles/bob'), { subscriptionPlan: 'premium' })).rejects.toMatchObject({ code: 'permission-denied' });
     await expect(updateDoc(doc(bob, 'user_profiles/bob'), { subscriptionPlan: deleteField() })).rejects.toMatchObject({ code: 'permission-denied' });
+    await expect(updateDoc(doc(bob, 'user_profiles/bob'), { ein: '12-3456789' })).rejects.toMatchObject({ code: 'permission-denied' });
+    await expect(updateDoc(doc(bob, 'user_profiles/bob'), { ein_encrypted: 'forged', ein_last4: '6789' })).rejects.toMatchObject({ code: 'permission-denied' });
     await expect(setDoc(doc(alice, 'user_profiles/somebody-else'), { name: 'Wrong owner' })).rejects.toMatchObject({ code: 'permission-denied' });
   });
   it('keeps the sign-up consent record server-only on create and update', async () => {
@@ -226,14 +227,13 @@ async function seed(path: string, values: Record<string, string | number | boole
       await expect(setDoc(doc(db, 'rate_limits/forged-window'), { scope: 'auth.session', windowStart: 1, count: 0 })).rejects.toMatchObject({ code: 'permission-denied' });
     }
   });
-  it('allows valid owner receipt uploads, reads, replacements and deletes', async () => {
+  it('keeps receipt bytes behind owner-checking API routes instead of direct client Storage access', async () => {
     const receipt = ref(aliceStorage, `receipts/${owner}/tx/rules-valid.png`);
-    await uploadBytes(receipt, png, { contentType: 'image/png' });
-    expect((await getBytes(receipt)).byteLength).toBe(png.byteLength);
-    await uploadBytes(receipt, png, { contentType: 'image/png' });
+    await expect(uploadBytes(receipt, png, { contentType: 'image/png' })).rejects.toMatchObject({ code: 'storage/unauthorized' });
+    await expect(getBytes(receipt)).rejects.toMatchObject({ code: 'storage/unauthorized' });
+    await expect(deleteObject(receipt)).rejects.toMatchObject({ code: 'storage/unauthorized' });
     await expect(getBytes(ref(bobStorage, receipt.fullPath))).rejects.toMatchObject({ code: 'storage/unauthorized' });
     await expect(deleteObject(ref(bobStorage, receipt.fullPath))).rejects.toMatchObject({ code: 'storage/unauthorized' });
-    await deleteObject(receipt);
   });
   it('rejects unauthorized, unsupported, empty and oversized receipt uploads', async () => {
     await expect(uploadBytes(ref(bobStorage, `receipts/${owner}/tx/foreign.png`), png, { contentType: 'image/png' })).rejects.toMatchObject({ code: 'storage/unauthorized' });
@@ -241,10 +241,9 @@ async function seed(path: string, values: Record<string, string | number | boole
     await expect(uploadBytes(ref(aliceStorage, `receipts/${owner}/tx/empty.png`), new Uint8Array(), { contentType: 'image/png' })).rejects.toMatchObject({ code: 'storage/unauthorized' });
     await expect(uploadBytes(ref(aliceStorage, `receipts/${owner}/tx/large.png`), new Uint8Array(10 * 1024 * 1024 + 1), { contentType: 'image/png' })).rejects.toMatchObject({ code: 'storage/unauthorized' });
   });
-  it('applies content-type restrictions to replacements too', async () => {
+  it('rejects direct receipt replacements regardless of content type', async () => {
     const receipt = ref(aliceStorage, `receipts/${owner}/tx/replacement.png`);
-    await uploadBytes(receipt, png, { contentType: 'image/png' });
+    await expect(uploadBytes(receipt, png, { contentType: 'image/png' })).rejects.toMatchObject({ code: 'storage/unauthorized' });
     await expect(uploadBytes(receipt, png, { contentType: 'text/html' })).rejects.toMatchObject({ code: 'storage/unauthorized' });
-    await deleteObject(receipt);
   });
 });

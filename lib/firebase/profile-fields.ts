@@ -21,6 +21,11 @@ export const EDITABLE_PROFILE_FIELDS = new Set([
 const READ_ONLY_PROFILE_FIELDS = ['created_at', 'updated_at', 'bankConnected', 'consents_recorded_at'];
 
 export function publicProfile(data: Record<string, unknown>, uid: string) {
-  return { ...Object.fromEntries(Object.entries(data).filter(([key]) =>
-    EDITABLE_PROFILE_FIELDS.has(key) || READ_ONLY_PROFILE_FIELDS.includes(key))), id: uid };
+  const visible = Object.fromEntries(Object.entries(data).filter(([key]) =>
+    key !== 'ein' && (EDITABLE_PROFILE_FIELDS.has(key) || READ_ONLY_PROFILE_FIELDS.includes(key))));
+  const legacyDigits = typeof data.ein === 'string' ? data.ein.replace(/\D/g, '') : '';
+  const last4 = typeof data.ein_last4 === 'string' && /^\d{4}$/.test(data.ein_last4)
+    ? data.ein_last4
+    : legacyDigits.length >= 4 ? legacyDigits.slice(-4) : null;
+  return { ...visible, ...(last4 ? { ein: `**-***${last4}` } : {}), id: uid };
 }

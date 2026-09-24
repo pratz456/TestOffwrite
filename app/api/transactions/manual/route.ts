@@ -8,6 +8,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { randomUUID } from 'node:crypto';
 import { adminDb } from '@/lib/firebase/admin';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 
@@ -39,13 +40,14 @@ export async function POST(request: NextRequest) {
   const accountRef = adminDb.collection('user_profiles').doc(user.uid).collection('accounts').doc(MANUAL_ACCOUNT_ID);
   const accountDoc = await accountRef.get();
   if (!accountDoc.exists) {
-    await accountRef.set({ userId: user.uid, name: 'Manual Entries', type: 'manual', usageType: 'business', createdAt: new Date() });
+    await accountRef.set({ userId: user.uid, user_id: user.uid, name: 'Manual Entries', type: 'manual', usageType: 'business', createdAt: new Date() });
   }
 
-  const transId = `manual_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const transId = `manual_${randomUUID()}`;
   const txData: Record<string, any> = {
     trans_id: transId,
     userId: user.uid,
+    user_id: user.uid,
     account_id: MANUAL_ACCOUNT_ID,
     merchant_name: merchant_name.trim(),
     amount: storedAmount,

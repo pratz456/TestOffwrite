@@ -52,8 +52,8 @@ beforeEach(() => {
     if (app !== mocks.adminApp) throw new Error('The default Firebase app does not exist');
     return { bucket: mocks.bucket, app: { options: mocks.storageOptions } };
   });
-  mocks.verifyIdToken.mockResolvedValue({ uid: userId });
-  mocks.verifySessionCookie.mockResolvedValue({ uid: userId });
+  mocks.verifyIdToken.mockResolvedValue({ uid: userId, email_verified: true });
+  mocks.verifySessionCookie.mockResolvedValue({ uid: userId, email_verified: true });
   mocks.transaction.mockResolvedValue({ data: { trans_id: transactionId, userId }, error: null });
   mocks.collection.mockReturnValue({ doc: mocks.doc });
   mocks.doc.mockReturnValue({ create: mocks.create, get: mocks.get });
@@ -105,6 +105,12 @@ describe('receipt authentication and upload boundaries', () => {
     expect(await receiptUser(new NextRequest('https://writeoff.example', { headers: { authorization: 'Basic ignored' } }))).toBeNull();
     mocks.verifySessionCookie.mockRejectedValue(new Error('revoked'));
     expect((await getReceipt('receipt-id', { cookie: '__session=revoked' })).status).toBe(401);
+  });
+  it('requires a verified email for private receipt upload and download', async () => {
+    mocks.verifyIdToken.mockResolvedValue({ uid: userId, email_verified: false });
+    expect((await POST(upload())).status).toBe(401);
+    expect((await getReceipt()).status).toBe(401);
+    expect(mocks.transaction).not.toHaveBeenCalled();
   });
   it('checks ownership using the authenticated UID and never writes for someone else’s transaction', async () => {
     mocks.transaction.mockResolvedValue({ data: null, error: null });

@@ -87,6 +87,8 @@ export const RATE_LIMITS = {
   aiTaxAssistant: { scope: 'ai.tax-assistant', limit: 30, windowMs: 10 * 60_000, onUnavailable: 'deny' },
   /** Each question writes a support record and sends a team email. */
   cpaQuestion: { scope: 'cpa.question', limit: 10, windowMs: 60 * 60_000, onUnavailable: 'deny' },
+  /** Public contact submissions are stored before any optional email delivery. */
+  contact: { scope: 'contact.submit', limit: 10, windowMs: 60 * 60_000, onUnavailable: 'deny' },
   /** Preparer PDFs, CSVs and audit packets each read the owner's full transaction history. */
   reportExport: { scope: 'report.export', limit: 30, windowMs: 10 * 60_000, onUnavailable: 'deny' },
   /** Bank sync, balance and recurring pulls call Plaid once per connection. */

@@ -11,8 +11,8 @@ service cloud.firestore {
                       || resource.data.get('userId', '') == request.auth.uid);
       // Allow updates to specific user-editable fields for transactions in top-level or other collections
       // This is a fallback for transactions not under user_profiles/{uid}/accounts/{accountId}/transactions
-      // Once the server has recorded a review (review_status), is_deductible changes
-      // must go through the API so confirmed totals keep a server-stamped decision.
+      // Tax decisions always go through the authenticated API so confirmed totals
+      // carry a server-stamped review; clients can edit context only.
       // Historical-overlap fields (superseded_by, superseded_at, superseded_reason,
       // superseded_decision_id, overlap_reviewed*) are Admin SDK only: they are
       // outside this allow-list, so a client can neither add, change nor remove them.
@@ -21,13 +21,8 @@ service cloud.firestore {
                         || resource.data.get('userId', '') == request.auth.uid)
                     && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
                          'notes',
-                         'user_classification_reason',
                          'receipt_url',
                          'receipt_filename',
-                         'is_deductible',
-                         'expense_type',
-                         'deduction_score',
-                         'deductible_reason',
                          'business_purpose',
                          'attendees',
                          'travel_destination',
@@ -37,9 +32,7 @@ service cloud.firestore {
                          'meeting_notes',
                          'mileage_details',
                          'updated_at'
-                       ])
-                    && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['is_deductible'])
-                        || !resource.data.keys().hasAny(['review_status']));
+                       ]);
       // Prevent creates/deletes from client (server-only)
       allow create, delete: if false;
     }
@@ -123,6 +116,39 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Contact/support payloads, receipt metadata, provider replay markers and tax documents
+    // are served only through owner-checking API routes. Admin SDK bypasses these rules.
+    match /support_requests/{requestId} {
+      allow read, write: if false;
+    }
+    match /cpa_questions/{questionId} {
+      allow read, write: if false;
+    }
+    match /receipts/{receiptId} {
+      allow read, write: if false;
+    }
+    match /processed_webhooks/{webhookId} {
+      allow read, write: if false;
+    }
+    match /stripe_events/{eventId} {
+      allow read, write: if false;
+    }
+    match /analysis_tasks/{taskId} {
+      allow read, write: if false;
+    }
+    match /w2_income/{recordId} {
+      allow read, write: if false;
+    }
+    match /income_1099/{recordId} {
+      allow read, write: if false;
+    }
+    match /gross_receipts/{recordId} {
+      allow read, write: if false;
+    }
+    match /tax_organizers/{recordId} {
+      allow read, write: if false;
+    }
+
     // ── User Profiles ──────────────────────────────────────────────────────
     // User profile can only be read by the owner, written via Admin/API only
     match /user_profiles/{uid} {
@@ -141,7 +167,8 @@ service cloud.firestore {
                          'stripeSubscriptionStatus', 'subscriptionPlan',
                          'plaid_token', 'access_token', 'plaid_item_id', 'plaid_transactions_cursor',
                          'bankConnected', 'plaid_credentials_migrated',
-                         'consents', 'consents_recorded_at'
+                         'consents', 'consents_recorded_at',
+                         'ein', 'ein_encrypted', 'ein_last4'
                        ]);
 
       // Allow the user to update their own profile doc, but restrict subscription fields
@@ -160,7 +187,8 @@ service cloud.firestore {
                          'stripeSubscriptionStatus', 'subscriptionPlan',
                          'plaid_token', 'access_token', 'plaid_item_id', 'plaid_transactions_cursor',
                          'bankConnected', 'plaid_credentials_migrated',
-                         'consents', 'consents_recorded_at' // validated and stamped by /api/database/profiles
+                         'consents', 'consents_recorded_at', // validated and stamped by /api/database/profiles
+                         'ein', 'ein_encrypted', 'ein_last4' // encrypted and masked by /api/database/profiles
                        ]);
 
       // No client deletes
@@ -184,7 +212,7 @@ service cloud.firestore {
                   && (resource == null || !resource.data.keys().hasAny(['plaid_token', 'access_token']));
 
           // Allow user updates to transaction fields. Server-reviewed records
-          // (review_status present) keep is_deductible server-owned; use the API.
+          // Tax-decision fields are server-owned; use the authenticated review/update API.
           // Historical-overlap fields (superseded_by, superseded_at, superseded_reason,
           // superseded_decision_id, overlap_reviewed*) stay outside this allow-list:
           // only the operator command's Admin SDK writes ever set or clear them.
@@ -192,13 +220,8 @@ service cloud.firestore {
                         && request.auth.uid == uid
                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
                              'notes',
-                             'user_classification_reason',
                              'receipt_url',
                              'receipt_filename',
-                             'is_deductible',
-                             'expense_type',
-                             'deduction_score',
-                             'deductible_reason',
                              'business_purpose',
                              'attendees',
                              'travel_destination',
@@ -208,9 +231,7 @@ service cloud.firestore {
                              'meeting_notes',
                              'mileage_details',
                              'updated_at'
-                           ])
-                        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['is_deductible'])
-                            || !resource.data.keys().hasAny(['review_status']));
+                           ]);
 
           // Prevent arbitrary creates/deletes from client
           // Server-side analysis updates use Admin SDK (bypasses these rules)

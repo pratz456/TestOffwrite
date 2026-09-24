@@ -12,14 +12,20 @@ describe('firestore.rules keeps server-only collections closed to clients', () =
     expect(match, `${collection} rules block`).toBeDefined();
     return match![1];
   };
-  it.each(['plaid_connections', RATE_LIMIT_COLLECTION, SUPPORT_AUDIT_COLLECTION])('denies every client read and write of %s', collection => {
+  const serverOnly = [
+    'plaid_connections', RATE_LIMIT_COLLECTION, SUPPORT_AUDIT_COLLECTION,
+    'support_requests', 'cpa_questions', 'receipts', 'processed_webhooks',
+    'stripe_events', 'analysis_tasks', 'w2_income', 'income_1099',
+    'gross_receipts', 'tax_organizers',
+  ];
+  it.each(serverOnly)('denies every client read and write of %s', collection => {
     const body = block(collection);
     expect(body).toMatch(/allow read, write: if false;/);
     expect(body.match(/allow /g)).toHaveLength(1);
     expect(body).not.toMatch(/if true|request\.auth/);
   });
   it('declares each server-only collection exactly once, as a top-level match', () => {
-    for (const collection of [RATE_LIMIT_COLLECTION, SUPPORT_AUDIT_COLLECTION]) {
+    for (const collection of serverOnly.filter(collection => collection !== 'plaid_connections')) {
       expect(rules.match(new RegExp(`match /${collection}/`, 'g'))).toHaveLength(1);
       expect(rules).toMatch(new RegExp(`\\n    match /${collection}/\\{[A-Za-z]+\\} \\{`));
     }

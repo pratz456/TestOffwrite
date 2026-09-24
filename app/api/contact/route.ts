@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { readJsonObject } from "@/app/api/_lib/body";
+import { adminDb } from "@/lib/firebase/admin";
+import { anonymousRateLimitKey, enforceRateLimit, RATE_LIMITS, rateLimitResponse } from "@/lib/security/rate-limit";
+import { sanitizeString } from "@/lib/security/utils";
 
-const SUPPORT_EMAIL = "writeoffapp@gmail.com";
+const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL || "writeoffapp@gmail.com";
 
 export type ContactRequestBody = {
   name: string;
@@ -33,6 +36,8 @@ function validateBody(body: unknown): body is ContactRequestBody {
 
 export async function POST(request: Request) {
   try {
+    const limit = await enforceRateLimit({ ...RATE_LIMITS.contact, key: anonymousRateLimitKey(request) });
+    if (!limit.allowed) return rateLimitResponse(limit, { error: "Too many contact requests. Please try again later." });
     const body = await readJsonObject(request);
     if (!validateBody(body)) {
       return NextResponse.json(
@@ -41,20 +46,54 @@ export async function POST(request: Request) {
       );
     }
 
-    // Optional: send email via Resend, SendGrid, or Nodemailer using SUPPORT_EMAIL
-    // For now we only validate and return success; you can add email sending here.
-    if (process.env.NODE_ENV === "development") {
-      console.log("[Contact] Support request:", {
-        name: body.name,
-        email: body.email,
-        subject: body.subject,
-        category: body.category,
-        message: body.message.slice(0, 100) + (body.message.length > 100 ? "…" : ""),
-      });
+    const contact = {
+      name: sanitizeString(body.name, LIMITS.name),
+      email: body.email.trim().toLowerCase(),
+      subject: sanitizeString(body.subject, LIMITS.subject),
+      category: sanitizeString(body.category, LIMITS.category),
+      message: sanitizeString(body.message, LIMITS.message),
+    };
+    const record = await adminDb.collection("support_requests").add({
+      ...contact,
+      status: "new",
+      deliveryStatus: process.env.RESEND_API_KEY ? "pending" : "manual_review",
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1_000),
+    });
+
+    let delivery: "sent" | "queued" = "queued";
+    if (process.env.RESEND_API_KEY) {
+      try {
+        const response = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            from: "WriteOff Support <notifications@writeoffapp.com>",
+            to: [SUPPORT_EMAIL],
+            reply_to: contact.email,
+            subject: `[${contact.category || "Contact"}] ${contact.subject}`,
+            text: [`From: ${contact.name} <${contact.email}>`, "", contact.message, "", `Request ID: ${record.id}`].join("\n"),
+          }),
+        });
+        if (response.ok) {
+          delivery = "sent";
+          await record.update({ deliveryStatus: "sent", deliveredAt: new Date() });
+        } else {
+          await record.update({ deliveryStatus: "failed", deliveryHttpStatus: response.status });
+        }
+      } catch {
+        await record.update({ deliveryStatus: "failed" }).catch(() => undefined);
+      }
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, requestId: record.id, delivery }, {
+      status: 202,
+      headers: { "Cache-Control": "private, no-store" },
+    });
   } catch {
-    return NextResponse.json({ error: "Failed to process request." }, { status: 500 });
+    return NextResponse.json({ error: "Failed to store the request. Please try again." }, { status: 503 });
   }
 }

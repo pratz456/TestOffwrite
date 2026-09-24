@@ -282,13 +282,14 @@ function isMissingIndexError(error: any): boolean {
 }
 
 /**
- * getTransactionsServer - load a user's transactions with a short-circuiting strategy chain.
+ * getTransactionsServer - load a user's transactions with an owner-scoped strategy chain.
  *
- * Strategies (each one runs only when the previous returned nothing):
+ * Strategies:
  *  1) collectionGroup('transactions') where 'userId' == uid  — canonical field written by createTransactionServer.
  *     A collection group includes root-level `transactions` too, so no separate top-level query is needed.
- *  2) collectionGroup('transactions') where 'user_id' == uid — legacy snake_case rows.
- *  3) user_profiles/{uid}/accounts/{accountId}/transactions per account — rows with neither owner field.
+ *  2) collectionGroup('transactions') where 'user_id' == uid — legacy snake_case rows. Results are
+ *     unioned with strategy 1 so a mixed account never silently loses legacy records.
+ *  3) user_profiles/{uid}/accounts/{accountId}/transactions per account — only when neither owner query returns rows.
  *
  * Pass `{ limit, cursor }` to page (ordered by `date desc`, document path as the tiebreaker; rows
  * without a `date` field are not part of paged results). Without `limit` the legacy full read is
@@ -329,6 +330,7 @@ export async function getTransactionsServer(
       }
     };
 
+    const ownerDocs = new Map<string, FirebaseFirestore.QueryDocumentSnapshot>();
     for (const ownerField of ['userId', 'user_id'] as const) {
       try {
         let query: FirebaseFirestore.Query = adminDb.collectionGroup('transactions').where(ownerField, '==', userId);
@@ -339,23 +341,25 @@ export async function getTransactionsServer(
           query = query.limit(limit + 1);
         }
         const snapshot = await query.get();
-        if (snapshot.empty) continue;
-
-        let docs = snapshot.docs;
-        let nextCursor: string | null = null;
-        if (limit && docs.length > limit) {
-          docs = docs.slice(0, limit);
-          const last = docs[docs.length - 1];
-          nextCursor = encodeTransactionsCursor({ date: String(last.get('date') ?? ''), path: last.ref.path });
-        }
-        addDocs(docs);
-        const data = Array.from(foundMap.values());
-        return { data: limit ? data : sortNewestFirst(data), error: null, nextCursor };
+        for (const doc of snapshot.docs) ownerDocs.set(doc.ref.path, doc);
       } catch (e: any) {
         if (!isMissingIndexError(e)) {
           console.warn(`[getTransactionsServer] collectionGroup(${ownerField}) query failed:`, e?.message ?? e);
         }
       }
+    }
+    if (ownerDocs.size > 0) {
+      const ordered = [...ownerDocs.values()].sort((a, b) => {
+        const byDate = String(b.get('date') ?? '').localeCompare(String(a.get('date') ?? ''));
+        return byDate || b.ref.path.localeCompare(a.ref.path);
+      });
+      const page = limit ? ordered.slice(0, limit) : ordered;
+      addDocs(page);
+      const nextCursor = limit && ordered.length > limit && page.length > 0
+        ? encodeTransactionsCursor({ date: String(page[page.length - 1].get('date') ?? ''), path: page[page.length - 1].ref.path })
+        : null;
+      const data = Array.from(foundMap.values());
+      return { data: limit ? data : sortNewestFirst(data), error: null, nextCursor };
     }
 
     // 3) Fallback: iterate user_profiles/{userId}/accounts/{accountId}/transactions
@@ -909,6 +913,7 @@ export async function createTransactionServer(
       ...cleanTransactionData,
       trans_id: transId,
       userId: userId,
+      user_id: userId,
       account_id: accountId,
       analyzed: transactionData.analyzed || false,
       analysisStatus: transactionData.analysisStatus || 'pending',
