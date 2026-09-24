@@ -23,6 +23,54 @@ export const PRODUCTION_DEPLOY_TARGETS = Object.freeze([
   'functions',
 ]);
 
+const FUNCTION_EXPORTS = Object.freeze({
+  syncAllUsersTransactions: 'functions',
+  queueBankTransactionAnalysis: 'functions-analysis',
+  processBankTransactionAnalysis: 'functions-analysis',
+  queueProfileAnalysisRefresh: 'functions-analysis',
+  processProfileAnalysisRefresh: 'functions-analysis',
+  cleanupExpiredPreparerHandoffs: 'functions-analysis',
+});
+export const PRODUCTION_FUNCTION_IDS = Object.freeze([...Object.keys(FUNCTION_EXPORTS), 'ssrwriteoff23910']);
+
+/** --force acknowledges retry policies but also permits deletion: refuse any unreviewed inventory. */
+export function assertProductionFunctionInventory(contents) {
+  let inventory;
+  try { inventory = JSON.parse(String(contents)); }
+  catch { throw new Error('Production function inventory is unreadable; refusing forced deployment'); }
+  if (inventory?.status !== 'success' || !Array.isArray(inventory.result)) {
+    throw new Error('Production function inventory was not verified; refusing forced deployment');
+  }
+  const seen = new Set();
+  for (const endpoint of inventory.result) {
+    const directory = FUNCTION_EXPORTS[endpoint?.id];
+    if (!endpoint || !PRODUCTION_FUNCTION_IDS.includes(endpoint.id) ||
+        endpoint.project !== PRODUCTION_PROJECT || endpoint.region !== 'us-central1' ||
+        !['gcfv1', 'gcfv2'].includes(endpoint.platform) || seen.has(endpoint.id) ||
+        (directory && endpoint.codebase !== (directory === 'functions' ? 'default' : 'analysis'))) {
+      throw new Error('Unexpected production function identity, region or codebase; review deletions before deployment');
+    }
+    seen.add(endpoint.id);
+  }
+}
+
+/** Every allowed application function must still exist in the just-built release. */
+function assertRetainedFunctionExports(cwd) {
+  for (const [name, directory] of Object.entries(FUNCTION_EXPORTS)) {
+    let compiled;
+    try { compiled = fs.readFileSync(path.join(cwd, directory, 'lib/index.js'), 'utf8'); }
+    catch { throw new Error('Production function build is missing; refusing forced deployment'); }
+    // Match actual trigger assignments, not TypeScript's initial `exports.name = void 0` declarations.
+    if (!new RegExp(`^exports\\.${name} = \\(0, [\\w$]+\\.on(?:Schedule|DocumentWritten)\\)\\(`, 'm').test(compiled)) {
+      throw new Error('A reviewed production function export is missing; review deletions before deployment');
+    }
+  }
+  const config = JSON.parse(fs.readFileSync(path.join(cwd, 'firebase.json'), 'utf8'));
+  if (config.hosting?.frameworksBackend?.region !== 'us-central1') {
+    throw new Error('Production SSR function region changed; review deletions before deployment');
+  }
+}
+
 export function productionDeployConfirmation(commit) {
   return `deploy:${PRODUCTION_PROJECT}:${commit}`;
 }
@@ -113,7 +161,21 @@ export function deployProductionRelease({
   // Recheck digests and configuration immediately before the irreversible call.
   assertPreflight(plan.cwd, inheritedEnv);
   const deployEnv = { ...inheritedEnv, [COORDINATED_DEPLOY_VARIABLE]: plan.commit };
-  run(process.platform === 'win32' ? 'npx.cmd' : 'npx', [
+  assertRetainedFunctionExports(plan.cwd);
+  const firebase = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+  let inventory;
+  try {
+    inventory = execute(firebase, [
+      '--no-install', 'firebase-tools', 'functions:list', '--project', PRODUCTION_PROJECT,
+      '--config', 'firebase.json', '--non-interactive', '--json',
+    ], { cwd: plan.cwd, env: deployEnv, stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
+  } catch {
+    // CLI output can contain function environment values; never echo it in an error.
+    throw new Error('Could not verify production function inventory; refusing forced deployment');
+  }
+  assertProductionFunctionInventory(inventory);
+  assertPreflight(plan.cwd, inheritedEnv);
+  run(firebase, [
     '--no-install',
     'firebase-tools',
     'deploy',
@@ -124,6 +186,7 @@ export function deployProductionRelease({
     '--config',
     'firebase.json',
     '--non-interactive',
+    '--force',
   ], deployEnv);
   return plan;
 }

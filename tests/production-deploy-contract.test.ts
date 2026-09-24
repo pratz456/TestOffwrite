@@ -5,10 +5,12 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   assertDeployNodeVersion,
+  assertProductionFunctionInventory,
   deployProductionRelease,
   planProductionDeployment,
   productionDeployConfirmation,
   PRODUCTION_DEPLOY_TARGETS,
+  PRODUCTION_FUNCTION_IDS,
 } from '../scripts/deploy-production-release.mjs';
 import {
   COORDINATED_DEPLOY_VARIABLE,
@@ -23,6 +25,11 @@ import {
 
 const project = 'writeoff-23910';
 const commit = 'a'.repeat(40);
+const existingFunctions = [
+  { id: 'ssrwriteoff23910', project, region: 'us-central1', platform: 'gcfv2', codebase: 'firebase-frameworks-writeoff-23910' },
+  { id: 'syncAllUsersTransactions', project, region: 'us-central1', platform: 'gcfv2', codebase: 'default' },
+];
+const inventory = (result = existingFunctions) => JSON.stringify({ status: 'success', result });
 const directories: string[] = [];
 afterEach(() => {
   for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true });
@@ -33,6 +40,15 @@ function preparedRelease() {
   directories.push(cwd);
   fs.mkdirSync(path.join(cwd, 'functions'));
   fs.mkdirSync(path.join(cwd, 'functions-analysis'));
+  for (const directory of ['functions', 'functions-analysis']) {
+    fs.mkdirSync(path.join(cwd, directory, 'lib'));
+    const names = directory === 'functions' ? ['syncAllUsersTransactions'] : [
+      'queueBankTransactionAnalysis', 'processBankTransactionAnalysis', 'queueProfileAnalysisRefresh',
+      'processProfileAnalysisRefresh', 'cleanupExpiredPreparerHandoffs',
+    ];
+    fs.writeFileSync(path.join(cwd, directory, 'lib/index.js'), names.map(name =>
+      `exports.${name} = (0, trigger_1.onSchedule)({});`).join('\n'));
+  }
   // A prepared release is a git archive of the commit, so package.json (with engines.node) is always present.
   fs.writeFileSync(path.join(cwd, 'package.json'), JSON.stringify({ name: 'writeoff-release-fixture', engines: { node: '22' } }));
   const env = {
@@ -79,7 +95,7 @@ function preparedRelease() {
   fs.writeFileSync(path.join(cwd, RELEASE_ENV), environmentContents, { mode: 0o600 });
   fs.writeFileSync(path.join(cwd, MIGRATION_REVIEW), reviewContents, { mode: 0o600 });
   fs.writeFileSync(path.join(cwd, 'firebase.json'), JSON.stringify({
-    hosting: { source: '.', site: project },
+    hosting: { source: '.', site: project, frameworksBackend: { region: 'us-central1' } },
     functions: [
       { source: 'functions', codebase: 'default' },
       { source: 'functions-analysis', codebase: 'analysis' },
@@ -111,9 +127,9 @@ describe('coordinated production deployment', () => {
     })).toMatchObject({ commit, targets: PRODUCTION_DEPLOY_TARGETS });
   });
 
-  it('builds every package and deploys every Firebase surface without force', () => {
+  it('builds every package and acknowledges retry policies only after checking live functions', () => {
     const cwd = preparedRelease();
-    const execute = vi.fn();
+    const execute = vi.fn().mockReturnValue(inventory());
     const serviceAccount = path.join(cwd, '..', `writeoff-sa-${path.basename(cwd)}.json`);
     fs.writeFileSync(serviceAccount, JSON.stringify({ project_id: project, client_email: `deploy@${project}.iam.gserviceaccount.com` }), { mode: 0o600 });
     directories.push(serviceAccount);
@@ -146,7 +162,62 @@ describe('coordinated production deployment', () => {
     expect(binary).toMatch(/^npx(?:\.cmd)?$/);
     expect(args).toContain(PRODUCTION_DEPLOY_TARGETS.join(','));
     expect(args).toContain(project);
-    expect(args).not.toContain('--force');
+    expect(args).toContain('--force');
+    const [inventoryBinary, inventoryArgs, inventoryOptions] = execute.mock.calls.at(-2)!;
+    expect(inventoryBinary).toBe(binary);
+    expect(inventoryArgs).toEqual([
+      '--no-install', 'firebase-tools', 'functions:list', '--project', project,
+      '--config', 'firebase.json', '--non-interactive', '--json',
+    ]);
+    expect(inventoryOptions.stdio).toEqual(['ignore', 'pipe', 'pipe']);
+    expect(inventoryOptions.env).toEqual(deployOptions.env);
+  });
+
+  it.each(['unknown function', 'inventory error', 'unreadable inventory'])('never deploys on %s', kind => {
+    const execute = vi.fn((_file, args) => {
+      if (!args.includes('functions:list')) return;
+      if (kind === 'inventory error') throw new Error('sensitive CLI response');
+      return kind === 'unreadable inventory' ? 'sensitive CLI response' : inventory([
+        ...existingFunctions, { ...existingFunctions[1], id: 'unreviewedFunction' },
+      ]);
+    });
+    expect(() => deployProductionRelease({ cwd: preparedRelease(), confirmation: productionDeployConfirmation(commit),
+      inheritedEnv: {}, execute, nodeVersion: 'v22.23.2',
+    })).toThrow(/refusing forced deployment|review deletions/);
+    expect(execute.mock.calls.some(([, args]) => args.includes('deploy'))).toBe(false);
+  });
+
+  it('refuses force if a reviewed function was omitted from the build', () => {
+    const cwd = preparedRelease();
+    fs.writeFileSync(path.join(cwd, 'functions/lib/index.js'), 'exports.syncAllUsersTransactions = void 0;');
+    const execute = vi.fn();
+    expect(() => deployProductionRelease({ cwd, confirmation: productionDeployConfirmation(commit),
+      inheritedEnv: {}, execute, nodeVersion: 'v22.23.2',
+    })).toThrow('reviewed production function export is missing');
+    expect(execute.mock.calls.some(([, args]) => args.includes('deploy'))).toBe(false);
+  });
+});
+
+describe('production function inventory guard', () => {
+  it('accepts initial and fully deployed inventories', () => {
+    expect(() => assertProductionFunctionInventory(inventory())).not.toThrow();
+    const fullyDeployed = PRODUCTION_FUNCTION_IDS.map(id => ({
+      id, project, region: 'us-central1', platform: 'gcfv2',
+      codebase: id === 'ssrwriteoff23910' ? 'firebase-frameworks-writeoff-23910' : id === 'syncAllUsersTransactions' ? 'default' : 'analysis',
+    }));
+    expect(() => assertProductionFunctionInventory(inventory(fullyDeployed))).not.toThrow();
+  });
+  it.each([
+    { id: 'unexpected' }, { project: 'another-project' }, { region: 'us-east1' },
+    { codebase: 'unreviewed-codebase' }, { platform: 'run' },
+  ])('rejects a deletion or identity change: %j', override => {
+    expect(() => assertProductionFunctionInventory(inventory([{ ...existingFunctions[1], ...override }]))).toThrow('review deletions');
+  });
+  it.each(['{}', 'null', '{"status":"error","result":[]}', '{"status":"success","result":{}}', 'not json'])('fails closed on invalid inventory %s', contents => {
+    expect(() => assertProductionFunctionInventory(contents)).toThrow(/refusing forced deployment/);
+  });
+  it('rejects duplicate identities', () => {
+    expect(() => assertProductionFunctionInventory(inventory([existingFunctions[1], existingFunctions[1]]))).toThrow('review deletions');
   });
 });
 
