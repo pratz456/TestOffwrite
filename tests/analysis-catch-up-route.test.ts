@@ -63,11 +63,13 @@ describe('analysis catch-up (Retry analysis) route', () => {
   });
 
   it('re-queues paused and failed records, skips saved suggestions, and reports the owner-scoped job id', async () => {
+    const { TRANSACTION_TAX_POLICY_VERSION } = await import('@/lib/ai/transaction-tax-policy');
     const stale = Date.now() - 5 * 60_000;
     seedAccount(CONTRACT_OWNER.uid, [
       { analysis_status: 'failed', analysisStatus: 'failed', analysisErrorCode: 'PROFILE_REQUIRED' },
       { analysis_status: 'failed', analysisStatus: 'failed', analysisErrorCode: 'AI_RETRY_LIMIT' },
-      { analysis_status: 'completed', analysisStatus: 'completed', analyzed: true, ai_suggestion: { id: 'saved-suggestion' } },
+      { analysis_status: 'completed', analysisStatus: 'completed', analyzed: true,
+        ai_suggestion: { id: 'saved-suggestion', policyVersion: TRANSACTION_TAX_POLICY_VERSION } },
     ]);
     // Existing paused/failed tasks older than a minute are eligible for a user-requested retry.
     const { analysisTaskId } = await import('@/lib/ai/analysis-jobs');
@@ -89,7 +91,9 @@ describe('analysis catch-up (Retry analysis) route', () => {
   });
 
   it('answers idle when every record already has a suggestion or was retried less than a minute ago', async () => {
-    seedAccount(CONTRACT_OWNER.uid, [{ analysis_status: 'completed', analysisStatus: 'completed', analyzed: true, ai_suggestion: { id: 'saved' } }]);
+    const { TRANSACTION_TAX_POLICY_VERSION } = await import('@/lib/ai/transaction-tax-policy');
+    seedAccount(CONTRACT_OWNER.uid, [{ analysis_status: 'completed', analysisStatus: 'completed', analyzed: true,
+      ai_suggestion: { id: 'saved', policyVersion: TRANSACTION_TAX_POLICY_VERSION } }]);
     const { response, body } = await call();
     expect(response.status).toBe(200);
     expect(body).toMatchObject({ status: 'idle', queued: 0 });

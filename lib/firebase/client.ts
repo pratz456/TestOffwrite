@@ -39,17 +39,19 @@ const configuredFirebase = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
   measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
 };
-if (!localEmulatorConfig && [
+const missingFirebaseClientConfig = !localEmulatorConfig && [
   configuredFirebase.apiKey,
   configuredFirebase.authDomain,
   configuredFirebase.projectId,
   configuredFirebase.storageBucket,
   configuredFirebase.messagingSenderId,
   configuredFirebase.appId,
-].some(value => !value)) {
+].some(value => !value);
+if (missingFirebaseClientConfig && process.env.NODE_ENV !== 'test') {
   throw new Error('Firebase client configuration is incomplete. Refusing to fall back to a production project.');
 }
-const firebaseConfig = localEmulatorConfig ? LOCAL_FIREBASE_OPTIONS : configuredFirebase;
+// Unit tests receive a non-routable demo project. Staging and production never do.
+const firebaseConfig = localEmulatorConfig || missingFirebaseClientConfig ? LOCAL_FIREBASE_OPTIONS : configuredFirebase;
 
 export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 assertLocalEmulatorApp(app.options, localEmulatorConfig);

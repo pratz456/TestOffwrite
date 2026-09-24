@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
     await migrateLegacyPlaidConnection(user.uid);
     const ref = adminDb.doc(`user_profiles/${user.uid}`);
     let snapshot = await ref.get();
-    const legacyEin = snapshot.data()?.ein;
+    const legacyEin = snapshot.exists ? snapshot.data()?.ein : undefined;
     if (snapshot.exists && typeof legacyEin === 'string' && legacyEin.trim()) {
       const migration = encryptedEinUpdate(legacyEin, snapshot.data()?.ein_last4);
       const legacyDigits = legacyEin.replace(/\D/g, '');

@@ -1,9 +1,17 @@
 /**
- * The public contact form accepts a bounded, well-typed payload and refuses
- * anything else with 400; it performs no I/O and logs nothing outside development.
+ * The public contact form accepts a bounded, well-typed payload, stores it
+ * durably, and refuses anything else with 400.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const mocks = vi.hoisted(() => ({ add: vi.fn(), update: vi.fn() }));
+vi.mock('@/lib/firebase/admin', () => ({
+  adminDb: { collection: () => ({ add: mocks.add }) },
+}));
+vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
+
 import { POST } from '../app/api/contact/route';
+import { resetRateLimitStore } from './fixtures/rate-limit-store';
 
 const valid = { name: 'Ada', email: 'ada@example.test', subject: 'Question about exports', category: 'billing', message: 'How do I download my preparer summary?' };
 
@@ -11,14 +19,28 @@ const post = (body: unknown) => POST(new Request('https://writeoff.example.test/
   method: 'POST', headers: { 'content-type': 'application/json' }, body: typeof body === 'string' ? body : JSON.stringify(body),
 }));
 
-beforeEach(() => { for (const level of ['log', 'warn', 'error'] as const) vi.spyOn(console, level).mockImplementation(() => {}); });
-afterEach(() => vi.restoreAllMocks());
+beforeEach(() => {
+  vi.resetAllMocks();
+  resetRateLimitStore();
+  vi.stubEnv('RESEND_API_KEY', '');
+  mocks.add.mockResolvedValue({ id: 'contact-request', update: mocks.update });
+  mocks.update.mockResolvedValue(undefined);
+  for (const level of ['log', 'warn', 'error'] as const) vi.spyOn(console, level).mockImplementation(() => {});
+});
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 
 describe('POST /api/contact', () => {
   it('accepts a complete form', async () => {
     const response = await post(valid);
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ success: true });
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toEqual({ success: true, requestId: 'contact-request', delivery: 'queued' });
+    expect(mocks.add).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'Ada',
+      email: 'ada@example.test',
+      status: 'new',
+      deliveryStatus: 'manual_review',
+      expiresAt: expect.any(Date),
+    }));
     expect(console.log).not.toHaveBeenCalled();
   });
 
@@ -44,6 +66,6 @@ describe('POST /api/contact', () => {
 
   it('accepts fields exactly at their limits', async () => {
     const response = await post({ ...valid, name: 'n'.repeat(200), subject: 's'.repeat(300), category: 'c'.repeat(64), message: 'm'.repeat(10_000) });
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(202);
   });
 });

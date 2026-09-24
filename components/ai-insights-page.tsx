@@ -385,6 +385,12 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
       </header>
 
       <div className="p-4 sm:p-6 max-w-6xl mx-auto">
+        {taxReviewMessage && (
+          <div role="alert" className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-foreground">
+            <p>{taxReviewMessage}</p>
+            <Link className="mt-2 inline-block font-medium underline" href="/protected/settings">Review profile</Link>
+          </div>
+        )}
         {/* Summary Card */}
         <Card className="p-4 sm:p-6 mb-6 sm:mb-8 border border-border bg-card">
           <h2 className="text-lg sm:text-xl font-semibold text-foreground mb-1">
@@ -403,7 +409,9 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
               <div className="text-xs sm:text-sm text-muted-foreground mt-0.5">New Opportunities</div>
             </div>
             <div className="rounded-lg bg-green-600/10 dark:bg-green-600/15 p-3 sm:p-4 text-center">
-              <div className="text-xl sm:text-2xl font-bold text-green-700 dark:text-green-300">${Math.round(insights.monthlySummary.potentialSavings)}</div>
+              <div className="text-xl sm:text-2xl font-bold text-green-700 dark:text-green-300">
+                {taxReviewMessage ? 'Review profile' : `$${Math.round(insights.monthlySummary.potentialSavings)}`}
+              </div>
               <div className="text-xs sm:text-sm text-muted-foreground mt-0.5">Estimated Tax Effect of Unreviewed Items</div>
             </div>
             <div className="rounded-lg bg-muted/40 dark:bg-muted/20 p-3 sm:p-4 text-center">

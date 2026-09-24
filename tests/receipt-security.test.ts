@@ -136,7 +136,7 @@ describe('receipt authentication and upload boundaries', () => {
     expect(mocks.transaction).not.toHaveBeenCalled();
     expect(mocks.save).not.toHaveBeenCalled();
     // Another owner's window is untouched.
-    mocks.verifyIdToken.mockResolvedValue({ uid: 'other-receipt-owner' });
+    mocks.verifyIdToken.mockResolvedValue({ uid: 'other-receipt-owner', email_verified: true });
     mocks.transaction.mockResolvedValue({ data: { trans_id: transactionId, userId: 'other-receipt-owner' }, error: null });
     expect((await POST(upload())).status).toBe(200);
   });

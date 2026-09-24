@@ -162,12 +162,10 @@ describe('estimated tax effect boundaries', () => {
     expect(explain('okSoftware', {}, { ...profile, filing_status: 42 as unknown as string }).estimatedTaxEffect).toBeNull();
   });
 
-  it('with no saved income, floors the range at self-employment tax and says a fallback rate was used', () => {
-    const effect = explain('okSoftware', {}, { filing_status: 'single' }).estimatedTaxEffect!;
-    expect(effect.low).toBe(Math.round(54.99 * 0.9235 * 0.153));
-    expect(effect.high).toBe(Math.round(54.99 * (0.9235 * 0.153 + 0.25)));
-    expect(effect.basis).toContain('No income is saved in your profile');
-    expect(explain('okSoftware', {}, { filing_status: 'single' }).yourFacts).toContain('Filing status used for the estimate: single');
+  it('with no saved income, withholds the estimate instead of applying a static fallback rate', () => {
+    const explanation = explain('okSoftware', {}, { filing_status: 'single' });
+    expect(explanation.estimatedTaxEffect).toBeNull();
+    expect(explanation.yourFacts).not.toContain('Filing status used for the estimate');
   });
 
   it('lets saved W-2 wages raise the bracket used for the top of the range', () => {
