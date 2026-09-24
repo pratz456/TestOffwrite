@@ -21,8 +21,10 @@ export async function POST(request: Request) {
   try { ({ uid } = await getUserFromReqOrThrow(request)); } catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers }); }
   const limit = await enforceRateLimit({ ...RATE_LIMITS.plaidSync, limit: 120, windowMs: 10 * 60_000, key: `reconnect:${uid}` });
   if (!limit.allowed) return rateLimitResponse(limit, { error: 'Please wait a moment before continuing bank review.' });
+  let body;
+  try { body = await request.json(); }
+  catch { return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400, headers }); }
   try {
-    const body = await request.json();
     if (!body || !['start', 'map', 'decide', 'sync', 'activate', 'cancel'].includes(body.action)) return NextResponse.json({ error: 'Invalid bank review action' }, { status: 400, headers });
     return NextResponse.json({ success: true, reconnect: await actOnReconnect(uid, body as ReconnectAction) }, { headers });
   } catch (error) {
