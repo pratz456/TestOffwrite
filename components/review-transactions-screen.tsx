@@ -23,6 +23,7 @@ import { ExplanationCard } from '@/components/ai/explanation-card';
 import { normalizeExplanation } from '@/lib/ai/explanation';
 import { AnalysisStatusNotice } from '@/components/analysis-status-notice';
 import { summarizeAnalysisBacklog } from '@/lib/ai/analysis-state';
+import { prioritizeTransactionReview } from '@/lib/transactions/review-priority';
 
 interface ReviewTransactionsScreenProps {
   user: { id: string; email?: string; user_metadata?: { name?: string } };
@@ -85,11 +86,11 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
     const key = transactionReviewKey(transaction);
     return (transaction.trans_id || transaction.id) === focusedTransactionId && !reviewed.has(key) && !deferred.has(key);
   }) : undefined;
-  const normalQueue = resolved.filter(transaction => transactionNeedsCategoryReview(transaction));
+  const normalQueue = prioritizeTransactionReview(resolved.filter(transaction => transactionNeedsCategoryReview(transaction)));
   const remaining = focused
     ? [focused, ...normalQueue.filter(transaction => transactionReviewKey(transaction) !== transactionReviewKey(focused))]
     : normalQueue;
-  const taxQuestions = resolved.filter(transaction => !transactionNeedsCategoryReview(transaction) && transactionNeedsTaxReview(transaction));
+  const taxQuestions = prioritizeTransactionReview(resolved.filter(transaction => !transactionNeedsCategoryReview(transaction) && transactionNeedsTaxReview(transaction)));
   const current = remaining.find(transaction => !deferred.has(transactionReviewKey(transaction)));
   const currentKey = current ? transactionReviewKey(current) : '';
   const activeKey = useRef(currentKey);
@@ -98,6 +99,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
   const analysisQueued = !!current?.analysisJobId && (current.analysisStatus === 'pending' || current.analysis_status === 'pending');
   const backgroundAnalysis = analysisRunning || analysisQueued;
   const profileRefresh = backgroundAnalysis && current?.analysisRefreshReason === 'profile_changed';
+  const factsRefresh = backgroundAnalysis && current?.analysisRefreshReason === 'transaction_changed';
   const presentation = current ? reviewPresentation(backgroundAnalysis ? { ...current, ai_suggestion: null, ai_explanation: null } : current) : null;
   const suggestion = backgroundAnalysis ? null : current?.ai_suggestion;
   // Backlog across the loaded records, so a queued card can say how long the wait may be.
@@ -408,7 +410,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
 
               {offerQuestion && <QuestionChips key={`${currentKey}:${openQuestion!.kind}`} question={openQuestion!} transaction={current} proposal={proposal}
                 busy={operation === 'saving'} disabled={busy}
-                onSave={(updates, saved) => saveDecision(updates, `${saved}. Run analysis again for an updated suggestion.`, true)}
+                onSave={(updates, saved) => saveDecision(updates, `${saved}. AI review updates automatically.`, true)}
                 onOpenDetails={onTransactionClick ? () => onTransactionClick({ ...current, _source: 'review-transactions' }, 'details') : undefined} />}
 
               {offerPurpose ? <p id="review-confirmation-hint" className="text-xs leading-4 text-muted-foreground">{mayConfirm ? `${confirmationLabel} below saves the category${recordsDeduction ? ' and the deduction' : ' only'}; the purpose is saved when you confirm it above.` : presentation!.confirmationHint}</p>
@@ -424,8 +426,9 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
 
               {!suggestion && analysisControls}
               {profileRefresh && <p role="status" className="text-xs leading-5 text-muted-foreground">Updating AI review using your new profile. Confirmed categories stay saved.</p>}
-              {analysisQueued && !profileRefresh && <p role="status" className="text-xs leading-5 text-muted-foreground">{`Queued for automatic analysis.${analysisWaiting > 1 ? ` ${analysisWaiting} transactions are waiting; a first import can take a while.` : ''} Run it now or wait for the result.`}</p>}
-              {analysisRunning && !profileRefresh && <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 shrink-0 animate-spin" />AI is analyzing. Results refresh here.</p>}
+              {factsRefresh && <p role="status" className="text-xs leading-5 text-muted-foreground">Details saved. AI is updating your review automatically.</p>}
+              {analysisQueued && !profileRefresh && !factsRefresh && <p role="status" className="text-xs leading-5 text-muted-foreground">{`Queued for automatic analysis.${analysisWaiting > 1 ? ` ${analysisWaiting} transactions are waiting; a first import can take a while.` : ''} Run it now or wait for the result.`}</p>}
+              {analysisRunning && !profileRefresh && !factsRefresh && <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 shrink-0 animate-spin" />AI is analyzing. Results refresh here.</p>}
               {!suggestion && availability.status === 'unavailable' && <p className="text-xs text-muted-foreground">{availability.message} Manual categorization remains available.</p>}
             </>}
 

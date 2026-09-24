@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
+import { eligibilityOrganizer, hsaFacts } from './fixtures/eligibility';
 
 // In-memory tax_organizers collection: the real route handlers run against it.
 const state = vi.hoisted(() => ({ docs: new Map<string, Record<string, unknown>>(), sets: [] as Record<string, unknown>[], failSet: false }));
@@ -66,6 +67,18 @@ describe('organizer identifier set', () => {
 });
 
 describe('organizer route stores ciphertext and returns plaintext only to the owner', () => {
+  it('round-trips structured eligibility only under the matching tax year', async () => {
+    const answers = eligibilityOrganizer({ hsa: hsaFacts() });
+    expect((await post({ taxYear: 2026, ...answers })).status).toBe(201);
+    expect((await (await get()).json()).organizer.adjustmentEligibilityFacts).toBe(answers.adjustmentEligibilityFacts);
+    const previous = stored();
+    expect((await post({ taxYear: 2026, ...eligibilityOrganizer({ taxYear: 2025, hsa: hsaFacts() }) })).status).toBe(400);
+    expect(stored()).toEqual(previous);
+  });
+  it.each(['not json', JSON.stringify({ version: 1, taxYear: 2026, hsa: { approved: true } }), JSON.stringify({ version: 1, taxYear: 2026, hsa: { months: [] } })])('rejects malformed eligibility before saving: %s', async adjustmentEligibilityFacts => {
+    expect((await post({ taxYear: 2026, adjustmentEligibilityFacts })).status).toBe(400);
+    expect(state.docs.size).toBe(0);
+  });
   it.each(Object.entries(IDENTIFIERS))('round-trips %s through encryption', async (field, value) => {
     const saved = await post({ taxYear: 2026, [field]: value, filingStatus: 'single' });
     expect(saved.status).toBe(201);

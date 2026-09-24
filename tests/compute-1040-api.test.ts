@@ -1,4 +1,5 @@
 import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductions';
+import { eligibilityOrganizer, hsaFacts, healthFacts, retirementFacts, jointFacts } from './fixtures/eligibility';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
@@ -33,6 +34,46 @@ beforeEach(() => {
 function request(year = '2026') { return new NextRequest(`http://localhost/api/tax/compute-1040?year=${year}`); }
 
 describe('Form1040 API integration', () => {
+  it('uses saved organizer amounts only after complete HSA eligibility and employer contribution review', async () => {
+    state.collections.tax_organizers = [reviewedPersonalDeductionOrganizer(2026, {}, {
+      paidHSA: 'yes', hsaAmount: '1000', ...eligibilityOrganizer({ hsa: hsaFacts({ employerContributions: '500' }) }),
+    })];
+    const response = await GET(request()); expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.form1040.appliedAdjustments.hsaDeduction).toBe(1000);
+    expect(body.form1040.agi).toBe(99000);
+    expect(body.form1040.adjustmentEligibility.hsa).toMatchObject({ limit: 4400, availableAfterEmployer: 3900, eligibleMonths: 12 });
+    state.collections.tax_deductions = [{ hsaContribution: 1200 }];
+    const changed = await GET(request()); expect(changed.status).toBe(422);
+    expect((await changed.json()).error).toContain('Reconcile HSA');
+  });
+  it('applies complete SEP and non-Marketplace monthly health facts to the same annual snapshot', async () => {
+    state.collections.w2_income = [];
+    state.collections.gross_receipts = [{ amount: 50000 }];
+    state.collections.tax_organizers = [reviewedPersonalDeductionOrganizer(2026, {}, {
+      paidHealthInsurance: 'yes', healthInsurancePremium: '7200', madeRetirementContrib: 'yes', retirementType: 'sep_ira', retirementAmount: '8000',
+      ...eligibilityOrganizer({ health: healthFacts(), retirement: retirementFacts({ employerContribution: '8000' }) }),
+    })];
+    const response = await GET(request()); expect(response.status).toBe(200);
+    expect((await response.json()).form1040.appliedAdjustments).toMatchObject({ healthInsuranceDeduction: 7200, retirementContributions: 8000, halfSEDeduction: 3532.39 });
+  });
+  it('withholds a return with employer-only excess HSA funding instead of treating the zero personal claim as resolved', async () => {
+    state.collections.tax_organizers = [reviewedPersonalDeductionOrganizer(2026, {}, eligibilityOrganizer({ hsa: hsaFacts({ employerContributions: '5000' }) }))];
+    const response = await GET(request()); expect(response.status).toBe(422);
+    expect(await response.json()).toMatchObject({ code: 'TAX_CALCULATION_SCOPE_REVIEW_REQUIRED', error: expect.stringContaining('HSA contributions exceed') });
+  });
+  it('assigns the Social Security wage base to the actual self-employed spouse and rejects stale assignments', async () => {
+    state.profile.filing_status = 'married_filing_jointly';
+    state.collections.gross_receipts = [{ amount: 100000 }];
+    state.collections.tax_organizers = [reviewedPersonalDeductionOrganizer(2026, {}, eligibilityOrganizer({ joint: jointFacts() }))];
+    const response = await GET(request()); expect(response.status).toBe(200);
+    expect((await response.json()).seCalc).toMatchObject({ socialSecurityTax: 11451.4, medicareTax: 2678.15, totalSETax: 14129.55 });
+    state.collections.tax_organizers = [reviewedPersonalDeductionOrganizer(2026, {}, eligibilityOrganizer({ joint: jointFacts({ businessOwner: 'spouse' }) }))];
+    expect((await (await GET(request())).json()).seCalc).toMatchObject({ socialSecurityTax: 10478, totalSETax: 13156.15 });
+    state.collections.w2_income[0].box3SocialSecurityWages = 110000;
+    const changed = await GET(request()); expect(changed.status).toBe(422);
+    expect((await changed.json()).error).toContain('assignments must match');
+  });
   it.each([
     ['hsa_contribution', 'HSA eligibility'],
     ['health_insurance_premiums', 'self-employed health-insurance eligibility'],

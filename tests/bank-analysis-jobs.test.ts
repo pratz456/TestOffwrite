@@ -28,6 +28,8 @@ import { adminDb } from '@/lib/firebase/admin';
 import { analysisTaskId, enqueueBankTransactionAnalysis, enqueueAccountAnalysis, processAnalysisTask, updateImportedTransactionForAnalysis } from '@/lib/ai/analysis-jobs';
 import { claimAnalysisLease, persistAnalysisSuggestion, releaseAnalysisLease, analysisSuggestionUpdate } from '@/lib/ai/analysis-persistence';
 import { analysisProfileHash } from '@/lib/ai/profile-context';
+import { saveTransactionChanges } from '@/lib/transactions/save-changes';
+import { shouldQueueBankWrite } from '../functions-analysis/src/bridge';
 
 const address = { userId: 'synthetic-user', accountId: 'bank-account', transactionId: 'posted-transaction' };
 const profilePath = `user_profiles/${address.userId}`;
@@ -55,6 +57,55 @@ beforeEach(() => {
   mocks.analyze.mockResolvedValue({ success: true, result: suggestion });
 });
 afterEach(() => { vi.useRealTimers(); });
+
+describe('saved facts automatically refresh durable AI review', () => {
+  it('atomically queues changed facts, deduplicates replayed events, and preserves confirmed decisions/receipts', async () => {
+    await enqueueBankTransactionAnalysis(address); await run();
+    change(path, { is_deductible: false, review_status: 'confirmed', review_source: 'user_corrected',
+      category: 'PERSONAL', receipt_url: 'private-receipt-reference', receipt_filename: 'receipt.pdf' });
+    const before = structuredClone(mocks.docs.get(path)!);
+    const saved = await saveTransactionChanges(adminDb.doc(path), address.userId, { business_purpose: 'Used for the paid design project' });
+    expect(saved).toMatchObject({ analysisStatus: 'pending', analysisRefreshReason: 'transaction_changed', ai_suggestion: null,
+      is_deductible: false, review_status: 'confirmed', review_source: 'user_corrected', category: 'PERSONAL', receipt_url: 'private-receipt-reference', receipt_filename: 'receipt.pdf' });
+    expect(shouldQueueBankWrite(before, saved)).toBe(true);
+    const queued = await Promise.all(Array.from({ length: 4 }, () => enqueueBankTransactionAnalysis(address)));
+    expect(queued.filter(result => 'enqueued' in result && result.enqueued).length).toBe(1);
+    await run();
+    expect(mocks.analyze).toHaveBeenCalledTimes(2);
+    expect(mocks.analyze.mock.calls.at(-1)![0]).toMatchObject({ business_purpose: 'Used for the paid design project' });
+    expect(mocks.docs.get(path)).toMatchObject({ analysisStatus: 'completed', analysisRefreshReason: null, is_deductible: false, category: 'PERSONAL' });
+    expect(shouldQueueBankWrite(saved, mocks.docs.get(path)!)).toBe(false);
+  });
+
+  it('does not requeue unchanged facts or decision-only edits, including harmless whitespace', async () => {
+    await enqueueBankTransactionAnalysis(address); await run();
+    const before = structuredClone(mocks.docs.get(path)!);
+    const saved = await saveTransactionChanges(adminDb.doc(path), address.userId, { notes: '  Original   context  ', is_deductible: false });
+    expect(saved.notes).toBe('Original context');
+    expect(saved.analysisStatus).toBe('completed');
+    expect(saved.ai_suggestion).toEqual(before.ai_suggestion);
+    expect(shouldQueueBankWrite(before, saved)).toBe(false);
+  });
+
+  it('retains newly saved facts and existing decisions when AI is unavailable, with retryable pipeline state', async () => {
+    change(path, { is_deductible: true, review_status: 'confirmed', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES' });
+    const saved = await saveTransactionChanges(adminDb.doc(path), address.userId, { attendees: ['Client A', 'Owner'] });
+    expect(shouldQueueBankWrite({ amount: 75 }, saved)).toBe(true);
+    mocks.configured = false;
+    await enqueueBankTransactionAnalysis(address); await run();
+    expect(mocks.docs.get(path)).toMatchObject({ attendees: ['Client A', 'Owner'], is_deductible: true,
+      review_status: 'confirmed', analysisStatus: 'failed', analysisErrorCode: 'AI_UNAVAILABLE' });
+    expect(mocks.analyze).not.toHaveBeenCalled();
+  });
+
+  it('defers pending bank records and rejects a foreign document path', async () => {
+    change(path, { pending: true });
+    const saved = await saveTransactionChanges(adminDb.doc(path), address.userId, { meeting_notes: 'Discussed the client project' });
+    expect(shouldQueueBankWrite(mocks.docs.get(path), saved)).toBe(false);
+    expect((await enqueueBankTransactionAnalysis(address)).status).toBe('skipped');
+    await expect(saveTransactionChanges(adminDb.doc(path), 'different-user', { notes: 'forged' })).rejects.toThrow('Transaction not found');
+  });
+});
 
 describe('durable bank transaction analysis', () => {
   it('catches up legacy analyzed rows missing structured suggestions while preserving the recorded decision', async () => {

@@ -7,7 +7,8 @@ import { computeScheduleCProfit } from './schedule-c-profit';
 import { reconcileBusinessIncome, type IncomeRecord } from './business-income';
 import { summarizeW2Income } from './w2-income';
 import { normalizeFilingStatus } from './filing-status';
-import { assertSavedAdjustmentScope, assertWageOwnershipScope } from './calculation-scope';
+import { assertWageOwnershipScope, TaxCalculationScopeReviewRequiredError } from './calculation-scope';
+import { calculateEligibleAdjustments } from './eligibility';
 import { assertGenericDependentCreditScope } from './credit-scope';
 import { readSocialSecurityFacts, calculateSocialSecurityWorksheet, assertSocialSecurityAdjustmentRecords, SocialSecurityReviewRequiredError } from './social-security';
 import { calculateCapitalGainCharacter, hasCapitalGainAmounts, readCapitalGainFacts } from './capital-gains';
@@ -56,10 +57,16 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
   const scheduleCNetProfit = scheduleC.profitBeforeAssets;
   const { depreciationDeduction, deMinimisExpense, homeOfficeDeduction } = scheduleC;
   const scheduleCLine31NetProfit = scheduleC.netProfit;
-  assertWageOwnershipScope(filingStatus, scheduleCLine31NetProfit, w2.wages, {
-    socialSecurityWages: w2.socialSecurityWages, medicareWages: w2.medicareWagesForSE,
-  });
-  const seCalc = calcScheduleSE({ scheduleCNetProfit: scheduleCLine31NetProfit, taxYear }, filingStatus, w2.socialSecurityWages, w2.medicareWagesForSE);
+  if (filingStatus === 'married_filing_jointly' && scheduleCLine31NetProfit > 0 && input.w2Entries.some(entry => entry.box3SocialSecurityWages == null && entry.socialSecurityWages == null)) {
+    throw new TaxCalculationScopeReviewRequiredError('Complete each spouse’s W-2 Social Security wages (Box 3, including explicit zero) before assigning the separate spouse wage bases');
+  }
+  if (filingStatus === 'married_filing_jointly' && scheduleCLine31NetProfit > 0 && (w2.wages > 0 || w2.socialSecurityWages > 0 || w2.medicareWagesForSE > 0) && w2.medicareWages === undefined) {
+    throw new TaxCalculationScopeReviewRequiredError('Complete every spouse’s W-2 Box 5 Medicare wages, including explicit zero, before calculating the joint return');
+  }
+  const ownerSocialSecurityWages = assertWageOwnershipScope(filingStatus, scheduleCLine31NetProfit, w2.wages, {
+    socialSecurityWages: w2.socialSecurityWages, medicareWages: w2.medicareWages,
+  }, { taxYear, organizer: org });
+  const seCalc = calcScheduleSE({ scheduleCNetProfit: scheduleCLine31NetProfit, taxYear }, filingStatus, ownerSocialSecurityWages, w2.medicareWagesForSE);
 
   const interest = amount(org.amount1099INT);
   const dividends = amount(org.amount1099DIV);
@@ -69,14 +76,14 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
   const iraDist = amount(org.amountIRADistributions);
   const rental = amount(org.amountRentalIncome);
   const otherOrdinaryIncome = amount(org.amountOtherIncome);
-  const healthInsurancePremiums = amount(ded.healthInsurancePremiums ?? profile.health_insurance_premiums);
-  const sepIraContribution = amount(ded.sepIraContribution ?? profile.sep_ira_contribution);
+  const healthInsurancePremiums = amount(ded.healthInsurancePremiums ?? profile.health_insurance_premiums ?? org.healthInsurancePremium);
+  const sepIraContribution = amount(ded.sepIraContribution ?? profile.sep_ira_contribution ?? (org.retirementType === 'sep_ira' ? org.retirementAmount : 0));
   const solo401kComponents = ded.solo401kEmployeeContribution !== undefined || ded.solo401kEmployerContribution !== undefined
     ? [amount(ded.solo401kEmployeeContribution), amount(ded.solo401kEmployerContribution)]
-    : [amount(profile.solo_401k_contribution)];
+    : [amount(profile.solo_401k_contribution ?? (org.retirementType === 'solo_401k' ? org.retirementAmount : 0))];
   const solo401kContribution = solo401kComponents.reduce((total, contribution) => total + contribution, 0);
-  const simpleIraContribution = amount(ded.simpleIraContribution);
-  const hsaContribution = amount(ded.hsaContribution ?? profile.hsa_contribution);
+  const simpleIraContribution = amount(ded.simpleIraContribution ?? (org.retirementType === 'simple_ira' ? org.retirementAmount : 0));
+  const hsaContribution = amount(ded.hsaContribution ?? profile.hsa_contribution ?? org.hsaAmount);
   const studentLoanInterest = amount(ded.studentLoanInterest);
   let socialSecurityWorksheet: ReturnType<typeof calculateSocialSecurityWorksheet> | null = null;
   if (benefitFacts) {
@@ -100,10 +107,14 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
   }
   // Preserve the Social Security-specific reconciliation/review errors above.
   // Raw saved totals cannot establish the eligibility that the conditional math helpers assume.
-  assertSavedAdjustmentScope({
-    healthInsurancePremiums, hsaContribution,
-    retirementContributions: [sepIraContribution, ...solo401kComponents, simpleIraContribution],
-  });
+  if (solo401kComponents.some(value => value < 0)) throw new TaxCalculationScopeReviewRequiredError('Complete retirement-plan eligibility with nonnegative employee and employer contributions; reconcile signed entries');
+  if (amount(org.retirementAmount) > 0 && !['sep_ira', 'solo_401k', 'simple_ira'].includes(String(org.retirementType))) throw new TaxCalculationScopeReviewRequiredError('Traditional IRA and other retirement-plan deductions need their own eligibility and income-limit worksheet');
+  for (const [field, recorded, label] of [['hsaAmount', hsaContribution, 'HSA'], ['healthInsurancePremium', healthInsurancePremiums, 'health insurance'],
+    ['retirementAmount', sepIraContribution + solo401kContribution + simpleIraContribution, 'retirement']] as const) {
+    if (org[field] !== undefined && org[field] !== '' && Math.abs(amount(org[field]) - recorded) > .005) throw new TaxCalculationScopeReviewRequiredError(`Reconcile ${label} amounts in Tax Organizer and Tax Deductions before applying eligibility limits`);
+  }
+  const adjustmentEligibility = calculateEligibleAdjustments({ taxYear, filingStatus, netProfit: scheduleCLine31NetProfit, halfSE: seCalc.halfSEDeduction,
+    healthInsurancePremiums, hsaContribution, sepIraContribution, solo401kContribution, simpleIraContribution, organizer: org });
   // Schedule D character (short-term ordinary, long-term preferential, §1211(b) loss limit).
   // Read after the benefit gates so a nonzero legacy total keeps its existing review code.
   const capitalGains = calculateCapitalGainCharacter({ taxYear, filingStatus, ...readCapitalGainFacts(org) });
@@ -111,12 +122,11 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
   const nonBenefitOtherIncome = interest + dividends + capGains + iraDist + rental + otherOrdinaryIncome;
   if (benefitFacts) {
     const livedApart = org.socialSecurityLivedApartAllYear;
-    // HSA/retirement/insurance claims are review-blocked above. The supported adjustment
-    // here is half of regular SE tax; Pub915 line7 excludes student-loan interest.
+    // Pub915 line7 includes the validated Schedule1 adjustments above, but excludes student-loan interest.
     socialSecurityWorksheet = calculateSocialSecurityWorksheet({
       taxYear, filingStatus, ...benefitFacts,
       otherIncome: scheduleCLine31NetProfit + w2.wages + nonBenefitOtherIncome,
-      allowedAdjustments: seCalc.halfSEDeduction,
+      allowedAdjustments: seCalc.halfSEDeduction + adjustmentEligibility.hsaDeduction + adjustmentEligibility.healthInsuranceDeduction + adjustmentEligibility.retirementDeduction,
       livedApartAllYear: livedApart === 'yes',
     });
   }

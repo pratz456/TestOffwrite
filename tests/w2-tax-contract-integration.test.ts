@@ -1,4 +1,5 @@
 import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductions';
+import { eligibilityOrganizer, jointFacts } from './fixtures/eligibility';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { resetRateLimitStore } from './fixtures/rate-limit-store';
@@ -131,6 +132,25 @@ describe('onboarding filing-status labels flow into tax calculations and PDF sel
 describe('shared income snapshot across JSON and PDF', () => {
   const transaction = { id: 'income-1', account_id: 'manual', amount: -100000, iso_currency_code: 'USD', category: 'income', type: 'income', date: '2026-03-01', pending: false };
   const pdfRequest = () => new NextRequest('http://localhost/api/tax/form-1040', { method: 'POST', body: JSON.stringify({ year: 2026 }) });
+
+  it('uses the same saved spouse assignments for annual JSON/PDF and the standalone Schedule SE preview', async () => {
+    state.filingStatus = 'married_filing_jointly';
+    state.records.tax_organizers = [organizerFixture(eligibilityOrganizer({ joint: jointFacts({ spouseSSWages: '184500', spouseMedicareWages: '210000' }) }))];
+    await save();
+    const annual = await compute1040(request('/api/tax/compute-1040'));
+    expect(annual.status).toBe(200);
+    const json = await annual.json();
+    expect(json.seCalc).toMatchObject({ socialSecurityTax: 11451.4, totalSETax: 14129.55, additionalMedicareTax: 471.15 });
+    const se = await scheduleSE(request('/api/tax/schedule-se/auto'));
+    expect(se.status).toBe(200);
+    expect(await se.json()).toMatchObject({ calculation: json.seCalc, w2SocialSecurityWages: 0, w2MedicareWages: 210000, aboveTheLineDeductions: null, estimatedAGI: null });
+    expect((await export1040(pdfRequest())).status).toBe(200);
+    expect(state.computedResults[1]).toEqual(state.computedResults[0]);
+    state.records.w2_income[0].socialSecurityWages = 180000;
+    const stale = await scheduleSE(request('/api/tax/schedule-se/auto'));
+    expect(stale.status).toBe(422);
+    expect((await stale.json()).error).toContain('assignments must match');
+  });
 
   it('counts transaction-only business income and uses identical federal inputs/results in JSON and PDF', async () => {
     state.records = { tax_organizers: [organizerFixture({ amount1099INT: '1200', dependents: '0' })] };

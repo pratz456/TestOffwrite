@@ -3,6 +3,8 @@ import { summarizeConfirmedDeductions, isReviewableBusinessOutflow } from '@/lib
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { generateScheduleCCSV } from '@/lib/reports/schedule-c-csv';
 import { compute1040 } from '@/lib/tax-rules/compute-1040';
+import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductions';
+import { eligibilityOrganizer, healthFacts, retirementFacts, hsaFacts } from './fixtures/eligibility';
 import { formatRecordedTransactionAmount } from '@/lib/transactions/amount-display';
 
 const expense = (facts: Record<string, unknown> = {}) => ({
@@ -22,9 +24,12 @@ describe('confirmed transaction amounts displayed to the owner', () => {
     const result = compute1040({ taxYear: 2025, filingStatus: 'single', scheduleCNetProfit: 100000, w2Wages: 0,
       selfEmploymentTax: 14000, halfSEDeduction: 7000, healthInsurancePremiums: 100000,
       w2FederalWithheld: 0, estimatedPayments: 0, sepIraContribution: 0, solo401kContribution: 0,
-      simpleIraContribution: 6000, hsaContribution: 20000, studentLoanInterest: 9000 });
+      simpleIraContribution: 6000, hsaContribution: 4300, studentLoanInterest: 9000,
+      personalDeductionOrganizer: reviewedPersonalDeductionOrganizer(2025, {}, eligibilityOrganizer({ taxYear: 2025, hsa: hsaFacts(),
+        retirement: retirementFacts({ plan: 'simple_ira', simpleMethod: 'match3', employeeContribution: '3229.50', employerContribution: '2770.50' }),
+        health: healthFacts({ months: Array.from({ length: 12 }, (_, index) => ({ premiums: index === 11 ? '8333.37' : '8333.33', employerAccess: 'no' })) }) })) });
     expect(result.appliedAdjustments).toEqual({ halfSEDeduction: 7000, healthInsuranceDeduction: 87000,
-      retirementContributions: 6000, hsaDeduction: 9550, studentLoanInterestDeduction: 2500 });
+      retirementContributions: 6000, hsaDeduction: 4300, studentLoanInterestDeduction: 2500 });
     expect(Object.values(result.appliedAdjustments).reduce((sum, amount) => sum + amount, 0)).toBe(result.adjustments);
   });
   it('reconciles signed meal cents and refunds with the Schedule C aggregate and CSV', () => {

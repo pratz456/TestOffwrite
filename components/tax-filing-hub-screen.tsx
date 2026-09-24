@@ -1,6 +1,7 @@
 "use client";
 
 import { EmbeddedFilingCard } from '@/components/embedded-filing-card';
+import { PreparerPackageCard } from '@/components/preparer-package-card';
 import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
 import { PremiumFeatureGate } from '@/components/premium-feature-gate';
 import React, { useState, useEffect, useCallback, useRef } from "react";
@@ -411,6 +412,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
           </FilingTabs.Content>
 
           <FilingTabs.Content value="export" className="space-y-3 focus-visible:outline-none">
+            <PreparerPackageCard year={Number(year)} userId={user.id} />
             <h2 className="text-sm font-semibold">Share with your tax preparer</h2>
             <section className="flex items-center gap-3 rounded-2xl border border-border/70 bg-card px-3.5 py-3 sm:px-4">
               <div className="min-w-0 flex-1">

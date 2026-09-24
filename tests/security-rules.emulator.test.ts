@@ -68,6 +68,17 @@ async function seed(path: string, values: Record<string, string | number | boole
   });
   afterAll(async () => { await Promise.all(apps.map(app => deleteApp(app))); });
 
+  it('keeps handoff capabilities, snapshots, and saved tax baselines server-only', async () => {
+    for (const path of ['preparer_handoffs/private', 'preparer_handoff_owners/alice_uid', 'user_profiles/alice_uid/assistant_tax_snapshots/2026']) {
+      await seed(path, { userId: owner, private: true });
+      for (const db of [alice, bob, anonymous]) {
+        await expect(getDoc(doc(db, path))).rejects.toMatchObject({ code: 'permission-denied' });
+        await expect(setDoc(doc(db, path), { userId: owner })).rejects.toMatchObject({ code: 'permission-denied' });
+      }
+    }
+    await expect(uploadBytes(ref(aliceStorage, 'preparer_handoffs/alice_uid/id/package.zip'), png, { contentType: 'application/zip' })).rejects.toMatchObject({ code: 'storage/unauthorized' });
+    await expect(getBytes(ref(aliceStorage, 'preparer_handoffs/alice_uid/id/package.zip'))).rejects.toMatchObject({ code: 'storage/unauthorized' });
+  });
   it('allows each job owner while denying other authenticated users and anonymous readers', async () => {
     expect((await getDoc(doc(alice, 'analysis_jobs/alice_uid_account'))).exists()).toBe(true);
     expect((await getDoc(doc(bob, 'analysis_jobs/bob_account'))).exists()).toBe(true);

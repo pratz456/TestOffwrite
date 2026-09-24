@@ -134,7 +134,7 @@ describe('One question at a time', () => {
     const settings = html(<QuestionChips question={ask('settings_gate', 'entity_tax_treatment', 'How is your business taxed?')} transaction={{}} onSave={noop} />);
     expect(settings).toContain(`href="${TAX_SETTINGS_HREF}"`);
     expect(settings).toContain('Update tax settings');
-    expect(settings).toContain('run analysis again');
+    expect(settings).toContain('AI will refresh the review automatically');
     const other = html(<QuestionChips question={ask('other', 'receipt', 'Do you have the receipt?')} transaction={{}} onSave={noop} onOpenDetails={noop} />);
     expect(other).toContain('Add details');
     const purpose = html(<QuestionChips question={ask('business_purpose', 'business_purpose', 'What is this for?')} transaction={{}} proposal="Design software" onSave={noop} />);

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 const h = vi.hoisted(() => ({ records: new Map<string, Record<string, any>>(), files: new Set<string>(), events: [] as string[],
-  disconnect: vi.fn(), recovery: vi.fn(), billing: vi.fn(), storage: vi.fn(), authDelete: vi.fn(), failBatch: false, authUser: 'owner' as string | null }));
+  handoff: vi.fn(), disconnect: vi.fn(), recovery: vi.fn(), billing: vi.fn(), storage: vi.fn(), authDelete: vi.fn(), failBatch: false, authUser: 'owner' as string | null }));
 vi.mock('@/lib/firebase/admin', () => {
   const ref = (path: string): any => ({ path, id: path.split('/').at(-1),
     get: async () => ({ exists: h.records.has(path), data: () => h.records.get(path), ref: ref(path) }),
@@ -22,6 +22,7 @@ vi.mock('@/lib/firebase/admin', () => {
     batch: () => { const rows: string[] = []; return { delete: (r: any) => rows.push(r.path), commit: async () => { if (h.failBatch) throw new Error('database unavailable'); rows.forEach(path => { h.events.push(`delete:${path}`); h.records.delete(path); }); } }; },
   } };
 });
+vi.mock('@/lib/preparer/handoffs', () => ({ deletePreparerHandoffsForUser: h.handoff }));
 vi.mock('@/lib/plaid/connections', () => ({ listPlaidConnectionSummaries: async (uid: string) => [...h.records].filter(([key, data]) => key.startsWith('plaid_connections/') && data.uid === uid && data.status !== 'disconnected').map(([key, data]) => ({ itemId: key.split('/')[1], reauthenticationRequired: data.reauthenticationRequired })) }));
 vi.mock('@/lib/plaid/delete-item', () => ({ disconnectPlaidItem: h.disconnect }));
 vi.mock('@/lib/plaid/link-operations', () => ({ recoverPendingPlaidLinks: h.recovery }));
@@ -41,7 +42,7 @@ beforeEach(() => {
   h.records.set('user_profiles/owner', { name: 'Synthetic owner' });
   h.disconnect.mockImplementation(async (uid: string, itemId: string) => { const record = h.records.get(`plaid_connections/${itemId}`)!; expect(record.uid).toBe(uid);
     h.events.push(`revoke:${itemId}`); record.status = 'disconnected'; delete record.encryptedAccessToken; return { success: true, plaidRemoved: true }; });
-  h.billing.mockResolvedValue({ success: true });
+  h.billing.mockResolvedValue({ success: true }); h.handoff.mockResolvedValue(undefined);
   h.recovery.mockImplementation(async (uid: string) => { expect(h.records.get(`account_deletions/${uid}`)?.deletionRequested).toBe(true); });
   h.storage.mockImplementation(async ({ prefix }: { prefix: string }) => { h.events.push('storage'); for (const key of h.files) if (key.startsWith(prefix)) h.files.delete(key); });
   h.authDelete.mockImplementation(async () => { h.events.push('auth'); });
@@ -49,6 +50,12 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe('account deletion boundaries', () => {
+  it('retains identity and records when shared package cleanup fails', async () => {
+    h.handoff.mockRejectedValueOnce(new Error('storage failure'));
+    expect((await deleteUserData('owner')).error).toMatchObject({ code: 'HANDOFF_CLEANUP_FAILED', retryable: true });
+    expect(h.authDelete).not.toHaveBeenCalled();
+    expect(h.records.has('user_profiles/owner')).toBe(true);
+  });
   it('revokes every owned bank including reauthentication items, deletes scoped receipts/data, and deletes Auth last', async () => {
     bank('a'); bank('b', { reauthenticationRequired: true }); bank('foreign', { uid: 'other' });
     for (const [path, data] of [
@@ -60,6 +67,7 @@ describe('account deletion boundaries', () => {
     h.files.add('receipts/owner/tx/file'); h.files.add('receipts/owner-other/tx/file');
     expect(await deleteUserData('owner')).toEqual({});
     expect(h.disconnect.mock.calls).toEqual([['owner', 'a'], ['owner', 'b']]);
+    expect(h.handoff).toHaveBeenCalledExactlyOnceWith('owner');
     expect(h.storage).toHaveBeenCalledExactlyOnceWith({ prefix: 'receipts/owner/' });
     expect(h.files).toEqual(new Set(['receipts/owner-other/tx/file']));
     expect([...h.records.keys()].filter(key => !key.startsWith('account_deletions/'))).toEqual(['plaid_connections/foreign', 'receipts/other', 'user_profiles/owner-other']);

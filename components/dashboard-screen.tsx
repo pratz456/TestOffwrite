@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { ArrowRight, ChevronDown, Loader2, Plus } from 'lucide-react';
+import { ArrowRight, CheckCircle, ChevronDown } from 'lucide-react';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import { useTransactions } from '@/lib/firebase/hooks';
 import { getUserTaxRateDisplay } from '@/lib/tax-rules/federal-brackets';
@@ -18,7 +18,9 @@ import { summarizeAnalysisBacklog } from '@/lib/ai/analysis-state';
 import { AnalysisStatusNotice } from '@/components/analysis-status-notice';
 import { toast } from 'sonner';
 import { loadDashboardTaxSnapshot, type DashboardTaxState } from '@/lib/tax/dashboard-snapshot';
-import { transactionNeedsCategoryReview, transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
+import { transactionNeedsCategoryReview } from '@/lib/utils/transaction-tax-review';
+import { dashboardNextSteps } from '@/lib/dashboard/next-steps';
+import { summarizeConfirmedDeductions } from '@/lib/tax/display-deductions';
 
 import {
   DashboardHeader,
@@ -136,19 +138,14 @@ export default function DashboardScreen({
   const needsReviewCount = recordSummary.needsReviewCount;
   const needsAnalysisCount = transactions.filter(t => (t.deduction_score === undefined || t.deduction_score === null) && dashboardRecordStatus(t) === 'review').length;
   const categoryReviews = transactions.filter(t => t.pending !== true && transactionNeedsCategoryReview(t));
-  const taxQuestions = transactions.filter(t => t.pending !== true && !transactionNeedsCategoryReview(t) && transactionNeedsTaxReview(t));
   const categoriesNeedingAnalysis = categoryReviews.filter(t => t.deduction_score === undefined || t.deduction_score === null).length;
   // Queued, paused and failed AI analysis, read from the records already loaded (no extra listener).
   const analysisBacklog = summarizeAnalysisBacklog(transactions);
   const topOutcome = analysisBacklog.outcomes[0] ?? null;
   const isAnalyzing = analysisBacklog.waiting === 0 && (analyzingTransactions || analysisInProgress);
 
-  const openNextReview = () => {
-    if (transactions.length === 0) onNavigate('add-manual-transaction');
-    else if (categoryReviews.length > 0) onNavigate('review-transactions');
-    else if (taxQuestions.length > 0) onTransactionClick({ ...taxQuestions[0], _source: 'dashboard' });
-    else onNavigate('transactions');
-  };
+  const nextSteps = dashboardNextSteps(transactions, taxState);
+  const confirmedDeductions = summarizeConfirmedDeductions(transactions, taxYear);
 
   // Recalculate tax independently of any optional bank-balance refresh.
   const handleRefresh = async () => {
@@ -186,63 +183,32 @@ export default function DashboardScreen({
         />
 
         <div className="max-w-6xl mx-auto px-3 sm:px-4 md:px-6 pt-2 pb-4 space-y-2.5 sm:space-y-3">
-          <section aria-label="Your next step" className="flex items-center gap-3 rounded-2xl bg-primary/5 px-3 py-2">
-            <div className="min-w-0 flex-1">
-              <h2 className="text-sm font-semibold leading-snug">
-                {transactions.length === 0 ? 'Start with your first expense' : categoryReviews.length > 0
-                  ? `Review ${categoryReviews.length} ${categoryReviews.length === 1 ? 'category' : 'categories'}`
-                  : taxQuestions.length > 0 ? `${taxQuestions.length} ${taxQuestions.length === 1 ? 'transaction needs' : 'transactions need'} details`
-                  : recordSummary.pendingCount > 0 ? 'Waiting for transactions to post' : 'Transaction review is up to date'}
-              </h2>
-              <p className="mt-0.5 text-xs leading-snug text-muted-foreground">
-                {transactions.length === 0 ? 'Add an expense or receipt to get started.' : categoryReviews.length > 0
-                  ? 'Confirm or correct each category.'
-                  : taxQuestions.length > 0 ? 'Add the facts needed to resolve deductions.'
-                  : recordSummary.pendingCount > 0 ? `${recordSummary.pendingCount} pending bank confirmation.`
-                    : 'Your saved records are ready to view.'}
-              </p>
-              {isAnalyzing && <p className="mt-1 flex items-center gap-1 text-xs text-primary" role="status"><Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />AI analysis in progress</p>}
-            </div>
-            <button
-              type="button"
-              onClick={openNextReview}
-              className="inline-flex min-h-[44px] shrink-0 items-center justify-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            >
-              {transactions.length === 0 ? 'Add' : categoryReviews.length > 0 ? 'Review' : taxQuestions.length > 0 ? 'Add details' : 'View'}
-              {transactions.length === 0 ? <Plus className="h-4 w-4" aria-hidden="true" /> : <ArrowRight className="h-4 w-4" aria-hidden="true" />}
-            </button>
-          </section>
-
+          <div className="grid items-start gap-2.5 sm:gap-3 lg:grid-cols-2">
+            <KpiGrid state={taxState} taxYear={taxYear} confirmedDeductions={confirmedDeductions}
+              onRetry={() => setTaxRetry(value => value + 1)} onReview={onNavigate} />
+            <section aria-label="Your next steps" className="overflow-hidden rounded-2xl border border-border/70 bg-card">
+              <div className="flex min-h-11 items-center justify-between px-4"><h2 className="text-sm font-semibold">Next up</h2>
+                <button className="min-h-11 text-xs text-primary" onClick={() => onNavigate('action-items')}>Full checklist</button></div>
+              {nextSteps.length ? <ol className="divide-y divide-border/60">{nextSteps.map(step => <li key={step.id} className="flex items-center gap-3 px-4 py-2">
+                <div className="min-w-0 flex-1"><p className="text-sm font-medium">{step.title}</p><p className="mt-0.5 line-clamp-2 text-xs leading-5 text-muted-foreground">{step.detail}</p></div>
+                <button type="button" className="inline-flex min-h-11 shrink-0 items-center gap-1 rounded-lg px-2 text-sm font-medium text-primary hover:bg-primary/5" aria-label={step.action}
+                  onClick={() => step.retry ? setTaxRetry(value => value + 1) : step.transaction ? onNavigate(`transaction-detail?transactionId=${encodeURIComponent(step.transaction.trans_id || step.transaction.id)}&from=dashboard&section=details`) : step.screen && onNavigate(step.screen)}>
+                  {step.retry ? 'Retry' : step.transaction ? 'Answer' : step.id === 'tax-inputs' ? 'Review' : step.action}<ArrowRight className="h-3.5 w-3.5" aria-hidden="true" /></button>
+              </li>)}</ol> : <p className="flex items-start gap-2 px-4 pb-4 text-sm text-muted-foreground"><CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />{analysisBacklog.waiting > 0 ? 'AI is reviewing your saved transactions. New questions will appear here.' : recordSummary.pendingCount > 0 ? 'Waiting for your bank to post transactions. Reviews will appear here.' : 'No open transaction tasks. Keep your records current as new activity arrives.'}</p>}
+            </section>
+          </div>
           <AnalysisStatusNotice waiting={analysisBacklog.waiting} outcome={topOutcome?.outcome ?? null} count={topOutcome?.count ?? 0}
             accountIds={topOutcome?.accountIds ?? []} onReview={() => onNavigate('review-transactions')} />
-
-          <QuickActionsBar
-            onNavigate={onNavigate}
-            needsReviewCount={categoryReviews.length}
-            needsAnalysisCount={categoriesNeedingAnalysis}
-          />
-
-          <div className="grid items-start gap-2.5 sm:gap-3 lg:grid-cols-2">
-            <KpiGrid
-              state={taxState}
-              taxYear={taxYear}
-              onRetry={() => setTaxRetry(value => value + 1)}
-              onReview={onNavigate}
-            />
-            <RecentActivityCard
-              transactions={transactions}
-              onTransactionClick={onTransactionClick}
-              onViewAll={() => onNavigate('transactions')}
-            />
-          </div>
+          <QuickActionsBar onNavigate={onNavigate} needsReviewCount={categoryReviews.length} needsAnalysisCount={categoriesNeedingAnalysis} />
 
           <details className="group rounded-xl border border-border/70 bg-card">
             <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-4 text-sm font-medium [&::-webkit-details-marker]:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-xl">
-              More insights & tax checklist
+              Activity, insights & tax checklist
               <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
             </summary>
             <div className="grid items-start gap-3 border-t p-3 lg:grid-cols-2 [&_button]:min-h-11 [&_button[aria-label]]:min-w-11">
               <div className="min-w-0 space-y-3">
+                <RecentActivityCard transactions={transactions} onTransactionClick={onTransactionClick} onViewAll={() => onNavigate('transactions')} />
                 <ActionItemsBanner
                   profile={profile}
                   transactions={transactions}

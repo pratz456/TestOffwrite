@@ -8,24 +8,29 @@ import { reviewTargetForCode, type DashboardTaxState } from '@/lib/tax/dashboard
 interface KpiGridProps {
   state: DashboardTaxState;
   taxYear: number;
+  confirmedDeductions?: { totalDeductible: number | null; reviewMessage: string | null };
   onRetry: () => void;
   onReview: (screen: string) => void;
 }
 
 const formatUSD = (value: number) => value.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-export function KpiGrid({ state, taxYear, onRetry, onReview }: KpiGridProps) {
+export function KpiGrid({ state, taxYear, confirmedDeductions, onRetry, onReview }: KpiGridProps) {
   if (state.status === 'loading') {
     return <div role="status" aria-live="polite" className="rounded-xl border p-4 text-sm">Loading your {taxYear} federal estimate…</div>;
   }
   if (state.status !== 'ready') {
     const target = reviewTargetForCode(state.code);
-    return <div role="alert" className="rounded-xl border p-4 text-sm">
+    return <div className="rounded-xl border p-4 text-sm">
+      {confirmedDeductions && <dl className="mb-3 border-b pb-3"><dt className="text-xs text-muted-foreground">{taxYear} confirmed expenses</dt><dd className="mt-1 text-2xl font-semibold tabular-nums">{confirmedDeductions.totalDeductible === null ? 'Needs review' : formatUSD(confirmedDeductions.totalDeductible)}</dd>
+        <p className="mt-1 text-xs text-muted-foreground">{confirmedDeductions.reviewMessage || 'After category limits and refunds. Assets and home office are separate.'}</p></dl>}
+      <div role="alert">
       <h2 className="font-medium">{taxYear} federal estimate {state.status === 'review' ? 'needs review' : 'unavailable'}</h2>
       <p className="mt-1">{state.message}</p>
       <div className="mt-2 flex flex-wrap gap-x-4">
         {state.status === 'review' && <button className="min-h-[44px] underline underline-offset-4" onClick={() => onReview(target.screen)}>{target.label}</button>}
         <button className="min-h-[44px] underline underline-offset-4" onClick={onRetry}>Retry estimate</button>
+      </div>
       </div>
     </div>;
   }
@@ -66,7 +71,7 @@ export function KpiGrid({ state, taxYear, onRetry, onReview }: KpiGridProps) {
       <div className="space-y-3 border-t border-border/60 px-4 py-3">
         <dl className="space-y-3 text-xs">
           <div className="flex flex-wrap items-center justify-between gap-2"><dt className="font-medium">Annual federal tax estimate</dt><dd className="font-semibold tabular-nums">{formatUSD(form1040.totalTax)}</dd></div>
-          <div><dt className="font-medium">Schedule C profit</dt><dd className="mt-1 leading-relaxed">{formatUSD(income.grossReceipts)} receipts minus {formatUSD(income.totalDeductible)} confirmed expenses, before depreciation and any home office deduction.</dd></div>
+          <div><dt className="font-medium">Schedule C profit</dt><dd className="mt-1 leading-relaxed">{formatUSD(income.grossReceipts)} receipts and confirmed expenses, with supported depreciation and home-office adjustments included in the profit calculation.</dd></div>
           <div><dt className="font-medium">Confirmed business expenses</dt><dd className="mt-1 leading-relaxed">Posted, confirmed deductions for {taxYear}, after category limits and refunds. Depreciation and the home office deduction are separate.</dd></div>
         </dl>
         <p className="text-xs leading-relaxed text-muted-foreground">Federal only, based on saved records. This balance is not a quarterly payment schedule. Review assumptions before filing or paying.</p>

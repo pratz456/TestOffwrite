@@ -27,11 +27,12 @@ beforeEach(() => { state.slots = []; state.cursor = 0; });
 
 describe('public tax calculator review boundaries', () => {
   it.each([['1099', TaxCalculator1099Client, 'gross-income'], ['SE', SETaxCalculatorClient, 'net-profit']] as const)
-  ('shows a preparer review instead of crashing or guessing joint wage ownership in %s', (_name, component, incomeId) => {
+  ('withholds totals until joint wage ownership is established in %s', (_name, component, incomeId) => {
     fill(component, incomeId, '75000'); fill(component, 'filing-status', 'married_filing_jointly'); fill(component, 'w2-wages', '40000');
     const tree = render(component), alert = walk(tree).find(node => node.props?.role === 'alert');
     expect(text(alert)).toContain('spouse who earned them');
-    expect(text(alert)).toContain('calculation is unavailable');
+    expect(text(alert)).toContain('separate Social Security wage base');
+    expect(text(alert)).toContain('estimate is withheld');
     expect(text(tree)).not.toContain('Estimated Total Federal Tax');
     expect(text(tree)).not.toContain('Total Self-Employment Tax');
   });

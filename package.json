@@ -76,10 +76,12 @@
     "firebase-frameworks": "^0.11.8",
     "firebase-functions": "^7.0.5",
     "gray-matter": "^4.0.3",
+    "ical.js": "2.2.1",
     "idb": "^8.0.3",
     "input-otp": "^1.4.2",
     "js-yaml": "4.3.2",
     "lucide-react": "^0.511.0",
+    "mailparser": "3.9.28",
     "next": "^15.1.4",
     "next-themes": "^0.4.6",
     "node-fetch": "^3.3.2",
@@ -106,6 +108,7 @@
   "devDependencies": {
     "@types/archiver": "^6.0.2",
     "@types/js-yaml": "^4.0.9",
+    "@types/mailparser": "^3.4.6",
     "@types/node": "^20",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
@@ -128,6 +131,12 @@
   },
   "overrides": {
     "cookie": ">=0.7.0",
-    "js-yaml": "$js-yaml"
+    "js-yaml": "$js-yaml",
+    "next": {
+      "postcss": "8.5.28"
+    },
+    "@rollup/plugin-terser": {
+      "serialize-javascript": "7.0.7"
+    }
   }
 }

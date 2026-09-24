@@ -210,7 +210,7 @@ describe('dashboard tax cards share the federal server calculation', () => {
     }
     else h.profile = { ...h.profile, filing_status: 'Qualifying Widower' };
     expect(render().state.status).toBe('loading'); await flush(); const props = render();
-    expect(props.state.status).toBe('review'); expect(props.state).not.toHaveProperty('snapshot'); expect(cards(props)).toEqual([]);
+    expect(props.state.status).toBe('review'); expect(props.state).not.toHaveProperty('snapshot'); expect(cards(props)).toEqual([{ title: '2026 confirmed expenses', value: kind === 'loss' ? '$20.00' : '$0.00' }]);
     if (kind === 'loss') expect(h.lastJson).toMatchObject({ code: 'BUSINESS_LOSS_REVIEW_REQUIRED' });
     const nav = vi.fn(); const tree = KpiGrid({ ...props, onReview: nav } as any);
     expect(text(tree)).toContain('needs review');
@@ -223,7 +223,7 @@ describe('dashboard tax cards share the federal server calculation', () => {
     render(); await flush(); const ready = render(); expect(ready.state.status).toBe('ready');
     h.tx = [expense(20)]; h.apiError = 'synthetic unavailable';
     expect(render().state.status).toBe('loading'); await flush(); const error = render();
-    expect(error.state.status).toBe('error'); expect(cards(error)).toEqual([]);
+    expect(error.state.status).toBe('error'); expect(cards(error)).toEqual([{ title: '2026 confirmed expenses', value: '$20.00' }]);
     h.apiError = null; error.onRetry(); expect(render().state.status).toBe('loading'); await flush();
     expect(render().state.snapshot.income.scheduleCNetProfit).toBe(-20);
   });

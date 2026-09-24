@@ -105,7 +105,7 @@ export function reviewHydrationFields(record: Record<string, any>) {
     analysis_status: record.analysis_status || record.analysisStatus,
     analysisJobId: record.analysisJobId,
     analysisErrorCode: record.analysisErrorCode,
-    analysisRefreshReason: record.analysisRefreshReason === 'profile_changed' ? 'profile_changed' as const : null,
+    analysisRefreshReason: record.analysisRefreshReason === 'profile_changed' ? 'profile_changed' as const : record.analysisRefreshReason === 'transaction_changed' ? 'transaction_changed' as const : null,
     // Server-only marker; hydrated so the detail view can explain an excluded duplicate.
     superseded_by: typeof record.superseded_by === 'string' && record.superseded_by ? record.superseded_by : null,
   };

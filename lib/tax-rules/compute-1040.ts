@@ -26,6 +26,7 @@ import { calculateAllowedBusinessLoss, type BusinessLossResult } from './busines
 import { calculateOBBBADeductions, type OBBBADeductionResult } from './obbba-deductions';
 import { QBIReviewRequiredError } from './qbi';
 import { assertWageOwnershipScope, TaxCalculationScopeReviewRequiredError } from './calculation-scope';
+import { calculateEligibleAdjustments } from './eligibility';
 
 export interface Form1040Input {
   taxYear: number;
@@ -81,6 +82,7 @@ export interface Form1040Input {
 export interface Form1040Result {
   taxYear: number;
   calculationWarnings: string[];         // Unmodeled situations / missing facts that limit this estimate
+  adjustmentEligibility?: ReturnType<typeof calculateEligibleAdjustments>;
   // Income lines
   totalIncome: number;              // Line 9 (gross income)
   /** Schedule C amount in total income after depreciation and any allowed loss (negative in a loss year). */
@@ -261,7 +263,7 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
   const scheduleCLine31 = scheduleCNetProfit - (input.deMinimisExpense || 0) - (input.depreciationDeduction || 0) - (input.homeOfficeDeduction || 0);
   assertWageOwnershipScope(filingStatus, scheduleCLine31, w2Wages, {
     socialSecurityWages: input.w2SocialSecurityWages, medicareWages: input.w2MedicareWages,
-  });
+  }, { taxYear, organizer: input.personalDeductionOrganizer });
   const scheduleCAfterDepreciation = scheduleCLine31;
   const businessLoss = scheduleCLine31 < 0
     ? calculateAllowedBusinessLoss({ taxYear, filingStatus, netLoss: -scheduleCLine31, organizer: input.personalDeductionOrganizer })
@@ -276,19 +278,16 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
   // ── Step 2: Above-the-line adjustments (Schedule 1) ──
   // §162(l)(2)(A): the self-employed health insurance deduction cannot exceed the
   // business's earned income after the deductible half of SE tax and retirement
-  // contributions (Form 7206 limit). Employer-plan eligibility months are not modeled.
-  const retirementContributions = Math.max(0, sepIraContribution) + Math.max(0, solo401kContribution) + Math.max(0, simpleIraContribution);
-  const healthInsuranceDeduction = limitSelfEmployedHealthInsurance(healthInsurancePremiums, adjustedScheduleC, halfSEDeduction, retirementContributions);
+  // contributions (Form 7206 limit), after excluding employer-plan access months.
+  const adjustmentEligibility = calculateEligibleAdjustments({ taxYear, filingStatus, netProfit: adjustedScheduleC, halfSE: halfSEDeduction,
+    healthInsurancePremiums, sepIraContribution, solo401kContribution, simpleIraContribution, hsaContribution, organizer: input.personalDeductionOrganizer });
+  const retirementContributions = adjustmentEligibility.retirementDeduction;
+  const healthInsuranceDeduction = adjustmentEligibility.healthInsuranceDeduction;
   if (healthInsurancePremiums > healthInsuranceDeduction) {
-    calculationWarnings.push('The self-employed health insurance deduction is limited to business earned income after the SE-tax and retirement deductions; the excess is not applied here and may only be usable as an itemized medical expense.');
+    calculationWarnings.push('The self-employed health insurance deduction excludes employer-plan access months and is limited to business earned income after the SE-tax and retirement deductions. Remaining premiums are not applied here; eligible unreimbursed amounts may qualify as itemized medical expenses.');
   }
-  // §223(b): HSA deduction capped at the highest possible annual limit (Form 8889 line 13).
-  const hsa = limitHSADeduction(taxYear, filingStatus, hsaContribution);
-  if (hsaContribution > hsa.deduction) {
-    calculationWarnings.push(`The HSA deduction is limited to $${hsa.ceiling.toLocaleString('en-US')} for ${taxYear} (family coverage plus the age-55 catch-up${filingStatus === 'married_filing_jointly' ? ' for each spouse' : ''}); the excess is not deductible and may be subject to the 6% excess-contribution tax (Form 5329).`);
-  } else if (hsa.deduction > hsa.selfOnlyCeiling) {
-    calculationWarnings.push(`An HSA deduction above $${hsa.selfOnlyCeiling.toLocaleString('en-US')} requires family HDHP coverage for the full year; confirm coverage type and eligibility months on Form 8889 before relying on it.`);
-  }
+  // §223(b): Form 8889 monthly coverage limits, account-holder catch-up and employer funding.
+  const hsa = { deduction: adjustmentEligibility.hsaDeduction };
   // §221(b)(1) caps student loan interest at $2,500; §221(e)(2) denies it to married filing separately;
   // §221(b)(2) phases it out over modified AGI (worksheet line 4: total income less the other adjustments).
   const otherAdjustments = halfSEDeduction + healthInsuranceDeduction + retirementContributions + hsa.deduction;
@@ -489,6 +488,7 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
   return {
     taxYear,
     calculationWarnings,
+    adjustmentEligibility,
     totalIncome: round2(totalIncome),
     scheduleCAllowed: round2(adjustedScheduleC),
     businessLoss,

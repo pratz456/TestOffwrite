@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const h = vi.hoisted(() => ({ record: {} as Record<string, any>, update: vi.fn(), queryGet: vi.fn(), accountsGet: vi.fn(), transactionsGet: vi.fn(), request: vi.fn(), cache: vi.fn(), owner: 'owner' }));
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: {
+  runTransaction: async (work: (tx: any) => Promise<unknown>) => work({ get: async (ref: any) => ({ exists: true, id: ref.path.split('/').at(-1), data: () => h.record }), update: (_ref: any, patch: any) => h.update(patch) }),
   collectionGroup: () => { const query = { where: () => query, limit: () => query, get: h.queryGet }; return query; },
   collection: () => ({ doc: () => ({ collection: () => ({ get: h.accountsGet, doc: () => ({ collection: () => ({ get: h.transactionsGet }) }) }) }) }),
 } }));

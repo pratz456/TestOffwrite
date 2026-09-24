@@ -2,6 +2,10 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // Capability links and calculation baselines are only accessible through authenticated APIs.
+    match /preparer_handoffs/{id} { allow read, write: if false; }
+    match /preparer_handoff_owners/{uid} { allow read, write: if false; }
+
     // Allow collection-group reads to any transactions doc, but only for the owner
     // This supports queries like collectionGroup('transactions') with where('user_id','==', uid)
     // Matching rules are ORed; each matching rule must enforce its own owner checks.
@@ -131,6 +135,8 @@ service cloud.firestore {
     // ── User Profiles ──────────────────────────────────────────────────────
     // User profile can only be read by the owner, written via Admin/API only
     match /user_profiles/{uid} {
+      // Server-calculated baselines cannot be supplied or edited by clients.
+      match /assistant_tax_snapshots/{year} { allow read, write: if false; }
       allow read: if request.auth != null && request.auth.uid == uid
                   && (resource == null || !resource.data.keys().hasAny(['plaid_token', 'access_token']));
 

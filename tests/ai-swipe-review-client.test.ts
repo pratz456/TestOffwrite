@@ -283,7 +283,7 @@ describe('AI category swipe review', () => {
   it('counts the whole queued backlog on a queued card so a first import is not mistaken for a stall', () => {
     records = ['tx-1', 'tx-2', 'tx-3'].map(id => base({ id, trans_id: id, ai_suggestion: null, analysisStatus: 'pending', analysisJobId: `job-${id}` }));
     records.push(base({ id: 'done', trans_id: 'done' }));
-    expect(text(page())).toContain('Queued for automatic analysis. 3 transactions are waiting; a first import can take a while. Run it now or wait for the result.');
+    expect(text(page('owner', 'tx-1'))).toContain('Queued for automatic analysis. 3 transactions are waiting; a first import can take a while. Run it now or wait for the result.');
   });
 
   it.each([

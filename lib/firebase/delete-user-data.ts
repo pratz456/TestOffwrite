@@ -5,6 +5,7 @@ import { recoverPendingPlaidLinks } from '@/lib/plaid/link-operations';
 import { deleteQueryBatch } from './delete-helpers';
 import { receiptBucket } from './receipt-security';
 import { cancelUserStripeSubscriptions } from '@/lib/stripe/cancel-subscription';
+import { deletePreparerHandoffsForUser } from '@/lib/preparer/handoffs';
 
 export class AccountDeletionError extends Error {
   constructor(message: string, public readonly code: string, public readonly retryable: boolean, public readonly status = 503) {
@@ -74,6 +75,11 @@ export async function deleteUserData(uid: string): Promise<{ error?: AccountDele
     const billing = await cancelUserStripeSubscriptions(uid);
     if (!billing.success) throw new AccountDeletionError(
       'Billing could not be closed. Your account has not been deleted. Please retry.', 'BILLING_CLEANUP_FAILED', true);
+
+    try { await deletePreparerHandoffsForUser(uid); }
+    catch {
+      throw new AccountDeletionError('Shared package cleanup could not finish. Your account has not been deleted. Please retry.', 'HANDOFF_CLEANUP_FAILED', true);
+    }
 
     try {
       // Trailing slash prevents deleting another user's similarly prefixed UID.

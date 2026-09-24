@@ -643,6 +643,17 @@ describe('transaction detail preserves manual work without guessed tax impact or
     expect(harness.error).toHaveBeenCalledWith('Context not saved', expect.any(String));
   });
 
+  it('uses the durable refresh from a successful fact save without racing a second manual AI call', async () => {
+    const queued = { ...base, business_purpose: 'Paid client work', analysisStatus: 'pending', analysisRefreshReason: 'transaction_changed', analysisJobId: 'refresh-job', ai_suggestion: null, ai_explanation: null };
+    harness.mutate.mockResolvedValueOnce(queued);
+    walk(detail()).find(node => node.props.id === 'business-purpose')!.props.onChange!({ target: { value: 'Paid client work' } });
+    await action(detail(), 'Run AI Analysis').props.onClick!();
+    expect(harness.mutate).toHaveBeenCalledOnce();
+    expect(harness.save).toHaveBeenCalledWith(expect.objectContaining(queued));
+    expect(harness.fetch).not.toHaveBeenCalled();
+    expect(text(detail(queued as Partial<DetailTransaction>))).toContain('Details saved. AI is updating your review automatically.');
+  });
+
   it('waits for edited context to be saved before explicit analysis reads the canonical record', async () => {
     let saved!: () => void;
     harness.mutate.mockReturnValueOnce(new Promise<void>(resolve => { saved = resolve; }));

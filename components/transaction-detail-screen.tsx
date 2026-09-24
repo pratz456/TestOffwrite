@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { useToasts } from '@/components/ui/toast';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { ReceiptPreview } from '@/components/receipt-preview';
+import { EvidenceImportDialog } from '@/components/evidence-import-dialog';
 import { AiTaxAnalysisDialog, AiTaxExplanation } from '@/components/ai-tax-explanation';
 import { ExplanationCard } from '@/components/ai/explanation-card';
 import { normalizeExplanation } from '@/lib/ai/explanation';
@@ -76,7 +77,7 @@ interface TransactionDetailScreenProps {
     analysis_status?: StoredTransaction['analysis_status'];
     analysisErrorCode?: StoredTransaction['analysisErrorCode'];
     analysisJobId?: StoredTransaction['analysisJobId'];
-    analysisRefreshReason?: 'profile_changed' | null;
+    analysisRefreshReason?: 'profile_changed' | 'transaction_changed' | null;
     ai_suggestion?: AiReviewSuggestion | null;
     ai_missing_fields?: string[];
     ai_customized_reason?: string | null;
@@ -268,6 +269,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
   const analysisQueued = !!transaction.analysisJobId && (transaction.analysisStatus === 'pending' || transaction.analysis_status === 'pending');
   const backgroundAnalysis = analysisRunning || analysisQueued;
   const profileRefresh = backgroundAnalysis && transaction.analysisRefreshReason === 'profile_changed';
+  const factsRefresh = backgroundAnalysis && transaction.analysisRefreshReason === 'transaction_changed';
   const refreshSavedTransaction = useRef(onSave); refreshSavedTransaction.current = onSave;
 
   // The parent receives Firestore snapshots. A pending-only fallback also works when its
@@ -355,12 +357,13 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
       const pendingUpdates = pendingContextUpdates.current;
       pendingContextUpdates.current = {};
       try {
-        await saveContext(pendingUpdates);
+        const saved = await saveContext(pendingUpdates);
+        if (activeAnalysisContext.current === analysisContext) onSave({ ...transaction, ...saved });
       } catch (error) {
         showError('Context not saved', 'Your edits are still here. Use Save Changes to try again.');
       }
     }, 500);
-  }, [userId, saveContext, showError]);
+  }, [userId, saveContext, showError, analysisContext, onSave, transaction]);
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -539,52 +542,48 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
     return () => capture.stop();
   }, []);
 
-  // Handle receipt upload
+  const attachEvidenceReceipt = async (file: File) => {
+    if (!userId || auth.currentUser?.uid !== userId) throw new Error('Sign in again before attaching a receipt.');
+    const capturedContext = analysisContext;
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('transactionId', getTransactionId(transaction));
+    const response = await makeAuthenticatedRequest('/api/upload-receipt', { method: 'POST', body: formData });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Could not upload this receipt.');
+    if (!/^\/api\/receipts\/[a-zA-Z0-9_-]+$/.test(result.receiptUrl || '')) throw new Error('The receipt could not be verified. Please retry.');
+    if (activeAnalysisContext.current !== capturedContext || auth.currentUser?.uid !== userId) throw new Error('Your session changed. Open the transaction again.');
+    const saved = await saveContext({ receipt_url: result.receiptUrl, receipt_filename: result.filename || file.name });
+    if (activeAnalysisContext.current === capturedContext && auth.currentUser?.uid === userId) {
+      await onSave({ ...transaction, ...saved });
+      setReceiptFile(null);
+      showSuccess('Receipt attached', 'Your receipt is saved with this transaction.');
+    }
+  };
+  const confirmCalendarPurpose = async (purpose: string) => {
+    if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
+    debounceTimeoutRef.current = null;
+    // Flush other drafts before the explicit calendar choice; an older purpose must not win later.
+    const updates = { ...pendingContextUpdates.current, business_purpose: purpose };
+    pendingContextUpdates.current = {};
+    localContextDrafts.current = { ...localContextDrafts.current, business_purpose: purpose };
+    setBusinessPurpose(purpose);
+    const capturedContext = analysisContext;
+    const saved = await saveContext(updates);
+    if (activeAnalysisContext.current === capturedContext && auth.currentUser?.uid === userId) {
+      await onSave({ ...transaction, ...saved });
+      showSuccess('Purpose saved', 'AI will review the updated details. Your classification is unchanged.');
+    }
+  };
+
+  // Camera, direct-file and email receipts share the same authenticated upload/save path.
   const handleReceiptUpload = async () => {
     if (!receiptFile || !userId) return;
 
     setIsUploadingReceipt(true);
 
     try {
-      const formData = new FormData();
-      formData.append('file', receiptFile);
-      formData.append('transactionId', getTransactionId(transaction));
-      formData.append('userId', userId);
-
-      const response = await fetch('/api/upload-receipt', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to upload receipt');
-      }
-
-      const result = await response.json();
-
-      // Update the transaction with receipt info
-      const updates = {
-        receipt_url: result.receiptUrl,
-        receipt_filename: receiptFile.name
-      };
-
-      await updateTransactionMutation.mutateAsync({
-        transactionId: getTransactionId(transaction),
-        userId,
-        updates
-      });
-
-      showSuccess('Receipt Uploaded', 'Receipt has been successfully uploaded and attached to this transaction');
-
-      // Update local state
-      const updatedTransaction = {
-        ...transaction,
-        receipt_url: result.receiptUrl,
-        receipt_filename: receiptFile.name,
-      };
-
-      await onSave(updatedTransaction);
-      setReceiptFile(null);
+      await attachEvidenceReceipt(receiptFile);
 
     } catch (error) {
       console.error('Error uploading receipt:', error);
@@ -664,7 +663,13 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
       ];
       const updates = Object.fromEntries(contextFields.filter(([, value, saved]) => hadPendingContext || value !== saved).map(([key, value]) => [key, value]));
       if (Object.keys(updates).length > 0) {
-        try { await saveContext(updates); }
+        try {
+          const saved = await saveContext(updates);
+          if (isCurrent() && saved?.analysisRefreshReason === 'transaction_changed' && (saved.analysisStatus === 'pending' || saved.analysis_status === 'pending')) {
+            onSave({ ...transaction, ...saved });
+            return; // The saved revision starts durable background work; do not race it with another provider call.
+          }
+        }
         catch { throw new Error('Your latest context could not be saved, so AI analysis was not started. Save your changes and try again.'); }
       }
       if (!isCurrent()) return;
@@ -855,7 +860,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
             </div>}
             {(analysisUnavailable || aiAvailability.status === 'unavailable') && <Button variant="outline" size="sm" className="h-11" onClick={checkAiAvailability} disabled={isAnalyzing || aiAvailability.status === 'checking'}>Check AI availability</Button>}
 
-            {isAnalyzing || backgroundAnalysis ? <div className="space-y-3 py-2" role="status"><p className="text-sm text-muted-foreground">{profileRefresh ? 'Updating AI review using your new profile. Confirmed categories stay saved.' : analysisQueued ? 'Queued for automatic analysis. Results refresh here.' : 'Analyzing transaction…'}</p><div className="h-4 animate-pulse rounded bg-muted" /><div className="h-4 w-3/4 animate-pulse rounded bg-muted" /></div>
+            {isAnalyzing || backgroundAnalysis ? <div className="space-y-3 py-2" role="status"><p className="text-sm text-muted-foreground">{profileRefresh ? 'Updating AI review using your new profile. Confirmed categories stay saved.' : factsRefresh ? 'Details saved. AI is updating your review automatically.' : analysisQueued ? 'Queued for automatic analysis. Results refresh here.' : 'Analyzing transaction…'}</p><div className="h-4 animate-pulse rounded bg-muted" /><div className="h-4 w-3/4 animate-pulse rounded bg-muted" /></div>
               : transaction.ai_explanation ? <div className="space-y-2"><ExplanationCard explanation={normalizeExplanation(transaction.ai_explanation)} compact onAnswer={() => changeDetailSection('details')} />{transaction.ai_suggestion && <AiTaxAnalysisDialog key={transaction.ai_suggestion.id} suggestion={transaction.ai_suggestion} />}</div>
               : transaction.ai_suggestion ? <AiTaxExplanation key={transaction.ai_suggestion.id} suggestion={transaction.ai_suggestion} compact onAddContext={() => changeDetailSection('details')} />
               : <div className="space-y-2 text-sm text-muted-foreground">
@@ -899,6 +904,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                 <ul className="list-disc space-y-2 px-4 pb-3 pl-7 text-sm">{transaction.ai_suggestion.questions.map(question => <li key={question}>{question}</li>)}</ul>
               </details> : null}
               <div><label htmlFor="business-purpose" className="mb-1 block text-sm font-medium">Business Purpose</label><Textarea id="business-purpose" placeholder="Why was this expense necessary for your business?" value={businessPurpose} onChange={e => { const next = e.target.value; setBusinessPurpose(next); debouncedSave({ business_purpose: next }); }} className="min-h-20 rounded-lg bg-background" maxLength={500} /></div>
+              <EvidenceImportDialog key={`calendar-${analysisContext}`} kind="calendar" transactionId={getTransactionId(transaction)} transactionDate={transaction.date} merchant={transaction.merchant_name} onAttachReceipt={attachEvidenceReceipt} onConfirmPurpose={confirmCalendarPurpose} />
               <Button onClick={handleAnalyzeTransaction} disabled={isAnalyzing || analysisBlocked} className="min-h-11 w-full">{isAnalyzing ? 'Analyzing…' : 'Update AI review'}<ArrowRight className="h-4 w-4" /></Button>
               {analysisError && <p role="alert" className="text-sm text-destructive">{analysisError}</p>}
               {analysisBlocked && !analysisError && <p role="status" className="text-xs text-muted-foreground">{aiAvailability.status === 'checking' ? 'Checking AI availability…' : 'AI is unavailable. Your details still save.'}</p>}
@@ -930,6 +936,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
                 <p className="text-xs text-muted-foreground">JPG, PNG, GIF or PDF · up to 10 MB</p>
                 {receiptFile && <div className="space-y-2 rounded-lg bg-muted p-3"><p className="break-words text-sm">{receiptFile.name}</p><Button onClick={handleReceiptUpload} disabled={isUploadingReceipt} className="h-11 w-full">{isUploadingReceipt ? 'Uploading…' : 'Upload receipt'}</Button></div>}
               </>}
+              <EvidenceImportDialog key={`email-${analysisContext}`} kind="email" transactionId={getTransactionId(transaction)} transactionDate={transaction.date} merchant={transaction.merchant_name} hasReceipt={!!transaction.receipt_url} onAttachReceipt={attachEvidenceReceipt} onConfirmPurpose={confirmCalendarPurpose} />
             </div>
           </DetailTabs.Content>
         </DetailTabs.Root>

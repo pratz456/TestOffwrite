@@ -6,6 +6,7 @@ import { adminDb } from '@/lib/firebase/admin';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { DEPENDENT_IDENTIFIERS_REMOVED_WARNING, encryptOrganizerIdentifiers } from '@/lib/tax-organizer/identifiers';
 import { readOrganizerDocument } from '@/lib/tax-organizer/organizer-server';
+import { readEligibilityFacts } from '@/lib/tax-rules/eligibility';
 
 const privateHeaders = { 'Cache-Control': 'private, no-store' };
 
@@ -47,6 +48,10 @@ export async function POST(request: NextRequest) {
   if (Object.values(answers).some(value => typeof value !== 'string' || value.length > 5000) || Object.keys(answers).length > 80) {
     return NextResponse.json({ error: 'Organizer answers must be text of at most 5,000 characters' }, { status: 400 });
   }
+  try {
+    const facts = readEligibilityFacts(answers.adjustmentEligibilityFacts);
+    if (facts && facts.taxYear !== year) return NextResponse.json({ error: 'Eligibility answers must match the organizer tax year' }, { status: 400 });
+  } catch { return NextResponse.json({ error: 'Invalid deduction eligibility answers; review the structured questions and save again' }, { status: 400 }); }
   try {
     const snap = await adminDb.collection('tax_organizers').where('userId', '==', user.uid).where('taxYear', '==', year).limit(1).get();
     const previous = snap.empty ? {} : snap.docs[0].data();

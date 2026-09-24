@@ -199,7 +199,7 @@ describe('merchant-grouped triage', () => {
       at('r1', 'Refund Co', { amount: -20 }), at('p1', 'Pending Co', { pending: true }), at('d1', 'Decided Co', { is_deductible: true })];
     let view = page();
     expect(grouped(view)).toBeUndefined();
-    expect(text(view)).toContain('Adobe');
+    expect(text(view)).toContain('ADOBE'); // The unanswered purpose takes priority over unanalyzed/newest records.
     toggle(view).props.onClick!();
     view = page();
     const list = grouped(view)!;
@@ -253,7 +253,7 @@ describe('one question at a time with suggested answers', () => {
     harness.request.mockResolvedValue(Response.json({ success: true, transaction: { ...records[0], equipment_details: { make: 'Framework', business_use_percentage: 75 } } }));
     await element.props.onSave!({ equipment_details: { make: 'Framework', business_use_percentage: 75 } }, 'Business use saved: 75%');
     expect(JSON.parse(harness.request.mock.calls[0][1].body)).toEqual({ equipment_details: { make: 'Framework', business_use_percentage: 75 } });
-    expect(harness.toast).toHaveBeenCalledWith('Business use saved: 75%. Run analysis again for an updated suggestion.');
+    expect(harness.toast).toHaveBeenCalledWith('Business use saved: 75%. AI review updates automatically.');
     view = page();
     expect(text(view)).toContain('Synthetic Office Mart');
     expect(text(view)).not.toContain('confirmed this session');

@@ -14,7 +14,7 @@ describe('account data is never a PWA runtime cache candidate', () => {
     '/api/receipts/private.png', '/api/tax/compute-1040?year=2026', '/api',
     '/protected', '/protected/reports', '/protected/transactions?_rsc=secret',
     '/auth/login', '/auth/sign-up-success', '/_next/data/build/protected.json',
-    '/settings', '/', '/blog/public-post',
+    '/settings', '/', '/blog/public-post', '/preparer/snapshot#secret', '/api/preparer-handoffs/snapshot/download',
     'https://firebasestorage.googleapis.com/v0/b/demo/o/receipts%2Fprivate.png?token=example',
     'https://firestore.googleapis.com/v1/projects/demo/databases/default/documents',
     'https://js.stripe.com/v3/',

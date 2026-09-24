@@ -31,7 +31,7 @@ function hasStructuredAnalysis(data: Data, profileHash?: string | null) {
 }
 
 /** Remove AI-owned assertions while retaining every user-confirmed bookkeeping field. */
-function staleAnalysisUpdate(data: Data) {
+export function staleAnalysisUpdate(data: Data) {
   return {
     ...Object.fromEntries(Object.keys(data).filter(key => key.startsWith('ai_')).map(key => [key, null])),
     ai: null, analyzed: false, deductionStatus: 'Analysis pending', confidence: null, reasoning: null,

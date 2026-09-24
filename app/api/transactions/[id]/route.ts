@@ -204,7 +204,7 @@ export async function PUT(
 
     return NextResponse.json({
       success: true,
-      transaction: updatedTransaction
+      transaction: updatedTransaction ? hydrateReviewTransaction(updatedTransaction, transactionId) : null
     });
 
   } catch (error) {
