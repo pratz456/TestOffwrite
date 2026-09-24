@@ -291,7 +291,10 @@ describe('saved manual W-2 flows into real tax calculations', () => {
   });
 
   it('withholds single-filer SE calculations when legacy W-2 rows lack Box 3 or Box 5', async () => {
-    await save({ socialSecurityWages: undefined, medicareWages: undefined });
+    const legacy: Record<string, unknown> = { ...fixture };
+    delete legacy.socialSecurityWages;
+    delete legacy.medicareWages;
+    state.records.w2_income = [{ userId: 'w2-contract-user', ...legacy }];
     for (const response of [
       await compute1040(request('/api/tax/compute-1040')),
       await scheduleSE(request('/api/tax/schedule-se/auto')),

@@ -32,6 +32,7 @@ import { saveTransactionChanges } from '@/lib/transactions/save-changes';
 import { confirmPurposeUpdates } from '@/lib/transactions/review-proposals';
 import { shouldQueueBankWrite } from '../functions-analysis/src/bridge';
 import { isCountableRecord } from '@/lib/transactions/record-scope';
+import { TRANSACTION_TAX_POLICY_VERSION } from '@/lib/ai/transaction-tax-policy';
 
 const address = { userId: 'synthetic-user', accountId: 'bank-account', transactionId: 'posted-transaction' };
 const profilePath = `user_profiles/${address.userId}`;

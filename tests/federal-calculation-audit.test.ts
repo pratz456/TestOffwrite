@@ -128,12 +128,17 @@ describe('federal calculation audit: independently worked 2026 reference cases',
 
   it('requires spouse wage ownership before combining a joint return’s wages and business profit', () => {
     expect(() => compute1040({ ...base, filingStatus: 'married_filing_jointly', scheduleCNetProfit: 10000, w2Wages: 50000 })).toThrow(TaxCalculationScopeReviewRequiredError);
-    expect(getUserTaxRateDisplay({ filing_status: 'married_filing_jointly', income: 10000, w2_income: 50000 })).toMatchObject({ rate: null, reviewMessage: expect.stringContaining('spouse') });
+    expect(getUserTaxRateDisplay({
+      filing_status: 'married_filing_jointly', income: 10000, w2_income: 50000,
+      w2_social_security_wages: 50000, w2_medicare_wages: 50000,
+    })).toMatchObject({ rate: null, reviewMessage: expect.stringContaining('spouse') });
   });
   it.each(['socialSecurity', 'medicare'] as const)('does not bypass spouse ownership with zero taxable wages but positive %s wages', wageType => {
     const wageFields = wageType === 'socialSecurity' ? { w2SocialSecurityWages: 20000 } : { w2MedicareWages: 20000 };
     expect(() => compute1040({ ...base, filingStatus: 'married_filing_jointly', scheduleCNetProfit: 10000, w2Wages: 0, ...wageFields })).toThrow(TaxCalculationScopeReviewRequiredError);
-    const profileFields = wageType === 'socialSecurity' ? { w2_social_security_wages: 20000 } : { w2_medicare_wages: 20000 };
+    const profileFields = wageType === 'socialSecurity'
+      ? { w2_social_security_wages: 20000, w2_medicare_wages: 0 }
+      : { w2_social_security_wages: 0, w2_medicare_wages: 20000 };
     expect(getUserTaxRateDisplay({ filing_status: 'married_filing_jointly', income: 10000, w2_income: 0, ...profileFields })).toMatchObject({ rate: null, reviewMessage: expect.stringContaining('spouse') });
   });
 

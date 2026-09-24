@@ -288,8 +288,8 @@ export function estimateTaxEffect(result: ExplainableResult, amount: number | nu
     const w2Income = profile.w2_income == null ? 0 : finite(profile.w2_income);
     if (w2Income === null || w2Income < 0) return null;
     if (w2Income > 0 && (profile.w2_social_security_wages == null || profile.w2_medicare_wages == null)) return null;
-    const ssWages = finite(profile.w2_social_security_wages) ?? 0;
-    const medicareWages = finite(profile.w2_medicare_wages) ?? 0;
+    const ssWages = profile.w2_social_security_wages == null ? 0 : finite(profile.w2_social_security_wages);
+    const medicareWages = profile.w2_medicare_wages == null ? 0 : finite(profile.w2_medicare_wages);
     if (ssWages === null || ssWages < 0 || medicareWages === null || medicareWages < 0) return null;
     const taxAt = (profit: number) => {
       const basicProfile = { income: profit, w2_income: w2Income, w2_social_security_wages: ssWages, w2_medicare_wages: medicareWages, filing_status: status };
