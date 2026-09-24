@@ -17,11 +17,12 @@ Independent read-back confirmed PITR and delete protection enabled, one daily
 backup schedule with 14-week retention, one uptime check, five enabled alert
 policies and two log metrics. The throttle TTL policy was initially confirmed
 ACTIVE, then the next coordinated deployment removed its undeclared field
-override. Read-back at 18:58:52 UTC returned no TTL policy. Declarative retention
-in `firestore.indexes.json` and a subsequent deployment are pending; do not
-manually reapply it during the release. The first scheduled backup,
-six-hour silence detection and restore drill are not yet verified. Alert inbox delivery
-was verified with the intentional test described below.
+override. Read-back at 18:58:52 UTC returned no TTL policy. The declarative repair
+in `firestore.indexes.json` (`9d763d8`) is included in the completed release;
+the final verifier confirmed **ACTIVE** TTL and all three field overrides matching
+source. The first scheduled backup and
+six-hour silence detection are not yet verified. Alert inbox delivery and an
+isolated restore of the existing export were verified as described below.
 One explicitly authorized email notification channel is enabled and attached to
 all five production policies; the exact recipient is retained in private evidence.
 
@@ -29,8 +30,9 @@ all five production policies; the exact recipient is retained in private evidenc
 | --- | --- | --- |
 | Database delete protection | ENABLED | Read-back confirmed; protects database deletion, not document deletion. |
 | Point-in-time recovery | ENABLED, retention 604,800 seconds | Read-back confirmed; earliest recoverable time was September 24, 17:46 UTC. The seven-day window builds after enablement. |
-| Managed backups | One daily schedule, retention 8,467,200 seconds (14 weeks) | Schedule `d518b9b8-4ebe-49ab-b20f-43bb5a4a4eb3` read back. First completed backup and restore drill remain unverified. |
-| Expired throttle records | Missing after deployment; declarative repair pending | Initial ACTIVE policy was removed because it was absent from deployed field overrides. Five sampled records use timestamps. Rate decisions already ignore expired windows, but automated storage cleanup is not active. |
+| Managed backups | One daily schedule, retention 8,467,200 seconds (14 weeks) | Schedule `d518b9b8-4ebe-49ab-b20f-43bb5a4a4eb3` read back. First completed managed backup and recovery from it remain unverified. |
+| Existing export recovery | Passed: 5,615 documents restored into an isolated database | Import took 85.2 seconds; structural counts passed. The temporary database and its rule artifacts were removed. This does not test full application failover. |
+| Expired throttle records | ACTIVE; declared in source and verified after release | The final provider read-back confirms TTL on `rate_limits.expiresAt` and all three field overrides matching source. This expires throttle records only, not financial records. |
 | Public uptime | HTTPS `/auth/login`, every 5 minutes, 30-second timeout, US/Europe/Asia-Pacific checkers | Tests public availability, DNS and TLS. Does not sign in or test a bank/payment. |
 | Availability incident | More than one checker fails for 5 minutes | Filters one-checker blips; investigate in Cloud Monitoring. |
 | Server incident | At least 5 SSR 5xx responses in 5 minutes | Ignores ordinary 4xx review/authorization responses. Inspect affected route/revision. |
@@ -104,7 +106,11 @@ Google browser sign-in at **18:42:53 UTC**, corroborated by the account's Auth
 last-sign-in metadata. Production verification/reset and support inbox delivery
 still await recipient authorization and an actual delivery check.
 
-The next application release includes these source fixes:
+Production release **`a219cbe`** completed at **19:14:49 UTC**, with Hosting version
+`9c9f43597a684745` and SSR revision `ssrwriteoff23910-00438-jef`. The final verifier
+confirmed seven ACTIVE functions, 47 READY indexes and two enabled schedules;
+all 13 public smoke checks passed at **19:16:54 UTC**. It includes these source
+fixes:
 
 - `06b9ef0`: email sign-in reuses Firebase's supported IndexedDB/local/session
   persistence fallback; it no longer forces potentially blocked localStorage.
@@ -155,6 +161,34 @@ Do not restore over subsequent user writes. Credential migration and activated
 bank-history review require compatible importers; see the current integration
 report's rollback restrictions. A fresh deployment cannot reverse provider state.
 
+### Verified export recovery drill
+
+The completed pre-cutover export was imported into a new, isolated Standard
+Firestore database in `nam5`. Its deny-all client rules were attached and read
+back before import. Anonymous and valid Firebase-user requests both returned
+403; the temporary Auth fixtures were deleted without sending email or creating
+application profiles. No application setting, IAM grant or default-database
+document was changed by the drill.
+
+Import ran from **19:09:34.577 to 19:10:59.768 UTC** and reported **SUCCESSFUL,
+5,615 completed documents**, matching the source export. Read-only structural
+checks found 20 top-level collections, 41 profiles, 4,750 transactions and one
+bank-connection record. No financial document contents were printed. These
+counts describe the saved export, not the current live database.
+
+Cleanup rechecked the newly created database's immutable UID and creation time
+and its exact owned deny-all rules. Independent read-back at **19:17:07 UTC**
+listed only the production `(default)` database; the temporary database, release
+and ruleset each returned 404. The original export retained 35 objects,
+7,630,105 bytes and identical overall-metadata creation time and size.
+
+This establishes data recoverability from that export. It does not establish
+restoration of Firebase Auth, Storage objects, indexes or a complete application
+failover, and it does not replace verification of the first new managed backup.
+The [managed import documentation](https://docs.cloud.google.com/firestore/native/docs/manage-data/export-import)
+explains that imports use the destination's index definitions and charge one
+write per imported document. Original backups remain preserved.
+
 ## Runtime and cost boundaries
 
 The committed SSR configuration is **2 GiB, 1 CPU, minInstances 0,
@@ -193,13 +227,16 @@ within existing dependency ranges, leaving all three deployable trees with zero
 high/critical findings. Remaining moderate counts: application 11, scheduled sync
 8, analysis worker 9. This is an advisory scan, not proof of universal security.
 
-The Firebase-generated SSR package is an additional dependency graph and must be
-audited independently. The release operator's generated-package audit subsequently
-found two high findings in the image-processing dependency chain. Remediation and
-another generated-package audit are pending. The three source lockfile results
-must not be presented as a clean audit of the complete deployed runtime.
+The Firebase-generated SSR package is an additional dependency graph and was
+audited independently. Its initial audit found two high findings in the
+image-processing dependency chain. Commit `a219cbe` prevents the vulnerable
+Firebase image dependency injection; the release operator's actual generated-SSR
+audit for the final deployment returned **zero high, zero critical and nine
+moderate findings**. The source lockfile results and generated-package result
+are separate checks, and neither establishes universal security.
 
 Fresh Node 22 `npm ci --ignore-scripts`, scheduled-sync TypeScript build and 67
-focused scheduled-sync/deployment-contract tests passed. The lockfile change must
-be included in the next coordinated production deployment to protect the running
-scheduled function.
+focused scheduled-sync/deployment-contract tests passed. The release operator
+verified the uploaded lockfile and compiled scheduled-function source against the
+release. The successful invocation and heartbeat above exercise that updated
+scheduled worker.
