@@ -105,6 +105,21 @@ describe('confirmed-history memo', () => {
     expect(taxpayerContextCacheSize()).toBe(1);
   });
 
+  it('adds only year-matched income-form presence, never payer identifiers or amounts', async () => {
+    fake.docs.set('w2_income/w2-2026', { userId: uid, taxYear: 2026, employer: 'Private employer', ein: '12-3456789', wages: 50_000 });
+    fake.docs.set('income_1099/nec-2026', { userId: uid, taxYear: 2026, formType: '1099-NEC', payerName: 'Private payer', amount: 10_000 });
+    fake.docs.set('income_1099/old-2025', { userId: uid, taxYear: 2025, formType: '1099-K' });
+    fake.docs.set('gross_receipts/receipt-2026', { userId: uid, taxYear: 2026, source: 'Private client', amount: 500 });
+    const context = await loadTaxpayerContext(uid, profile, 'Adobe', '2026-09-01');
+    expect(context.identity.taxYearRecords).toEqual({
+      taxYear: 2026,
+      hasW2: true,
+      form1099Types: ['1099-NEC'],
+      hasGrossReceipts: true,
+    });
+    expect(JSON.stringify(context)).not.toMatch(/Private employer|Private payer|Private client|12-3456789|50000|10000/);
+  });
+
   it('memoizes per user and expires after the TTL', async () => {
     seedConfirmed(1);
     await loadConfirmedTransactionRecords(uid);

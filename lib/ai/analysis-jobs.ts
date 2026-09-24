@@ -7,6 +7,7 @@ import { analysisProfileHash } from './profile-context';
 import { loadTaxpayerContext } from './taxpayer-context-server';
 import { analysisInputHash, analysisLeaseUpdate, analysisSuggestionUpdate, createAnalysisLease,
   hasActiveAnalysisLease, isAnalysisLeaseCurrent } from './analysis-persistence';
+import { TRANSACTION_TAX_POLICY_VERSION } from './transaction-tax-policy';
 
 const MAX_ATTEMPTS = 3;
 const TASK_MAX_AGE_MS = 23 * 60 * 60 * 1000;
@@ -25,6 +26,7 @@ function owned(data: Data, uid: string) {
 }
 function hasStructuredAnalysis(data: Data) {
   return data.ai_suggestion && typeof data.ai_suggestion.id === 'string' &&
+    data.ai_suggestion.policyVersion === TRANSACTION_TAX_POLICY_VERSION &&
     data.analysisStatus !== 'failed' && data.analysis_status !== 'failed' &&
     (data.analyzed === true || data.analysisStatus === 'completed' || data.analysis_status === 'completed');
 }
@@ -130,6 +132,15 @@ function transactionInput(data: Data, id: string, account: Data): TransactionInp
     business_use_percentage: data.business_use_percentage,
     attendees: data.attendees, travel_destination: data.travel_destination, equipment_details: data.equipment_details,
     client_project: data.client_project, documentation_status: data.documentation_status,
+    receipt_context: data.receipt_url || data.receipt_filename || data.ocr_data ? {
+      attached: true,
+      ...(typeof data.ocr_data?.raw_text === 'string' && data.ocr_data.raw_text.trim()
+        ? { ocr_text: data.ocr_data.raw_text.trim().slice(0, 1_000) }
+        : {}),
+      ...(typeof data.ocr_data?.confidence === 'number' && Number.isFinite(data.ocr_data.confidence)
+        ? { ocr_confidence: data.ocr_data.confidence }
+        : {}),
+    } : { attached: false },
     meeting_notes: data.meeting_notes, mileage_details: data.mileage_details, location: data.location,
     city: data.location?.city || data.city, state: data.location?.state || data.state,
     mcc: data.merchant_category_code || data.mcc, payment_channel: data.payment_channel,

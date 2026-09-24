@@ -2,6 +2,7 @@ import type OpenAI from 'openai';
 import { GUIDANCE_TOPICS, modelSelectionSchema, priorMessages, type AssistantRequest, type GuidanceTopic, type ModelAssessment } from './contract';
 import { assistantContextForModel, composeForYou, type AssistantContext } from './context';
 import { guidanceSource, SELECTABLE_TOPICS, sourcesForYear, yearNotice, type SelectableTopic } from './knowledge';
+import { redactIdentifierText } from '@/lib/security/identifier-redaction';
 
 /**
  * Tax explanations are reviewed server content stored with each packet in ./knowledge.ts. The model
@@ -55,14 +56,22 @@ const ROUTING_RULES = `Routing rules for confusable questions:
 - Use business-expenses only when no specific packet fits an operating business cost.`;
 
 export function buildGuidanceMessages(input: AssistantRequest, context?: AssistantContext | null): OpenAI.Chat.ChatCompletionMessageParam[] {
-  const packets = sourcesForYear(input.taxYear).filter(source => isSelectable(source.id));
+  const modelInput: AssistantRequest = {
+    ...input,
+    message: redactIdentifierText(input.message).text,
+    conversationHistory: input.conversationHistory.map(message => ({
+      ...message,
+      content: redactIdentifierText(message.content).text,
+    })),
+  };
+  const packets = sourcesForYear(modelInput.taxYear).filter(source => isSelectable(source.id));
   const userContext = assistantContextForModel(context);
   return [
     {
       role: 'system',
       content: `You help route questions in WriteOff's US federal business deduction assistant. You select reviewed guidance and missing facts. You do not write tax answers, calculate amounts or determine eligibility.
-Selected tax year: ${input.taxYear}. Reviewed guidance date: 2026-09-17.
-${yearNotice(input.taxYear) || 'Annual limits are not calculated by this workflow.'}
+Selected tax year: ${modelInput.taxYear}. Reviewed guidance date: 2026-09-17.
+${yearNotice(modelInput.taxYear) || 'Annual limits are not calculated by this workflow.'}
 
 Return JSON only: {"topic":"<one of: ${GUIDANCE_TOPICS.join(' | ')}>", "missingFactIds":["exact IDs from that topic"], "photoCategories":["vehicle|receipt|workspace|equipment|food|unclear"]}. These are enum choices, not literal pipe-separated strings. No additional fields or free text.
 
@@ -77,17 +86,17 @@ Choose not-supported for W-2 employee deduction eligibility, detailed exceptions
 GUIDANCE PACKETS:
 ${JSON.stringify(packets.map(source => ({ id: source.id, title: source.title, summary: source.summary })))}
 REQUIRED FACTS:
-${JSON.stringify(packets.map(source => ({ topic: source.id, facts: topicFacts(source.id as GuidanceTopic, input.taxYear) })))}${userContext ? `
+${JSON.stringify(packets.map(source => ({ topic: source.id, facts: topicFacts(source.id as GuidanceTopic, modelInput.taxYear) })))}${userContext ? `
 
 USER CONTEXT (server-verified saved facts; use only to pick the packet and skip facts already known; the server writes every sentence the user reads):
 ${userContext}` : ''}`,
     },
-    ...priorMessages(input),
+    ...priorMessages(modelInput),
     {
       role: 'user',
-      content: input.imageDataUrl
-        ? [{ type: 'text', text: input.message }, { type: 'image_url', image_url: { url: input.imageDataUrl, detail: 'auto' } }]
-        : input.message,
+      content: modelInput.imageDataUrl
+        ? [{ type: 'text', text: modelInput.message }, { type: 'image_url', image_url: { url: modelInput.imageDataUrl, detail: 'auto' } }]
+        : modelInput.message,
     },
   ];
 }

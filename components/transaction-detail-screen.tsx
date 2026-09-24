@@ -714,19 +714,10 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
           irsSection: result.analysis.irsReference?.section,
           analysisUpdatedAt: result.analysis.updatedAt,
           ai_suggestion: result.ai_suggestion ?? null,
-          // Keep nested `ai` in sync so list/detail views that read key_analysis_factors see fresh text.
-          ai: transaction.ai
-            ? {
-                ...transaction.ai,
-                key_analysis_factors: {
-                  ...transaction.ai.key_analysis_factors,
-                  reasoning_summary: newReasoning,
-                },
-                last_analyzed_at: result.analysis.updatedAt
-                  ? new Date(result.analysis.updatedAt).getTime()
-                  : transaction.ai.last_analyzed_at,
-              }
-            : transaction.ai,
+          ai_explanation: result.explanation ?? null,
+          // The API returns the exact gated object written to Firestore. Never rebuild the
+          // visible answer from the model's pre-gate response.
+          ai: result.ai ?? transaction.ai,
         };
 
         onSave(updatedTransaction);

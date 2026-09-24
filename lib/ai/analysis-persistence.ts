@@ -12,6 +12,7 @@ const INPUT_FIELDS = [
   'trans_id', 'merchant_name', 'name', 'amount', 'date', 'datetime', 'category', 'bank_category', 'description', 'notes', 'note',
   'account_id', 'pending', 'business_purpose', 'attendees', 'travel_destination', 'equipment_details',
   'client_project', 'documentation_status', 'meeting_notes', 'mileage_details', 'location', 'city', 'state',
+  'receipt_url', 'receipt_filename', 'ocr_data',
   'merchant_category_code', 'mcc', 'payment_channel', 'authorized_date', 'iso_currency_code',
   'unofficial_currency_code', 'personal_finance_category', 'counterparties', 'merchant_entity_id',
   'transaction_kind', 'business_use_percentage',
@@ -215,7 +216,21 @@ export async function persistAnalysisSuggestion(ref: DocumentReference, result: 
     if (!snap.exists || !isAnalysisLeaseCurrent(snap.data()!, lease)) return { status: 'stale' as const };
     const update = analysisSuggestionUpdate(result, Date.now(), snap.data()!, profileHash, profile);
     tx.update(ref, update);
-    return { status: 'saved' as const, suggestion: update.ai_suggestion, explanation: update.ai_explanation };
+    return {
+      status: 'saved' as const,
+      suggestion: update.ai_suggestion,
+      explanation: update.ai_explanation,
+      display: {
+        status: update.ai.status,
+        statusLabel: update.ai.status_label,
+        confidence: update.confidence,
+        reasoning: update.reasoning,
+        irsPublication: update.irsPublication,
+        irsSection: update.irsSection,
+        updatedAt: update.analysisUpdatedAt,
+        ai: update.ai,
+      },
+    };
   });
 }
 

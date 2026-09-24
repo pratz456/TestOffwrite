@@ -146,6 +146,22 @@ describe('analysis context wiring', () => {
     expect(buildAnalysisContext(transaction, { ...context, profession: [] }, extras).profession_context).toBeNull();
   });
 
+  it('includes bounded receipt evidence while redacting taxpayer identifiers', () => {
+    const built = buildAnalysisContext({
+      ...transaction,
+      receipt_context: {
+        attached: true,
+        ocr_text: 'Adobe invoice for design subscription, EIN 12-3456789',
+        ocr_confidence: 0.93,
+      },
+    }, context, extras);
+    expect(built.tx.receipt_context).toMatchObject({
+      attached: true,
+      ocr_text: 'Adobe invoice for design subscription, EIN [redacted-id]',
+      ocr_confidence: 0.93,
+    });
+  });
+
   describe('prompt contract', () => {
     beforeEach(() => { vi.clearAllMocks(); vi.stubEnv('OPENAI_API_KEY', 'synthetic-key'); vi.stubEnv('OPENAI_MODEL', ''); });
     afterEach(() => vi.unstubAllEnvs());

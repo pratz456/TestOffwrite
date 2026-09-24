@@ -248,7 +248,6 @@ function strengthenFor(result: ExplainableResult): string[] {
   return unique([...modelRecords, ...(RECORD_RULES[result.category ?? 'other'] ?? RECORD_RULES.other)]).slice(0, 5);
 }
 
-const SE_RATE = 0.9235 * 0.153;          // Schedule SE: 15.3% of 92.35% of net profit
 const SE_MEDICARE_ONLY = 0.9235 * 0.029; // above the Social Security wage base only the Medicare part applies
 const FILING_LABELS: Record<string, string> = { single: 'single', married_filing_jointly: 'married filing jointly', married_filing_separately: 'married filing separately', head_of_household: 'head of household' };
 
@@ -261,22 +260,22 @@ export function estimateTaxEffect(result: ExplainableResult, amount: number | nu
     const status = normalizeFilingStatus(profile.filing_status);
     const rawIncome = finite(profile.annual_gross_income_usd) ?? (typeof profile.income === 'string' ? Number(profile.income.replace(/[,$\s]/g, '')) : finite(profile.income));
     const seIncome = rawIncome !== null && Number.isFinite(rawIncome) && rawIncome > 0 ? rawIncome : null;
+    // A fabricated percentage can be more persuasive than no number. Withhold the estimate until
+    // the owner saves income instead of applying the old 25% fallback.
+    if (seIncome === null) return null;
     const percent = finite(result.deductible_percent) ?? 100;
     const deductible = amount * Math.min(Math.max(percent, 0), 100) / 100;
     const w2Income = Math.max(finite(profile.w2_income) ?? 0, 0);
-    const seRate = seIncome === null ? SE_RATE
-      : seIncome * 0.9235 >= getFederalTaxRules(year).socialSecurityWageBase ? SE_MEDICARE_ONLY
-        : calcCombinedSERate(seIncome, status, 0, year).seTaxRate / 100;
+    const seRate = seIncome * 0.9235 >= getFederalTaxRules(year).socialSecurityWageBase ? SE_MEDICARE_ONLY
+      : calcCombinedSERate(seIncome, status, 0, year).seTaxRate / 100;
     // The bracket lookup needs total income; W-2 wages push the last self-employment dollar into a higher bracket.
-    const marginal = getMarginalTaxRate({ income: seIncome === null ? undefined : seIncome + w2Income, filing_status: status }, year) / 100;
-    const effective = seIncome === null ? 0 : getUserTaxRate({ income: seIncome, filing_status: status, w2_income: w2Income }, year);
+    const marginal = getMarginalTaxRate({ income: seIncome + w2Income, filing_status: status }, year) / 100;
+    const effective = getUserTaxRate({ income: seIncome, filing_status: status, w2_income: w2Income }, year);
     const bounds = [deductible * (seRate + effective), deductible * (seRate + marginal)].map(value => Math.round(value));
     const low = Math.min(...bounds), high = Math.max(...bounds);
     if (!Number.isFinite(low) || !Number.isFinite(high)) return null;
     const share = percent < 100 ? ` at ${percent}%` : '';
-    const income = seIncome === null
-      ? 'No income is saved in your profile, so this uses a 25% federal fallback rate; add your income for a closer estimate.'
-      : `Based on your saved self-employment income and ${FILING_LABELS[status] ?? status} filing status for ${year}.`;
+    const income = `Based on your saved self-employment income and ${FILING_LABELS[status] ?? status} filing status for ${year}.`;
     return { low, high, label: ESTIMATE_LABEL,
       basis: `${money(deductible)} deductible${share} from this ${money(amount)} charge. Federal income tax plus self-employment tax; state tax is not included and this is not a refund amount. ${income}` };
   } catch {

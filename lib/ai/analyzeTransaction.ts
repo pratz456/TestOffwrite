@@ -151,6 +151,11 @@ export interface TransactionInput {
   };
   client_project?: string;
   documentation_status?: 'complete' | 'partial' | 'missing';
+  receipt_context?: {
+    attached: boolean;
+    ocr_text?: string;
+    ocr_confidence?: number;
+  };
   meeting_notes?: string;
   mileage_details?: {
     start_location?: string;
@@ -567,6 +572,7 @@ export function buildAnalysisContext(transaction: TransactionInput, ctx: UserCon
       business_purpose: transaction.business_purpose ? redactTaxIdentifiers(transaction.business_purpose) : null,
       client_project: transaction.client_project ? redactTaxIdentifiers(transaction.client_project) : null,
       documentation_status: transaction.documentation_status ?? null,
+      receipt_context: transaction.receipt_context ?? null,
       meeting_notes: transaction.meeting_notes ? redactTaxIdentifiers(transaction.meeting_notes) : null,
       travel_destination: transaction.travel_destination ?? null,
       equipment_details: transaction.equipment_details ?? null,
