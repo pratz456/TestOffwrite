@@ -4,7 +4,8 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createRequire } from 'node:module';
-import { ANALYSIS_FANOUT_DEFAULTS, ANALYSIS_FANOUT_LIMITS, COORDINATED_DEPLOY_VARIABLE, environmentDigest, EXPECTED_PRODUCTION_PLAID_CLIENT_ID, gitBlobDigest, RELEASE_ENV, RELEASE_MANIFEST, MIGRATION_REVIEW, REQUIRED_RELEASE_REVIEWS, runProductionPreflight, validateMigrationReview, validateProductionConfiguration } from '../scripts/production-preflight.mjs';
+import { parse as parseDotenv } from 'dotenv';
+import { ANALYSIS_FANOUT_DEFAULTS, ANALYSIS_FANOUT_LIMITS, COORDINATED_DEPLOY_VARIABLE, environmentDigest, EXPECTED_PRODUCTION_PLAID_CLIENT_ID, gitBlobDigest, parseEnvFile, RELEASE_ENV, RELEASE_MANIFEST, MIGRATION_REVIEW, REQUIRED_RELEASE_REVIEWS, runProductionPreflight, validateMigrationReview, validateProductionConfiguration } from '../scripts/production-preflight.mjs';
 import { prepareProductionRelease } from '../scripts/prepare-production-release.mjs';
 
 // The deploy tool that consumes the generated dotenv files; its param resolver is the contract under test.
@@ -52,8 +53,8 @@ function review(commit = 'a'.repeat(40)) {
     ])),
   };
 }
-function prepared() {
-  const cwd = directory(); const contents = environmentText();
+function prepared(contents = environmentText()) {
+  const cwd = directory();
   const migrationContents = JSON.stringify(review());
   fs.writeFileSync(path.join(cwd, RELEASE_ENV), contents, { mode: 0o600 });
   fs.writeFileSync(path.join(cwd, MIGRATION_REVIEW), migrationContents);
@@ -64,6 +65,50 @@ function prepared() {
   fs.writeFileSync(path.join(cwd, RELEASE_MANIFEST), JSON.stringify({ project, commit: 'a'.repeat(40), environmentDigest: environmentDigest(contents), migrationReviewDigest: environmentDigest(migrationContents), sourceTree }));
   return cwd;
 }
+
+describe('production dotenv compatibility', () => {
+  it.each([
+    ['blank lines, comments and export', '\n# ignored\nexport KEY = value \nEMPTY=\n'],
+    ['unquoted inline comments', 'KEY=value#comment\nOTHER=value # comment\n'],
+    ['quoted inline comments', 'KEY="value # retained"#ignored\nOTHER=\'second # retained\' # ignored\n'],
+    ['whitespace inside quotes', 'KEY="  padded  "\nOTHER=\'  padded  \'\n'],
+    ['double-quoted newline and carriage-return escapes', String.raw`KEY="first\nsecond\rthird"`],
+    ['literal escapes outside double quotes', String.raw`KEY=first\nsecond\rthird\tend
+OTHER='first\nsecond\rthird\tend'`],
+    ['preserved backslashes and escaped quotes', String.raw`KEY="tab\tbackslash\\double\"single\'"`],
+    ['backtick quoting', 'KEY=`value # retained` # ignored\n'],
+    ['JSON escaped as a string', `FIREBASE_CONFIG=${JSON.stringify(JSON.stringify({ projectId: project }))}`],
+    ['single-quoted JSON', `FIREBASE_CONFIG='${JSON.stringify({ projectId: project })}' # ignored`],
+    ['raw JSON', `FIREBASE_CONFIG=${JSON.stringify({ projectId: project })}`],
+    ['line endings', 'KEY=one\rSECOND=two\r\nTHIRD=three\n'],
+    ['duplicate keys and dotenv key syntax', 'KEY=old\nKEY=new\nKEY.WITH-DASH=valid\n123=numeric\n'],
+    ['colon assignments and malformed lines', 'KEY: value\nINVALID\nBAD/KEY=value\n'],
+    ['multiline quoted values', 'KEY="first\nsecond" # comment\nOTHER=end\n'],
+  ])('matches the runtime dotenv parser for %s', (_name, contents) => {
+    expect(parseEnvFile(contents)).toEqual(parseDotenv(contents));
+  });
+
+  it('does not silently repair JSON-stringified configuration that is invalid at runtime', () => {
+    const contents = `FIREBASE_CONFIG=${JSON.stringify(JSON.stringify({ projectId: project }))}\n`;
+    const parsed = parseEnvFile(contents);
+    expect(parsed.FIREBASE_CONFIG).toContain('\\"projectId\\"');
+    expect(() => JSON.parse(parsed.FIREBASE_CONFIG)).toThrow();
+    expect(() => runProductionPreflight({
+      cwd: prepared(environmentText() + contents), inheritedEnv: {}, args: ['--project', project],
+    })).toThrow('FIREBASE_CONFIG configuration is unreadable');
+  });
+
+  it.each([
+    JSON.stringify({ projectId: project }),
+    `'${JSON.stringify({ projectId: project })}' # configuration comment`,
+  ])('accepts Firebase JSON that the runtime can parse: %s', value => {
+    const contents = `FIREBASE_CONFIG=${value}\n`;
+    expect(JSON.parse(parseDotenv(contents).FIREBASE_CONFIG)).toEqual({ projectId: project });
+    expect(runProductionPreflight({
+      cwd: prepared(environmentText() + contents), inheritedEnv: {}, args: ['--project', project],
+    }).errors).toEqual([]);
+  });
+});
 
 describe('production deployment configuration', () => {
   it('accepts explicitly separated production configuration while leaving provider checks pending', () => {
