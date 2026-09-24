@@ -24,7 +24,6 @@ async function saveTransaction(uid: string, connection: PlaidConnection, transac
         category: transaction.personal_finance_category?.detailed || transaction.category?.[0] || 'Other', description: transaction.name,
         iso_currency_code: transaction.iso_currency_code, unofficial_currency_code: transaction.unofficial_currency_code, pending: transaction.pending,
       });
-      await existing.ref.update({ bank_removed: false, bank_removed_at: null });
     }
     return 0;
   }

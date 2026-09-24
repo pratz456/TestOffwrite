@@ -31,6 +31,7 @@ import { analysisProfileHash } from '@/lib/ai/profile-context';
 import { saveTransactionChanges } from '@/lib/transactions/save-changes';
 import { confirmPurposeUpdates } from '@/lib/transactions/review-proposals';
 import { shouldQueueBankWrite } from '../functions-analysis/src/bridge';
+import { isCountableRecord } from '@/lib/transactions/record-scope';
 
 const address = { userId: 'synthetic-user', accountId: 'bank-account', transactionId: 'posted-transaction' };
 const profilePath = `user_profiles/${address.userId}`;
@@ -144,6 +145,7 @@ describe('durable bank transaction analysis', () => {
 
   it.each([
     ['pending bank record', path, { pending: true }],
+    ['bank-removed record even without the legacy pending flag', path, { bank_removed: true, pending: false }],
     ['manual account', accountPath, { type: 'manual' }],
     ['foreign transaction owner', path, { user_id: 'different-user' }],
     ['foreign account owner', accountPath, { userId: 'different-user' }],
@@ -222,6 +224,23 @@ describe('durable bank transaction analysis', () => {
     expect(mocks.docs.has(path)).toBe(false);
   });
 
+  it.each([{ bank_removed: true }, { superseded_by: 'user_profiles/synthetic-user/accounts/bank-account/transactions/canonical' }])('rejects model completion if the record becomes excluded during analysis: %j', async exclusion => {
+    await enqueueBankTransactionAnalysis(address);
+    mocks.analyze.mockImplementationOnce(async () => { change(path, exclusion); return { success: true, result: suggestion }; });
+    expect(await run()).toMatchObject({ status: 'failed', retry: false, code: 'AI_INPUT_CHANGED' });
+    expect(mocks.docs.get(path)?.ai_suggestion).toBeUndefined();
+    expect(isCountableRecord(mocks.docs.get(path))).toBe(false);
+    expect(mocks.docs.get(jobPath)).toMatchObject({ succeeded: 0, failed: 1, processed: 1 });
+  });
+
+  it('skips a removed record if withdrawal overtakes its queued worker', async () => {
+    await enqueueBankTransactionAnalysis(address);
+    change(path, { bank_removed: true, pending: false });
+    expect(await run()).toMatchObject({ status: 'finished', retry: false });
+    expect(mocks.analyze).not.toHaveBeenCalled();
+    expect(mocks.docs.get(taskPath)).toMatchObject({ status: 'skipped', lastErrorCode: 'TRANSACTION_UNAVAILABLE' });
+  });
+
   it('bounds transient retry attempts and respects backoff without additional provider calls', async () => {
     await enqueueBankTransactionAnalysis(address);
     mocks.analyze.mockResolvedValue({ success: false, error: 'Try again later', code: 'AI_RATE_LIMITED', retryable: true });
@@ -274,6 +293,14 @@ describe('durable bank transaction analysis', () => {
     expect(mocks.docs.get(path)?.analysisStatus).toBe('running');
   });
 
+  it.each([{ bank_removed: true }, { superseded_by: 'earlier-owned-record' }])('rejects a manual result when the record is excluded during analysis: %j', async exclusion => {
+    const claim = await claimAnalysisLease(adminDb.doc(path));
+    if (claim.status !== 'claimed') throw new Error('Expected claim');
+    change(path, exclusion);
+    expect(await persistAnalysisSuggestion(adminDb.doc(path), suggestion, claim.lease, currentProfileHash())).toEqual({ status: 'stale' });
+    expect(mocks.docs.get(path)?.ai_suggestion).toBeUndefined();
+  });
+
   it('recovers an aged-out delivery with a new generation and reuses its unfinished progress slot', async () => {
     await enqueueBankTransactionAnalysis(address);
     const oldGeneration = generation();
@@ -322,7 +349,7 @@ describe('durable bank transaction analysis', () => {
     expect(mocks.docs.get(path)).toMatchObject({ category: 'SERVICE_SUBSCRIPTION', bank_category: 'GENERAL_MERCHANDISE', is_deductible: true });
     expect(await updateImportedTransactionForAnalysis(address, fields)).toEqual({ updated: true, invalidated: false });
   });
-  it('requeues a restored bank row whose invalidated suggestion had the same original financial input', async () => {
+  it.each([true, false])('atomically restores a withdrawn row and requeues the same financial input (pending=%s)', async pending => {
     const fields = { date: '2026-09-15', amount: 75, merchant_name: 'Synthetic office store', category: 'supplies',
       description: 'Bank description', iso_currency_code: 'USD', unofficial_currency_code: null, pending: false };
     change(path, { ...fields, bank_category: fields.category, review_status: 'confirmed', is_deductible: true,
@@ -330,11 +357,11 @@ describe('durable bank transaction analysis', () => {
     await enqueueBankTransactionAnalysis(address); await run();
     const originalGeneration = generation();
     const originalInputHash = mocks.docs.get(taskPath)!.inputHash;
-    change(path, { bank_removed: true, pending: true });
+    change(path, { bank_removed: true, bank_removed_at: new Date(), pending });
     expect(await updateImportedTransactionForAnalysis(address, fields)).toEqual({ updated: true, invalidated: true });
-    change(path, { bank_removed: false });
-    expect(mocks.docs.get(path)).toMatchObject({ ai_suggestion: null, analysisStatus: 'pending', review_status: 'confirmed',
+    expect(mocks.docs.get(path)).toMatchObject({ bank_removed: false, bank_removed_at: null, pending: false, ai_suggestion: null, analysisStatus: 'pending', review_status: 'confirmed',
       is_deductible: true, user_classification_reason: 'Confirmed supplies', receipt_url: '/receipt' });
+    expect(isCountableRecord(mocks.docs.get(path))).toBe(true);
     expect((await enqueueBankTransactionAnalysis(address)).status).toBe('queued');
     expect(mocks.docs.get(taskPath)!.inputHash).toBe(originalInputHash);
     expect(generation()).not.toBe(originalGeneration);

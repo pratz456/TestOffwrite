@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { adminDb } from '@/lib/firebase/admin';
-import { isSupersededRecord } from '@/lib/transactions/record-scope';
+import { isCountableRecord } from '@/lib/transactions/record-scope';
 import { analyzeTransactionWithRetry, convertToEnhancedContext, findMissingUserFields, type TransactionInput } from './analyzeTransaction';
 import { getAIProviderStatus } from './provider-status';
 import { analysisProfileHash } from './profile-context';
@@ -43,9 +43,9 @@ function eligibleBankTransaction(data: Data, account: Data, address: AnalysisTas
   const savedRecord = ['manual', 'receipt'].includes(data.source);
   const bankRecord = !['manual', 'receipt'].includes(data.source) &&
     ['depository', 'credit', 'loan', 'investment', 'brokerage', 'other'].includes(account.type);
-  // A superseded duplicate is excluded from totals and review, so it never earns an AI suggestion.
+  // Records excluded from totals and review never earn an AI suggestion.
   return owned(account, address.userId) && owned(data, address.userId) && (savedRecord || bankRecord) && Number.isFinite(data.amount) &&
-    data.pending !== true && !isSupersededRecord(data) &&
+    isCountableRecord(data) &&
     [data.account_id, data.accountId].every(value => value == null || value === address.accountId);
 }
 function refs(address: AnalysisTaskAddress) {
@@ -110,9 +110,14 @@ export async function updateImportedTransactionForAnalysis(address: AnalysisTask
     const data = snap.data()!;
     // Keep the user's reviewed bookkeeping category; bank refreshes supply a separate source category.
     const importedFields = data.review_status === 'confirmed' ? { ...fields, category: data.category, bank_category: fields.category } : fields;
-    const changed = analysisInputHash(data) !== analysisInputHash({ ...data, ...importedFields });
+    const restored = data.bank_removed === true;
+    const changed = restored || analysisInputHash(data) !== analysisInputHash({ ...data, ...importedFields });
     const invalidated = changed ? { ...staleAnalysisUpdate(data), analysisInputRevision: randomUUID() } : {};
-    tx.update(ref, { ...importedFields, ...invalidated, updated_at: new Date() });
+    // Added and modified provider events both restore a withdrawn record. Clear
+    // its tombstone in the same write as posted status and suggestion invalidation
+    // so totals, review readers and the analysis trigger see one coherent state.
+    tx.update(ref, { ...importedFields, ...(restored ? { bank_removed: false, bank_removed_at: null } : {}),
+      ...invalidated, updated_at: new Date() });
     return { updated: true, invalidated: changed };
   });
 }

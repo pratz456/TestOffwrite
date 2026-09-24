@@ -32,7 +32,7 @@ beforeEach(() => {
   mock.create.mockImplementation(async (_uid: string, account: string, fields: any) => { const path = `${accountPath(account)}/transactions/${fields.trans_id}`; mock.records.set(path, fields); return { data: fields, error: null }; });
   mock.modified.mockImplementation(async (address: any, fields: any) => { const path = `${accountPath(address.accountId)}/transactions/${address.transactionId}`;
     if (!mock.records.has(path)) return { updated: false };
-    mock.records.set(path, { ...mock.records.get(path), ...fields }); return { updated: true };
+    mock.records.set(path, { ...mock.records.get(path), ...fields, bank_removed: false, bank_removed_at: null }); return { updated: true };
   });
   mock.sync.mockResolvedValue(page()); mock.update.mockResolvedValue(undefined);
 });

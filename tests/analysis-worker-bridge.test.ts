@@ -13,7 +13,7 @@ describe('Firebase analysis event bridge', () => {
     expect(shouldQueueBankWrite(posted, { ...posted, analysisInputRevision: 'bank-correction-revision' })).toBe(true);
     expect(shouldQueueBankWrite(posted, undefined)).toBe(false);
   });
-  it.each([{ ...posted, pending: true }, { ...posted, amount: NaN }, { ...posted, amount: Infinity }, { ...posted, analyzed: true, ai_suggestion: { id: 'saved' } }])('does not queue ineligible records %j', after => {
+  it.each([{ ...posted, pending: true }, { ...posted, bank_removed: true }, { ...posted, amount: NaN }, { ...posted, amount: Infinity }, { ...posted, analyzed: true, ai_suggestion: { id: 'saved' } }])('does not queue ineligible records %j', after => {
     expect(shouldQueueBankWrite(undefined, after)).toBe(false);
   });
   it('queues an imported legacy analyzed record without the current suggestion contract', () => {

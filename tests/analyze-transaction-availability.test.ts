@@ -225,6 +225,16 @@ describe('transaction analysis availability', () => {
     expect(mocks.release).toHaveBeenCalledOnce();
   });
 
+  it.each([{ bank_removed: true }, { superseded_by: 'earlier-owned-record' }])('does not manually analyze an excluded bank record: %j', async exclusion => {
+    mocks.claim.mockResolvedValue({ status: 'claimed', lease: { token: 'synthetic-lease' }, data: { ...body.transaction, iso_currency_code: 'USD', pending: false, ...exclusion } });
+    const response = await POST(request());
+    expect(response.status).toBe(422);
+    expect((await response.json()).code).toBe('TRANSACTION_UNAVAILABLE');
+    expect(mocks.analyze).not.toHaveBeenCalled();
+    expect(mocks.persist).not.toHaveBeenCalled();
+    expect(mocks.release).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'TRANSACTION_UNAVAILABLE');
+  });
+
   it('returns a safe unavailable response and releases the lease when funding is exhausted', async () => {
     mocks.analyze.mockResolvedValue({ success: false, error: 'provider-private-detail', code: 'AI_UNAVAILABLE', retryable: false });
     const response = await POST(request());

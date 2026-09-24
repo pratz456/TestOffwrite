@@ -6,6 +6,7 @@ import { composeExplanation, type ExplainableResult, type ExplanationProfile } f
 import { getOpenAIModel } from '@/lib/openai/client';
 import { reviewCategory, type AiReviewSuggestion, type TransactionKind } from '@/lib/transactions/ai-review-contract';
 import { analysisProfileHash } from './profile-context';
+import { isCountableRecord } from '@/lib/transactions/record-scope';
 
 export const ANALYSIS_LEASE_MS = 240_000;
 export interface AnalysisLease { token: string; inputHash: string; expiresAt: number }
@@ -45,7 +46,9 @@ export function analysisLeaseUpdate(lease: AnalysisLease) {
 }
 
 export function isAnalysisLeaseCurrent(data: Record<string, unknown>, lease: AnalysisLease, now = Date.now()): boolean {
-  return data.analysisLeaseToken === lease.token && data.analysisInputHash === lease.inputHash &&
+  // Removal and supersession do not change model inputs, but either invalidates
+  // a suggestion from an in-flight manual or background run.
+  return isCountableRecord(data) && data.analysisLeaseToken === lease.token && data.analysisInputHash === lease.inputHash &&
     lease.expiresAt > now && analysisInputHash(data) === lease.inputHash;
 }
 

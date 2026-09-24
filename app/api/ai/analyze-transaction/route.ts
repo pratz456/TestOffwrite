@@ -13,6 +13,7 @@ import { claimAnalysisLease, persistAnalysisSuggestion, releaseAnalysisLease, an
 import type { AnalysisLease } from '@/lib/ai/analysis-persistence';
 import type { DocumentReference } from 'firebase-admin/firestore';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
+import { isCountableRecord } from '@/lib/transactions/record-scope';
 
 // Zod schema for request validation
 const AnalyzeTransactionRequestSchema = z.object({
@@ -97,6 +98,10 @@ export async function POST(request: NextRequest) {
     if (transaction.pending === true) {
       releaseCode = 'AI_PENDING_TRANSACTION';
       return NextResponse.json({ code: releaseCode, error: 'This bank transaction is pending. Analysis can run once it is posted.' }, { status: 422 });
+    }
+    if (!isCountableRecord(transaction)) {
+      releaseCode = 'TRANSACTION_UNAVAILABLE';
+      return NextResponse.json({ code: releaseCode, error: 'This bank record was removed or linked to an earlier record, so it is not eligible for AI analysis.' }, { status: 422 });
     }
     const date = typeof transaction.date === 'string' ? transaction.date : '';
     if (typeof transaction.amount !== 'number' || !Number.isFinite(transaction.amount)
