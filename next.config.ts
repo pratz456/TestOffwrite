@@ -87,6 +87,10 @@ const nextConfig: NextConfig = {
 
   // Image optimization
   images: {
+    // The Firebase CLI otherwise adds sharp 0.33, whose native decoders have
+    // known vulnerabilities. Serve our static branding directly; private photo
+    // previews already bypass the optimizer. This also avoids that CLI injection.
+    unoptimized: true,
     formats: ["image/webp", "image/avif"],
     minimumCacheTTL: 60,
   },
