@@ -111,6 +111,7 @@ export function validateProductionConfiguration(env, { project, hosting, firebas
   if (project !== PRODUCTION_PROJECT) errors.push('Deploy project must be the approved production project');
   const hosts = Array.isArray(hosting) ? hosting : [hosting];
   if (!hosts.length || hosts.some(host => host?.site !== PRODUCTION_PROJECT || host?.target || host?.source !== '.')) errors.push('Hosting must explicitly select the production site and release directory');
+  if (hosts.some(host => host?.frameworksBackend?.minInstances)) errors.push('Pinned Firebase Hosting revisions require frameworksBackend.minInstances to be zero');
   requireValue('NEXT_PUBLIC_FIREBASE_PROJECT_ID');
   for (const [name, value] of Object.entries({
     NEXT_PUBLIC_FIREBASE_PROJECT_ID: env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,

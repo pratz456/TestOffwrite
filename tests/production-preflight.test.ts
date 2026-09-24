@@ -111,6 +111,12 @@ OTHER='first\nsecond\rthird\tend'`],
 });
 
 describe('production deployment configuration', () => {
+  it('rejects a warm SSR instance incompatible with Hosting revision pins', () => {
+    const result = validateProductionConfiguration(env, { ...target, hosting: { ...config.hosting, frameworksBackend: { minInstances: 1 } } });
+    expect(result.errors).toContain('Pinned Firebase Hosting revisions require frameworksBackend.minInstances to be zero');
+    expect(validateProductionConfiguration(env, { ...target, hosting: { ...config.hosting, frameworksBackend: { minInstances: 0 } } }).errors).toEqual([]);
+  });
+
   it('accepts explicitly separated production configuration while leaving provider checks pending', () => {
     const result = validateProductionConfiguration(env, target);
     expect(result.errors).toEqual([]);
