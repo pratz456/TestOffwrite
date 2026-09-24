@@ -15,8 +15,11 @@ not a recurring backup. Both application schedules were enabled.
 The release operator applied the minimal recovery and monitoring configuration.
 Independent read-back confirmed PITR and delete protection enabled, one daily
 backup schedule with 14-week retention, one uptime check, five enabled alert
-policies and two log metrics. A subsequent independent read-back confirmed the
-throttle TTL policy **ACTIVE**. The first scheduled backup,
+policies and two log metrics. The throttle TTL policy was initially confirmed
+ACTIVE, then the next coordinated deployment removed its undeclared field
+override. Read-back at 18:58:52 UTC returned no TTL policy. Declarative retention
+in `firestore.indexes.json` and a subsequent deployment are pending; do not
+manually reapply it during the release. The first scheduled backup,
 heartbeat detection, alert delivery and restore drill are not yet verified.
 One explicitly authorized email notification channel is enabled and attached to
 all five production policies; the exact recipient is retained in private evidence.
@@ -26,7 +29,7 @@ all five production policies; the exact recipient is retained in private evidenc
 | Database delete protection | ENABLED | Read-back confirmed; protects database deletion, not document deletion. |
 | Point-in-time recovery | ENABLED, retention 604,800 seconds | Read-back confirmed; earliest recoverable time was September 24, 17:46 UTC. The seven-day window builds after enablement. |
 | Managed backups | One daily schedule, retention 8,467,200 seconds (14 weeks) | Schedule `d518b9b8-4ebe-49ab-b20f-43bb5a4a4eb3` read back. First completed backup and restore drill remain unverified. |
-| Expired throttle records | TTL on `rate_limits.expiresAt`, ACTIVE | Read-back confirmed. Five sampled live records used Firestore timestamps; source stores a Date. Actual deletions are asynchronous; rate decisions already ignore expired windows. |
+| Expired throttle records | Missing after deployment; declarative repair pending | Initial ACTIVE policy was removed because it was absent from deployed field overrides. Five sampled records use timestamps. Rate decisions already ignore expired windows, but automated storage cleanup is not active. |
 | Public uptime | HTTPS `/auth/login`, every 5 minutes, 30-second timeout, US/Europe/Asia-Pacific checkers | Tests public availability, DNS and TLS. Does not sign in or test a bank/payment. |
 | Availability incident | More than one checker fails for 5 minutes | Filters one-checker blips; investigate in Cloud Monitoring. |
 | Server incident | At least 5 SSR 5xx responses in 5 minutes | Ignores ordinary 4xx review/authorization responses. Inspect affected route/revision. |
@@ -169,6 +172,12 @@ six high and three critical findings. The patch in commit `c487a18` updates them
 within existing dependency ranges, leaving all three deployable trees with zero
 high/critical findings. Remaining moderate counts: application 11, scheduled sync
 8, analysis worker 9. This is an advisory scan, not proof of universal security.
+
+The Firebase-generated SSR package is an additional dependency graph and must be
+audited independently. The release operator's generated-package audit subsequently
+found two high findings in the image-processing dependency chain. Remediation and
+another generated-package audit are pending. The three source lockfile results
+must not be presented as a clean audit of the complete deployed runtime.
 
 Fresh Node 22 `npm ci --ignore-scripts`, scheduled-sync TypeScript build and 67
 focused scheduled-sync/deployment-contract tests passed. The lockfile change must
