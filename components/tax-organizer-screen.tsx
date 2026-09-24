@@ -246,7 +246,7 @@ export function TaxOrganizerScreen({ user }: Props) {
   const legacyCapitalGainOnly = !!answers.amountCapGains.trim() && !answers.amountShortTermCapGains.trim() && !answers.amountLongTermCapGains.trim();
   const disclosure = (title: string, summary: string, children: React.ReactNode) => (
     <details key={`${year}:${title}`} className="group rounded-xl border border-border bg-card">
-      <summary className="flex min-h-[60px] cursor-pointer list-none items-center gap-3 px-4 py-2 [&::-webkit-details-marker]:hidden">
+      <summary className="flex min-h-[52px] cursor-pointer list-none items-center gap-3 px-4 py-2 [&::-webkit-details-marker]:hidden">
         <span className="min-w-0 flex-1"><span className="block text-sm font-semibold">{title}</span><span className="block text-xs text-muted-foreground">{summary}</span></span>
         <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" />
       </summary>
@@ -254,15 +254,15 @@ export function TaxOrganizerScreen({ user }: Props) {
     </details>
   );
 
-  if (loading || (!loadFailed && loadedKey.current !== `${user.id}:${year}`)) return <div className="min-h-screen bg-background flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-muted-foreground" /></div>;
+  if (loading || (!loadFailed && loadedKey.current !== `${user.id}:${year}`)) return <div className="bg-background flex items-center justify-center py-12"><Loader2 className="w-8 h-8 animate-spin text-muted-foreground" /></div>;
 
-  if (loadFailed) return <div role="alert" className="mx-auto max-w-2xl space-y-3 p-6"><p>{error}</p><Button onClick={() => void load()}>Retry organizer</Button></div>;
+  if (loadFailed) return <div role="alert" className="mx-auto max-w-4xl space-y-3 p-6"><p>{error}</p><Button onClick={() => void load()}>Retry organizer</Button></div>;
 
   return (
     <div className="min-h-full bg-background">
       <div className="sticky top-0 z-30 border-b border-border bg-background/95 backdrop-blur">
-        <div className="mx-auto flex max-w-2xl items-center gap-2 px-4 py-2 sm:px-6">
-          <h1 className="min-w-0 flex-1 text-lg font-semibold">Tax organizer</h1>
+        <div className="mx-auto flex max-w-4xl items-center gap-2 px-4 py-2 sm:px-6">
+          <h1 className="min-w-0 flex-1 text-xl font-semibold tracking-tight">Tax organizer</h1>
           <select aria-label="Organizer tax year" value={year} disabled={saving || switchingYear}
             onChange={event => void changeYear(Number(event.target.value))}
             className="min-h-[44px] rounded-lg border bg-background px-2 text-base">
@@ -275,7 +275,7 @@ export function TaxOrganizerScreen({ user }: Props) {
         </div>
       </div>
 
-      <div className="mx-auto max-w-2xl space-y-3 px-4 py-3 sm:px-6">
+      <div className="mx-auto max-w-4xl space-y-3 px-4 py-3 sm:px-6">
         {error && <div role="alert" className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div>}
         {notice && <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">{notice}</div>}
         <div className="flex items-center gap-3">
@@ -292,7 +292,7 @@ export function TaxOrganizerScreen({ user }: Props) {
         {step === 0 && (
           <div className="space-y-3">
             <Card className="border-border bg-card">
-              <CardContent className="space-y-3 p-4">
+              <CardContent className="grid gap-4 p-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <Label htmlFor="organizer-filing-status" className="text-sm font-medium">Filing Status *</Label>
                   <select id="organizer-filing-status" value={answers.filingStatus} onChange={event => set("filingStatus", event.target.value)} className="min-h-[44px] w-full rounded-lg border border-input bg-background px-3 py-2 text-base">
@@ -300,7 +300,7 @@ export function TaxOrganizerScreen({ user }: Props) {
                     {FILING_STATUSES.map(status => <option key={status.value} value={status.value}>{status.label}</option>)}
                   </select>
                 </div>
-                <div className="space-y-1.5 pt-2 border-t border-border">
+                <div className="space-y-1.5">
                   <Label htmlFor="organizer-dependents" className="text-sm font-medium">Number of Dependents</Label>
                   <select id="organizer-dependents" value={answers.dependents} onChange={event => set("dependents", event.target.value)} className="min-h-[44px] w-full rounded-lg border border-input bg-background px-3 py-2 text-base">
                     {["0", "1", "2", "3", "4", "5+"].map(count => <option key={count} value={count}>{count}</option>)}
@@ -376,8 +376,8 @@ export function TaxOrganizerScreen({ user }: Props) {
               <CardHeader className="pb-3"><CardTitle className="text-sm font-semibold">Mailing Address</CardTitle></CardHeader>
               <CardContent className="space-y-4">
                 <Input value={answers.streetAddress} onChange={e => set("streetAddress", e.target.value)} placeholder="Street address and apt/unit" className="bg-background" />
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <div className="col-span-2 space-y-1.5">
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  <div className="sm:col-span-2 space-y-1.5">
                     <Label className="text-xs text-muted-foreground">City</Label>
                     <Input value={answers.city} onChange={e => set("city", e.target.value)} placeholder="City" className="bg-background" />
                   </div>
@@ -602,7 +602,7 @@ export function TaxOrganizerScreen({ user }: Props) {
               )}
               {yesno("madeRetirementContrib", "Retirement contributions (SEP-IRA, Solo 401(k), SIMPLE IRA)")}
               {answers.madeRetirementContrib === "yes" && (
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label className="text-sm font-medium">Account Type</Label>
                     <Select value={answers.retirementType} onValueChange={v => set("retirementType", v)}>

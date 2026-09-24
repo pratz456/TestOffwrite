@@ -152,10 +152,10 @@ export function ProfitLossReportScreen({ user, onBack }: ProfitLossReportScreenP
     data?.operatingExpenses?.reduce((m, e) => Math.max(m, e.amount), 0) ?? 1;
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-full bg-background">
       {/* Header */}
       <div className="sticky top-0 z-50 bg-background border-b border-border">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
           <div className="flex items-center gap-3 sm:gap-4">
             <Button variant="ghost" onClick={onBack}>Back</Button>
             <div className="min-w-0 flex-1">
@@ -170,7 +170,7 @@ export function ProfitLossReportScreen({ user, onBack }: ProfitLossReportScreenP
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4 sm:py-6 space-y-6">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 space-y-4">
         {/* Period selector */}
         <Card className="bg-card border-border">
           <CardContent className="pt-4">
@@ -178,7 +178,7 @@ export function ProfitLossReportScreen({ user, onBack }: ProfitLossReportScreenP
               <div className="flex items-center gap-2">
                 <span className="text-sm text-muted-foreground">Year:</span>
                 <Select value={String(year)} onValueChange={(v) => setYear(parseInt(v, 10))}>
-                  <SelectTrigger className="w-[100px] h-9 bg-background border-border">
+                  <SelectTrigger className="w-[100px] min-h-11 bg-background border-border">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -196,7 +196,7 @@ export function ProfitLossReportScreen({ user, onBack }: ProfitLossReportScreenP
                   <button
                     type="button"
                     onClick={() => setViewMode("annual")}
-                    className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+                    className={`min-h-11 px-3 py-1.5 text-sm font-medium transition-colors ${
                       viewMode === "annual"
                         ? "bg-primary text-primary-foreground"
                         : "bg-background text-muted-foreground hover:text-foreground"
@@ -207,7 +207,7 @@ export function ProfitLossReportScreen({ user, onBack }: ProfitLossReportScreenP
                   <button
                     type="button"
                     onClick={() => setViewMode("monthly")}
-                    className={`px-3 py-1.5 text-sm font-medium transition-colors border-l border-border ${
+                    className={`min-h-11 px-3 py-1.5 text-sm font-medium transition-colors border-l border-border ${
                       viewMode === "monthly"
                         ? "bg-primary text-primary-foreground"
                         : "bg-background text-muted-foreground hover:text-foreground"
@@ -224,7 +224,7 @@ export function ProfitLossReportScreen({ user, onBack }: ProfitLossReportScreenP
                     value={String(effectiveMonth ?? new Date().getMonth() + 1)}
                     onValueChange={(v) => setMonth(v ? parseInt(v, 10) : null)}
                   >
-                    <SelectTrigger className="w-[140px] h-9 bg-background border-border">
+                    <SelectTrigger className="w-[140px] min-h-11 bg-background border-border">
                       <SelectValue placeholder="Select month" />
                     </SelectTrigger>
                     <SelectContent>
@@ -255,7 +255,7 @@ export function ProfitLossReportScreen({ user, onBack }: ProfitLossReportScreenP
             </div>
             <Card className="bg-card border-border">
               <CardContent className="pt-4">
-                <div className="flex items-center justify-center py-12">
+                <div className="flex items-center justify-center py-8">
                   <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
                 </div>
               </CardContent>
@@ -275,7 +275,7 @@ export function ProfitLossReportScreen({ user, onBack }: ProfitLossReportScreenP
         ) : !data || data.transactionCount === 0 ? (
           <Card className="bg-card border-border">
             <CardContent className="pt-6">
-              <div className="flex flex-col items-center justify-center py-12 text-center">
+              <div className="flex flex-col items-center justify-center py-8 text-center">
                 <FileText className="w-12 h-12 text-muted-foreground mb-4" />
                 <p className="text-muted-foreground">No transactions found for this period.</p>
                 <p className="text-sm text-muted-foreground mt-1">

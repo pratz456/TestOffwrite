@@ -88,21 +88,21 @@ export function W2IncomeScreen({ user, onBack }: Props) {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="sticky top-0 z-50 bg-background border-b border-border">
-        <div className="max-w-2xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3">
-          <div className="flex-1">
-            <h1 className="text-lg sm:text-xl font-semibold">W-2 Income</h1>
+    <div className="min-h-full bg-background">
+      <div className="sticky top-0 z-10 bg-background/95 border-b border-border">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 flex items-center gap-3">
+          <div className="min-h-11 flex-1">
+            <h1 className="text-xl font-semibold tracking-tight">W-2 Income</h1>
             <p className="text-xs text-muted-foreground">Salary income from employers - affects your combined tax bracket</p>
           </div>
           <Select value={String(year)} onValueChange={v => setYear(parseInt(v))}>
-            <SelectTrigger className="w-[90px] h-9"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-[100px] min-h-11"><SelectValue /></SelectTrigger>
             <SelectContent>{Array.from({length:4},(_,i)=>currentYear-i).map(y=><SelectItem key={y} value={String(y)}>{y}</SelectItem>)}</SelectContent>
           </Select>
         </div>
       </div>
 
-      <div className="max-w-2xl mx-auto px-4 sm:px-6 py-5 space-y-4">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4 space-y-4">
         {/* Info banner */}
         <div className="flex items-start gap-3 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 px-4 py-3 text-sm text-blue-800 dark:text-blue-300">
           <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
@@ -125,55 +125,55 @@ export function W2IncomeScreen({ user, onBack }: Props) {
               <CardTitle className="text-base font-semibold flex items-center gap-2"><Briefcase className="w-4 h-4 text-primary" />W-2 Employers</CardTitle>
               <p className="text-xs text-muted-foreground mt-0.5">Enter each W-2 you received for {year}</p>
             </div>
-            <Button onClick={() => setShowForm(!showForm)} size="sm" variant={showForm ? "outline" : "default"} className="gap-1.5 min-h-[40px]"><Plus className="w-4 h-4" />Add W-2</Button>
+            <Button onClick={() => setShowForm(!showForm)} size="sm" variant={showForm ? "outline" : "default"} className="gap-1.5 min-h-11"><Plus className="w-4 h-4" />Add W-2</Button>
           </CardHeader>
           <CardContent className="space-y-4">
             {showForm && (
               <form onSubmit={save} className="rounded-lg border border-border bg-muted/30 p-4 space-y-3">
                 <div className="space-y-1.5">
                   <Label className="text-xs text-muted-foreground">Employer Name *</Label>
-                  <Input value={form.employer} onChange={e => setForm(p=>({...p,employer:e.target.value}))} placeholder="e.g. Acme Corporation" className="bg-background" required />
+                  <Input value={form.employer} onChange={e => setForm(p=>({...p,employer:e.target.value}))} placeholder="e.g. Acme Corporation" className="min-h-11 bg-background" required />
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label className="text-xs text-muted-foreground">Box 1 - Wages ($) *</Label>
-                    <Input type="number" min="0" step="0.01" value={form.wages} onChange={e=>setForm(p=>({...p,wages:e.target.value}))} placeholder="0.00" className="bg-background" required />
+                    <Input type="number" min="0" step="0.01" value={form.wages} onChange={e=>setForm(p=>({...p,wages:e.target.value}))} placeholder="0.00" className="min-h-11 bg-background" required />
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs text-muted-foreground">Box 2 - Federal Withheld ($)</Label>
-                    <Input type="number" min="0" step="0.01" value={form.federalWithheld} onChange={e=>setForm(p=>({...p,federalWithheld:e.target.value}))} placeholder="0.00" className="bg-background" />
+                    <Input type="number" min="0" step="0.01" value={form.federalWithheld} onChange={e=>setForm(p=>({...p,federalWithheld:e.target.value}))} placeholder="0.00" className="min-h-11 bg-background" />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label className="text-xs text-muted-foreground">Box 3 - Social Security Wages ($) *</Label>
                     <Input type="number" min="0" step="0.01" value={form.socialSecurityWages}
                       onChange={e=>setForm(p=>({...p,socialSecurityWages:e.target.value}))}
-                      placeholder="Enter 0 when Box 3 is zero" className="bg-background" required />
+                      placeholder="Enter 0 when Box 3 is zero" className="min-h-11 bg-background" required />
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs text-muted-foreground">Box 5 - Medicare Wages ($) *</Label>
                     <Input type="number" min="0" step="0.01" value={form.medicareWages}
                       onChange={e=>setForm(p=>({...p,medicareWages:e.target.value}))}
-                      placeholder="Enter 0 when Box 5 is zero" className="bg-background" required />
+                      placeholder="Enter 0 when Box 5 is zero" className="min-h-11 bg-background" required />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label className="text-xs text-muted-foreground">Box 17 - State Withheld ($)</Label>
-                    <Input type="number" min="0" step="0.01" value={form.stateWithheld} onChange={e=>setForm(p=>({...p,stateWithheld:e.target.value}))} placeholder="0.00" className="bg-background" />
+                    <Input type="number" min="0" step="0.01" value={form.stateWithheld} onChange={e=>setForm(p=>({...p,stateWithheld:e.target.value}))} placeholder="0.00" className="min-h-11 bg-background" />
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs text-muted-foreground">State</Label>
                     <Select value={form.state} onValueChange={v=>setForm(p=>({...p,state:v}))}>
-                      <SelectTrigger className="bg-background"><SelectValue placeholder="Select" /></SelectTrigger>
+                      <SelectTrigger className="min-h-11 bg-background"><SelectValue placeholder="Select" /></SelectTrigger>
                       <SelectContent>{US_STATES.map(s=><SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
                     </Select>
                   </div>
                 </div>
                 <div className="flex gap-2 pt-1">
-                  <Button type="button" variant="outline" onClick={()=>setShowForm(false)} className="flex-1">Cancel</Button>
-                  <Button type="submit" disabled={saving || !form.employer.trim() || !form.wages || form.socialSecurityWages === '' || form.medicareWages === ''} className="flex-1 gap-2">
+                  <Button type="button" variant="outline" onClick={()=>setShowForm(false)} className="min-h-11 flex-1">Cancel</Button>
+                  <Button type="submit" disabled={saving || !form.employer.trim() || !form.wages || form.socialSecurityWages === '' || form.medicareWages === ''} className="min-h-11 flex-1 gap-2">
                     {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}Save W-2
                   </Button>
                 </div>
@@ -183,7 +183,7 @@ export function W2IncomeScreen({ user, onBack }: Props) {
             {loading ? (
               <div className="flex justify-center py-8"><Loader2 className="w-8 h-8 animate-spin text-muted-foreground" /></div>
             ) : entries.length === 0 ? (
-              <div className="text-center py-10 text-muted-foreground">
+              <div className="text-center py-7 text-muted-foreground">
                 <Briefcase className="w-10 h-10 mx-auto mb-2 opacity-40" />
                 <p className="font-medium text-foreground text-sm">No W-2s entered for {year}</p>
                 <p className="text-xs mt-1">If you only have self-employment income, skip this section</p>
@@ -206,7 +206,7 @@ export function W2IncomeScreen({ user, onBack }: Props) {
                     </div>
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-semibold tabular-nums whitespace-nowrap">${fmt((e.box1Wages ?? e.wages))}</p>
-                      <Button variant="ghost" size="icon" onClick={() => del(e.id)} disabled={deleting === e.id} className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 h-8 w-8">
+                      <Button variant="ghost" size="icon" onClick={() => del(e.id)} disabled={deleting === e.id} className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 min-h-11 min-w-11">
                         {deleting === e.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
                       </Button>
                     </div>
@@ -221,10 +221,10 @@ export function W2IncomeScreen({ user, onBack }: Props) {
           </CardContent>
         </Card>
 
-        <div className="rounded-lg border border-border bg-muted/20 px-4 py-3 space-y-1 text-xs text-muted-foreground">
-          <p className="font-medium text-foreground text-sm">How this affects your taxes</p>
-          <p>Your W-2 wages are combined with self-employment income to determine which tax bracket you fall in. The federal tax your employer already withheld (Box 2) counts against what you owe, reducing your April balance due or increasing your refund.</p>
-        </div>
+        <details className="rounded-xl border border-border bg-card px-4 text-xs text-muted-foreground">
+          <summary className="min-h-11 cursor-pointer content-center text-sm font-medium text-foreground">How this affects your taxes</summary>
+          <p className="pb-3 leading-relaxed">Your W-2 wages are combined with self-employment income to determine which tax bracket you fall in. The federal tax your employer already withheld (Box 2) counts against what you owe, reducing your April balance due or increasing your refund.</p>
+        </details>
       </div>
     </div>
   );

@@ -243,18 +243,18 @@ export function TaxFormsSetupScreen() {
   </div>;
 
   return (
-    <div className="p-6 bg-gray-50 min-h-screen">
+    <div className="px-4 py-4 sm:px-6 bg-background min-h-full [&_input:not([type=checkbox])]:min-h-11 [&_button[role=combobox]]:min-h-11">
       <div className="max-w-4xl mx-auto">
         <div className="mb-6">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Tax Forms Setup</h1>
-          <p className="text-gray-600">Keep planning records for preparer review. These settings do not complete or file an IRS return.</p>
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-foreground mb-1">Tax Forms Setup</h1>
+          <p className="text-sm text-muted-foreground">Keep planning records for preparer review. These settings do not complete or file an IRS return.</p>
         </div>
 
         {/* Tabs */}
-        <div className="flex space-x-1 mb-6 bg-white rounded-lg p-1 w-fit">
+        <div className="flex flex-wrap gap-1 mb-4 bg-muted rounded-lg p-1 w-fit">
           <button
             onClick={() => setActiveTab('homeOffice')}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${
+            className={`min-h-11 px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${
               activeTab === 'homeOffice'
                 ? 'bg-white text-gray-900 shadow-sm'
                 : 'text-gray-500 hover:text-gray-700'
@@ -265,7 +265,7 @@ export function TaxFormsSetupScreen() {
           </button>
           <button
             onClick={() => setActiveTab('assets')}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${
+            className={`min-h-11 px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${
               activeTab === 'assets'
                 ? 'bg-white text-gray-900 shadow-sm'
                 : 'text-gray-500 hover:text-gray-700'
@@ -276,7 +276,7 @@ export function TaxFormsSetupScreen() {
           </button>
           <button
             onClick={() => setActiveTab('taxSummary')}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${
+            className={`min-h-11 px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${
               activeTab === 'taxSummary'
                 ? 'bg-white text-gray-900 shadow-sm'
                 : 'text-gray-500 hover:text-gray-700'
@@ -289,11 +289,11 @@ export function TaxFormsSetupScreen() {
 
         {/* Home Office Tab */}
         {activeTab === 'homeOffice' && (
-          <Card className="p-6">
+          <Card className="p-4">
             <h2 className="text-xl font-semibold mb-4">Home Office Settings</h2>
-            <p className="text-gray-600 mb-6">Record allocation inputs. Form 8829 export remains unavailable until eligibility, housing type, income limits and carryovers can be reviewed.</p>
+            <p className="text-sm text-muted-foreground mb-4">Record allocation inputs. Form 8829 export remains unavailable until eligibility, housing type, income limits and carryovers can be reviewed.</p>
             
-            <div className="grid grid-cols-2 gap-4 mb-6">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 mb-4">
               <div>
                 <Label htmlFor="totalHomeSqFt">Total Home Square Footage</Label>
                 <Input
@@ -401,14 +401,14 @@ export function TaxFormsSetupScreen() {
 
         {/* Assets Tab */}
         {activeTab === 'assets' && (
-          <Card className="p-6">
+          <Card className="p-4">
             <h2 className="text-xl font-semibold mb-4">Business Assets</h2>
-            <p className="text-gray-600 mb-6">Add your business assets for Form 4562 depreciation calculations</p>
+            <p className="text-sm text-muted-foreground mb-4">Add your business assets for Form 4562 depreciation calculations</p>
             
             {/* Add New Asset Form */}
             <div className="border rounded-lg p-4 mb-6 bg-gray-50">
               <h3 className="font-medium mb-4">Add New Asset</h3>
-              <div className="grid grid-cols-2 gap-4 mb-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 mb-4">
                 <div>
                   <Label htmlFor="assetDescription">Description</Label>
                   <Input
@@ -537,11 +537,11 @@ export function TaxFormsSetupScreen() {
 
         {/* Tax Summary Tab */}
         {activeTab === 'taxSummary' && (
-          <Card className="p-6">
+          <Card className="p-4">
             <h2 className="text-xl font-semibold mb-4">Tax Summary Settings</h2>
-            <p className="text-gray-600 mb-6">Optional planning notes. Schedule SE downloads calculate from selected-year income, confirmed expenses, assets and W-2 records; these cached values do not override that calculation.</p>
+            <p className="text-sm text-muted-foreground mb-4">Optional planning notes. Schedule SE downloads calculate from selected-year income, confirmed expenses, assets and W-2 records; these cached values do not override that calculation.</p>
             
-            <div className="grid grid-cols-2 gap-4 mb-6">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 mb-4">
               <div>
                 <Label htmlFor="scheduleCNetProfit">Schedule C Net Profit</Label>
                 <Input

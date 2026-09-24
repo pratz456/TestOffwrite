@@ -151,7 +151,7 @@ export default function ScheduleSEPage() {
 
   if (isLoading) {
     return (
-      <div className="p-6 bg-gray-50 min-h-screen">
+      <div className="mx-auto max-w-6xl px-4 py-4 sm:px-6 bg-background min-h-full [&_button[role=combobox]]:min-h-11">
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
           <p className="mt-2 text-gray-600">Loading...</p>
@@ -161,26 +161,26 @@ export default function ScheduleSEPage() {
   }
 
   return (
-    <div className="p-6 bg-gray-50 min-h-screen">
+    <div className="mx-auto max-w-6xl px-4 py-4 sm:px-6 bg-background min-h-full [&_button[role=combobox]]:min-h-11">
       {/* Header */}
-      <div className="flex items-center gap-4 mb-6">
+      <div className="flex items-center gap-3 mb-4">
         <button
           onClick={handleBack}
-          className="p-2 hover:bg-gray-200 rounded-lg transition-colors"
+          className="min-h-11 min-w-11 p-2 hover:bg-muted rounded-lg transition-colors"
         >
           <ArrowLeft className="w-5 h-5 text-gray-600" />
         </button>
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Schedule SE Export</h1>
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-foreground">Schedule SE Export</h1>
           <p className="text-gray-600">Export your self-employment tax calculations for tax filing</p>
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto space-y-6">
+      <div className="space-y-4">
         {/* Export Options */}
-        <Card className="p-6">
-          <h2 className="text-xl font-semibold mb-4">Export Options</h2>
-          <div className="grid grid-cols-2 gap-4 mb-6">
+        <Card className="p-4">
+          <h2 className="text-base font-semibold mb-3">Export Options</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Tax Year</label>
               <Select value={selectedYear} onValueChange={setSelectedYear}>
@@ -218,12 +218,12 @@ export default function ScheduleSEPage() {
         </Card>
 
         {/* Schedule SE Preview */}
-        <Card className="p-6">
-          <h2 className="text-xl font-semibold mb-4">Schedule SE Preview - Tax Year {selectedYear}</h2>
+        <Card className="p-4">
+          <h2 className="text-base font-semibold mb-3">Schedule SE Preview - Tax Year {selectedYear}</h2>
 
           {!taxSummary ? (
-            <div className="text-center py-12">
-              <User className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+            <div className="text-center py-6">
+              <User className="w-8 h-8 text-gray-300 mx-auto mb-4" />
               <h3 className="text-lg font-medium text-gray-900 mb-2">Tax Summary Settings Not Configured</h3>
               <p className="text-gray-600 mb-4">
                 You need to set up your tax summary information before generating Schedule SE.
@@ -234,8 +234,8 @@ export default function ScheduleSEPage() {
               </Button>
             </div>
           ) : validationErrors.length > 0 ? (
-            <div className="text-center py-12">
-              <AlertCircle className="w-16 h-16 text-red-300 mx-auto mb-4" />
+            <div className="text-center py-6">
+              <AlertCircle className="w-8 h-8 text-red-300 mx-auto mb-4" />
               <h3 className="text-lg font-medium text-gray-900 mb-2">Configuration Issues</h3>
               <div className="text-left max-w-md mx-auto mb-4">
                 <ul className="text-sm text-red-600 space-y-1">
@@ -329,10 +329,10 @@ export default function ScheduleSEPage() {
         </Card>
 
         {/* IRS Schedule SE Information */}
-        <Card className="p-6">
-          <h2 className="text-xl font-semibold mb-4">IRS Schedule SE Information</h2>
-          <div className="text-center py-8">
-            <User className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+        <details className="rounded-xl border border-border bg-card">
+          <summary className="min-h-11 cursor-pointer px-4 py-3 text-sm font-semibold">IRS Schedule SE Information</summary>
+          <div className="border-t border-border p-4">
+            <User className="w-8 h-8 text-gray-300 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">Schedule SE - Self-Employment Tax</h3>
             <p className="text-gray-600 mb-4">
               This form calculates self-employment tax on your business income.
@@ -348,7 +348,7 @@ export default function ScheduleSEPage() {
               </p>
             </div>
           </div>
-        </Card>
+        </details>
       </div>
 
       {/* Toast Container */}

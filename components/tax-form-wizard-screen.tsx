@@ -187,7 +187,7 @@ export function TaxFormWizardScreen({
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-full bg-background">
       {/* Header */}
       <div className="sticky top-0 z-50 bg-background border-b border-border">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
@@ -207,10 +207,10 @@ export function TaxFormWizardScreen({
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4">
         {/* Progress bar */}
         {!isResults && (
-          <div className="mb-6 sm:mb-8">
+          <div className="mb-4">
             <div className="flex justify-between text-xs text-muted-foreground mb-2">
               <span>Step {step} of {TOTAL_STEPS}</span>
             </div>
@@ -236,14 +236,14 @@ export function TaxFormWizardScreen({
               <div className="flex flex-col sm:flex-row gap-3">
                 <Button
                   onClick={() => handleAnswer(true)}
-                  className="flex-1 h-12 sm:h-14 text-base font-medium"
+                  className="flex-1 min-h-11 h-11 text-base font-medium"
                 >
                   Yes
                 </Button>
                 <Button
                   onClick={() => handleAnswer(false)}
                   variant="outline"
-                  className="flex-1 h-12 sm:h-14 text-base font-medium"
+                  className="flex-1 min-h-11 h-11 text-base font-medium"
                 >
                   No
                 </Button>
@@ -265,7 +265,7 @@ export function TaxFormWizardScreen({
 
         {/* Results */}
         {isResults && (
-          <div className="space-y-6">
+          <div className="space-y-4">
             <Card className="bg-card border-border">
               <CardHeader>
                 <div className="flex items-center gap-2">
@@ -277,14 +277,14 @@ export function TaxFormWizardScreen({
                   your situation. This short checklist is not a complete filing determination, and these forms are not all prepared or submitted by WriteOff.
                 </p>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="grid gap-3 md:grid-cols-2">
                 {FORMS.map((form) => {
                   const needed =
                     form.alwaysShow || form.neededIf(answers);
                   return (
                     <div
                       key={form.key}
-                      className="flex items-start gap-4 p-4 rounded-lg border border-border bg-background/50"
+                      className="flex items-start gap-3 p-3 rounded-lg border border-border bg-background/50"
                     >
                       <div className="shrink-0 mt-0.5">
                         {needed ? (

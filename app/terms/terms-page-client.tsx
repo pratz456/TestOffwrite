@@ -20,11 +20,11 @@ export default function TermsPageClient() {
   return (
     <div className="min-h-screen bg-background">
       <div className="bg-card border-b border-border">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex items-center justify-between">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <Image src={writeOffLogo} alt="WriteOff" className="w-8 h-auto" />
-              <h1 className="text-2xl font-bold text-foreground">Terms of Service</h1>
+              <h1 className="text-xl font-semibold tracking-tight text-foreground">Terms of Service</h1>
             </div>
             <Link href="/">
               <Button variant="outline" size="sm">
@@ -36,18 +36,18 @@ export default function TermsPageClient() {
         </div>
       </div>
 
-      <div className="max-w-3xl mx-auto px-6 md:px-8 py-12 md:py-16">
-        <Card className="rounded-2xl shadow-tight border border-border dark:bg-card">
-          <CardHeader className="p-8 md:p-10 pb-2">
-            <CardTitle className="flex items-center gap-2 text-2xl md:text-3xl font-bold tracking-tight mb-1">
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-5">
+        <Card className="rounded-xl border border-border shadow-none bg-card">
+          <CardHeader className="p-4 sm:p-5 pb-2">
+            <CardTitle className="flex items-center gap-2 text-xl font-semibold tracking-tight mb-1">
               <FileText className="w-5 h-5 text-primary" />
               Terms of Service
             </CardTitle>
-            <CardDescription className="text-sm text-muted-foreground mb-8 font-tabular-nums">
+            <CardDescription className="text-xs text-muted-foreground mb-2 font-tabular-nums">
               Effective date: September 18, 2026 (version {CONSENT_TERMS_VERSION})
             </CardDescription>
           </CardHeader>
-          <CardContent className="p-8 md:p-10 pt-4 space-y-6 [&>div:not(:first-child)]:mt-10 [&>div:not(:first-child)]:border-t [&>div:not(:first-child)]:border-border [&>div:not(:first-child)]:pt-8 [&_h3]:text-lg [&_h3]:font-semibold [&_h3]:mb-3 [&_p]:text-sm [&_p]:leading-relaxed [&_li]:text-sm [&_li]:leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:space-y-1">
+          <CardContent className="p-4 sm:p-5 pt-2 space-y-5 [&>div:not(:first-child)]:mt-5 [&>div:not(:first-child)]:border-t [&>div:not(:first-child)]:border-border [&>div:not(:first-child)]:pt-5 [&_h3]:text-lg [&_h3]:font-semibold [&_h3]:mb-3 [&_p]:text-sm [&_p]:leading-relaxed [&_li]:text-sm [&_li]:leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:space-y-1">
             <div>
               <p className="mb-4">
                 These Terms of Service (&ldquo;Terms&rdquo;) are an agreement between you and WriteOff (&ldquo;WriteOff&rdquo;, &ldquo;we&rdquo;, &ldquo;us&rdquo;) covering your use of the WriteOff website, web application and related services (the &ldquo;Service&rdquo;). By creating an account or using the Service you agree to these Terms and to our <Link href="/privacy" className="underline">Privacy Policy</Link>. If you do not agree, do not use the Service.

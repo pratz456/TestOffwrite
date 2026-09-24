@@ -11,12 +11,12 @@ import Image from 'next/image';
 export default function AboutUsPageClient() {
   return (
     <div className="min-h-screen bg-background">
-      <div className="bg-white border-b border-border">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex items-center justify-between">
+      <div className="bg-card border-b border-border">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <Image src={writeOffLogo} alt="WriteOff" className="w-8 h-auto" />
-              <h1 className="text-2xl font-bold text-foreground">About WriteOff</h1>
+              <h1 className="text-xl font-semibold tracking-tight text-foreground">About WriteOff</h1>
             </div>
             <Link href="/">
               <Button variant="outline" size="sm">
@@ -28,7 +28,7 @@ export default function AboutUsPageClient() {
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -39,9 +39,9 @@ export default function AboutUsPageClient() {
               Expense and receipt organization for freelancers and small businesses
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-6 text-sm text-muted-foreground">
+          <CardContent className="space-y-4 text-sm leading-relaxed text-muted-foreground">
             <div>
-              <h3 className="text-lg font-semibold text-foreground mb-3">Our Mission</h3>
+              <h3 className="text-base font-semibold text-foreground mb-2">Our Mission</h3>
               <p>
                 Keeping business records should fit into your working day. WriteOff brings expenses,
                 receipts and business notes together so you can review the details while they are fresh
@@ -50,14 +50,14 @@ export default function AboutUsPageClient() {
             </div>
 
             <div>
-              <h3 className="text-lg font-semibold text-foreground mb-3">What We Do</h3>
+              <h3 className="text-base font-semibold text-foreground mb-2">What We Do</h3>
               <p className="mb-3">
-                In the current preview, you can:
+                With WriteOff, you can:
               </p>
               <ul className="list-disc list-inside space-y-1 ml-4">
                 <li>Enter income and expenses manually</li>
                 <li>Upload receipts and check the extracted merchant, date and amount</li>
-                <li>Edit categories and add business-purpose notes</li>
+                <li>Review AI category suggestions and add business-purpose notes</li>
                 <li>Keep receipt attachments linked privately to your account</li>
                 <li>Download your records archive on any plan</li>
                 <li>Export supported PDF and CSV reports with a trial or Premium plan</li>
@@ -67,18 +67,19 @@ export default function AboutUsPageClient() {
             </div>
 
             <div>
-              <h3 className="text-lg font-semibold text-foreground mb-3">What to Expect</h3>
+              <h3 className="text-base font-semibold text-foreground mb-2">What to Expect</h3>
               <p>
                 Receipt text extraction helps reduce retyping, but you need to check the results.
                 A saved purchase is not automatically a tax deduction. Federal estimates depend on
                 reviewed facts and supported situations; missing information can require further review.
-                AI analysis, bank connections and in-app filing are unavailable in this preview.
+                AI suggests categories and explanations for your review. Bank activity can be connected
+                through Plaid, subject to connection availability.
                 WriteOff does not prepare a complete federal or state return or guarantee tax savings.
               </p>
             </div>
 
             <div>
-              <h3 className="text-lg font-semibold text-foreground mb-3">Why Choose WriteOff</h3>
+              <h3 className="text-base font-semibold text-foreground mb-2">Why Choose WriteOff</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
                 <div className="flex items-start gap-3">
                   <Heart className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" />
@@ -126,10 +127,10 @@ export default function AboutUsPageClient() {
             </div>
 
             <div>
-              <h3 className="text-lg font-semibold text-foreground mb-3">Get in Touch</h3>
+              <h3 className="text-base font-semibold text-foreground mb-2">Get in Touch</h3>
               <p>
                 Have questions or want to learn more? Get in touch.
-                Contact us at writeoffapp@gmail.com or visit our website at writeoffapp.com
+                Contact us at <a href="mailto:writeoffapp@gmail.com" className="font-medium text-primary underline underline-offset-2">writeoffapp@gmail.com</a> or visit <Link href="/contact" className="font-medium text-primary underline underline-offset-2">support</Link>.
               </p>
             </div>
           </CardContent>

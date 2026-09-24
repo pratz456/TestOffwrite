@@ -121,8 +121,8 @@ export const PaymentSettingsTab: React.FC<{ beforeNavigate: (action: () => void)
 
   if (loading) {
     return (
-      <div className="p-8">
-        <div className="flex items-center justify-center py-12">
+      <div className="p-4">
+        <div className="flex items-center justify-center py-6">
           <Loader2 className="w-8 h-8 animate-spin text-primary" />
         </div>
       </div>
@@ -421,7 +421,7 @@ const SettingsField = ({ label, children, hint }: { label: string; children: Rea
 const SettingsSection = ({ title, summary, icon: Icon, children, defaultOpen = false }: {
   title: string; summary: string; icon: React.ElementType; children: React.ReactNode; defaultOpen?: boolean;
 }) => (
-  <details className="group rounded-xl border border-border bg-card" open={defaultOpen || undefined}>
+  <details className="group min-w-0 self-start rounded-xl border border-border bg-card md:open:col-span-2" open={defaultOpen || undefined}>
     <summary className="flex min-h-16 cursor-pointer list-none items-center gap-3 rounded-xl px-4 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
       <Icon aria-hidden="true" className="h-5 w-5 shrink-0 text-muted-foreground" />
       <span className="min-w-0 flex-1">
@@ -1208,7 +1208,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   }
 
   if (loadFailed) {
-    return <div className="mx-auto max-w-3xl space-y-3 p-4" role="alert">
+    return <div className="mx-auto max-w-5xl space-y-3 p-4" role="alert">
       <h1 className="text-xl font-semibold">Settings</h1>
       <p className="text-sm">Your settings could not be loaded.</p>
       <Button className="min-h-11" onClick={() => setLoadAttempt(attempt => attempt + 1)}>Retry loading settings</Button>
@@ -1219,8 +1219,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     <div className="min-h-full bg-background">
       {/* Header */}
       <div className="bg-card border-b border-border sticky top-0 z-50">
-        <div className="max-w-3xl mx-auto flex items-center justify-between px-4 py-3 sm:px-6 sm:py-4">
-          <h1 className="text-xl sm:text-2xl font-bold text-foreground">Settings</h1>
+        <div className="max-w-5xl mx-auto flex items-center justify-between px-4 py-3 sm:px-6">
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-foreground">Settings</h1>
 
           {/* Save status pill */}
           <div className="flex items-center" role="status" aria-live="polite">
@@ -1253,7 +1253,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         </div>
       </div>
 
-      <div className="max-w-3xl mx-auto px-4 py-4 sm:px-6 space-y-3">
+      <div className="max-w-5xl mx-auto px-4 py-4 sm:px-6 space-y-3">
         {saveStatus === 'saved' && profileAiRefresh && <p role="status" className="text-xs text-muted-foreground">AI reviews will update using your new profile. Confirmed categories stay saved.</p>}
         {/* Tab Navigation */}
         <nav aria-label="Settings sections" className="flex gap-1 bg-muted rounded-xl p-1 border border-border">
@@ -1282,9 +1282,9 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
         {/* ============= TAB 1: Profile & Business ============= */}
         {activeTab === 'profile' && (
-          <div id="settings-profile" className="space-y-3">
+          <div id="settings-profile" className="grid items-start gap-3 md:grid-cols-2">
             {/* Tax Filing Essentials - Highlighted Card */}
-            <SettingsSection title="Tax profile" icon={FileText} summary={[profile.filing_status, profile.state].filter(Boolean).join(' · ') || 'Filing status, state & W-2 income'}>
+            <SettingsSection title="Tax profile" defaultOpen icon={FileText} summary={[profile.filing_status, profile.state].filter(Boolean).join(' · ') || 'Filing status, state & W-2 income'}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <SettingsField label="Filing Status">
                   <SimpleSelectWrapper

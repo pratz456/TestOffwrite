@@ -13,11 +13,11 @@ export default function PrivacyPolicyPageClient() {
   return (
     <div className="min-h-screen bg-background">
       <div className="bg-card border-b border-border">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex items-center justify-between">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <Image src={writeOffLogo} alt="WriteOff" className="w-8 h-auto" />
-              <h1 className="text-2xl font-bold text-foreground">Privacy Policy</h1>
+              <h1 className="text-xl font-semibold tracking-tight text-foreground">Privacy Policy</h1>
             </div>
             <Link href="/">
               <Button variant="outline" size="sm">
@@ -29,18 +29,18 @@ export default function PrivacyPolicyPageClient() {
         </div>
       </div>
 
-      <div className="max-w-3xl mx-auto px-6 md:px-8 py-12 md:py-16">
-        <Card className="rounded-2xl shadow-tight border border-border dark:bg-card">
-          <CardHeader className="p-8 md:p-10 pb-2">
-            <CardTitle className="flex items-center gap-2 text-2xl md:text-3xl font-bold tracking-tight mb-1">
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-5">
+        <Card className="rounded-xl border border-border shadow-none bg-card">
+          <CardHeader className="p-4 sm:p-5 pb-2">
+            <CardTitle className="flex items-center gap-2 text-xl font-semibold tracking-tight mb-1">
               <Shield className="w-5 h-5 text-primary" />
               Privacy Policy
             </CardTitle>
-            <CardDescription className="text-sm text-muted-foreground mb-8 font-tabular-nums">
+            <CardDescription className="text-xs text-muted-foreground mb-2 font-tabular-nums">
               Effective date: September 18, 2026 (version {CONSENT_TERMS_VERSION})
             </CardDescription>
           </CardHeader>
-          <CardContent className="p-8 md:p-10 pt-4 space-y-6 [&>div:not(:first-child)]:mt-10 [&>div:not(:first-child)]:border-t [&>div:not(:first-child)]:border-border [&>div:not(:first-child)]:pt-8 [&_p]:text-base [&_p]:leading-[1.75] [&_p]:text-muted-foreground [&_p]:mb-4 [&_h3]:text-lg md:[&_h3]:text-xl [&_h3]:font-bold [&_h3]:text-foreground [&_h3]:mb-3 [&_ul]:list-disc [&_ul]:list-inside [&_ul]:ml-5 md:[&_ul]:ml-6 [&_ul]:mt-2 [&_ul]:mb-4 [&_ul]:space-y-2 [&_ul]:text-muted-foreground [&_ul]:[&_li]:marker:text-muted-foreground">
+          <CardContent className="p-4 sm:p-5 pt-2 space-y-5 [&>div:not(:first-child)]:mt-5 [&>div:not(:first-child)]:border-t [&>div:not(:first-child)]:border-border [&>div:not(:first-child)]:pt-5 [&_p]:text-base [&_p]:leading-relaxed [&_p]:text-muted-foreground [&_p]:mb-4 [&_h3]:text-lg  [&_h3]:font-semibold [&_h3]:text-foreground [&_h3]:mb-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:mt-2 [&_ul]:mb-4 [&_ul]:space-y-1.5 [&_ul]:text-muted-foreground [&_ul]:[&_li]:marker:text-muted-foreground">
             <div>
               <p className="mb-4">
                 At WriteOff, we value your privacy and are committed to protecting your personal and financial information. This Privacy Policy explains what information we collect, how we use it, and the choices you have regarding your data.

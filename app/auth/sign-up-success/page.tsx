@@ -111,7 +111,7 @@ export default function Page() {
   };
 
   return (
-    <main className="flex min-h-svh w-full items-center justify-center bg-background p-6 md:p-10">
+    <main className="flex min-h-svh w-full items-center justify-center bg-background px-4 py-6 sm:py-10">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">

@@ -2,45 +2,32 @@
 
 import React from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Shield, ArrowLeft } from 'lucide-react';
+import { Card, CardContent, CardDescription, CardHeader } from '@/components/ui/card';
 import Link from 'next/link';
 import { CONSENT_TERMS_VERSION } from '@/lib/onboarding/consents';
-import writeOffLogo from '@/public/writeofflogo.png';
-import Image from 'next/image';
 
 export default function PrivacyPolicyPage() {
   return (
-    <div className="min-h-screen bg-background">
-      <div className="bg-card border-b border-border">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Image src={writeOffLogo} alt="WriteOff" className="w-8 h-auto" />
-              <h1 className="text-2xl font-bold text-foreground">Privacy Policy</h1>
-            </div>
-            <Link href="/protected">
-              <Button variant="outline" size="sm">
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                Back to Dashboard
-              </Button>
-            </Link>
+    <div className="min-h-full bg-background">
+      <header className="border-b border-border bg-background">
+        <div className="mx-auto flex max-w-4xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
+          <div className="min-w-0">
+            <h1 className="text-xl font-semibold tracking-tight text-foreground">Privacy Policy</h1>
           </div>
+          <Button asChild variant="outline" size="sm" className="shrink-0">
+            <Link href="/protected" aria-label="Back to dashboard">Back</Link>
+          </Button>
         </div>
-      </div>
+      </header>
 
-      <div className="max-w-3xl mx-auto px-6 md:px-8 py-12 md:py-16">
-        <Card className="rounded-2xl shadow-tight border border-border dark:bg-card">
-          <CardHeader className="p-8 md:p-10 pb-2">
-            <CardTitle className="flex items-center gap-2 text-2xl md:text-3xl font-bold tracking-tight mb-1">
-              <Shield className="w-5 h-5 text-primary" />
-              Privacy Policy
-            </CardTitle>
-            <CardDescription className="text-sm text-muted-foreground mb-8 font-tabular-nums">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4">
+        <Card className="rounded-xl border-border shadow-none">
+          <CardHeader className="p-4 pb-3">
+            <CardDescription className="text-xs text-muted-foreground font-tabular-nums">
               Effective date: September 18, 2026 (version {CONSENT_TERMS_VERSION})
             </CardDescription>
           </CardHeader>
-          <CardContent className="p-8 md:p-10 pt-4 space-y-6 [&>div:not(:first-child)]:mt-10 [&>div:not(:first-child)]:border-t [&>div:not(:first-child)]:border-border [&>div:not(:first-child)]:pt-8 [&_p]:text-base [&_p]:leading-[1.75] [&_p]:text-muted-foreground [&_p]:mb-4 [&_h3]:text-lg md:[&_h3]:text-xl [&_h3]:font-bold [&_h3]:text-foreground [&_h3]:mb-3 [&_ul]:list-disc [&_ul]:list-inside [&_ul]:ml-5 md:[&_ul]:ml-6 [&_ul]:mt-2 [&_ul]:mb-4 [&_ul]:space-y-2 [&_ul]:text-muted-foreground [&_ul]:[&_li]:marker:text-muted-foreground">
+          <CardContent className="p-4 pt-0 space-y-4 [&>div:not(:first-child)]:border-t [&>div:not(:first-child)]:border-border [&>div:not(:first-child)]:pt-4 [&_p]:text-sm [&_p]:leading-6 [&_p]:text-muted-foreground [&_p]:mb-2 [&_h3]:text-base [&_h3]:font-semibold [&_h3]:text-foreground [&_h3]:mb-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:mt-2 [&_ul]:mb-2 [&_ul]:space-y-1 [&_ul]:text-sm [&_ul]:leading-6 [&_ul]:text-muted-foreground">
             <div>
               <p className="mb-4">
                 At WriteOff ("we," "our," or "us"), we value your privacy and are committed to protecting your personal and financial information. This Privacy Policy explains what information we collect, how we use it, and the choices you have regarding your data.

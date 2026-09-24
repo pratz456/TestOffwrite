@@ -225,37 +225,37 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+    <div className="min-h-full bg-background">
       {/* Header */}
-      <div className="bg-white border-b border-blue-100 sticky top-0 z-50 shadow-sm">
-        <div className="max-w-4xl mx-auto px-6 py-4">
+      <div className="bg-background/95 border-b border-border sticky top-0 z-10">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3">
           <div className="flex items-center gap-4">
             <div>
-              <h1 className="text-xl font-semibold text-slate-900">Upload Receipt</h1>
-              <p className="text-sm text-slate-600">Scan and automatically extract expense data</p>
+              <h1 className="text-xl font-semibold text-foreground">Upload Receipt</h1>
+              <p className="text-sm text-muted-foreground">Scan and automatically extract expense data</p>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto p-6">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
           {/* Upload Section */}
-          <Card className="p-8 bg-white border-0 shadow-xl">
-            <h3 className="text-lg font-semibold text-slate-900 mb-6">Upload Receipt</h3>
+          <Card className="p-4 bg-card border-border rounded-2xl shadow-none">
+            <h3 className="text-sm font-semibold text-foreground mb-4">Upload Receipt</h3>
             
             {error && !selectedFile && <p role="alert" className="mb-4 text-sm text-red-700">{error}</p>}
             {!selectedFile ? (
               <div
-                className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-400 transition-colors cursor-pointer"
+                className="border-2 border-dashed border-border rounded-xl p-5 text-center hover:border-blue-400 transition-colors cursor-pointer"
                 onDrop={handleDrop}
                 onDragOver={handleDragOver}
                 onClick={() => fileInputRef.current?.click()}
               >
-                <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-lg text-slate-700 mb-2">Drop your receipt here</p>
-                <p className="text-sm text-slate-500 mb-4">or click to browse files</p>
-                <Button variant="outline" className="gap-2">
+                <Upload className="w-8 h-8 text-muted-foreground/50 mx-auto mb-3" />
+                <p className="text-lg text-foreground mb-2">Drop your receipt here</p>
+                <p className="text-sm text-muted-foreground mb-4">or click to browse files</p>
+                <Button variant="outline" className="min-h-11 gap-2">
                   <FileText className="w-4 h-4" />
                   Choose File
                 </Button>
@@ -269,12 +269,12 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="bg-slate-50 rounded-lg p-4">
+                <div className="bg-muted/35 rounded-lg p-4">
                   <div className="flex items-center gap-3">
                     <FileText className="w-8 h-8 text-blue-600" />
                     <div>
-                      <p className="font-medium text-slate-900">{selectedFile.name}</p>
-                      <p className="text-sm text-slate-600">
+                      <p className="font-medium text-foreground">{selectedFile.name}</p>
+                      <p className="text-sm text-muted-foreground">
                         {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
                       </p>
                     </div>
@@ -286,7 +286,7 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
                     <img
                       src={previewUrl || undefined}
                       alt="Receipt preview"
-                      className="w-full h-64 object-cover"
+                      className="w-full max-h-60 object-contain"
                     />
                   </div>
                 )}
@@ -298,11 +298,11 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
                   </div>
                 )}
 
-                <div className="flex gap-3">
+                <div className="flex flex-wrap gap-2">
                   <Button
                     onClick={processReceipt}
                     disabled={isUploading || isSaving}
-                    className="flex-1 gap-2 bg-blue-600 hover:bg-blue-700"
+                    className="min-h-11 flex-1 gap-2"
                   >
                     {isUploading ? (
                       <>
@@ -330,7 +330,7 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
                     Remove
                   </Button>
                 </div>
-                <Button variant="outline" className="w-full" onClick={editManually} disabled={isUploading || isSaving}>
+                <Button variant="outline" className="min-h-11 w-full" onClick={editManually} disabled={isUploading || isSaving}>
                   Enter receipt details manually
                 </Button>
               </div>
@@ -338,16 +338,16 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
           </Card>
 
           {/* Extracted Data Section */}
-          <Card className="p-8 bg-white border-0 shadow-xl">
-            <h3 className="text-lg font-semibold text-slate-900 mb-6">Extracted Data</h3>
+          <Card className="p-4 bg-card border-border rounded-2xl shadow-none">
+            <h3 className="text-sm font-semibold text-foreground mb-4">Extracted Data</h3>
             
             {!extractedData ? (
-              <div className="text-center py-12">
-                <FileText className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                <p className="text-slate-500">Upload and process a receipt to see extracted data</p>
+              <div className="text-center py-7">
+                <FileText className="w-8 h-8 text-muted-foreground/50 mx-auto mb-3" />
+                <p className="text-muted-foreground">Upload and process a receipt to see extracted data</p>
               </div>
             ) : (
-              <div className="space-y-6">
+              <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-green-600">
                     <CheckCircle className="w-5 h-5" />
@@ -362,7 +362,7 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
 
                 <div className="space-y-4">
                   {isEditing ? <fieldset disabled={isSaving || attachmentChoice === 'attach'} className="space-y-4">
-                    <p className="text-sm text-slate-600">Check these details against your receipt before saving.</p>
+                    <p className="text-sm text-muted-foreground">Check these details against your receipt before saving.</p>
                     <div className="space-y-1">
                       <Label htmlFor="receipt-merchant">Merchant</Label>
                       <Input id="receipt-merchant" value={draft.merchant} maxLength={500} required
@@ -386,19 +386,19 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
                         onChange={event => setDraft(value => ({ ...value, category: event.target.value }))} />
                     </div>
                   </fieldset> : <>
-                    <div><span className="text-sm font-medium text-slate-700">Merchant</span><p className="text-slate-900 font-medium">{draft.merchant || 'Needs review'}</p></div>
+                    <div><span className="text-sm font-medium text-foreground">Merchant</span><p className="text-foreground font-medium">{draft.merchant || 'Needs review'}</p></div>
                     <div className="grid grid-cols-2 gap-4">
-                      <div><span className="text-sm font-medium text-slate-700">Amount (USD)</span><p className="text-slate-900 font-medium">${draft.amount || '0'}</p></div>
-                      <div><span className="text-sm font-medium text-slate-700">Date</span><p className="text-slate-900 font-medium">{draft.date}</p></div>
+                      <div><span className="text-sm font-medium text-foreground">Amount (USD)</span><p className="text-foreground font-medium">${draft.amount || '0'}</p></div>
+                      <div><span className="text-sm font-medium text-foreground">Date</span><p className="text-foreground font-medium">{draft.date}</p></div>
                     </div>
-                    <div><span className="text-sm font-medium text-slate-700">Category</span><p className="text-slate-900 font-medium">{draft.category}</p></div>
+                    <div><span className="text-sm font-medium text-foreground">Category</span><p className="text-foreground font-medium">{draft.category}</p></div>
                   </>}
 
                   <div className="space-y-3 pt-4 border-t border-slate-100">
                     <div className="flex items-center justify-between gap-3">
                       <div>
-                        <label htmlFor="receipt-type" className="block text-sm font-medium text-slate-700">Receipt type</label>
-                        <p id="receipt-type-hint" className="text-xs text-slate-500">Used only when creating a new transaction.</p>
+                        <label htmlFor="receipt-type" className="block text-sm font-medium text-foreground">Receipt type</label>
+                        <p id="receipt-type-hint" className="text-xs text-muted-foreground">Used only when creating a new transaction.</p>
                       </div>
                       <select
                         id="receipt-type"
@@ -406,7 +406,7 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
                         value={receiptType}
                         disabled={isSaving}
                         onChange={(e) => setReceiptType(e.target.value as 'expense' | 'income')}
-                        className="h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white"
+                        className="min-h-11 px-3 text-sm border border-border rounded-lg bg-background"
                       >
                         <option value="expense">Expense</option>
                         <option value="income">Income</option>
@@ -415,8 +415,8 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
 
                     {extractedData.matchCandidates.length > 0 ? (
                       <div className="space-y-2">
-                        <label htmlFor="receipt-save-target" className="block text-sm font-medium text-slate-700">Save receipt to</label>
-                        <p id="receipt-save-target-hint" className="text-xs text-slate-500">If attached, we only update the receipt photo (no amount/category changes).</p>
+                        <label htmlFor="receipt-save-target" className="block text-sm font-medium text-foreground">Save receipt to</label>
+                        <p id="receipt-save-target-hint" className="text-xs text-muted-foreground">If attached, we only update the receipt photo (no amount/category changes).</p>
 
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                           <select
@@ -432,7 +432,7 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
                                 setSelectedCandidateTransId(selectedCandidateTransId || fallback);
                               }
                             }}
-                            className="h-9 w-full min-w-0 max-w-full px-3 text-sm border border-slate-200 rounded-lg bg-white sm:w-auto"
+                            className="min-h-11 w-full min-w-0 max-w-full px-3 text-sm border border-border rounded-lg bg-background sm:w-auto"
                           >
                             <option value="attach">Existing transaction</option>
                             <option value="create">New transaction</option>
@@ -445,7 +445,7 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
                               value={selectedCandidateTransId || ''}
                               disabled={isSaving}
                               onChange={(e) => setSelectedCandidateTransId(e.target.value)}
-                              className="h-9 w-full min-w-0 max-w-full flex-1 px-3 text-sm border border-slate-200 rounded-lg bg-white"
+                              className="min-h-11 w-full min-w-0 max-w-full flex-1 px-3 text-sm border border-border rounded-lg bg-background"
                             >
                               {extractedData.matchCandidates.slice(0, 3).map((c) => (
                                 <option key={c.trans_id} value={c.trans_id}>
@@ -460,26 +460,26 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
                         </div>
                       </div>
                     ) : (
-                      <div className="text-sm text-slate-600">
+                      <div className="text-sm text-muted-foreground">
                         No strong matches found, we will create a new transaction.
                       </div>
                     )}
                   </div>
 
                   <div>
-                    <label className="text-sm font-medium text-slate-700 mb-2 block">Items <span className="text-red-600 ml-0.5">*</span></label>
+                    <label className="text-sm font-medium text-foreground mb-2 block">Items <span className="text-red-600 ml-0.5">*</span></label>
                     <div className="space-y-2">
                       {extractedData.items.map((item: any, index: number) => (
-                        <div key={index} className="flex justify-between items-center py-2 px-3 bg-slate-50 rounded">
-                          <span className="text-sm text-slate-700">{item.description}</span>
-                          <span className="text-sm font-medium text-slate-900">${item.amount}</span>
+                        <div key={index} className="flex justify-between items-center py-2 px-3 bg-muted/35 rounded">
+                          <span className="text-sm text-foreground">{item.description}</span>
+                          <span className="text-sm font-medium text-foreground">${item.amount}</span>
                         </div>
                       ))}
                     </div>
                   </div>
                 </div>
 
-                <div className="flex gap-3 pt-4 border-t border-gray-200">
+                <div className="flex gap-3 pt-4 border-t border-border">
                   <Button 
                     onClick={handleConfirmData}
                     disabled={isSaving || isUploading}
@@ -492,7 +492,7 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
                     onClick={editManually}
                     disabled={isSaving || isUploading}
                     variant="outline"
-                    className="gap-2"
+                    className="min-h-11 gap-2"
                   >
                     <AlertCircle className="w-4 h-4" />
                     Edit Manually

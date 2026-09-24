@@ -197,10 +197,10 @@ export function QuarterlyPaymentTrackingScreen({
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-full bg-background">
       {/* Header */}
       <div className="sticky top-0 z-50 bg-background border-b border-border">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
           <div className="flex items-center gap-3 sm:gap-4">
             <div>
               <h1 className="text-lg sm:text-xl font-semibold text-foreground">
@@ -214,7 +214,7 @@ export function QuarterlyPaymentTrackingScreen({
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4 sm:py-6 space-y-6">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 space-y-4">
         {/* Year selector */}
         <div className="flex items-center gap-2">
           <Label className="text-sm text-muted-foreground">Year:</Label>
@@ -222,7 +222,7 @@ export function QuarterlyPaymentTrackingScreen({
             value={String(selectedYear)}
             onValueChange={(v) => setSelectedYear(parseInt(v, 10))}
           >
-            <SelectTrigger className="w-[120px]">
+            <SelectTrigger className="w-[120px] min-h-11">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -242,7 +242,7 @@ export function QuarterlyPaymentTrackingScreen({
         )}
 
         {isLoading ? (
-          <div className="flex justify-center py-16">
+          <div className="flex justify-center py-8">
             <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
           </div>
         ) : (
@@ -251,7 +251,7 @@ export function QuarterlyPaymentTrackingScreen({
             {/* Summary bar */}
             {summary && (
               <Card className="bg-card border border-border">
-                <CardContent className="pt-6">
+                <CardContent className="p-4">
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                     <div className="rounded-lg bg-muted/50 p-3 sm:p-4">
                       <p className="text-xs text-muted-foreground mb-0.5">
@@ -313,14 +313,14 @@ export function QuarterlyPaymentTrackingScreen({
             </Button>
 
             {/* Quarter cards */}
-            <div className="space-y-4">
+            <div className="grid items-start gap-3 xl:grid-cols-2">
               {payments.map((payment) => (
                 <Card
                   key={`Q${payment.quarter}_${payment.year}`}
                   className="bg-card border border-border"
                 >
                   <CardHeader className="pb-2">
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <div className="flex flex-col gap-2">
                       <div>
                         <CardTitle className="text-base font-medium text-foreground flex items-center gap-2">
                           Q{payment.quarter}
@@ -486,7 +486,7 @@ export function QuarterlyPaymentTrackingScreen({
                         type="number"
                         step="0.01"
                         min="0"
-                        className="w-32 h-8 text-sm"
+                        className="w-32 min-h-11 text-base"
                         defaultValue={payment.estimatedAmount}
                         onBlur={(e) => {
                           const v = parseFloat(e.target.value);

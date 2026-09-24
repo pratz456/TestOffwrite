@@ -333,7 +333,7 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="min-h-full bg-background flex items-center justify-center">
         <div className="text-center">
           <RefreshCw className="w-8 h-8 animate-spin text-green-600 dark:text-green-400 mx-auto mb-4" />
           <p className="text-muted-foreground">Analyzing your financial patterns...</p>
@@ -344,7 +344,7 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
 
   if (!insights) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="min-h-full bg-background flex items-center justify-center">
         <div className="text-center">
           <AlertCircle className="w-8 h-8 text-amber-500 mx-auto mb-4" />
           <p role={taxReviewMessage ? 'alert' : undefined} className="text-muted-foreground">{taxReviewMessage || 'Unable to generate insights. Please try again.'}</p>
@@ -363,10 +363,10 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
   ];
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-full bg-background">
       {/* Header */}
       <header className="bg-card border-b border-border sticky top-0 z-50 shadow-sm">
-        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 sm:p-6">
+        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 px-4 py-3 sm:px-6">
           <div className="flex items-center gap-3 sm:gap-4 w-full sm:w-auto">
             <div className="min-w-0">
               <h1 className="text-xl sm:text-2xl font-bold text-foreground">AI Tax Insights</h1>
@@ -380,7 +380,7 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
         </div>
       </header>
 
-      <div className="p-4 sm:p-6 max-w-6xl mx-auto">
+      <div className="px-4 py-4 sm:px-6 max-w-6xl mx-auto">
         {taxReviewMessage && (
           <div role="alert" className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-foreground">
             <p>{taxReviewMessage}</p>
@@ -388,27 +388,27 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
           </div>
         )}
         {/* Summary Card */}
-        <Card className="p-4 sm:p-6 mb-6 sm:mb-8 border border-border bg-card">
+        <Card className="p-4 mb-4 border border-border bg-card">
           <h2 className="text-lg sm:text-xl font-semibold text-foreground mb-1">
             Your Tax Review Opportunities
           </h2>
-          <p className="text-sm text-muted-foreground mb-4 sm:mb-6">
+          <p className="text-sm text-muted-foreground mb-3">
             Based on your {professionLabel} profile and all saved transaction dates. Suggestions require your review.
           </p>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-            <div className="rounded-lg bg-muted/40 dark:bg-muted/20 p-3 sm:p-4 text-center">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="rounded-lg bg-muted/40 dark:bg-muted/20 p-3 text-center">
               <div className="text-xl sm:text-2xl font-bold text-foreground">{insights.monthlySummary.confirmedDeductions}</div>
               <div className="text-xs sm:text-sm text-muted-foreground mt-0.5">Confirmed Deductions</div>
             </div>
-            <div className="rounded-lg bg-muted/40 dark:bg-muted/20 p-3 sm:p-4 text-center">
+            <div className="rounded-lg bg-muted/40 dark:bg-muted/20 p-3 text-center">
               <div className="text-xl sm:text-2xl font-bold text-foreground">{insights.monthlySummary.identifiedDeductions}</div>
               <div className="text-xs sm:text-sm text-muted-foreground mt-0.5">New Opportunities</div>
             </div>
-            <div className="rounded-lg bg-green-600/10 dark:bg-green-600/15 p-3 sm:p-4 text-center">
+            <div className="rounded-lg bg-green-600/10 dark:bg-green-600/15 p-3 text-center">
               <div className="text-xl sm:text-2xl font-bold text-green-700 dark:text-green-300">${insights.monthlySummary.reviewableSpending.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
               <div className="text-xs sm:text-sm text-muted-foreground mt-0.5">Spending to Review (not tax savings)</div>
             </div>
-            <div className="rounded-lg bg-muted/40 dark:bg-muted/20 p-3 sm:p-4 text-center">
+            <div className="rounded-lg bg-muted/40 dark:bg-muted/20 p-3 text-center">
               <div className="text-xl sm:text-2xl font-bold text-foreground">{insights.monthlySummary.totalDeductions === null ? "Review required" : insights.monthlySummary.totalDeductions.toLocaleString("en-US", { style: "currency", currency: "USD" })}</div>
               <div className="text-xs sm:text-sm text-muted-foreground mt-0.5">Confirmed Transaction Deductions</div>
             </div>
@@ -423,7 +423,7 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`px-3 sm:px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap shrink-0 ${
+              className={`min-h-11 px-3 sm:px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap shrink-0 ${
                 activeTab === tab.id
                   ? 'bg-green-600 text-white shadow-sm dark:bg-green-600 dark:text-white'
                   : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
@@ -437,10 +437,10 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
 
         {/* Tab Content */}
         {activeTab === 'overview' && (
-          <div className="space-y-6">
+          <div className="space-y-4">
             <h3 className="text-lg font-semibold text-foreground">Top Opportunities</h3>
             {insights.topOpportunities.length === 0 ? (
-              <Card className="p-8 text-center border-border bg-card">
+              <Card className="p-5 text-center border-border bg-card">
                 <Lightbulb className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
                 <p className="text-muted-foreground">Add transactions and complete your profile to see personalized opportunities.</p>
                 <Button asChild variant="outline" className="mt-4">
@@ -448,7 +448,7 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
                 </Button>
               </Card>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {insights.topOpportunities.map((insight) => (
                   <Card key={insight.id} className={`p-4 sm:p-6 border transition-all hover:shadow-md ${getCategoryColor(insight.category)}`}>
                     <div className="flex items-start gap-3 sm:gap-4">
@@ -477,20 +477,20 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
         )}
 
         {activeTab === 'deductions' && (
-          <div className="space-y-6">
+          <div className="space-y-4">
             <h3 className="text-lg font-semibold text-foreground">Deduction Opportunities</h3>
             {(() => {
               const deductionInsights = insights.professionInsights.filter(i => i.category === 'deduction');
               if (deductionInsights.length === 0) {
                 return (
-                  <Card className="p-8 text-center border-border bg-card">
+                  <Card className="p-5 text-center border-border bg-card">
                     <DollarSign className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
                     <p className="text-muted-foreground">No deduction-specific insights yet. Complete your profile and add transactions to see recommendations.</p>
                   </Card>
                 );
               }
               return (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {deductionInsights.map((insight) => (
                     <Card key={insight.id} className={`p-4 sm:p-6 border transition-all hover:shadow-md ${getCategoryColor(insight.category)}`}>
                       <div className="flex items-start gap-3 sm:gap-4">
@@ -520,20 +520,20 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
         )}
 
         {activeTab === 'planning' && (
-          <div className="space-y-6">
+          <div className="space-y-4">
             <h3 className="text-lg font-semibold text-foreground">Tax Planning</h3>
             {(() => {
               const planningInsights = insights.professionInsights.filter(i => i.category === 'planning');
               if (planningInsights.length === 0) {
                 return (
-                  <Card className="p-8 text-center border-border bg-card">
+                  <Card className="p-5 text-center border-border bg-card">
                     <Calendar className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
                     <p className="text-muted-foreground">No planning insights for your profile yet. Check back after we learn more about your business.</p>
                   </Card>
                 );
               }
               return (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {planningInsights.map((insight) => (
                     <Card key={insight.id} className={`p-4 sm:p-6 border transition-all hover:shadow-md ${getCategoryColor(insight.category)}`}>
                       <div className="flex items-start gap-3 sm:gap-4">
@@ -563,15 +563,15 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
         )}
 
         {activeTab === 'patterns' && (
-          <div className="space-y-6">
+          <div className="space-y-4">
             <h3 className="text-lg font-semibold text-foreground">Spending Pattern Insights</h3>
             {insights.spendingPatternInsights.length === 0 ? (
-              <Card className="p-8 text-center border-border bg-card">
+              <Card className="p-5 text-center border-border bg-card">
                 <PieChart className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
                 <p className="text-muted-foreground">Connect accounts and add more transactions to see pattern-based insights.</p>
               </Card>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {insights.spendingPatternInsights.map((insight) => (
                   <Card key={insight.id} className={`p-4 sm:p-6 border transition-all hover:shadow-md ${getCategoryColor(insight.category)}`}>
                     <div className="flex items-start gap-3 sm:gap-4">

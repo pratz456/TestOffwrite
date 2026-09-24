@@ -55,7 +55,7 @@ function AmountField({ id, label, value, onChange, hint }: { id: string; label: 
   return (
     <div className="space-y-2">
       <Label htmlFor={id}>{label}</Label>
-      <Input id={id} type="text" inputMode="numeric" placeholder="0" value={value} onChange={e => onChange(e.target.value.replace(/[^0-9]/g, ""))} className="text-base" />
+      <Input id={id} type="text" inputMode="numeric" placeholder="0" value={value} onChange={e => onChange(e.target.value.replace(/[^0-9]/g, ""))} className="min-h-11 text-base" />
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
   );
@@ -104,15 +104,15 @@ export function StateTaxCalculatorScreen({ userProfile }: StateTaxCalculatorScre
     : [], [stateCode, profileStateCode, profileLocation.city, year]);
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-full bg-background">
       <div className="sticky top-0 z-50 border-b border-border bg-background">
-        <div className="mx-auto max-w-4xl px-4 py-3 sm:px-6 sm:py-4">
+        <div className="mx-auto max-w-6xl px-4 py-3 sm:px-6 sm:py-4">
           <h1 className="text-lg font-semibold text-foreground sm:text-xl">State tax planning</h1>
           <p className="text-xs text-muted-foreground sm:text-sm">Informational state planning estimate from state department of revenue parameters</p>
         </div>
       </div>
 
-      <div className="mx-auto max-w-4xl space-y-6 px-4 py-6 sm:px-6 sm:py-8">
+      <div className="mx-auto max-w-6xl grid items-start gap-4 px-4 py-4 sm:px-6 lg:grid-cols-2">
         <Card className="border-border bg-card">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base"><Calculator className="h-5 w-5" />Your information</CardTitle>
@@ -122,7 +122,7 @@ export function StateTaxCalculatorScreen({ userProfile }: StateTaxCalculatorScre
               <div className="space-y-2">
                 <Label htmlFor="state">State</Label>
                 <Select value={stateCode} onValueChange={setStateCode}>
-                  <SelectTrigger id="state"><SelectValue placeholder="Select your state" /></SelectTrigger>
+                  <SelectTrigger className="min-h-11" id="state"><SelectValue placeholder="Select your state" /></SelectTrigger>
                   <SelectContent>
                     {US_STATES.map(s => (
                       <SelectItem key={s.code} value={s.code}>
@@ -135,7 +135,7 @@ export function StateTaxCalculatorScreen({ userProfile }: StateTaxCalculatorScre
               <div className="space-y-2">
                 <Label htmlFor="tax-year">Tax year</Label>
                 <Select value={taxYear} onValueChange={setTaxYear}>
-                  <SelectTrigger id="tax-year" aria-label="Tax year"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="min-h-11" id="tax-year" aria-label="Tax year"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {[...STATE_REGISTRY_TAX_YEARS].reverse().map(y => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}
                   </SelectContent>
@@ -146,14 +146,14 @@ export function StateTaxCalculatorScreen({ userProfile }: StateTaxCalculatorScre
             <div className="space-y-2">
               <Label htmlFor="filing">Filing status</Label>
               <Select value={filingStatus} onValueChange={v => setFilingStatus(v as StateFilingStatus)}>
-                <SelectTrigger id="filing"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="min-h-11" id="filing"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {FILING_STATUS_OPTIONS.map(opt => <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2">
               <AmountField id="business-profit" label="Business net profit ($)" value={businessProfit} onChange={setBusinessProfit} hint="Schedule C line 31" />
               <AmountField id="wages" label="W-2 wages ($)" value={wages} onChange={setWages} hint="Box 1" />
               <AmountField id="other-income" label="Other income ($)" value={otherIncome} onChange={setOtherIncome} hint="Interest, dividends, other" />
@@ -183,7 +183,7 @@ export function StateTaxCalculatorScreen({ userProfile }: StateTaxCalculatorScre
                 </div>
               ) : (
                 <>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div className="rounded-lg bg-muted/50 p-4">
                       <p className="text-xs uppercase tracking-wide text-muted-foreground">Informational state planning estimate</p>
                       <p className="mt-1 text-2xl font-bold tabular-nums text-foreground">{fmt(estimate.estimate)}</p>
@@ -228,7 +228,7 @@ export function StateTaxCalculatorScreen({ userProfile }: StateTaxCalculatorScre
         )}
 
         {notices.length > 0 && (
-          <Card className="border-border bg-card">
+          <Card className="border-border bg-card lg:col-span-2">
             <CardHeader>
               <CardTitle className="text-base">Separate business taxes to review</CardTitle>
             </CardHeader>

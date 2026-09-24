@@ -32,13 +32,13 @@ interface PlaidLinkScreenProps {
 /** Keep provider hooks and OAuth/analysis effects out of the restricted preview. */
 export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = (props) => {
   if (process.env.NEXT_PUBLIC_APP_ENV === 'local-account-preview') {
-    return <main className="mx-auto flex min-h-[50vh] max-w-md items-center p-4">
-      <Card className="w-full space-y-4 p-5">
+    return <main className="mx-auto w-full max-w-4xl px-4 py-4 sm:px-6">
+      <Card className="w-full space-y-3 p-4">
         <h1 className="text-xl font-semibold">Connect your bank on WriteOff</h1>
         <p className="text-sm text-muted-foreground">This local preview uses your saved account data. New bank connections are available on the live site.</p>
-        <Button asChild className="w-full"><a href="https://writeoffapp.com/protected?screen=banks-detail" target="_blank" rel="noopener noreferrer">Open live bank connections</a></Button>
+        <Button asChild className="w-full sm:w-auto"><a href="https://writeoffapp.com/protected?screen=banks-detail" target="_blank" rel="noopener noreferrer">Open live bank connections</a></Button>
         <p className="text-xs text-muted-foreground">After connecting and reviewing your bank history, return here and refresh to see the saved records.</p>
-        <Button className="w-full" variant="outline" onClick={props.onBack}>Back to preview</Button>
+        <Button className="w-full sm:w-auto" variant="outline" onClick={props.onBack}>Back to preview</Button>
       </Card>
     </main>;
   }
@@ -556,7 +556,7 @@ const ActivePlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess
     };
 
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-2">
+      <div className="min-h-full bg-background flex items-center justify-center p-2">
         <div className="max-w-sm w-full">
           {/* Header */}
           <div className="text-center mb-3">
@@ -772,7 +772,7 @@ const ActivePlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-full bg-background">
       <div className="bg-card border-b border-border sticky top-0 z-50 shadow-sm">
         <div className="flex items-center justify-between p-4 max-w-4xl mx-auto">
           <button
@@ -792,7 +792,7 @@ const ActivePlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess
         </div>
       </div>
 
-      <div className="p-4 pb-20 max-w-4xl mx-auto">
+      <div className="px-4 py-4 sm:px-6 max-w-4xl mx-auto">
         <div className="mb-6">
           <div className="flex items-center justify-center gap-2 mb-3">
             <div className="w-6 h-6 bg-primary rounded-lg flex items-center justify-center text-primary-foreground font-medium text-xs">✓</div>

@@ -19,7 +19,7 @@ export function AddExpenseScreen({ user, onBack, onSave, editingExpense }: EditE
   }
   return (
     <div>
-      <p className="px-4 pt-4 text-sm text-muted-foreground">Save your expense first. Open it from Transactions to request an AI suggestion when available.</p>
+      <p className="mx-auto max-w-4xl px-4 pt-3 text-xs text-muted-foreground sm:px-6">Save your expense first. Open it from Transactions to request an AI suggestion when available.</p>
       <AddManualTransactionScreen user={user} onBack={onBack} />
     </div>
   );

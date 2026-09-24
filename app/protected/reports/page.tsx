@@ -331,7 +331,7 @@ export default function ReportsPage() {
   // Show loading state while auth is loading or data is fetching
   if (authLoading || isLoading || isFetching) {
     return (
-      <div className="p-4 sm:p-6 bg-background min-h-screen max-w-7xl mx-auto">
+      <div className="px-4 py-4 sm:px-6 bg-background min-h-full max-w-7xl mx-auto">
         <PageHeaderSkeleton />
         <ReportsChartSkeleton />
         <div className="grid grid-cols-1 min-[480px]:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
@@ -349,8 +349,8 @@ export default function ReportsPage() {
 
   if (error || taxReviewMessage) {
     return (
-      <div className="p-4 sm:p-6 bg-background min-h-screen max-w-7xl mx-auto">
-        <div className="text-center py-12">
+      <div className="px-4 py-4 sm:px-6 bg-background min-h-full max-w-7xl mx-auto">
+        <div className="rounded-xl border border-border bg-card px-4 py-8 text-center">
           <AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4" />
           <h2 className="text-xl font-semibold text-foreground mb-2">{taxReviewMessage ? 'Review tax estimate inputs' : 'Error Loading Reports'}</h2>
           <p className="text-muted-foreground mb-4">
@@ -372,8 +372,8 @@ export default function ReportsPage() {
   if (!reportsData || !metrics) {
     const hasTxns = allTransactions.length > 0;
     return (
-      <div className="p-4 sm:p-6 bg-background min-h-screen max-w-7xl mx-auto">
-        <div className="text-center py-12">
+      <div className="px-4 py-4 sm:px-6 bg-background min-h-full max-w-7xl mx-auto">
+        <div className="rounded-xl border border-border bg-card px-4 py-8 text-center">
           <AlertCircle className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
           <h2 className="text-xl font-semibold text-foreground mb-2">
             {hasTxns ? 'Reports data loading' : 'No Reports Data'}
@@ -442,11 +442,11 @@ export default function ReportsPage() {
   const formatCur = (n: number | null) => n === null ? 'Review needed' : n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 
   return (
-    <div className="p-4 sm:p-6 bg-background min-h-screen overflow-x-hidden min-w-0 max-w-7xl mx-auto">
+    <div className="px-4 py-4 sm:px-6 bg-background min-h-full overflow-x-hidden min-w-0 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="mb-4 sm:mb-5">
-        <div className="mb-4">
-          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-foreground mb-0.5">Tax Reports & Analytics</h1>
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-foreground mb-0.5">Tax Reports & Analytics</h1>
           {(lastSync != null || analysisInProgress) && (
             <p className="text-sm text-muted-foreground mt-1">
               {lastSync != null && (
@@ -468,7 +468,7 @@ export default function ReportsPage() {
             onClick={() => refetch()}
             variant="outline"
             size="sm"
-            className="min-h-[44px] h-11 px-4 border border-border bg-card hover:bg-muted/60 hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.08)] text-foreground transition-all duration-150 no-tap-highlight focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            className="min-h-[44px] h-11 px-4 border border-border bg-card hover:bg-muted/60 shadow-none text-foreground transition-all duration-150 no-tap-highlight focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             title="Refresh reports data"
           >
             <RefreshCw className="w-4 h-4" />
@@ -476,7 +476,7 @@ export default function ReportsPage() {
           </Button>
           <Button
             size="sm"
-            className="min-h-[44px] h-11 px-4 bg-[hsl(var(--success))] hover:bg-[hsl(var(--success)/0.9)] text-white font-medium shadow-[0_2px_8px_-2px_hsl(var(--success)/0.35)] hover:shadow-[0_4px_12px_-2px_hsl(var(--success)/0.4)] transition-all duration-150 no-tap-highlight focus-visible:ring-2 focus-visible:ring-[hsl(var(--success)/0.5)] focus-visible:ring-offset-2"
+            className="min-h-[44px] h-11 px-4 bg-[hsl(var(--success))] hover:bg-[hsl(var(--success)/0.9)] text-white font-medium shadow-none transition-all duration-150 no-tap-highlight focus-visible:ring-2 focus-visible:ring-[hsl(var(--success)/0.5)] focus-visible:ring-offset-2"
             onClick={() => router.push('/protected/schedule-c')}
           >
             <Download className="w-4 h-4" />
@@ -499,10 +499,10 @@ export default function ReportsPage() {
         <p className="text-sm text-amber-700 dark:text-amber-300 mb-4" role="status">Paid/Received amounts need review: {transactionAggregates.cashReviewMessage}</p>
       )}
 
-      {/* KPI Summary Cards - semantic accents (2-3px left border + soft glow), no full fills; mobile 2-col then 1-col */}
+      {/* Confirmed-record summaries with compact semantic accents. */}
       <div className="grid grid-cols-1 min-[480px]:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-5">
         {/* Year to Date - Savings: emerald accent */}
-        <Card className="p-4 sm:p-5 bg-card border border-border border-l-[3px] border-l-[hsl(var(--success)/0.8)] shadow-[0_0_0_1px_hsl(var(--success)/0.05),0_2px_6px_-2px_hsl(var(--success)/0.08)] rounded-xl overflow-hidden">
+        <Card className="p-4 bg-card border border-border border-l-[3px] border-l-[hsl(var(--success)/0.8)] shadow-none rounded-xl overflow-hidden">
           <div className="flex items-center justify-between mb-1">
             <div className="w-8 h-8 rounded-lg bg-[hsl(var(--success)/0.15)] flex items-center justify-center">
               <DollarSign className="w-4 h-4 text-[hsl(var(--success))]" />
@@ -532,7 +532,7 @@ export default function ReportsPage() {
 
         {/* This Month - emerald accent */}
         <Card
-          className="p-4 sm:p-5 bg-card border border-border border-l-[3px] border-l-[hsl(var(--success)/0.7)] shadow-[0_0_0_1px_hsl(var(--success)/0.05),0_2px_6px_-2px_hsl(var(--success)/0.08)] rounded-xl cursor-pointer hover:shadow-[0_0_0_1px_hsl(var(--success)/0.1),0_4px_10px_-2px_hsl(var(--success)/0.12)] transition-all duration-150 no-tap-highlight min-h-[44px]"
+          className="p-4 bg-card border border-border border-l-[3px] border-l-[hsl(var(--success)/0.7)] shadow-none rounded-xl cursor-pointer transition-all duration-150 no-tap-highlight min-h-[44px]"
           onClick={() => {
             const currentMonth = monthlyData.find(m => m.month === currentMonthIdx);
             if (currentMonth && currentMonth.count > 0) handleMonthClick(currentMonth);
@@ -581,7 +581,7 @@ export default function ReportsPage() {
           const rate = reviewed.length > 0 ? Math.round((deductible.length / reviewed.length) * 100) : 0;
           const unreviewed = transactionAggregates.inYear.filter(t => !isServerConfirmedDeduction(t) && t.is_deductible !== false);
           return (
-            <Card className="p-4 sm:p-5 bg-card border border-border border-l-[3px] border-l-violet-500/70 rounded-xl overflow-hidden">
+            <Card className="p-4 bg-card border border-border border-l-[3px] border-l-violet-500/70 rounded-xl overflow-hidden">
               <div className="flex items-center justify-between mb-1">
                 <div className="flex items-center gap-1.5">
                   <div className="w-8 h-8 rounded-lg bg-violet-500/10 flex items-center justify-center">
@@ -608,7 +608,7 @@ export default function ReportsPage() {
         })()}
 
         {/* Projected - violet/blue accent */}
-        <Card className="p-4 sm:p-5 bg-card border border-border border-l-[3px] border-l-primary/70 shadow-[0_0_0_1px_hsl(var(--primary)/0.05),0_2px_6px_-2px_hsl(var(--primary)/0.08)] rounded-xl overflow-hidden">
+        <Card className="p-4 bg-card border border-border border-l-[3px] border-l-primary/70 shadow-none rounded-xl overflow-hidden">
           <div className="flex items-center justify-between mb-1">
             <div className="w-8 h-8 rounded-lg bg-primary/15 flex items-center justify-center">
               <Target className="w-4 h-4 text-primary" />
@@ -636,10 +636,9 @@ export default function ReportsPage() {
         </Card>
       </div>
 
-      {/* Monthly Tax Savings Chart - radial glow, softer grid, premium bars/tooltip */}
+      {/* Monthly tax approximation, with year-specific record detail. */}
       <div className="relative mb-4 sm:mb-5">
-        <div className="absolute inset-0 rounded-xl bg-[radial-gradient(ellipse_80%_50%_at_50%_0%,hsl(var(--primary)/0.04),transparent)] pointer-events-none" aria-hidden />
-        <Card className="relative p-4 sm:p-6 bg-card border border-border shadow-[0_2px_12px_-4px_rgba(0,0,0,0.08)] dark:shadow-[0_2px_12px_-4px_rgba(0,0,0,0.25)] rounded-xl overflow-hidden">
+        <Card className="relative p-4 bg-card border border-border shadow-none rounded-xl overflow-hidden">
           <div className="flex flex-col gap-4 mb-5">
             <div className="min-w-0">
               <h2 className="text-lg sm:text-xl font-semibold text-foreground mb-0.5">Monthly Income-Tax Approximation</h2>
@@ -686,8 +685,8 @@ export default function ReportsPage() {
           </div>
 
         {!hasData ? (
-          <div className="text-center py-16">
-            <BarChart3 className="w-20 h-20 text-muted mx-auto mb-4" />
+          <div className="py-8 text-center">
+            <BarChart3 className="w-10 h-10 text-muted mx-auto mb-4" />
             {(() => {
               const diag = reportsData?.diagnostics;
               const hasExpenses = diag ? diag.expensesInYear > 0 : transactionAggregates.totalCount > 0;
@@ -822,9 +821,9 @@ export default function ReportsPage() {
                               <div
                                 className={`w-full max-w-[44px] mx-auto rounded-t-lg transition-all duration-200 relative ${
                                   isCurrentMonth
-                                    ? 'bg-gradient-to-t from-primary/90 to-primary shadow-[0_0_0_1px_hsl(var(--primary)/0.3)]'
+                                    ? 'bg-gradient-to-t from-primary/90 to-primary shadow-none'
                                     : 'bg-gradient-to-t from-primary/80 to-primary/60'
-                                } ${isClickable ? 'hover:shadow-[0_0_12px_hsl(var(--primary)/0.25)] md:hover:-translate-y-0.5 cursor-pointer' : 'cursor-default'}`}
+                                } ${isClickable ? 'shadow-none md:hover:-translate-y-0.5 cursor-pointer' : 'cursor-default'}`}
                                 style={{
                                   height: `${barHeight}%`,
                                   minHeight: '4px',
@@ -945,7 +944,7 @@ export default function ReportsPage() {
                               isCurrentMonth
                                 ? 'bg-gradient-to-t from-primary/90 to-primary'
                                 : 'bg-gradient-to-t from-primary/80 to-primary/60'
-                            } ${isClickable ? 'hover:shadow-[0_0_8px_hsl(var(--primary)/0.2)] cursor-pointer' : 'opacity-30 cursor-default'}`}
+                            } ${isClickable ? 'shadow-none cursor-pointer' : 'opacity-30 cursor-default'}`}
                             style={{
                               height: `${barHeight}%`,
                               minHeight: month.total > 0 ? '4px' : '0px',

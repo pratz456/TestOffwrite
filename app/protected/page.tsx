@@ -560,16 +560,16 @@ export default function ProtectedPage() {
 
     if (currentScreen === 'quarterly-taxes') {
       return (
-        <div className="min-h-screen bg-gray-50">
-          <div className="max-w-4xl mx-auto p-6">
-            <div className="mb-6">
+        <div className="min-h-full bg-background">
+          <div className="max-w-6xl mx-auto px-4 py-4 sm:px-6">
+            <div className="mb-4">
               <button
                 onClick={handleGoBack}
-                className="flex items-center gap-2 text-teal-600 hover:text-teal-700 mb-4"
+                className="flex min-h-11 items-center gap-2 text-primary hover:underline mb-1"
               >
                 ← Back
               </button>
-              <h1 className="text-2xl font-bold text-gray-900">Quarterly Tax Calculator</h1>
+              <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-foreground">Quarterly Tax Calculator</h1>
             </div>
             <QuarterlyTaxCalculator
               userProfile={userProfile}

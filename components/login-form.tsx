@@ -187,10 +187,10 @@ export function LoginForm({
       {/* Background with subtle gradient */}
       <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-background to-muted/20"></div>
 
-      <div className="relative min-h-screen flex flex-col px-4 sm:px-6 py-6 sm:py-8 lg:px-8">
+      <div className="relative min-h-screen flex flex-col px-4 py-4 sm:px-6 sm:py-6">
         <div className="w-full sm:mx-auto sm:max-w-lg">
           {/* Header */}
-          <div className="text-center space-y-4 mb-6 sm:mb-8">
+          <div className="text-center space-y-2 mb-4">
             <Link
               href="/"
               className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors py-2 no-tap-highlight"
@@ -201,8 +201,8 @@ export function LoginForm({
               <span className="text-base sm:text-sm">Back</span>
             </Link>
 
-            <div className="flex justify-center">
-              <Image src={writeOffLogo} alt="WriteOff" className="w-20 sm:w-24 h-auto"/>
+            <div className="flex items-center justify-center gap-2">
+              <Image src={writeOffLogo} alt="WriteOff" className="h-10 w-10 object-contain"/><span className="text-xl font-semibold tracking-tight">WriteOff</span>
             </div>
 
             <div className="space-y-1">
@@ -216,8 +216,8 @@ export function LoginForm({
           </div>
 
           {/* Sign in form */}
-          <div className="bg-card/80 backdrop-blur-xl rounded-xl sm:rounded-2xl shadow-lg shadow-black/5 dark:shadow-black/25 ring-1 ring-border p-5 sm:p-6">
-            <form onSubmit={handleLogin} className="space-y-4 sm:space-y-5">
+          <div className="bg-card rounded-xl border border-border p-4 shadow-sm sm:p-5">
+            <form onSubmit={handleLogin} className="space-y-4">
               <div className="space-y-4 sm:space-y-3">
                 <div>
                   <Label htmlFor="email" className="text-base sm:text-sm font-medium text-foreground" required>

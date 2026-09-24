@@ -39,15 +39,15 @@ interface CategoriesScreenProps {
 }
 
 const CategoriesSkeleton = () => (
-  <div className="bg-background min-h-screen">
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
+  <div className="bg-background min-h-full">
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3">
       <div className="h-7 w-36 bg-muted rounded animate-pulse mb-1" />
       <div className="h-4 w-64 bg-muted rounded animate-pulse" />
     </div>
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-5 space-y-5 sm:space-y-6">
-      <div className="grid grid-cols-1 min-[480px]:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-5">
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 space-y-4">
+      <div className="grid grid-cols-1 min-[480px]:grid-cols-2 lg:grid-cols-4 gap-3">
         {[...Array(4)].map((_, i) => (
-          <div key={i} className="bg-card rounded-xl p-4 sm:p-5 border border-border space-y-2">
+          <div key={i} className="bg-card rounded-xl p-3 sm:p-4 border border-border space-y-2">
             <div className="h-6 w-24 bg-muted rounded animate-pulse" />
             <div className="h-3 w-32 bg-muted rounded animate-pulse" />
           </div>
@@ -133,14 +133,14 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
 
   if (transactions.length === 0) {
     return (
-      <div className="bg-background min-h-screen">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
-          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-foreground mb-0.5">Categories</h1>
+      <div className="bg-background min-h-full">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3">
+          <h1 className="text-xl font-semibold tracking-tight text-foreground mb-0.5">Categories</h1>
           <p className="text-xs sm:text-sm text-muted-foreground">Confirmed transaction deductions, across all saved dates</p>
         </div>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-5">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 sm:py-5">
           <div className="bg-card border border-border rounded-xl shadow-sm">
-            <div className="text-center py-12">
+            <div className="text-center py-7">
               <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-muted flex items-center justify-center">
                 <Building className="w-8 h-8 text-muted-foreground" />
               </div>
@@ -154,7 +154,7 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
   }
 
   const summary = summarizeConfirmedDeductions(transactions);
-  if (summary.reviewMessage) return <div className="p-6"><h1 className="text-xl font-semibold">Categories</h1><p role="alert" className="mt-3 text-sm text-muted-foreground">{summary.reviewMessage}</p><Button className="mt-3" onClick={onBack}>Back</Button></div>;
+  if (summary.reviewMessage) return <div className="mx-auto max-w-6xl px-4 py-4 sm:px-6"><h1 className="text-xl font-semibold">Categories</h1><p role="alert" className="mt-3 text-sm text-muted-foreground">{summary.reviewMessage}</p><Button className="mt-3" onClick={onBack}>Back</Button></div>;
   const deductibleTransactions = summary.transactions;
 
 
@@ -215,31 +215,31 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
   const totalRecordedAmount = summary.totalRecordedAmount!;
 
   return (
-    <div className="bg-background min-h-screen overflow-x-hidden">
+    <div className="bg-background min-h-full overflow-x-hidden">
       {/* Header */}
       <div className="bg-background">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
-          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-foreground mb-0.5">Categories</h1>
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3">
+          <h1 className="text-xl font-semibold tracking-tight text-foreground mb-0.5">Categories</h1>
           <p className="text-xs sm:text-sm text-muted-foreground">Confirmed transaction deductions, across all saved dates</p>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-5 space-y-5 sm:space-y-6">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 space-y-4">
         {/* Summary Cards - 2px left border glow, semantic accents: Emerald / Blue / Cyan / Steel */}
-        <div className="grid grid-cols-1 min-[480px]:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-5">
-          <div className="bg-card rounded-xl p-4 sm:p-5 border border-border border-l-2 border-l-[hsl(var(--success)/0.75)] shadow-[0_0_0_1px_hsl(var(--success)/0.05),0_2px_6px_-2px_hsl(var(--success)/0.08)] min-h-[44px] flex flex-col justify-center">
+        <div className="grid grid-cols-1 min-[480px]:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="bg-card rounded-xl p-3 sm:p-4 border border-border border-l-2 border-l-[hsl(var(--success)/0.75)] shadow-[0_0_0_1px_hsl(var(--success)/0.05),0_2px_6px_-2px_hsl(var(--success)/0.08)] min-h-[44px] flex flex-col justify-center">
             <div className="text-xl sm:text-2xl font-semibold text-foreground tabular-nums whitespace-nowrap overflow-hidden text-ellipsis">${totalDeductions.toFixed(2)}</div>
             <div className="text-xs sm:text-sm text-muted-foreground/75 mt-1">Confirmed transaction deductions</div>
           </div>
-          <div className="bg-card rounded-xl p-4 sm:p-5 border border-border border-l-2 border-l-primary/65 shadow-[0_0_0_1px_hsl(var(--primary)/0.05),0_2px_6px_-2px_hsl(var(--primary)/0.08)] min-h-[44px] flex flex-col justify-center">
+          <div className="bg-card rounded-xl p-3 sm:p-4 border border-border border-l-2 border-l-primary/65 shadow-[0_0_0_1px_hsl(var(--primary)/0.05),0_2px_6px_-2px_hsl(var(--primary)/0.08)] min-h-[44px] flex flex-col justify-center">
             <div className="text-xl sm:text-2xl font-semibold text-foreground tabular-nums whitespace-nowrap">{deductibleTransactions.length}</div>
             <div className="text-xs sm:text-sm text-muted-foreground/75 mt-1">Confirmed records</div>
           </div>
-          <div className="bg-card rounded-xl p-4 sm:p-5 border border-border border-l-2 border-l-cyan-500/60 shadow-[0_0_0_1px_rgba(34,211,238,0.06),0_2px_6px_-2px_rgba(34,211,238,0.1)] min-h-[44px] flex flex-col justify-center">
+          <div className="bg-card rounded-xl p-3 sm:p-4 border border-border border-l-2 border-l-cyan-500/60 shadow-[0_0_0_1px_rgba(34,211,238,0.06),0_2px_6px_-2px_rgba(34,211,238,0.1)] min-h-[44px] flex flex-col justify-center">
             <div className="text-xl sm:text-2xl font-semibold text-foreground tabular-nums whitespace-nowrap overflow-hidden text-ellipsis">${totalRecordedAmount.toFixed(2)}</div>
             <div className="text-xs sm:text-sm text-muted-foreground/75 mt-1">Confirmed net outflows</div>
           </div>
-          <div className="bg-card rounded-xl p-4 sm:p-5 border border-border border-l-2 border-l-muted-foreground/45 shadow-[0_2px_6px_-2px_rgba(0,0,0,0.06)] min-h-[44px] flex flex-col justify-center hover:bg-muted/20 transition-all duration-150">
+          <div className="bg-card rounded-xl p-3 sm:p-4 border border-border border-l-2 border-l-muted-foreground/45 shadow-[0_2px_6px_-2px_rgba(0,0,0,0.06)] min-h-[44px] flex flex-col justify-center hover:bg-muted/20 transition-all duration-150">
             <div className="text-xl sm:text-2xl font-semibold text-foreground tabular-nums whitespace-nowrap">{transactions.length}</div>
             <div className="text-xs sm:text-sm text-muted-foreground/75 mt-1">Total transactions</div>
           </div>
@@ -284,7 +284,7 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
                     <div
                       role="button"
                       tabIndex={0}
-                      className={`px-5 py-5 hover:bg-[hsl(var(--primary)/0.04)] cursor-pointer transition-all duration-150 md:hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ${isExpanded ? 'bg-[hsl(var(--primary)/0.02)]' : ''}`}
+                      className={`px-4 py-3 hover:bg-[hsl(var(--primary)/0.04)] cursor-pointer transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ${isExpanded ? 'bg-[hsl(var(--primary)/0.02)]' : ''}`}
                       onClick={() => toggleCategory(categoryData.category)}
                       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleCategory(categoryData.category); } }}
                     >
@@ -323,7 +323,7 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
                         <div className="col-span-2 flex items-center gap-2">
                           <div className="flex-1 bg-muted rounded-full h-2.5 min-w-0 overflow-hidden">
                             <div
-                              className="h-2.5 rounded-full transition-all duration-300 ease-out bg-gradient-to-r from-primary to-cyan-500"
+                              className="h-2.5 rounded-full transition-all duration-300 ease-out bg-primary/75"
                               style={{ width: `${Math.min(categoryData.percentage, 100)}%` }}
                             />
                           </div>
@@ -402,7 +402,7 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
         </div>
 
         {/* Category Cards - Mobile: Name+Icon, Badge, Amount, Tax Savings, Progress (no horizontal scroll, 44px tap) */}
-        <div className="md:hidden space-y-4">
+        <div className="md:hidden space-y-3">
           {filteredCategories.map((categoryData) => {
             const isExpanded = expandedCategories.has(categoryData.category);
             return (
@@ -451,7 +451,7 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
                   <div className="flex items-center gap-2">
                     <div className="flex-1 bg-muted rounded-full h-2.5 min-w-0 overflow-hidden">
                       <div
-                        className="h-2.5 rounded-full transition-all duration-300 ease-out bg-gradient-to-r from-primary to-cyan-500"
+                        className="h-2.5 rounded-full transition-all duration-300 ease-out bg-primary/75"
                         style={{ width: `${Math.min(categoryData.percentage, 100)}%` }}
                       />
                     </div>
@@ -515,7 +515,7 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
 
         {filteredCategories.length === 0 && (
           <div className="bg-card border border-border rounded-xl shadow-sm">
-            <div className="text-center py-8 sm:py-12">
+            <div className="text-center py-7">
               <div className="w-12 h-12 sm:w-16 sm:h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-3 sm:mb-4">
                 <Search className="w-6 h-6 sm:w-8 sm:h-8 text-muted-foreground" />
               </div>

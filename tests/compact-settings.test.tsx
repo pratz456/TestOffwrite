@@ -81,7 +81,7 @@ beforeEach(() => {
 afterEach(() => { state.cleanups.forEach(cleanup => cleanup()); vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('compact settings preserve profile editing and account access', () => {
-  it('shows saved summaries in closed sections while retaining every profile field', async () => {
+  it('opens the tax profile first and summarizes other sections while retaining every profile field', async () => {
     const tree = await mount();
     const sections = walk(tree).filter(node => typeof node.props.summary === 'string');
     expect(sections.map(node => node.props.title)).toEqual(['Tax profile', 'Personal Information', 'Professional Information', 'Business Details', 'Mailing Address']);
@@ -89,7 +89,8 @@ describe('compact settings preserve profile editing and account access', () => {
     expect(sections[1].props.summary).toContain('Saved Name');
     for (const section of sections) {
       const details = (section.type as (props: Props) => Element)(section.props);
-      expect(details.type).toBe('details'); expect(details.props.open).toBeUndefined();
+      expect(details.type).toBe('details');
+      expect(details.props.open).toBe(section.props.title === 'Tax profile' ? true : undefined);
       expect(walk(details).some(node => node.props.label)).toBe(true);
     }
     expect(field('W-2 Income').props.value).toBe(50000);

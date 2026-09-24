@@ -203,12 +203,12 @@ export function ActionItemsScreen({
   const grouped = getActionsByCategory(activeItems);
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-full bg-background">
       {/* Header */}
       <div className="sticky top-0 z-10 bg-background/80 backdrop-blur-xl border-b border-border">
-        <div className="max-w-3xl mx-auto px-4 py-3 flex items-center gap-3">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex items-center gap-3">
           <div className="flex-1">
-            <h1 className="text-base font-semibold text-foreground">Action Items</h1>
+            <h1 className="text-xl font-semibold tracking-tight text-foreground">Action Items</h1>
             <p className="text-xs text-muted-foreground">
               {activeItems.length === 0
                 ? 'All caught up!'
@@ -218,7 +218,7 @@ export function ActionItemsScreen({
         </div>
       </div>
 
-      <div className="max-w-3xl mx-auto px-4 py-5 space-y-6">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 space-y-4">
         {/* Progress */}
         <div className="rounded-xl border border-border bg-card p-4">
           <div className="flex items-center justify-between mb-2">
@@ -238,7 +238,7 @@ export function ActionItemsScreen({
         )}
 
         {!loading && activeItems.length === 0 && (
-          <div className="text-center py-12 space-y-3">
+          <div className="text-center py-7 space-y-3">
             <div className="w-14 h-14 mx-auto rounded-full bg-green-500/10 flex items-center justify-center">
               <CheckCircle2 className="h-7 w-7 text-green-500" />
             </div>
@@ -250,6 +250,7 @@ export function ActionItemsScreen({
         )}
 
         {/* Grouped sections */}
+        <div className="grid items-start gap-4 lg:grid-cols-2">
         {!loading &&
           (Object.entries(grouped) as [ActionCategory, ActionItem[]][])
             .filter(([, catItems]) => catItems.length > 0)
@@ -301,15 +302,15 @@ export function ActionItemsScreen({
                                   variant="ghost"
                                   size="sm"
                                   onClick={() => onNavigate(item.screen)}
-                                  className="h-8 px-3 text-xs font-medium text-primary hover:bg-primary/10"
+                                  className="min-h-11 px-3 text-xs font-medium text-primary hover:bg-primary/10"
                                 >
-                                  Go fix this
+                                  Review item
                                   <ArrowRight className="h-3 w-3 ml-1" />
                                 </Button>
                                 <button
                                   type="button"
                                   onClick={() => handleDismiss(item.id)}
-                                  className="h-8 px-2 inline-flex items-center gap-1 rounded-md text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+                                  className="min-h-11 px-2 inline-flex items-center gap-1 rounded-md text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
                                 >
                                   <X className="h-3 w-3" />
                                   Dismiss
@@ -324,14 +325,15 @@ export function ActionItemsScreen({
                 </div>
               );
             })}
+        </div>
 
         {/* Dismissed items */}
         {dismissedItems.length > 0 && (
-          <div className="space-y-3 pt-2">
-            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+          <details className="rounded-xl border border-border bg-card px-4">
+            <summary className="min-h-11 cursor-pointer content-center text-xs font-medium text-muted-foreground uppercase tracking-wider">
               Dismissed ({dismissedItems.length})
-            </h3>
-            <div className="space-y-1.5">
+            </summary>
+            <div className="space-y-1.5 pb-3">
               {dismissedItems.map((item) => {
                 const Icon = ICON_MAP[item.icon] || AlertTriangle;
                 return (
@@ -346,7 +348,7 @@ export function ActionItemsScreen({
                     <button
                       type="button"
                       onClick={() => handleUndismiss(item.id)}
-                      className="text-[11px] text-primary hover:underline shrink-0"
+                      className="inline-flex min-h-11 items-center px-2 text-xs text-primary hover:underline shrink-0"
                     >
                       Undo
                     </button>
@@ -354,7 +356,7 @@ export function ActionItemsScreen({
                 );
               })}
             </div>
-          </div>
+          </details>
         )}
       </div>
     </div>

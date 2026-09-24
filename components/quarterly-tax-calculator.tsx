@@ -105,7 +105,7 @@ export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyT
       </> : <>
         <div role="note" className="rounded-lg border p-3"><h2 className="font-semibold">Payment amount needs review</h2><p className="mt-1 text-sm">{data.paymentReview.message}</p>
           {missingFacts.length > 0 && <div className="mt-2 text-sm"><p className="font-medium">Save these facts to see planning figures:</p>
-            <ul className="mt-1 list-disc space-y-1 pl-5">{missingFacts.map(fact => <li key={fact.key}><span className="font-medium">{fact.label}</span> — {fact.detail} <span className="whitespace-nowrap">Enter it in {fact.enterAt.map((item, index) => <React.Fragment key={item.href}>{index > 0 && ' or '}<a className="underline" href={item.href}>{item.label}</a></React.Fragment>)}.</span></li>)}</ul>
+            <ul className="mt-1 list-disc space-y-1 pl-5">{missingFacts.map(fact => <li key={fact.key}><span className="font-medium">{fact.label}</span> — {fact.detail} <span className="">Enter it in {fact.enterAt.map((item, index) => <React.Fragment key={item.href}>{index > 0 && ' or '}<a className="underline" href={item.href}>{item.label}</a></React.Fragment>)}.</span></li>)}</ul>
           </div>}
           {reviewNotes.map(note => <p key={note} className="mt-2 text-sm text-muted-foreground">{note}</p>)}
         </div>
@@ -135,10 +135,10 @@ export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyT
         : 'Dates do not establish whether a payment is required, timely or sufficient. Special relief and annualized-income calculations require separate review.'}</p>
     </CardContent></Card>
     {plan && interestIllustration(plan)}
-    {plan && <Card><CardHeader><CardTitle>Assumptions behind this planning estimate</CardTitle></CardHeader><CardContent className="space-y-2 text-sm">
+    {plan && <details className="rounded-xl border border-border bg-card"><summary className="min-h-11 cursor-pointer px-4 py-3 text-sm font-medium">Assumptions behind this planning estimate</summary><div className="space-y-2 border-t border-border p-4 text-sm">
       <ul className="list-disc space-y-1 pl-5">{plan.assumptions.map(assumption => <li key={assumption}>{assumption}</li>)}</ul>
       <p className="flex flex-wrap gap-3 underline"><a href={plan.sources.publication505} target="_blank" rel="noopener noreferrer">IRS Publication 505</a><a href={plan.sources.form2210Instructions} target="_blank" rel="noopener noreferrer">Form 2210 instructions</a><a href={plan.sources.quarterlyInterestRates} target="_blank" rel="noopener noreferrer">IRS quarterly interest rates</a></p>
-    </CardContent></Card>}
+    </div></details>}
     <TaxCalculationNotice warnings={data.calculationWarnings} taxYear={year} />
   </div>;
 }

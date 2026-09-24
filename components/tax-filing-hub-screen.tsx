@@ -298,12 +298,12 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
   return (
     <div className="min-h-full bg-background">
       <header className="sticky top-0 z-30 border-b border-border/60 bg-background/95 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-3xl items-center gap-2 px-4 py-2.5 sm:px-6">
-          <Button variant="ghost" size="icon" onClick={onBack} aria-label="Back" className="-ml-2 h-10 w-10 shrink-0 rounded-full">
+        <div className="mx-auto flex max-w-4xl items-center gap-2 px-4 py-2.5 sm:px-6">
+          <Button variant="ghost" size="icon" onClick={onBack} aria-label="Back" className="-ml-2 h-11 w-11 shrink-0 rounded-full">
             <ArrowLeft aria-hidden="true" className="h-5 w-5" />
           </Button>
           <div className="min-w-0 flex-1">
-            <h1 className="text-lg font-semibold tracking-tight text-foreground">Tax Filing Hub</h1>
+            <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">Tax Filing Hub</h1>
           </div>
           <Select value={year} onValueChange={value => { active.current = `${user.id}:${value}`; setExporting(null); setYear(value); }}>
             <SelectTrigger aria-label="Tax year" className="h-11 w-[92px] rounded-xl text-base"><SelectValue /></SelectTrigger>
@@ -316,7 +316,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
         </div>
       </header>
 
-      <div className="mx-auto max-w-3xl space-y-4 px-4 py-4 pb-8 sm:px-6">
+      <div className="mx-auto max-w-4xl space-y-3 px-4 py-4 pb-6 sm:px-6">
         <p className="text-xs leading-relaxed text-muted-foreground">Prepare records for your tax preparer. WriteOff does not currently submit IRS or state returns.</p>
 
         {error && (
@@ -342,7 +342,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
 
           <FilingTabs.Content value="prepare" className="space-y-3 focus-visible:outline-none">
             {loading ? (
-              <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground" role="status"><Loader2 className="h-4 w-4 animate-spin" />Loading your records…</div>
+              <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground" role="status"><Loader2 className="h-4 w-4 animate-spin" />Loading your records…</div>
             ) : (
               <>
                 <section className="flex items-center gap-3 rounded-2xl border border-primary/15 bg-primary/[0.04] p-3.5">
@@ -351,7 +351,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
                     <p className="mt-1 text-sm font-semibold">{nextAction.label}</p>
                     <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{nextAction.detail}</p>
                   </div>
-                  {onNavigate && <Button size="icon" aria-label={nextAction.label} className="h-10 w-10 shrink-0 rounded-full" onClick={() => onNavigate(nextAction.screen)}><ChevronRight aria-hidden="true" className="h-5 w-5" /></Button>}
+                  {onNavigate && <Button size="icon" aria-label={nextAction.label} className="h-11 w-11 shrink-0 rounded-full" onClick={() => onNavigate(nextAction.screen)}><ChevronRight aria-hidden="true" className="h-5 w-5" /></Button>}
                 </section>
 
                 <section className="overflow-hidden rounded-2xl border border-border/70 bg-card" aria-labelledby="filing-records-heading">
@@ -370,8 +370,8 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
                 </section>
 
                 <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" size="sm" className="min-h-10 rounded-xl" onClick={() => onNavigate?.("document-import")} disabled={!onNavigate}><Upload className="mr-1.5 h-4 w-4" />Import document</Button>
-                  <Button variant="ghost" size="sm" className="min-h-10 rounded-xl" onClick={() => onNavigate?.("add-manual-transaction")} disabled={!onNavigate}><Receipt className="mr-1.5 h-4 w-4" />Add transaction</Button>
+                  <Button variant="outline" size="sm" className="min-h-11 rounded-lg" onClick={() => onNavigate?.("document-import")} disabled={!onNavigate}><Upload className="mr-1.5 h-4 w-4" />Import document</Button>
+                  <Button variant="ghost" size="sm" className="min-h-11 rounded-lg" onClick={() => onNavigate?.("add-manual-transaction")} disabled={!onNavigate}><Receipt className="mr-1.5 h-4 w-4" />Add transaction</Button>
                 </div>
                 <p className="text-xs leading-relaxed text-muted-foreground">These are recorded inputs and planning estimates. They do not establish that your return is complete or ready to file. Review missing income, adjustments, credits and state requirements with your filing provider.</p>
               </>
@@ -380,7 +380,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
 
           <FilingTabs.Content value="review" className="space-y-3 focus-visible:outline-none">
             {loading ? (
-              <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground" role="status"><Loader2 className="h-4 w-4 animate-spin" />Loading your estimate…</div>
+              <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground" role="status"><Loader2 className="h-4 w-4 animate-spin" />Loading your estimate…</div>
             ) : (
               <>
                 <section className="overflow-hidden rounded-2xl border border-border/70 bg-card">

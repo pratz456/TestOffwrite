@@ -245,20 +245,20 @@ function FieldRow({
             <Input
               value={draft}
               onChange={e => setDraft(e.target.value)}
-              className="h-8 text-sm font-mono"
+              className="min-h-11 min-w-0 text-base font-mono sm:text-sm"
               autoFocus
             />
-            <Button size="sm" className="h-8 px-2" onClick={() => { onEdit(def.key, draft); setEditing(false); }}>
+            <Button size="sm" aria-label="Save field" className="min-h-11 min-w-11 px-2" onClick={() => { onEdit(def.key, draft); setEditing(false); }}>
               <CheckCircle2 className="w-3.5 h-3.5" />
             </Button>
-            <Button size="sm" variant="ghost" className="h-8 px-2" onClick={() => setEditing(false)}>
+            <Button size="sm" variant="ghost" aria-label="Cancel field edit" className="min-h-11 min-w-11 px-2" onClick={() => setEditing(false)}>
               <XCircle className="w-3.5 h-3.5" />
             </Button>
           </>
         ) : (
           <>
-            <span className="text-base font-bold tabular-nums text-foreground flex-1">{displayVal}</span>
-            <Button size="sm" variant="ghost" className="h-8 px-2 gap-1 text-xs" onClick={() => { setDraft(String(value ?? "")); setEditing(true); }}>
+            <span className="min-w-0 break-words text-base font-semibold tabular-nums text-foreground flex-1">{displayVal}</span>
+            <Button size="sm" variant="ghost" className="min-h-11 min-w-11 px-2 gap-1 text-xs" onClick={() => { setDraft(String(value ?? "")); setEditing(true); }}>
               <Edit3 className="w-3.5 h-3.5" />
               Edit
             </Button>
@@ -409,16 +409,16 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
     .filter(d => d.isCritical && !editedFields[d.key] && editedFields[d.key] !== 0).length;
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-full bg-background">
       {/* Header */}
-      <div className="sticky top-0 z-50 bg-background border-b border-border">
-        <div className="max-w-2xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3">
+      <div className="sticky top-0 z-10 bg-background/95 border-b border-border">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 flex items-center gap-3">
           <div className="flex-1 min-w-0">
-            <h1 className="text-lg sm:text-xl font-semibold">Import Tax Document</h1>
+            <h1 className="text-xl font-semibold tracking-tight">Import Tax Document</h1>
             <p className="text-xs sm:text-sm text-muted-foreground">AI reads the form - you verify each field before saving</p>
           </div>
           <Select value={year} onValueChange={setYear}>
-            <SelectTrigger className="w-[90px] h-9"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-[100px] min-h-11"><SelectValue /></SelectTrigger>
             <SelectContent>
               {Array.from({ length: 4 }, (_, i) => currentYear - i).map(y => (
                 <SelectItem key={y} value={String(y)}>{y}</SelectItem>
@@ -428,7 +428,7 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
         </div>
       </div>
 
-      <div className="max-w-2xl mx-auto px-4 sm:px-6 py-5 space-y-4">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4 space-y-4">
         {consentPrompt && (
           <DocumentImageConsent
             record={consentRecord}
@@ -473,7 +473,7 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
               onDragLeave={() => setDragging(false)}
               onDrop={onDrop}
               onClick={() => fileRef.current?.click()}
-              className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed cursor-pointer transition-all min-h-[160px] ${dragging ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 hover:bg-muted/30"} ${preview ? "py-3" : "py-10"}`}
+              className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed cursor-pointer transition-all min-h-[144px] ${dragging ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 hover:bg-muted/30"} ${preview ? "py-3" : "py-6"}`}
             >
               <input ref={fileRef} type="file" className="hidden" accept="image/*,.pdf"
                 onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
@@ -488,7 +488,7 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
               {file && <p className="text-xs text-muted-foreground mt-2">{file.name}</p>}
             </div>
 
-            <Button variant="outline" className="w-full gap-2 sm:hidden"
+            <Button variant="outline" className="min-h-11 w-full gap-2 sm:hidden"
               onClick={() => { if (fileRef.current) { fileRef.current.accept = "image/*"; (fileRef.current as any).capture = "environment"; fileRef.current.click(); } }}>
               <Camera className="w-4 h-4" />
               Take photo with camera
@@ -522,7 +522,7 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
                   Review each field below
                 </p>
               </div>
-              <Button variant="ghost" size="sm" className="text-xs gap-1"
+              <Button variant="ghost" size="sm" className="min-h-11 text-xs gap-1"
                 onClick={() => { setResult(null); setFile(null); setPreview(null); setImageConsentGranted(false); }}>
                 Try different file
               </Button>
@@ -537,14 +537,14 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
             </p>
 
             {/* Legend */}
-            <div className="flex items-center gap-4 text-xs text-muted-foreground bg-muted/40 rounded-lg px-3 py-2">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground bg-muted/40 rounded-lg px-3 py-2">
               <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> High confidence</span>
               <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block" /> Verify manually</span>
               <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Low - must verify</span>
             </div>
 
             {/* Field rows */}
-            <div className="space-y-2">
+            <div className="grid items-start gap-3 md:grid-cols-2">
               {getFieldDefs().map(def => (
                 <FieldRow
                   key={def.key}

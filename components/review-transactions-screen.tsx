@@ -269,7 +269,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
     const charges = groups.reduce((sum, group) => sum + group.count, 0);
     return (
       <div className="min-h-full bg-background px-3 pb-4 sm:px-4">
-        <div className="mx-auto max-w-xl">
+        <div className="mx-auto max-w-4xl">
           <header className="sticky top-0 z-10 mb-3 border-b border-border bg-background/95 py-2 backdrop-blur">
             <div className="flex items-center gap-2">
               <Button variant="ghost" size="icon" className="min-h-11 min-w-11" aria-label="Back to dashboard" onClick={onBack}><ArrowLeft className="h-5 w-5" /></Button>
@@ -355,7 +355,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
 
   return (
     <div className="min-h-full bg-background px-3 pb-4 sm:px-4">
-      <div className="mx-auto max-w-xl">
+      <div className="mx-auto max-w-4xl">
         <header className="sticky top-0 z-10 mb-3 border-b border-border bg-background/95 py-2 backdrop-blur">
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="icon" className="min-h-11 min-w-11" aria-label="Back to dashboard" onClick={onBack}><ArrowLeft className="h-5 w-5" /></Button>
@@ -394,7 +394,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
               <div className="shrink-0 text-right"><p className="text-xl font-semibold tabular-nums">{formatRecordedTransactionAmount(current)}</p><p className="text-xs text-muted-foreground">{current.amount < 0 ? 'Received' : 'Spent'}</p></div>
             </div>
 
-            {!editing && <>
+            {!editing && <div className="grid items-start gap-4 md:grid-cols-2">
               <section className="space-y-2 rounded-xl border border-primary/20 bg-primary/5 p-3" aria-labelledby="suggestion-heading">
                 <div className="flex items-center gap-1.5 text-xs font-medium text-primary"><Sparkles className="h-3.5 w-3.5 shrink-0" /><span>{mayConfirm && presentation!.needsTaxFacts ? 'AI suggested category' : presentation!.label}</span></div>
                 <h3 id="suggestion-heading" className="text-xl font-semibold leading-tight">{presentation!.categoryLabel}</h3>
@@ -403,6 +403,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
                   : <p className={suggestion ? 'line-clamp-2 text-sm leading-5' : 'text-sm leading-5'}>{presentation!.reasoning}</p>}
               </section>
 
+              <div className="space-y-3">
               {offerPurpose && <PurposeConfirmChip key={currentKey} proposal={proposal} question={openQuestion?.kind === 'business_purpose' ? openQuestion.question : null}
                 busy={operation === 'saving'} disabled={busy}
                 onConfirm={purpose => saveDecision(confirmPurposeUpdates(purpose, proposal), 'Purpose saved for AI review. Your tax decision is unchanged.', true)}
@@ -430,7 +431,8 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
               {analysisQueued && !profileRefresh && !factsRefresh && <p role="status" className="text-xs leading-5 text-muted-foreground">{`Queued for automatic analysis.${analysisWaiting > 1 ? ` ${analysisWaiting} transactions are waiting; a first import can take a while.` : ''} Run it now or wait for the result.`}</p>}
               {analysisRunning && !profileRefresh && !factsRefresh && <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 shrink-0 animate-spin" />AI is analyzing. Results refresh here.</p>}
               {!suggestion && availability.status === 'unavailable' && <p className="text-xs text-muted-foreground">{availability.message} Manual categorization remains available.</p>}
-            </>}
+              </div>
+            </div>}
 
             {message && <p role="alert" className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-sm">{message}</p>}
 

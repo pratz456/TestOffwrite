@@ -159,13 +159,13 @@ export function MileageTrackerScreen({ user, onBack }: MileageTrackerScreenProps
     : `IRS ${currentYear} rate not yet published`;
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-full bg-background">
       {/* Header */}
-      <div className="sticky top-0 z-50 bg-background border-b border-border">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
+      <div className="sticky top-0 z-10 bg-background/95 border-b border-border">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3">
           <div className="flex items-center gap-3 sm:gap-4">
             <div>
-              <h1 className="text-lg sm:text-xl font-semibold text-foreground">
+              <h1 className="text-xl font-semibold tracking-tight text-foreground">
                 Mileage Tracker
               </h1>
               <p className="text-xs sm:text-sm text-muted-foreground">
@@ -176,7 +176,7 @@ export function MileageTrackerScreen({ user, onBack }: MileageTrackerScreenProps
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4 sm:py-6 space-y-6">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 space-y-4">
         {/* Summary Card */}
         <Card className="bg-card border border-border">
           <CardHeader className="pb-2">
@@ -186,12 +186,12 @@ export function MileageTrackerScreen({ user, onBack }: MileageTrackerScreenProps
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               <div className="rounded-lg bg-muted/50 p-3 sm:p-4">
                 <p className="text-xs text-muted-foreground mb-0.5">
                   Total Business Miles
                 </p>
-                <p className="text-lg sm:text-xl font-semibold text-foreground">
+                <p className="text-xl font-semibold tracking-tight text-foreground">
                   {totalMiles.toLocaleString()}
                 </p>
               </div>
@@ -199,7 +199,7 @@ export function MileageTrackerScreen({ user, onBack }: MileageTrackerScreenProps
                 <p className="text-xs text-muted-foreground mb-0.5">
                   Total Deduction
                 </p>
-                <p className="text-lg sm:text-xl font-semibold text-foreground">
+                <p className="text-xl font-semibold tracking-tight text-foreground">
                   ${totalDeduction.toFixed(2)}
                 </p>
                 <p className="text-xs text-muted-foreground mt-0.5">
@@ -211,7 +211,7 @@ export function MileageTrackerScreen({ user, onBack }: MileageTrackerScreenProps
                 <p className="text-xs text-muted-foreground mb-0.5">
                   Trips Logged
                 </p>
-                <p className="text-lg sm:text-xl font-semibold text-foreground">
+                <p className="text-xl font-semibold tracking-tight text-foreground">
                   {yearTrips.length}
                 </p>
               </div>
@@ -227,9 +227,9 @@ export function MileageTrackerScreen({ user, onBack }: MileageTrackerScreenProps
         )}
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="w-full grid grid-cols-2 bg-muted">
-            <TabsTrigger value="trips">Trip Log</TabsTrigger>
-            <TabsTrigger value="add">Add Trip</TabsTrigger>
+          <TabsList className="h-auto w-full grid grid-cols-2 bg-muted">
+            <TabsTrigger value="trips" className="min-h-11">Trip Log</TabsTrigger>
+            <TabsTrigger value="add" className="min-h-11">Add Trip</TabsTrigger>
           </TabsList>
 
           <TabsContent value="trips" className="mt-4">
@@ -241,11 +241,11 @@ export function MileageTrackerScreen({ user, onBack }: MileageTrackerScreenProps
               </CardHeader>
               <CardContent>
                 {isLoading ? (
-                  <div className="flex justify-center py-12">
+                  <div className="flex justify-center py-7">
                     <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
                   </div>
                 ) : trips.length === 0 ? (
-                  <div className="text-center py-12 text-muted-foreground">
+                  <div className="text-center py-7 text-muted-foreground">
                     <MapPin className="w-12 h-12 mx-auto mb-3 opacity-50" />
                     <p className="text-sm">No trips logged yet.</p>
                     <p className="text-xs mt-1">
@@ -253,7 +253,7 @@ export function MileageTrackerScreen({ user, onBack }: MileageTrackerScreenProps
                     </p>
                   </div>
                 ) : (
-                  <div className="space-y-3">
+                  <div className="grid items-start gap-3 lg:grid-cols-2">
                     {trips.map((trip) => {
                       const effectiveMiles = getEffectiveMiles(trip);
                       const deduction = getDeductionAmount(trip);
@@ -314,7 +314,7 @@ export function MileageTrackerScreen({ user, onBack }: MileageTrackerScreenProps
             </Card>
           </TabsContent>
 
-          <TabsContent value="add" className="mt-4">
+          <TabsContent value="add" className="mt-4 max-w-4xl">
             <Card className="bg-card border border-border">
               <CardHeader>
                 <CardTitle className="text-base font-medium text-foreground flex items-center gap-2">
@@ -332,7 +332,7 @@ export function MileageTrackerScreen({ user, onBack }: MileageTrackerScreenProps
                         type="date"
                         value={date}
                         onChange={(e) => setDate(e.target.value)}
-                        className="mt-1"
+                        className="mt-1 min-h-11"
                       />
                     </div>
                     <div>
@@ -345,11 +345,12 @@ export function MileageTrackerScreen({ user, onBack }: MileageTrackerScreenProps
                         placeholder="0"
                         value={miles}
                         onChange={(e) => setMiles(e.target.value)}
-                        className="mt-1"
+                        className="mt-1 min-h-11"
                       />
                     </div>
                   </div>
 
+                  <div className="grid gap-4 sm:grid-cols-2">
                   <div>
                     <Label htmlFor="startLocation">Start location</Label>
                     <Input
@@ -358,7 +359,7 @@ export function MileageTrackerScreen({ user, onBack }: MileageTrackerScreenProps
                       placeholder="e.g. Home, Office"
                       value={startLocation}
                       onChange={(e) => setStartLocation(e.target.value)}
-                      className="mt-1"
+                      className="mt-1 min-h-11"
                     />
                   </div>
 
@@ -370,10 +371,11 @@ export function MileageTrackerScreen({ user, onBack }: MileageTrackerScreenProps
                       placeholder="e.g. Client office, Airport"
                       value={endLocation}
                       onChange={(e) => setEndLocation(e.target.value)}
-                      className="mt-1"
+                      className="mt-1 min-h-11"
                     />
                   </div>
 
+                  </div>
                   <div>
                     <Label htmlFor="businessPurpose">
                       Business purpose
@@ -384,7 +386,7 @@ export function MileageTrackerScreen({ user, onBack }: MileageTrackerScreenProps
                       placeholder="e.g. Client meeting, Office pickup"
                       value={businessPurpose}
                       onChange={(e) => setBusinessPurpose(e.target.value)}
-                      className="mt-1"
+                      className="mt-1 min-h-11"
                     />
                   </div>
 
@@ -404,7 +406,7 @@ export function MileageTrackerScreen({ user, onBack }: MileageTrackerScreenProps
                   <Button
                     type="submit"
                     disabled={isSubmitting}
-                    className="w-full sm:w-auto"
+                    className="min-h-11 w-full sm:w-auto"
                   >
                     {isSubmitting ? (
                       <>

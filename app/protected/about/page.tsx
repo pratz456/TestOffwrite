@@ -2,46 +2,30 @@
 
 import React from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Info, ArrowLeft, Heart, Shield, HelpCircle, Users } from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
+import { Heart, Shield, HelpCircle, Users } from 'lucide-react';
 import Link from 'next/link';
-import writeOffLogo from '@/public/writeofflogo.png';
-import Image from 'next/image';
 
 export default function AboutUsPage() {
   return (
-    <div className="min-h-screen bg-background">
-      <div className="bg-white border-b border-border">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Image src={writeOffLogo} alt="WriteOff" className="w-8 h-auto" />
-              <h1 className="text-2xl font-bold text-foreground">About WriteOff</h1>
-            </div>
-            <Link href="/protected">
-              <Button variant="outline" size="sm">
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                Back to Dashboard
-              </Button>
-            </Link>
+    <div className="min-h-full bg-background">
+      <header className="border-b border-border bg-background">
+        <div className="mx-auto flex max-w-4xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
+          <div className="min-w-0">
+            <h1 className="text-xl font-semibold tracking-tight text-foreground">About WriteOff</h1>
+            <p className="mt-1 text-sm text-muted-foreground">Expense and deduction records for freelancers and small business owners</p>
           </div>
+          <Button asChild variant="outline" size="sm" className="shrink-0">
+            <Link href="/protected" aria-label="Back to dashboard">Back</Link>
+          </Button>
         </div>
-      </div>
+      </header>
 
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4">
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Info className="w-5 h-5 text-green-600" />
-              About WriteOff
-            </CardTitle>
-            <CardDescription>
-              Expense and deduction records for freelancers and small business owners
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6 text-sm text-muted-foreground">
+          <CardContent className="grid items-start gap-5 p-4 text-sm leading-6 text-muted-foreground md:grid-cols-2">
             <div>
-              <h3 className="text-lg font-semibold text-foreground mb-3">Our Mission</h3>
+              <h3 className="text-sm font-semibold text-foreground mb-2">Our Mission</h3>
               <p>
                 At WriteOff, we believe that keeping deduction records shouldn't be complicated or time-consuming.
                 Our mission is to give professionals and small business owners tools that organize expenses,
@@ -50,7 +34,7 @@ export default function AboutUsPage() {
             </div>
 
             <div>
-              <h3 className="text-lg font-semibold text-foreground mb-3">What We Do</h3>
+              <h3 className="text-sm font-semibold text-foreground mb-2">What We Do</h3>
               <p className="mb-3">
                 WriteOff helps you:
               </p>
@@ -64,7 +48,7 @@ export default function AboutUsPage() {
             </div>
 
             <div>
-              <h3 className="text-lg font-semibold text-foreground mb-3">Our Technology</h3>
+              <h3 className="text-sm font-semibold text-foreground mb-2">Our Technology</h3>
               <p>
                 We use AI models to suggest categories and possible tax treatments, and published federal
                 tax parameters for planning estimates. Every suggestion is shown for your review; nothing is
@@ -73,7 +57,7 @@ export default function AboutUsPage() {
             </div>
 
             <div>
-              <h3 className="text-lg font-semibold text-foreground mb-3">Why Choose WriteOff</h3>
+              <h3 className="text-sm font-semibold text-foreground mb-2">Why Choose WriteOff</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
                 <div className="flex items-start gap-3">
                   <Heart className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" />
@@ -106,8 +90,8 @@ export default function AboutUsPage() {
               </div>
             </div>
 
-            <div>
-              <h3 className="text-lg font-semibold text-foreground mb-3">Get in Touch</h3>
+            <div className="border-t border-border pt-3 md:col-span-2">
+              <h3 className="text-sm font-semibold text-foreground mb-2">Get in Touch</h3>
               <p>
                 Have questions or want to learn more? We'd love to hear from you.
                 Contact us at writeoffapp@gmail.com or visit our website at writeoffapp.com

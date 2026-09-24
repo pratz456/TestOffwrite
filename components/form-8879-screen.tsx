@@ -22,16 +22,16 @@ export function Form8879Screen({ user, onBack, onNavigate }: Props) {
     }).catch(() => { if (current === requestId.current) setError('Unable to load the historical record. Please retry.'); });
     return () => { requestId.current += 1; };
   }, [year, user.id, attempt]);
-  return <main className="mx-auto max-w-2xl space-y-5 p-5">
+  return <main className="mx-auto max-w-4xl space-y-4 px-4 py-4 sm:px-6">
     <Button variant="outline" onClick={onBack}>Back</Button>
     <h1 className="text-2xl font-semibold">Filing authorization</h1>
-    <p>Review and sign your completed return in your authorized filing provider. WriteOff planning summaries and old authorization records do not file a tax return.</p>
+    <p className="text-sm leading-relaxed text-muted-foreground">Review and sign your completed return in your authorized filing provider. WriteOff planning summaries and old authorization records do not file a tax return.</p>
     <section className="space-y-3 rounded-xl border p-4">
       <h2 className="font-semibold">About Form 8879</h2>
       <p className="text-sm text-muted-foreground">An electronic return originator may use Form 8879 to obtain your authorization for a completed return. The provider determines the applicable signature method and handles identity checks. Do not enter an e-file PIN in WriteOff.</p>
       <a className="text-sm underline" href="https://www.irs.gov/forms-pubs/about-form-8879" target="_blank" rel="noopener noreferrer">IRS Form 8879 information</a>
     </section>
-    <label className="block text-sm">Historical record year <select aria-label="Historical record year" className="ml-2 rounded border p-2" value={year} onChange={event => setYear(event.target.value)}>{[...SUPPORTED_TAX_YEARS].reverse().map(value => <option key={value} value={value}>{value}</option>)}</select></label>
+    <label className="block text-sm">Historical record year <select aria-label="Historical record year" className="ml-2 min-h-11 rounded-lg border border-input bg-background px-3 py-2 text-base" value={year} onChange={event => setYear(event.target.value)}>{[...SUPPORTED_TAX_YEARS].reverse().map(value => <option key={value} value={value}>{value}</option>)}</select></label>
     {legacy && <p role="status" className="rounded border p-3 text-sm">An older WriteOff authorization record exists for {year}. It has been preserved for reference. It is not confirmation that a provider signed, submitted or filed your return.</p>}
     {error && <div role="alert"><p>{error}</p><Button variant="outline" onClick={() => setAttempt(value => value + 1)}>Retry historical record</Button></div>}
     <Button onClick={() => onNavigate?.('tax-filing-hub')}>Open tax filing and exports</Button>

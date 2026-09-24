@@ -12,11 +12,11 @@ export default function ContactSupportPageClient() {
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border bg-card">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex items-center justify-between">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <Link href="/" className="flex items-center gap-3">
               <Image src={writeOffLogo} alt="WriteOff" width={32} height={32} className="rounded-md" />
-              <h1 className="text-xl font-bold text-foreground">Contact Support</h1>
+              <h1 className="text-xl font-semibold tracking-tight text-foreground">Contact Support</h1>
             </Link>
             <Link href="/">
               <Button variant="outline" size="sm" className="text-foreground border-foreground/40 hover:bg-foreground/10 hover:border-foreground/60">
@@ -28,18 +28,18 @@ export default function ContactSupportPageClient() {
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-        <div className="mb-8 text-center">
-          <MessageCircle className="w-12 h-12 text-primary mx-auto mb-3" aria-hidden />
-          <h2 className="text-2xl font-semibold text-foreground">Get in touch</h2>
-          <p className="mt-2 text-foreground/90">
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
+        <div className="mb-4">
+          <MessageCircle className="w-6 h-6 text-primary mb-2" aria-hidden />
+          <h2 className="text-xl font-semibold tracking-tight text-foreground">Get in touch</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
             Send us a message and we&apos;ll respond within 24 hours on business days.
           </p>
         </div>
 
         <ContactSupportForm />
 
-        <div className="mt-8 text-center text-sm text-foreground/90">
+        <div className="mt-4 text-sm text-muted-foreground">
           <p>
             Prefer email?{" "}
             <a href="mailto:writeoffapp@gmail.com" className="text-green-600 font-medium hover:text-green-500 hover:underline">

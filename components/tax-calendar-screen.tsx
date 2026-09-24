@@ -86,9 +86,9 @@ export const TaxCalendarScreen: React.FC<TaxCalendarScreenProps> = ({ onBack }) 
   };
 
   const getEventColor = (type: string, priority: string) => {
-    if (priority === 'high') return 'border-l-red-500 bg-red-50';
-    if (type === 'deadline') return 'border-l-orange-500 bg-orange-50';
-    return 'border-l-blue-500 bg-blue-50';
+    if (priority === 'high') return 'border-l-red-500 bg-red-50 dark:bg-red-950/30';
+    if (type === 'deadline') return 'border-l-orange-500 bg-orange-50 dark:bg-orange-950/30';
+    return 'border-l-blue-500 bg-blue-50 dark:bg-blue-950/30';
   };
 
   const upcomingEvents = taxEvents
@@ -112,48 +112,48 @@ export const TaxCalendarScreen: React.FC<TaxCalendarScreenProps> = ({ onBack }) 
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+    <div className="min-h-full bg-background">
       {/* Header */}
-      <div className="bg-white border-b border-blue-100 sticky top-0 z-50 shadow-sm">
-        <div className="max-w-6xl mx-auto px-6 py-4">
+      <div className="bg-background border-b border-border sticky top-0 z-30">
+        <div className="max-w-6xl mx-auto px-4 py-3 sm:px-6">
           <div className="flex items-center gap-4">
             <Button variant="outline" size="sm" onClick={onBack}>Back</Button>
             <div>
-              <h1 className="text-xl font-semibold text-slate-900">Tax Calendar</h1>
-              <p className="text-sm text-slate-600">Important tax dates and deadlines</p>
+              <h1 className="text-xl font-semibold text-foreground">Tax Calendar</h1>
+              <p className="text-sm text-muted-foreground">Important tax dates and deadlines</p>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="max-w-6xl mx-auto p-6">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="max-w-6xl mx-auto px-4 py-4 sm:px-6">
+        <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-3">
           {/* Upcoming Events */}
-          <div className="lg:col-span-2 space-y-6">
-            <Card className="p-6 bg-white border-0 shadow-xl">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-semibold text-slate-900">Upcoming Deadlines</h3>
+          <div className="xl:col-span-2 space-y-4">
+            <Card className="p-4 bg-card border border-border shadow-none">
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                <h3 className="text-lg font-semibold text-foreground">Upcoming Deadlines</h3>
               </div>
 
-              <div className="space-y-4">
+              <div className="space-y-3">
                 {upcomingEvents.length === 0 && (
-                  <p className="text-sm text-slate-600">No remaining listed deadlines in {selectedYear}. Select another year to review its dates.</p>
+                  <p className="text-sm text-muted-foreground">No remaining listed deadlines in {selectedYear}. Select another year to review its dates.</p>
                 )}
                 {upcomingEvents.map((event) => {
                   const daysUntil = getDaysUntil(event.date);
                   return (
                     <div
                       key={event.id}
-                      className={`p-4 rounded-lg border-l-4 ${getEventColor(event.type, event.priority)}`}
+                      className={`p-3 rounded-lg border-l-[3px] ${getEventColor(event.type, event.priority)}`}
                     >
                       <div className="flex items-start justify-between">
                         <div className="flex items-start gap-3">
                           {getEventIcon(event.type, event.priority)}
                           <div>
-                            <h4 className="font-medium text-slate-900">{event.title}</h4>
-                            <p className="text-sm text-slate-600 mt-1">{event.description}</p>
-                            <div className="flex items-center gap-4 mt-2">
-                              <span className="text-sm font-medium text-slate-700">
+                            <h4 className="font-medium text-foreground">{event.title}</h4>
+                            <p className="text-sm text-muted-foreground mt-1">{event.description}</p>
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2">
+                              <span className="text-sm font-medium text-muted-foreground">
                                 {new Date(event.date).toLocaleDateString('en-US', {
                                   weekday: 'long',
                                   year: 'numeric',
@@ -179,23 +179,25 @@ export const TaxCalendarScreen: React.FC<TaxCalendarScreenProps> = ({ onBack }) 
             </Card>
 
             {/* All Events by Month */}
-            <Card className="p-6 bg-white border-0 shadow-xl">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-semibold text-slate-900">All Tax Events</h3>
+            <Card className="p-4 bg-card border border-border shadow-none">
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                <h3 className="text-lg font-semibold text-foreground">All Tax Events</h3>
                 <div className="flex items-center gap-2">
                   <select
+                    aria-label="Calendar month"
                     value={selectedMonth}
                     onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
-                    className="px-3 py-1 border border-gray-300 rounded-md text-sm"
+                    className="min-h-11 px-3 py-2 border border-input bg-background rounded-lg text-base"
                   >
                     {months.map((month, index) => (
                       <option key={month} value={index}>{month}</option>
                     ))}
                   </select>
                   <select
+                    aria-label="Calendar year"
                     value={selectedYear}
                     onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-                    className="px-3 py-1 border border-gray-300 rounded-md text-sm"
+                    className="min-h-11 px-3 py-2 border border-input bg-background rounded-lg text-base"
                   >
                     {SUPPORTED_TAX_YEARS.map(year => <option key={year} value={year}>{year}</option>)}
                   </select>
@@ -209,12 +211,12 @@ export const TaxCalendarScreen: React.FC<TaxCalendarScreenProps> = ({ onBack }) 
                     return eventDate.getMonth() === selectedMonth && eventDate.getFullYear() === selectedYear;
                   })
                   .map((event) => (
-                    <div key={event.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                    <div key={event.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
                       <div className="flex items-center gap-3">
                         {getEventIcon(event.type, event.priority)}
                         <div>
-                          <p className="font-medium text-slate-900">{event.title}</p>
-                          <p className="text-sm text-slate-600">{new Date(event.date).toLocaleDateString()}</p>
+                          <p className="font-medium text-foreground">{event.title}</p>
+                          <p className="text-sm text-muted-foreground">{new Date(event.date).toLocaleDateString()}</p>
                         </div>
                       </div>
                       <span className={`text-xs px-2 py-1 rounded-full ${
@@ -231,34 +233,34 @@ export const TaxCalendarScreen: React.FC<TaxCalendarScreenProps> = ({ onBack }) 
           </div>
 
           {/* Sidebar */}
-          <div className="space-y-6">
+          <div className="space-y-3">
             {/* Quick Stats */}
-            <Card className="p-6 bg-white border-0 shadow-xl">
-              <h3 className="text-lg font-semibold text-slate-900 mb-4">Tax Year Overview</h3>
-              <div className="space-y-4">
+            <Card className="p-4 bg-card border border-border shadow-none">
+              <h3 className="text-lg font-semibold text-foreground mb-4">Tax Year Overview</h3>
+              <div className="space-y-3">
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-slate-600">Days until filing deadline</span>
+                  <span className="text-sm text-muted-foreground">Days until filing deadline</span>
                   <span className="font-bold text-red-600">
                     {daysUntilLabel(iso(getIndividualReturnDueDate(selectedYear - 1)))}
                   </span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-slate-600">High Priority</span>
+                  <span className="text-sm text-muted-foreground">High Priority</span>
                   <span className="font-bold text-orange-600">{taxEvents.filter(event => event.priority === 'high').length} items</span>
                 </div>
               </div>
             </Card>
 
             {/* Tax Tips */}
-            <Card className="p-6 bg-gradient-to-br from-blue-600 to-blue-700 border-0 shadow-xl text-white">
+            <Card className="p-4 bg-slate-900 border border-slate-800 shadow-none text-white">
               <div className="mb-4">
-                <h3 className="text-lg font-semibold mb-2">💡 Tax Planning Tip</h3>
+                <h3 className="text-lg font-semibold mb-2">Tax planning note</h3>
                 <p className="text-sm text-blue-100">
                   Consider making quarterly estimated tax payments to avoid penalties and manage your cash flow better throughout the year.
                 </p>
               </div>
-              <Button size="sm" variant="secondary" className="w-full">
-                Learn More
+              <Button size="sm" variant="secondary" className="min-h-11 w-full" asChild>
+                <a href="https://www.irs.gov/payments/estimated-taxes" target="_blank" rel="noopener noreferrer">IRS payment guidance</a>
               </Button>
             </Card>
 

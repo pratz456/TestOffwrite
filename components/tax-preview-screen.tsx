@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -126,9 +127,9 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
   return (
     <div className="min-h-full bg-background">
       <header className="border-b border-border/70 bg-background">
-        <div className="mx-auto flex max-w-3xl items-center gap-2 px-4 py-2 sm:px-6">
+        <div className="mx-auto flex max-w-6xl items-center gap-2 px-4 py-2 sm:px-6">
           <div className="min-w-0 flex-1">
-            <h1 className="text-lg font-semibold tracking-tight text-foreground">Tax overview</h1>
+            <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">Tax overview</h1>
             <p className="text-xs text-muted-foreground">Your saved records, explained</p>
           </div>
           <Select value={year} onValueChange={setYear}>
@@ -143,7 +144,7 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
         </div>
       </header>
 
-      <div className="mx-auto max-w-3xl space-y-3 px-4 py-3 sm:px-6 sm:py-4">
+      <div className="mx-auto max-w-6xl space-y-3 px-4 py-3 sm:px-6 sm:py-4">
         {error && (
           <div role="alert" className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
             <div className="flex items-start gap-2"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{error}</div>
@@ -163,19 +164,39 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
             )}
             {onNavigate && reviewCode === 'HOME_OFFICE_REVIEW_REQUIRED' &&
               <Button className="mt-3 min-h-11" variant="outline" onClick={() => onNavigate('settings')}>Review home office settings</Button>}
+            {reviewCode === 'DEPRECIATION_REVIEW_REQUIRED' &&
+              <Button asChild className="mt-3 min-h-11" variant="outline"><Link href="/protected/tax-forms-setup?tab=assets">Review asset records</Link></Button>}
             {onNavigate && reviewCode === 'INCOME_RECONCILIATION_REQUIRED' &&
               <Button className="mt-3 min-h-11" variant="outline" onClick={() => onNavigate(`income-tracking?tab=reconcile&year=${year}`)}>Reconcile income sources</Button>}
             <Button className="mt-2 min-h-11" variant="ghost" onClick={load}>Retry estimate</Button>
           </div>
         )}
 
+        {error && !loading && (
+          <section aria-labelledby="estimate-preparation" className="rounded-xl border border-border bg-card p-4">
+            <h2 id="estimate-preparation" className="text-base font-semibold">Keep preparing your {year} estimate</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Your saved records are available. Resolve the issue above, then refresh to calculate your totals.</p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-3">
+              {[
+                { title: 'Income records', detail: 'Check payments and reconcile 1099 forms.', href: `/protected?screen=income-tracking&year=${year}` },
+                { title: 'Expense review', detail: 'Confirm business use and AI categories.', href: '/protected/transactions' },
+                { title: 'Tax organizer', detail: 'Review your filing details and deductions.', href: '/protected?screen=tax-organizer' },
+              ].map(item => <Link key={item.title} href={item.href} className="group flex min-h-11 items-start gap-3 rounded-lg border border-border p-3 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                <span className="min-w-0 flex-1"><span className="block text-sm font-medium">{item.title}</span><span className="mt-1 block text-xs leading-5 text-muted-foreground">{item.detail}</span></span>
+                <ArrowRight aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              </Link>)}
+            </div>
+          </section>
+        )}
+
         {loading ? (
-          <div className="flex flex-col items-center justify-center gap-3 py-12" role="status">
+          <div className="flex flex-col items-center justify-center gap-3 py-8" role="status">
             <Loader2 className="h-6 w-6 animate-spin text-primary" />
             <p className="text-sm text-muted-foreground">Calculating your estimate…</p>
           </div>
         ) : f1040 ? (
-          <>
+          <div className="grid items-start gap-4 lg:grid-cols-2">
+            <div className="space-y-3">
             <Card className="overflow-hidden rounded-2xl border-border/70 bg-card shadow-none">
               <CardContent className="p-4 sm:p-5">
                 <p className="text-sm font-medium text-muted-foreground">
@@ -232,6 +253,7 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
               </div>
             )}
 
+            </div>
             <section aria-label="Estimate details" className="overflow-hidden rounded-2xl border border-border/70 bg-card divide-y divide-border/70">
               <details className="group">
                 <summary className="flex min-h-12 cursor-pointer list-none items-center gap-3 px-4 py-2.5 text-sm font-medium [&::-webkit-details-marker]:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary">
@@ -432,12 +454,12 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
                 )}
               </div>
             </section>
-            <p className="px-1 text-xs leading-relaxed text-muted-foreground">
+            <p className="px-1 text-xs leading-relaxed text-muted-foreground lg:col-span-2">
               Uses published federal rules for {f1040.taxYear ?? year} and information saved in WriteOff. Actual tax may differ. Always verify with a tax professional before filing or making a tax payment.
             </p>
-          </>
+          </div>
         ) : !loading && !error && (
-          <div className="py-12 text-center">
+          <div className="rounded-xl border border-border bg-card px-4 py-8 text-center">
             <DollarSign className="mx-auto mb-3 h-8 w-8 text-muted-foreground/40" />
             <p className="font-medium text-foreground">No data yet</p>
             <p className="mt-1 text-sm text-muted-foreground">Add income and confirm expenses to see your tax estimate</p>

@@ -158,7 +158,7 @@ export function DeductionsEntryScreen({ user, onBack, onNavigate }: Props) {
 
   return (
     <div className="min-h-full bg-background">
-      <div className="mx-auto max-w-2xl px-4 py-3 sm:px-6">
+      <div className="mx-auto max-w-4xl px-4 py-3 sm:px-6">
         <header className="mb-3 flex items-center justify-between gap-3">
           <h1 className="text-xl font-semibold tracking-tight">Deductions</h1>
           <Select value={year} onValueChange={setYear} disabled={saving}>
@@ -200,14 +200,14 @@ export function DeductionsEntryScreen({ user, onBack, onNavigate }: Props) {
                 const subtotal = sectionFields.reduce((sum, field) => sum + num(fields[field.key as keyof typeof fields]), 0);
                 return (
                   <details key={title} className="group border-b border-border last:border-b-0">
-                    <summary className="flex min-h-14 cursor-pointer list-none items-center gap-3 px-3 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary [&::-webkit-details-marker]:hidden">
+                    <summary className="flex min-h-12 cursor-pointer list-none items-center gap-3 px-3 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary [&::-webkit-details-marker]:hidden">
                       <Icon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
                       <span className="min-w-0 flex-1 text-sm font-medium">{title}</span>
                       <span className="shrink-0 text-sm tabular-nums text-muted-foreground">{entered === 0 ? "Add" : showSubtotal ? fmt(subtotal) : `${entered} of ${sectionFields.length} entered`}</span>
                       <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
                     </summary>
-                    <div className="space-y-3 border-t border-border px-3 pb-4 pt-3">
-                      <p className="text-xs font-medium text-muted-foreground">{kind}</p>
+                    <div className="grid gap-4 border-t border-border p-4 sm:grid-cols-2">
+                      <p className="text-xs font-medium text-muted-foreground sm:col-span-2">{kind}</p>
                       {sectionFields.map(({ key, label, hint }) => (
                         <div key={key} className="space-y-1.5">
                           <Label htmlFor={`deduction-${key}`} className="text-sm font-medium">{label}</Label>

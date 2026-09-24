@@ -280,22 +280,22 @@ export const PlaidScreen: React.FC<PlaidScreenProps> = ({ user, onBack, onConnec
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-full bg-background">
       {/* Header */}
       <div className="bg-background sticky top-0 z-10 border-b border-border/50 backdrop-blur-sm bg-background/95">
-        <div className="max-w-3xl mx-auto px-4 md:px-6 py-3 sm:py-4">
+        <div className="max-w-6xl mx-auto px-4 md:px-6 py-3">
           <div className="flex items-center gap-3">
             <div>
-              <h1 className="text-lg sm:text-xl font-semibold text-foreground">Connected Banks</h1>
+              <h1 className="text-xl font-semibold tracking-tight text-foreground">Connected Banks</h1>
               <p className="text-xs text-muted-foreground">Manage your bank connections</p>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="max-w-3xl mx-auto px-4 md:px-6 py-4 pb-32">
+      <div className="max-w-6xl mx-auto px-4 md:px-6 py-4">
         {/* Connect New Bank */}
-        <div className="rounded-lg border border-border bg-card p-5 mb-6">
+        <div className="rounded-lg border border-border bg-card p-4 mb-4">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
@@ -332,14 +332,14 @@ export const PlaidScreen: React.FC<PlaidScreenProps> = ({ user, onBack, onConnec
 
         {/* Connected Accounts */}
         {loading ? (
-          <div className="mb-6">
-            <div className="rounded-lg border border-border bg-card p-8 text-center">
+          <div className="mb-4">
+            <div className="rounded-lg border border-border bg-card p-5 text-center">
               <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-3" />
               <p className="text-xs text-muted-foreground">Loading accounts...</p>
             </div>
           </div>
         ) : connectedAccounts.length > 0 ? (
-          <div className="mb-6">
+          <div className="mb-4">
             <h2 className="text-sm font-medium text-foreground mb-3">Connected Accounts</h2>
             {connectedAccounts.some(
               (a) =>
@@ -377,7 +377,7 @@ export const PlaidScreen: React.FC<PlaidScreenProps> = ({ user, onBack, onConnec
                 </ul>
               </div>
             )}
-            <div className="space-y-2">
+            <div className="grid items-start gap-3 lg:grid-cols-2">
               {connectedAccounts.map((account) => (
                 <div key={account.id} className="rounded-lg border border-border bg-card p-4">
                   <div className="flex items-center justify-between gap-3">
@@ -407,7 +407,7 @@ export const PlaidScreen: React.FC<PlaidScreenProps> = ({ user, onBack, onConnec
                         <Button
                           variant="outline"
                           size="sm"
-                          className="text-xs h-7 px-2"
+                          className="text-xs px-3"
                           onClick={(e) => { e.stopPropagation(); handleSyncNow(account.id); }}
                           disabled={syncingAccountId === account.id}
                         >
@@ -418,7 +418,8 @@ export const PlaidScreen: React.FC<PlaidScreenProps> = ({ user, onBack, onConnec
                           size="sm"
                           onClick={(e) => { e.stopPropagation(); handleDeleteAccount(account.id); }}
                           disabled={deletingAccountId === account.id}
-                          className="text-xs h-7 w-7 p-0 text-destructive border-destructive/20 hover:bg-destructive/10 hover:text-destructive"
+                          aria-label={`Remove ${account.name}`}
+                          className="text-xs min-w-11 md:min-w-8 p-0 text-destructive border-destructive/20 hover:bg-destructive/10 hover:text-destructive"
                         >
                           {deletingAccountId === account.id ? (
                             <div className="w-3 h-3 border border-destructive border-t-transparent rounded-full animate-spin" />
@@ -434,8 +435,8 @@ export const PlaidScreen: React.FC<PlaidScreenProps> = ({ user, onBack, onConnec
             </div>
           </div>
         ) : (
-          <div className="mb-8">
-            <div className="rounded-lg border border-border bg-card p-8 text-center">
+          <div className="mb-4">
+            <div className="rounded-lg border border-border bg-card p-5 text-center">
               <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mx-auto mb-3">
                 <Building2 className="w-6 h-6 text-muted-foreground" />
               </div>
@@ -451,9 +452,9 @@ export const PlaidScreen: React.FC<PlaidScreenProps> = ({ user, onBack, onConnec
 
         {/* Pending/Disconnected Accounts */}
         {pendingAccounts.length > 0 && (
-          <div className="mb-6">
+          <div className="mb-4">
             <h2 className="text-sm font-medium text-foreground mb-3">Reconnection Required</h2>
-            <div className="space-y-2">
+            <div className="grid items-start gap-3 lg:grid-cols-2">
               {pendingAccounts.map((account) => (
                 <div key={account.id} className="rounded-lg border border-amber-500/30 bg-card p-4">
                   <div className="flex items-center justify-between gap-3">
@@ -479,40 +480,13 @@ export const PlaidScreen: React.FC<PlaidScreenProps> = ({ user, onBack, onConnec
           </div>
         )}
 
-        {/* Benefits */}
-        <div className="rounded-lg border border-border bg-card p-5">
-          <h3 className="text-sm font-medium text-foreground mb-3">Why Connect Your Bank?</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="flex items-start gap-2.5">
-              <CheckCircle className="w-4 h-4 text-primary mt-0.5 shrink-0" />
-              <div>
-                <p className="text-xs font-medium text-foreground">Automatic Expense Tracking</p>
-                <p className="text-xs text-muted-foreground">All business transactions imported automatically</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-2.5">
-              <CheckCircle className="w-4 h-4 text-primary mt-0.5 shrink-0" />
-              <div>
-                <p className="text-xs font-medium text-foreground">Smart Categorization</p>
-                <p className="text-xs text-muted-foreground">AI-powered expense classification</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-2.5">
-              <CheckCircle className="w-4 h-4 text-primary mt-0.5 shrink-0" />
-              <div>
-                <p className="text-xs font-medium text-foreground">Real-time Deduction Tracking</p>
-                <p className="text-xs text-muted-foreground">See tax savings as they happen</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-2.5">
-              <CheckCircle className="w-4 h-4 text-primary mt-0.5 shrink-0" />
-              <div>
-                <p className="text-xs font-medium text-foreground">Read-only, encrypted connection</p>
-                <p className="text-xs text-muted-foreground">256-bit encryption, read-only access</p>
-              </div>
-            </div>
+        <details className="rounded-xl border border-border bg-card px-4">
+          <summary className="min-h-11 cursor-pointer content-center text-sm font-medium text-foreground">How bank connections work</summary>
+          <div className="space-y-2 pb-4 text-sm leading-5 text-muted-foreground">
+            <p>Plaid connects your bank with read-only access. Imported transactions stay available for review alongside their receipts.</p>
+            <p>AI can suggest categories and flag missing details. Confirm business use and tax eligibility before including deductions in your tax records.</p>
           </div>
-        </div>
+        </details>
       </div>
       <ConfirmationDialog
         open={confirmDialog.open}

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { getAllPosts } from "@/lib/blog";
-import { Sparkles, PlayCircle } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { BlogGridClient } from "@/components/blog/blog-grid-client";
 
 export const metadata: Metadata = {
@@ -136,55 +136,26 @@ export default function BlogIndexPage() {
       />
 
       {/* Hero */}
-      <section className="relative overflow-hidden py-12 sm:py-16">
-        <div className="relative mx-auto max-w-4xl px-4 text-center sm:px-6 lg:px-8">
+      <section className="relative overflow-hidden py-6 sm:py-8">
+        <div className="relative mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
           <div className="animate-hero-enter mb-4 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-4 py-1.5 text-sm font-medium text-primary">
             <Sparkles className="h-4 w-4" />
             Tax Tips &amp; Insights
           </div>
-          <h1 className="animate-hero-enter-delay-1 text-3xl font-extrabold tracking-tight sm:text-4xl lg:text-5xl">
+          <h1 className="animate-hero-enter-delay-1 text-2xl font-semibold tracking-tight sm:text-3xl">
             <span className="text-foreground">Smart tax advice for </span>
-            <span className="bg-gradient-to-r from-primary via-blue-500 to-cyan-500 bg-clip-text text-transparent">
+            <span className="text-primary">
               freelancers
             </span>
           </h1>
-          <p className="animate-hero-enter-delay-2 mx-auto mt-4 max-w-2xl text-lg leading-relaxed text-muted-foreground">
+          <p className="animate-hero-enter-delay-2 mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
             Practical guides on deductions, quarterly payments, expense tracking, and IRS filing so you keep more of what you earn.
           </p>
         </div>
       </section>
 
       {/* Post Grid */}
-      <section className="mx-auto max-w-6xl px-4 pb-16 sm:px-6 lg:px-8">
-        {/* Tutorial videos placeholder */}
-        <div className="mb-8 rounded-xl border border-border bg-card p-5 sm:p-6">
-          <div className="mb-4 flex items-center gap-2">
-            <PlayCircle className="h-5 w-5 text-primary" />
-            <h2 className="text-lg font-semibold text-foreground">Tutorial Videos</h2>
-          </div>
-          <p className="mb-4 text-sm text-muted-foreground">
-            Step-by-step video walkthroughs are coming soon. In the meantime, use the written guides below.
-          </p>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {[
-              "Getting started with WriteOff",
-              "How to categorize transactions",
-              "How to prepare for filing",
-            ].map((title) => (
-              <div
-                key={title}
-                className="rounded-lg border border-dashed border-primary/30 bg-primary/5 p-4"
-              >
-                <div className="mb-2 flex items-center gap-2">
-                  <PlayCircle className="h-4 w-4 text-primary" />
-                  <span className="text-sm font-medium text-foreground">{title}</span>
-                </div>
-                <p className="text-xs text-muted-foreground">coming soon</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
+      <section className="mx-auto max-w-6xl px-4 pb-8 sm:px-6 lg:px-8">
         <BlogGridClient
           posts={posts}
           tagStyles={TAG_STYLES}

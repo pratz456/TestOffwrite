@@ -50,37 +50,37 @@ const tools = [
 
 export default function ToolsPage() {
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white">
+    <div className="min-h-screen bg-background">
       <LandingHeader />
 
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="text-center mb-12">
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div className="mb-6">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-green-50 text-green-700 text-sm font-medium mb-4">
             <Calculator className="w-4 h-4" />
             100% Free
           </div>
-          <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-gray-900 mb-3">
+          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-gray-900 mb-3">
             Tax Tools & Calculators
           </h1>
-          <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+          <p className="text-sm text-muted-foreground max-w-2xl leading-relaxed">
             Free calculators built for freelancers, contractors, and self-employed professionals.
             No sign-up required.
           </p>
         </div>
 
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {tools.map((tool) => (
             <Link
               key={tool.href}
               href={tool.href}
-              className="group relative rounded-xl border border-gray-200 bg-white p-6 shadow-sm transition-all hover:border-green-300 hover:shadow-md"
+              className="group relative rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {tool.badge && (
                 <span className="absolute top-4 right-4 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700">
                   {tool.badge}
                 </span>
               )}
-              <div className="mb-4 inline-flex rounded-lg bg-green-50 p-2.5">
+              <div className="mb-3 inline-flex rounded-lg bg-primary/5 p-2">
                 <Calculator className="h-6 w-6 text-green-600" />
               </div>
               <h2 className="text-lg font-semibold text-gray-900 group-hover:text-green-700 transition-colors mb-2">
@@ -96,18 +96,13 @@ export default function ToolsPage() {
             </Link>
           ))}
 
-          {/* Coming soon placeholder */}
-          <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50/50 p-6 flex flex-col items-center justify-center text-center">
-            <Calculator className="h-6 w-6 text-gray-400 mb-3" />
-            <p className="text-sm font-medium text-gray-500">Home Office Deduction Calculator</p>
-            <p className="text-xs text-gray-400 mt-1">Coming soon</p>
-          </div>
+
         </div>
 
         {/* CTA */}
-        <div className="mt-16 text-center rounded-2xl bg-gradient-to-r from-green-600 to-emerald-600 p-10 text-white">
+        <div className="mt-6 rounded-xl border border-slate-800 bg-slate-900 p-5 text-white">
           <h3 className="text-xl font-bold mb-2">Want help keeping your deduction records?</h3>
-          <p className="text-green-100 mb-6 max-w-md mx-auto">
+          <p className="text-slate-300 mb-4 max-w-2xl text-sm leading-relaxed">
             WriteOff tracks expenses, suggests likely deductions for your review, and prepares Schedule C-ready summaries your preparer can use.
           </p>
           <Link href="/auth/sign-up">
@@ -119,8 +114,8 @@ export default function ToolsPage() {
         </div>
       </main>
 
-      <footer className="border-t border-gray-200 mt-16">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <footer className="border-t border-border mt-6">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex flex-wrap items-center justify-between gap-4 text-sm text-gray-500">
             <p>&copy; {new Date().getFullYear()} WriteOff. All rights reserved.</p>
             <div className="flex gap-4">

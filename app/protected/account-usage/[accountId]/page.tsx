@@ -120,9 +120,9 @@ export default function AccountUsagePage() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex items-start justify-center p-5 sm:p-6 pt-8 pb-12">
-      <Card className="w-full max-w-[28rem] rounded-2xl border-0 shadow-lg bg-card/95 backdrop-blur-sm">
-        <CardHeader className="px-6 sm:px-8 pt-6 sm:pt-8 pb-4 space-y-3">
+    <div className="min-h-full bg-background px-4 py-4 sm:px-6">
+      <Card className="mx-auto w-full max-w-3xl">
+        <CardHeader className="p-4 space-y-2">
           <CardTitle className="text-[22px] sm:text-2xl font-bold tracking-tight text-foreground">
             Classify this bank account
           </CardTitle>
@@ -143,7 +143,7 @@ export default function AccountUsagePage() {
             </p>
           )}
         </CardHeader>
-        <CardContent className="px-6 sm:px-8 pb-6 sm:pb-8 space-y-6">
+        <CardContent className="p-4 pt-0 space-y-4">
           <div className="space-y-3" role="radiogroup" aria-label="Account type">
             <label
               className={`flex items-start gap-4 p-4 rounded-xl cursor-pointer transition-all duration-200 ease-out ${

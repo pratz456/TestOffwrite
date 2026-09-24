@@ -208,7 +208,7 @@ export function IncomeTrackingScreen({ user, onBack, initialTab, initialYear }: 
     <div className="min-h-full bg-background">
       {/* Header */}
       <div className="min-h-11 bg-background text-base">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 flex items-center gap-3">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex items-center gap-3">
           <div className="min-w-0 flex-1">
             <h1 className="text-xl font-semibold tracking-tight text-foreground">Income</h1>
           </div>
@@ -223,7 +223,7 @@ export function IncomeTrackingScreen({ user, onBack, initialTab, initialYear }: 
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 pb-4 space-y-3">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-4 space-y-3">
         <section aria-label="Saved income records" className="rounded-xl border border-border bg-card p-3">
           <div className="grid grid-cols-2 gap-3">
             <div>

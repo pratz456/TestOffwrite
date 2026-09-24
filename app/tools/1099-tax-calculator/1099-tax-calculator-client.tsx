@@ -83,26 +83,26 @@ export function TaxCalculator1099Client() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white">
+    <div className="min-h-screen bg-background">
       <LandingHeader />
 
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* Hero */}
-        <div className="text-center mb-10">
+        <div className="mb-5">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-green-50 text-green-700 text-sm font-medium mb-4">
             <Calculator className="w-4 h-4" />
             Free Tool
           </div>
-          <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-gray-900 mb-3">
+          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-gray-900 mb-3">
             1099 Tax Calculator
           </h1>
-          <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+          <p className="text-sm text-muted-foreground max-w-2xl leading-relaxed">
             A planning estimate of your {taxYear} federal tax as a freelancer or 1099 contractor.
             See income tax, self-employment tax, QBI deduction, and your effective rate.
           </p>
         </div>
 
-        <div className="grid gap-8 lg:grid-cols-2">
+        <div className="grid items-start gap-4 lg:grid-cols-2">
           {/* Input Form */}
           <Card>
             <CardHeader>
@@ -114,7 +114,7 @@ export function TaxCalculator1099Client() {
                 Enter your 1099 income and expenses
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-5">
+            <CardContent className="space-y-3 [&_input]:min-h-11 [&_select]:min-h-11">
               <div>
                 <label htmlFor="tax-year" className="block text-sm font-medium text-gray-700 mb-1.5">
                   Tax Year
@@ -240,7 +240,7 @@ export function TaxCalculator1099Client() {
                   <CardContent className="pt-6">
                     <div className="text-center">
                       <p className="text-sm font-medium text-green-700 mb-1">Estimated Total Federal Tax</p>
-                      <p className="text-4xl font-extrabold text-green-800">{fmt(calc.totalTax)}</p>
+                      <p className="text-3xl font-semibold text-green-800">{fmt(calc.totalTax)}</p>
                       <p className="text-sm text-green-600 mt-2">
                         Effective rate: {fmtPct(calc.effectiveRate)}
                       </p>
@@ -321,7 +321,7 @@ export function TaxCalculator1099Client() {
             ) : (
               <Card>
                 <CardContent className="pt-6">
-                  <div className="text-center py-8 text-gray-500">
+                  <div className="text-center py-4 text-gray-500">
                     <Calculator className="w-10 h-10 mx-auto mb-3 opacity-40" />
                     <p className="font-medium">Enter your 1099 income to see results</p>
                     <p className="text-sm mt-1">Your complete tax breakdown will appear here.</p>
@@ -333,11 +333,10 @@ export function TaxCalculator1099Client() {
         </div>
 
         {/* Educational Content */}
-        <div className="mt-16 space-y-10">
-          <section>
-            <h2 className="text-2xl font-bold text-gray-900 mb-4">
-              How 1099 Taxes Work for Freelancers
-            </h2>
+        <div className="mt-5 space-y-3">
+          <details className="rounded-xl border border-border bg-card">
+            <summary className="min-h-11 cursor-pointer px-4 py-3 text-base font-semibold text-foreground">How 1099 Taxes Work for Freelancers</summary>
+            <div className="border-t border-border p-4 text-sm">
             <p className="text-gray-600 leading-relaxed mb-3">
               When you receive 1099 income, no taxes are withheld for you. Unlike W-2 employees whose employers
               withhold income tax, Social Security, and Medicare, freelancers are responsible for paying all of these
@@ -349,12 +348,13 @@ export function TaxCalculator1099Client() {
               necessary business expenses, may qualify for the QBI deduction (up to 20% of qualified business income),
               and deduct half of your SE tax  - all of which reduce the bill.
             </p>
-          </section>
 
-          <section>
-            <h2 className="text-2xl font-bold text-gray-900 mb-4">
-              What This Calculator Includes
-            </h2>
+            </div>
+          </details>
+
+          <details className="rounded-xl border border-border bg-card">
+            <summary className="min-h-11 cursor-pointer px-4 py-3 text-base font-semibold text-foreground">What This Calculator Includes</summary>
+            <div className="border-t border-border p-4 text-sm">
             <div className="grid sm:grid-cols-2 gap-4">
               {[
                 { title: "Federal Income Tax", desc: `${taxYear} tax brackets applied to your taxable income after the deductions below.` },
@@ -368,12 +368,13 @@ export function TaxCalculator1099Client() {
                 </div>
               ))}
             </div>
-          </section>
 
-          <section>
-            <h2 className="text-2xl font-bold text-gray-900 mb-4">
-              {taxYear} Quarterly Estimated Tax Due Dates
-            </h2>
+            </div>
+          </details>
+
+          <details className="rounded-xl border border-border bg-card">
+            <summary className="min-h-11 cursor-pointer px-4 py-3 text-base font-semibold text-foreground">{taxYear} Quarterly Estimated Tax Due Dates</summary>
+            <div className="border-t border-border p-4 text-sm">
             <div className="overflow-x-auto">
               <table className="w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
                 <thead className="bg-gray-50">
@@ -398,14 +399,16 @@ export function TaxCalculator1099Client() {
               Dates that fall on a weekend or legal holiday move to the next business day. Source:{" "}
               <a href="https://www.irs.gov/businesses/small-businesses-self-employed/estimated-taxes" className="underline" target="_blank" rel="noopener noreferrer">IRS Estimated Taxes</a>.
             </p>
-          </section>
+
+            </div>
+          </details>
 
           {/* CTA */}
-          <Card className="bg-gradient-to-r from-green-600 to-emerald-600 text-white border-0">
-            <CardContent className="py-8">
-              <div className="text-center space-y-4">
+          <Card className="bg-slate-900 text-white border border-slate-800">
+            <CardContent className="py-4">
+              <div className="space-y-3">
                 <h3 className="text-xl font-bold">Want Help Tracking Your Deductions?</h3>
-                <p className="text-green-100 max-w-lg mx-auto">
+                <p className="text-slate-300 max-w-2xl text-sm leading-relaxed">
                   WriteOff tracks your expenses, organizes them for Schedule C, and flags
                   possible deductions for you to confirm  - so fewer write-offs slip through.
                 </p>
@@ -440,8 +443,8 @@ export function TaxCalculator1099Client() {
         </div>
       </main>
 
-      <footer className="border-t border-gray-200 mt-16">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <footer className="border-t border-border mt-6">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex flex-wrap items-center justify-between gap-4 text-sm text-gray-500">
             <p>&copy; {new Date().getFullYear()} WriteOff. All rights reserved.</p>
             <div className="flex gap-4">

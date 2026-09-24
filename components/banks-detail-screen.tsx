@@ -54,17 +54,17 @@ function formatBalance(account: BankAccount) {
 /** A local real-account preview hands provider operations to the live app. */
 export const BanksDetailScreen: React.FC<BanksDetailScreenProps> = (props) => {
   if (process.env.NEXT_PUBLIC_APP_ENV === 'local-account-preview') {
-    return <main className="mx-auto w-full max-w-md space-y-4 px-4 py-5">
+    return <main className="mx-auto w-full max-w-4xl space-y-3 px-4 py-5">
       <header className="flex items-center gap-2">
         <Button variant="ghost" size="icon" aria-label="Back" onClick={props.onBack}><ArrowLeft className="h-5 w-5" /></Button>
         <h1 className="text-xl font-semibold">Bank accounts</h1>
       </header>
-      <Card className="space-y-4 p-5">
+      <Card className="space-y-3 p-4">
         <h2 className="font-semibold">Manage your banks on live WriteOff</h2>
         <p className="text-sm text-muted-foreground">Connect, sync or repair your bank in the live app. Sign in with {props.user.email ? <strong className="break-words font-medium">{props.user.email}</strong> : 'the same WriteOff account'}.</p>
-        <Button asChild className="w-full"><a href="https://writeoffapp.com/protected?screen=banks-detail" target="_blank" rel="noopener noreferrer">Open live bank connections</a></Button>
+        <Button asChild className="w-full sm:w-auto"><a href="https://writeoffapp.com/protected?screen=banks-detail" target="_blank" rel="noopener noreferrer">Open live bank connections</a></Button>
         <p className="text-xs text-muted-foreground">Complete any bank sign-in and history review there, then return here and refresh to see your saved records.</p>
-        <Button className="w-full" variant="outline" onClick={props.onBack}>Back to preview</Button>
+        <Button className="w-full sm:w-auto" variant="outline" onClick={props.onBack}>Back to preview</Button>
       </Card>
     </main>;
   }
@@ -162,7 +162,7 @@ const ActiveBanksDetailScreen: React.FC<BanksDetailScreenProps> = ({ user, onBac
   );
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-4 px-4 py-5 sm:px-6">
+    <div className="mx-auto w-full max-w-5xl space-y-3 px-4 py-5 sm:px-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="icon" aria-label="Back" onClick={onBack}><ArrowLeft className="h-5 w-5" /></Button>
@@ -171,7 +171,7 @@ const ActiveBanksDetailScreen: React.FC<BanksDetailScreenProps> = ({ user, onBac
         <Button onClick={() => onConnectBank()} className="gap-2"><Plus className="h-4 w-4" />Connect bank</Button>
       </header>
       <p className="text-sm text-slate-500">Bank activity syncs into your review queue. Confirm AI suggestions before using them in tax reports.</p>
-      {reconnect && reconnect.phase !== 'cancelled' && (reconnect.phase !== 'active' || reconnect.pendingCount + reconnect.deferredCount > 0) && <Card className="space-y-3 p-4 sm:p-5">
+      {reconnect && reconnect.phase !== 'cancelled' && (reconnect.phase !== 'active' || reconnect.pendingCount + reconnect.deferredCount > 0) && <Card className="space-y-3 p-4">
         <h2 className="font-semibold">{reconnect.phase === 'active' ? 'Bank connected · history review remains' : 'Bank reconnect in progress'}</h2>
         <p className="text-sm text-slate-500">{reconnect.pendingCount} need a decision · {reconnect.deferredCount} set aside for later. Your review is saved.</p>
         <Button asChild variant="outline"><Link href={`/plaid/reconnect?sessionId=${encodeURIComponent(reconnect.sessionId)}`}>Resume history review</Link></Button>
@@ -179,7 +179,7 @@ const ActiveBanksDetailScreen: React.FC<BanksDetailScreenProps> = ({ user, onBac
       {error && <Card role="alert" className="p-4 text-sm"><p>{error}</p><Button variant="outline" size="sm" className="mt-2" onClick={() => void load()}>Try again</Button></Card>}
       {loading && <p role="status" className="py-6 text-center text-sm text-slate-500">Loading bank accounts…</p>}
       {items.map(item => (
-        <Card key={item.itemId} className="overflow-hidden p-4 sm:p-5">
+        <Card key={item.itemId} className="overflow-hidden p-4">
           <div className="flex items-start justify-between gap-3">
             <div className="flex min-w-0 gap-3"><Building2 className="mt-0.5 h-5 w-5 shrink-0 text-blue-600" /><div className="min-w-0">
               <h2 className="truncate font-semibold">{itemName(item)}</h2>
@@ -202,7 +202,7 @@ const ActiveBanksDetailScreen: React.FC<BanksDetailScreenProps> = ({ user, onBac
           </div>
         </Card>
       ))}
-      {savedAccounts.length > 0 && <Card className="p-4 sm:p-5"><h2 className="font-semibold">Saved accounts</h2><p className="mt-1 text-xs text-slate-500">Manual and disconnected accounts. Their records remain available.</p><div className="mt-2 divide-y divide-slate-100 dark:divide-slate-800">{savedAccounts.map(accountRow)}</div></Card>}
+      {savedAccounts.length > 0 && <Card className="p-4"><h2 className="font-semibold">Saved accounts</h2><p className="mt-1 text-xs text-slate-500">Manual and disconnected accounts. Their records remain available.</p><div className="mt-2 divide-y divide-slate-100 dark:divide-slate-800">{savedAccounts.map(accountRow)}</div></Card>}
       {!loading && !error && !items.length && !accounts.length && <Card className="p-6 text-center"><Building2 className="mx-auto mb-3 h-7 w-7 text-slate-400" /><h2 className="font-semibold">Bring your transactions together</h2><p className="mt-1 text-sm text-slate-500">Connect a bank to import activity and start your AI review.</p></Card>}
       <p className="text-xs text-slate-500">Available history depends on your plan and bank. Disconnecting stops future updates and keeps saved records.</p>
       <ConfirmationDialog open={!!disconnectItem} onOpenChange={open => { if (!open) setDisconnectItem(null); }} title="Disconnect this bank?" description="This stops future updates for this bank’s accounts. Saved accounts and transactions will remain available." confirmLabel="Disconnect bank" variant="destructive" onConfirm={() => void disconnect()} />

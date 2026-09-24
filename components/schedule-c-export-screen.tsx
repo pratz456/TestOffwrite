@@ -209,21 +209,21 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-background min-w-0 overflow-x-hidden">
+    <div className="min-h-full bg-background min-w-0 overflow-x-hidden">
       {/* Header */}
       <div className="bg-card border-b border-border sticky top-0 z-50 shadow-sm min-w-0">
-        <div className="flex items-center justify-between p-4 sm:p-6 min-w-0">
-          <div className="text-center flex-1">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6 min-w-0">
+          <div className="min-w-0 flex-1">
             <h1 className="text-xl font-semibold text-foreground">Schedule C Export</h1>
             <p className="text-sm text-muted-foreground">Download business records for preparer review</p>
           </div>
         </div>
       </div>
 
-      <div className="p-4 sm:p-6 max-w-4xl mx-auto space-y-6 min-w-0">
+      <div className="px-4 py-4 sm:px-6 max-w-6xl mx-auto space-y-4 min-w-0">
         {/* Export Configuration */}
-        <Card className="p-4 sm:p-6 bg-card border border-border shadow-sm min-w-0">
-          <div className="grid grid-cols-1 sm:grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+        <Card className="p-4 bg-card border border-border shadow-sm min-w-0">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* Tax Year */}
             <div className="min-w-0 w-full">
               <label className="block text-sm font-medium text-foreground mb-2">
@@ -278,11 +278,11 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
           )}
 
           {/* Export Button */}
-          <div className="mt-4 sm:mt-6 w-full">
+          <div className="mt-4 w-full">
             {!subscriptionLoading && !hasAccess ? (
               <Button
                 disabled
-                className="w-full min-h-[44px] h-12 bg-muted text-muted-foreground rounded-lg cursor-not-allowed flex items-center justify-center gap-2"
+                className="w-full min-h-[44px] h-11 bg-muted text-muted-foreground rounded-lg cursor-not-allowed flex items-center justify-center gap-2"
               >
                 <Lock className="w-5 h-5" />
                 Subscription Required to Export
@@ -291,7 +291,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
               <Button
                 onClick={handleExport}
                 disabled={isExporting || subscriptionLoading}
-                className="w-full min-h-[44px] h-12 font-medium rounded-lg flex items-center justify-center gap-2 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+                className="w-full min-h-[44px] h-11 font-medium rounded-lg flex items-center justify-center gap-2 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
               >
                 <Download className="w-5 h-5" />
                 {isExporting ? 'Exporting...' : `Export ${selectedYear} Schedule C Data`}
@@ -309,14 +309,14 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
         )}
 
         {/* Schedule C Preview */}
-        <Card className="p-4 sm:p-6 bg-card border border-border shadow-sm min-w-0 overflow-hidden">
-          <h3 className="text-lg font-semibold text-foreground mb-6">
+        <Card className="p-4 bg-card border border-border shadow-sm min-w-0 overflow-hidden">
+          <h3 className="text-lg font-semibold text-foreground mb-4">
             Schedule C Preview - Tax Year {selectedYear}
           </h3>
 
           {/* Enhanced Form Style Preview */}
           {categorySummaries.length > 0 && (
-            <div className="mb-10">
+            <div className="mb-4">
               <div className="mb-4">
                 <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Form 1040 - Schedule C (Draft Preview)</h4>
                 <p className="text-xs text-muted-foreground">Part II - Expenses (aggregated from your classified and potential business transactions)</p>
@@ -445,7 +445,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
         </Card>
 
         {/* Instructions */}
-        <Card className="p-4 sm:p-6 bg-card border border-border shadow-sm min-w-0">
+        <Card className="p-4 bg-card border border-border shadow-sm min-w-0">
           <h4 className="text-lg font-semibold text-foreground mb-3">How to use this export:</h4>
           <ul className="space-y-2 text-sm text-muted-foreground">
             <li>• Download the CSV file and open it in Excel or Google Sheets</li>

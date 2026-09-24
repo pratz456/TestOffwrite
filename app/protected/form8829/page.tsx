@@ -109,7 +109,7 @@ export default function Form8829Page() {
 
   if (state.status === 'loading') {
     return (
-      <div className="p-6 bg-gray-50 min-h-screen">
+      <div className="mx-auto max-w-6xl px-4 py-4 sm:px-6 bg-background min-h-full [&_button[role=combobox]]:min-h-11">
         <div className="text-center" role="status">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
           <p className="mt-2 text-gray-600">Loading...</p>
@@ -121,21 +121,21 @@ export default function Form8829Page() {
   const settings = state.status === 'ready' ? state.data.settings : state.status === 'review' ? state.settings : null;
 
   return (
-    <div className="p-6 bg-gray-50 min-h-screen">
-      <div className="flex items-center gap-4 mb-6">
-        <button onClick={handleBack} className="p-2 hover:bg-gray-200 rounded-lg transition-colors" aria-label="Back to reports">
+    <div className="mx-auto max-w-6xl px-4 py-4 sm:px-6 bg-background min-h-full [&_button[role=combobox]]:min-h-11">
+      <div className="flex items-center gap-3 mb-4">
+        <button onClick={handleBack} className="min-h-11 min-w-11 p-2 hover:bg-muted rounded-lg transition-colors" aria-label="Back to reports">
           <ArrowLeft className="w-5 h-5 text-gray-600" />
         </button>
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Home Office Worksheet</h1>
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-foreground">Home Office Worksheet</h1>
           <p className="text-gray-600">Simplified-method planning worksheet for Schedule C line 30 (Rev. Proc. 2013-13). Not Form 8829.</p>
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto space-y-6">
-        <Card className="p-6">
-          <h2 className="text-xl font-semibold mb-4">Export Options</h2>
-          <div className="grid grid-cols-2 gap-4 mb-6">
+      <div className="space-y-4">
+        <Card className="p-4">
+          <h2 className="text-base font-semibold mb-3">Export Options</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Tax Year</label>
               <Select value={selectedYear} onValueChange={setSelectedYear}>
@@ -161,12 +161,12 @@ export default function Form8829Page() {
           </PremiumFeatureGate>
         </Card>
 
-        <Card className="p-6">
-          <h2 className="text-xl font-semibold mb-4">Planning worksheet - Tax Year {selectedYear}</h2>
+        <Card className="p-4">
+          <h2 className="text-base font-semibold mb-3">Planning worksheet - Tax Year {selectedYear}</h2>
 
           {state.status === 'error' && (
-            <div className="text-center py-12" role="alert">
-              <AlertCircle className="w-16 h-16 text-red-300 mx-auto mb-4" />
+            <div className="text-center py-6" role="alert">
+              <AlertCircle className="w-8 h-8 text-red-300 mx-auto mb-4" />
               <h3 className="text-lg font-medium text-gray-900 mb-2">Worksheet unavailable</h3>
               <p className="text-gray-600 mb-4">{state.message}</p>
               <Button onClick={() => void loadWorksheet()} variant="outline">Retry</Button>
@@ -193,8 +193,8 @@ export default function Form8829Page() {
           )}
 
           {state.status === 'ready' && !settings && (
-            <div className="text-center py-12">
-              <Home className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+            <div className="text-center py-6">
+              <Home className="w-8 h-8 text-gray-300 mx-auto mb-4" />
               <h3 className="text-lg font-medium text-gray-900 mb-2">Home office facts not saved</h3>
               <p className="text-gray-600 mb-4">Answer the Publication 587 questions (regular and exclusive use, qualifying use, square footage, months used, rented or owned) in Settings before this worksheet can be prepared.</p>
               <Button onClick={handleSetupSettings} className="bg-blue-600 hover:bg-blue-700 text-white">
@@ -282,10 +282,10 @@ export default function Form8829Page() {
           )}
         </Card>
 
-        <Card className="p-6">
-          <h2 className="text-xl font-semibold mb-4">About this worksheet</h2>
-          <div className="text-center py-6">
-            <Calculator className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+        <details className="rounded-xl border border-border bg-card">
+          <summary className="min-h-11 cursor-pointer px-4 py-3 text-sm font-semibold">About this worksheet</summary>
+          <div className="border-t border-border p-4">
+            <Calculator className="w-8 h-8 text-gray-300 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">Simplified method vs. Form 8829</h3>
             <div className="text-sm text-gray-500 space-y-1 max-w-2xl mx-auto text-left">
               <p>• Simplified method (Rev. Proc. 2013-13): $5 per square foot of qualified business use, up to 300 square feet ($1,500), prorated by months, limited to the gross income from the business use of the home minus other business expenses. No carryover and no home depreciation for the year.</p>
@@ -293,7 +293,7 @@ export default function Form8829Page() {
               <p>• Eligibility requires regular and exclusive use of a specific area as your principal place of business, a place to meet clients, or a separate structure (§280A(c)(1); Publication 587). Daycare and inventory-storage exceptions need review.</p>
             </div>
           </div>
-        </Card>
+        </details>
       </div>
 
       <ToastContainer toasts={toasts} onClose={removeToast} />

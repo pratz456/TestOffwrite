@@ -125,86 +125,86 @@ export const ExpensesDetailScreen: React.FC<ExpensesDetailScreenProps> = ({
   const monthlyEntries = Object.entries(monthlyData).slice(-6); // Last 6 months
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+    <div className="min-h-full bg-background">
       {/* Header */}
-      <div className="bg-white border-b border-blue-100 sticky top-0 z-50 shadow-sm">
-        <div className="max-w-7xl mx-auto px-6 py-4">
+      <div className="bg-background/95 border-b border-border sticky top-0 z-10">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3">
           <div className="flex items-center gap-4">
-            <Button onClick={onBack} variant="outline" size="sm" className="gap-2">
+            <Button onClick={onBack} variant="outline" size="sm" className="min-h-11 gap-2">
               <ArrowLeft className="w-4 h-4" />
               Back
             </Button>
             <div>
-              <h1 className="text-xl font-semibold text-slate-900">Expense Analytics</h1>
-              <p className="text-sm text-slate-600">Detailed breakdown of your business and personal expenses</p>
+              <h1 className="text-xl font-semibold text-foreground">Expense Analytics</h1>
+              <p className="text-sm text-muted-foreground">Detailed breakdown of your business and personal expenses</p>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto p-6">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4">
         {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <Card className="p-6 bg-white border-0 shadow-xl">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+          <Card className="p-4 bg-card border-border rounded-2xl shadow-none">
             <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
-                <CreditCard className="w-6 h-6 text-blue-600" />
+              <div className="w-9 h-9 shrink-0 bg-blue-100 rounded-xl flex items-center justify-center">
+                <CreditCard className="w-4 h-4 text-blue-600" />
               </div>
               <div>
-                <p className="text-sm text-slate-600">Total Expenses</p>
-                <p className="text-2xl font-bold text-slate-900">${totalExpenses.toLocaleString()}</p>
+                <p className="text-sm text-muted-foreground">Total Expenses</p>
+                <p className="text-2xl font-semibold tabular-nums text-foreground">${totalExpenses.toLocaleString()}</p>
               </div>
             </div>
           </Card>
 
-          <Card className="p-6 bg-white border-0 shadow-xl">
+          <Card className="p-4 bg-card border-border rounded-2xl shadow-none">
             <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center">
-                <DollarSign className="w-6 h-6 text-emerald-600" />
+              <div className="w-9 h-9 shrink-0 bg-emerald-100 rounded-xl flex items-center justify-center">
+                <DollarSign className="w-4 h-4 text-emerald-600" />
               </div>
               <div>
-                <p className="text-sm text-slate-600">Business Expenses</p>
-                <p className="text-2xl font-bold text-slate-900">${deductibleExpenses.toLocaleString()}</p>
+                <p className="text-sm text-muted-foreground">Business Expenses</p>
+                <p className="text-2xl font-semibold tabular-nums text-foreground">${deductibleExpenses.toLocaleString()}</p>
               </div>
             </div>
           </Card>
 
-          <Card className="p-6 bg-white border-0 shadow-xl">
+          <Card className="p-4 bg-card border-border rounded-2xl shadow-none">
             <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-gray-100 rounded-xl flex items-center justify-center">
-                <FileText className="w-6 h-6 text-gray-600" />
+              <div className="w-9 h-9 shrink-0 bg-gray-100 rounded-xl flex items-center justify-center">
+                <FileText className="w-4 h-4 text-gray-600" />
               </div>
               <div>
-                <p className="text-sm text-slate-600">Personal Expenses</p>
-                <p className="text-2xl font-bold text-slate-900">${personalExpenses.toLocaleString()}</p>
+                <p className="text-sm text-muted-foreground">Personal Expenses</p>
+                <p className="text-2xl font-semibold tabular-nums text-foreground">${personalExpenses.toLocaleString()}</p>
               </div>
             </div>
           </Card>
 
-          <Card className="p-6 bg-white border-0 shadow-xl">
+          <Card className="p-4 bg-card border-border rounded-2xl shadow-none">
             <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center">
-                <PieChart className="w-6 h-6 text-purple-600" />
+              <div className="w-9 h-9 shrink-0 bg-purple-100 rounded-xl flex items-center justify-center">
+                <PieChart className="w-4 h-4 text-purple-600" />
               </div>
               <div>
-                <p className="text-sm text-slate-600">Total Items</p>
-                <p className="text-2xl font-bold text-slate-900">{displayTransactions.length}</p>
+                <p className="text-sm text-muted-foreground">Total Items</p>
+                <p className="text-2xl font-semibold tabular-nums text-foreground">{displayTransactions.length}</p>
               </div>
             </div>
           </Card>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
           {/* Expenses List */}
           <div className="lg:col-span-2">
-            <Card className="p-6 bg-white border-0 shadow-xl">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-semibold text-slate-900">Expense Details</h3>
-                <div className="flex gap-3">
+            <Card className="p-4 bg-card border-border rounded-2xl shadow-none">
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                <h3 className="text-sm font-semibold text-foreground">Expense Details</h3>
+                <div className="flex flex-wrap gap-2">
                   <select
                     value={selectedPeriod}
                     onChange={(e) => setSelectedPeriod(e.target.value)}
-                    className="px-3 py-2 border border-gray-300 rounded-md text-sm"
+                    className="min-h-11 max-w-full px-3 py-2 border border-border bg-background rounded-lg text-sm"
                   >
                     {periods.map(period => (
                       <option key={period} value={period}>{period}</option>
@@ -213,7 +213,7 @@ export const ExpensesDetailScreen: React.FC<ExpensesDetailScreenProps> = ({
                   <select
                     value={viewType}
                     onChange={(e) => setViewType(e.target.value as any)}
-                    className="px-3 py-2 border border-gray-300 rounded-md text-sm"
+                    className="min-h-11 max-w-full px-3 py-2 border border-border bg-background rounded-lg text-sm"
                   >
                     <option value="all">All Expenses</option>
                     <option value="deductible">Business Only</option>
@@ -226,13 +226,13 @@ export const ExpensesDetailScreen: React.FC<ExpensesDetailScreenProps> = ({
                 {displayTransactions.length === 0 ? (
                   <div className="text-center py-8">
                     <FileText className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                    <p className="text-slate-500">No expenses found for the selected criteria</p>
+                    <p className="text-muted-foreground">No expenses found for the selected criteria</p>
                   </div>
                 ) : (
                   displayTransactions
                     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
                     .map((transaction) => (
-                      <div key={transaction.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors">
+                      <div key={transaction.id} className="flex items-center justify-between gap-3 p-3 bg-muted/35 rounded-lg hover:bg-muted/60 transition-colors">
                         <div className="flex items-center gap-3">
                           <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
                             transaction.is_deductible ? 'bg-emerald-100' : 'bg-gray-100'
@@ -242,8 +242,8 @@ export const ExpensesDetailScreen: React.FC<ExpensesDetailScreenProps> = ({
                             }`} />
                           </div>
                           <div className="flex-1">
-                            <p className="font-medium text-slate-900">{transaction.description}</p>
-                            <div className="flex items-center gap-2 text-sm text-slate-600">
+                            <p className="font-medium text-foreground">{transaction.description}</p>
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                               <span>{formatCategory(transaction.category)}</span>
                               <span>•</span>
                               <span>{new Date(transaction.date).toLocaleDateString()}</span>
@@ -264,7 +264,7 @@ export const ExpensesDetailScreen: React.FC<ExpensesDetailScreenProps> = ({
                           </div>
                         </div>
                         <div className="text-right">
-                          <p className="font-bold text-slate-900">${transaction.amount.toFixed(2)}</p>
+                          <p className="font-bold text-foreground">${transaction.amount.toFixed(2)}</p>
                         </div>
                       </div>
                     ))
@@ -274,33 +274,33 @@ export const ExpensesDetailScreen: React.FC<ExpensesDetailScreenProps> = ({
           </div>
 
           {/* Category Breakdown & Monthly Trend */}
-          <div className="space-y-6">
-            <Card className="p-6 bg-white border-0 shadow-xl">
-              <h3 className="text-lg font-semibold text-slate-900 mb-4">Category Breakdown</h3>
+          <div className="space-y-4">
+            <Card className="p-4 bg-card border-border rounded-2xl shadow-none">
+              <h3 className="text-sm font-semibold text-foreground mb-4">Category Breakdown</h3>
               <div className="space-y-4">
                 {categoryEntries.slice(0, 6).map(([category, data]) => {
                   const percentage = totalExpenses > 0 ? (data.total / totalExpenses) * 100 : 0;
                   return (
                     <div key={category} className="space-y-2">
                       <div className="flex justify-between items-center">
-                        <span className="text-sm font-medium text-slate-700">{category}</span>
-                        <span className="text-sm text-slate-900">${data.total.toFixed(2)}</span>
+                        <span className="text-sm font-medium text-foreground">{category}</span>
+                        <span className="text-sm text-foreground">${data.total.toFixed(2)}</span>
                       </div>
                       <div className="flex gap-1">
-                        <div className="flex-1 bg-gray-200 rounded-full h-2">
+                        <div className="flex-1 bg-muted rounded-full h-2">
                           <div 
                             className="bg-emerald-600 h-2 rounded-full"
                             style={{ width: `${data.deductible / data.total * 100}%` }}
                           ></div>
                         </div>
-                        <div className="flex-1 bg-gray-200 rounded-full h-2">
+                        <div className="flex-1 bg-muted rounded-full h-2">
                           <div 
                             className="bg-gray-400 h-2 rounded-full"
                             style={{ width: `${data.personal / data.total * 100}%` }}
                           ></div>
                         </div>
                       </div>
-                      <div className="flex justify-between text-xs text-slate-500">
+                      <div className="flex justify-between text-xs text-muted-foreground">
                         <span>{data.count} items</span>
                         <span>{percentage.toFixed(1)}% of total</span>
                       </div>
@@ -308,7 +308,7 @@ export const ExpensesDetailScreen: React.FC<ExpensesDetailScreenProps> = ({
                   );
                 })}
               </div>
-              <div className="mt-4 pt-4 border-t border-gray-200">
+              <div className="mt-4 pt-4 border-t border-border">
                 <div className="flex items-center gap-4 text-xs">
                   <div className="flex items-center gap-1">
                     <div className="w-3 h-3 bg-emerald-600 rounded-full"></div>
@@ -322,8 +322,8 @@ export const ExpensesDetailScreen: React.FC<ExpensesDetailScreenProps> = ({
               </div>
             </Card>
 
-            <Card className="p-6 bg-white border-0 shadow-xl">
-              <h3 className="text-lg font-semibold text-slate-900 mb-4">Monthly Trend</h3>
+            <Card className="p-4 bg-card border-border rounded-2xl shadow-none">
+              <h3 className="text-sm font-semibold text-foreground mb-4">Monthly Trend</h3>
               <div className="space-y-3">
                 {monthlyEntries.map(([month, amount]) => {
                   const maxAmount = Math.max(...monthlyEntries.map(([,amt]) => amt));
@@ -331,10 +331,10 @@ export const ExpensesDetailScreen: React.FC<ExpensesDetailScreenProps> = ({
                   return (
                     <div key={month} className="space-y-1">
                       <div className="flex justify-between items-center">
-                        <span className="text-sm font-medium text-slate-700">{month}</span>
-                        <span className="text-sm text-slate-900">${amount.toFixed(2)}</span>
+                        <span className="text-sm font-medium text-foreground">{month}</span>
+                        <span className="text-sm text-foreground">${amount.toFixed(2)}</span>
                       </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div className="w-full bg-muted rounded-full h-2">
                         <div 
                           className="bg-blue-600 h-2 rounded-full transition-all duration-300"
                           style={{ width: `${percentage}%` }}

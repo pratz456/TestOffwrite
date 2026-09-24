@@ -124,28 +124,28 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-full bg-background">
       {/* Header */}
-      <div className="sticky top-0 z-50 bg-background border-b border-border">
-        <div className="max-w-2xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3">
+      <div className="sticky top-0 z-10 bg-background/95 border-b border-border">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 flex items-center gap-3">
           <Button onClick={onBack} variant="ghost" size="icon" className="shrink-0 min-h-[44px] min-w-[44px]">
             <ArrowLeft className="w-5 h-5" />
           </Button>
           <div className="flex-1 min-w-0">
-            <h1 className="text-lg sm:text-xl font-semibold text-foreground">Add Transaction</h1>
+            <h1 className="text-xl font-semibold tracking-tight text-foreground">Add Transaction</h1>
             <p className="text-xs sm:text-sm text-muted-foreground">Manually enter income or expenses</p>
           </div>
         </div>
       </div>
 
-      <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 space-y-5">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4 space-y-4">
         {/* Mode switcher */}
         <Tabs value={mode} onValueChange={(v) => { setMode(v as "expense" | "income"); setError(null); setSaved(false); }}>
-          <TabsList className="w-full grid grid-cols-2 bg-muted/50 border border-border rounded-lg p-1">
-            <TabsTrigger value="expense" className="rounded-md flex items-center gap-2 text-sm">
+          <TabsList className="h-auto w-full grid grid-cols-2 bg-muted/50 border border-border rounded-lg p-1">
+            <TabsTrigger value="expense" className="min-h-11 rounded-md flex items-center gap-2 text-sm">
               <TrendingDown className="w-4 h-4" /> Expense
             </TabsTrigger>
-            <TabsTrigger value="income" className="rounded-md flex items-center gap-2 text-sm">
+            <TabsTrigger value="income" className="min-h-11 rounded-md flex items-center gap-2 text-sm">
               <TrendingUp className="w-4 h-4" /> Income
             </TabsTrigger>
           </TabsList>
@@ -177,13 +177,13 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
                   <div className="space-y-1.5">
                     <Label className="text-xs text-muted-foreground">Merchant / Vendor *</Label>
                     <Input value={exp.merchant_name} onChange={e => setExp(p => ({ ...p, merchant_name: e.target.value }))}
-                      placeholder="e.g. Adobe, Staples, AWS" className="bg-background" required />
+                      placeholder="e.g. Adobe, Staples, AWS" className="min-h-11 bg-background" required />
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs text-muted-foreground">Amount (USD) *</Label>
                     <Input type="number" min="0.01" step="0.01" value={exp.amount}
                       onChange={e => setExp(p => ({ ...p, amount: e.target.value }))}
-                      placeholder="0.00" className="bg-background" required />
+                      placeholder="0.00" className="min-h-11 bg-background" required />
                   </div>
                 </div>
 
@@ -191,12 +191,12 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
                   <div className="space-y-1.5">
                     <Label className="text-xs text-muted-foreground">Date *</Label>
                     <Input type="date" value={exp.date} onChange={e => setExp(p => ({ ...p, date: e.target.value }))}
-                      className="bg-background" required />
+                      className="min-h-11 bg-background" required />
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs text-muted-foreground">Schedule C Category</Label>
                     <Select value={exp.category} onValueChange={v => setExp(p => ({ ...p, category: v }))}>
-                      <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="min-h-11 bg-background"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {EXPENSE_CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
                       </SelectContent>
@@ -207,13 +207,13 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
                 <div className="space-y-1.5">
                   <Label className="text-xs text-muted-foreground">Business Purpose</Label>
                   <Input value={exp.business_purpose} onChange={e => setExp(p => ({ ...p, business_purpose: e.target.value }))}
-                    placeholder="Why was this necessary for your business?" className="bg-background" />
+                    placeholder="Why was this necessary for your business?" className="min-h-11 bg-background" />
                 </div>
 
                 <div className="space-y-1.5">
                   <Label className="text-xs text-muted-foreground">Notes</Label>
                   <Input value={exp.notes} onChange={e => setExp(p => ({ ...p, notes: e.target.value }))}
-                    placeholder="Receipt #, project name, client, etc." className="bg-background" />
+                    placeholder="Receipt #, project name, client, etc." className="min-h-11 bg-background" />
                 </div>
 
                 <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/30 border border-border">
@@ -249,13 +249,13 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
                   <div className="space-y-1.5">
                     <Label className="text-xs text-muted-foreground">Client / Payer *</Label>
                     <Input value={inc.source} onChange={e => setInc(p => ({ ...p, source: e.target.value }))}
-                      placeholder="e.g. Acme Corp, Client Name" className="bg-background" required />
+                      placeholder="e.g. Acme Corp, Client Name" className="min-h-11 bg-background" required />
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs text-muted-foreground">Amount (USD) *</Label>
                     <Input type="number" min="0.01" step="0.01" value={inc.amount}
                       onChange={e => setInc(p => ({ ...p, amount: e.target.value }))}
-                      placeholder="0.00" className="bg-background" required />
+                      placeholder="0.00" className="min-h-11 bg-background" required />
                   </div>
                 </div>
 
@@ -263,12 +263,12 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
                   <div className="space-y-1.5">
                     <Label className="text-xs text-muted-foreground">Date *</Label>
                     <Input type="date" value={inc.date} onChange={e => setInc(p => ({ ...p, date: e.target.value }))}
-                      className="bg-background" required />
+                      className="min-h-11 bg-background" required />
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs text-muted-foreground">Income Type</Label>
                     <Select value={inc.type} onValueChange={v => setInc(p => ({ ...p, type: v }))}>
-                      <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="min-h-11 bg-background"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {INCOME_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
                       </SelectContent>
@@ -279,7 +279,7 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
                 <div className="space-y-1.5">
                   <Label className="text-xs text-muted-foreground">Description (optional)</Label>
                   <Input value={inc.description} onChange={e => setInc(p => ({ ...p, description: e.target.value }))}
-                    placeholder="Invoice #, project name, service provided" className="bg-background" />
+                    placeholder="Invoice #, project name, service provided" className="min-h-11 bg-background" />
                 </div>
 
                 <Button type="submit" disabled={saving || !inc.source.trim() || !inc.amount} className="w-full gap-2 min-h-[44px]">
@@ -292,8 +292,9 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
         )}
 
         {/* Help text */}
-        <div className="rounded-lg border border-border bg-muted/20 px-4 py-3 space-y-1.5 text-xs text-muted-foreground">
-          <p className="font-medium text-foreground text-sm">How this works</p>
+        <details className="rounded-xl border border-border bg-card px-4 text-xs text-muted-foreground">
+          <summary className="min-h-11 cursor-pointer content-center text-sm font-medium text-foreground">How this works</summary>
+          <div className="space-y-1.5 pb-3 leading-relaxed">
           {mode === "expense" ? (
             <>
               <p>• Your saved amount, date, category and notes stay available for review.</p>
@@ -307,7 +308,8 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
               <p>• All income sources are combined automatically for your Schedule C.</p>
             </>
           )}
-        </div>
+          </div>
+        </details>
       </div>
     </div>
   );

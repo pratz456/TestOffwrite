@@ -28,6 +28,7 @@ function FAQAccordionItem({
   onToggle,
   durationMs,
   reducedMotion,
+  compact,
 }: {
   item: FAQItem;
   index: number;
@@ -35,6 +36,7 @@ function FAQAccordionItem({
   onToggle: () => void;
   durationMs: number;
   reducedMotion: boolean;
+  compact: boolean;
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState(0);
@@ -65,9 +67,9 @@ function FAQAccordionItem({
           aria-expanded={isOpen}
           aria-controls={answerId}
           onClick={onToggle}
-          className="w-full cursor-pointer hover:bg-muted/50 transition-colors text-left flex items-center justify-between gap-3 px-6 py-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-t-lg"
+          className={`min-h-11 w-full cursor-pointer hover:bg-muted/50 transition-colors text-left flex items-center justify-between gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-t-lg ${compact ? "px-4 py-3" : "px-6 py-4"}`}
         >
-          <CardTitle className="text-base font-medium text-foreground">
+          <CardTitle className={`${compact ? "text-sm" : "text-base"} font-medium text-foreground`}>
             {item.question}
           </CardTitle>
           <span
@@ -111,7 +113,7 @@ function FAQAccordionItem({
   );
 }
 
-export function FAQSection() {
+export function FAQSection({ compact = false }: { compact?: boolean } = {}) {
   const [expandedItems, setExpandedItems] = useState<Set<number>>(new Set());
   const reducedMotion = useReducedMotion();
 
@@ -126,16 +128,16 @@ export function FAQSection() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="text-center space-y-2">
+    <div className={compact ? "space-y-4" : "space-y-6"}>
+      {!compact && <div className="text-center space-y-2">
         <h2 className="text-2xl font-bold text-foreground">Frequently Asked Questions</h2>
         <p className="text-muted-foreground">
           Find answers to the most common questions about WriteOff
         </p>
-      </div>
+      </div>}
 
       {/* FAQ Items */}
-      <div className="space-y-4">
+      <div className={compact ? "space-y-2" : "space-y-4"}>
         {faqData.map((item, index) => (
           <FAQAccordionItem
             key={index}
@@ -145,6 +147,7 @@ export function FAQSection() {
             onToggle={() => toggleItem(index)}
             durationMs={DURATION_MS}
             reducedMotion={reducedMotion}
+            compact={compact}
           />
         ))}
       </div>
