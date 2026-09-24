@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({ auth: vi.fn(), exchange: vi.fn(), accounts: vi.fn(), remove: vi.fn(), save: vi.fn(), sync: vi.fn(),
-  begin: vi.fn(), retain: vi.fn(), finish: vi.fn(), unresolved: vi.fn(), owner: vi.fn(), quarantine: vi.fn() }));
+  begin: vi.fn(), retain: vi.fn(), finish: vi.fn(), unresolved: vi.fn(), owner: vi.fn(), quarantine: vi.fn(), historyReady: vi.fn() }));
+vi.mock('@/lib/plaid/history-review', () => ({ assertBankHistoryReadyForNewConnection: m.historyReady,
+  BANK_HISTORY_REVIEW_REQUIRED: 'BANK_HISTORY_REVIEW_REQUIRED', BANK_HISTORY_REVIEW_MESSAGE: 'Review saved bank history with WriteOff support.' }));
 vi.mock('@/app/api/_lib/auth', () => ({ getUserFromReqOrThrow: m.auth }));
 vi.mock('@/lib/plaid/client', () => ({ plaidClient: { itemPublicTokenExchange: m.exchange, accountsGet: m.accounts, itemRemove: m.remove } }));
 vi.mock('@/lib/plaid/connections', () => ({ assertPlaidTokenEncryptionConfigured() {}, savePlaidConnection: m.save }));
@@ -18,6 +20,19 @@ beforeEach(() => {
   m.owner.mockResolvedValue('none');
 });
 describe('bank exchange excludes account deletion and preserves compensation', () => {
+  it('blocks a previously issued public token for legacy-history owners before exchange or operation creation', async () => {
+    m.historyReady.mockRejectedValue(new Error('BANK_HISTORY_REVIEW_REQUIRED'));
+    const response = await POST(req());
+    expect(response.status).toBe(409); expect(await response.json()).toMatchObject({ code: 'BANK_HISTORY_REVIEW_REQUIRED' });
+    expect(m.begin).not.toHaveBeenCalled(); expect(m.exchange).not.toHaveBeenCalled(); expect(m.save).not.toHaveBeenCalled();
+  });
+  it('revokes a new Item if legacy history is discovered at the atomic save', async () => {
+    m.save.mockRejectedValue(new Error('BANK_HISTORY_REVIEW_REQUIRED'));
+    const response = await POST(req());
+    expect(response.status).toBe(409); expect(await response.json()).toMatchObject({ code: 'BANK_HISTORY_REVIEW_REQUIRED' });
+    expect(m.remove).toHaveBeenCalledExactlyOnceWith({ access_token: 'access-sandbox-test' });
+    expect(m.finish).toHaveBeenCalledWith('owner', 'operation'); expect(m.sync).not.toHaveBeenCalled();
+  });
   it('denies deletion-marked users before any provider exchange', async () => {
     m.begin.mockRejectedValue(new Error('ACCOUNT_DELETION_IN_PROGRESS'));
     expect((await POST(req())).status).toBe(409); expect(m.exchange).not.toHaveBeenCalled(); expect(m.remove).not.toHaveBeenCalled();

@@ -6,6 +6,7 @@ import { assertPlaidTokenEncryptionConfigured, savePlaidConnection } from '@/lib
 import { syncUserTransactionsIncremental } from '@/lib/plaid/sync-helper';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import { invalidJsonResponse, readJsonObject } from '@/app/api/_lib/body';
+import { assertBankHistoryReadyForNewConnection, BANK_HISTORY_REVIEW_REQUIRED, BANK_HISTORY_REVIEW_MESSAGE } from '@/lib/plaid/history-review';
 import { ACCOUNT_DELETION_IN_PROGRESS, beginPlaidLinkOperation, retainPlaidLinkRecovery, finishPlaidLinkOperation,
   markPlaidLinkOperationUnresolved, existingPlaidLinkOwner, quarantinePlaidLinkRecovery } from '@/lib/plaid/link-operations';
 
@@ -23,6 +24,8 @@ export async function POST(req: Request) {
   if (typeof public_token !== 'string' || !public_token || public_token.length > 2048) return NextResponse.json({ error: 'Missing public_token' }, { status: 400 });
   try {
     assertPlaidTokenEncryptionConfigured();
+    // An already-issued Link/public token must not bypass the history check.
+    await assertBankHistoryReadyForNewConnection(uid);
     operationId = await beginPlaidLinkOperation(uid);
     const exchanged = await plaidClient.itemPublicTokenExchange({ public_token });
     const { access_token, item_id } = exchanged.data;
@@ -79,6 +82,9 @@ export async function POST(req: Request) {
     }
     const deleting = error instanceof Error && error.message === ACCOUNT_DELETION_IN_PROGRESS;
     if (deleting) return NextResponse.json({ code: ACCOUNT_DELETION_IN_PROGRESS, error: 'Account deletion is in progress. Bank connections cannot be added.' }, { status: 409 });
+    if (error instanceof Error && error.message === BANK_HISTORY_REVIEW_REQUIRED) {
+      return NextResponse.json({ code: BANK_HISTORY_REVIEW_REQUIRED, error: BANK_HISTORY_REVIEW_MESSAGE }, { status: 409 });
+    }
     const duplicate = error instanceof Error && error.message === 'BANK_ALREADY_CONNECTED';
     return NextResponse.json({ error: duplicate ? 'BANK_ALREADY_CONNECTED' : 'Unable to connect bank. Please retry.',
       ...(duplicate ? { message: 'This bank connection is already saved.' } : {}) }, { status: duplicate ? 409 : 502 });

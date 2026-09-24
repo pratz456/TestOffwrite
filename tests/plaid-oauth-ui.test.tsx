@@ -42,6 +42,27 @@ beforeEach(() => {
 });
 afterEach(() => { h.slots.forEach(slot => slot?.cleanup?.()); vi.unstubAllGlobals(); });
 describe('Plaid OAuth client resume', () => {
+  it('shows a concrete support and return path instead of retrying a blocked history reconnect', async () => {
+    h.fetch.mockResolvedValue(Response.json({ code: 'BANK_HISTORY_REVIEW_REQUIRED', error: 'Your saved bank history needs a review. Your existing records are safe.' }, { status: 409 }));
+    const back = vi.fn();
+    const component = () => PlaidLinkScreen({ user: { id: 'owner' }, onSuccess() {}, onBack: back });
+    render(component); await flush(); const tree = render(component);
+    expect(content(tree)).toContain('Review saved bank history');
+    expect(content(tree)).toContain('Your existing records are safe');
+    expect(walk(tree).find(node => node.props?.href?.startsWith('mailto:writeoffapp@gmail.com'))).toBeTruthy();
+    walk(tree).find(node => node.props?.onClick && content(node) === 'Return to banks').props.onClick();
+    expect(back).toHaveBeenCalledOnce(); expect(h.open).not.toHaveBeenCalled(); expect(h.link.token).toBeNull();
+  });
+  it('presents the same history-review action if an already issued OAuth public token is denied', async () => {
+    const saved = session(); savePlaidOAuthSession(storage, saved, origin);
+    h.fetch.mockResolvedValue(Response.json({ code: 'BANK_HISTORY_REVIEW_REQUIRED', error: 'Review saved bank history with WriteOff support.' }, { status: 409 }));
+    const component = () => PlaidLinkScreen({ user: { id: 'owner' }, oauthResume: { session: saved, receivedRedirectUri: href }, onSuccess() {}, onBack() {} });
+    render(component); render(component); await h.link.onSuccess('public-sandbox-fixture');
+    const tree = render(component);
+    expect(content(tree)).toContain('Review saved bank history');
+    expect(content(tree)).toContain('Contact WriteOff support');
+    expect(h.push).not.toHaveBeenCalled(); expect(storage.getItem(PLAID_OAUTH_STORAGE_KEY)).toBeNull();
+  });
   it('reopens the original Link token with the full received URI without issuing a second Link token', () => {
     const saved = session(); savePlaidOAuthSession(storage, saved, origin);
     const component = () => PlaidLinkScreen({ user: { id: 'owner' }, oauthResume: { session: saved, receivedRedirectUri: href }, onSuccess() {}, onBack() {} });

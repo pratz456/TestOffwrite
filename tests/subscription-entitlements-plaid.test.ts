@@ -3,6 +3,8 @@ import { NextRequest } from 'next/server';
 const mock = vi.hoisted(() => ({ profile: {} as Record<string, unknown>, link: vi.fn(), fetchTransactions: vi.fn(), accounts: vi.fn(), auth: vi.fn(), trial: vi.fn() }));
 vi.mock('@/app/api/_lib/auth', () => ({ getUserFromReqOrThrow: mock.auth }));
 vi.mock('@/lib/subscriptions/trial-manager', () => ({ startFreeTrial: mock.trial }));
+vi.mock('@/lib/plaid/history-review', () => ({ assertBankHistoryReadyForNewConnection: vi.fn(),
+  BANK_HISTORY_REVIEW_REQUIRED: 'BANK_HISTORY_REVIEW_REQUIRED', BANK_HISTORY_REVIEW_MESSAGE: 'Review saved bank history.' }));
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: { doc: () => ({ get: async () => ({ exists: true, data: () => mock.profile }), update: vi.fn(), set: vi.fn() }) } }));
 vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
 vi.mock('plaid', () => ({ Configuration: function Configuration() {}, PlaidApi: function PlaidApi() { return { linkTokenCreate: mock.link }; }, PlaidEnvironments: { sandbox: 'https://sandbox.plaid.test' }, Products: { Transactions: 'transactions' }, CountryCode: { Us: 'US' } }));

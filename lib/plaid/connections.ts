@@ -3,6 +3,7 @@ import type { AccountBase } from 'plaid';
 import { adminDb, FieldValue } from '@/lib/firebase/admin';
 import { configuredIdentity, decryptPlaidToken, encryptPlaidToken, isCurrent, validId } from './connection-primitives';
 import { migrateLegacyPlaidCredentials } from './legacy-migration';
+import { assertBankHistoryReadyForNewConnection } from './history-review';
 
 export { assertPlaidTokenEncryptionConfigured, decryptPlaidToken, encryptPlaidToken } from './connection-primitives';
 
@@ -85,6 +86,8 @@ export async function savePlaidConnection(input: Omit<PlaidConnection, 'cursor' 
     const accounts = await Promise.all(accountIds.map(id => tx.get(adminDb.doc(`user_profiles/${input.uid}/accounts/${id}`))));
     if (existing.exists) throw new Error('BANK_ALREADY_CONNECTED');
     if (accounts.some(account => account.exists)) throw new Error('BANK_ALREADY_CONNECTED');
+    // Recheck atomically: history may have changed while the provider exchange ran.
+    await assertBankHistoryReadyForNewConnection(input.uid, tx);
     tx.set(ref, { uid: input.uid, itemId: input.itemId, encryptedAccessToken, accountIds, institutionId: input.institutionId ?? null,
       ...identity, status: 'active', connectedAt: new Date(), updatedAt: new Date(), cursor: null });
     for (const accountId of accountIds) {

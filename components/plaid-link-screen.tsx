@@ -43,6 +43,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
   const resumedToken = useRef<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [historyReviewRequired, setHistoryReviewRequired] = useState(false);
   // Removed subscription selection state - free trial is automatically started
   const [isConnected, setIsConnected] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState({ current: 0, total: 0, status: 'running' as const });
@@ -230,6 +231,8 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
     let cancelled = false;
     setLinkToken(null);
     setLinkOwner(null);
+    setError(null);
+    setHistoryReviewRequired(false);
     const createLinkToken = async () => {
       try {
         // Get Firebase auth token for authentication
@@ -277,6 +280,9 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
             errorData?.message ||
             (typeof errorBodyText === 'string' && errorBodyText.trim() ? errorBodyText : null) ||
             'Failed to create link token';
+          if (!cancelled && auth.currentUser?.uid === user.id) {
+            setHistoryReviewRequired(errorData?.code === 'BANK_HISTORY_REVIEW_REQUIRED');
+          }
           throw new Error(message);
         }
 
@@ -299,6 +305,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
   const onPlaidSuccess = useCallback(async (public_token: string) => {
     setLoading(true);
     setError(null);
+    setHistoryReviewRequired(false);
     clearPlaidOAuthSession(window.sessionStorage);
 
     // Note: Free trial is automatically started when creating link token or exchanging public token
@@ -366,6 +373,11 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
           console.error('Plaid connection error: empty response');
         }
 
+        if (errorData?.code === 'BANK_HISTORY_REVIEW_REQUIRED') {
+          setHistoryReviewRequired(true);
+          setLinkToken(null);
+          throw new Error(errorText);
+        }
         // Handle duplicate bank account error specifically
         if (response.status === 409 && errorData?.error === 'BANK_ALREADY_CONNECTED') {
           const accountName = errorData?.existingAccountName ? ` (${errorData.existingAccountName})` : '';
@@ -456,6 +468,18 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
     clearPlaidOAuthSession(window.sessionStorage);
     onSuccess(); // Continue to next step without connecting bank
   };
+
+  if (historyReviewRequired) return (
+    <main className="mx-auto flex min-h-[60vh] max-w-md items-center p-4">
+      <Card className="w-full space-y-4 p-6">
+        <h1 className="text-xl font-semibold">Review saved bank history</h1>
+        <p role="alert" className="text-sm text-muted-foreground">{error}</p>
+        <a className="inline-flex min-h-11 items-center font-medium text-primary underline underline-offset-2"
+          href="mailto:writeoffapp@gmail.com?subject=Bank%20history%20reconnect%20review">Contact WriteOff support</a>
+        <Button className="w-full" variant="outline" onClick={() => { clearPlaidOAuthSession(window.sessionStorage); onBack(); }}>Return to banks</Button>
+      </Card>
+    </main>
+  );
 
   if (oauthResume) return (
     <main className="mx-auto flex min-h-[60vh] max-w-md items-center p-4">
