@@ -151,12 +151,16 @@ const nextConfig: NextConfig = {
 export default withPWA({
   dest: "public",
   disable: process.env.NODE_ENV === "development",
+  // The root update prompt owns registration and refresh. Background worker or
+  // connectivity events must not erase an active bank connection or form.
+  register: false,
+  reloadOnOnline: false,
   cacheStartUrl: false,
   dynamicStartUrl: false,
   cacheOnFrontEndNav: false,
   extendDefaultRuntimeCaching: false,
   customWorkerSrc: 'worker',
-  workboxOptions: { runtimeCaching: privacyRuntimeCaching },
+  workboxOptions: { runtimeCaching: privacyRuntimeCaching, skipWaiting: false },
   fallbacks: {
     document: "/~offline",
   },
