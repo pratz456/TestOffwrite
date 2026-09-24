@@ -55,6 +55,7 @@ export const ProfitLossDetailScreen: React.FC<ProfitLossDetailScreenProps> = ({
           id: transaction.id || transaction.trans_id,
           description: transaction.merchant_name || transaction.description || 'Recorded transaction',
           category,
+          date: String(transaction.date || ''),
           amount,
           type,
         };
