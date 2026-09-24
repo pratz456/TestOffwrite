@@ -39,16 +39,29 @@ export async function GET(request: NextRequest) {
     await migrateLegacyPlaidConnection(user.uid);
     const ref = adminDb.doc(`user_profiles/${user.uid}`);
     let snapshot = await ref.get();
-    const legacyEin = snapshot.exists ? snapshot.data()?.ein : undefined;
     // A preview reads the live account without running identifier migrations.
     // publicProfile still masks legacy values in the response.
-    if (!isLocalAccountPreview() && snapshot.exists && typeof legacyEin === 'string' && legacyEin.trim()) {
-      const migration = encryptedEinUpdate(legacyEin, snapshot.data()?.ein_last4);
-      const legacyDigits = legacyEin.replace(/\D/g, '');
-      await ref.update(migration.fields ?? {
-        ein: FieldValue.delete(),
-        ein_encrypted: encryptSensitive(legacyEin.trim()),
-        ...(legacyDigits.length >= 4 ? { ein_last4: legacyDigits.slice(-4) } : {}),
+    if (!isLocalAccountPreview() && snapshot.exists && Object.hasOwn(snapshot.data()!, 'ein')) {
+      // Re-read under the transaction lock: a profile save or another migration may
+      // have replaced/cleared the EIN since the first read. Never restore that stale value.
+      await adminDb.runTransaction(async transaction => {
+        const current = await transaction.get(ref);
+        const data = current.data();
+        if (!current.exists || !data || !Object.hasOwn(data, 'ein')) return;
+        const fields: Record<string, unknown> = { ein: FieldValue.delete() };
+        const legacyEin = typeof data.ein === 'string' ? data.ein.trim() : '';
+        // An encrypted value takes precedence over leftover plaintext or a saved mask.
+        // Empty/invalid legacy fields must also be removed: client read rules block
+        // the field's presence, regardless of its value.
+        if (legacyEin && !(typeof data.ein_encrypted === 'string' && data.ein_encrypted.trim())) {
+          const migration = encryptedEinUpdate(legacyEin, data.ein_last4);
+          const legacyDigits = legacyEin.replace(/\D/g, '');
+          Object.assign(fields, migration.fields ?? {
+            ein_encrypted: encryptSensitive(legacyEin),
+            ...(legacyDigits.length >= 4 ? { ein_last4: legacyDigits.slice(-4) } : {}),
+          });
+        }
+        transaction.update(ref, fields);
       });
       snapshot = await ref.get();
     }

@@ -147,13 +147,16 @@ describe('server profile API boundaries', () => {
   });
   it('preserves legacy EIN migration outside real-account preview using the configured key', async () => {
     vi.stubEnv('SSN_ENCRYPTION_KEY', '11'.repeat(32));
+    mock.transaction.mockImplementation(async (callback: (transaction: unknown) => Promise<void>) => callback({ get: mock.get, update: mock.update }));
     mock.get.mockResolvedValueOnce({ exists: true, data: () => ({ name: 'Owner', ein: '12-3456789' }) })
+      .mockResolvedValueOnce({ exists: true, data: () => ({ name: 'Owner', ein: '12-3456789' }) })
       .mockResolvedValue({ exists: true, data: () => ({ name: 'Owner', ein_last4: '6789' }) });
 
     const response = await profileGet(request({ authorization: 'Bearer id' }));
 
     expect(response.status).toBe(200);
-    expect(mock.update).toHaveBeenCalledExactlyOnceWith({ ein: 'delete-field', ein_last4: '6789', ein_encrypted: expect.any(String) });
+    expect(mock.transaction).toHaveBeenCalledOnce();
+    expect(mock.update).toHaveBeenCalledExactlyOnceWith(expect.anything(), { ein: 'delete-field', ein_last4: '6789', ein_encrypted: expect.any(String) });
     expect(JSON.stringify(mock.update.mock.calls)).not.toContain('123456789');
     expect(await response.json()).toEqual({ success: true, profile: { id: 'owner', name: 'Owner', ein: '**-***6789' } });
   });
