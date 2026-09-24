@@ -3,6 +3,7 @@ import type { AccountBase } from 'plaid';
 import { adminDb, FieldValue } from '@/lib/firebase/admin';
 import { configuredIdentity, decryptPlaidToken, encryptPlaidToken, isCurrent, validId } from './connection-primitives';
 import { migrateLegacyPlaidCredentials } from './legacy-migration';
+import { assertBankHistoryReadyForNewConnection } from './history-review';
 
 export { assertPlaidTokenEncryptionConfigured, decryptPlaidToken, encryptPlaidToken } from './connection-primitives';
 
@@ -19,6 +20,7 @@ export interface PlaidConnection {
   connectedAt?: unknown;
   lastSync?: number;
   reauthenticationRequired?: boolean;
+  reconnectSessionId?: string;
 }
 const collection = () => adminDb.collection('plaid_connections');
 const connectionRef = (itemId: string) => collection().doc(validId(itemId));
@@ -26,7 +28,7 @@ function decode(data: FirebaseFirestore.DocumentData): PlaidConnection {
   return { uid: data.uid, itemId: data.itemId, accessToken: decryptPlaidToken(data.uid, data.itemId, data.encryptedAccessToken),
     accountIds: data.accountIds ?? [], institutionId: data.institutionId ?? null, cursor: data.cursor,
     clientId: data.clientId, environment: data.environment, connectedAt: data.connectedAt, lastSync: data.lastSync,
-    reauthenticationRequired: data.reauthenticationRequired === true };
+    reauthenticationRequired: data.reauthenticationRequired === true, reconnectSessionId: data.reconnectSessionId };
 }
 /**
  * Retire public legacy secrets without trying them against a different Plaid client.
@@ -45,24 +47,24 @@ export async function listPlaidConnectionSummaries(uid: string) {
     const active = data.status === 'active' && isCurrent(data) && data.reauthenticationRequired !== true;
     return { itemId: data.itemId as string, accountIds: (data.accountIds ?? []) as string[], institutionId: data.institutionId ?? null,
       connectedAt: data.connectedAt ?? null, lastSync: data.lastSync ?? null,
-      status: active ? 'active' : 'relink_required', relinkRequired: !active,
-      reauthenticationRequired: data.status === 'active' && isCurrent(data) && data.reauthenticationRequired === true };
+      status: data.status === 'pending_history_review' && isCurrent(data) ? 'pending_history_review' : active ? 'active' : 'relink_required', relinkRequired: !active, reconnectSessionId: data.reconnectSessionId ?? null,
+      reauthenticationRequired: ['active', 'pending_history_review'].includes(data.status) && isCurrent(data) && data.reauthenticationRequired === true };
   });
 }
-export async function listPlaidConnections(uid: string): Promise<PlaidConnection[]> {
+export async function listPlaidConnections(uid: string, includePendingReview = false): Promise<PlaidConnection[]> {
   await migrateLegacyPlaidConnection(uid);
   const snapshot = await collection().where('uid', '==', uid).get();
-  return snapshot.docs.filter(doc => doc.data().status === 'active' && isCurrent(doc.data())).map(doc => decode(doc.data()));
+  return snapshot.docs.filter(doc => (doc.data().status === 'active' || (includePendingReview && doc.data().status === 'pending_history_review')) && isCurrent(doc.data())).map(doc => decode(doc.data()));
 }
-export async function getPlaidConnection(uid: string, itemId?: string): Promise<PlaidConnection | null> {
-  const connections = await listPlaidConnections(uid);
+export async function getPlaidConnection(uid: string, itemId?: string, includePendingReview = false): Promise<PlaidConnection | null> {
+  const connections = await listPlaidConnections(uid, includePendingReview);
   if (itemId) return connections.find(connection => connection.itemId === itemId) ?? null;
   if (connections.length > 1) throw new Error('Choose the bank connection to manage');
   return connections[0] ?? null;
 }
 export async function findPlaidConnectionByItemId(itemId: string): Promise<PlaidConnection | null> {
   const existing = await connectionRef(itemId).get();
-  if (existing.exists) return existing.data()?.status === 'active' && isCurrent(existing.data()!) ? decode(existing.data()!) : null;
+  if (existing.exists) return ['active', 'pending_history_review'].includes(existing.data()?.status) && isCurrent(existing.data()!) ? decode(existing.data()!) : null;
   const legacy = await adminDb.collection('user_profiles').where('plaid_item_id', '==', itemId).limit(2).get();
   if (legacy.size !== 1) return null;
   await migrateLegacyPlaidConnection(legacy.docs[0].id);
@@ -85,6 +87,8 @@ export async function savePlaidConnection(input: Omit<PlaidConnection, 'cursor' 
     const accounts = await Promise.all(accountIds.map(id => tx.get(adminDb.doc(`user_profiles/${input.uid}/accounts/${id}`))));
     if (existing.exists) throw new Error('BANK_ALREADY_CONNECTED');
     if (accounts.some(account => account.exists)) throw new Error('BANK_ALREADY_CONNECTED');
+    // Recheck atomically: history may have changed while the provider exchange ran.
+    await assertBankHistoryReadyForNewConnection(input.uid, tx);
     tx.set(ref, { uid: input.uid, itemId: input.itemId, encryptedAccessToken, accountIds, institutionId: input.institutionId ?? null,
       ...identity, status: 'active', connectedAt: new Date(), updatedAt: new Date(), cursor: null });
     for (const accountId of accountIds) {
@@ -108,16 +112,16 @@ export async function savePlaidConnection(input: Omit<PlaidConnection, 'cursor' 
 
 /** Serializes sync/import/disconnect for one item; other banks remain independent. */
 export async function withPlaidConnection<T>(uid: string, itemId: string,
-  work: (connection: PlaidConnection, leaseId: string) => Promise<T>, allowRelink = false): Promise<T> {
+  work: (connection: PlaidConnection, leaseId: string) => Promise<T>, allowRelink = false, allowPendingReview = false): Promise<T> {
   const ref = connectionRef(itemId);
   const leaseId = randomUUID();
   const connection = await adminDb.runTransaction(async tx => {
     const snapshot = await tx.get(ref);
     const data = snapshot.data();
-    if (!data || data.uid !== uid || data.status === 'disconnected' || (!allowRelink && (data.status !== 'active' || !isCurrent(data)))) throw new Error('Bank connection not found');
+    if (!data || data.uid !== uid || data.status === 'disconnected' || (!allowRelink && ((!['active', ...(allowPendingReview ? ['pending_history_review'] : [])].includes(data.status)) || !isCurrent(data)))) throw new Error('Bank connection not found');
     if (data.leaseExpiresAt > Date.now()) throw new Error('Bank connection is busy. Please retry.');
     tx.update(ref, { leaseId, leaseExpiresAt: Date.now() + 20 * 60_000 });
-    return isCurrent(data) && data.status === 'active' ? decode(data) : { ...data, accessToken: '' } as PlaidConnection;
+    return isCurrent(data) && ['active', 'pending_history_review'].includes(data.status) ? decode(data) : { ...data, accessToken: '' } as PlaidConnection;
   });
   try { return await work(connection, leaseId); }
   finally {
@@ -143,7 +147,7 @@ export async function markPlaidConnectionLoginRequired(itemId: string): Promise<
   const ref = connectionRef(itemId);
   return adminDb.runTransaction(async tx => {
     const data = (await tx.get(ref)).data();
-    if (!data || data.status !== 'active' || !isCurrent(data)) return false;
+    if (!data || !['active', 'pending_history_review'].includes(data.status) || !isCurrent(data)) return false;
     tx.update(ref, { reauthenticationRequired: true, updatedAt: new Date() });
     return true;
   });
@@ -153,6 +157,10 @@ export async function removePlaidConnection(uid: string, itemId: string, leaseId
   await adminDb.runTransaction(async tx => {
     const [snapshot, others] = await Promise.all([tx.get(ref), tx.get(collection().where('uid', '==', uid))]);
     if (snapshot.data()?.uid !== uid || snapshot.data()?.leaseId !== leaseId) throw new Error('Bank connection changed');
+    const reconnectId = snapshot.data()?.reconnectSessionId;
+    const reviewRef = typeof reconnectId === 'string' ? adminDb.doc(`user_profiles/${uid}/bank_reconnects/${validId(reconnectId)}`) : null;
+    const review = reviewRef ? await tx.get(reviewRef) : null;
+    if (review?.exists && review.data()?.uid === uid && review.data()?.itemId === itemId) tx.update(reviewRef!, { phase: 'cancelled' });
     tx.update(ref, { status: 'disconnected', encryptedAccessToken: FieldValue.delete(), cursor: FieldValue.delete(), updatedAt: new Date() });
     tx.set(adminDb.doc(`user_profiles/${uid}`), { bankConnected: others.docs.some(doc => doc.id !== itemId && doc.data().status === 'active' && isCurrent(doc.data())) }, { merge: true });
   });

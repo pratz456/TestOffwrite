@@ -8,10 +8,10 @@
 import type { OutputType } from './analyzeTransaction';
 import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { reviewCategory } from '@/lib/transactions/ai-review-contract';
-import { getMarginalTaxRate, getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
-import { getFederalTaxRules, SUPPORTED_TAX_YEARS, type SupportedTaxYear } from '@/lib/tax-rules/federal-year-rules';
+import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
+import { SUPPORTED_TAX_YEARS, type SupportedTaxYear } from '@/lib/tax-rules/federal-year-rules';
 import { normalizeFilingStatus } from '@/lib/tax-rules/filing-status';
-import { calcCombinedSERate } from '@/lib/tax-rules/kpi-calculations';
+import { calcScheduleSE } from '@/lib/reports/calcSE';
 
 /** Optional metadata the tax-policy grounding may attach; absent on older results. */
 export type ExplainableResult = OutputType & { proposed_purpose?: string | null; schedule_c_line?: string | null };
@@ -19,6 +19,7 @@ export type ExplainableResult = OutputType & { proposed_purpose?: string | null;
 /** Saved transaction facts the explanation may cite. Accepts the API input shape or a raw saved record. */
 export type ExplanationTransaction = {
   amount?: number | null; amount_usd?: number | null;
+  iso_currency_code?: string | null; unofficial_currency_code?: string | null;
   merchant_name?: string | null; merchant?: string | null; name?: string | null;
   business_purpose?: string | null; business_use_percentage?: number | null;
   attendees?: readonly string[] | null; travel_destination?: string | null; client_project?: string | null;
@@ -36,7 +37,7 @@ export type ExplanationProfile = {
 export const ESTIMATE_LABEL = 'estimated federal tax effect; state not included';
 
 export interface EstimatedTaxEffect {
-  /** Whole dollars; low uses the effective federal rate, high the marginal bracket, both plus SE tax. */
+  /** Whole dollars; newly composed estimates use the change in basic income plus SE tax. Legacy ranges remain readable. */
   low: number;
   high: number;
   label: typeof ESTIMATE_LABEL;
@@ -87,20 +88,27 @@ const unique = (items: Array<string | null | undefined>) => {
 /** Plain-English restatements keyed by the curated source id; the id, not model prose, selects the rule. */
 const RULES: Record<string, string> = {
   'business-162': '26 USC 162 allows a cost that is ordinary and necessary for your existing trade or business. A merchant name or a business card does not show that; your recorded purpose does.',
+  'supplies-263a': 'Supplies need a documented business use. Equipment may require an expensing election or depreciation; a merchant name or invoice total does not determine the treatment.',
   'personal-262': '26 USC 262 disallows personal, living and family costs even when they make work easier. Only a separately identifiable business portion can qualify, and no split is assumed.',
   'meals-274': '26 USC 274 limits a qualifying business meal to 50% and requires a business purpose, the people present, your attendance and a non-lavish food cost stated separately from entertainment, which is not deductible.',
   'travel-463': 'IRS Publication 463: commuting to a regular work location is personal. Overnight travel depends on your tax home, business purpose and dates. Vehicle costs depend on logged business miles and your chosen method.',
   'capital-263': '26 USC 263: an asset or improvement is generally capitalized rather than expensed in full. The item, the date it was first used for business and any election decide that, not the price or the merchant.',
   'assets-946': 'IRS Publication 946: depreciation, Section 179 and bonus depreciation are separate treatments that depend on the asset, the date it was placed in service and its business-use percentage.',
   'home-587': 'IRS Publication 587: a home workspace normally must be used regularly and exclusively for business and be your principal place of business or meet another listed use. The method and the business area set the amount.',
-  'records-334': 'IRS Publication 334: customer receipts, owner contributions, loans, transfers and refunds are different flows. A bank credit alone does not establish income, and a refund reduces the original expense instead of creating a deduction.',
+  'records-334': 'IRS Publication 334: customer receipts, owner contributions, loans, transfers and refunds are different flows. A bank credit alone does not establish income, and a refund needs the original purchase and tax year checked: it may reduce an expense or be a prior-year recovery, never a new deduction.',
   'insurance-334': 'IRS Publication 334: premiums that cover a business risk or business property (liability, professional or E&O, business property, workers\' compensation) are Schedule C insurance. Your own health premiums belong on Schedule 1, auto premiums follow your vehicle method, and life, disability and home policies are personal.',
   'professional-fees-334': 'IRS Publication 334: attorney, accountant, bookkeeper and consultant fees that relate to operating the business are deductible; a tax-preparation fee counts only for the business schedules, and fees for personal matters such as a will, a divorce or a personal return do not.',
-  'taxes-licenses-sch-c': 'Instructions for Schedule C, line 23: business licences, permits, regulatory fees, sales tax you remitted and the employer share of payroll taxes are deductible. Federal income tax, estimated tax and self-employment tax are never Schedule C expenses.',
+  'taxes-licenses-sch-c': 'Instructions for Schedule C, line 23: business licences and employer payroll taxes may qualify. Sales tax imposed on the buyer and collected for remittance is neither income nor an expense; tax imposed on the seller may be deducted when included in gross receipts. Federal income and self-employment taxes are not Schedule C expenses.',
   'mileage-rates': 'IRS standard mileage rates: the per-mile rate already covers fuel, repairs, insurance and depreciation for the same miles, while parking and tolls on business trips stay separately deductible. Commuting is excluded under either method.',
 };
 
 const MISSING_FACT_LABELS: Record<string, string> = {
+  formation_cost_treatment: 'whether this cost started, formed or operated the business',
+  food_expense_treatment: 'who received the food and which food-expense rule applies',
+  sales_tax_incidence: 'who legally owed this sales tax and how receipts were recorded',
+  association_dues_allocation: 'the association’s nondeductible lobbying or political portion',
+  solo_meal_context: 'whether this was a personal meal or qualifying overnight business travel',
+  business_tax_components: 'the tax type and the deductible business component',
   business_purpose: 'what you bought and how it was used in your business',
   business_use_percentage: 'the business-use percentage and the records behind it',
   meal_conditions: 'who attended the meal and its business purpose',
@@ -160,7 +168,7 @@ const FLOW_HEADLINES: Record<string, string> = {
   personal: 'Personal purchase: not a business deduction',
   income: 'Business income: reported as receipts, not an expense',
   transfer: 'Transfer: not income and not an expense',
-  refund: 'Refund: reduces the original expense, not a new deduction',
+  refund: 'Refund: match the original purchase and tax year; not a new deduction',
 };
 
 const LINE_NAMES: Record<string, string> = Object.fromEntries(Object.values(CATEGORY_MAP).map(entry => [entry.line, entry.name]));
@@ -207,7 +215,19 @@ function headlineFor(result: ExplainableResult, label: string | undefined): stri
 function whyFor(result: ExplainableResult): string {
   const sources = (result.sources ?? []).slice(0, 3);
   if (!sources.length) return 'No reviewed source is attached to this suggestion, so no rule is stated. Run the analysis again for a source-backed explanation.';
-  return sources.map(source => RULES[source.id] ?? `This suggestion relies on ${text(source.title, 120) ?? 'a reviewed federal source'}.`).join(' ');
+  const kind = result.transaction_kind;
+  if (kind === 'personal' && sources.some(source => source.id === 'personal-262')) return RULES['personal-262'];
+  if (sources.some(source => source.id === 'records-334')) {
+    if (kind === 'refund') return RULES['records-334'];
+    if (kind === 'transfer') return 'IRS Publication 334 distinguishes transfers, loans and owner contributions from business receipts and expenses. Match the movement between accounts before assigning tax treatment.';
+    if (kind === 'income') return 'IRS Publication 334 treats customer payments for business work as receipts. Keep the matching invoice and reconcile gross receipts, fees and information forms to avoid counting the same payment twice.';
+  }
+  // Lead with one applicable rule. Do not show the general income/refund discussion
+  // on every ordinary expense just because the records publication was also cited.
+  const general = new Set(['business-162', 'personal-262', 'records-334']);
+  const source = sources.find(item => RULES[item.id] && !general.has(item.id))
+    ?? sources.find(item => item.id !== 'records-334') ?? sources[0];
+  return RULES[source.id] ?? `This suggestion relies on ${text(source.title, 120) ?? 'a reviewed federal source'}.`;
 }
 
 function factsFor(transaction: Record<string, unknown>): string[] {
@@ -248,7 +268,6 @@ function strengthenFor(result: ExplainableResult): string[] {
   return unique([...modelRecords, ...(RECORD_RULES[result.category ?? 'other'] ?? RECORD_RULES.other)]).slice(0, 5);
 }
 
-const SE_MEDICARE_ONLY = 0.9235 * 0.029; // above the Social Security wage base only the Medicare part applies
 const FILING_LABELS: Record<string, string> = { single: 'single', married_filing_jointly: 'married filing jointly', married_filing_separately: 'married filing separately', head_of_household: 'head of household' };
 
 /** Only for a supported deduction in a published tax year; any unsupported input withholds the figure. */
@@ -260,24 +279,32 @@ export function estimateTaxEffect(result: ExplainableResult, amount: number | nu
     const status = normalizeFilingStatus(profile.filing_status);
     const rawIncome = finite(profile.annual_gross_income_usd) ?? (typeof profile.income === 'string' ? Number(profile.income.replace(/[,$\s]/g, '')) : finite(profile.income));
     const seIncome = rawIncome !== null && Number.isFinite(rawIncome) && rawIncome > 0 ? rawIncome : null;
-    // A fabricated percentage can be more persuasive than no number. Withhold the estimate until
-    // the owner saves income instead of applying the old 25% fallback.
     if (seIncome === null) return null;
-    const percent = finite(result.deductible_percent) ?? 100;
-    const deductible = amount * Math.min(Math.max(percent, 0), 100) / 100;
-    const w2Income = Math.max(finite(profile.w2_income) ?? 0, 0);
-    const seRate = seIncome * 0.9235 >= getFederalTaxRules(year).socialSecurityWageBase ? SE_MEDICARE_ONLY
-      : calcCombinedSERate(seIncome, status, 0, year).seTaxRate / 100;
-    // The bracket lookup needs total income; W-2 wages push the last self-employment dollar into a higher bracket.
-    const marginal = getMarginalTaxRate({ income: seIncome + w2Income, filing_status: status }, year) / 100;
-    const effective = getUserTaxRate({ income: seIncome, filing_status: status, w2_income: w2Income }, year);
-    const bounds = [deductible * (seRate + effective), deductible * (seRate + marginal)].map(value => Math.round(value));
-    const low = Math.min(...bounds), high = Math.max(...bounds);
-    if (!Number.isFinite(low) || !Number.isFinite(high)) return null;
+    const percent = Math.min(finite(result.deductible_percent) ?? 100, result.category === 'meals_50' ? 50 : 100);
+    if (percent < 0) return null;
+    const deductible = Math.round(amount * percent) / 100;
+    // A loss needs additional scope facts. Do not invent its effect against W-2 income.
+    if (deductible > seIncome) return null;
+    const w2Income = profile.w2_income == null ? 0 : finite(profile.w2_income);
+    if (w2Income === null || w2Income < 0) return null;
+    if (w2Income > 0 && (profile.w2_social_security_wages == null || profile.w2_medicare_wages == null)) return null;
+    const ssWages = finite(profile.w2_social_security_wages) ?? 0;
+    const medicareWages = finite(profile.w2_medicare_wages) ?? 0;
+    if (ssWages === null || ssWages < 0 || medicareWages === null || medicareWages < 0) return null;
+    const taxAt = (profit: number) => {
+      const basicProfile = { income: profit, w2_income: w2Income, w2_social_security_wages: ssWages, w2_medicare_wages: medicareWages, filing_status: status };
+      const incomeTax = getUserTaxRate(basicProfile, year) * (profit + w2Income);
+      const se = calcScheduleSE({ scheduleCNetProfit: profit, taxYear: year }, status, ssWages, medicareWages);
+      return incomeTax + se.totalSETax + se.additionalMedicareTax;
+    };
+    // Difference of before/after basic calculations respects the SS cap, the $400 earnings
+    // threshold, deduction/bracket crossings and the half-SE adjustment. No average-rate shortcut.
+    const effect = Math.round(Math.max(0, taxAt(seIncome) - taxAt(seIncome - deductible)));
+    if (!Number.isFinite(effect)) return null;
     const share = percent < 100 ? ` at ${percent}%` : '';
-    const income = `Based on your saved self-employment income and ${FILING_LABELS[status] ?? status} filing status for ${year}.`;
-    return { low, high, label: ESTIMATE_LABEL,
-      basis: `${money(deductible)} deductible${share} from this ${money(amount)} charge. Federal income tax plus self-employment tax; state tax is not included and this is not a refund amount. ${income}` };
+    return { low: effect, high: effect, label: ESTIMATE_LABEL,
+      basis: `${money(deductible)} deductible${share} from ${money(amount)}. Uses saved income, ${FILING_LABELS[status] ?? status} status and ${year} rules for basic federal income and SE tax. Assumes standard deduction; excludes QBI, credits, other deductions and state tax. Not a refund.` };
+
   } catch {
     return null;
   }
@@ -287,14 +314,23 @@ export function composeExplanation({ result, transaction, profile, taxYear }: Co
   const tx = record(transaction);
   const saved = record(profile);
   const category = reviewCategory(result.category);
-  const rawAmount = finite(tx.amount_usd) ?? finite(tx.amount);
+  const explicitUSD = finite(tx.amount_usd);
+  const rawAmount = finite(tx.amount);
+  const currency = typeof tx.iso_currency_code === 'string' && /^[A-Z]{3}$/.test(tx.iso_currency_code) && !tx.unofficial_currency_code
+    ? tx.iso_currency_code : null;
+  // API input can explicitly carry USD. Persisted raw amounts require recorded
+  // currency before either a dollar headline or a dollar tax effect is composed.
+  const usdAmount = tx.amount_usd != null ? explicitUSD : currency === 'USD' ? rawAmount : null;
+  const amountLabel = explicitUSD !== null ? money(Math.abs(explicitUSD))
+    : rawAmount !== null && currency === 'USD' ? money(Math.abs(rawAmount))
+      : rawAmount !== null && currency ? Math.abs(rawAmount).toLocaleString('en-US', { style: 'currency', currency, currencyDisplay: 'code' }) : null;
   const merchant = text(tx.merchant_name, 60) ?? text(tx.merchant, 60) ?? text(tx.name, 60);
-  const estimate = estimateTaxEffect(result, rawAmount, saved, taxYear);
+  const estimate = estimateTaxEffect(result, usdAmount, saved, taxYear);
   const facts = factsFor(tx);
   if (estimate) {
     try { facts.push(`Filing status used for the estimate: ${FILING_LABELS[normalizeFilingStatus(saved.filing_status)] ?? 'single'}`); } catch { /* the estimate already withheld itself */ }
   }
-  const subject = merchant && rawAmount !== null ? ` — ${merchant}, ${money(Math.abs(rawAmount))}` : merchant ? ` — ${merchant}` : '';
+  const subject = merchant && amountLabel ? ` — ${merchant}, ${amountLabel}` : merchant ? ` — ${merchant}` : '';
   return {
     headline: `${headlineFor(result, category?.label)}${subject}`,
     why: whyFor(result),

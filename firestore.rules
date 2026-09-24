@@ -2,6 +2,10 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // Capability links and calculation baselines are only accessible through authenticated APIs.
+    match /preparer_handoffs/{id} { allow read, write: if false; }
+    match /preparer_handoff_owners/{uid} { allow read, write: if false; }
+
     // Allow collection-group reads to any transactions doc, but only for the owner
     // This supports queries like collectionGroup('transactions') with where('user_id','==', uid)
     // Matching rules are ORed; each matching rule must enforce its own owner checks.
@@ -35,6 +39,11 @@ service cloud.firestore {
                        ]);
       // Prevent creates/deletes from client (server-only)
       allow create, delete: if false;
+    }
+
+    // Durable profile refresh coordination is server-only.
+    match /profile_analysis_refresh/{userId} {
+      allow read, write: if false;
     }
 
     // ── Analysis Jobs ──────────────────────────────────────────────────────
@@ -152,52 +161,23 @@ service cloud.firestore {
     // ── User Profiles ──────────────────────────────────────────────────────
     // User profile can only be read by the owner, written via Admin/API only
     match /user_profiles/{uid} {
+      // Server-calculated baselines cannot be supplied or edited by clients.
+      match /assistant_tax_snapshots/{year} { allow read, write: if false; }
       allow read: if request.auth != null && request.auth.uid == uid
-                  && (resource == null || !resource.data.keys().hasAny(['plaid_token', 'access_token']));
+                  && (resource == null || !resource.data.keys().hasAny(['plaid_token', 'access_token', 'ein']));
 
-      // Allow the user to create their own profile doc if id === uid
-      allow create: if request.auth != null
-                    && request.auth.uid == uid
-                    && request.resource.id == uid
-                    // Trial manager and Stripe webhook own these fields on create too.
-                    // Sign-up acknowledgments are recorded only through the profile API.
-                    && !request.resource.data.keys().hasAny([
-                         'hasHistoricalAccess', 'subscriptionStatus', 'trialStart', 'trialEnd',
-                         'subscriptionEnd', 'stripeCustomerId', 'stripeSubscriptionId',
-                         'stripeSubscriptionStatus', 'subscriptionPlan',
-                         'plaid_token', 'access_token', 'plaid_item_id', 'plaid_transactions_cursor',
-                         'bankConnected', 'plaid_credentials_migrated',
-                         'consents', 'consents_recorded_at',
-                         'ein', 'ein_encrypted', 'ein_last4'
-                       ]);
-
-      // Allow the user to update their own profile doc, but restrict subscription fields
-      // Subscription fields can only be updated via Admin SDK (webhooks, API routes)
-      allow update: if request.auth != null
-                    && request.auth.uid == uid
-                    // Prevent clients from updating subscription-related fields
-                    && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-                         'hasHistoricalAccess',
-                         'subscriptionStatus', // App-managed subscription status
-                         'trialStart', // App-managed trial start
-                         'trialEnd', // App-managed trial end
-                         'subscriptionEnd', // Stripe subscription period end
-                         'stripeCustomerId',
-                         'stripeSubscriptionId',
-                         'stripeSubscriptionStatus', 'subscriptionPlan',
-                         'plaid_token', 'access_token', 'plaid_item_id', 'plaid_transactions_cursor',
-                         'bankConnected', 'plaid_credentials_migrated',
-                         'consents', 'consents_recorded_at', // validated and stamped by /api/database/profiles
-                         'ein', 'ein_encrypted', 'ein_last4' // encrypted and masked by /api/database/profiles
-                       ]);
-
-      // No client deletes
-      allow delete: if false;
+      // Profile creation and updates go through /api/database/profiles so field
+      // allowlists, consent versions, identifier encryption and server timestamps
+      // cannot be bypassed with the client SDK. Admin SDK bypasses client rules.
+      allow create, update, delete: if false;
 
       // Meta subcollection (progress tracking, preferences, etc.)
       match /meta/{docId} {
         allow read, write: if request.auth != null && request.auth.uid == uid;
       }
+
+      // Owner history review is available only through the authenticated, validated API.
+      match /bank_reconnects/{sessionId}/{document=**} { allow read, write: if false; }
 
       // Accounts subcollection
       match /accounts/{accountId} {

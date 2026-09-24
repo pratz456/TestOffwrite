@@ -1,18 +1,9 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { 
-  collectionGroup, 
-  query, 
-  where, 
-  limit, 
-  getDocs,
-  runTransaction,
-  serverTimestamp
-} from 'firebase/firestore';
-import { db } from './client';
 import { makeAuthenticatedRequest } from './api-client';
 import { auth } from './client';
 import { Transaction } from './transactions';
 import { queryKeys } from './hooks';
+import { summarizeConfirmedDeductions } from '@/lib/tax/display-deductions';
 import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 
 // Types for transaction updates
@@ -50,35 +41,14 @@ export interface TransactionUpdate {
   };
 }
 
-// Helper function to find transaction document reference
-async function findTransactionDoc(transactionId: string, userId: string) {
-  const transactionsQuery = query(
-    collectionGroup(db, 'transactions'),
-    where('trans_id', '==', transactionId),
-    where('userId', '==', userId),
-    limit(1)
-  );
-  
-  const querySnapshot = await getDocs(transactionsQuery);
-  
-  if (querySnapshot.empty) {
-    throw new Error('Transaction not found');
-  }
-  
-  return querySnapshot.docs[0].ref;
-}
-
 // Helper function to calculate local stats from transactions
 function calculateLocalStats(transactions: Transaction[]) {
   const totalTransactions = transactions.length;
   const deductibleTransactions = transactions.filter(t => t.is_deductible === true && !transactionNeedsTaxReview(t)).length;
   const needsReviewTransactions = transactions.filter((t) => transactionNeedsTaxReview(t)).length;
-  const totalDeductibleAmount = transactions
-    .filter(t => t.is_deductible === true && !transactionNeedsTaxReview(t))
-    .reduce((sum, t) => sum + Math.abs(t.amount || 0), 0);
-  // Optimistic transaction state has no verified profile context. The authenticated
-  // tax-savings endpoint fills this value; never apply a fabricated percentage here.
-  const potentialSavings = 0;
+  const totalDeductibleAmount = summarizeConfirmedDeductions(transactions).totalDeductible;
+  // No income profile is loaded at this optimistic boundary; do not invent a tax rate.
+  const potentialSavings = null;
 
   return {
     totalTransactions,
@@ -237,39 +207,26 @@ export function useBulkUpdateTransactions() {
       userId: string; 
       updates: TransactionUpdate;
     }) => {
-      // Use Firebase transaction for atomic bulk updates
-      return await runTransaction(db, async (transaction) => {
-        const results = [];
-        
-        for (const transactionId of transactionIds) {
-          try {
-            const docRef = await findTransactionDoc(transactionId, userId);
-            const doc = await transaction.get(docRef);
-            
-            if (doc.exists()) {
-              const currentData = doc.data();
-                           // Filter out undefined values as Firebase doesn't support them
-             const filteredUpdates = Object.fromEntries(
-               Object.entries(updates).filter(([, value]) => value !== undefined)
-             );
-             
-             const updateData = {
-               ...filteredUpdates,
-               updated_at: serverTimestamp(),
-             };
-              
-              transaction.update(docRef, updateData);
-              results.push({ id: transactionId, success: true, data: { ...currentData, ...updateData } });
-            } else {
-              results.push({ id: transactionId, success: false, error: 'Transaction not found' });
-            }
-          } catch (error) {
-            results.push({ id: transactionId, success: false, error: error instanceof Error ? error.message : 'Unknown error' });
+      if (!userId || auth.currentUser?.uid !== userId) throw new Error('Sign in again before saving changes.');
+      const ids = [...new Set(transactionIds)].filter(id => typeof id === 'string' && id.length > 0 && id.length <= 256);
+      if (!ids.length || ids.length > 100) throw new Error('Choose between 1 and 100 transactions.');
+      const filteredUpdates = Object.fromEntries(Object.entries(updates).filter(([, value]) => value !== undefined));
+      return Promise.all(ids.map(async transactionId => {
+        try {
+          const response = await makeAuthenticatedRequest(`/api/transactions/${encodeURIComponent(transactionId)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(filteredUpdates),
+          });
+          const result = await response.json().catch(() => null);
+          if (!response.ok || !result?.success || !result.transaction) {
+            return { id: transactionId, success: false, error: result?.error || 'Update failed' };
           }
+          return { id: transactionId, success: true, data: result.transaction };
+        } catch {
+          return { id: transactionId, success: false, error: 'Update failed' };
         }
-        
-        return results;
-      });
+      }));
     },
 
     onMutate: async ({ transactionIds, userId, updates }) => {

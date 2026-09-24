@@ -12,6 +12,7 @@ import { BusinessLossFields } from "@/components/business-loss-fields";
 import { OBBBADeductionFields } from "@/components/obbba-deduction-fields";
 import { NON_ITEMIZER_CHARITY_FIRST_YEAR, SCHEDULE_1A_FIRST_YEAR, SCHEDULE_1A_LAST_YEAR } from "@/lib/tax-rules/obbba-deductions";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
+import { AdjustmentEligibilityFields } from "@/components/adjustment-eligibility-fields";
 
 interface Props { user: { id: string; email?: string }; onBack: () => void; onNavigate?: (screen: string) => void; }
 
@@ -23,6 +24,7 @@ const FILING_STATUSES = [
 ];
 
 interface OrgAnswers extends SocialSecurityAnswers {
+  adjustmentEligibilityFacts: string;
   personalDeductionFacts: string;
   /** JSON declarations for a Schedule C loss year (business-loss-fields.tsx). */
   businessLossFacts: string;
@@ -96,7 +98,7 @@ interface OrgAnswers extends SocialSecurityAnswers {
 
 export const EMPTY_ORGANIZER_ANSWERS: OrgAnswers = {
   ...EMPTY_SOCIAL_SECURITY_ANSWERS,
-  personalDeductionFacts: "", businessLossFacts: "", obbbaDeductionFacts: "",
+  personalDeductionFacts: "", businessLossFacts: "", obbbaDeductionFacts: "", adjustmentEligibilityFacts: "",
   filingStatus:"",dateOfBirth:"",taxpayerSSN:"",spouseName:"",spouseDoB:"",spouseSSN:"",dependents:"0",dependentDetails:"",streetAddress:"",city:"",stateAddr:"",zipCode:"",priorYearAGI:"",bankRouting:"",bankAccount:"",bankAccountType:"checking",ipPin:"",
   hasW2:"",hasSEIncome:"yes",has1099K:"",has1099INT:"",amount1099INT:"",has1099DIV:"",amount1099DIV:"",hasCapGains:"",amountCapGains:"",amountShortTermCapGains:"",amountLongTermCapGains:"",hasSocialSecurity:"",amountSocialSecurity:"",hasIRADistributions:"",amountIRADistributions:"",hasRentalIncome:"",amountRentalIncome:"",hasOtherIncome:"",amountOtherIncome:"",
   paidHealthInsurance:"",healthInsurancePremium:"",madeRetirementContrib:"",retirementAmount:"",retirementType:"sep_ira",
@@ -590,7 +592,7 @@ export function TaxOrganizerScreen({ user }: Props) {
         {step === 2 && (
           <Card className="bg-card border-border">
             <CardContent className="p-4 space-y-3">
-              <p className="text-sm text-muted-foreground">Enter amounts paid. Eligibility and limits still require review.</p>
+              <p className="text-sm text-muted-foreground">Enter amounts paid, then complete the eligibility questions below to apply supported deductions.</p>
               {yesno("paidHealthInsurance", "Health insurance you paid for (not through an employer)")}
               {answers.paidHealthInsurance === "yes" && (
                 <div className="space-y-1.5">
@@ -629,11 +631,15 @@ export function TaxOrganizerScreen({ user }: Props) {
               {yesno("paidHSA", "HSA contributions")}
               {answers.paidHSA === "yes" && (
                 <div className="space-y-1.5">
-                  <Label className="text-sm font-medium">HSA contributions in {year} ($)</Label>
+                  <Label className="text-sm font-medium">After-tax HSA contributions in {year} ($)</Label>
                   <Input type="number" min="0" step="0.01" value={answers.hsaAmount} onChange={e => set("hsaAmount", e.target.value)} placeholder="0.00" className="bg-background" />
                 </div>
               )}
               {yesno("hasHomeMortgage", "Home mortgage interest")}
+              <AdjustmentEligibilityFields taxYear={year} filingStatus={answers.filingStatus} value={answers.adjustmentEligibilityFacts}
+                onChange={value => set("adjustmentEligibilityFacts", value)} annualPremium={answers.healthInsurancePremium}
+                showHsa={answers.paidHSA === 'yes'} showHealth={answers.paidHealthInsurance === 'yes'} showRetirement={answers.madeRetirementContrib === 'yes'}
+                showJoint={answers.filingStatus === 'married_filing_jointly'} />
               {disclosure("Working Families Tax Cuts deductions", year >= SCHEDULE_1A_FIRST_YEAR && year <= SCHEDULE_1A_LAST_YEAR
                 ? `Tips, overtime, vehicle loan interest${year >= NON_ITEMIZER_CHARITY_FIRST_YEAR ? ", charitable gifts" : ""} · ${factsSummary(answers.obbbaDeductionFacts, ["hasQualifiedTips", "hasW2Overtime", "hasVehicleLoanInterest", ...(year >= NON_ITEMIZER_CHARITY_FIRST_YEAR ? ["hasNonItemizerCharity"] : [])], "claimed")}`
                 : `Apply to ${SCHEDULE_1A_FIRST_YEAR}–${SCHEDULE_1A_LAST_YEAR} returns only`, (

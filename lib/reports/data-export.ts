@@ -1,3 +1,4 @@
+import { readBankHistoryReviewSummary, type BankHistoryReviewSummary } from '@/lib/plaid/reconnect-summary';
 import { adminDb } from '@/lib/firebase/admin';
 import { validateReceiptPreviewPath } from '@/lib/receipts/preview-path';
 import { readOwnedTransactions, ownedExportRecord, exportReference, ExportDataUnavailableError } from './export-records';
@@ -9,7 +10,7 @@ const TOP_LEVEL = ['gross_receipts', 'income_1099', 'income_reconciliations', 'w
 const PROFILE_CHILDREN = ['assets', 'settings', 'mileage_trips', 'quarterly_payments'] as const;
 const excludedKey = (key: string) => {
   const normalized = key.replace(/[^a-z0-9]/gi, '').toLowerCase();
-  return /token|secret|password|privatekey|plaid|stripe|signature|ssn|itin|socialsecuritynumber|pin$|bankaccount|bankrouting|routingnumber|accountnumber|^ein$|identifiersencryptedat/.test(normalized)
+  return /token|secret|password|privatekey|plaid|stripe|signature|ssn|itin|socialsecuritynumber|pin$|bankaccount|bankrouting|routingnumber|accountnumber|^ein(?:encrypted|last4)?$|identifiersencryptedat/.test(normalized)
     || ['efin', 'clientid', 'itemid', 'recordpath', 'storagepath', 'image', 'imagebase64', 'base64', 'dataurl', 'receiptdata', 'receiptbase64'].includes(normalized);
 };
 /** Free-text records that may still hold identifier digits from before server-side redaction. */
@@ -42,6 +43,7 @@ export interface UserDataExport {
   receipts: ExportRecord[];
   aiAnalysis: ExportRecord[];
   taxRecords: Record<string, ExportRecord[]>;
+  bankHistoryReview?: BankHistoryReviewSummary;
 }
 
 /** Owner data archive / preparer handoff. It is not a filed return or a completeness certification. */
@@ -67,6 +69,7 @@ export async function generateUserDataExport(userId: string, year?: number): Pro
         return [name, records.map(clean)] as const;
       }),
     ]);
+    const bankHistoryReview = await readBankHistoryReviewSummary(userId, year);
     const selected = selectExportYear(rawTransactions, year);
     const transactions = selected.map(record => {
       const result = clean(record);
@@ -104,7 +107,7 @@ export async function generateUserDataExport(userId: string, year?: number): Pro
     return {
       exportInfo: { exportDate: new Date().toISOString(), userId, exportId: `export_${crypto.randomUUID()}`, dataVersion: '2.0', taxYear: year ?? null, purpose: 'Owner data archive and tax-preparer handoff; not an official tax return' },
       userProfile: profile.exists ? clean(ownedExportRecord(profile as Parameters<typeof ownedExportRecord>[0], userId, true)) : null,
-      accounts, transactions, receipts, aiAnalysis, taxRecords: Object.fromEntries(datasets),
+      accounts, transactions, receipts, aiAnalysis, bankHistoryReview, taxRecords: Object.fromEntries(datasets),
     };
   } catch (error) {
     if (error instanceof ExportReviewRequiredError) throw error;

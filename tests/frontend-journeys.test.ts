@@ -230,9 +230,9 @@ describe('manual dashboard entry and review actions', () => {
   });
 
   it.each([
-    [{ needsReviewCount: 0, needsAnalysisCount: 0, taxSavings: 0 }, 'add-manual-transaction'],
-    [{ needsReviewCount: 1, needsAnalysisCount: 1, taxSavings: 0 }, 'review-transactions'],
-    [{ needsReviewCount: 0, needsAnalysisCount: 0, taxSavings: 10 }, 'tax-preview'],
+    [{ needsReviewCount: 0, needsAnalysisCount: 0, confirmedCount: 0 }, 'add-manual-transaction'],
+    [{ needsReviewCount: 1, needsAnalysisCount: 1, confirmedCount: 0 }, 'review-transactions'],
+    [{ needsReviewCount: 0, needsAnalysisCount: 0, confirmedCount: 1 }, 'tax-preview'],
   ])('keeps the advisory action within manual review or the shared estimate: %j', (counts, screen) => {
     const onNavigate = vi.fn();
     const request = vi.fn(); vi.stubGlobal('fetch', request);

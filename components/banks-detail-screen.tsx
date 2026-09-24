@@ -1,5 +1,7 @@
 "use client";
 
+import Link from 'next/link';
+import type { ReconnectView } from '@/lib/plaid/reconnect-contract';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Building2, Plus, RefreshCw, Unplug } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -14,7 +16,8 @@ type BankItem = {
   accountIds: string[];
   institutionId: string | null;
   lastSync?: number;
-  status: 'active' | 'relink_required';
+  status: 'active' | 'relink_required' | 'pending_history_review';
+  reconnectSessionId?: string | null;
   relinkRequired: boolean;
   reauthenticationRequired?: boolean;
 };
@@ -53,12 +56,14 @@ export const BanksDetailScreen: React.FC<BanksDetailScreenProps> = ({ user, onBa
   const [loadedOwner, setLoadedOwner] = useState<string | null>(null);
   const [storedAccounts, setAccounts] = useState<BankAccount[]>([]);
   const [storedItems, setItems] = useState<BankItem[]>([]);
+  const [storedReconnect, setReconnect] = useState<ReconnectView | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [disconnectItem, setDisconnectItem] = useState<BankItem | null>(null);
 
   const accounts = loadedOwner === user.id ? storedAccounts : [];
+  const reconnect = loadedOwner === user.id ? storedReconnect : null;
   const items = loadedOwner === user.id ? storedItems : [];
   const load = useCallback(async () => {
     const generation = ++loadGeneration.current;
@@ -67,8 +72,9 @@ export const BanksDetailScreen: React.FC<BanksDetailScreenProps> = ({ user, onBa
       const responses = await Promise.all([
         makeAuthenticatedRequest('/api/plaid/items'),
         makeAuthenticatedRequest('/api/database/accounts'),
+        makeAuthenticatedRequest('/api/plaid/reconnect', { cache: 'no-store' }).then(async response => response.ok ? response.json() : null).catch(() => null),
       ]);
-      const [connectionData, accountData] = await Promise.all(responses.map(async response => {
+      const [connectionData, accountData] = await Promise.all(responses.slice(0, 2).map(async response => {
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'Could not load bank accounts.');
         return data;
@@ -77,6 +83,7 @@ export const BanksDetailScreen: React.FC<BanksDetailScreenProps> = ({ user, onBa
       setLoadedOwner(user.id);
       setItems(connectionData.items || []);
       setAccounts(accountData.accounts || []);
+      setReconnect(responses[2]?.reconnect || null);
     } catch (err) {
       if (generation === loadGeneration.current) setError(err instanceof Error ? err.message : 'Could not load bank accounts.');
     } finally { if (generation === loadGeneration.current) setLoading(false); }
@@ -144,6 +151,11 @@ export const BanksDetailScreen: React.FC<BanksDetailScreenProps> = ({ user, onBa
         <Button onClick={() => onConnectBank()} className="gap-2"><Plus className="h-4 w-4" />Connect bank</Button>
       </header>
       <p className="text-sm text-slate-500">Bank activity syncs into your review queue. Confirm AI suggestions before using them in tax reports.</p>
+      {reconnect && reconnect.phase !== 'cancelled' && (reconnect.phase !== 'active' || reconnect.pendingCount + reconnect.deferredCount > 0) && <Card className="space-y-3 p-4 sm:p-5">
+        <h2 className="font-semibold">{reconnect.phase === 'active' ? 'Bank connected · history review remains' : 'Bank reconnect in progress'}</h2>
+        <p className="text-sm text-slate-500">{reconnect.pendingCount} need a decision · {reconnect.deferredCount} set aside for later. Your review is saved.</p>
+        <Button asChild variant="outline"><Link href={`/plaid/reconnect?sessionId=${encodeURIComponent(reconnect.sessionId)}`}>Resume history review</Link></Button>
+      </Card>}
       {error && <Card role="alert" className="p-4 text-sm"><p>{error}</p><Button variant="outline" size="sm" className="mt-2" onClick={() => void load()}>Try again</Button></Card>}
       {loading && <p role="status" className="py-6 text-center text-sm text-slate-500">Loading bank accounts…</p>}
       {items.map(item => (
@@ -151,19 +163,21 @@ export const BanksDetailScreen: React.FC<BanksDetailScreenProps> = ({ user, onBa
           <div className="flex items-start justify-between gap-3">
             <div className="flex min-w-0 gap-3"><Building2 className="mt-0.5 h-5 w-5 shrink-0 text-blue-600" /><div className="min-w-0">
               <h2 className="truncate font-semibold">{itemName(item)}</h2>
-              <p className={`text-xs ${item.relinkRequired ? 'text-amber-700' : 'text-emerald-700'}`}>{item.reauthenticationRequired ? 'Bank sign-in required' : item.relinkRequired ? 'Reconnect required' : 'Connected'}</p>
+              <p className={`text-xs ${item.relinkRequired ? 'text-amber-700' : 'text-emerald-700'}`}>{item.reauthenticationRequired ? 'Bank sign-in required' : item.status === 'pending_history_review' ? 'History review required' : item.relinkRequired ? 'Reconnect required' : 'Connected'}</p>
             </div></div>
             {!item.relinkRequired && <Button size="sm" variant="outline" disabled={!!busy} onClick={() => void sync(item.itemId)} className="gap-1.5"><RefreshCw className={`h-3.5 w-3.5 ${busy === item.itemId ? 'animate-spin' : ''}`} />Sync</Button>}
           </div>
           {item.relinkRequired && <p className="mt-3 text-sm text-slate-600">{item.reauthenticationRequired
             ? 'Sign in to this bank again to resume updates. Your saved records are retained.'
+            : item.status === 'pending_history_review' ? 'Match your accounts and review saved history before activating this connection.'
             : 'WriteOff’s bank connection provider has changed. Connect this bank again to resume updates. Your saved records are retained.'}</p>}
           <div className="mt-2 divide-y divide-slate-100 dark:divide-slate-800">{accountsFor(item).map(accountRow)}</div>
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t pt-3">
             <span className="text-xs text-slate-500">{item.lastSync ? `Last sync ${new Date(item.lastSync).toLocaleString()}` : 'Waiting for bank updates'}</span>
-            <div className="flex gap-2">
-              <Button size="sm" variant="ghost" onClick={() => onConnectBank(item.relinkRequired && !item.reauthenticationRequired ? undefined : item.itemId)} disabled={!!busy}>{item.relinkRequired && !item.reauthenticationRequired ? 'Reconnect bank' : 'Repair connection'}</Button>
-              <Button size="sm" variant="ghost" aria-label={`Disconnect ${itemName(item)}`} onClick={() => setDisconnectItem(item)} disabled={!!busy}><Unplug className="mr-1.5 h-3.5 w-3.5" />Disconnect</Button>
+            <div className="flex flex-wrap gap-2">
+              {item.reconnectSessionId && <Button asChild size="sm" variant="outline"><Link href={`/plaid/reconnect?sessionId=${encodeURIComponent(item.reconnectSessionId)}`}>{item.status === 'pending_history_review' ? 'Resume history review' : 'History review'}</Link></Button>}
+              {(item.status !== 'pending_history_review' || item.reauthenticationRequired) && <Button size="sm" variant="ghost" onClick={() => onConnectBank(item.relinkRequired && !item.reauthenticationRequired ? undefined : item.itemId)} disabled={!!busy}>{item.relinkRequired && !item.reauthenticationRequired ? 'Reconnect bank' : 'Repair connection'}</Button>}
+              {item.status !== 'pending_history_review' && <Button size="sm" variant="ghost" aria-label={`Disconnect ${itemName(item)}`} onClick={() => setDisconnectItem(item)} disabled={!!busy}><Unplug className="mr-1.5 h-3.5 w-3.5" />Disconnect</Button>}
             </div>
           </div>
         </Card>

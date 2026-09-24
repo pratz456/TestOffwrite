@@ -1,6 +1,8 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
+    // An expiring capability is validated on the server before streaming a snapshot.
+    match /preparer_handoffs/{uid}/{allPaths=**} { allow read, write: if false; }
     // Receipt files: receipts/{userId}/{transactionId}/{filename}
     match /receipts/{userId}/{transactionId}/{filename} {
       // Receipt bytes are private server data. Upload, download and deletion go through

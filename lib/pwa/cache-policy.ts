@@ -5,7 +5,7 @@ export const privacyRuntimeCaching: RuntimeCaching[] = [
   {
     // First-match precedence also protects receipt URLs ending in image extensions.
     urlPattern: ({ url, request, sameOrigin }) => !sameOrigin
-      || /^\/(?:api|protected|auth)(?:\/|$)/.test(url.pathname)
+      || /^\/(?:api|protected|auth|preparer)(?:\/|$)/.test(url.pathname)
       || url.pathname.startsWith('/_next/data/')
       || request.headers.has('authorization')
       || request.headers.get('RSC') === '1',

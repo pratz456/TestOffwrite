@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { transactionDateParts } from '@/lib/transactions/calendar-date';
+import { summarizeRecordedCashFlow } from '@/lib/dashboard/cash-flow-summary';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { BarChart3 } from 'lucide-react';
 import {
@@ -59,47 +60,26 @@ export function AnalyticsPanel({ transactions }: AnalyticsPanelProps) {
   const [selectedYear, setSelectedYear] = useState(currentYear);
 
   const availableYears = useMemo(() => {
-    const years = new Set<number>();
+    const years = new Set<number>([currentYear]);
     for (const t of transactions) {
       try {
         const y = transactionDateParts(t.date)?.year;
         if (y !== undefined && y >= 2000 && y <= currentYear) years.add(y);
       } catch { /* skip malformed dates */ }
     }
-    if (years.size === 0) years.add(currentYear);
     return [...years].sort((a, b) => b - a);
   }, [transactions, currentYear]);
 
+  const cashFlow = useMemo(() => summarizeRecordedCashFlow(transactions, selectedYear), [transactions, selectedYear]);
   const chartData = useMemo(() => {
-    const yearTx = transactions.filter(t => {
-      return transactionDateParts(t.date)?.year === selectedYear;
-    });
-
     const labels = viewMode === 'monthly' ? MONTHS : QUARTERS;
     const buckets = labels.map(name => ({ name, amount: 0 }));
-
-    for (const tx of yearTx) {
-      const amt = Number(tx.amount);
-      if (isNaN(amt) || amt === 0) continue;
-
-      const date = transactionDateParts(tx.date);
-      if (!date) continue;
-      const monthIndex = date.month - 1;
-      const idx = viewMode === 'monthly' ? monthIndex : Math.floor(monthIndex / 3);
-      const isIncome = amt < 0 || tx.type === 'income';
-      const abs = Math.abs(amt);
-
-      if (dataMode === 'expenses' && !isIncome) {
-        buckets[idx].amount += abs;
-      } else if (dataMode === 'income' && isIncome) {
-        buckets[idx].amount += abs;
-      } else if (dataMode === 'net') {
-        buckets[idx].amount += isIncome ? abs : -abs;
-      }
-    }
-
+    cashFlow.months.forEach((month, index) => {
+      const bucket = viewMode === 'monthly' ? index : Math.floor(index / 3);
+      buckets[bucket].amount = Math.round((buckets[bucket].amount + month[dataMode]) * 100) / 100;
+    });
     return buckets;
-  }, [transactions, viewMode, selectedYear, dataMode]);
+  }, [cashFlow, viewMode, dataMode]);
 
   const hasData = chartData.some(d => d.amount !== 0);
   const cfg = DATA_MODE_CONFIG[dataMode];
@@ -155,7 +135,7 @@ export function AnalyticsPanel({ transactions }: AnalyticsPanelProps) {
             </div>
           </div>
 
-          <p className="text-xs text-muted-foreground">All recorded inflows and outflows, including personal and pending transactions.</p>
+          <p className="text-xs text-muted-foreground">Posted USD inflows and outflows, including personal spending. Pending and superseded records are excluded.</p>
 
           {/* Row 2: Cash-flow toggle */}
           <div className="flex rounded-lg border border-border overflow-hidden self-start">
@@ -177,7 +157,7 @@ export function AnalyticsPanel({ transactions }: AnalyticsPanelProps) {
         </div>
       </CardHeader>
       <CardContent className="p-3 pt-0 sm:p-4 sm:pt-0 md:p-4 md:pt-0 lg:p-4 lg:pt-0">
-        {hasData ? (
+        {cashFlow.reviewMessage ? <p role="alert" className="py-6 text-sm text-muted-foreground">{cashFlow.reviewMessage}</p> : hasData ? (
           <div className="h-[160px] sm:h-[190px] w-full min-w-0 chart-bar-hover">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartData} margin={{ top: 8, right: 4, left: -20, bottom: 0 }}>

@@ -7,11 +7,11 @@ import { Lightbulb, ChevronRight } from 'lucide-react';
 interface AiAdvisoryCardProps {
   needsReviewCount: number;
   needsAnalysisCount: number;
-  taxSavings: number;
+  confirmedCount: number;
   onNavigate: (screen: string) => void;
 }
 
-export function AiAdvisoryCard({ needsReviewCount, needsAnalysisCount, taxSavings, onNavigate }: AiAdvisoryCardProps) {
+export function AiAdvisoryCard({ needsReviewCount, needsAnalysisCount, confirmedCount, onNavigate }: AiAdvisoryCardProps) {
   // Build contextual summary
   let summary = '';
   let cta = { label: 'Add an expense', screen: 'add-manual-transaction' };
@@ -22,7 +22,7 @@ export function AiAdvisoryCard({ needsReviewCount, needsAnalysisCount, taxSaving
   } else if (needsReviewCount > 0) {
     summary = `${needsReviewCount} transactions are pending your review. Check the business purpose and supporting records before confirming them.`;
     cta = { label: 'Review transactions', screen: 'review-transactions' };
-  } else if (taxSavings > 0) {
+  } else if (confirmedCount > 0) {
     summary = 'Your confirmed expenses are recorded. Review the federal estimate and any missing tax information in Tax Preview.';
     cta = { label: 'Review tax estimate', screen: 'tax-preview' };
   } else {

@@ -161,7 +161,8 @@ section_firestore_protection() {
 section_ttl_policies() {
   heading "Firestore TTL policies for self-expiring documents"
   note "rate_limits windows carry an expiresAt Timestamp written by lib/security/rate-limit.ts; without a TTL"
-  note "policy every throttle window stays forever. TTL deletion is free and asynchronous (within ~24 h)."
+  note "policy every throttle window stays forever. TTL deletion is billed and asynchronous (typically within ~24 h)."
+  note "The same policy must remain in firestore.indexes.json so coordinated deploys preserve it."
   run gcloud firestore fields ttls update expiresAt --collection-group=rate_limits --enable-ttl --database "$DATABASE" --project "$PROJECT" --quiet
 }
 

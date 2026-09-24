@@ -20,7 +20,29 @@ describe('ExplanationCard', () => {
     for (const text of [explanation.headline, explanation.why, 'Creative Cloud for client design work', 'Schedule C line 18 (Office expense)', '$14–$20',
       'estimated federal tax effect; state not included', 'not a refund amount', 'Subscription invoice']) expect(html).toContain(text);
     expect(html).not.toContain('Next question');
+    expect(html).not.toContain('<details');
     expect(html).not.toMatch(/maximi[sz]e|guarantee/i);
+  });
+
+  it('keeps the question, placement and estimate visible in compact mode with all evidence in a closed disclosure', () => {
+    const nextQuestion = 'Was this subscription used for your client work?';
+    const html = renderToStaticMarkup(<ExplanationCard explanation={{ ...explanation, nextQuestion }} compact onAnswer={() => {}} />);
+    const disclosureStart = html.indexOf('<details');
+    expect(disclosureStart).toBeGreaterThan(0);
+    const visible = html.slice(0, disclosureStart);
+    const evidence = html.slice(disclosureStart);
+    for (const text of [explanation.headline, nextQuestion, 'Answer', explanation.scheduleCLine!, '$14–$20', ESTIMATE_LABEL]) {
+      expect(visible).toContain(text);
+    }
+    expect(visible.indexOf(nextQuestion)).toBeLessThan(visible.indexOf('Where it goes:'));
+    expect(visible).toContain('Basic estimate; excludes QBI, credits and state tax.');
+    expect(evidence).toContain('Why and supporting records');
+    expect(evidence).not.toMatch(/<details[^>]*\bopen(?:\s|=|>)/);
+    for (const text of [explanation.why, ...explanation.yourFacts, ...explanation.strengthen, explanation.estimatedTaxEffect!.basis]) {
+      expect(evidence).toContain(text);
+      expect(visible).not.toContain(text);
+    }
+    expect(evidence).toContain('Estimate basis');
   });
 
   it('shows the next question with an answer action and no estimate when the deduction is unresolved', () => {

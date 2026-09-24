@@ -228,8 +228,8 @@ export const AI_EVAL_CORPUS: EvalCase[] = [
     context: SOLE_PROPRIETOR,
     modelOutput: deduction('meals_50', ['meals-274'],
       'Coffee before a work day can be a 50% business meal for a freelancer. Keep the receipt.', 'Coffee before work.', { deductible_percent: 50 }),
-    expect: { status: 'ok', transaction_kind: 'personal', is_deductible: false, deductible_percent: 0, evidence_includes: ['personal-262'] },
-    invariants: TEXT,
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'meals_50', missing_field: 'solo_meal_context' },
+    invariants: GATED_EXPENSE,
   },
   {
     id: 'starbucks-alone-personal', title: 'Starbucks recorded as a personal morning coffee',
@@ -480,16 +480,16 @@ export const AI_EVAL_CORPUS: EvalCase[] = [
     transaction: tx('costco-mixed-flag', 'Costco Wholesale', 186.33, { business_purpose: 'Office snacks and household groceries' }),
     context: MIXED_USE,
     modelOutput: deduction('supplies_small_tools', ['business-162'], 'Office snacks for the studio were recorded with household groceries. Keep the itemized receipt.', 'Office snacks and groceries.'),
-    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'supplies_small_tools', missing_field: 'business_use_percentage' },
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'supplies_small_tools', missing_field: 'food_expense_treatment' },
     invariants: GATED_EXPENSE,
   },
   {
-    id: 'costco-mixed-with-percentage', title: 'Costco with a recorded 30% business share',
+    id: 'costco-mixed-with-percentage', title: 'Costco with a recorded 30% business share still needs food treatment',
     transaction: tx('costco-mixed-with-percentage', 'Costco Wholesale', 186.33, { business_use_percentage: 30, business_purpose: 'Office snacks for the studio and household groceries, 30% business' }),
     context: MIXED_USE,
     modelOutput: deduction('supplies_small_tools', ['business-162'], 'The recorded 30% studio share of the Costco run applies. Keep the itemized receipt marking the studio items.', 'Recorded 30% studio share.', { deductible_percent: 30 }),
-    expect: { status: 'ok', transaction_kind: 'expense', is_deductible: true, category: 'supplies_small_tools', deductible_percent: 30 },
-    invariants: [...OK_DEDUCTION, 'percent_not_assumed'],
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'supplies_small_tools', missing_field: 'food_expense_treatment' },
+    invariants: GATED_EXPENSE,
   },
   {
     id: 'spotify-partly-personal', title: 'Spotify note says partly personal',
@@ -682,12 +682,12 @@ export const AI_EVAL_CORPUS: EvalCase[] = [
     invariants: TEXT,
   },
   {
-    id: 'legalzoom-formation', title: 'LegalZoom LLC formation filing the model booked as "other" is placed on line 17 (2026-09-18.3)',
+    id: 'legalzoom-formation', title: 'LLC formation needs entity and formation-cost treatment before a deduction',
     transaction: tx('legalzoom-formation', 'LegalZoom', 299, { business_purpose: 'LLC formation filing for my design business' }),
     context: LLC,
     modelOutput: deduction('other', ['business-162'], 'The recorded LLC formation filing for the design business is a business legal cost. Keep the filing confirmation.', 'Recorded LLC formation filing.'),
-    expect: { status: 'ok', transaction_kind: 'expense', is_deductible: true, category: 'legal_professional', deductible_percent: 100, schedule_c_line: '17', evidence_includes: ['professional-fees-334'] },
-    invariants: OK_DEDUCTION,
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'legal_professional', missing_field: 'formation_cost_treatment', evidence_includes: ['capital-263', 'startup-195'] },
+    invariants: GATED_EXPENSE,
   },
   {
     id: 'upwork-contractor', title: 'Upwork payment to a freelance developer',
@@ -1034,7 +1034,7 @@ export const AI_EVAL_CORPUS: EvalCase[] = [
     transaction: tx('whole-foods-label-only', 'Whole Foods', 64, { note: 'Client snacks' }),
     context: SOLE_PROPRIETOR,
     modelOutput: deduction('supplies_small_tools', ['supplies-263a'], 'Snacks recorded for clients are studio supplies. Keep the receipt.', 'Client snacks.'),
-    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'supplies_small_tools', missing_field: 'business_purpose', evidence_includes: ['personal-262', 'supplies-263a'], question_includes: 'Groceries are personal' },
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'supplies_small_tools', missing_field: 'food_expense_treatment', evidence_includes: ['personal-262', 'supplies-263a'] },
     invariants: GATED_EXPENSE,
   },
   {
@@ -1159,12 +1159,12 @@ export const AI_EVAL_CORPUS: EvalCase[] = [
     invariants: OK_DEDUCTION,
   },
   {
-    id: 'nar-dues-realtor-ok', title: 'REALTOR association and MLS dues complete as dues for an agent',
+    id: 'nar-dues-realtor-ok', title: 'REALTOR and MLS dues need the association lobbying allocation',
     transaction: tx('nar-dues-realtor-ok', 'National Association of Realtors', 195, { business_purpose: 'Annual REALTOR association and MLS dues' }),
     context: REALTOR,
     modelOutput: deduction('dues_and_memberships', ['dues-274a3'], 'The recorded REALTOR association and MLS dues are ordinary costs of the real estate business. Keep the dues invoice.', 'Recorded association and MLS dues.'),
-    expect: { status: 'ok', transaction_kind: 'expense', is_deductible: true, category: 'dues_and_memberships', deductible_percent: 100, schedule_c_line: '27a' },
-    invariants: OK_DEDUCTION,
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'dues_and_memberships', missing_field: 'association_dues_allocation' },
+    invariants: GATED_EXPENSE,
   },
 
   // --- rideshare driver and trucker ---
@@ -1423,12 +1423,12 @@ export const AI_EVAL_CORPUS: EvalCase[] = [
     invariants: OK_DEDUCTION,
   },
   {
-    id: 'wa-dor-sales-tax-remitted', title: 'Sales tax collected from customers and remitted to the state is a line 23 expense in the taxpayer\'s own words',
+    id: 'wa-dor-sales-tax-remitted', title: 'Collected sales tax needs buyer/seller incidence and receipts reconciliation',
     transaction: tx('wa-dor-sales-tax-remitted', 'WA Dept of Revenue', 640, { business_purpose: 'Sales tax collected from customers, remitted for Q2' }),
     context: ECOMMERCE,
     modelOutput: deduction('taxes_licenses', ['taxes-licenses-sch-c'], 'The recorded sales tax remitted for the quarter is a business tax. Keep the sales tax return.', 'Recorded sales tax remittance.'),
-    expect: { status: 'ok', transaction_kind: 'expense', is_deductible: true, category: 'taxes_licenses', deductible_percent: 100, schedule_c_line: '23', evidence_includes: ['taxes-licenses-sch-c'] },
-    invariants: OK_DEDUCTION,
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'taxes_licenses', missing_field: 'sales_tax_incidence', evidence_includes: ['taxes-licenses-sch-c'] },
+    invariants: GATED_EXPENSE,
   },
   {
     id: 'irs-model-taxes-licenses', title: 'IRS USATAXPYMT the model files under the new taxes_licenses category is still blocked',

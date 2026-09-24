@@ -14,6 +14,9 @@ const aiEnvironment = await localDemoAIEnvironment(process.argv.slice(2), source
 const automaticAnalysis = !!aiEnvironment.OPENAI_API_KEY;
 const workerSecret = automaticAnalysis ? randomBytes(32).toString('hex') : null;
 const project = 'demo-writeoff-security';
+// Synthetic fixture state only. No production consent or real person's acceptance is created.
+const consentVersion = (await fs.readFile(path.join(source, 'lib/onboarding/consents.ts'), 'utf8')).match(/CONSENT_TERMS_VERSION = '([^']+)'/)?.[1];
+assert.ok(consentVersion, 'Current consent version is required for the signed-in demo fixture');
 const base = 'http://localhost:3000';
 const password = 'LocalDemo2026!';
 const children = [];
@@ -108,7 +111,7 @@ async function waitForAnalysisFunctions() {
       const response = await fetch('http://127.0.0.1:5001/backends', { signal: AbortSignal.timeout(1000) });
       const data = await response.json();
       const names = data.backends?.flatMap(backend => backend.functionTriggers?.map(trigger => trigger.entryPoint) || []) || [];
-      if (['queueBankTransactionAnalysis', 'processBankTransactionAnalysis'].every(name => names.includes(name))) return;
+      if (['queueBankTransactionAnalysis', 'processBankTransactionAnalysis', 'queueProfileAnalysisRefresh', 'processProfileAnalysisRefresh'].every(name => names.includes(name))) return;
     } catch { /* Startup only. */ }
     await new Promise(resolve => setTimeout(resolve, 1000));
   }
@@ -150,6 +153,7 @@ try {
     await seed(`user_profiles/${uid}`, {
       userId: uid, name: 'Jordan Demo', email, profession: 'Designer', business_entity_type: 'sole_proprietor', income: '100000', state: 'TX', filing_status: 'single',
       onboardingIntroCompleted: true, onboardingPlaidGuideCompleted: true,
+      consents: { version: consentVersion, source: 'profile-setup', accepted_at: new Date().toISOString(), terms: true, bank_data: true, ai_review: true, communications: false, document_import: false },
       subscriptionStatus: role === 'free' ? 'expired' : 'trial', trialStart: new Date(Date.now() - 86400000 * 8), trialEnd: new Date(Date.now() + (role === 'free' ? -1 : 7) * 86400000), hasHistoricalAccess: role !== 'free',
     });
     await seed(`user_profiles/${uid}/accounts/manual`, { userId: uid, account_id: 'manual', name: 'Manual entries', type: 'depository', subtype: 'checking', mask: 'DEMO' });

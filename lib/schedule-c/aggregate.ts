@@ -199,7 +199,9 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
   options: AggregateScheduleCOptions = {}
 ): AggregateScheduleCResult {
   const yearStr = year.toString();
-  const mode: AggregateScheduleCMode = options.mode ?? 'default';
+  // Omitted mode fails closed to server-confirmed decisions. Callers must opt into
+  // the legacy potential-category view explicitly; it is never a tax total.
+  const mode: AggregateScheduleCMode = options.mode ?? 'confirmed-only';
   // Use timezone-safe year extraction (avoid local Date parsing shifting around year boundaries).
   // Superseded duplicates of an earlier reviewed record never reach either mode.
   const yearTransactions = transactions.filter((t) => {
@@ -209,7 +211,7 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
   });
 
   // CPA-grade logic:
-  // - default mode preserves current "confirmed or potential" behavior
+  // - explicit default mode preserves the non-tax "confirmed or potential" preview
   // - confirmed-only counts only server-confirmed deductible transactions
   //   and nets credits/refunds (negative amounts) against their mapped lines
   // - pending transactions are excluded when present

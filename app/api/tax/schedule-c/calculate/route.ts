@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
       message: 'Provisional business subtotal. Review returns/allowances, COGS and other uncollected adjustments before filing; the home office amount is the simplified-method planning estimate from your saved facts.' } }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (error) {
     const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
-    if (['EXPORT_REVIEW_REQUIRED', 'INCOME_RECONCILIATION_REQUIRED', 'FILING_STATUS_REVIEW_REQUIRED', 'DEPRECIATION_REVIEW_REQUIRED', 'HOME_OFFICE_REVIEW_REQUIRED'].includes(code)) return NextResponse.json({ error: error instanceof Error ? error.message : 'Review business records.', code }, { status: 422 });
+    if (['TAX_CALCULATION_SCOPE_REVIEW_REQUIRED', 'EXPORT_REVIEW_REQUIRED', 'INCOME_RECONCILIATION_REQUIRED', 'FILING_STATUS_REVIEW_REQUIRED', 'DEPRECIATION_REVIEW_REQUIRED', 'HOME_OFFICE_REVIEW_REQUIRED'].includes(code)) return NextResponse.json({ error: error instanceof Error ? error.message : 'Review business records.', code }, { status: 422 });
     return NextResponse.json({ error: 'Could not load business records. Please retry.' }, { status: 503 });
   }
 }

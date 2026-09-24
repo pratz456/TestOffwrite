@@ -17,7 +17,7 @@ vi.mock('@/lib/firebase/admin', () => {
 });
 import { startFreeTrial } from '@/lib/subscriptions/trial-manager';
 import { requireFeatureAccess } from '@/lib/subscriptions/feature-access';
-import { subscriptionProfileUpdate, subscriptionDetails, subscriptionPlanForPrice, configuredPriceIds, assertSubscriptionOwner, syncSubscriptionForUser, reconcileUserSubscription, getSubscriptionSyncRevision } from '@/lib/stripe/subscription-sync';
+import { subscriptionProfileUpdate, subscriptionDetails, subscriptionPlanForPrice, configuredPriceIds, assertSubscriptionOwner, syncSubscriptionForUser, reconcileUserSubscription, refreshSubscriptionForUser, getSubscriptionSyncRevision } from '@/lib/stripe/subscription-sync';
 
 const now = new Date('2026-09-15T12:00:00Z');
 const past = new Date('2026-09-01T12:00:00Z');
@@ -105,6 +105,17 @@ describe('server feature enforcement', () => {
 });
 
 describe('Stripe lifecycle persistence', () => {
+  it.each(['open', 'draft', 'void', 'uncollectible'])('does not grant an unpaid legacy Basic-to-Premium upgrade with invoice %s', status => {
+    const legacyUpgrade = subscription();
+    legacyUpgrade.latest_invoice = { status } as Stripe.Invoice;
+    expect(legacyUpgrade.metadata.payment_policy).toBeUndefined();
+    expect(evaluateEntitlements(subscriptionProfileUpdate(legacyUpgrade, now), now).features.exports).toBe(false);
+  });
+  it('grants the legacy portal upgrade only after the current invoice is paid', () => {
+    const legacyUpgrade = subscription();
+    legacyUpgrade.latest_invoice = { status: 'paid' } as Stripe.Invoice;
+    expect(evaluateEntitlements(subscriptionProfileUpdate(legacyUpgrade, now), now).plan).toBe('premium');
+  });
   it.each([null, 'in_unexpanded', { status: 'open' }, { status: 'draft' }, { status: 'void' }, { status: 'uncollectible' }])(
     'does not grant an active bank-capable subscription before confirmed payment: %j', invoice => {
       const bank = subscription();
@@ -211,6 +222,37 @@ describe('plan-aware bank history ingestion', () => {
 });
 
 describe('concurrent subscription reconciliation', () => {
+  it('preserves a freshly verified settled subscription when an overlapping ACH checkout is pending', async () => {
+    documents.set('user_profiles/u1', { ...paid, stripeCustomerId: 'cus_1' });
+    const pending = subscription('active', 'sub_pending'); pending.metadata.payment_policy = 'settled_invoice';
+    pending.latest_invoice = { status: 'open' } as Stripe.Invoice;
+    const settled = subscription(); settled.latest_invoice = { status: 'paid' } as Stripe.Invoice;
+    const retrieve = vi.fn().mockImplementation(async id => id === 'sub_pending' ? pending : settled);
+    const stripe = { subscriptions: { retrieve } } as unknown as Stripe;
+    await refreshSubscriptionForUser('u1', stripe, 'sub_pending', { id: 'evt_pending', created: 10 });
+    expect(documents.get('user_profiles/u1')?.stripeSubscriptionId).toBe('sub_1');
+    expect(evaluateEntitlements(documents.get('user_profiles/u1'), now).isPaid).toBe(true);
+    expect(retrieve).toHaveBeenCalledWith('sub_1', { expand: ['latest_invoice'] });
+  });
+  it('does not preserve a stale paid profile when the old subscription is actually canceled', async () => {
+    documents.set('user_profiles/u1', { ...paid, stripeCustomerId: 'cus_1' });
+    const pending = subscription('active', 'sub_pending'); pending.metadata.payment_policy = 'settled_invoice';
+    pending.latest_invoice = { status: 'open' } as Stripe.Invoice;
+    const stripe = { subscriptions: { retrieve: vi.fn().mockImplementation(async id => id === 'sub_pending' ? pending : subscription('canceled')) } } as unknown as Stripe;
+    await refreshSubscriptionForUser('u1', stripe, 'sub_pending', { id: 'evt_pending', created: 10 });
+    expect(documents.get('user_profiles/u1')?.stripeSubscriptionId).toBe('sub_pending');
+    expect(evaluateEntitlements(documents.get('user_profiles/u1'), now).isPaid).toBe(false);
+  });
+  it('recovers the settled subscription when the previously linked overlapping ACH plan is pending', async () => {
+    documents.set('user_profiles/u1', { ...paid, stripeCustomerId: 'cus_1', stripeSubscriptionId: 'sub_pending' });
+    const pending = subscription('active', 'sub_pending'); pending.metadata.payment_policy = 'settled_invoice';
+    pending.latest_invoice = { status: 'open' } as Stripe.Invoice;
+    const settled = subscription(); settled.latest_invoice = { status: 'paid' } as Stripe.Invoice;
+    const stripe = { subscriptions: { retrieve: vi.fn().mockResolvedValue(pending), list: vi.fn().mockResolvedValue({ data: [pending, settled] }) } } as unknown as Stripe;
+    await reconcileUserSubscription('u1', stripe);
+    expect(documents.get('user_profiles/u1')?.stripeSubscriptionId).toBe('sub_1');
+    expect(evaluateEntitlements(documents.get('user_profiles/u1'), now).isPaid).toBe(true);
+  });
   it('rejects a stale active observation after a canceled webhook was committed', async () => {
     documents.set('user_profiles/u1', { ...paid, stripeCustomerId: 'cus_1' });
     const revisionBeforeRead = await getSubscriptionSyncRevision('u1');

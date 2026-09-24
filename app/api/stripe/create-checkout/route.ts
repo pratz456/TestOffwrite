@@ -5,6 +5,7 @@ import { getStripeClient, configuredPriceIds, subscriptionPlanForPrice } from '@
 import { z } from 'zod';
 import { beginCheckoutOperation, finishCheckoutOperation, retainCheckoutRecovery, CheckoutOperationError } from '@/lib/stripe/checkout-operations';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
+import { ExistingCheckoutSubscriptionError, getOrCreateCheckoutSession } from '@/lib/stripe/checkout-session';
 
 const checkoutRequest = z.object({ interval: z.enum(['monthly', 'yearly']).default('monthly') }).strict();
 
@@ -55,7 +56,7 @@ export async function POST(req: Request) {
     // including payment-recovery states that should use the billing portal.
     if (customerId) {
       const subscriptions = await stripe.subscriptions.list({ customer: customerId, status: 'all', limit: 100 });
-      const existing = subscriptions.data.some((subscription) => !['canceled', 'incomplete_expired'].includes(subscription.status) &&
+      const existing = subscriptions.has_more || subscriptions.data.some((subscription) => !['canceled', 'incomplete_expired'].includes(subscription.status) &&
         subscription.items.data.some((item) => configuredPriceIds().includes(item.price.id)));
       if (existing) return NextResponse.json({ error: 'Manage your existing subscription in billing settings.', code: 'SUBSCRIPTION_EXISTS' }, { status: 409 });
     }
@@ -71,13 +72,13 @@ export async function POST(req: Request) {
       unsavedCustomerId = undefined;
       safeToRelease = true; // Deletion can now discover and close this customer.
     }
-    const session = await stripe.checkout.sessions.create({ customer: customerId, mode: 'subscription',
+    const session = await getOrCreateCheckoutSession(uid, stripe, { customer: customerId, mode: 'subscription',
       payment_method_types: ['card', 'us_bank_account'], line_items: [{ price: priceId, quantity: 1 }],
       payment_method_options: { us_bank_account: { financial_connections: { permissions: ['payment_method'] } } },
       subscription_data: { metadata: { firebase_uid: uid, feature: 'historical_transactions', payment_policy: 'settled_invoice' } },
       success_url: `${origin}/stripe/success?session_id={CHECKOUT_SESSION_ID}`, cancel_url: `${origin}/stripe/cancel`,
       metadata: { firebase_uid: uid, feature: 'historical_transactions' },
-    }, { idempotencyKey: `writeoff-checkout-${uid}-${interval}-${customerId}-bank-v1-${Math.floor(Date.now() / 300000)}` });
+    });
     return NextResponse.json({ success: true, sessionId: session.id, url: session.url }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (error) {
     if (operationId && !safeToRelease) {
@@ -88,6 +89,7 @@ export async function POST(req: Request) {
       if (!safeToRelease) await retainCheckoutRecovery(uid, operationId, unsavedCustomerId).catch(() => {});
     }
     if (error instanceof CheckoutOperationError) return NextResponse.json({ error: error.message, code: error.code }, { status: 409 });
+    if (error instanceof ExistingCheckoutSubscriptionError) return NextResponse.json({ error: error.message, code: 'SUBSCRIPTION_EXISTS' }, { status: 409 });
     return NextResponse.json({ error: 'Unable to create checkout. Please try again.' }, { status: 503 });
   } })();
   if (operationId && safeToRelease) {

@@ -6,6 +6,8 @@ import { EDITABLE_PROFILE_FIELDS, publicProfile } from '@/lib/firebase/profile-f
 import { parseConsentRecord, storedDocumentImportSignature } from '@/lib/onboarding/consents';
 import { encryptSensitive } from '@/lib/security/utils';
 
+class ProfileInputError extends Error {}
+
 function encryptedEinUpdate(value: unknown, existingLast4?: unknown): { error?: string; fields?: Record<string, unknown>; omit?: boolean } {
   if (typeof value !== 'string') return { error: 'EIN must be a string' };
   const trimmed = value.trim();
@@ -80,7 +82,7 @@ export async function POST(request: NextRequest) {
     await adminDb.runTransaction(async transaction => {
       const snapshot = await transaction.get(ref);
       const ein = 'ein' in body ? encryptedEinUpdate(body.ein, snapshot.data()?.ein_last4) : null;
-      if (ein?.error) throw new TypeError(ein.error);
+      if (ein?.error) throw new ProfileInputError(ein.error);
       const profileFields = { ...body };
       delete profileFields.ein;
       const stored = snapshot.exists ? snapshot.data()?.consents : undefined;
@@ -102,7 +104,7 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json({ success: true });
   } catch (error) {
-    if (error instanceof TypeError) return NextResponse.json({ error: error.message }, { status: 400 });
+    if (error instanceof ProfileInputError) return NextResponse.json({ error: error.message }, { status: 400 });
     return NextResponse.json({ error: 'Failed to save profile' }, { status: 503 });
   }
 }

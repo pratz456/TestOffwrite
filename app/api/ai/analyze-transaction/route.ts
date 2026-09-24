@@ -13,6 +13,7 @@ import { claimAnalysisLease, persistAnalysisSuggestion, releaseAnalysisLease } f
 import type { AnalysisLease } from '@/lib/ai/analysis-persistence';
 import type { DocumentReference } from 'firebase-admin/firestore';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
+import { isCountableRecord } from '@/lib/transactions/record-scope';
 
 // Zod schema for request validation
 const AnalyzeTransactionRequestSchema = z.object({
@@ -98,6 +99,10 @@ export async function POST(request: NextRequest) {
       releaseCode = 'AI_PENDING_TRANSACTION';
       return NextResponse.json({ code: releaseCode, error: 'This bank transaction is pending. Analysis can run once it is posted.' }, { status: 422 });
     }
+    if (!isCountableRecord(transaction)) {
+      releaseCode = 'TRANSACTION_UNAVAILABLE';
+      return NextResponse.json({ code: releaseCode, error: 'This bank record was removed or linked to an earlier record, so it is not eligible for AI analysis.' }, { status: 422 });
+    }
     const date = typeof transaction.date === 'string' ? transaction.date : '';
     if (typeof transaction.amount !== 'number' || !Number.isFinite(transaction.amount)
       || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date))
@@ -138,9 +143,6 @@ export async function POST(request: NextRequest) {
       account_usage_type: accountUsageType,
       receipt_context: transaction.receipt_url || transaction.receipt_filename || transaction.ocr_data ? {
         attached: true,
-        ...(typeof transaction.ocr_data?.raw_text === 'string' && transaction.ocr_data.raw_text.trim()
-          ? { ocr_text: transaction.ocr_data.raw_text.trim().slice(0, 1_000) }
-          : {}),
         ...(typeof transaction.ocr_data?.confidence === 'number' && Number.isFinite(transaction.ocr_data.confidence)
           ? { ocr_confidence: transaction.ocr_data.confidence }
           : {}),
@@ -163,7 +165,7 @@ export async function POST(request: NextRequest) {
     const saved = await persistAnalysisSuggestion(ref, analysis.result, lease, analysisProfileHash(profile, date), context);
     if (saved.status !== 'saved') {
       releaseCode = 'AI_RECORD_CHANGED';
-      return NextResponse.json({ code: releaseCode, error: 'The transaction changed during analysis. Review the latest record and run analysis again.' }, { status: 409 });
+      return NextResponse.json({ code: releaseCode, error: 'Your transaction or business profile changed during analysis. Review the latest details and run analysis again.' }, { status: 409 });
     }
     lease = null;
     return NextResponse.json({

@@ -12,6 +12,7 @@
 import { calculateFederalIncomeTax } from './federal-brackets';
 import { getFederalTaxRules, LATEST_PUBLISHED_TAX_YEAR } from './federal-year-rules';
 import { normalizeFilingStatus } from './filing-status';
+import { calcScheduleSE } from '@/lib/reports/calcSE';
 
 // ── Schedule C Net Profit ─────────────────────────────────────────────────────
 /**
@@ -24,7 +25,7 @@ export function calcScheduleCNetProfit(
   homeOfficeDeduction = 0,
 ): number {
   // Line 7 (gross income) - Line 28 (total expenses) - Line 30 (home office) = Line 31
-  return Math.max(0, grossReceipts - totalConfirmedExpenses - homeOfficeDeduction);
+  return grossReceipts - totalConfirmedExpenses - homeOfficeDeduction;
 }
 
 // ── Combined Self-Employment Tax Rate ─────────────────────────────────────────
@@ -32,9 +33,9 @@ export function calcScheduleCNetProfit(
  * The real effective rate a self-employed person pays on their last dollar of SE income.
  * = Income tax marginal rate + SE tax rate on that income
  *
- * SE tax rate on net profit: 14.13% effective
- *   Net profit × 92.35% × 15.3% = 14.13% of net profit
- *   Then you deduct half SE tax from income, so net income tax impact is lower
+ * Owner-only estimate with no W-2 wages. Regular SE applies the annual Social Security
+ * wage base and the $400 net-earnings threshold. Additional Medicare is separate and
+ * does not contribute to the half-SE deduction. QBI and credits are outside this helper.
  *
  * Source: IRS Topic 554, Schedule SE instructions
  */
@@ -44,7 +45,7 @@ export function calcCombinedSERate(
   aboveLineDeductions = 0,
   taxYear: number = LATEST_PUBLISHED_TAX_YEAR,
 ): {
-  seTaxRate: number;          // SE tax as % of net profit (always ~14.13%)
+  seTaxRate: number;          // Regular Schedule SE tax as % of net profit
   incomeTaxEffectiveRate: number; // Income tax / net profit
   combinedEffectiveRate: number;  // Total tax / net profit
   combinedMarginalRate: number;   // Rate on next dollar of SE income
@@ -52,30 +53,35 @@ export function calcCombinedSERate(
   incomeTaxDollars: number;
   totalTaxDollars: number;
 } {
+  const rules = getFederalTaxRules(taxYear);
   const status = normalizeFilingStatus(filingStatus);
+  if (!Number.isFinite(scheduleCNetProfit) || !Number.isFinite(aboveLineDeductions) || aboveLineDeductions < 0) {
+    throw new RangeError('Provide finite business profit and nonnegative deductions.');
+  }
   if (scheduleCNetProfit <= 0) {
     return { seTaxRate: 0, incomeTaxEffectiveRate: 0, combinedEffectiveRate: 0, combinedMarginalRate: 0, seTaxDollars: 0, incomeTaxDollars: 0, totalTaxDollars: 0 };
   }
 
-  // SE tax
-  const seBase = scheduleCNetProfit * 0.9235;
-  const seTax = seBase * 0.153;
-  const halfSE = seTax / 2;
+  const se = calcScheduleSE({ scheduleCNetProfit, taxYear }, status);
+  const seTax = se.totalSETax;
+  const halfSE = se.halfSEDeduction;
 
   // Income tax
-  const rules = getFederalTaxRules(taxYear);
   const stdDed = rules.standardDeductions[status];
   const agi = Math.max(0, scheduleCNetProfit - halfSE - aboveLineDeductions);
   const taxableIncome = Math.max(0, agi - stdDed);
-  const incomeTax = calculateFederalIncomeTax(taxableIncome, status, rules.taxYear);
+  const incomeTax = calculateFederalIncomeTax(taxableIncome, status, taxYear);
 
-  const totalTax = seTax + incomeTax;
+  const totalTax = seTax + se.additionalMedicareTax + incomeTax;
   const seTaxRate = (seTax / scheduleCNetProfit) * 100;
   const incomeTaxEffectiveRate = (incomeTax / scheduleCNetProfit) * 100;
   const combinedEffectiveRate = (totalTax / scheduleCNetProfit) * 100;
 
-  // Marginal: SE tax on next dollar is always 14.13%, plus marginal income bracket
-  const seMarginal = 0.9235 * 0.153; // 14.13%
+  // Local marginal rates change at the regular-SE wage cap and Medicare threshold.
+  const seBase = scheduleCNetProfit * 0.9235;
+  const seMarginal = seBase < 400 ? 0 : 0.9235 * (0.029 + (seBase < rules.socialSecurityWageBase ? 0.124 : 0));
+  const medicareThreshold = status === 'married_filing_jointly' ? 250000 : status === 'married_filing_separately' ? 125000 : 200000;
+  const additionalMedicareMarginal = seBase >= medicareThreshold ? 0.9235 * 0.009 : 0;
   // Determine income tax marginal bracket
   const bkts = rules.brackets[status];
   let marginalIncomeBracket = bkts[0].rate;
@@ -85,8 +91,9 @@ export function calcCombinedSERate(
 
   // On next $1 of SE income: SE tax = 14.13%, plus income tax on the remaining
   // (1 - half SE deduction rate) portion at the marginal bracket
-  const halfSEDeductionRate = seMarginal / 2; // ~7.065% deducted from AGI
-  const combinedMarginalRate = (seMarginal + marginalIncomeBracket * (1 - halfSEDeductionRate)) * 100;
+  const halfSEDeductionRate = seMarginal / 2;
+  const combinedMarginalRate = (seMarginal + additionalMedicareMarginal
+    + (agi > stdDed ? marginalIncomeBracket * (1 - halfSEDeductionRate) : 0)) * 100;
 
   return {
     seTaxRate: Math.round(seTaxRate * 10) / 10,

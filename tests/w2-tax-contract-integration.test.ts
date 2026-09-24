@@ -1,4 +1,5 @@
 import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductions';
+import { eligibilityOrganizer, jointFacts } from './fixtures/eligibility';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { resetRateLimitStore } from './fixtures/rate-limit-store';
@@ -56,7 +57,8 @@ import { POST as quarterlyEstimate } from '../app/api/tax/quarterly-estimates/ro
 import { summarizeW2Income } from '../lib/tax-rules/w2-income';
 
 const organizerFixture = (overrides: Record<string, unknown> = {}) => reviewedPersonalDeductionOrganizer(2026, {}, { userId: 'w2-contract-user', ...overrides });
-const fixture = { employer: 'Synthetic employer', taxYear: 2026, wages: 200000, federalWithheld: 35000, socialSecurityWages: 184500, medicareWages: 210000, stateWithheld: 5000 };
+// Box 1 stays below the QBI threshold; distinct Boxes 3/5 exercise wage-base and Medicare math.
+const fixture = { employer: 'Synthetic employer', taxYear: 2026, wages: 100000, federalWithheld: 35000, socialSecurityWages: 184500, medicareWages: 210000, stateWithheld: 5000 };
 const request = (path: string) => new NextRequest(`http://localhost${path}?year=2026`);
 beforeEach(() => {
   resetRateLimitStore();
@@ -80,6 +82,8 @@ describe('onboarding filing-status labels flow into tax calculations and PDF sel
   it.each(labels)('accepts the actual onboarding save contract for %s and selects its PDF checkbox', async (label, canonical, deduction) => {
     const storedProfile = profileWriteData({ email: 'synthetic@example.test', name: 'Synthetic Taxpayer', profession: ['Consultant'], businessEntityType: 'Sole Proprietor', primaryWorkLocation: 'Home', workRelatedTravelPattern: '', income: '$100,000', state: 'TX', filingStatus: label }, true);
     state.filingStatus = storedProfile.filing_status;
+    // Filing-status/PDF selection is independent of joint business/wage ownership.
+    state.records.gross_receipts = [];
     await save();
     const preview = await compute1040(request('/api/tax/compute-1040'));
     expect(preview.status).toBe(200);
@@ -101,7 +105,7 @@ describe('onboarding filing-status labels flow into tax calculations and PDF sel
     } finally { drawText.mockRestore(); }
     const se = await scheduleSE(request('/api/tax/schedule-se/auto'));
     expect(se.status).toBe(200);
-    expect((await se.json()).calculation.additionalMedicareTax).toBe(canonical === 'married_filing_jointly' ? 471.15 : 831.15);
+    expect((await se.json()).calculation.additionalMedicareTax).toBe(0);
     const reminderResponse = await reminders(request('/api/tax/quarterly-reminders'));
     expect(reminderResponse.status).toBe(200);
     expect((await reminderResponse.json()).filingStatus).toBe(canonical);
@@ -126,8 +130,27 @@ describe('onboarding filing-status labels flow into tax calculations and PDF sel
 });
 
 describe('shared income snapshot across JSON and PDF', () => {
-  const transaction = { id: 'income-1', account_id: 'manual', amount: -100000, category: 'income', type: 'income', date: '2026-03-01', pending: false };
+  const transaction = { id: 'income-1', account_id: 'manual', amount: -100000, iso_currency_code: 'USD', category: 'income', type: 'income', date: '2026-03-01', pending: false };
   const pdfRequest = () => new NextRequest('http://localhost/api/tax/form-1040', { method: 'POST', body: JSON.stringify({ year: 2026 }) });
+
+  it('uses the same saved spouse assignments for annual JSON/PDF and the standalone Schedule SE preview', async () => {
+    state.filingStatus = 'married_filing_jointly';
+    state.records.tax_organizers = [organizerFixture(eligibilityOrganizer({ joint: jointFacts({ spouseSSWages: '184500', spouseMedicareWages: '210000' }) }))];
+    await save();
+    const annual = await compute1040(request('/api/tax/compute-1040'));
+    expect(annual.status).toBe(200);
+    const json = await annual.json();
+    expect(json.seCalc).toMatchObject({ socialSecurityTax: 11451.4, totalSETax: 14129.55, additionalMedicareTax: 471.15 });
+    const se = await scheduleSE(request('/api/tax/schedule-se/auto'));
+    expect(se.status).toBe(200);
+    expect(await se.json()).toMatchObject({ calculation: json.seCalc, w2SocialSecurityWages: 0, w2MedicareWages: 210000, aboveTheLineDeductions: null, estimatedAGI: null });
+    expect((await export1040(pdfRequest())).status).toBe(200);
+    expect(state.computedResults[1]).toEqual(state.computedResults[0]);
+    state.records.w2_income[0].socialSecurityWages = 180000;
+    const stale = await scheduleSE(request('/api/tax/schedule-se/auto'));
+    expect(stale.status).toBe(422);
+    expect((await stale.json()).error).toContain('assignments must match');
+  });
 
   it('counts transaction-only business income and uses identical federal inputs/results in JSON and PDF', async () => {
     state.records = { tax_organizers: [organizerFixture({ amount1099INT: '1200', dependents: '0' })] };
@@ -187,14 +210,116 @@ describe('shared income snapshot across JSON and PDF', () => {
     expect((await response.json()).grossReceipts).toBe(100000);
   });
 });
+
+describe('saved adjustment claims require supported eligibility before annual results', () => {
+  const claims = [
+    ['hsaContribution', 'HSA eligibility'],
+    ['healthInsurancePremiums', 'self-employed health-insurance eligibility'],
+    ['sepIraContribution', 'retirement-plan eligibility'],
+    ['solo401kEmployeeContribution', 'retirement-plan eligibility'],
+    ['solo401kEmployerContribution', 'retirement-plan eligibility'],
+    ['simpleIraContribution', 'retirement-plan eligibility'],
+  ] as const;
+
+  it.each(claims)('withholds JSON, PDF and both quarterly totals for a saved %s', async (field, missingFacts) => {
+    state.records.tax_deductions = [{ userId: 'w2-contract-user', taxYear: 2026, [field]: 1000 }];
+    const before = JSON.stringify(state.records);
+    const responses = [
+      await compute1040(request('/api/tax/compute-1040')),
+      await export1040(new NextRequest('http://localhost/api/tax/form-1040', { method: 'POST', body: JSON.stringify({ year: 2026 }) })),
+      await reminders(request('/api/tax/quarterly-reminders')),
+      await quarterlyEstimate(new NextRequest('http://localhost/api/tax/quarterly-estimates', { method: 'POST', body: JSON.stringify({ taxYear: 2026 }) })),
+    ];
+    for (const response of responses) {
+      expect(response.status).toBe(422);
+      expect(response.headers.get('content-type')).toContain('application/json');
+      expect(await response.json()).toEqual({
+        code: 'TAX_CALCULATION_SCOPE_REVIEW_REQUIRED', error: expect.stringContaining(missingFacts),
+      });
+    }
+    expect(state.computedInputs).toEqual([]);
+    expect(state.computedResults).toEqual([]);
+    expect(JSON.stringify(state.records)).toBe(before);
+  });
+
+  it('does not let opposite-signed Solo 401(k) components cancel the eligibility gate', async () => {
+    state.records.tax_deductions = [{ userId: 'w2-contract-user', taxYear: 2026, solo401kEmployeeContribution: 1000, solo401kEmployerContribution: -1000 }];
+    const response = await compute1040(request('/api/tax/compute-1040'));
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ code: 'TAX_CALCULATION_SCOPE_REVIEW_REQUIRED', error: expect.stringContaining('retirement-plan eligibility') });
+    expect(state.computedInputs).toEqual([]);
+  });
+
+  it('preserves annual calculations when no unsupported adjustment is claimed', async () => {
+    const baseline = await (await compute1040(request('/api/tax/compute-1040'))).json();
+    state.records.tax_deductions = [{ userId: 'w2-contract-user', taxYear: 2026, ...Object.fromEntries(claims.map(([field]) => [field, 0])) }];
+    const response = await compute1040(request('/api/tax/compute-1040'));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.form1040).toEqual(baseline.form1040);
+    expect(body.form1040.appliedAdjustments).toMatchObject({ healthInsuranceDeduction: 0, retirementContributions: 0, hsaDeduction: 0 });
+  });
+});
+
 async function save(fields = {}) {
   const response = await saveW2(new NextRequest('http://localhost/api/income/w2', { method: 'POST', body: JSON.stringify({ ...fixture, ...fields }) }));
   expect(response.status).toBe(201);
-  expect(state.records.w2_income[0]).toMatchObject({ userId: 'w2-contract-user', wages: 200000 });
+  expect(state.records.w2_income[0]).toMatchObject({ userId: 'w2-contract-user', wages: { ...fixture, ...fields }.wages });
   expect(state.records.w2_income[0]).not.toHaveProperty('box3SocialSecurityWages');
 }
 
 describe('saved manual W-2 flows into real tax calculations', () => {
+  it.each([{}, { wages: 0, socialSecurityWages: 20000, medicareWages: 0 }, { wages: 0, socialSecurityWages: 0, medicareWages: 20000 }])('withholds joint mixed-wage/business totals until taxpayer-versus-spouse ownership is supported: %j', async wageFields => {
+    state.filingStatus = 'married_filing_jointly';
+    await save(wageFields);
+    const responses = [
+      await compute1040(request('/api/tax/compute-1040')),
+      await export1040(new NextRequest('http://localhost/api/tax/form-1040', { method: 'POST', body: JSON.stringify({ year: 2026 }) })),
+      await scheduleSE(request('/api/tax/schedule-se/auto')),
+      await reminders(request('/api/tax/quarterly-reminders')),
+    ];
+    for (const response of responses) {
+      expect(response.status).toBe(422);
+      const body = await response.json();
+      expect(body).toMatchObject({ code: 'TAX_CALCULATION_SCOPE_REVIEW_REQUIRED', error: expect.stringContaining('spouse') });
+      expect(body).not.toHaveProperty('form1040');
+      expect(body).not.toHaveProperty('calculation');
+      expect(body).not.toHaveProperty('seCalc');
+      expect(response.headers.get('content-type')).toContain('application/json');
+    }
+    expect(state.computedResults).toEqual([]);
+  });
+
+  it('withholds single-filer SE calculations when legacy W-2 rows lack Box 3 or Box 5', async () => {
+    await save({ socialSecurityWages: undefined, medicareWages: undefined });
+    for (const response of [
+      await compute1040(request('/api/tax/compute-1040')),
+      await scheduleSE(request('/api/tax/schedule-se/auto')),
+    ]) {
+      expect(response.status).toBe(422);
+      expect(await response.json()).toMatchObject({
+        code: 'TAX_CALCULATION_SCOPE_REVIEW_REQUIRED',
+        error: expect.stringMatching(/Box 3|Box 5/),
+      });
+    }
+    expect(state.computedResults).toEqual([]);
+  });
+
+  it('withholds high-income annual JSON and PDF when QBI needs Form 8995-A review', async () => {
+    await save({ wages: 200000 });
+    for (const response of [
+      await compute1040(request('/api/tax/compute-1040')),
+      await export1040(new NextRequest('http://localhost/api/tax/form-1040', { method: 'POST', body: JSON.stringify({ year: 2026 }) })),
+    ]) {
+      expect(response.status).toBe(422);
+      const body = await response.json();
+      expect(body.code).toBe('QBI_REVIEW_REQUIRED');
+      expect(body).not.toHaveProperty('form1040');
+      expect(body).not.toHaveProperty('totalTax');
+    }
+    expect(state.computedResults).toEqual([]);
+  });
+
   // IRS Pub 505 (2026), Worksheet 2-3: $184,500 SS base minus $184,500 W-2 SS
   // wages leaves $0. $100,000 profit * .9235 * .029 = $2,678.15 regular SE tax.
   // Form 8959: ($210,000 Medicare wages + $92,350 net SE - $200,000) * .009.
@@ -205,7 +330,7 @@ describe('saved manual W-2 flows into real tax calculations', () => {
     const data = await response.json();
     expect(data.seCalc).toMatchObject({ socialSecurityTax: 0, medicareTax: 2678.15, totalSETax: 2678.15, halfSEDeduction: 1339.08 });
     expect(data.form1040.additionalMedicareTax).toBe(921.15);
-    expect(data.w2).toMatchObject({ wages: 200000, withheld: 35000 });
+    expect(data.w2).toMatchObject({ wages: 100000, withheld: 35000 });
     expect(data.form1040.calculationWarnings.some((warning: string) => warning.includes('Box 5'))).toBe(false);
   });
 
@@ -215,7 +340,7 @@ describe('saved manual W-2 flows into real tax calculations', () => {
     expect(response.status).toBe(200);
     const data = await response.json();
     expect(data[key]).toMatchObject({ socialSecurityTax: 0, totalSETax: 2678.15, additionalMedicareTax: 92350 * .009 });
-    expect(data.w2Wages).toBe(200000);
+    expect(data.w2Wages).toBe(100000);
     expect(data.w2Withheld).toBe(35000);
   });
 
@@ -224,7 +349,7 @@ describe('saved manual W-2 flows into real tax calculations', () => {
     const response = await export1040(new NextRequest('http://localhost/api/tax/form-1040', { method: 'POST', body: JSON.stringify({ year: 2026 }) }));
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toContain('application/pdf');
-    expect(state.computedInputs.at(-1)).toMatchObject({ w2Wages: 200000, w2MedicareWages: 210000, w2FederalWithheld: 35000, selfEmploymentTax: 2678.15, halfSEDeduction: 1339.08 });
+    expect(state.computedInputs.at(-1)).toMatchObject({ w2Wages: 100000, w2MedicareWages: 210000, w2FederalWithheld: 35000, selfEmploymentTax: 2678.15, halfSEDeduction: 1339.08 });
   });
 
   it('keeps explicit zero SS/Medicare wages instead of replacing them with Box 1', async () => {
@@ -236,13 +361,13 @@ describe('saved manual W-2 flows into real tax calculations', () => {
 
   it('retains imported box-prefixed W-2 compatibility and tax-year ownership filtering', async () => {
     state.records.w2_income = [
-      { userId: 'w2-contract-user', taxYear: 2026, box1Wages: 200000, box2FederalWithheld: 35000, box3SocialSecurityWages: 184500, box5MedicareWages: 210000 },
+      { userId: 'w2-contract-user', taxYear: 2026, box1Wages: 100000, box2FederalWithheld: 35000, box3SocialSecurityWages: 184500, box5MedicareWages: 210000 },
       { userId: 'other-owner', taxYear: 2026, wages: 900000 },
       { userId: 'w2-contract-user', taxYear: 2025, wages: 800000 },
     ];
     const data = await (await compute1040(request('/api/tax/compute-1040'))).json();
     expect(data.seCalc.totalSETax).toBe(2678.15);
-    expect(data.w2).toMatchObject({ wages: 200000, withheld: 35000, count: 1 });
+    expect(data.w2).toMatchObject({ wages: 100000, withheld: 35000, count: 1 });
   });
 });
 

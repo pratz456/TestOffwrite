@@ -64,7 +64,8 @@ describe('platform input smoke regressions', () => {
     expect(state.add).not.toHaveBeenCalled();
   });
   it('a zero wage W-2 with withholding is retained and explicit state zeros are not discarded', async () => {
-    expect((await w2(request({ employer: 'Synthetic employer', wages: 0, federalWithheld: 50, stateWages: 0, stateWithheld: 0, taxYear: 2026 }))).status).toBe(201);
+    expect((await w2(request({ employer: 'Synthetic employer', wages: 0, federalWithheld: 50,
+      socialSecurityWages: 0, medicareWages: 0, stateWages: 0, stateWithheld: 0, taxYear: 2026 }))).status).toBe(201);
     expect(state.add).toHaveBeenCalledWith(expect.objectContaining({ userId: 'smoke-owner', wages: 0, federalWithheld: 50, stateWages: 0, stateWithheld: 0 }));
   });
   it.each([{ miles: -1 }, { miles: 'Infinity' }, { miles: null }, { miles: true }, { date: '2026-02-30' }, { roundTrip: 'false' }, { startLocation: [] }])('mileage invalid input %s is rejected before a write', async fields => {

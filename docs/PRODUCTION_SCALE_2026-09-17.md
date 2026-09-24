@@ -1,5 +1,13 @@
 # Production scale posture — writeoff-23910 (September 17, 2026)
 
+> **Historical planning document, superseded September 24.** Use
+> [Production launch operations](PRODUCTION_LAUNCH_OPERATIONS_2026-09-24.md) for the
+> current operating baseline. Production is 2 GiB / maxInstances 20 / concurrency
+> 40 / minInstances 0. The current guarded Firebase Hosting pinned-revision
+> deployment requires minInstances 0; the warm-instance recommendations below
+> must not be applied. Pricing estimates and 5,000/100,000-user projections below
+> are historical assumptions, not load-tested launch or scaling certification.
+
 Scope: the Next.js 15 SSR service that Firebase Hosting runs on Cloud Run
 (`frameworksBackend` → 2nd-gen function `ssrwriteoff23910`, `us-central1`),
 the Firestore usage the code generates, and the OpenAI spend controls already

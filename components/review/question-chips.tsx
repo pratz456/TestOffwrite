@@ -77,7 +77,7 @@ export function QuestionChips({ question, transaction, proposal = null, busy = f
 
       {question.kind === 'settings_gate' && <>
         <Link href={settingsHref} className={primaryChipClass}>Update tax settings<ChevronRight aria-hidden="true" className="h-4 w-4" /></Link>
-        <p className="text-xs leading-4 text-muted-foreground">This depends on the business entity and tax year saved in Settings. Update them, then run analysis again.</p>
+        <p className="text-xs leading-4 text-muted-foreground">This depends on the business entity and tax year saved in Settings. Update them; AI will refresh the review automatically.</p>
       </>}
 
       {question.kind === 'business_purpose' && <div className="space-y-2">
@@ -94,7 +94,7 @@ export function QuestionChips({ question, transaction, proposal = null, busy = f
 
       {question.kind === 'other' && <>
         {onOpenDetails && <button type="button" disabled={blocked} onClick={onOpenDetails} className={primaryChipClass}>Add details<ChevronRight aria-hidden="true" className="h-4 w-4" /></button>}
-        <p className="text-xs leading-4 text-muted-foreground">Add the missing details, then run analysis again for an updated suggestion.</p>
+        <p className="text-xs leading-4 text-muted-foreground">Save the missing details; AI will refresh the review automatically.</p>
       </>}
     </section>
   );

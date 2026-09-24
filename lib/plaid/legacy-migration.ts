@@ -1,5 +1,6 @@
 import type { DocumentData, DocumentReference, FieldValue as AdminFieldValue, Firestore } from 'firebase-admin/firestore';
 import { encryptPlaidToken, isCurrent, validId } from './connection-primitives';
+import { isLocalAccountPreview } from '../firebase/local-account-preview';
 
 /**
  * The single implementation of the legacy Plaid credential migration. The
@@ -26,7 +27,7 @@ export interface LegacyPlaidMigrationOptions {
 }
 
 export interface LegacyPlaidMigrationResult {
-  outcome: 'missing' | 'already_migrated' | 'migrated';
+  outcome: 'missing' | 'already_migrated' | 'migrated' | 'preview_read_only';
   /** A legacy token was encrypted into a new private `relink_required` connection. */
   tokenMoved: boolean;
   accountTokensCleared: number;
@@ -54,6 +55,7 @@ function chunk<T>(values: T[], size: number): T[][] {
 }
 
 export async function refreshBankConnectionProjection(db: Firestore, uid: string): Promise<void> {
+  if (isLocalAccountPreview()) return;
   await db.runTransaction(async tx => {
     const snapshot = await tx.get(db.collection('plaid_connections').where('uid', '==', uid));
     const bankConnected = snapshot.docs.some(doc => doc.data().status === 'active' && isCurrent(doc.data()));
@@ -65,6 +67,9 @@ export async function refreshBankConnectionProjection(db: Firestore, uid: string
 export async function migrateLegacyPlaidCredentials(db: Firestore, FieldValue: FieldValueStatic, uid: string,
   options: LegacyPlaidMigrationOptions = {}): Promise<LegacyPlaidMigrationResult> {
   validId(uid);
+  // Loading the latest local UI must not migrate bank credentials or rewrite
+  // bankConnected using this development server's provider configuration.
+  if (isLocalAccountPreview()) return { outcome: 'preview_read_only', tokenMoved: false, accountTokensCleared: 0, paginated: false };
   const profileRef = db.doc(`user_profiles/${uid}`);
   const profile = (await profileRef.get()).data();
   if (!profile) return { outcome: 'missing', tokenMoved: false, accountTokensCleared: 0, paginated: false };

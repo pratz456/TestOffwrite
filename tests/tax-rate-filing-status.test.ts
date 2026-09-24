@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
-import { calculateEffectiveTaxRate, calculateFederalIncomeTax, getMarginalTaxRate, getUserTaxRate, getUserTaxRateDisplay, TaxRateProfileRequiredError } from '../lib/tax-rules/federal-brackets';
+import { calculateEffectiveTaxRate, calculateFederalIncomeTax, getMarginalTaxRate, getUserTaxRate, getUserTaxRateDisplay, TaxRateReviewRequiredError } from '../lib/tax-rules/federal-brackets';
 import { calcCombinedSERate } from '../lib/tax-rules/kpi-calculations';
 import { FilingStatusReviewRequiredError } from '../lib/tax-rules/filing-status';
 
 const fixture = vi.hoisted(() => ({ status: 'Single', income: 100000 }));
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({ user: { uid: 'synthetic' }, error: null }) }));
 vi.mock('@/lib/firebase/profiles-server', () => ({ getUserProfileServer: async () => ({ data: { income: fixture.income, filing_status: fixture.status }, error: null }) }));
-vi.mock('@/lib/firebase/transactions-server', () => ({ getTransactionsServer: async () => ({ data: [{ id: 'expense', amount: 1000, date: '2026-09-01', is_deductible: true }], error: null }) }));
+vi.mock('@/lib/firebase/transactions-server', () => ({ getTransactionsServer: async () => ({ data: [{ id: 'expense', amount: 1000, date: '2026-09-01', iso_currency_code: 'USD', is_deductible: true }], error: null }) }));
 vi.mock('@/lib/reports/export-records', () => ({ readOwnedTransactions: async () => [{ amount: -100000, date: '2026-09-01', iso_currency_code: 'USD' }] }));
 vi.mock('@/lib/subscriptions/feature-access', () => ({ requireFeatureAccess: async () => null }));
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collection: (path: string) => ({ get: async () => ({ docs: path.endsWith('/accounts') ? [{ id: 'manual' }] : [{ data: () => ({ amount: -100000, category: 'income', date: '2026-09-01' }) }] }) }) } }));
@@ -40,10 +40,10 @@ describe('shared dashboard rate normalization', () => {
     expect(getMarginalTaxRate({ income: 90000, filing_status: 'Single' })).toBe(22);
   });
   it('withholds savings instead of applying a static rate when income is missing', () => {
-    expect(() => getUserTaxRate(null)).toThrow(TaxRateProfileRequiredError);
+    expect(() => getUserTaxRate(null)).toThrow(TaxRateReviewRequiredError);
     expect(getUserTaxRateDisplay(null)).toMatchObject({
       rate: null,
-      reviewMessage: expect.stringContaining('Add your self-employment income'),
+      reviewMessage: expect.stringContaining('Update income'),
     });
   });
   it.each(['Qualifying Widower', 'not-a-status'])('withholds the display rate for %s, even without income', status => {

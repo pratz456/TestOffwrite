@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { describeUnsupportedTaxYear, getFederalTaxRules, LATEST_PUBLISHED_TAX_YEAR, nearestPublishedTaxYear, SUPPORTED_TAX_YEARS, TAX_YEAR_2027_STATUS, UnsupportedTaxYearError } from '../lib/tax-rules/federal-year-rules';
-import { calculateEffectiveTaxRate, calculateFederalIncomeTax, getMarginalTaxRate, getUserTaxRate } from '../lib/tax-rules/federal-brackets';
+import { describeUnsupportedTaxYear, getFederalTaxRules, LATEST_PUBLISHED_TAX_YEAR, SUPPORTED_TAX_YEARS, TAX_YEAR_2027_STATUS, UnsupportedTaxYearError } from '../lib/tax-rules/federal-year-rules';
+import { calculateEffectiveTaxRate, calculateFederalIncomeTax, getMarginalTaxRate, getUserTaxRate, getUserTaxRateDisplay, TaxRateReviewRequiredError } from '../lib/tax-rules/federal-brackets';
 import { calcCombinedSERate } from '../lib/tax-rules/kpi-calculations';
 
 describe('published parameter registry versus primary sources (Rev. Proc. 2024-40 / 2025-32, SSA, P.L. 119-21)', () => {
@@ -26,24 +26,51 @@ describe('published parameter registry versus primary sources (Rev. Proc. 2024-4
     expect(() => getFederalTaxRules(2027)).toThrow(UnsupportedTaxYearError);
     expect(describeUnsupportedTaxYear(2027)).toContain('not published the 2027');
     expect(TAX_YEAR_2027_STATUS.pendingPublication.map(item => item.item)).toEqual(expect.arrayContaining([
-      'Ordinary income bracket amounts', 'Social Security wage base and quarter of coverage', 'Standard mileage rate',
+      'Ordinary income bracket amounts', 'Social Security wage base and quarter of coverage', 'Standard mileage rates',
     ]));
     expect(TAX_YEAR_2027_STATUS.knownByStatute.join(' ')).toContain('$25,000');
     expect(TAX_YEAR_2027_STATUS.knownByStatute.join(' ')).not.toMatch(/2027 bracket amounts are/);
   });
 
-  it('keeps an explicit nearest-year label helper but makes calculation helpers fail closed', () => {
-    expect(nearestPublishedTaxYear(2027)).toBe(2026);
-    expect(nearestPublishedTaxYear(2023)).toBe(2024);
+  it('preserves published-year calculations and the latest published default', () => {
     expect(calculateFederalIncomeTax(12400, 'single')).toBe(1240);
     expect(calculateFederalIncomeTax(12400, 'single', 2025)).toBe(1192.5 + (12400 - 11925) * 0.12);
     const profile = { income: 100000, filing_status: 'Single' };
     expect(calculateEffectiveTaxRate(profile, 2026)).not.toBe(calculateEffectiveTaxRate(profile, 2025));
     expect(calculateEffectiveTaxRate(profile)).toBe(calculateEffectiveTaxRate(profile, 2026));
-    expect(() => getUserTaxRate(profile, 2027)).toThrow(UnsupportedTaxYearError);
-    expect(() => getMarginalTaxRate(profile, 2027)).toThrow(UnsupportedTaxYearError);
-    expect(() => calcCombinedSERate(60000, 'Single', 0, 2027)).toThrow(UnsupportedTaxYearError);
-    expect(getMarginalTaxRate({ income: 60000, filing_status: 'Single' }, 2026)).toBe(22);
+    expect(getMarginalTaxRate({ income: 60000, filing_status: 'Single' }, 2026)).toBe(12);
     expect(calcCombinedSERate(60000, 'Single', 0, 2026).incomeTaxDollars).not.toBe(calcCombinedSERate(60000, 'Single', 0, 2025).incomeTaxDollars);
+  });
+
+  it.each([2024, 2025, 2026])('distinguishes missing income from a valid zero for supported year %i', taxYear => {
+    const profile = { income: 0, filing_status: 'Single' };
+    expect(calculateEffectiveTaxRate(profile, taxYear)).toBe(0);
+    expect(getMarginalTaxRate(profile, taxYear)).toBe(0);
+    expect(() => getUserTaxRate(undefined, taxYear)).toThrow(TaxRateReviewRequiredError);
+    expect(getUserTaxRate(profile, taxYear)).toBe(0);
+    expect(calcCombinedSERate(0, 'Single', 0, taxYear).totalTaxDollars).toBe(0);
+  });
+
+  it.each([2023, 2027, 2028])('rejects unsupported year %i before returning any numeric estimate', taxYear => {
+    for (const income of [100000, 0, -100, undefined, 'invalid']) {
+      const profile = { income, filing_status: 'Single' };
+      expect(() => calculateEffectiveTaxRate(profile, taxYear)).toThrow(UnsupportedTaxYearError);
+      expect(() => getMarginalTaxRate(profile, taxYear)).toThrow(UnsupportedTaxYearError);
+      expect(() => getUserTaxRate(profile, taxYear)).toThrow(UnsupportedTaxYearError);
+    }
+    expect(() => getUserTaxRate(undefined, taxYear)).toThrow(UnsupportedTaxYearError);
+    expect(() => getUserTaxRate(null, taxYear)).toThrow(UnsupportedTaxYearError);
+    for (const profit of [100000, 0, -100]) {
+      expect(() => calculateFederalIncomeTax(profit, 'single', taxYear)).toThrow(UnsupportedTaxYearError);
+      expect(() => calcCombinedSERate(profit, 'Single', 0, taxYear)).toThrow(UnsupportedTaxYearError);
+    }
+  });
+
+  it('shows an unavailable estimate for an explicit 2027 year even with missing income', () => {
+    for (const profile of [{ income: 100000, filing_status: 'Single' }, { income: 0, filing_status: 'Single' }, undefined]) {
+      expect(getUserTaxRateDisplay(profile, 2027)).toEqual({
+        rate: null, filingStatus: null, reviewMessage: describeUnsupportedTaxYear(2027),
+      });
+    }
   });
 });

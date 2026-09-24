@@ -153,7 +153,6 @@ export interface TransactionInput {
   documentation_status?: 'complete' | 'partial' | 'missing';
   receipt_context?: {
     attached: boolean;
-    ocr_text?: string;
     ocr_confidence?: number;
   };
   meeting_notes?: string;
@@ -244,7 +243,6 @@ export interface UserContext {
   // Phase 2: Medium Impact Fields
   naics_code?: string;
   business_purpose?: string;
-  ein?: string;
   w2_income?: number;
   business_income?: number;
   other_income?: number;
@@ -397,7 +395,6 @@ export function convertToEnhancedContext(userProfile: any, transactionDate: stri
     // Phase 2: Medium Impact Fields
     naics_code: userProfile.naics_code,
     business_purpose: userProfile.business_purpose,
-    ein: userProfile.ein,
     w2_income: finiteNonnegative(userProfile.w2_income),
     business_income: finiteNonnegative(userProfile.business_income),
     other_income: finiteNonnegative(userProfile.other_income),

@@ -23,6 +23,7 @@ describe('preparer CSV semantics', () => {
     expect(csv).toContain('equipment_details.business_use_percentage"":50'); expect(csv).toContain('deduction_override"":0');
     expect(csv).toContain('Recorded Business-use Fields (not applied)'); expect(csv).not.toContain('Business-use percentage not recorded');
     expect(convertTransactionsToCSV([{ date: '2026-01-01', amount: 200, is_deductible: true }])).toContain('Business-use percentage not recorded');
+    expect(convertTransactionsToCSV([{ date: '2026-01-01', amount: 200, is_deductible: true, businessUsePercent: 40 }])).toContain('businessUsePercent"":40');
   });
   it('keeps calendar dates across timezone offsets and rejects impossible/missing selected-year dates', () => {
     expect(exportDate('2026-12-31T23:59:00-08:00')).toBe('2026-12-31'); expect(exportDate('2026-02-29')).toBeNull(); expect(exportDate(new Date(NaN))).toBeNull();

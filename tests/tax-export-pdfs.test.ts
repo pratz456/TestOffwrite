@@ -71,10 +71,10 @@ describe('Schedule C real PDF and request integrity', () => {
     expect(response.status).toBe(503); expect(create).not.toHaveBeenCalled(); expect(await response.text()).not.toContain('private');
   });
   it('prints recorded receipts, every signed transaction and no invented filing elections', async () => {
-    state.transactions = Array.from({ length: 70 }, (_, i) => ({ id: `tx-${i}`, merchant_name: `SYNTHETIC-RECORD-${String(i).padStart(3, '0')}`, amount: 100, date: '2026-03-01', category: 'unknown', is_deductible: true }));
-    state.transactions.push({ merchant_name: 'SYNTHETIC-REFUND', amount: -20, date: '2026-03-01', category: 'unknown', is_deductible: true });
-    state.transactions.push({ merchant_name: 'SYNTHETIC-MEAL', amount: 10.01, date: '2026-03-01', category: 'FOOD_AND_DRINK_RESTAURANT', is_deductible: true });
-    state.transactions.push({ merchant_name: 'UNCONFIRMED-EXCLUDED', amount: 999, date: '2026-03-01', category: 'unknown', is_deductible: null });
+    state.transactions = Array.from({ length: 70 }, (_, i) => ({ id: `tx-${i}`, merchant_name: `SYNTHETIC-RECORD-${String(i).padStart(3, '0')}`, amount: 100, date: '2026-03-01', iso_currency_code: 'USD', category: 'unknown', is_deductible: true }));
+    state.transactions.push({ merchant_name: 'SYNTHETIC-REFUND', amount: -20, date: '2026-03-01', iso_currency_code: 'USD', category: 'unknown', is_deductible: true });
+    state.transactions.push({ merchant_name: 'SYNTHETIC-MEAL', amount: 10.01, date: '2026-03-01', iso_currency_code: 'USD', category: 'FOOD_AND_DRINK_RESTAURANT', is_deductible: true });
+    state.transactions.push({ merchant_name: 'UNCONFIRMED-EXCLUDED', amount: 999, date: '2026-03-01', iso_currency_code: 'USD', category: 'unknown', is_deductible: null });
     state.records.gross_receipts!.push(record({ amount: 99999 }, 2025), { userId: 'other-owner', taxYear: 2026, amount: 99999 });
     const view = inspectText(); const response = await scheduleC(request({ year: '2026', includeAppendix: true }));
     expect(response.status).toBe(200); const bytes = new Uint8Array(await response.arrayBuffer());
@@ -96,7 +96,7 @@ describe('Schedule C real PDF and request integrity', () => {
     expect(legacy.text()).toContain('***-**-0001'); expect(legacy.text()).not.toMatch(/900000001|900-00-0001/);
   });
   it('honors a summary-only request without silently including transaction details', async () => {
-    state.transactions = [{ merchant_name: 'PRIVATE-DETAIL-MARKER', amount: 100, date: '2026-03-01', category: 'unknown', is_deductible: true }];
+    state.transactions = [{ merchant_name: 'PRIVATE-DETAIL-MARKER', amount: 100, date: '2026-03-01', iso_currency_code: 'USD', category: 'unknown', is_deductible: true }];
     const view = inspectText(); expect((await scheduleC(request({ year: 2026, includeAppendix: false }))).status).toBe(200);
     expect(view.text()).not.toContain('PRIVATE-DETAIL-MARKER'); expect(view.text()).toContain('omitted at your request');
   });
@@ -132,7 +132,7 @@ describe('selected-year SE source and worksheet', () => {
     expect(response.status).toBe(503); expect(await response.json()).not.toHaveProperty('calculation');
   });
   it('repairs the legacy ScheduleC helper: selected-year recorded receipts and confirmed net expenses', async () => {
-    state.transactions = [{ amount: 100, date: '2025-03-01', category: 'FOOD_AND_DRINK_RESTAURANT', is_deductible: true }, { amount: 999, date: '2025-03-01', category: 'unknown', is_deductible: null }];
+    state.transactions = [{ amount: 100, date: '2025-03-01', iso_currency_code: 'USD', category: 'FOOD_AND_DRINK_RESTAURANT', is_deductible: true }, { amount: 999, date: '2025-03-01', iso_currency_code: 'USD', category: 'unknown', is_deductible: null }];
     state.records.gross_receipts = [record({ amount: 1000 }, 2025)];
     const response = await calculateC(new NextRequest('http://localhost/api/tax/schedule-c/calculate?year=2025'));
     expect(response.status).toBe(200); expect((await response.json()).data).toMatchObject({ year: 2025, totalIncome: 1000, totalExpenses: 50, netProfit: 950 });
@@ -172,7 +172,7 @@ describe('Form 1040 planning PDF prints its review notes', () => {
   beforeEach(() => { state.records.tax_organizers = [record(reviewedPersonalDeductionOrganizer())]; });
 
   it('lists every calculation and completeness warning on the result page and in the appendix', async () => {
-    state.transactions = [{ id: 'inflow', amount: -50, date: '2026-03-01', category: 'unknown', is_deductible: false }];
+    state.transactions = [{ id: 'inflow', amount: -50, date: '2026-03-01', iso_currency_code: 'USD', category: 'unknown', is_deductible: false }];
     const view = inspectText(); const response = await form1040(request1040());
     expect(response.status).toBe(200); const bytes = new Uint8Array(await response.arrayBuffer());
     expect((await PDFDocument.load(bytes)).getPageCount()).toBeGreaterThanOrEqual(3);
@@ -230,22 +230,28 @@ describe('Form 1040 planning PDF prints its review notes', () => {
 
 describe('complete tax-export input validation', () => {
   it.each([{ date: '2026-02-30', amount: 10 }, { date: '2026-02-01', amount: 'unknown' }, { date: '2026-02-01', amount: 10, iso_currency_code: 'EUR' }])('requires review instead of silently dropping malformed records %j', async invalid => {
-    state.transactions = [{ ...invalid, category: 'unknown', is_deductible: true }];
+    state.transactions = [{ iso_currency_code: 'USD', ...invalid, category: 'unknown', is_deductible: true }];
     const response = await scheduleC(request({ year: 2026 }));
     expect(response.status).toBe(422); expect(await response.json()).toMatchObject({ code: 'EXPORT_REVIEW_REQUIRED' });
+  });
+  it.each([{ iso_currency_code: undefined }, { deduction_override: 0 }, { deductible_amount: 30 }, { deduction_amount: 30 }, { deductible_amount_override: 30 }, { deduction_percentage: 50 }])('requires review for unknown currency or an unapplied deduction adjustment %j', async facts => {
+    state.transactions = [{ id: 'review', date: '2026-03-01', amount: 100, category: 'unknown', is_deductible: true, iso_currency_code: 'USD', ...facts }];
+    const response = await scheduleC(request({ year: 2026 }));
+    expect(response.status).toBe(422);
+    expect(await response.json()).toMatchObject({ code: 'EXPORT_REVIEW_REQUIRED' });
   });
 });
 
 
 it('blocks duplicate logical records across storage paths instead of counting both', async () => {
-  state.transactions = ['transactions/one', 'user_profiles/owner/accounts/a/transactions/two'].map(recordPath => ({ id: 'same-source-id', recordPath, date: '2026-01-01', amount: 100, is_deductible: true }));
+  state.transactions = ['transactions/one', 'user_profiles/owner/accounts/a/transactions/two'].map(recordPath => ({ id: 'same-source-id', recordPath, date: '2026-01-01', iso_currency_code: 'USD', amount: 100, is_deductible: true }));
   const response = await scheduleC(request({ year: 2026 }));
   expect(response.status).toBe(422); expect((await response.json()).error).toContain('Duplicate transaction');
 });
 
 
 it('serves complete signed Schedule C CSV with formula-safe merchant text', async () => {
-  state.transactions = [{ id: 'refund', date: '2026-01-01', amount: -20, is_deductible: true, merchant_name: '=HYPERLINK("bad")', category: 'unknown' }];
+  state.transactions = [{ id: 'refund', date: '2026-01-01', iso_currency_code: 'USD', amount: -20, is_deductible: true, merchant_name: '=HYPERLINK("bad")', category: 'unknown' }];
   const response = await scheduleC(request({ year: 2026, format: 'csv' }));
   expect(response.status).toBe(200); expect(response.headers.get('content-type')).toContain('text/csv');
   const csv = await response.text(); expect(csv).toContain("'=HYPERLINK"); expect(csv).toContain(',27b,-20,-20,');
@@ -253,14 +259,14 @@ it('serves complete signed Schedule C CSV with formula-safe merchant text', asyn
 
 
 it.each([{ business_percent: 50 }, { business_use_percent: 0 }, { business_use_percentage: '100' }, { businessUsePercent: 101 }, { equipment_details: { business_use_percentage: 80 } }])('requires mixed-use review rather than deducting the full recorded expense %j', async allocation => {
-  state.transactions = [{ id: 'mixed', date: '2026-01-01', amount: 100, is_deductible: true, category: 'unknown', ...allocation }];
+  state.transactions = [{ id: 'mixed', date: '2026-01-01', iso_currency_code: 'USD', amount: 100, is_deductible: true, category: 'unknown', ...allocation }];
   const response = await scheduleC(request({ year: 2026 }));
   expect(response.status).toBe(422); expect((await response.json()).error).toContain('business-use percentage');
 });
 it('does not apply a second percentage to a fully-business meal or block unconfirmed/pending allocations', async () => {
-  state.transactions = [{ id: 'meal', date: '2026-01-01', amount: 100, is_deductible: true, category: 'FOOD_AND_DRINK_RESTAURANT', business_percent: 100 },
-    { id: 'unconfirmed', date: '2026-01-01', amount: 500, is_deductible: null, business_percent: 50 },
-    { id: 'pending', date: '2026-01-01', amount: 500, is_deductible: true, pending: true, business_percent: 50 }];
+  state.transactions = [{ id: 'meal', date: '2026-01-01', iso_currency_code: 'USD', amount: 100, is_deductible: true, category: 'FOOD_AND_DRINK_RESTAURANT', business_percent: 100 },
+    { id: 'unconfirmed', date: '2026-01-01', iso_currency_code: 'USD', amount: 500, is_deductible: null, business_percent: 50 },
+    { id: 'pending', date: '2026-01-01', iso_currency_code: 'USD', amount: 500, is_deductible: true, pending: true, business_percent: 50 }];
   const response = await scheduleC(request({ year: 2026, format: 'csv' }));
   expect(response.status).toBe(200); expect(await response.text()).toContain(',24b,100,50,');
 });

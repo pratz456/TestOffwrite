@@ -57,7 +57,7 @@ export function convertTransactionsToCSV(records: ExportRecord[]): string {
     const amount = transactionAmount(record), date = exportDate(record.date ?? record.datetime), deductible = recordedDeductibility(record);
     const category = categoryText(record.category);
     const rawPath = record.receipt_url;
-    const businessUse = Object.fromEntries(['business_percent', 'business_use_percent', 'business_use_percentage'].filter(key => record[key] !== undefined).map(key => [key, record[key]]));
+    const businessUse = Object.fromEntries(['business_percent', 'business_use_percent', 'business_use_percentage', 'businessUsePercent'].filter(key => record[key] !== undefined).map(key => [key, record[key]]));
     const equipment = record.equipment_details;
     if (equipment && typeof equipment === 'object' && 'business_use_percentage' in equipment) businessUse['equipment_details.business_use_percentage'] = equipment.business_use_percentage;
     const adjustments = Object.fromEntries(['deduction_override', 'deductible_amount', 'deduction_amount', 'deductible_amount_override', 'deduction_percentage'].filter(key => record[key] !== undefined).map(key => [key, record[key]]));

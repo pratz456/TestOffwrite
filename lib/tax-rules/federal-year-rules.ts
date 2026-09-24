@@ -1,3 +1,5 @@
+import { TAX_YEAR_2027_STATUS } from './tax-year-2027';
+
 /**
  * Published federal estimator parameters. 2025 and 2026 figures were re-audited against the
  * primary sources on 2026-09-18 (Rev. Proc. 2024-40, Rev. Proc. 2025-32, P.L. 119-21 enrolled text,
@@ -228,50 +230,13 @@ export class UnsupportedTaxYearError extends RangeError {
 /** Latest year with a complete published parameter set. */
 export const LATEST_PUBLISHED_TAX_YEAR: SupportedTaxYear = SUPPORTED_TAX_YEARS[SUPPORTED_TAX_YEARS.length - 1];
 
-/**
- * Items already fixed by statute for 2027 (P.L. 119-21) versus items the IRS and SSA
- * publish each autumn. Reviewed September 17, 2026; update when Rev. Proc. 2026-xx issues.
- */
-export const TAX_YEAR_2027_STATUS = Object.freeze({
-  taxYear: 2027,
-  reviewedAt: '2026-09-17',
-  knownByStatute: [
-    'Ordinary rates 10%–37% are permanent; bracket dollar amounts are pending inflation adjustment.',
-    'Qualified tips deduction: up to $25,000, MAGI phaseout from $150,000 ($300,000 joint); self-employed limited to business net income.',
-    'Qualified overtime deduction: up to $12,500 ($25,000 joint), same MAGI phaseout; generally unavailable to independent contractors.',
-    'Passenger vehicle loan interest: up to $10,000, MAGI phaseout from $100,000 ($200,000 joint), personal-use U.S.-assembled new vehicles only.',
-    'Enhanced senior deduction: $6,000 per eligible individual, 6% phaseout above $75,000 ($150,000 joint).',
-    'SALT cap: $40,804 with phase-down above $510,050 MAGI (101% statutory escalator), floor $10,000.',
-    'QBI deduction permanent at 20%; phase-in range $75,000 ($150,000 joint); $400 minimum deduction indexed after 2026.',
-    'Form 1099-K threshold: more than $20,000 and more than 200 transactions.',
-    'Additional Medicare and NIIT thresholds: $200,000 / $250,000 / $125,000 (not indexed).',
-    'Estimated tax safe harbors: 90% current year, 100% prior year, 110% if prior AGI over $150,000 ($75,000 MFS).',
-    'HSA limits published: $4,500 self-only, $9,000 family (Rev. Proc. 2026-24).',
-  ],
-  pendingPublication: [
-    { item: 'Ordinary income bracket amounts', expected: 'IRS revenue procedure, typically October–November 2026' },
-    { item: 'Standard deduction (basic, additional age/blindness, dependent limit)', expected: 'IRS revenue procedure, typically October–November 2026' },
-    { item: 'Long-term capital gain 0% and 15% thresholds', expected: 'IRS revenue procedure, typically October–November 2026' },
-    { item: 'Child Tax Credit maximum and refundable amount', expected: 'IRS revenue procedure, typically October–November 2026' },
-    { item: 'EITC table and investment income limit', expected: 'IRS revenue procedure, typically October–November 2026' },
-    { item: 'QBI threshold amounts and indexed $400/$1,000 minimum-deduction figures', expected: 'IRS revenue procedure, typically October–November 2026' },
-    { item: 'Form 1099-NEC/MISC reporting threshold (first indexing year)', expected: 'IRS revenue procedure, typically October–November 2026' },
-    { item: 'Social Security wage base and quarter of coverage', expected: 'SSA announcement expected mid-October 2026' },
-    { item: 'Section 179 limits and retirement plan contribution limits', expected: 'IRS notices, typically October–November 2026' },
-    { item: 'Standard mileage rate', expected: 'IRS notice, typically December 2026' },
-    { item: 'Underpayment interest rate for Q1 2027', expected: 'IRS news release, late November–early December 2026' },
-  ],
-  sources: [
-    'https://www.govinfo.gov/content/pkg/PLAW-119publ21/html/PLAW-119publ21.htm',
-    'https://www.irs.gov/pub/irs-drop/rp-25-32.pdf',
-    'https://www.irs.gov/pub/irs-drop/rp-26-24.pdf',
-    'https://www.irs.gov/newsroom/working-families-tax-cuts-individuals-and-workers',
-  ],
-});
+// Shared by the API, assistant and compact planning panel. This does not enable
+// 2027 in the complete annual estimator.
+export { TAX_YEAR_2027_STATUS } from './tax-year-2027';
 
 export function describeUnsupportedTaxYear(taxYear: number): string {
   if (taxYear === TAX_YEAR_2027_STATUS.taxYear) {
-    return `Tax year 2027 estimates are not available yet: the IRS and SSA have not published the 2027 bracket, standard deduction, credit and wage-base amounts (expected October–November 2026). Rules already fixed by law for 2027 are listed in the tax year status, and 2024–2026 estimates remain available.`;
+    return `Tax year 2027 estimates are not available yet: the IRS and SSA have not published the 2027 bracket, standard deduction, credit and wage-base amounts (expected October–November 2026). Published 2027 health-plan figures and rules fixed by law are available for guidance. Complete estimates remain available for 2024–2026.`;
   }
   return `Tax year ${taxYear} is not supported. Published rules are available for 2024, 2025 and 2026.`;
 }
@@ -284,12 +249,6 @@ export function getFederalTaxRules(taxYear: number): FederalTaxRules {
 /** §179 dollar limits for a published year; 2027 stays unsupported until its revenue procedure issues. */
 export function getSection179Limits(taxYear: number): Section179Limits {
   return getFederalTaxRules(taxYear).section179;
-}
-
-/** Rates for display helpers: the requested year when published, otherwise the latest published year. */
-export function nearestPublishedTaxYear(taxYear: number): SupportedTaxYear {
-  if (SUPPORTED_TAX_YEARS.includes(taxYear as SupportedTaxYear)) return taxYear as SupportedTaxYear;
-  return taxYear > LATEST_PUBLISHED_TAX_YEAR ? LATEST_PUBLISHED_TAX_YEAR : SUPPORTED_TAX_YEARS[0];
 }
 
 /** Schedule A personal SALT only; caller supplies SALT MAGI, including applicable exclusions. */

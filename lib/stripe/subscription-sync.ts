@@ -40,11 +40,18 @@ export function customerIdFor(subscription: Stripe.Subscription): string {
 
 /** ACH subscriptions can be active before the debit settles, even after failure. */
 export function subscriptionPaymentStatus(subscription: Stripe.Subscription): string {
-  if (subscription.status !== 'active' || subscription.metadata?.payment_policy !== 'settled_invoice') return subscription.status;
+  if (subscription.status !== 'active') return subscription.status;
   const invoice = subscription.latest_invoice;
+  // Legacy subscriptions also use the actual invoice when Stripe supplies one;
+  // otherwise an unpaid portal upgrade could grant Premium without our metadata.
+  if (!invoice && subscription.metadata?.payment_policy !== 'settled_invoice') return subscription.status;
   if (invoice && typeof invoice !== 'string' && invoice.status === 'paid') return 'active';
   if (invoice && typeof invoice !== 'string' && ['void', 'uncollectible'].includes(invoice.status ?? '')) return 'payment_required';
   return 'payment_pending';
+}
+
+function hasSettledAccess(subscription: Stripe.Subscription): boolean {
+  return Boolean(subscriptionItem(subscription)) && subscriptionPaymentStatus(subscription) === 'active';
 }
 
 export function subscriptionProfileUpdate(subscription: Stripe.Subscription, now = new Date()): Record<string, unknown> {
@@ -124,11 +131,25 @@ export async function refreshSubscriptionForUser(uid: string, stripe: Stripe, su
   event?: { id: string; created: number }, deletedFallback?: Stripe.Subscription): Promise<Stripe.Subscription> {
   for (let attempt = 0; attempt < 3; attempt++) {
     const revision = await getSubscriptionSyncRevision(uid);
+    const profile = (await adminDb.doc(`user_profiles/${uid}`).get()).data() ?? {};
     let subscription: Stripe.Subscription;
     try { subscription = await stripe.subscriptions.retrieve(subscriptionId, { expand: ['latest_invoice'] }); }
     catch (error) {
       if (deletedFallback && error instanceof Stripe.errors.StripeInvalidRequestError && error.code === 'resource_missing') subscription = deletedFallback;
       else throw error;
+    }
+    assertSubscriptionOwner(uid, profile, subscription);
+    if (subscription.status === 'active' && subscriptionPaymentStatus(subscription) !== 'active' &&
+        typeof profile.stripeSubscriptionId === 'string' && profile.stripeSubscriptionId !== subscription.id) {
+      // A second, unsettled ACH checkout must not displace an already paid plan.
+      // Verify the existing subscription now instead of trusting a stale profile.
+      try {
+        const existing = await stripe.subscriptions.retrieve(profile.stripeSubscriptionId, { expand: ['latest_invoice'] });
+        assertSubscriptionOwner(uid, profile, existing);
+        if (hasSettledAccess(existing)) subscription = existing;
+      } catch (error) {
+        if (!(error instanceof Stripe.errors.StripeInvalidRequestError) || error.code !== 'resource_missing') throw error;
+      }
     }
     if (await syncSubscriptionForUser(uid, subscription, revision, event)) return subscription;
   }
@@ -161,10 +182,11 @@ export async function reconcileUserSubscription(uid: string, stripe: Stripe): Pr
         missing = true;
       }
     }
-    if ((!subscription || !['active', 'trialing'].includes(subscription.status)) && typeof profile.stripeCustomerId === 'string' && profile.stripeCustomerId) {
+    if ((!subscription || (!hasSettledAccess(subscription) && subscription.status !== 'trialing')) && typeof profile.stripeCustomerId === 'string' && profile.stripeCustomerId) {
       const list = await stripe.subscriptions.list({ customer: profile.stripeCustomerId, status: 'all', limit: 100, expand: ['data.latest_invoice'] });
       const prices = configuredPriceIds();
-      subscription = list.data.find((sub) => ['active', 'trialing'].includes(sub.status) &&
+      subscription = list.data.find(hasSettledAccess) ?? list.data.find((sub) => sub.status === 'trialing' &&
+        sub.items.data.some((item) => prices.includes(item.price.id))) ?? list.data.find((sub) => sub.status === 'active' &&
         sub.items.data.some((item) => prices.includes(item.price.id))) ?? subscription;
     }
     if (subscription) {

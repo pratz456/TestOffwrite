@@ -102,6 +102,9 @@ describe('confirmed-history memo', () => {
     expect(fake.reads.filter(read => read.startsWith('collectionGroup'))).toHaveLength(1);
     for (let task = 0; task < 5; task++) await loadTaxpayerContext(uid, profile, 'Adobe Creative Cloud', '2026-09-01');
     expect(fake.reads.filter(read => read.startsWith('collectionGroup'))).toHaveLength(1);
+    for (const collection of ['w2_income', 'income_1099', 'gross_receipts']) {
+      expect(fake.reads.filter(read => read === collection)).toHaveLength(2); // userId + legacy user_id, once per TTL
+    }
     expect(taxpayerContextCacheSize()).toBe(1);
   });
 

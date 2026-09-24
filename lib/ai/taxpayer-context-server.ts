@@ -21,6 +21,8 @@ export const CONFIRMED_HISTORY_CACHE_MAX_ENTRIES = 256;
 
 interface CacheEntry { expiresAt: number; value: Promise<ConfirmedTransactionRecord[]> }
 const confirmedHistoryCache = new Map<string, CacheEntry>();
+interface TaxYearFactsCacheEntry { expiresAt: number; value: Promise<TaxYearRecordFacts | null> }
+const taxYearFactsCache = new Map<string, TaxYearFactsCacheEntry>();
 
 function toRecord(doc: FirebaseFirestore.QueryDocumentSnapshot): ConfirmedTransactionRecord {
   const data = doc.data();
@@ -95,8 +97,13 @@ export function loadConfirmedTransactionRecords(uid: string): Promise<ConfirmedT
  * within CONFIRMED_HISTORY_TTL_MS.
  */
 export function invalidateTaxpayerContextCache(uid?: string): void {
-  if (uid === undefined) confirmedHistoryCache.clear();
-  else confirmedHistoryCache.delete(uid);
+  if (uid === undefined) {
+    confirmedHistoryCache.clear();
+    taxYearFactsCache.clear();
+  } else {
+    confirmedHistoryCache.delete(uid);
+    for (const key of taxYearFactsCache.keys()) if (key.startsWith(`${uid}:`)) taxYearFactsCache.delete(key);
+  }
 }
 
 /** Test/diagnostic hook: number of memoized users. */
@@ -120,7 +127,7 @@ async function ownedRows(collection: string, uid: string): Promise<Record<string
   return [...rows.values()];
 }
 
-async function loadTaxYearRecordFacts(uid: string, taxYear?: number): Promise<TaxYearRecordFacts | null> {
+async function readTaxYearRecordFacts(uid: string, taxYear?: number): Promise<TaxYearRecordFacts | null> {
   if (!taxYear) return null;
   const [w2, forms1099, grossReceipts] = await Promise.all([
     ownedRows('w2_income', uid),
@@ -136,6 +143,24 @@ async function loadTaxYearRecordFacts(uid: string, taxYear?: number): Promise<Ta
       .filter((value): value is string => Boolean(value)))].sort(),
     hasGrossReceipts: grossReceipts.some(inYear),
   };
+}
+
+function loadTaxYearRecordFacts(uid: string, taxYear?: number): Promise<TaxYearRecordFacts | null> {
+  if (!taxYear) return Promise.resolve(null);
+  const key = `${uid}:${taxYear}`;
+  const now = Date.now();
+  const cached = taxYearFactsCache.get(key);
+  if (cached && cached.expiresAt > now) return cached.value;
+  const value = readTaxYearRecordFacts(uid, taxYear);
+  taxYearFactsCache.delete(key);
+  taxYearFactsCache.set(key, { expiresAt: now + CONFIRMED_HISTORY_TTL_MS, value });
+  while (taxYearFactsCache.size > CONFIRMED_HISTORY_CACHE_MAX_ENTRIES) {
+    const oldest = taxYearFactsCache.keys().next().value;
+    if (oldest === undefined) break;
+    taxYearFactsCache.delete(oldest);
+  }
+  value.catch(() => { if (taxYearFactsCache.get(key)?.value === value) taxYearFactsCache.delete(key); });
+  return value;
 }
 
 /**

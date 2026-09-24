@@ -133,6 +133,22 @@ describe('for-you paragraph', () => {
     expect(composeForYou(null, 'meals')).toBeNull();
   });
 
+  it.each(['marketplace-premium-credit', 'savers-match', 'scholarship-contribution-credit'])('does not infer %s eligibility or form placement from saved business facts and merchant matches', topic => {
+    for (const taxYear of [2026, 2027]) {
+      const matchedContext: AssistantContext = { ...context, merchant: { ...context.merchant!, taxYear } };
+      expect(composeForYou(matchedContext, topic)).toBeNull();
+      expect(composeForYou({ ...matchedContext, merchant: null }, topic)).toBeNull();
+
+      const input = assistantRequestSchema.parse({ message: 'Does my Adobe payment qualify?', taxYear });
+      const assessment = validateAssessment({ topic, missingFactIds: [], photoCategories: [] }, input);
+      const response = guidanceResponse(input, assessment, matchedContext);
+      expect(response.assessment.taxYear).toBe(taxYear);
+      expect(response.forYou).toBeNull();
+      expect(response.reply).not.toContain('graphic designer');
+      expect(response.reply).not.toContain('$659.88');
+    }
+  });
+
   it('never makes a forbidden claim and never invents an amount', () => {
     for (const topic of ['software-subscriptions', 'gym-membership', 'home-office', 'car-mileage-vs-actual', 'health-insurance', 'owner-draws', 'state-taxes-licenses', 'when-to-see-a-cpa']) {
       const text = composeForYou(context, topic)?.paragraph ?? '';

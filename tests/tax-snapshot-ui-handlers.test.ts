@@ -38,7 +38,7 @@ vi.mock('@/lib/firebase/auth-context', () => ({ useAuth: () => ({ user: { id: 's
 import { TaxFilingHubScreen } from '../components/tax-filing-hub-screen';
 import { TaxPreviewScreen } from '../components/tax-preview-screen';
 import { FileTaxesScreen } from '../components/file-taxes-screen';
-import { reviewTargetForCode } from '../lib/tax/dashboard-snapshot';
+import { reviewTargetForCode, loadDashboardTaxSnapshot } from '../lib/tax/dashboard-snapshot';
 
 type Element = ReactElement<Record<string, any>>;
 function render(component = TaxFilingHubScreen): Element {
@@ -62,7 +62,7 @@ const response = (body: unknown, status = 200) => Response.json(body, { status }
 function snapshot(taxYear = year) {
   return {
     taxYear,
-    income: { grossReceipts: 20000, income1099: 0, scheduleCNetProfit: 15000, totalDeductible: 5000, w2Wages: 50000, socialSecurityNetBenefits: 0, socialSecurity: 0 },
+    income: { grossReceipts: 20000, income1099: 0, scheduleCNetProfit: 15000, scheduleCLine31NetProfit: 15000, totalDeductible: 5000, w2Wages: 50000, socialSecurityNetBenefits: 0, socialSecurity: 0 },
     w2: { count: 1, withheld: 0 }, seCalc: { totalSETax: 2000, halfSEDeduction: 1000 },
     deductions: { healthInsurancePremiums: 2000 }, payments: { estimatedPayments: 0 },
     form1040: { taxYear, totalIncome: 65000, totalTax: 0, balanceDue: 0, refund: 0, agi: 62000, effectiveRate: 0, marginalRate: 0, enhancedSeniorDeduction: 0, socialSecurityFederalWithheld: 0, calculationWarnings: [] },
@@ -83,6 +83,20 @@ beforeEach(() => {
 });
 
 describe('filing hub uses the successful shared tax snapshot', () => {
+  it('shows line 31 profit after assets/home office on the dashboard and filing hub, separate from allowed return loss', async () => {
+    harness.request.mockImplementation((url: string) => {
+      if (!url.includes('compute-1040')) return requests(url);
+      const data = snapshot(Number(new URL(url, 'http://localhost').searchParams.get('year')));
+      Object.assign(data.income, { scheduleCNetProfit: 15000, scheduleCLine31NetProfit: -9000, scheduleCAllowed: -4000 });
+      return Promise.resolve(response(data));
+    });
+    const dashboard = await loadDashboardTaxSnapshot(year);
+    expect(dashboard).toMatchObject({ status: 'ready', snapshot: { income: { scheduleCNetProfit: -9000 } } });
+    render(); await flush();
+    const businessRow = walk(render()).find(node => node.key === 'schedule-c')!;
+    expect(text(businessRow)).toContain('Net profit: -$9,000');
+    expect(text(businessRow)).not.toContain('$15,000'); expect(text(businessRow)).not.toContain('$4,000');
+  });
   it('shows the confirmed expense amount when the Schedule C response has no count', async () => {
     harness.request.mockImplementation((url: string) => {
       const taxYear = Number(new URL(url, 'http://localhost').searchParams.get('year'));
@@ -90,6 +104,7 @@ describe('filing hub uses the successful shared tax snapshot', () => {
         const data = snapshot(taxYear);
         data.income.totalDeductible = 350;
         data.income.scheduleCNetProfit = 19650;
+        data.income.scheduleCLine31NetProfit = 19650;
         return Promise.resolve(response(data));
       }
       return Promise.resolve(response({ data: { year: taxYear, netProfit: 19650, totalIncome: 20000,
@@ -108,7 +123,7 @@ describe('filing hub uses the successful shared tax snapshot', () => {
       const taxYear = Number(new URL(url, 'http://localhost').searchParams.get('year'));
       if (!url.includes('compute-1040')) return requests(url);
       const data = snapshot(taxYear);
-      Object.assign(data.income, { grossReceipts: 0, totalDeductible: amount, scheduleCNetProfit: -amount });
+      Object.assign(data.income, { grossReceipts: 0, totalDeductible: amount, scheduleCNetProfit: -amount, scheduleCLine31NetProfit: -amount });
       data.form1040.totalIncome = 50000 - amount;
       return Promise.resolve(response(data));
     });
@@ -279,7 +294,7 @@ describe('file taxes screen routes Schedule C through the shared federal snapsho
     expect(walk(select).filter(node => node.type === 'option').map(node => node.props.value)).toEqual(['2026', '2025', '2024']);
     harness.request.mockImplementation((url: string) => {
       const data = snapshot(Number(new URL(url, 'http://localhost').searchParams.get('year')));
-      Object.assign(data.income, { grossReceipts: 0, totalDeductible: 0, scheduleCNetProfit: 0 });
+      Object.assign(data.income, { grossReceipts: 0, totalDeductible: 0, scheduleCNetProfit: 0, scheduleCLine31NetProfit: 0 });
       return Promise.resolve(response(data));
     });
     select.props.onChange({ target: { value: String(year - 1) } });
@@ -302,6 +317,8 @@ describe('review codes map to the input screen that fixes them', () => {
     ['HOME_OFFICE_REVIEW_REQUIRED', 'settings', 'Review home office settings'],
     ['CAPITAL_GAIN_REVIEW_REQUIRED', 'tax-organizer', 'Review capital gain character'],
     ['BUSINESS_LOSS_REVIEW_REQUIRED', 'tax-organizer', 'Review business loss facts'],
+    ['QBI_REVIEW_REQUIRED', 'tax-preview', 'Review QBI calculation limits'],
+    ['TAX_CALCULATION_SCOPE_REVIEW_REQUIRED', 'tax-preview', 'Review calculation limits'],
     ['OBBBA_DEDUCTION_REVIEW_REQUIRED', 'tax-organizer', 'Review Working Families Tax Cuts deductions'],
     [undefined, 'tax-preview', 'Review tax inputs'],
   ])('%s → %s', (code, screen, label) => {
@@ -310,6 +327,38 @@ describe('review codes map to the input screen that fixes them', () => {
 });
 
 describe('tax preview wage display', () => {
+  it('shows allowed amounts, SIMPLE contributions, allowed business loss, tax credits and Additional Medicare from the same calculation', async () => {
+    const data = snapshot(2026);
+    Object.assign(data.deductions, { healthInsurancePremiums: 90000, hsaContribution: 20000, studentLoanInterest: 9000 });
+    Object.assign(data.income, { scheduleCNetProfit: -90000, scheduleCAllowed: -5000, interest: 123.45, dividends: 50, iraDist: 600, rental: 700, otherOrdinaryIncome: 800 });
+    Object.assign(data.form1040, {
+      scheduleCAllowed: -5000,
+      appliedAdjustments: { halfSEDeduction: 1000, healthInsuranceDeduction: 2000, retirementContributions: 3000, hsaDeduction: 4000, studentLoanInterestDeduction: 500 },
+      adjustments: 10500, incomeTax: 1000, totalCredits: 200, selfEmploymentTax: 2000, additionalMedicareTax: 300, totalTax: 3100,
+      totalRefundableCredits: 600, w2FederalWithheld: 700, estimatedPayments: 800, totalPayments: 2100,
+    });
+    harness.request.mockResolvedValue(response(data));
+    render(TaxPreviewScreen); await flush();
+    walk(render(TaxPreviewScreen)).find(node => node.props?.onClick && text(node) === 'Show')!.props.onClick();
+    const content = text(render(TaxPreviewScreen));
+    for (const row of ['Taxable interest$123.45', 'Schedule C profit or allowed loss-$5,000',
+      'Allowed self-employed health insurance$2,000', 'SEP-IRA / 401(k) / SIMPLE contributions$3,000',
+      'Allowed HSA deduction$4,000', 'Allowed student loan interest$500', 'Total adjustments($10,500)',
+      'Nonrefundable credits($200)', 'Additional Medicare tax$300', 'Total tax$3,100',
+      'Refundable credits (EITC / additional child tax credit)($600)', 'Total payments($2,100)']) expect(content).toContain(row);
+    expect(content).not.toContain('$90,000'); expect(content).not.toContain('$20,000'); expect(content).not.toContain('$9,000');
+    expect(content).toContain('total modeled federal tax divided by total income');
+  });
+
+  it('explains unsupported high-income QBI without stale amounts or a pretend collection form', async () => {
+    harness.request.mockResolvedValue(response({ code: 'QBI_REVIEW_REQUIRED', error: 'Review QBI business facts.' }, 422));
+    render(TaxPreviewScreen); await flush();
+    const content = text(render(TaxPreviewScreen));
+    expect(content).toContain('business type, qualified wages and property');
+    expect(content).toContain('cannot calculate this case');
+    expect(content).not.toMatch(/\$\d/);
+  });
+
   it.each([0, 40000])('keeps W-2 wages at %s when other income and depreciation affect total income', async wages => {
     harness.request.mockImplementation((url: string) => {
       const data = snapshot(Number(new URL(url, 'http://localhost').searchParams.get('year')));
@@ -347,10 +396,10 @@ describe('tax preview informational state planning estimate', () => {
     harness.request.mockImplementation(withState(supportedState(year), [notice]));
     render(TaxPreviewScreen); await flush(); const tree = render(TaxPreviewScreen); const content = text(tree);
     expect(content).toContain('New York state planning estimate');
-    expect(content).toContain('$4,861 informational state planning estimate (4.9% of federal AGI, 5.9% marginal)');
+    expect(content).toContain('$4,860.65 informational state planning estimate (4.9% of federal AGI, 5.9% marginal)');
     expect(content).toContain('New York standard deduction($8,000)');
     expect(content).toContain('State taxable income$92,000');
-    expect(content).toContain('W-2 state withholding recorded: $1,200. Remaining state planning balance: $3,661.');
+    expect(content).toContain('W-2 state withholding recorded: $1,200. Remaining state planning balance: $3,660.65.');
     expect(content).toContain('not added to Total Tax');
     expect(content).toContain('unincorporated business tax are separate and not included');
     expect(content).toContain('Sources: tax.ny.gov');

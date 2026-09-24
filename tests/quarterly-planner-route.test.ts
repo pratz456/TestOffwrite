@@ -31,7 +31,7 @@ beforeEach(() => {
   state.uid = 'planner-owner'; state.error = null; state.profile = { filing_status: 'Single' };
   state.records = { tax_organizers: [organizer(PRIOR_YEAR_FACTS)] };
   state.payments = [{ quarter: 3, paidAmount: 750, record: { paidAmount: 750, paidDate: '2026-07-01' } }];
-  state.tx = [{ amount: -100000, date: '2026-02-01', category: 'income' }, { amount: 1000, date: '2026-02-01', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', is_deductible: true }];
+  state.tx = [{ iso_currency_code: 'USD', amount: -100000, date: '2026-02-01', category: 'income' }, { iso_currency_code: 'USD', amount: 1000, date: '2026-02-01', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', is_deductible: true }];
 });
 
 describe('quarterly summary keeps the review response until every planner fact is saved', () => {

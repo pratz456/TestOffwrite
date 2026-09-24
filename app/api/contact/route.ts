@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { readJsonObject } from "@/app/api/_lib/body";
-import { adminDb } from "@/lib/firebase/admin";
-import { anonymousRateLimitKey, enforceRateLimit, RATE_LIMITS, rateLimitResponse } from "@/lib/security/rate-limit";
-import { sanitizeString } from "@/lib/security/utils";
+import { createHash } from "node:crypto";
+import { anonymousRateLimitKey, enforceRateLimit, rateLimitResponse } from "@/lib/security/rate-limit";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL || "writeoffapp@gmail.com";
 
@@ -14,7 +16,7 @@ export type ContactRequestBody = {
   message: string;
 };
 
-/** Upper bounds for the public form so a future mailer never relays unbounded text. */
+/** Bound the public form before sending its contents to the support inbox. */
 const LIMITS = { name: 200, email: 254, subject: 300, category: 64, message: 10_000 } as const;
 
 function validateBody(body: unknown): body is ContactRequestBody {
@@ -36,8 +38,6 @@ function validateBody(body: unknown): body is ContactRequestBody {
 
 export async function POST(request: Request) {
   try {
-    const limit = await enforceRateLimit({ ...RATE_LIMITS.contact, key: anonymousRateLimitKey(request) });
-    if (!limit.allowed) return rateLimitResponse(limit, { error: "Too many contact requests. Please try again later." });
     const body = await readJsonObject(request);
     if (!validateBody(body)) {
       return NextResponse.json(
@@ -46,54 +46,35 @@ export async function POST(request: Request) {
       );
     }
 
-    const contact = {
-      name: sanitizeString(body.name, LIMITS.name),
-      email: body.email.trim().toLowerCase(),
-      subject: sanitizeString(body.subject, LIMITS.subject),
-      category: sanitizeString(body.category, LIMITS.category),
-      message: sanitizeString(body.message, LIMITS.message),
-    };
-    const record = await adminDb.collection("support_requests").add({
-      ...contact,
-      status: "new",
-      deliveryStatus: process.env.RESEND_API_KEY ? "pending" : "manual_review",
-      createdAt: new Date(),
-      expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1_000),
-    });
+    const limit = await enforceRateLimit({ scope: 'support.contact', key: anonymousRateLimitKey(request),
+      limit: 5, windowMs: 60 * 60_000, onUnavailable: 'deny' });
+    if (!limit.allowed) return rateLimitResponse(limit, { error: 'Please wait before sending another message, or email writeoffapp@gmail.com.' });
+    const key = process.env.RESEND_API_KEY?.trim();
+    if (!key) return unavailable();
+    const fields = Object.fromEntries(Object.keys(LIMITS).map(name => [name, body[name as keyof ContactRequestBody].trim()])) as ContactRequestBody;
+    // Retry the same message safely after a lost response; never accept a caller-selected recipient.
+    const idempotencyKey = 'contact-' + createHash('sha256').update(JSON.stringify(fields)).digest('hex');
+    let response: Response;
+    try {
+      response = await fetch('https://api.resend.com/emails', {
+        method: 'POST', signal: AbortSignal.timeout(10_000),
+        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+        body: JSON.stringify({ from: 'WriteOff Support <notifications@writeoffapp.com>', to: [SUPPORT_EMAIL], reply_to: fields.email,
+          subject: `WriteOff support: ${fields.subject.replace(/[\r\n]/g, ' ')}`,
+          text: [`Name: ${fields.name}`, `Email: ${fields.email}`, `Category: ${fields.category}`, '', fields.message].join('\n') }),
+      });
+      if (!response.ok) return unavailable();
+      const result = await response.json();
+      if (typeof result.id !== 'string' || !result.id) return unavailable();
+    } catch { return unavailable(); }
 
-    let delivery: "sent" | "queued" = "queued";
-    if (process.env.RESEND_API_KEY) {
-      try {
-        const response = await fetch("https://api.resend.com/emails", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            from: "WriteOff Support <notifications@writeoffapp.com>",
-            to: [SUPPORT_EMAIL],
-            reply_to: contact.email,
-            subject: `[${contact.category || "Contact"}] ${contact.subject}`,
-            text: [`From: ${contact.name} <${contact.email}>`, "", contact.message, "", `Request ID: ${record.id}`].join("\n"),
-          }),
-        });
-        if (response.ok) {
-          delivery = "sent";
-          await record.update({ deliveryStatus: "sent", deliveredAt: new Date() });
-        } else {
-          await record.update({ deliveryStatus: "failed", deliveryHttpStatus: response.status });
-        }
-      } catch {
-        await record.update({ deliveryStatus: "failed" }).catch(() => undefined);
-      }
-    }
-
-    return NextResponse.json({ success: true, requestId: record.id, delivery }, {
-      status: 202,
-      headers: { "Cache-Control": "private, no-store" },
-    });
+    return NextResponse.json({ success: true }, { headers: { "Cache-Control": "no-store" } });
   } catch {
-    return NextResponse.json({ error: "Failed to store the request. Please try again." }, { status: 503 });
+    return unavailable();
   }
+}
+
+function unavailable() {
+  return NextResponse.json({ error: 'Your message could not be sent. Please retry or email writeoffapp@gmail.com.' },
+    { status: 503, headers: { 'Cache-Control': 'no-store' } });
 }

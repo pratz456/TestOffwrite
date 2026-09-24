@@ -30,6 +30,7 @@ vi.mock('@/lib/plaid/client', () => ({ plaidClient: { itemRemove: memory.remove,
 import { encryptPlaidToken, decryptPlaidToken, savePlaidConnection, listPlaidConnections, listPlaidConnectionSummaries,
   migrateLegacyPlaidConnection, withPlaidConnection, updatePlaidConnection, markPlaidConnectionLoginRequired, getPlaidConnection } from '@/lib/plaid/connections';
 import { disconnectPlaidItem } from '@/lib/plaid/delete-item';
+import { assertBankHistoryReadyForNewConnection } from '@/lib/plaid/history-review';
 import { createAccountServer, updateAccountServer, deleteAccountServer } from '@/lib/firebase/accounts-server';
 import { beginPlaidLinkOperation, retainPlaidLinkRecovery, finishPlaidLinkOperation, markPlaidLinkOperationUnresolved,
   recoverPendingPlaidLinks, quarantinePlaidLinkRecovery } from '@/lib/plaid/link-operations';
@@ -45,6 +46,32 @@ beforeEach(() => { vi.clearAllMocks(); memory.records.clear(); memory.records.se
 afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 
 describe('private bank credentials and item ownership', () => {
+  it.each([null, '', 'synthetic-old-secret'])('refuses legacy profile token field presence before migration (%j)', async token => {
+    memory.records.set(profile, { plaid_credentials_migrated: true, plaid_token: token, bankHistoryReviewed: true });
+    await expect(assertBankHistoryReadyForNewConnection('owner')).rejects.toThrow('BANK_HISTORY_REVIEW_REQUIRED');
+    expect(record(profile)).toHaveProperty('plaid_token', token);
+    expect(memory.records.size).toBe(1);
+  });
+  it.each(['relink_required', 'disconnected'])('blocks new Items with %s old-provider history without changing saved decisions', async status => {
+    memory.records.set('plaid_connections/old-bank', { uid: 'owner', itemId: 'old-bank', clientId: null, environment: null, status, accountIds: ['old'] });
+    memory.records.set(`${profile}/accounts/old`, { source: 'plaid', plaid_item_id: 'old-bank' });
+    memory.records.set(`${profile}/accounts/old/transactions/saved`, { amount: 42, review_status: 'confirmed' });
+    await expect(bank()).rejects.toThrow('BANK_HISTORY_REVIEW_REQUIRED');
+    expect(memory.records.has('plaid_connections/bank-a')).toBe(false);
+    expect(memory.records.has(`${profile}/accounts/acc-a`)).toBe(false);
+    expect(record(`${profile}/accounts/old/transactions/saved`)).toEqual({ amount: 42, review_status: 'confirmed' });
+  });
+  it.each([{ plaid_item_id: 'missing-private-item' }, { source: 'plaid' }, { access_token: '' }])('detects orphaned legacy account metadata %j', async data => {
+    memory.records.set(`${profile}/accounts/legacy`, data);
+    await expect(assertBankHistoryReadyForNewConnection('owner')).rejects.toThrow('BANK_HISTORY_REVIEW_REQUIRED');
+  });
+  it('does not gate manual history or another owner old banks', async () => {
+    memory.records.set(`${profile}/accounts/manual`, { source: 'manual' });
+    memory.records.set(`${profile}/accounts/manual/transactions/saved`, { amount: 20 });
+    memory.records.set('plaid_connections/other-old', { uid: 'other', clientId: null, environment: null });
+    await expect(bank()).resolves.toBeUndefined();
+    expect(record('plaid_connections/bank-a').clientId).toBe('new-client');
+  });
   it('rejects saving a connection after a durable deletion request even when the profile was removed', async () => {
     memory.records.set('account_deletions/owner', { deletionRequested: true });
     memory.records.delete(profile);

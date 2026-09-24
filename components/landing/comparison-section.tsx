@@ -20,7 +20,7 @@ export function ComparisonSection() {
           </div>
           <div className="flex gap-4 py-3">
             <dt className="w-20 shrink-0 font-semibold">Premium</dt>
-            <dd className="text-slate-600"><span className="font-medium text-slate-950">$14.99/mo or $150/yr.</span> PDF/CSV reports and extended history. Cancel anytime.</dd>
+            <dd className="text-slate-600"><span className="font-medium text-slate-950">$14.99/mo or $149.99/yr.</span> PDF/CSV reports and extended history. Cancel anytime.</dd>
           </div>
         </dl>
         <CtaButton label="Try WriteOff" className="mt-2" />

@@ -40,7 +40,12 @@ describe('tab-bound bank OAuth resume', () => {
     expect(readPlaidOAuthResume(storage, 'owner', href, 2000)).toEqual({ session: value, receivedRedirectUri: href });
     clearPlaidOAuthSession(storage); expect(storage.getItem(PLAID_OAUTH_STORAGE_KEY)).toBeNull();
   });
-  it.each(['wrong-user', 'wrong-origin', 'wrong-path', 'missing-state', 'extra-query', 'hash', 'expired', 'future', 'bad-token', 'bad-item', 'malformed'])('fails closed and clears %s sessions', scenario => {
+  it('retains the reconnect review identifier through OAuth', () => {
+    const storage = store(); const value = session({ reconnectSessionId: 'review-1' });
+    savePlaidOAuthSession(storage, value, origin, 1100);
+    expect(readPlaidOAuthResume(storage, 'owner', href, 2000)?.session.reconnectSessionId).toBe('review-1');
+  });
+  it.each(['wrong-user', 'wrong-origin', 'wrong-path', 'missing-state', 'extra-query', 'hash', 'expired', 'future', 'bad-token', 'bad-item', 'bad-reconnect', 'ambiguous-mode', 'malformed'])('fails closed and clears %s sessions', scenario => {
     const storage = store(); let value: unknown = session(); let target = href; let uid = 'owner'; let now = 2000;
     if (scenario === 'wrong-user') uid = 'different-owner';
     if (scenario === 'wrong-origin') target = href.replace(origin, 'https://evil.test');
@@ -51,6 +56,8 @@ describe('tab-bound bank OAuth resume', () => {
     if (scenario === 'expired') now = 1000 + PLAID_OAUTH_MAX_AGE_MS;
     if (scenario === 'future') now = 0;
     if (scenario === 'bad-token') value = session({ token: 'access-sandbox-private' });
+    if (scenario === 'bad-reconnect') value = session({ reconnectSessionId: '../other' });
+    if (scenario === 'ambiguous-mode') value = session({ itemId: 'item', reconnectSessionId: 'review-1' });
     if (scenario === 'bad-item') value = session({ itemId: '../other' });
     storage.setItem(PLAID_OAUTH_STORAGE_KEY, scenario === 'malformed' ? 'bad-json' : JSON.stringify(value));
     expect(readPlaidOAuthResume(storage, uid, target, now)).toBeNull();

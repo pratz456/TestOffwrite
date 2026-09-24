@@ -111,7 +111,7 @@ export function HistoricalAccessUpgradeCard({ variant = 'default' }: { variant?:
 
   // Calculate savings for yearly plan
   const monthlyPrice = 14.99;
-  const yearlyPrice = 150;
+  const yearlyPrice = 149.99;
   const yearlySavings = (monthlyPrice * 12) - yearlyPrice;
   const yearlySavingsPercent = Math.round((yearlySavings / (monthlyPrice * 12)) * 100);
 
@@ -135,8 +135,10 @@ export function HistoricalAccessUpgradeCard({ variant = 'default' }: { variant?:
     );
   }
 
-  const basicPlan = accessStatus?.entitlements.plan === 'basic' ||
-    (accessStatus?.entitlements.plan === 'free' && accessStatus.subscription?.plan === 'basic');
+  const existingSubscription = accessStatus?.subscription &&
+    !['canceled', 'incomplete_expired'].includes(accessStatus.subscription.status);
+  const basicPlan = existingSubscription && (accessStatus?.entitlements.plan === 'basic' ||
+    (accessStatus?.entitlements.plan === 'free' && accessStatus.subscription?.plan === 'basic'));
   const historyIncluded = canUseSubscriptionFeature(accessStatus, 'extended_history');
   const reportsIncluded = canUseSubscriptionFeature(accessStatus, 'reports');
   const exportsIncluded = canUseSubscriptionFeature(accessStatus, 'exports');
@@ -154,7 +156,7 @@ export function HistoricalAccessUpgradeCard({ variant = 'default' }: { variant?:
           {subscription.planCurrency?.toLowerCase() === 'usd' ? '$' : `${subscription.planCurrency?.toUpperCase() || ''} `}{subscription.planAmount.toFixed(2)}{subscription.planInterval ? `/${subscription.planInterval}` : ''}
         </p>}
         {basicActive && accessStatus?.cancelAtPeriodEnd && <p className="text-sm">Basic access continues until {accessStatus.currentPeriodEnd?.toLocaleDateString() || 'the current period ends'}. Renewal is off.</p>}
-        <Button variant="outline" className="min-h-11" onClick={() => router.push('/protected/settings?tab=account')}>Manage billing</Button>
+        <Button variant="outline" className="min-h-11" onClick={() => router.push('/protected/settings?tab=payment')}>Manage billing</Button>
       </Card>
     );
   }
@@ -167,7 +169,23 @@ export function HistoricalAccessUpgradeCard({ variant = 'default' }: { variant?:
         <p className="font-semibold">WriteOff Premium is active</p>
         <p className="text-sm text-muted-foreground">Reports, exports and extended bank history are included.</p>
         {accessStatus.subscriptionEnd && <p className="text-sm">Current period ends {accessStatus.subscriptionEnd.toLocaleDateString()}.</p>}
-        <Button variant="outline" onClick={() => router.push('/protected/settings?tab=account')}>Manage billing</Button>
+        <Button variant="outline" onClick={() => router.push('/protected/settings?tab=payment')}>Manage billing</Button>
+      </Card>
+    );
+  }
+
+  // A failed/pending payment or a Stripe-managed trial still has a subscription.
+  // Sending it to Checkout would be rejected and cannot repair that subscription.
+  if (existingSubscription && !(accessStatus?.isPaid && reportsIncluded && exportsIncluded && historyIncluded)) {
+    const paymentPending = accessStatus?.subscription?.status === 'payment_pending';
+    return (
+      <Card className={variant === 'default' ? 'p-5 space-y-3' : 'p-3 space-y-2'}>
+        <p className="font-semibold">{paymentPending ? 'Payment confirmation is pending'
+          : accessStatus?.isTrial ? 'Your trial subscription is active' : 'Your subscription needs attention'}</p>
+        <p className="text-sm text-muted-foreground">{paymentPending
+          ? 'Bank payments can take 4–5 business days to clear. Check billing for your latest payment status.'
+          : 'Review your existing subscription and payment details in billing.'} Your saved records remain available.</p>
+        <Button variant="outline" className="min-h-11" onClick={() => router.push('/protected/settings?tab=payment')}>Manage billing</Button>
       </Card>
     );
   }
@@ -211,7 +229,7 @@ export function HistoricalAccessUpgradeCard({ variant = 'default' }: { variant?:
           <Badge variant="default" className="text-[10px] px-1.5 py-0">{daysRemaining}d left</Badge>
           <div className="flex items-center gap-2 ml-auto">
             <span className="text-xs font-semibold tabular-nums text-foreground">
-              ${billingInterval === 'monthly' ? '14.99/mo' : '150/yr'}
+              ${billingInterval === 'monthly' ? '14.99/mo' : '149.99/yr'}
             </span>
             <Button
               onClick={handleUpgrade}
@@ -234,7 +252,7 @@ export function HistoricalAccessUpgradeCard({ variant = 'default' }: { variant?:
         <span className="text-[10px] text-muted-foreground">Reports, exports & extended history</span>
         <div className="flex items-center gap-2 ml-auto">
           <span className="text-xs font-semibold tabular-nums text-foreground">
-            ${billingInterval === 'monthly' ? '14.99/mo' : '150/yr'}
+            ${billingInterval === 'monthly' ? '14.99/mo' : '149.99/yr'}
           </span>
           <Button
             onClick={handleUpgrade}
@@ -302,7 +320,7 @@ export function HistoricalAccessUpgradeCard({ variant = 'default' }: { variant?:
             <p className="text-xs text-muted-foreground">Subscribe to keep access to reports, exports & history.</p>
           </div>
           <div className="mt-3 flex items-center justify-between">
-            <span className="text-lg font-semibold tabular-nums">${billingInterval === 'monthly' ? '14.99' : '150'}<span className="text-xs text-muted-foreground font-normal">/{billingInterval === 'monthly' ? 'mo' : 'yr'}</span></span>
+            <span className="text-lg font-semibold tabular-nums">${billingInterval === 'monthly' ? '14.99' : '149.99'}<span className="text-xs text-muted-foreground font-normal">/{billingInterval === 'monthly' ? 'mo' : 'yr'}</span></span>
             <Button onClick={handleUpgrade} disabled={checkoutLoading} size="sm" className="text-xs px-4">
               {checkoutLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Subscribe'}
             </Button>
@@ -324,7 +342,7 @@ export function HistoricalAccessUpgradeCard({ variant = 'default' }: { variant?:
           <p className="text-xs text-muted-foreground">Full access to reports, exports, and extended history.</p>
         </div>
         <div className="mt-3 flex items-center justify-between">
-          <span className="text-lg font-semibold tabular-nums">${billingInterval === 'monthly' ? '14.99' : '150'}<span className="text-xs text-muted-foreground font-normal">/{billingInterval === 'monthly' ? 'mo' : 'yr'}</span></span>
+          <span className="text-lg font-semibold tabular-nums">${billingInterval === 'monthly' ? '14.99' : '149.99'}<span className="text-xs text-muted-foreground font-normal">/{billingInterval === 'monthly' ? 'mo' : 'yr'}</span></span>
           <Button onClick={handleUpgrade} disabled={checkoutLoading} size="sm" className="text-xs px-4">
             {checkoutLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Subscribe'}
           </Button>

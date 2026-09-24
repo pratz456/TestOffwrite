@@ -1,25 +1,19 @@
 import { NextResponse } from 'next/server';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
-import Stripe from 'stripe';
+import { getStripeClient } from '@/lib/stripe/subscription-sync';
 import { adminDb } from '@/lib/firebase/admin';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
-
-function getStripeOrNull() {
-  const key = process.env.STRIPE_SECRET_KEY;
-  if (!key) return null;
-  return new Stripe(key, { apiVersion: '2025-10-29.clover' });
-}
 
 export async function POST(req: Request) {
   let uid: string;
   try { ({ uid } = await getUserFromReqOrThrow(req)); }
   catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
   try {
-    const stripe = getStripeOrNull();
+    const stripe = getStripeClient();
     if (!stripe) {
       return NextResponse.json({ error: 'Billing is temporarily unavailable' }, { status: 503 });
     }
-    // Portal sessions can also create a provider customer; bound attempts per owner.
+    // Bound provider portal-session creation per owner.
     const limit = await enforceRateLimit({ ...RATE_LIMITS.stripePortal, key: uid });
     if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many billing portal requests. Please wait a few minutes and try again.' });
 
@@ -38,14 +32,12 @@ export async function POST(req: Request) {
         }
         // Check if customer was deleted
         if (customer.deleted) {
-          console.log(`[Portal Session] Customer ${customerId} was deleted in Stripe, creating new customer`);
-          customerId = null; // Reset to trigger creation
+          customerId = null;
         }
       } catch (error: any) {
-        // If customer doesn't exist (404) or other error, create a new one
+        // New billing identities are created only in the locked checkout flow.
         if (error.code === 'resource_missing' || error.statusCode === 404) {
-          console.log(`[Portal Session] Customer ${customerId} not found in Stripe, creating new customer`);
-          customerId = null; // Reset to trigger creation
+          customerId = null;
         } else {
           // Re-throw unexpected errors
           throw error;
@@ -53,31 +45,10 @@ export async function POST(req: Request) {
       }
     }
 
-    // If no customer ID exists or was deleted, create one (similar to checkout flow)
-    // This allows users in trial to access the portal to subscribe
+    // A portal must never race checkout/deletion to create or replace a customer.
     if (!customerId) {
-      try {
-        const customer = await stripe.customers.create({
-          email: userData?.email,
-          metadata: {
-            firebase_uid: uid,
-          },
-        });
-        customerId = customer.id;
-
-        // Save customer ID to user profile
-        await adminDb.doc(`user_profiles/${uid}`).update({
-          stripeCustomerId: customerId,
-        });
-
-        console.log(`✅ [Portal Session] Created Stripe customer ${customerId} for user ${uid}`);
-      } catch (createError) {
-        console.error('Error creating Stripe customer:', createError);
-        return NextResponse.json(
-          { error: 'Billing is temporarily unavailable. Please try again.' },
-          { status: 503 }
-        );
-      }
+      return NextResponse.json({ error: 'No billing account is linked. Choose a plan to start a subscription.',
+        code: 'BILLING_ACCOUNT_REQUIRED' }, { status: 409 });
     }
 
     // Create billing portal session
@@ -90,12 +61,11 @@ export async function POST(req: Request) {
       success: true,
       url: portalSession.url,
     });
-  } catch (error) {
-    console.error('Error creating billing portal session:', error);
+  } catch {
+    console.error('Billing portal could not be opened');
     return NextResponse.json(
       { error: 'Billing is temporarily unavailable. Please try again.' },
       { status: 503 }
     );
   }
 }
-

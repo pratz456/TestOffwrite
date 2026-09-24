@@ -5,7 +5,7 @@ const PRODUCTION_ORIGIN = 'https://writeoffapp.com';
 const MAX_EVENT_AGE_MS = 23 * 60 * 60 * 1000;
 
 export function shouldQueueBankWrite(before: Record<string, unknown> | undefined, after: Record<string, unknown> | undefined) {
-  if (!after || after.pending === true) return false;
+  if (!after || after.pending === true || after.bank_removed === true) return false;
   const suggestion = after.ai_suggestion;
   if (suggestion && typeof suggestion === 'object' && 'id' in suggestion &&
       (after.analyzed === true || after.analysis_status === 'completed' || after.analysisStatus === 'completed')) return false;

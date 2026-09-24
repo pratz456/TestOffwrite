@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { compute1040, type Form1040Input } from '../lib/tax-rules/compute-1040';
+import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductions';
+import { eligibilityOrganizer, healthFacts, retirementFacts } from './fixtures/eligibility';
 
 const base: Form1040Input = {
   taxYear: 2026, filingStatus: 'single', scheduleCNetProfit: 20000, w2Wages: 0,
@@ -10,18 +12,20 @@ const base: Form1040Input = {
 
 describe('statutory above-the-line limits in the federal planning estimate', () => {
   it('limits self-employed health insurance to business earned income after SE tax and retirement deductions', () => {
-    const result = compute1040({ ...base, healthInsurancePremiums: 30000, sepIraContribution: 4000 });
-    // 20,000 profit − 1,413 half SE − 4,000 SEP = 14,587 allowed; adjustments also include the SEP and half SE.
-    expect(result.adjustments).toBe(1413 + 4000 + 14587);
-    expect(result.agi).toBe(0);
-    expect(result.calculationWarnings.join(' ')).toContain('health insurance deduction is limited');
-    const within = compute1040({ ...base, healthInsurancePremiums: 5000 });
+    const result = compute1040({ ...base, otherIncome: 30000, healthInsurancePremiums: 30000, sepIraContribution: 3000, personalDeductionOrganizer: reviewedPersonalDeductionOrganizer(2026, {}, eligibilityOrganizer({ retirement: retirementFacts({ employerContribution: '3000' }), health: healthFacts({ months: Array.from({ length: 12 }, () => ({ premiums: '2500', employerAccess: 'no' })) }) })) });
+    // 20,000 profit − 1,413 half SE − 3,000 SEP = 15,587 allowed; adjustments also include the SEP and half SE.
+    expect(result.adjustments).toBe(1413 + 3000 + 15587);
+    // Other income keeps the separate, unsupported EITC worksheet out of this health-limit fixture.
+    expect(result.agi).toBe(30000);
+    expect(result.calculationWarnings.join(' ')).toContain('Remaining premiums are not applied here');
+    // Keep the ordinary QBI deduction above the separate 2026 minimum-QBI review boundary.
+    const within = compute1040({ ...base, otherIncome: 10000, healthInsurancePremiums: 5000, personalDeductionOrganizer: reviewedPersonalDeductionOrganizer(2026, {}, eligibilityOrganizer({ health: healthFacts({ months: Array.from({ length: 12 }, (_, index) => ({ premiums: index === 11 ? '416.63' : '416.67', employerAccess: 'no' })) }) })) });
     expect(within.adjustments).toBe(1413 + 5000);
-    expect(within.calculationWarnings.join(' ')).not.toContain('health insurance deduction is limited');
+    expect(within.calculationWarnings.join(' ')).not.toContain('Remaining premiums are not applied here');
   });
 
   it('caps student loan interest at $2,500 and denies it when married filing separately', () => {
-    const capped = compute1040({ ...base, studentLoanInterest: 4000 });
+    const capped = compute1040({ ...base, otherIncome: 10000, studentLoanInterest: 4000 });
     expect(capped.adjustments).toBe(1413 + 2500);
     expect(capped.calculationWarnings.join(' ')).toContain('limited to $2,500');
     expect(capped.calculationWarnings.join(' ')).toContain('qualified education loan');

@@ -22,7 +22,8 @@ import { ExportReviewRequiredError } from '@/lib/reports/transaction-export';
 function seed(path: string, data: Record<string, unknown>) { state.rows.set(path, data); }
 beforeEach(() => {
   state.rows.clear(); state.fail = ''; state.reads.length = 0;
-  seed('user_profiles/owner', { email: 'owner@example.com', taxpayerSSN: 'SECRET_SSN', authorizationPin: 'SECRET_PIN', bank_account_number: 'SECRET_BANK', stripeCustomerId: 'SECRET_STRIPE' });
+  seed('user_profiles/owner', { email: 'owner@example.com', taxpayerSSN: 'SECRET_SSN', authorizationPin: 'SECRET_PIN',
+    bank_account_number: 'SECRET_BANK', stripeCustomerId: 'SECRET_STRIPE', ein_encrypted: 'SECRET_EIN', ein_last4: '6789' });
   seed('user_profiles/owner/accounts/account', { name: 'Checking', access_token: 'SECRET_TOKEN', item_id: 'SECRET_ITEM', mask: '1234' });
   seed('user_profiles/owner/accounts/account/transactions/manual', { date: '2026-01-01', amount: -1200, account_id: 'account', merchant_name: 'Client', is_deductible: false, deduction_score: 0, iso_currency_code: 'USD' });
   seed('user_profiles/owner/accounts/account/transactions/current', { userId: 'owner', trans_id: 'PRIVATE_PROVIDER_ID', date: '2026-12-31T23:30:00-08:00', amount: 100, is_deductible: true, pending: false, receipt_url: '/api/receipts/receipt', business_purpose: 'Design work', ai_analysis: '{bad JSON' });
@@ -111,3 +112,12 @@ describe('owner export source completeness and privacy', () => {
     expect((await generateUserDataExport('owner')).transactions).toHaveLength(4);
   });
 });
+
+ it('reports private unresolved bank history metadata without adding staged amounts to exported transactions', async () => {
+  seed('user_profiles/owner/bank_reconnects/review', { uid: 'owner', phase: 'active', mappingComplete: true, historyReady: true });
+  seed('user_profiles/owner/bank_reconnects/review/import_records/private', { uid: 'owner', status: 'deferred', payload: { date: '2026-08-01', amount: 987654 } });
+  const result = await generateUserDataExport('owner', 2026);
+  expect(result.bankHistoryReview).toMatchObject({ ready: false, deferredRecords: 1 });
+  expect(result.transactions.some(record => record.amount === 987654)).toBe(false);
+  expect(JSON.stringify(result.bankHistoryReview)).not.toContain('987654');
+ });

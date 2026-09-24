@@ -30,6 +30,13 @@ describe('account deletion billing closure', () => {
     expect((await cancelUserStripeSubscriptions('owner')).success).toBe(false);
     expect(h.deleteCustomer).not.toHaveBeenCalled(); expect(h.cancelSubscription).not.toHaveBeenCalled();
   });
+  it.each(['customer', 'subscription', 'subscription-only'])('refuses destructive billing cleanup when %s metadata identifies another owner', async source => {
+    if (source === 'customer') h.retrieveCustomer.mockResolvedValue({ id: 'cus_fixture', metadata: { firebase_uid: 'another-owner' } });
+    else h.retrieveSubscription.mockResolvedValue({ id: 'sub_fixture', customer: 'cus_fixture', status: 'active', metadata: { firebase_uid: 'another-owner' } });
+    if (source === 'subscription-only') h.profile = { stripeSubscriptionId: 'sub_fixture' };
+    expect((await cancelUserStripeSubscriptions('owner')).success).toBe(false);
+    expect(h.deleteCustomer).not.toHaveBeenCalled(); expect(h.cancelSubscription).not.toHaveBeenCalled();
+  });
   it('can resume after a previous request already deleted the customer', async () => {
     h.retrieveSubscription.mockResolvedValue({ customer: 'cus_fixture', status: 'canceled' });
     h.retrieveCustomer.mockResolvedValue({ id: 'cus_fixture', deleted: true });

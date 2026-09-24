@@ -5,6 +5,7 @@ import { recoverPendingPlaidLinks } from '@/lib/plaid/link-operations';
 import { deleteQueryBatch } from './delete-helpers';
 import { receiptBucket } from './receipt-security';
 import { cancelUserStripeSubscriptions } from '@/lib/stripe/cancel-subscription';
+import { deletePreparerHandoffsForUser } from '@/lib/preparer/handoffs';
 
 export class AccountDeletionError extends Error {
   constructor(message: string, public readonly code: string, public readonly retryable: boolean, public readonly status = 503) {
@@ -14,10 +15,11 @@ export class AccountDeletionError extends Error {
 
 const OWNED_COLLECTIONS: Record<string, string[]> = {
   categories: ['user_id'], rules: ['user_id'], budgets: ['user_id'], exports: ['user_id'], audit_logs: ['user_id'],
-  analysis_jobs: ['userId', 'user_id'], analysis_tasks: ['userId'], analysis_status: ['userId', 'user_id'],
+  profile_analysis_refresh: ['userId'], analysis_jobs: ['userId', 'user_id'], analysis_tasks: ['userId'], analysis_status: ['userId', 'user_id'],
   transactions: ['userId', 'user_id'], receipts: ['userId', 'user_id'], plaid_connections: ['uid'], processed_webhooks: ['user_id'],
   gross_receipts: ['userId', 'user_id'], income_1099: ['userId', 'user_id'], income_reconciliations: ['userId'], w2_income: ['userId', 'user_id'],
   tax_deductions: ['userId', 'user_id'], tax_organizers: ['userId', 'user_id'], user_corrections: ['userId'],
+  cpa_questions: ['userId'],
 };
 
 /** Revoke bank access first; retain the login and recovery metadata whenever cleanup fails. */
@@ -53,7 +55,7 @@ export async function deleteUserData(uid: string): Promise<{ error?: AccountDele
     const unresolved = privateConnections.docs.some(doc => {
       const bank = doc.data();
       return bank.status !== 'disconnected' && (!process.env.PLAID_CLIENT_ID || !process.env.PLAID_ENV ||
-        bank.clientId !== process.env.PLAID_CLIENT_ID || bank.environment !== process.env.PLAID_ENV || bank.status !== 'active');
+        bank.clientId !== process.env.PLAID_CLIENT_ID || bank.environment !== process.env.PLAID_ENV || !['active', 'pending_history_review'].includes(bank.status));
     });
     if (unresolved) throw new AccountDeletionError(
       'An older bank connection needs manual revocation before your account can be deleted. Contact support to complete the deletion request; your account and bank recovery information have been retained.',
@@ -74,6 +76,11 @@ export async function deleteUserData(uid: string): Promise<{ error?: AccountDele
     const billing = await cancelUserStripeSubscriptions(uid);
     if (!billing.success) throw new AccountDeletionError(
       'Billing could not be closed. Your account has not been deleted. Please retry.', 'BILLING_CLEANUP_FAILED', true);
+
+    try { await deletePreparerHandoffsForUser(uid); }
+    catch {
+      throw new AccountDeletionError('Shared package cleanup could not finish. Your account has not been deleted. Please retry.', 'HANDOFF_CLEANUP_FAILED', true);
+    }
 
     try {
       // Trailing slash prevents deleting another user's similarly prefixed UID.

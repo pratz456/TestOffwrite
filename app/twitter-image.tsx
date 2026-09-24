@@ -309,7 +309,7 @@ export default async function Image() {
                 </span>
               </div>
               <div style={{ fontSize: 14, color: "rgba(255,255,255,0.58)" }}>
-                Then $14.99/mo or $150/yr • Cancel anytime
+                Then $14.99/mo or $149.99/yr • Cancel anytime
               </div>
             </div>
 

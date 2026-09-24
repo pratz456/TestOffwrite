@@ -49,7 +49,7 @@ export async function existingPlaidLinkOwner(uid: string, itemId: string, access
   if (!itemId || /[/\\]/.test(itemId)) throw new Error('Invalid bank item');
   const data = (await adminDb.doc(`plaid_connections/${itemId}`).get()).data();
   if (!data) return 'none';
-  if (data.uid === uid && data.itemId === itemId && data.status === 'active' && data.clientId === process.env.PLAID_CLIENT_ID
+  if (data.uid === uid && data.itemId === itemId && ['active', 'pending_history_review'].includes(data.status) && data.clientId === process.env.PLAID_CLIENT_ID
     && data.environment === process.env.PLAID_ENV && decryptPlaidToken(uid, itemId, data.encryptedAccessToken) === accessToken) return 'owner';
   return 'conflict';
 }

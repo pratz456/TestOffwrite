@@ -31,6 +31,8 @@ export function reviewTargetForCode(code?: string): ReviewTarget {
     case 'DEPENDENT_CREDIT_REVIEW_REQUIRED': return { screen: 'tax-organizer', label: 'Review dependent eligibility' };
     case 'CAPITAL_GAIN_REVIEW_REQUIRED': return { screen: 'tax-organizer', label: 'Review capital gain character' };
     case 'BUSINESS_LOSS_REVIEW_REQUIRED': return { screen: 'tax-organizer', label: 'Review business loss facts' };
+    case 'QBI_REVIEW_REQUIRED': return { screen: 'tax-preview', label: 'Review QBI calculation limits' };
+    case 'TAX_CALCULATION_SCOPE_REVIEW_REQUIRED': return { screen: 'tax-preview', label: 'Review calculation limits' };
     case 'OBBBA_DEDUCTION_REVIEW_REQUIRED': return { screen: 'tax-organizer', label: 'Review Working Families Tax Cuts deductions' };
     case 'HOME_OFFICE_REVIEW_REQUIRED': return { screen: 'settings', label: 'Review home office settings' };
     case 'DEPRECIATION_REVIEW_REQUIRED': return { screen: 'settings', label: 'Review asset records' };
@@ -54,14 +56,14 @@ export async function loadDashboardTaxSnapshot(taxYear: number, signal?: AbortSi
     const income = data?.income;
     const form = data?.form1040;
     if (data?.taxYear !== taxYear || ![
-      income?.grossReceipts, income?.scheduleCNetProfit, income?.totalDeductible,
+      income?.grossReceipts, income?.scheduleCLine31NetProfit, income?.totalDeductible,
       form?.totalTax, form?.balanceDue, form?.refund,
     ].every(value => typeof value === 'number' && Number.isFinite(value))) {
       return { status: 'error', message: 'The federal estimate is incomplete or belongs to another year. Please retry.' };
     }
     return { status: 'ready', snapshot: {
       taxYear,
-      income: { grossReceipts: income.grossReceipts, scheduleCNetProfit: income.scheduleCNetProfit, totalDeductible: income.totalDeductible },
+      income: { grossReceipts: income.grossReceipts, scheduleCNetProfit: income.scheduleCLine31NetProfit, totalDeductible: income.totalDeductible },
       form1040: { totalTax: form.totalTax, balanceDue: form.balanceDue, refund: form.refund,
         calculationWarnings: Array.isArray(form.calculationWarnings) ? form.calculationWarnings.filter((item: unknown): item is string => typeof item === 'string') : [],
       },

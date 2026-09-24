@@ -1,4 +1,5 @@
 import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductions';
+import { eligibilityOrganizer, hsaFacts, healthFacts, retirementFacts, jointFacts } from './fixtures/eligibility';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
@@ -33,6 +34,58 @@ beforeEach(() => {
 function request(year = '2026') { return new NextRequest(`http://localhost/api/tax/compute-1040?year=${year}`); }
 
 describe('Form1040 API integration', () => {
+  it('uses saved organizer amounts only after complete HSA eligibility and employer contribution review', async () => {
+    state.collections.tax_organizers = [reviewedPersonalDeductionOrganizer(2026, {}, {
+      paidHSA: 'yes', hsaAmount: '1000', ...eligibilityOrganizer({ hsa: hsaFacts({ employerContributions: '500' }) }),
+    })];
+    const response = await GET(request()); expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.form1040.appliedAdjustments.hsaDeduction).toBe(1000);
+    expect(body.form1040.agi).toBe(99000);
+    expect(body.form1040.adjustmentEligibility.hsa).toMatchObject({ limit: 4400, availableAfterEmployer: 3900, eligibleMonths: 12 });
+    state.collections.tax_deductions = [{ hsaContribution: 1200 }];
+    const changed = await GET(request()); expect(changed.status).toBe(422);
+    expect((await changed.json()).error).toContain('Reconcile HSA');
+  });
+  it('applies complete SEP and non-Marketplace monthly health facts to the same annual snapshot', async () => {
+    state.collections.w2_income = [];
+    state.collections.gross_receipts = [{ amount: 50000 }];
+    state.collections.tax_organizers = [reviewedPersonalDeductionOrganizer(2026, {}, {
+      paidHealthInsurance: 'yes', healthInsurancePremium: '7200', madeRetirementContrib: 'yes', retirementType: 'sep_ira', retirementAmount: '8000',
+      ...eligibilityOrganizer({ health: healthFacts(), retirement: retirementFacts({ employerContribution: '8000' }) }),
+    })];
+    const response = await GET(request()); expect(response.status).toBe(200);
+    expect((await response.json()).form1040.appliedAdjustments).toMatchObject({ healthInsuranceDeduction: 7200, retirementContributions: 8000, halfSEDeduction: 3532.39 });
+  });
+  it('withholds a return with employer-only excess HSA funding instead of treating the zero personal claim as resolved', async () => {
+    state.collections.tax_organizers = [reviewedPersonalDeductionOrganizer(2026, {}, eligibilityOrganizer({ hsa: hsaFacts({ employerContributions: '5000' }) }))];
+    const response = await GET(request()); expect(response.status).toBe(422);
+    expect(await response.json()).toMatchObject({ code: 'TAX_CALCULATION_SCOPE_REVIEW_REQUIRED', error: expect.stringContaining('HSA contributions exceed') });
+  });
+  it('assigns the Social Security wage base to the actual self-employed spouse and rejects stale assignments', async () => {
+    state.profile.filing_status = 'married_filing_jointly';
+    state.collections.gross_receipts = [{ amount: 100000 }];
+    state.collections.tax_organizers = [reviewedPersonalDeductionOrganizer(2026, {}, eligibilityOrganizer({ joint: jointFacts() }))];
+    const response = await GET(request()); expect(response.status).toBe(200);
+    expect((await response.json()).seCalc).toMatchObject({ socialSecurityTax: 11451.4, medicareTax: 2678.15, totalSETax: 14129.55 });
+    state.collections.tax_organizers = [reviewedPersonalDeductionOrganizer(2026, {}, eligibilityOrganizer({ joint: jointFacts({ businessOwner: 'spouse' }) }))];
+    expect((await (await GET(request())).json()).seCalc).toMatchObject({ socialSecurityTax: 10478, totalSETax: 13156.15 });
+    state.collections.w2_income[0].box3SocialSecurityWages = 110000;
+    const changed = await GET(request()); expect(changed.status).toBe(422);
+    expect((await changed.json()).error).toContain('assignments must match');
+  });
+  it.each([
+    ['hsa_contribution', 'HSA eligibility'],
+    ['health_insurance_premiums', 'self-employed health-insurance eligibility'],
+    ['sep_ira_contribution', 'retirement-plan eligibility'],
+    ['solo_401k_contribution', 'retirement-plan eligibility'],
+  ])('requires eligibility review for legacy saved profile %s', async (field, missingFacts) => {
+    state.profile[field] = 1000;
+    const response = await GET(request());
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ code: 'TAX_CALCULATION_SCOPE_REVIEW_REQUIRED', error: expect.stringContaining(missingFacts) });
+  });
+
   it('uses saved quarterly payments and does not add duplicate profile withholding over W-2 forms', async () => {
     const response = await GET(request());
     expect(response.status).toBe(200);
@@ -69,6 +122,21 @@ describe('Form1040 API integration', () => {
     expect(state.reads).toEqual([]);
   });
 
+  it('returns published 2027 planning parameters without a fabricated annual return', async () => {
+    const response = await GET(request('2027'));
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      code: 'TAX_YEAR_UNAVAILABLE',
+      yearStatus: {
+        taxYear: 2027, usualFilingYear: 2028, annualEstimateAvailable: false,
+        publishedParameters: { hsa: { selfOnly: 4500, family: 9000 }, marketplace: { employerAffordabilityPercent: 10.22 } },
+      },
+    });
+    expect(body).not.toHaveProperty('form1040');
+    expect(state.reads).toEqual([]);
+  });
+
   it.each([undefined, reviewedPersonalDeductionOrganizer(2025)])('requires current-year personal deduction facts before exposing an annual amount', async organizer => {
     state.collections.tax_organizers = organizer ? [organizer] : [];
     const response = await GET(request());
@@ -84,6 +152,41 @@ describe('Form1040 API integration', () => {
     const response = await GET(request());
     expect(response.status).toBe(503);
     expect(await response.text()).not.toContain('internal provider details');
+  });
+
+  it.each([
+    { name: 'above-threshold QBI without Form 8995-A facts', profit: 300000, wages: 0, status: 'single', code: 'QBI_REVIEW_REQUIRED', detail: 'business' },
+    { name: '2026 minimum QBI without active-business eligibility', profit: 2000, wages: 0, status: 'single', code: 'TAX_CALCULATION_SCOPE_REVIEW_REQUIRED', detail: '$400 minimum QBI' },
+    { name: 'joint wages without self-employed spouse ownership', profit: 100000, wages: 100000, status: 'married_filing_jointly', code: 'TAX_CALCULATION_SCOPE_REVIEW_REQUIRED', detail: 'spouse' },
+  ])('returns actionable 422 without annual amounts for $name', async ({ profit, wages, status, code, detail }) => {
+    state.profile.filing_status = status;
+    state.collections.gross_receipts = [{ amount: profit }];
+    state.collections.w2_income = wages ? [{ wages, socialSecurityWages: wages, medicareWages: wages }] : [];
+    const response = await GET(request());
+    expect(response.status).toBe(422);
+    const body = await response.json();
+    expect(body).toMatchObject({ code, error: expect.stringContaining(detail) });
+    expect(body.error).toContain('review');
+    for (const field of ['form1040', 'totalTax', 'seCalc', 'refund', 'stateTax']) expect(body).not.toHaveProperty(field);
+  });
+  it.each(['box3SocialSecurityWages', 'box7SocialSecurityTips', 'box5MedicareWages'])('withholds joint annual totals with zero Box 1 but positive %s', field => {
+    state.profile.filing_status = 'married_filing_jointly';
+    state.collections.gross_receipts = [{ amount: 100000 }];
+    state.collections.w2_income = [{ box1Wages: 0, box3SocialSecurityWages: 0, box5MedicareWages: 0, [field]: 20000 }];
+    return GET(request()).then(async response => {
+      expect(response.status).toBe(422);
+      const body = await response.json();
+      expect(body).toMatchObject({ code: 'TAX_CALCULATION_SCOPE_REVIEW_REQUIRED', error: expect.stringContaining('spouse') });
+      expect(body).not.toHaveProperty('form1040'); expect(body).not.toHaveProperty('seCalc');
+    });
+  });
+  it('keeps the joint ownership guard when another W-2 has missing Medicare wages', async () => {
+    state.profile.filing_status = 'married_filing_jointly';
+    state.collections.gross_receipts = [{ amount: 100000 }];
+    state.collections.w2_income = [{ box1Wages: 0, box3SocialSecurityWages: 0, box5MedicareWages: 20000 }, { box1Wages: 0, box3SocialSecurityWages: 0 }];
+    const response = await GET(request());
+    expect(response.status).toBe(422);
+    expect(await response.json()).toMatchObject({ code: 'TAX_CALCULATION_SCOPE_REVIEW_REQUIRED' });
   });
 
   it.each([

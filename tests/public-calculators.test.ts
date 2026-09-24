@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { TaxCalculationScopeReviewRequiredError } from '../lib/tax-rules/calculation-scope';
+import { QBIReviewRequiredError } from '../lib/tax-rules/qbi';
 import {
   additionalMedicareThreshold,
   estimate1099FederalTax,
@@ -57,20 +59,28 @@ describe('estimate1099FederalTax', () => {
     [2025, 176100],
     [2026, 184500],
   ] as const)('%s caps the 12.4% Social Security part at the wage base while 2.9% Medicare is uncapped', (year, wageBase) => {
-    const result = estimate1099FederalTax({ grossIncome: 300000, expenses: 0, w2Wages: 0, filingStatus: 'single', taxYear: year });
+    // Joint, business-only income stays below the QBI review threshold while crossing the SS ceiling.
+    const result = estimate1099FederalTax({ grossIncome: 300000, expenses: 0, w2Wages: 0, filingStatus: 'married_filing_jointly', taxYear: year });
     const seBase = 300000 * 0.9235;
     expect(result.seBreakdown.socialSecurityTax).toBe(round2(wageBase * 0.124));
     expect(result.seBreakdown.medicareTax).toBe(round2(seBase * 0.029));
-    expect(result.additionalMedicareTax).toBe(round2((seBase - 200000) * 0.009));
-    expect(result.qbiAboveThreshold).toBe(true);
-    expect(result.qbiDeduction).toBe(0);
+    expect(result.additionalMedicareTax).toBe(round2((seBase - 250000) * 0.009));
+    expect(result.qbiAboveThreshold).toBe(false);
+    expect(result.qbiDeduction).toBeGreaterThan(0);
   });
 
-  it('counts W-2 wages against the wage base and the Additional Medicare threshold before SE earnings', () => {
-    const result = estimate1099FederalTax({ grossIncome: 100000, expenses: 0, w2Wages: 150000, filingStatus: 'married_filing_separately', taxYear: 2026 });
-    const seBase = 100000 * 0.9235;
+  it('requires Boxes 3 and 5 before combining W-2 and business income', () => {
+    expect(() => estimate1099FederalTax({
+      grossIncome: 50000, expenses: 0, w2Wages: 150000,
+      filingStatus: 'married_filing_separately', taxYear: 2026,
+    })).toThrow(TaxCalculationScopeReviewRequiredError);
+    const result = estimate1099FederalTax({
+      grossIncome: 50000, expenses: 0, w2Wages: 150000,
+      w2SocialSecurityWages: 150000, w2MedicareWages: 150000,
+      filingStatus: 'married_filing_separately', taxYear: 2026,
+    });
+    const seBase = 50000 * 0.9235;
     expect(result.seBreakdown.socialSecurityTax).toBe(round2((184500 - 150000) * 0.124));
-    // MFS threshold is $125,000: all SE earnings are above it once wages exceed the threshold, plus 0.9% on excess wages.
     expect(result.additionalMedicareTax).toBe(round2(seBase * 0.009) + (150000 - 125000) * 0.009);
   });
 
@@ -80,9 +90,10 @@ describe('estimate1099FederalTax', () => {
     expect(result.taxableIncome).toBe(0);
     expect(result.incomeTax).toBe(0);
     expect(result.effectiveRate).toBe(0);
-    const loss = estimate1099FederalTax({ grossIncome: 1000, expenses: 5000, w2Wages: 0, filingStatus: 'single', taxYear: 2025 });
-    expect(loss.netProfit).toBe(0);
-    expect(loss.totalTax).toBe(0);
+    expect(() => estimate1099FederalTax({
+      grossIncome: 1000, expenses: 5000, w2Wages: 0,
+      filingStatus: 'single', taxYear: 2025,
+    })).toThrow(TaxCalculationScopeReviewRequiredError);
   });
 
   it('changes brackets and deductions when the tax year changes', () => {
@@ -93,6 +104,25 @@ describe('estimate1099FederalTax', () => {
     expect(y2026.standardDeduction).toBe(24150);
     expect(y2026.incomeTax).toBeLessThan(y2025.incomeTax);
     expect(y2026.seTax).toBe(y2025.seTax);
+  });
+
+  it.each([2025, 2026] as const)('withholds %s above-threshold QBI instead of inventing a zero deduction', taxYear => {
+    expect(() => estimate1099FederalTax({ grossIncome: 300000, expenses: 0, w2Wages: 0, filingStatus: 'single', taxYear }))
+      .toThrow(QBIReviewRequiredError);
+    // Wage-only income does not require nonexistent business QBI facts.
+    expect(estimate1099FederalTax({ grossIncome: 0, expenses: 0, w2Wages: 300000, filingStatus: 'single', taxYear }).qbiDeduction).toBe(0);
+  });
+
+  it('requires owner-specific wages for a joint mixed-wage/business estimate', () => {
+    expect(() => estimate1099FederalTax({ grossIncome: 50000, expenses: 0, w2Wages: 100000, filingStatus: 'married_filing_jointly', taxYear: 2026 }))
+      .toThrow(TaxCalculationScopeReviewRequiredError);
+    expect(estimate1099FederalTax({ grossIncome: 0, expenses: 0, w2Wages: 100000, filingStatus: 'married_filing_jointly', taxYear: 2026 }).seTax).toBe(0);
+  });
+
+  it('withholds affected 2026 minimum-QBI cases without applying that new rule to 2025', () => {
+    const input = { grossIncome: 2000, expenses: 0, w2Wages: 0, filingStatus: 'single' };
+    expect(() => estimate1099FederalTax({ ...input, taxYear: 2026 })).toThrow(TaxCalculationScopeReviewRequiredError);
+    expect(estimate1099FederalTax({ ...input, taxYear: 2025 }).qbiDeduction).toBe(0);
   });
 });
 

@@ -87,6 +87,9 @@ describe('POST /api/plaid/sync-transactions', () => {
 
 describe('POST /api/stripe/create-portal-session', () => {
   it('answers 503 when the billing provider cannot be reached', async () => {
+    // A linked customer is required before the portal can contact Stripe.
+    // Missing identities correctly receive BILLING_ACCOUNT_REQUIRED instead.
+    harness.seedOwnerProfile({ stripeCustomerId: 'cus_contract_owner' });
     const { POST } = await portalRoute();
     const response = await POST(contractRequest('/api/stripe/create-portal-session', { method: 'POST', auth: 'owner' }));
     expect(response.status).toBe(503);

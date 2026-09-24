@@ -109,7 +109,7 @@ describe('filing hub income summary', () => {
   it('shows federal total income once when Schedule SE already includes W-2 wages', async () => {
     harness.request.mockImplementation((url: string) => {
       // The hub refuses partial snapshots; every wired figure below is part of the compute-1040 contract.
-      if (url.includes('compute-1040')) return Promise.resolve(response({ ...taxResult(year), income: { grossReceipts: 20000, income1099: 0, scheduleCNetProfit: 20000, totalDeductible: 0, w2Wages: 50000 }, seCalc: { totalSETax: 2000 }, w2: { withheld: 0 }, payments: { estimatedPayments: 0 } }));
+      if (url.includes('compute-1040')) return Promise.resolve(response({ ...taxResult(year), income: { grossReceipts: 20000, income1099: 0, scheduleCNetProfit: 20000, scheduleCLine31NetProfit: 20000, totalDeductible: 0, w2Wages: 50000 }, seCalc: { totalSETax: 2000 }, w2: { withheld: 0 }, payments: { estimatedPayments: 0 } }));
       if (url.includes('schedule-se')) return Promise.resolve(response({ totalIncome: 70000, netProfit: 20000, w2Wages: 50000 }));
       if (url.includes('gross-receipts')) return Promise.resolve(response({ totalGrossReceipts: 20000 }));
       return Promise.resolve(response({}));

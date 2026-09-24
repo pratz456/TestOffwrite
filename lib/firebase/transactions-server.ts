@@ -1,5 +1,5 @@
 import { FieldPath } from 'firebase-admin/firestore';
-import { taxDecisionUpdate } from '@/lib/transactions/tax-decision';
+import { saveTransactionChanges } from '@/lib/transactions/save-changes';
 import { recordedTransactionType, reviewHydrationFields, type AiReviewSuggestion, type TransactionKind } from '@/lib/transactions/ai-review-contract';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import type { AiExplanation } from '@/lib/transactions/review-proposals';
@@ -435,29 +435,8 @@ export async function updateTransactionServerWithUserId(
       if (!querySnapshot.empty) {
         console.log('✅ [UPDATE→DB Server] Found transaction via collectionGroup query');
         const docRef = querySnapshot.docs[0].ref;
-        const updateData: any = stripUndefinedDeep({
-          ...updates,
-          ...taxDecisionUpdate(querySnapshot.docs[0].data(), updates),
-          updated_at: new Date(),
-        });
-
-        console.log('📝 [UPDATE→DB Server] Updating document at path:', docRef.path);
-        await docRef.update(updateData);
-
-        // Read back to verify the update
-        const updatedDoc = await docRef.get();
-        if (updatedDoc.exists) {
-          const data = updatedDoc.data();
-          console.log('✅ [READBACK←DB Server] Update verified:', {
-            trans_id: data?.trans_id,
-            is_deductible: data?.is_deductible,
-            deductible_reason: data?.deductible_reason,
-            deduction_score: data?.deduction_score,
-          });
-          return { data: [data], error: null };
-        }
-
-        return { data: null, error: new Error('Failed to verify update') };
+        const data = await saveTransactionChanges(docRef, userId, stripUndefinedDeep(updates));
+        return { data: [data], error: null };
       }
 
       console.log('⚠️ [UPDATE→DB Server] No transaction found via collectionGroup query, trying fallback...');
@@ -498,35 +477,14 @@ export async function updateTransactionServerWithUserId(
         // Find the specific transaction
         const targetTransaction = transactionsSnapshot.docs.find((doc) => {
           const data = doc.data();
-          return data.trans_id === transactionId;
+          return data.trans_id === transactionId || doc.id === transactionId;
         });
 
         if (targetTransaction) {
           console.log('✅ [UPDATE→DB Server] Found transaction via fallback method');
           const docRef = targetTransaction.ref;
-          const updateData: any = stripUndefinedDeep({
-            ...updates,
-            ...taxDecisionUpdate(targetTransaction.data(), updates),
-            updated_at: new Date(),
-          });
-
-          console.log('📝 [UPDATE→DB Server] Updating document at path:', docRef.path);
-          await docRef.update(updateData);
-
-          // Read back to verify the update
-          const updatedDoc = await docRef.get();
-          if (updatedDoc.exists) {
-            const data = updatedDoc.data();
-            console.log('✅ [READBACK←DB Server] Update verified:', {
-              trans_id: data?.trans_id,
-              is_deductible: data?.is_deductible,
-              deductible_reason: data?.deductible_reason,
-              deduction_score: data?.deduction_score,
-            });
-            return { data: [data], error: null };
-          }
-
-          return { data: null, error: new Error('Failed to verify update') };
+          const data = await saveTransactionChanges(docRef, userId, stripUndefinedDeep(updates));
+          return { data: [data], error: null };
         }
       }
 

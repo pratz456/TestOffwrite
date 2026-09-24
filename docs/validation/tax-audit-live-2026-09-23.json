@@ -1,0 +1,328 @@
+{
+  "checkedDate": "2026-09-23",
+  "dataScope": "Synthetic only; real OpenAI requests. Firebase emulator used for automatic/manual flow. No production changes.",
+  "baselineCaution": "Baseline limited invariants passed, but manual review found five unsafe approval/category outcomes. Those were corrected and validated in policyRegressions. Baseline category agreement is not legal accuracy.",
+  "reports": {
+    "transactionBaseline": {
+      "model": "gpt-4.1-mini",
+      "generatedAt": "2026-09-23T22:45:41.940Z",
+      "categoryAgreement": "123/153",
+      "statusAgreement": "134/153",
+      "statusCounts": {
+        "ok": 42,
+        "needs_more_info": 97,
+        "blocked": 14
+      },
+      "providerFailures": 0,
+      "okWithDeduction": 30,
+      "latencyMs": {
+        "p50": 2658,
+        "p95": 3763,
+        "max": 5959
+      },
+      "caseCount": 153
+    },
+    "bankDescriptorBaseline": {
+      "model": "gpt-4.1-mini",
+      "categoryAgreement": "59/69",
+      "statusAgreement": "80/86",
+      "approvableApproved": "31/31",
+      "failures": 0,
+      "caseCount": 86
+    },
+    "policyRegressions": {
+      "model": "gpt-4.1-mini",
+      "generatedAt": "2026-09-23T22:57:53.235Z",
+      "failedCases": 0,
+      "syntheticOnly": true,
+      "caseCount": 14,
+      "results": [
+        {
+          "id": "legalzoom",
+          "expected": "review",
+          "status": "needs_more_info",
+          "category": "legal_professional",
+          "transactionKind": "expense",
+          "missingFields": [
+            "formation_cost_treatment"
+          ],
+          "firstQuestion": "What entity was formed, what services and filing fees were included, when did active business operations begin, and what formation/start-up totals and elections apply?",
+          "reason": "Entity formation and organization costs are not automatically current legal fees on Schedule C line 17. Separate recurring operating services from formation costs and review capitalization, start-up or organization-cost rules for the entity before claiming any amount. About this purchase: You noted: LLC formation filing for my photography business.",
+          "sourceIds": [
+            "capital-263",
+            "startup-195",
+            "professional-fees-334"
+          ],
+          "failure": null,
+          "latencyMs": 3247,
+          "violations": []
+        },
+        {
+          "id": "legalzoom-formation",
+          "expected": "review",
+          "status": "needs_more_info",
+          "category": "legal_professional",
+          "transactionKind": "expense",
+          "missingFields": [
+            "formation_cost_treatment"
+          ],
+          "firstQuestion": "What entity was formed, what services and filing fees were included, when did active business operations begin, and what formation/start-up totals and elections apply?",
+          "reason": "Entity formation and organization costs are not automatically current legal fees on Schedule C line 17. Separate recurring operating services from formation costs and review capitalization, start-up or organization-cost rules for the entity before claiming any amount. About this purchase: You noted: LLC formation filing for my design business.",
+          "sourceIds": [
+            "capital-263",
+            "startup-195",
+            "professional-fees-334"
+          ],
+          "failure": null,
+          "latencyMs": 3241,
+          "violations": []
+        },
+        {
+          "id": "costco-mixed-with-percentage",
+          "expected": "review",
+          "status": "needs_more_info",
+          "category": "supplies_small_tools",
+          "transactionKind": "expense",
+          "missingFields": [
+            "food_expense_treatment"
+          ],
+          "firstQuestion": "Were these personal groceries, client meals, food for your own employees, food for resale, or another business use? Separate the items and identify who received the food and why.",
+          "reason": "A business-use percentage alone does not establish the tax treatment of food. Personal groceries stay excluded; qualifying client meals generally have a 50% limit, and some employer-provided meals are disallowed after 2025. Food for resale or other uses needs its own treatment. Do not claim the office-food share as ordinary supplies until the facts are resolved.",
+          "sourceIds": [
+            "meals-274",
+            "personal-262",
+            "supplies-263a"
+          ],
+          "failure": null,
+          "latencyMs": 2857,
+          "violations": []
+        },
+        {
+          "id": "wa-dor-sales-tax-remitted",
+          "expected": "review",
+          "status": "needs_more_info",
+          "category": "taxes_licenses",
+          "transactionKind": "expense",
+          "missingFields": [
+            "sales_tax_incidence"
+          ],
+          "firstQuestion": "Was this tax legally imposed on the buyer or on your business as seller, and was it included in gross receipts? Reconcile the sales-tax return and receipts before classifying the remittance.",
+          "reason": "Sales tax imposed on buyers that you collect and remit is generally excluded from both gross receipts and deductions. Tax imposed on you as seller may be included in gross receipts and deducted on Schedule C line 23. A remittance by itself does not establish a deductible expense; sales tax on business purchases generally follows the cost of what you bought.",
+          "sourceIds": [
+            "business-162",
+            "taxes-licenses-sch-c"
+          ],
+          "failure": null,
+          "latencyMs": 2601,
+          "violations": []
+        },
+        {
+          "id": "nar-dues-realtor-ok",
+          "expected": "review",
+          "status": "needs_more_info",
+          "category": "dues_and_memberships",
+          "transactionKind": "expense",
+          "missingFields": [
+            "association_dues_allocation"
+          ],
+          "firstQuestion": "What does the association\u2019s dues notice identify as nondeductible lobbying or political activity, and what separate MLS or other deductible charges remain?",
+          "reason": "Business association dues can qualify, but lobbying and political amounts do not become deductible merely because they are included in a membership bill. Use the association\u2019s tax notice to separate those amounts before claiming REALTOR association and MLS dues. About this purchase: You noted: Annual REALTOR association and MLS dues.",
+          "sourceIds": [
+            "business-162",
+            "dues-274a3"
+          ],
+          "failure": null,
+          "latencyMs": 2951,
+          "violations": []
+        },
+        {
+          "id": "upwork-fee",
+          "expected": "approved",
+          "status": "ok",
+          "category": "bank_and_payment_fees",
+          "transactionKind": "expense",
+          "isDeductible": true,
+          "deductiblePercent": 100,
+          "reason": "Your saved note identifies an Upwork platform service fee on client work. This is a platform fee, not a payment for a freelancer\u2019s labor. Keep the fee statement and reconcile gross client receipts before fees so the cost is not deducted twice.",
+          "sourceIds": [
+            "platform-fees-1099k",
+            "bank-fees-334"
+          ],
+          "failure": null,
+          "latencyMs": 2764,
+          "violations": []
+        },
+        {
+          "id": "operating-legal-control",
+          "expected": "approved",
+          "status": "ok",
+          "category": "legal_professional",
+          "transactionKind": "expense",
+          "isDeductible": true,
+          "deductiblePercent": 100,
+          "missingFields": [],
+          "reason": "You noted: Attorney review of my client services contract for the design business. Legal and professional fees related to operating the business are deductible on Schedule C line 17. This payment appears to be an ordinary and necessary business expense.",
+          "sourceIds": [
+            "business-162",
+            "professional-fees-334"
+          ],
+          "failure": null,
+          "latencyMs": 2630,
+          "violations": []
+        },
+        {
+          "id": "annual-filing-control",
+          "expected": "approved",
+          "status": "ok",
+          "category": "taxes_licenses",
+          "transactionKind": "expense",
+          "isDeductible": true,
+          "deductiblePercent": 100,
+          "reason": "You noted: Annual report fee for my existing LLC. This fee is typically a business license or registration tax deductible on Schedule C line 23. It is an ordinary and necessary business expense for maintaining your LLC status. No further information is needed to support deductibility.",
+          "sourceIds": [
+            "business-162",
+            "taxes-licenses-sch-c"
+          ],
+          "failure": null,
+          "latencyMs": 2346,
+          "violations": []
+        },
+        {
+          "id": "software-food-client-control",
+          "expected": "approved",
+          "status": "ok",
+          "category": "software_subscriptions",
+          "transactionKind": "expense",
+          "isDeductible": true,
+          "deductiblePercent": 100,
+          "reason": "You noted: Design software for food company client projects. This matches the ordinary software expense category (Schedule C line 18) for a freelance graphic designer. It is deductible as a business expense, subject to your records.",
+          "sourceIds": [
+            "business-162",
+            "software-334"
+          ],
+          "failure": null,
+          "latencyMs": 2193,
+          "violations": []
+        },
+        {
+          "id": "upwork-contractor-control",
+          "expected": "approved",
+          "status": "ok",
+          "category": "contract_labor",
+          "transactionKind": "expense",
+          "isDeductible": true,
+          "deductiblePercent": 100,
+          "reason": "You noted: Paid a freelance developer for the client web app build. This matches the contract labor category (Schedule C line 11) for payments to freelancers providing services to your business. It is deductible as a business expense, subject to your records.",
+          "sourceIds": [
+            "business-162",
+            "contract-labor-334"
+          ],
+          "failure": null,
+          "latencyMs": 2636,
+          "violations": []
+        },
+        {
+          "id": "solo-overnight-meal",
+          "expected": "review",
+          "status": "needs_more_info",
+          "category": "meals_50",
+          "transactionKind": "expense",
+          "missingFields": [
+            "solo_meal_context"
+          ],
+          "firstQuestion": "Was this a local personal meal, or were you traveling away from your tax home for business long enough to need substantial sleep or rest? Record the destination, dates and business purpose.",
+          "reason": "Eating alone does not decide the deduction. Routine local meals and coffee are personal; a non-lavish meal during qualifying business travel away from your tax home may qualify, generally subject to the 50% limit. Confirm the travel facts before including any deduction. About this purchase: You noted: Dinner alone while away overnight for a client conference in Boston.",
+          "sourceIds": [
+            "records-334",
+            "meals-274",
+            "travel-463"
+          ],
+          "failure": null,
+          "latencyMs": 3274,
+          "violations": []
+        },
+        {
+          "id": "federal-employer-tax",
+          "expected": "review",
+          "status": "needs_more_info",
+          "category": "taxes_licenses",
+          "transactionKind": "expense",
+          "missingFields": [
+            "business_tax_components"
+          ],
+          "firstQuestion": "Which tax and period did this payment cover? Match the return and payroll ledger, separating the employer tax from employee withholding, income tax, penalties and interest.",
+          "reason": "An IRS payee does not automatically make this a personal tax payment. Employer Social Security/Medicare, FUTA and qualifying business excise taxes such as federal highway-use tax can belong on Schedule C line 23. A combined payroll deposit cannot all be deducted again: employee withholding is already part of gross wages. Verify each component and any credits before recording the business-tax amount.",
+          "sourceIds": [
+            "business-162",
+            "taxes-licenses-sch-c"
+          ],
+          "failure": null,
+          "latencyMs": 2318,
+          "violations": []
+        },
+        {
+          "id": "printer-exact-200",
+          "expected": "approved",
+          "status": "ok",
+          "category": "supplies_small_tools",
+          "transactionKind": "expense",
+          "isDeductible": true,
+          "deductiblePercent": 100,
+          "missingFields": [],
+          "reason": "You noted: A printer used exclusively for client projects. This supports classifying the Staples purchase as a business expense for supplies or equipment (Schedule C line 22). Confirming the exclusive business use supports deductibility.",
+          "sourceIds": [
+            "business-162",
+            "supplies-263a"
+          ],
+          "failure": null,
+          "latencyMs": 2191,
+          "violations": []
+        },
+        {
+          "id": "printer-above-200",
+          "expected": "review",
+          "status": "needs_more_info",
+          "category": "supplies_small_tools",
+          "transactionKind": "expense",
+          "missingFields": [
+            "asset_treatment"
+          ],
+          "firstQuestion": "What was purchased, when was it first used for business, and have you recorded the de minimis safe harbor election or a depreciation election for this year?",
+          "reason": "This purchase needs item-level review to distinguish supplies from assets. The de minimis safe harbor generally uses a $2,500 per-item or per-invoice ceiling without an applicable financial statement ($5,000 with one), plus consistent book-expensing and an annual election. A bank-charge total does not establish item cost or capitalization: qualifying materials, supplies and repairs may be current expenses without that election, while assets may need depreciation or a separate expensing election. Review the asset treatment before deducting it in full.",
+          "sourceIds": [
+            "business-162",
+            "capital-263",
+            "supplies-263a"
+          ],
+          "failure": null,
+          "latencyMs": 2648,
+          "violations": []
+        }
+      ]
+    },
+    "assistant": {
+      "model": "gpt-4o",
+      "checkedAt": "2026-09-23T22:54:37.081Z",
+      "caseCount": 20,
+      "http200Responses": 20,
+      "assertedCasesPassed": 20
+    },
+    "automaticManualFlow": {
+      "run": "1790204302844",
+      "checkedAt": "2026-09-23T22:58:22.844Z",
+      "project": "demo-writeoff-security",
+      "success": true,
+      "finishedAt": "2026-09-23T22:59:18.075Z",
+      "caseCount": 9,
+      "assertions": [
+        "supplies: confirmed and idempotent; unresolved meal excluded from deductions",
+        "meal: confirmed and idempotent; unresolved meal excluded from deductions",
+        "Changed transaction cannot confirm stale suggestion (409)",
+        "Actual manual AI retry works for free user and returns persisted suggestion"
+      ],
+      "models": [
+        "gpt-4.1-mini-2025-04-14"
+      ]
+    }
+  }
+}

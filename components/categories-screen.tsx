@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Search, ChevronDown, ChevronUp, Building, Settings, Info, Home, TrendingUp } from 'lucide-react';
 import { formatCategory, consolidateCategory } from '@/lib/utils';
-import { getUserTaxRateDisplay, type UserProfile } from '@/lib/tax-rules/federal-brackets';
+import { summarizeConfirmedDeductions } from '@/lib/tax/display-deductions';
 
 const writeOffLogo = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAzMiAzMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iOCIgZmlsbD0iIzMzNjZDQyIvPgo8dGV4dCB4PSIxNiIgeT0iMjIiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxOCIgZm9udC13ZWlnaHQ9ImJvbGQiIGZpbGw9IndoaXRlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5XPC90ZXh0Pgo8L3N2Zz4K';
 
@@ -135,7 +135,7 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
       <div className="bg-background min-h-screen">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
           <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-foreground mb-0.5">Categories</h1>
-          <p className="text-xs sm:text-sm text-muted-foreground">Your tax deduction breakdown and category analysis</p>
+          <p className="text-xs sm:text-sm text-muted-foreground">Confirmed transaction deductions, across all saved dates</p>
         </div>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-5">
           <div className="bg-card border border-border rounded-xl shadow-sm">
@@ -152,8 +152,9 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
     );
   }
 
-  // Filter deductible transactions (include all deductible transactions regardless of amount sign)
-  const deductibleTransactions = transactions.filter(t => t.is_deductible === true);
+  const summary = summarizeConfirmedDeductions(transactions);
+  if (summary.reviewMessage) return <div className="p-6"><h1 className="text-xl font-semibold">Categories</h1><p role="alert" className="mt-3 text-sm text-muted-foreground">{summary.reviewMessage}</p><Button className="mt-3" onClick={onBack}>Back</Button></div>;
+  const deductibleTransactions = summary.transactions;
 
 
   // Group transactions by consolidated category
@@ -174,13 +175,13 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
     return acc;
   }, {} as Record<string, { displayName: string; transactions: Transaction[]; originalCategories: Set<string> }>);
 
-  // Calculate category totals and percentages (use absolute values for consistency with dashboard)
-  const totalDeductions = deductibleTransactions.reduce((sum, t) => sum + Math.abs(t.amount || 0), 0);
+  const totalDeductions = summary.totalDeductible!;
+  const deductionMagnitude = Object.values(categoryGroups).reduce((total, group) => total + Math.abs(group.transactions.reduce((sum, transaction) => sum + Math.round(summary.contributions.get(transaction)! * 100), 0)), 0) / 100;
   
   const categoryData = Object.entries(categoryGroups).map(([consolidatedName, groupData]) => {
-    const totalAmount = groupData.transactions.reduce((sum, t) => sum + Math.abs(t.amount || 0), 0);
-    const percentage = totalDeductions > 0 ? (totalAmount / totalDeductions) * 100 : 0;
-    const taxSavings = taxRate === null ? null : totalAmount * taxRate;
+    const totalAmount = groupData.transactions.reduce((sum, t) => sum + Math.round(t.amount * 100), 0) / 100;
+    const deductionAmount = groupData.transactions.reduce((sum, t) => sum + Math.round(summary.contributions.get(t)! * 100), 0) / 100;
+    const percentage = deductionMagnitude > 0 ? Math.abs(deductionAmount) / deductionMagnitude * 100 : 0;
     
     return {
       category: consolidatedName,
@@ -188,7 +189,7 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
       transactions: groupData.transactions,
       totalAmount,
       percentage,
-      taxSavings,
+      deductionAmount,
       transactionCount: groupData.transactions.length,
       originalCategories: Array.from(groupData.originalCategories)
     };
@@ -210,9 +211,7 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
     setExpandedCategories(newExpanded);
   };
 
-  // Calculate total tax savings directly from total deductions
-  const totalTaxSavings = taxRate === null ? null : totalDeductions * taxRate;
-  const activeCategories = categoryData.length;
+  const totalRecordedAmount = summary.totalRecordedAmount!;
 
   return (
     <div className="bg-background min-h-screen overflow-x-hidden">
@@ -220,7 +219,7 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
       <div className="bg-background">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
           <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-foreground mb-0.5">Categories</h1>
-          <p className="text-xs sm:text-sm text-muted-foreground">Your tax deduction breakdown and category analysis</p>
+          <p className="text-xs sm:text-sm text-muted-foreground">Confirmed transaction deductions, across all saved dates</p>
         </div>
       </div>
 
@@ -229,25 +228,23 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
         <div className="grid grid-cols-1 min-[480px]:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-5">
           <div className="bg-card rounded-xl p-4 sm:p-5 border border-border border-l-2 border-l-[hsl(var(--success)/0.75)] shadow-[0_0_0_1px_hsl(var(--success)/0.05),0_2px_6px_-2px_hsl(var(--success)/0.08)] min-h-[44px] flex flex-col justify-center">
             <div className="text-xl sm:text-2xl font-semibold text-foreground tabular-nums whitespace-nowrap overflow-hidden text-ellipsis">${totalDeductions.toFixed(2)}</div>
-            <div className="text-xs sm:text-sm text-muted-foreground/75 mt-1">{activeCategories} active categories</div>
+            <div className="text-xs sm:text-sm text-muted-foreground/75 mt-1">Confirmed transaction deductions</div>
           </div>
           <div className="bg-card rounded-xl p-4 sm:p-5 border border-border border-l-2 border-l-primary/65 shadow-[0_0_0_1px_hsl(var(--primary)/0.05),0_2px_6px_-2px_hsl(var(--primary)/0.08)] min-h-[44px] flex flex-col justify-center">
             <div className="text-xl sm:text-2xl font-semibold text-foreground tabular-nums whitespace-nowrap">{deductibleTransactions.length}</div>
-            <div className="text-xs sm:text-sm text-muted-foreground/75 mt-1">Deductible transactions</div>
+            <div className="text-xs sm:text-sm text-muted-foreground/75 mt-1">Confirmed records</div>
           </div>
           <div className="bg-card rounded-xl p-4 sm:p-5 border border-border border-l-2 border-l-cyan-500/60 shadow-[0_0_0_1px_rgba(34,211,238,0.06),0_2px_6px_-2px_rgba(34,211,238,0.1)] min-h-[44px] flex flex-col justify-center">
-            <div className="text-xl sm:text-2xl font-semibold text-foreground tabular-nums whitespace-nowrap overflow-hidden text-ellipsis">
-              {totalTaxSavings === null ? 'Add income' : `$${totalTaxSavings.toFixed(2)}`}
-            </div>
-            <div className="text-xs sm:text-sm text-muted-foreground/75 mt-1">
-              {totalTaxSavings === null ? 'Profile needed for an estimate' : 'Potential savings'}
-            </div>
+            <div className="text-xl sm:text-2xl font-semibold text-foreground tabular-nums whitespace-nowrap overflow-hidden text-ellipsis">${totalRecordedAmount.toFixed(2)}</div>
+            <div className="text-xs sm:text-sm text-muted-foreground/75 mt-1">Confirmed net outflows</div>
           </div>
           <div className="bg-card rounded-xl p-4 sm:p-5 border border-border border-l-2 border-l-muted-foreground/45 shadow-[0_2px_6px_-2px_rgba(0,0,0,0.06)] min-h-[44px] flex flex-col justify-center hover:bg-muted/20 transition-all duration-150">
             <div className="text-xl sm:text-2xl font-semibold text-foreground tabular-nums whitespace-nowrap">{transactions.length}</div>
             <div className="text-xs sm:text-sm text-muted-foreground/75 mt-1">Total transactions</div>
           </div>
         </div>
+
+        <p className="text-xs text-muted-foreground">Refunds reduce deductions; the meals limit is applied. Vehicle methods, assets and home-office deductions need separate review in Tax Preview. These amounts are not tax savings.</p>
 
         {/* Search Bar - full width, inset shadow, focus glow, 150ms transition */}
         <div className="w-full bg-card border border-border rounded-xl p-3 sm:p-4 shadow-sm">
@@ -264,7 +261,7 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
           </div>
         </div>
 
-        {/* Category Table - Desktop: radial glow, row depth, gradient progress, tax savings + arrow */}
+        {/* Category Table - Desktop: radial glow, row depth, gradient progress, deduction + arrow */}
         <div className="hidden md:block relative">
           <div className="absolute inset-0 rounded-xl bg-[radial-gradient(ellipse_80%_50%_at_50%_0%,hsl(var(--primary)/0.04),transparent)] pointer-events-none" aria-hidden />
           <div className="relative bg-card border border-border rounded-xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.08)] dark:shadow-[0_2px_12px_-4px_rgba(0,0,0,0.25)] overflow-hidden">
@@ -273,8 +270,8 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
                 <div className="col-span-4">Category</div>
                 <div className="col-span-2">Transactions</div>
                 <div className="col-span-2">Total amount</div>
-                <div className="col-span-2">Tax savings</div>
-                <div className="col-span-2">Percentage</div>
+                <div className="col-span-2">Deduction</div>
+                <div className="col-span-2">Share of net categories</div>
               </div>
             </div>
 
@@ -319,7 +316,7 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
                         <div className="col-span-2 flex items-center gap-1.5">
                           <TrendingUp className="w-3.5 h-3.5 text-[hsl(var(--success))] shrink-0 mt-0.5" />
                           <div className="font-semibold text-[hsl(var(--success))] tabular-nums">
-                            {categoryData.taxSavings === null ? '—' : `$${categoryData.taxSavings.toFixed(2)}`}
+                            ${categoryData.deductionAmount.toFixed(2)}
                           </div>
                         </div>
                         <div className="col-span-2 flex items-center gap-2">
@@ -371,7 +368,7 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
                                       {transaction.merchant_name || transaction.description || 'Unknown Merchant'}
                                     </div>
                                     <div className="text-xs text-muted-foreground">
-                                      {new Date(transaction.date).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })} • {formatCategory(transaction.category)}
+                                      {transaction.date.slice(0, 10)} • {formatCategory(transaction.category)}
                                     </div>
                                   </div>
                                 </div>
@@ -381,13 +378,13 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
                                   </span>
                                 </div>
                                 <div className="col-span-2 font-semibold text-destructive/85 tabular-nums">
-                                  ${Math.abs(transaction.amount).toFixed(2)}
+                                  ${transaction.amount.toFixed(2)}
                                 </div>
                                 <div className="col-span-2 font-semibold text-[hsl(var(--success))] tabular-nums">
-                                  {taxRate === null ? '—' : `$${(Math.abs(transaction.amount) * taxRate).toFixed(2)}`}
+                                  ${summary.contributions.get(transaction)!.toFixed(2)}
                                 </div>
                                 <div className="col-span-2 text-xs text-muted-foreground">
-                                  {((Math.abs(transaction.amount) / categoryData.totalAmount) * 100).toFixed(1)}%
+                                  {(deductionMagnitude > 0 ? Math.abs(summary.contributions.get(transaction)!) / deductionMagnitude * 100 : 0).toFixed(1)}%
                                 </div>
                               </div>
                             </div>
@@ -434,7 +431,7 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
                       )}
                     </div>
                   </div>
-                  {/* Row 2: Transactions badge, Total amount, Tax savings */}
+                  {/* Row 2: Transactions badge, Total amount, Deduction */}
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-3">
                     <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-primary/10 text-primary border border-primary/20">
                       {categoryData.transactionCount} txns
@@ -445,10 +442,8 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
                     </div>
                     <div className="flex items-center gap-1">
                       <TrendingUp className="w-3 h-3 text-[hsl(var(--success))] shrink-0" />
-                      <span className="text-xs text-muted-foreground">Tax savings</span>
-                      <span className="font-semibold text-[hsl(var(--success))] text-sm tabular-nums whitespace-nowrap">
-                        {categoryData.taxSavings === null ? '—' : `$${categoryData.taxSavings.toFixed(2)}`}
-                      </span>
+                      <span className="text-xs text-muted-foreground">Deduction</span>
+                      <span className="font-semibold text-[hsl(var(--success))] text-sm tabular-nums whitespace-nowrap">${categoryData.deductionAmount.toFixed(2)}</span>
                     </div>
                   </div>
                   {/* Row 3: Progress bar */}
@@ -494,16 +489,16 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
                                   {transaction.merchant_name || transaction.description || 'Unknown'}
                                 </div>
                                 <div className="text-xs text-muted-foreground">
-                                  {new Date(transaction.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                  {transaction.date.slice(0, 10)}
                                 </div>
                               </div>
                             </div>
                             <div className="text-right flex-shrink-0">
                               <div className="font-semibold text-destructive/85 text-sm tabular-nums">
-                                ${Math.abs(transaction.amount).toFixed(2)}
+                                ${transaction.amount.toFixed(2)}
                               </div>
                               <div className="text-xs text-[hsl(var(--success))]">
-                                {taxRate === null ? 'Add income to estimate' : `$${(Math.abs(transaction.amount) * taxRate).toFixed(0)} tax saved`}
+                                ${summary.contributions.get(transaction)!.toFixed(2)} deduction
                               </div>
                             </div>
                           </div>

@@ -90,10 +90,18 @@ describe('dashboard filing-status review display', () => {
     expect(kpi.props).not.toHaveProperty('estimatedTaxRate');
     expect(kpi.props).not.toHaveProperty('quarterlyTaxes');
   });
+  it('keeps record-only insights usable without inventing a filing-status tax rate', async () => {
+    const component = () => AIInsightsPage({ user: { id: 'synthetic' }, onBack() {} }) as Element;
+    render(component); await flush();
+    const content = text(render(component));
+    expect(content).toContain('Spending to Review (not tax savings)');
+    expect(content).toContain('Confirmed Transaction Deductions');
+    expect(content).not.toContain('Estimated Tax Effect of Unreviewed Items');
+    expect(content).not.toContain('NaN');
+  });
   it.each([
     ['legacy dashboard', () => Dashboard({ user: { id: 'synthetic' }, onNavigate: harness.navigate }) as Element],
     ['reports', () => ReportsPage() as Element],
-    ['AI insights', () => AIInsightsPage({ user: { id: 'synthetic' }, onBack() {} }) as Element],
   ] as const)('%s remains usable and displays the actionable status problem', async (_label, component) => {
     render(component); await flush();
     let tree = render(component); await flush(); tree = render(component);

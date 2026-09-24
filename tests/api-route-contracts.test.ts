@@ -32,6 +32,11 @@ const PUBLIC_ANONYMOUS: Record<string, Expectation> = {
   'GET /api/support/account/[uid]': { statuses: [404], reason: 'Support tooling hides its existence unless configured and the caller is an allow-listed admin.' },
 };
 
+/** Public downloads authenticate a scoped capability in the body, not a Firebase login. */
+const PUBLIC_CAPABILITIES: Record<string, Expectation> = {
+  'POST /api/preparer-handoffs/download': { statuses: [400], reason: 'A 256-bit handoff token authorizes one immutable package. An absent JSON body is invalid; an absent/unknown capability is hidden with 404.' },
+};
+
 /** Operations authenticated by a shared service secret or provider signature; a user credential must not drive them. */
 const SERVICE_OPERATIONS: Record<string, string> = {
   'POST /api/internal/analysis-worker': 'Eventarc worker shared secret',
@@ -47,6 +52,7 @@ const BODYLESS_MUTATIONS: Record<string, Expectation> = {
   'DELETE /api/plaid/items': { statuses: [200], reason: 'Disconnects the caller\'s only bank; nothing to disconnect on an empty account.' },
   'DELETE /api/plaid/exchange-token': { statuses: [200], reason: 'Legacy alias of DELETE /api/plaid/items.' },
   'DELETE /api/mileage/[id]': { statuses: [200], reason: 'Deletes by path under the caller\'s uid; idempotent for an unknown trip.' },
+  'DELETE /api/preparer-handoffs/[id]': { statuses: [404], reason: 'Revokes the owner\'s link by path; an empty account has no matching link. The request body is ignored.' },
   'POST /api/accounts/[accountId]/mark-personal': { statuses: [200], reason: 'Bulk update of the caller\'s own account subtree.' },
   'POST /api/transactions/reset-unreviewed-classifications': { statuses: [200], reason: 'Scope defaults to learning_only when no body is sent.' },
   'POST /api/transactions/apply-learning': { statuses: [200], reason: 'Disabled no-op.' },
@@ -59,11 +65,16 @@ const BODYLESS_MUTATIONS: Record<string, Expectation> = {
   'POST /api/plaid/transactions': { statuses: [404], reason: 'Legacy alias of POST /api/plaid/sync-transactions.' },
   'POST /api/plaid/create-link-token': { statuses: [503], reason: 'Optional itemId only; the Plaid double refuses network, so the provider is reported unavailable.' },
   'POST /api/plaid/link-token': { statuses: [503], reason: 'Legacy alias of POST /api/plaid/create-link-token.' },
-  'POST /api/stripe/create-portal-session': { statuses: [503], reason: 'No body; the Stripe double refuses network, so billing is reported unavailable.' },
+  'POST /api/stripe/create-portal-session': { statuses: [409], reason: 'No linked billing customer; portal never creates a customer outside the protected checkout flow.' },
   'POST /api/plaid/reset-transactions': { statuses: [403, 404], reason: 'Disabled unless explicitly enabled outside production.' },
   'DELETE /api/plaid/items/[itemId]': { statuses: [404], reason: 'Unknown connection on an empty account.' },
   'POST /api/tax/form-8879': { statuses: [409], reason: 'Always refuses: e-file authorization comes from a filing provider.' },
   'POST /api/tax/year-lock': { statuses: [409], reason: 'Always refuses: filing status comes from a filing provider.' },
+};
+
+/** These routes verify a specific owned resource before parsing a mutation body. */
+const RESOURCE_FIRST_MUTATIONS: Record<string, Expectation> = {
+  'POST /api/transactions/[id]/evidence/preview': { statuses: [404], reason: 'The synthetic transaction does not exist in the empty owner account; no evidence file is parsed before ownership is verified.' },
 };
 
 /** Mutations for which `{}` (or no body) is a complete request; malformed JSON must still be 400/422. */
@@ -102,7 +113,7 @@ const operations: Operation[] = (await Promise.all(routes.map(async route => {
 }))).flat();
 const exercised = operations.filter(operation => !(operation.key in SKIPPED));
 const mutating = exercised.filter(operation => (MUTATING_METHODS as readonly string[]).includes(operation.method));
-const userMutating = mutating.filter(operation => !(operation.key in PUBLIC_ANONYMOUS) && !(operation.key in SERVICE_OPERATIONS));
+const userMutating = mutating.filter(operation => !(operation.key in PUBLIC_ANONYMOUS) && !(operation.key in PUBLIC_CAPABILITIES) && !(operation.key in SERVICE_OPERATIONS));
 const table = (list: Operation[]) => list.map(operation => [operation.key, operation] as const);
 
 /** Runs one operation. An escaped exception is modelled as Next does: a text/plain 500 with no detail. */
@@ -118,14 +129,17 @@ async function call(operation: Operation, init: Parameters<typeof contractReques
 }
 
 function anonymousStatuses(operation: Operation): number[] {
-  return [...(PUBLIC_ANONYMOUS[operation.key]?.statuses ?? [401, 403, 404]), ...(KNOWN_GAPS[operation.key]?.anonymous ?? [])];
+  return [...(PUBLIC_ANONYMOUS[operation.key]?.statuses ?? PUBLIC_CAPABILITIES[operation.key]?.statuses ?? [401, 403, 404]), ...(KNOWN_GAPS[operation.key]?.anonymous ?? [])];
 }
 
 function expectedForEmptyBody(operation: Operation, body: string): number[] {
   const gap = KNOWN_GAPS[operation.key]?.mutating ?? [];
+  if (operation.key in PUBLIC_CAPABILITIES) return body === '{}' ? [404] : [400];
   if (operation.key in SERVICE_OPERATIONS) return [...(PUBLIC_ANONYMOUS[operation.key]?.statuses ?? [401, 403]), ...gap];
   const bodyless = BODYLESS_MUTATIONS[operation.key];
   if (bodyless) return [...bodyless.statuses, ...gap];
+  const resourceFirst = RESOURCE_FIRST_MUTATIONS[operation.key];
+  if (resourceFirst) return [...resourceFirst.statuses, ...gap];
   const accepted = body === '{' ? undefined : EMPTY_BODY_ACCEPTED[operation.key];
   return [...(accepted?.statuses ?? []), 400, 422, ...gap];
 }
@@ -143,9 +157,9 @@ describe('discovery', () => {
   });
   it('lists only real operations in the exception tables', () => {
     const keys = new Set(operations.map(operation => operation.key));
-    const tables = [PUBLIC_ANONYMOUS, SERVICE_OPERATIONS, BODYLESS_MUTATIONS, EMPTY_BODY_ACCEPTED, KNOWN_GAPS, REPORTED_OUT_OF_SCOPE, SKIPPED];
+    const tables = [PUBLIC_ANONYMOUS, PUBLIC_CAPABILITIES, SERVICE_OPERATIONS, BODYLESS_MUTATIONS, RESOURCE_FIRST_MUTATIONS, EMPTY_BODY_ACCEPTED, KNOWN_GAPS, REPORTED_OUT_OF_SCOPE, SKIPPED];
     for (const key of tables.flatMap(Object.keys)) expect(keys, key).toContain(key);
-    for (const key of [...Object.keys(BODYLESS_MUTATIONS), ...Object.keys(EMPTY_BODY_ACCEPTED)]) expect(mutating.map(operation => operation.key), key).toContain(key);
+    for (const key of [...Object.keys(BODYLESS_MUTATIONS), ...Object.keys(RESOURCE_FIRST_MUTATIONS), ...Object.keys(EMPTY_BODY_ACCEPTED)]) expect(mutating.map(operation => operation.key), key).toContain(key);
   });
   it('keeps the platform no-store header for every API path', () => {
     // Handlers that set Cache-Control must say no-store (asserted per response); this rule covers the rest.
@@ -167,6 +181,25 @@ describe('unauthenticated callers', () => {
     expect(harness.storageCalls).toEqual([]);
     // The Plaid webhook's signature check fetches Plaid's verification key; nothing else may call a provider.
     if (operation.key !== 'POST /api/plaid/webhook') expect(harness.plaidCalls).toEqual([]);
+  });
+});
+
+describe('public capability downloads', () => {
+  const capabilityOperations = exercised.filter(operation => operation.key in PUBLIC_CAPABILITIES);
+  it.each(table(capabilityOperations))('%s hides unknown tokens without consulting Firebase authentication or Storage', async (_key, operation) => {
+    const { response, text } = await call(operation, { auth: 'anonymous', body: { id: '00000000-0000-4000-8000-000000000001', token: 'A'.repeat(43) } });
+    expect(response.status, text).toBe(404);
+    expect(harness.auth.verifyIdToken).not.toHaveBeenCalled();
+    expect(harness.auth.verifySessionCookie).not.toHaveBeenCalled();
+    expect(harness.storageCalls).toEqual([]);
+    expect(harness.fetch).not.toHaveBeenCalled();
+    expect(leakMarkersIn(text)).toEqual([]);
+    expect(response.headers.get('cache-control')).toContain('no-store');
+  });
+  it.each(table(capabilityOperations))('%s rejects cross-site requests even with a capability-shaped body', async (_key, operation) => {
+    const { response, text } = await call(operation, { auth: 'cookie-cross-site', body: { id: '00000000-0000-4000-8000-000000000001', token: 'A'.repeat(43) } });
+    expect(response.status, text).toBe(403);
+    expect(harness.storageCalls).toEqual([]);
   });
 });
 

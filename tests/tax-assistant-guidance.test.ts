@@ -135,10 +135,10 @@ describe('reviewed guidance routing', () => {
     expect(response.assessment.sources.length).toBeGreaterThan(0);
   });
 
-  it('describes the indexed 2027 1099-NEC threshold as unpublished instead of reusing the 2026 amount', () => {
+  it('holds the indexed 2027 1099-NEC threshold pending verification instead of reusing the 2026 amount', () => {
     const request = { ...input, taxYear: 2027 as const };
     const assessment = validateAssessment({ topic: 'information-returns', missingFactIds: [], photoCategories: [] }, request);
-    expect(assessment.answer).toContain('2027 amount has not been published');
+    expect(assessment.answer).toContain('2027 amount remains pending verification');
     expect(assessment.answer).not.toContain('$2,000 or more made in 2027');
     expect(guidanceResponse(request, assessment).assessment.yearNotice).toContain('pending');
   });
@@ -154,7 +154,96 @@ describe('reviewed guidance routing', () => {
     const response = guidanceResponse(request, validateAssessment(vehicle, request));
     expect(response.assessment.taxYear).toBe(2027);
     expect(response.assessment.yearNotice).toContain('does not substitute 2026 limits');
+    expect(response.assessment.yearNotice).toContain('return filed in 2028');
+    expect(response.assessment.yearNotice).toContain('a return filed in 2027 generally concerns tax year 2026');
+    expect(response.assessment.yearNotice).toContain('Published 2027 HSA limits');
+    expect(response.assessment.yearNotice).toContain('September 23, 2026');
+    expect(response.assessment.yearNotice).toContain('Full-return calculations remain unavailable');
     expect(response.reply).not.toMatch(/\$|32,000|2,560,000/);
+  });
+
+  it('answers 2027 HSA questions with the published annual limits and the eligibility exceptions', () => {
+    const request = { ...input, taxYear: 2027 as const, message: 'Can I contribute to an HSA in 2027 with a bronze plan?' };
+    const assessment = validateAssessment({ topic: 'hsa', missingFactIds: ['hsa:1'], photoCategories: [] }, request);
+    const response = guidanceResponse(request, assessment);
+    expect(assessment.status).toBe('needs_details');
+    for (const value of ['$4,500', '$9,000', '$1,750', '$3,500', '$8,700', '$17,400']) expect(assessment.answer).toContain(value);
+    expect(assessment.answer).toContain('qualifying individual-market bronze and catastrophic plans');
+    expect(assessment.answer).toContain('Other disqualifying coverage, Medicare enrollment and dependent status');
+    expect(assessment.answer).toContain('Employer contributions count toward the limit');
+    expect(response.assessment.sources.map(source => source.url)).toContain('https://www.irs.gov/pub/irs-drop/rp-26-24.pdf');
+    expect(response.assessment.sources.map(source => source.url)).toContain('https://www.irs.gov/pub/irs-drop/n-26-05.pdf');
+    expect(response.assessment.deductibleAmount).toBeNull();
+  });
+
+  it.each([2026, 2027] as const)('returns only the applicable year source for Marketplace guidance in %s', (taxYear) => {
+    const request = { ...input, taxYear, message: 'Does an employer offer stop my Marketplace subsidy?' };
+    const assessment = validateAssessment({ topic: 'marketplace-premium-credit', missingFactIds: ['marketplace-premium-credit:3'], photoCategories: [] }, request);
+    const response = guidanceResponse(request, assessment);
+    expect(assessment.status).toBe('needs_details');
+    expect(assessment.answer).toContain(taxYear === 2027 ? '10.22%' : '9.96%');
+    expect(assessment.answer).toContain('For plan years beginning in');
+    expect(assessment.answer).toContain('lowest-cost self-only option meeting minimum value');
+    expect(assessment.answer).toContain('spouse/dependent affordability uses the applicable family-coverage cost');
+    expect(assessment.answer).toContain('Form 1095-A and Form 8962');
+    expect(assessment.answer).toContain('excess advance credits have no repayment cap');
+    expect(response.assessment.sources.map(source => source.id)).toEqual(['marketplace-premium-credit', `aca-${taxYear}-percentages`]);
+    expect(response.assessment.deductibleAmount).toBeNull();
+  });
+
+  it('keeps 2027 QBI minimum and qualifying income floor pending instead of presenting prior-year amounts as current', () => {
+    const request = { ...input, taxYear: 2027 as const };
+    const assessment = validateAssessment({ topic: 'qbi-deduction', missingFactIds: [], photoCategories: [] }, request);
+    expect(assessment.answer).toContain('Both that minimum deduction and its qualifying income floor');
+    expect(assessment.answer).toContain('their 2027 amounts remain pending verification');
+    expect(assessment.answer).toContain('not stated as 2027 limits');
+    expect(assessment.answer).toContain('materially participate');
+  });
+
+  it('explains the new Saver’s Match without turning the match into an ordinary cash refund', () => {
+    const request = { ...input, taxYear: 2027 as const };
+    const assessment = validateAssessment({ topic: 'savers-match', missingFactIds: ['savers-match:2'], photoCategories: [] }, request);
+    const response = guidanceResponse(request, assessment);
+    expect(assessment.answer).toContain('50% of the first $2,000');
+    expect(assessment.answer).toContain('designated eligible retirement account');
+    expect(assessment.answer).toContain('under $100 has a separate refundable-credit election');
+    expect(assessment.answer).toContain('$20,500');
+    expect(assessment.answer).toContain('$71,000');
+    expect(assessment.answer).toContain('2027 return filed in 2028');
+    expect(assessment.answer).toContain('does not calculate, claim or deposit');
+    expect(response.assessment.deductibleAmount).toBeNull();
+  });
+
+  it('requires organization, date and state-credit facts before scholarship credit guidance', () => {
+    const request = { ...input, taxYear: 2027 as const };
+    const assessment = validateAssessment({ topic: 'scholarship-contribution-credit', missingFactIds: ['scholarship-contribution-credit:2'], photoCategories: [] }, request);
+    expect(assessment.status).toBe('needs_details');
+    expect(assessment.answer).toContain('up to $1,700');
+    expect(assessment.answer).toContain('nonrefundable');
+    expect(assessment.answer).toContain('up to five years');
+    expect(assessment.answer).toContain('state credit allowed for the qualified contribution reduces the federal credit');
+    expect(assessment.answer).toContain('cannot also receive a charitable deduction');
+    expect(assessment.answer).toContain('does not verify a specific organization');
+    expect(assessment.questions[0]).toContain('eligible list');
+  });
+
+  it.each(['savers-match', 'scholarship-contribution-credit'] as const)('does not apply the new %s to tax year 2026 merely because it is filed in 2027', (topic) => {
+    const assessment = validateAssessment({ topic, missingFactIds: [], photoCategories: [] }, input);
+    expect(assessment.answer).toMatch(/does not apply to (tax year 2026 retirement contributions|donations made in tax year 2026)/);
+    expect(assessment.answer).toContain('filed');
+    expect(assessment.answer).toContain('2027');
+  });
+
+  it.each([2026, 2027] as const)('distinguishes Schedule SE net earnings from profit and preserves employee exceptions in %s', (taxYear) => {
+    const request = { ...input, taxYear };
+    const assessment = validateAssessment({ topic: 'side-hustle-w2', missingFactIds: [], photoCategories: [] }, request);
+    expect(assessment.answer).toContain('Schedule SE net earnings reach $400');
+    expect(assessment.answer).toContain('net earnings are usually 92.35% of net profit');
+    expect(assessment.answer).not.toContain('net profit reaches $400');
+    expect(assessment.answer).toContain('0.9% Additional Medicare Tax');
+    expect(assessment.answer).toContain('limited employee exceptions require separate review');
+    expect(assessment.answer).not.toContain('or anywhere else');
+    expect(guidanceResponse(request, assessment).assessment.sources.map(source => source.url)).toContain('https://www.irs.gov/instructions/i2106');
   });
 
   it('bounds follow-up history and retains only user/assistant text', () => {

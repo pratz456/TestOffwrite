@@ -1,3 +1,4 @@
+import { assertWageOwnershipScope, TaxCalculationScopeReviewRequiredError } from '@/lib/tax-rules/calculation-scope';
 import { readTaxExportTransactions } from './tax-export-transactions';
 import { getUserProfileServer } from '@/lib/firebase/profiles-server';
 import { getScheduleCSettings } from '@/lib/firebase/settings-server';
@@ -34,6 +35,8 @@ export async function loadScheduleCRecords(uid: string, taxYear: number) {
   const w2 = summarizeW2Income(wages.docs.map(doc => doc.data()));
   return {
     taxYear, profile: profile.data, transactions, receipts, expense, w2, w2Count: wages.docs.length,
+    w2SocialSecurityBoxesComplete: wages.docs.every(doc => doc.data().box3SocialSecurityWages != null || doc.data().socialSecurityWages != null),
+    w2MedicareBoxesComplete: wages.docs.every(doc => doc.data().box5MedicareWages != null || doc.data().medicareWages != null),
     deductions: deductions.empty ? {} : deductions.docs[0].data(),
     assets: settings.data.assets, homeOffice: settings.data.homeOffice, depreciationElections: settings.data.depreciationElections,
     /** §179(b)(3) business income: Schedule C profit before assets plus employee wages (Pub 946 ch. 2). */
@@ -59,7 +62,19 @@ export async function loadScheduleSEData(uid: string, taxYear: number) {
   const scheduleC = scheduleCProfitFromRecords(records);
   const netProfitBeforeDepreciation = scheduleC.profitBeforeAssets;
   const { depreciationDeduction, deMinimisExpense, homeOfficeDeduction, netProfit } = scheduleC;
-  const calculation = calcScheduleSE({ scheduleCNetProfit: netProfit, taxYear }, filingStatus, w2.socialSecurityWages, w2.medicareWagesForSE);
+  let organizer: Record<string, unknown> | undefined;
+  if (netProfit > 0 && records.w2Count > 0) {
+    if (!records.w2SocialSecurityBoxesComplete) throw new TaxCalculationScopeReviewRequiredError('Complete every W-2 Social Security wages amount (Box 3, including explicit zero) before calculating self-employment tax against the remaining wage base');
+    if (!records.w2MedicareBoxesComplete) throw new TaxCalculationScopeReviewRequiredError('Complete every W-2 Box 5 Medicare wages amount, including explicit zero, before coordinating self-employment and Additional Medicare tax');
+    if (filingStatus === 'married_filing_jointly' && (w2.wages > 0 || w2.socialSecurityWages > 0 || w2.medicareWagesForSE > 0)) {
+      const intake = await adminDb.collection('tax_organizers').where('userId', '==', uid).where('taxYear', '==', taxYear).limit(1).get();
+      organizer = intake.empty ? undefined : intake.docs[0].data();
+    }
+  }
+  const ownerSocialSecurityWages = assertWageOwnershipScope(filingStatus, netProfit, w2.wages, {
+    socialSecurityWages: w2.socialSecurityWages, medicareWages: w2.medicareWages,
+  }, { taxYear, organizer });
+  const calculation = calcScheduleSE({ scheduleCNetProfit: netProfit, taxYear }, filingStatus, ownerSocialSecurityWages, w2.medicareWagesForSE);
   const ded = records.deductions;
   const amount = (value: unknown) => {
     if (value === undefined || value === null || value === '') return 0;
@@ -69,16 +84,17 @@ export async function loadScheduleSEData(uid: string, taxYear: number) {
   const healthInsurancePremiums = amount(ded.healthInsurancePremiums);
   const totalRetirement = amount(ded.sepIraContribution) + amount(ded.solo401kEmployeeContribution) + amount(ded.solo401kEmployerContribution);
   const hsaContribution = amount(ded.hsaContribution), studentLoanInterest = amount(ded.studentLoanInterest);
-  const aboveTheLineDeductions = calculation.halfSEDeduction + healthInsurancePremiums + totalRetirement + hsaContribution + studentLoanInterest;
   return {
     userProfile: { ...profile, filing_status: filingStatus }, taxYear, filingStatus,
-    calculation, w2SocialSecurityWages: w2.socialSecurityWages, w2MedicareWages: w2.medicareWagesForSE,
+    calculation, w2SocialSecurityWages: ownerSocialSecurityWages, w2MedicareWages: w2.medicareWagesForSE,
     grossReceipts: receipts.grossReceipts, totalExpenses: expense.totalDeductible,
     netProfitBeforeDepreciation, deMinimisExpense, depreciationDeduction, tentativeProfit: scheduleC.tentativeProfit, homeOfficeDeduction, netProfit,
     homeOffice: scheduleC.homeOffice.calculation, scheduleCWarnings: scheduleC.warnings,
     w2Wages: w2.wages, w2Withheld: w2.federalWithheld, w2Count: records.w2Count,
     healthInsurancePremiums, totalRetirement, hsaContribution, priorYearTotalTax: amount(ded.priorYearTotalTax), studentLoanInterest,
-    aboveTheLineDeductions, totalIncome: netProfit + w2.wages, estimatedAGI: netProfit + w2.wages - aboveTheLineDeductions,
+    // This loader calculates Schedule SE only. Saved contribution totals cannot
+    // become allowed deductions or AGI without the annual eligibility worksheets.
+    aboveTheLineDeductions: null, totalIncome: netProfit + w2.wages, estimatedAGI: null,
     dataSource: 'auto', calculationScope: 'Nonfarm SE planning for one taxpayer. Partial income picture, not an annual return or final AGI. Confirm wage ownership; spouses require separate Schedule SE calculations.',
   };
 }

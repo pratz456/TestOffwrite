@@ -16,6 +16,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveLocalEmulatorConfig } from './lib/firebase/local-emulator-config';
 import { gaMeasurementId, GOOGLE_TAG_CSP_SOURCES } from './lib/analytics/ga-measurement-id';
+import { isLocalAccountPreview, localAccountPreviewBlocksBankRequest } from './lib/firebase/local-account-preview';
 
 // ── In-memory rate limit store (resets on cold start) ──────────────────────
 // First line only. Middleware runs in the edge runtime, so it cannot use
@@ -156,6 +157,18 @@ const BLOCKED_PATHS = [
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const ip = getClientIP(request);
+  // A real-account preview must not run provider migrations, charges or webhooks.
+  try {
+    if (isLocalAccountPreview() && (localAccountPreviewBlocksBankRequest(request)
+      || pathname === '/api/stripe' || pathname.startsWith('/api/stripe/')
+      || ['/api/subscriptions/fix-access', '/api/subscriptions/verify-stripe', '/api/user/delete'].some(path => pathname === path || pathname.startsWith(`${path}/`)))) {
+      return NextResponse.json({ error: 'Bank, billing and account deletion actions are disabled in this local preview.', code: 'LOCAL_ACCOUNT_PREVIEW' },
+        { status: 403, headers: { 'Cache-Control': 'private, no-store' } });
+    }
+  } catch {
+    return NextResponse.json({ error: 'Local account preview configuration is invalid.' },
+      { status: 503, headers: { 'Cache-Control': 'private, no-store' } });
+  }
 
   // ── Block common attack paths ─────────────────────────────────────────
   for (const blocked of BLOCKED_PATHS) {

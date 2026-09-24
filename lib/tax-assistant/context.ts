@@ -237,13 +237,16 @@ const VEHICLE_TOPICS = new Set(['car-mileage-vs-actual', 'vehicles-records', 'pa
 const FILING_TOPICS = new Set(['health-insurance', 'retirement-plans', 'hsa', 'qbi-deduction', 'estimated-taxes', 'side-hustle-w2', 'business-losses', 'charitable-gifts', 'charitable-non-itemizer', 'senior-deduction', 'tips-overtime', 'vehicle-loan-interest']);
 const ENTITY_TOPICS = new Set(['owner-draws', 'family-employees', 'contract-labor', 'when-to-see-a-cpa', 'health-insurance', 'retirement-plans', 'qbi-deduction', 'business-expenses']);
 const STATE_TOPICS = new Set(['state-taxes-licenses', 'estimated-taxes', 'when-to-see-a-cpa', 'side-hustle-w2']);
+// Saved business facts and merchant charges do not establish personal credit or match eligibility.
+// These packets need topic-specific context before any personalized placement advice is appropriate.
+const PERSONAL_CREDIT_TOPICS = new Set(['marketplace-premium-credit', 'savers-match', 'scholarship-contribution-credit']);
 
 /**
  * The "For you" paragraph. Every number comes from the owner's own rows; every rule comes from the
  * reviewed packet. Returns null when nothing personal is known, so the UI shows nothing rather than filler.
  */
 export function composeForYou(context: AssistantContext | null | undefined, topic: string): ForYou | null {
-  if (!context || topic === 'not-supported') return null;
+  if (!context || topic === 'not-supported' || PERSONAL_CREDIT_TOPICS.has(topic)) return null;
   const { profile, merchant } = context;
   const sentences: string[] = [];
   const packet = guidanceSource(topic);

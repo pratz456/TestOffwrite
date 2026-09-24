@@ -9,8 +9,6 @@ import {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
-  setPersistence,
-  browserLocalPersistence,
   browserPopupRedirectResolver,
   signInWithRedirect,
   getRedirectResult,
@@ -33,9 +31,8 @@ export interface AuthUser {
 
 export async function signInUser(email: string, password: string): Promise<{ data: { user: AuthUser } | null; error: any }> {
   try {
-    // Set persistence to local so session persists across tabs and reloads
-    await setPersistence(auth, browserLocalPersistence);
-
+    // Reuse initializeAuth's supported persistence, as Google sign-in does.
+    // Forcing localStorage can reject an otherwise supported browser session.
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
 

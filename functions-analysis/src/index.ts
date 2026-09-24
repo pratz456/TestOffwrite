@@ -1,6 +1,13 @@
+import { hasAnalysisProfileChange } from './profile-fields';
 import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { defineInt, defineSecret, defineString } from 'firebase-functions/params';
 import { callAnalysisWorker, shouldProcessTask, shouldQueueBankWrite } from './bridge';
+import { onSchedule } from 'firebase-functions/v2/scheduler';
+import { getApps, initializeApp } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
+import { getStorage } from 'firebase-admin/storage';
+import * as logger from 'firebase-functions/logger';
+import { cleanupPreparerHandoffs } from './preparer-retention';
 
 const workerSecret = defineSecret('ANALYSIS_WORKER_SECRET');
 const workerOrigin = defineString('ANALYSIS_WORKER_ORIGIN', { default: '' });
@@ -26,4 +33,31 @@ export const processBankTransactionAnalysis = onDocumentWritten({ ...options, do
   const after = event.data?.after.data();
   if (!shouldProcessTask(event.data?.before.data(), after)) return;
   await callAnalysisWorker({ action: 'process', taskId: event.params.taskId, generation: after!.generation }, settings(event.time));
+});
+
+// Tax/business facts only: names, emails, billing and sync metadata never trigger model work.
+export const queueProfileAnalysisRefresh = onDocumentWritten({ ...options, document: 'user_profiles/{userId}' }, async event => {
+  if (!hasAnalysisProfileChange(event.data?.before.data(), event.data?.after.data())) return;
+  await callAnalysisWorker({ action: 'enqueue-profile-refresh', userId: event.params.userId }, settings(event.time));
+});
+
+export const processProfileAnalysisRefresh = onDocumentWritten({ ...options, document: 'profile_analysis_refresh/{userId}' }, async event => {
+  const after = event.data?.after.data();
+  if (!shouldProcessTask(event.data?.before.data(), after)) return;
+  await callAnalysisWorker({ action: 'process-profile-refresh', userId: event.params.userId, generation: after!.generation }, settings(event.time));
+});
+
+/** The link expires immediately; private package bytes are swept hourly. */
+export const cleanupExpiredPreparerHandoffs = onSchedule({
+  schedule: 'every 1 hours', timeZone: 'UTC', region: 'us-central1', retryCount: 3,
+  minBackoffSeconds: 300, maxBackoffSeconds: 1800, maxInstances: 1, concurrency: 1,
+  timeoutSeconds: 540, memory: '256MiB',
+}, async () => {
+  const app = getApps()[0] ?? initializeApp();
+  // Use this deployment's configured bucket; never infer a production fallback.
+  const bucketName = process.env.FIREBASE_STORAGE_BUCKET || app.options.storageBucket;
+  if (!bucketName) throw new Error('HANDOFF_RETENTION_STORAGE_CONFIGURATION_REQUIRED');
+  const result = await cleanupPreparerHandoffs(getFirestore(app), getStorage(app).bucket(bucketName));
+  logger.info('Private preparer package retention completed', result);
+  if (result.failed) throw new Error('HANDOFF_RETENTION_RETRY_REQUIRED');
 });

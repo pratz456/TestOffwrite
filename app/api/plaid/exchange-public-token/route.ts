@@ -1,11 +1,13 @@
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+import { assertReconnectCanLink, saveReconnectConnection } from '@/lib/plaid/reconnect';
 import { NextResponse } from 'next/server';
 import { plaidClient } from '@/lib/plaid/client';
 import { assertPlaidTokenEncryptionConfigured, savePlaidConnection } from '@/lib/plaid/connections';
 import { syncUserTransactionsIncremental } from '@/lib/plaid/sync-helper';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import { invalidJsonResponse, readJsonObject } from '@/app/api/_lib/body';
+import { assertBankHistoryReadyForNewConnection, BANK_HISTORY_REVIEW_REQUIRED, BANK_HISTORY_REVIEW_MESSAGE } from '@/lib/plaid/history-review';
 import { ACCOUNT_DELETION_IN_PROGRESS, beginPlaidLinkOperation, retainPlaidLinkRecovery, finishPlaidLinkOperation,
   markPlaidLinkOperationUnresolved, existingPlaidLinkOwner, quarantinePlaidLinkRecovery } from '@/lib/plaid/link-operations';
 
@@ -23,6 +25,9 @@ export async function POST(req: Request) {
   if (typeof public_token !== 'string' || !public_token || public_token.length > 2048) return NextResponse.json({ error: 'Missing public_token' }, { status: 400 });
   try {
     assertPlaidTokenEncryptionConfigured();
+    // An already-issued Link/public token must not bypass the history check.
+    if (body.reconnectSessionId !== undefined) await assertReconnectCanLink(uid, body.reconnectSessionId);
+    else await assertBankHistoryReadyForNewConnection(uid);
     operationId = await beginPlaidLinkOperation(uid);
     const exchanged = await plaidClient.itemPublicTokenExchange({ public_token });
     const { access_token, item_id } = exchanged.data;
@@ -33,7 +38,8 @@ export async function POST(req: Request) {
     if (response.data.item.item_id !== item_id) throw new Error('Bank item mismatch');
     const accounts = response.data.accounts;
     if (!accounts.length) throw new Error('No accounts returned by bank');
-    await savePlaidConnection({ uid, itemId: item_id, accessToken: access_token, accountIds: accounts.map(account => account.account_id),
+    if (typeof body.reconnectSessionId === 'string') await saveReconnectConnection({ uid, sessionId: body.reconnectSessionId, itemId: item_id, accessToken: access_token, accounts, institutionId: response.data.item.institution_id ?? null });
+    else await savePlaidConnection({ uid, itemId: item_id, accessToken: access_token, accountIds: accounts.map(account => account.account_id),
       accounts, institutionId: response.data.item.institution_id ?? null });
     saved = true;
     await finishPlaidLinkOperation(uid, operationId);
@@ -41,6 +47,7 @@ export async function POST(req: Request) {
     // Initialize Transactions Sync even when initial data is not ready. Subsequent
     // signed initial/historical webhooks retry this same item's cursor safely.
     const sync = await syncUserTransactionsIncremental(uid, item_id);
+    if (typeof body.reconnectSessionId === 'string') return NextResponse.json({ ok: true, success: true, reconnectSessionId: body.reconnectSessionId, historyReviewRequired: true, itemId: item_id, importStatus: sync.success ? 'review' : 'pending' });
     return NextResponse.json({ ok: true, itemId: item_id, item_id, accountId: accounts[0].account_id,
       accounts: accounts.map(account => ({ ...account, plaid_item_id: item_id })), accountsProcessed: accounts.length,
       imported: sync.transactionsSaved, successfulWrites: sync.transactionsSaved, failedWrites: 0,
@@ -79,6 +86,9 @@ export async function POST(req: Request) {
     }
     const deleting = error instanceof Error && error.message === ACCOUNT_DELETION_IN_PROGRESS;
     if (deleting) return NextResponse.json({ code: ACCOUNT_DELETION_IN_PROGRESS, error: 'Account deletion is in progress. Bank connections cannot be added.' }, { status: 409 });
+    if (error instanceof Error && error.message === BANK_HISTORY_REVIEW_REQUIRED) {
+      return NextResponse.json({ code: BANK_HISTORY_REVIEW_REQUIRED, error: BANK_HISTORY_REVIEW_MESSAGE }, { status: 409 });
+    }
     const duplicate = error instanceof Error && error.message === 'BANK_ALREADY_CONNECTED';
     return NextResponse.json({ error: duplicate ? 'BANK_ALREADY_CONNECTED' : 'Unable to connect bank. Please retry.',
       ...(duplicate ? { message: 'This bank connection is already saved.' } : {}) }, { status: duplicate ? 409 : 502 });

@@ -18,6 +18,8 @@ import { getEstimatedTaxDeadline } from '@/lib/tax-provider/payment-deadlines';
 import { calculateFederalIncomeTax } from './federal-brackets';
 import { getFederalTaxRules, type FederalFilingStatus } from './federal-year-rules';
 import { normalizeFilingStatus } from './filing-status';
+import { assertWageOwnershipScope, TaxCalculationScopeReviewRequiredError } from './calculation-scope';
+import { QBIReviewRequiredError } from './qbi';
 
 /** Years with a complete published parameter set that the public tools may present. */
 export const PUBLIC_CALCULATOR_TAX_YEARS = [2025, 2026] as const;
@@ -77,6 +79,8 @@ export interface Public1099EstimateInput {
   grossIncome: number;
   expenses: number;
   w2Wages: number;
+  w2SocialSecurityWages?: number;
+  w2MedicareWages?: number;
   filingStatus: string;
   taxYear: PublicCalculatorTaxYear;
 }
@@ -88,7 +92,7 @@ export interface Public1099Estimate {
   agi: number;
   standardDeduction: number;
   qbiDeduction: number;
-  /** True when taxable income exceeds the §199A threshold, where the tool conservatively omits QBI. */
+  /** Above-threshold income can be returned only when there is no positive business QBI. */
   qbiAboveThreshold: boolean;
   taxableIncome: number;
   incomeTax: number;
@@ -108,10 +112,26 @@ export function estimate1099FederalTax(input: Public1099EstimateInput): Public10
   const { taxYear } = input;
   const filingStatus = normalizeFilingStatus(input.filingStatus);
   const rules = getFederalTaxRules(taxYear);
-  const netProfit = Math.max(0, input.grossIncome - Math.max(0, input.expenses));
+  const netProfit = input.grossIncome - Math.max(0, input.expenses);
+  if (netProfit < 0) {
+    throw new TaxCalculationScopeReviewRequiredError('This simplified public calculator does not model a Schedule C loss or its limits against other income');
+  }
   const w2Wages = Math.max(0, input.w2Wages);
+  if (w2Wages > 0 && (input.w2SocialSecurityWages === undefined || input.w2MedicareWages === undefined)) {
+    throw new TaxCalculationScopeReviewRequiredError('A W-2 estimate requires Box 3 Social Security wages and Box 5 Medicare wages, including explicit zero');
+  }
+  if ([input.w2SocialSecurityWages, input.w2MedicareWages]
+    .some(value => value !== undefined && (!Number.isFinite(value) || value < 0))) {
+    throw new RangeError('W-2 Box 3 and Box 5 amounts must be finite and nonnegative.');
+  }
+  const w2SocialSecurityWages = Math.max(0, input.w2SocialSecurityWages ?? 0);
+  const w2MedicareWages = Math.max(0, input.w2MedicareWages ?? 0);
+  assertWageOwnershipScope(filingStatus, netProfit, w2Wages, {
+    socialSecurityWages: w2SocialSecurityWages,
+    medicareWages: w2MedicareWages,
+  });
 
-  const se = calcScheduleSE({ scheduleCNetProfit: netProfit, taxYear }, filingStatus, w2Wages, w2Wages);
+  const se = calcScheduleSE({ scheduleCNetProfit: netProfit, taxYear }, filingStatus, w2SocialSecurityWages, w2MedicareWages);
 
   const totalIncome = netProfit + w2Wages;
   const agi = Math.max(0, totalIncome - se.halfSEDeduction);
@@ -119,18 +139,24 @@ export function estimate1099FederalTax(input: Public1099EstimateInput): Public10
   const taxableBeforeQBI = Math.max(0, agi - deduction);
 
   // Below the threshold the deduction is 20% of QBI capped at 20% of taxable income (§199A(a), (b)(2)).
-  // Above it, the W-2 wage / UBIA limits and SSTB rules need facts this tool does not collect, so QBI is omitted.
+  // Above it, the W-2 wage / UBIA limits and SSTB rules need facts this tool does not collect.
   const qbiAboveThreshold = taxableBeforeQBI > rules.qbiThreshold[filingStatus];
+  const qualifiedBusinessIncome = Math.max(0, netProfit - se.halfSEDeduction);
+  if (qualifiedBusinessIncome > 0 && qbiAboveThreshold) {
+    throw new QBIReviewRequiredError(taxYear, rules.qbiThreshold[filingStatus]);
+  }
   let qbiDeduction = 0;
-  if (netProfit > 0 && !qbiAboveThreshold) {
-    const qualifiedBusinessIncome = Math.max(0, netProfit - se.halfSEDeduction);
+  if (qualifiedBusinessIncome > 0) {
     qbiDeduction = Math.min(qualifiedBusinessIncome * 0.20, taxableBeforeQBI * 0.20);
+    if (taxYear >= 2026 && qualifiedBusinessIncome >= 1000 && qbiDeduction < 400) {
+      throw new TaxCalculationScopeReviewRequiredError('The 2026 $400 minimum QBI deduction may change this result, but eligibility requires at least $1,000 of aggregate QBI from materially participating active businesses');
+    }
   }
 
   const taxableIncome = Math.max(0, taxableBeforeQBI - qbiDeduction);
   const incomeTax = calculateFederalIncomeTax(taxableIncome, filingStatus, taxYear);
   const additionalMedicareTax = se.additionalMedicareTax
-    + Math.max(0, w2Wages - additionalMedicareThreshold(filingStatus)) * 0.009;
+    + Math.max(0, w2MedicareWages - additionalMedicareThreshold(filingStatus)) * 0.009;
   const totalTax = incomeTax + se.totalSETax + additionalMedicareTax;
 
   return {

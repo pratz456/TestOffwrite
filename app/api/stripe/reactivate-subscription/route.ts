@@ -1,21 +1,14 @@
-import { assertSubscriptionOwner, refreshSubscriptionForUser } from '@/lib/stripe/subscription-sync';
+import { assertSubscriptionOwner, getStripeClient, refreshSubscriptionForUser } from '@/lib/stripe/subscription-sync';
 import { NextResponse } from 'next/server';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
-import Stripe from 'stripe';
 import { adminDb } from '@/lib/firebase/admin';
-
-function getStripeOrNull() {
-  const key = process.env.STRIPE_SECRET_KEY;
-  if (!key) return null;
-  return new Stripe(key, { apiVersion: '2025-10-29.clover' });
-}
 
 export async function POST(req: Request) {
   let uid: string;
   try { ({ uid } = await getUserFromReqOrThrow(req)); }
   catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
   try {
-    const stripe = getStripeOrNull();
+    const stripe = getStripeClient();
     if (!stripe) {
       return NextResponse.json({ error: 'Billing is temporarily unavailable' }, { status: 503 });
     }
@@ -47,9 +40,10 @@ export async function POST(req: Request) {
 
     // If subscription is not scheduled to cancel, return success
     if (!subscription.cancel_at_period_end) {
+      await refreshSubscriptionForUser(uid, stripe, subscriptionId);
       return NextResponse.json({
         success: true,
-        message: 'Subscription is already active',
+        message: 'Renewal is already enabled. Review billing for your current payment status.',
       });
     }
 
@@ -59,17 +53,15 @@ export async function POST(req: Request) {
     });
     await refreshSubscriptionForUser(uid, stripe, subscriptionId);
 
-    console.log(`✅ Reactivated subscription ${subscriptionId} for user ${uid}`);
-
     return NextResponse.json({
       success: true,
-      message: 'Subscription reactivated successfully',
+      message: 'Renewal is enabled. Review billing for your current payment status.',
     });
-  } catch (error: any) {
-    console.error('Error reactivating subscription:', error);
+  } catch {
+    console.error('Subscription renewal could not be verified');
     return NextResponse.json(
       { error: 'Failed to reactivate subscription. Please try again.' },
-      { status: 500 }
+      { status: 503 }
     );
   }
 }

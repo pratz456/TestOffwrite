@@ -107,7 +107,7 @@ export async function POST(request: NextRequest) {
       console.error(`Email notification error (non-blocking) for CPA question ${docRef.id}`);
     }
 
-    console.log(`New CPA question submitted: ${docRef.id} for user ${userId}`);
+    console.log(`New CPA question submitted: ${docRef.id}`);
 
     return NextResponse.json({
       success: true,
@@ -115,8 +115,8 @@ export async function POST(request: NextRequest) {
       message: 'Question submitted successfully'
     });
 
-  } catch (error) {
-    console.error('Error submitting CPA question:', error);
+  } catch {
+    console.error('Error submitting CPA question');
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
@@ -163,8 +163,8 @@ export async function GET(request: NextRequest) {
       questions
     });
 
-  } catch (error) {
-    console.error('Error fetching CPA questions:', error);
+  } catch {
+    console.error('Error fetching CPA questions');
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

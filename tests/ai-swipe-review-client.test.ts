@@ -19,6 +19,7 @@ vi.mock('@/lib/hooks/use-ai-availability', () => ({ useAiAvailability: () => ({ 
 vi.mock('sonner', () => ({ toast: { success: harness.toast } }));
 import { AiTaxAnalysisDialog, AiTaxExplanation } from '../components/ai-tax-explanation';
 import { AnalysisStatusNotice } from '../components/analysis-status-notice';
+import { ExplanationCard } from '../components/ai/explanation-card';
 import { ReviewTransactionsScreen } from '../components/review-transactions-screen';
 
 type Props = { children?: unknown; id?: string; disabled?: boolean; value?: unknown; 'aria-label'?: string; onClick?: () => unknown; onChange?: (event: { target: { value: string; checked?: boolean } }) => void; onTouchStart?: (event: unknown) => void; onTouchMove?: (event: unknown) => void; onTouchEnd?: () => void };
@@ -27,7 +28,7 @@ function walk(node: unknown): Element[] { if (Array.isArray(node)) return node.f
 function text(node: unknown): string { if (Array.isArray(node)) return node.map(text).join(''); if (isValidElement<Props>(node)) return text(node.props.children); return typeof node === 'string' || typeof node === 'number' ? String(node) : ''; }
 function action(page: unknown, label: string) { return walk(page).find(node => node.props.onClick && text(node).trim() === label)!; }
 const suggestion: AiReviewSuggestion = { id: 'suggestion-1', inputHash: 'saved-input', status: 'ok', category: 'supplies_small_tools', transactionKind: 'expense', isDeductible: true, deductiblePercent: 100, reasoning: 'These supplies support the documented client project.', questions: [], documentationRequired: ['Itemized receipt and project note'], irsReferences: ['IRC 162'], sources: [{ id: '162', title: 'Business expenses', url: 'https://www.irs.gov/publications/p334', edition: '2025 publication; 2026 rule review', reviewed_at: '2026-09-16' }], taxYear: 2026, policyVersion: 'synthetic-test-policy', model: 'synthetic-model', analyzedAt: 1, };
-const base = (changes: Partial<Transaction> = {}): Transaction => ({ id: 'tx-1', trans_id: 'tx-1', account_id: 'account-1', merchant_name: 'Synthetic supplies', amount: 25, category: 'GENERAL_MERCHANDISE', date: '2026-09-16', is_deductible: null, analysisStatus: 'completed', ai_suggestion: suggestion, ...changes });
+const base = (changes: Partial<Transaction> = {}): Transaction => ({ id: 'tx-1', trans_id: 'tx-1', account_id: 'account-1', merchant_name: 'Synthetic supplies', amount: 25, iso_currency_code: 'USD', category: 'GENERAL_MERCHANDISE', date: '2026-09-16', is_deductible: null, analysisStatus: 'completed', ai_suggestion: suggestion, ...changes });
 let records: Transaction[];
 function page(userId = 'owner', focusedTransactionId?: string) { harness.cursor = 0; return ReviewTransactionsScreen({ user: { id: userId }, onBack() {}, transactions: records, focusedTransactionId, onTransactionUpdate: harness.updated, onTransactionClick: harness.open }); }
 function serverReview(transaction = base()) { return Response.json({ success: true, transaction: { ...transaction, category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', is_deductible: true, review_status: 'confirmed', review_source: 'ai_confirmed' } }); }
@@ -252,6 +253,24 @@ describe('AI category swipe review', () => {
     expect(text(page())).toContain(suggestion.reasoning); expect(text(page())).toContain('1 needs review'); expect(harness.toast).not.toHaveBeenCalled();
   });
 
+  it.each(['pending', 'running'] as const)('replaces stale review guidance while profile analysis is %s, then displays the fresh snapshot', status => {
+    const staleExplanation = { headline: 'Earlier profile savings', why: 'Old profile reason', yourFacts: [], scheduleCLine: null,
+      estimatedTaxEffect: { low: 35, high: 35, basis: 'Old profile' }, strengthen: [], nextQuestion: null };
+    records = [base({ analysisStatus: status, analysisJobId: 'refresh-job', analysisRefreshReason: 'profile_changed', ai_explanation: staleExplanation })];
+    const pending = page();
+    expect(text(pending)).toContain('Updating AI review using your new profile. Confirmed categories stay saved.');
+    expect(text(pending)).not.toContain(suggestion.reasoning);
+    expect(walk(pending).some(node => node.type === ExplanationCard || node.type === AiTaxAnalysisDialog)).toBe(false);
+    expect(action(pending, 'Confirm category').props.disabled).toBe(true);
+    const fresh = { ...staleExplanation, headline: 'Updated profile explanation', estimatedTaxEffect: null };
+    records = [base({ ai_suggestion: { ...suggestion, id: 'updated-suggestion' }, ai_explanation: fresh, analysisRefreshReason: null })];
+    const completed = page();
+    expect(walk(completed).find(node => node.type === ExplanationCard)?.props).toMatchObject({ explanation: fresh });
+    expect(text(completed)).not.toContain('Updating AI review');
+    expect(action(completed, 'Confirm deduction').props.disabled).toBe(false);
+    expect(harness.request).not.toHaveBeenCalled();
+  });
+
   it('shows a real queued job separately from no analysis and allows an explicit analysis request', () => {
     records = [base({ ai_suggestion: null, analysisStatus: 'pending', analysisJobId: 'queued-job' })];
     expect(text(page())).toContain('Queued for automatic analysis');
@@ -264,7 +283,7 @@ describe('AI category swipe review', () => {
   it('counts the whole queued backlog on a queued card so a first import is not mistaken for a stall', () => {
     records = ['tx-1', 'tx-2', 'tx-3'].map(id => base({ id, trans_id: id, ai_suggestion: null, analysisStatus: 'pending', analysisJobId: `job-${id}` }));
     records.push(base({ id: 'done', trans_id: 'done' }));
-    expect(text(page())).toContain('Queued for automatic analysis. 3 transactions are waiting; a first import can take a while. Run it now or wait for the result.');
+    expect(text(page('owner', 'tx-1'))).toContain('Queued for automatic analysis. 3 transactions are waiting; a first import can take a while. Run it now or wait for the result.');
   });
 
   it.each([

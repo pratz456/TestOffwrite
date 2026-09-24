@@ -7,6 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ArrowLeft, ArrowRight, Bot, ChevronDown, ExternalLink, ImagePlus, Loader2, Send, X } from "lucide-react";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
+import { TaxAssistantAccountResult } from "@/components/tax-assistant-account-result";
+import { accountResultSchema, type AccountResult } from "@/lib/tax-assistant/account-contract";
+import { TaxYear2027Readiness } from "@/components/tax-year-2027-readiness";
 
 interface TaxAssistantScreenProps {
   user: { id: string; email?: string };
@@ -36,6 +39,7 @@ interface Message {
   imageDataUrl?: string;
   assessment?: Assessment;
   forYou?: ForYou | null;
+  account?: AccountResult;
 }
 
 interface PhotoAttachment {
@@ -48,9 +52,12 @@ const MAX_MESSAGE_LENGTH = 4000;
 const MAX_PHOTO_BYTES = 2 * 1024 * 1024;
 const PHOTO_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const STARTER_QUESTIONS = [
+  { label: "My next steps", question: "Which of my transactions need review?" },
+  { label: "Missing receipts", question: "Which of my purchases have no receipts attached?" },
+  { label: "My tax estimate", question: "What is my current estimated tax from my saved records?" },
   { label: "Laptop", question: "Can I write off a laptop I use for work and at home?" },
-  { label: "Client meal", question: "Can I deduct lunch with a client?" },
-  { label: "Records to keep", question: "What records should I keep for a business purchase?" },
+  { label: "What changed?", question: "How has my estimated tax changed since my last check?" },
+  { label: "Accountant package", question: "Help me prepare a package for my accountant." },
 ];
 
 const STATUS_LABELS: Record<Assessment["status"], string> = {
@@ -236,7 +243,7 @@ export function TaxAssistantScreen({ user, onBack }: TaxAssistantScreenProps) {
     setError(null);
 
     try {
-      const response = await makeAuthenticatedRequest("/api/ai/tax-assistant", {
+      const response = await makeAuthenticatedRequest("/api/ai/account-assistant", {
         method: "POST",
         signal: controller.signal,
         body: JSON.stringify({
@@ -265,7 +272,7 @@ export function TaxAssistantScreen({ user, onBack }: TaxAssistantScreenProps) {
       const contextContent = lastAssistantTurn?.role === "assistant" && typeof lastAssistantTurn.content === "string" && lastAssistantTurn.content.trim()
         ? lastAssistantTurn.content
         : fallbackContext;
-      setMessages([...history, userMessage, { role: "assistant", content: data.reply, contextContent: contextContent.slice(0, 6000), assessment, forYou: normalizeForYou(data.forYou) }]);
+      setMessages([...history, userMessage, { role: "assistant", content: data.reply, contextContent: contextContent.slice(0, 6000), assessment, account: accountResultSchema.safeParse(data.account).success ? data.account : undefined, forYou: normalizeForYou(data.forYou) }]);
       setInputValue("");
       setAnsweringQuestion(null);
       removePhoto();
@@ -311,7 +318,7 @@ export function TaxAssistantScreen({ user, onBack }: TaxAssistantScreenProps) {
             </select>
           </div>
           <p id={`${id}-year-note`} className="mt-1 text-xs leading-snug text-muted-foreground" role="status">
-            {taxYear === 2027 ? "2027 planning only · Inflation-indexed 2027 amounts are pending IRS publication." : "Guidance depends on your facts."}
+            {taxYear === 2027 ? "2027 guidance · Some limits published; complete tax estimates pending." : "Guidance depends on your facts."}
             <span className="sr-only"> Changing years starts a new conversation.</span>
           </p>
         </div>
@@ -319,10 +326,11 @@ export function TaxAssistantScreen({ user, onBack }: TaxAssistantScreenProps) {
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-4xl px-3 py-3 sm:px-6">
+          {taxYear === 2027 && <TaxYear2027Readiness />}
           {messages.length === 0 && !isLoading && (
             <div className="py-3 sm:py-5">
-              <h2 className="text-lg font-semibold tracking-tight text-foreground">Can I write this off?</h2>
-              <p className="mt-1 text-sm text-muted-foreground">Describe a purchase or add a photo.</p>
+              <h2 className="text-lg font-semibold tracking-tight text-foreground">Your taxes, with a next step</h2>
+              <p className="mt-1 text-sm text-muted-foreground">Check your records, understand your estimate, or ask about a purchase.</p>
               <div className="mt-3 grid grid-cols-3 gap-2">
                 {STARTER_QUESTIONS.map(({ label, question }) => (
                   <button key={question} type="button" disabled={busy} title={question}
@@ -342,6 +350,7 @@ export function TaxAssistantScreen({ user, onBack }: TaxAssistantScreenProps) {
                   {message.imageDataUrl && <Image src={message.imageDataUrl} alt="Photo included with your question" width={200} height={140} unoptimized className="mb-3 max-h-40 rounded-lg object-contain" />}
                   {message.assessment && <p className="mb-2 text-xs font-semibold text-primary">{STATUS_LABELS[message.assessment.status]} · {message.assessment.taxYear}</p>}
                   {message.role === "user" ? <p className="whitespace-pre-wrap">{message.content}</p> : renderMarkdown(message.content)}
+                  {message.account && <TaxAssistantAccountResult value={message.account} />}
                   {message.forYou && (() => {
                     const href = forYouHref(message.forYou.action);
                     return (
@@ -356,7 +365,12 @@ export function TaxAssistantScreen({ user, onBack }: TaxAssistantScreenProps) {
                       </section>
                     );
                   })()}
-                  {message.assessment?.yearNotice && <p className="mt-2 rounded-lg bg-muted px-2 py-1.5 text-xs text-muted-foreground">{message.assessment.yearNotice}</p>}
+                  {message.assessment?.yearNotice && (
+                    <details className="mt-2 rounded-lg bg-muted text-xs text-muted-foreground">
+                      <summary className="cursor-pointer rounded-lg px-2 py-3 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Tax-year guidance limits</summary>
+                      <p className="px-2 pb-2 leading-relaxed">{message.assessment.yearNotice}</p>
+                    </details>
+                  )}
                   {!!message.assessment?.questions?.length && (
                     <div className="mt-3 space-y-1.5">
                       <h3 className="text-xs font-semibold">Add a detail</h3>
@@ -420,7 +434,7 @@ export function TaxAssistantScreen({ user, onBack }: TaxAssistantScreenProps) {
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void sendMessage(); }
                 }} maxLength={Math.max(0, MAX_MESSAGE_LENGTH - answerPrefixLength)}
-                placeholder={answeringQuestion ? "Add your answer…" : "Ask about a purchase…"}
+                placeholder={answeringQuestion ? "Add your answer…" : "Ask about your records or taxes…"}
                 disabled={isLoading} rows={2} aria-describedby={`${id}-privacy ${id}-input-help`} className="min-h-11 max-h-40 min-w-0 resize-y border-0 bg-transparent px-1 py-2 text-base focus-visible:ring-0 focus-visible:ring-offset-0 sm:text-sm" />
               <Button type="submit" size="icon" className="h-11 w-11 shrink-0 rounded-xl md:h-11 md:w-11" disabled={busy || (!inputValue.trim() && (!photo?.dataUrl || !!answeringQuestion))} aria-label="Send question">{isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</Button>
             </div>

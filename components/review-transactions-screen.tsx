@@ -12,6 +12,7 @@ import { transactionNeedsCategoryReview, transactionNeedsTaxReview } from '@/lib
 import { REVIEW_CATEGORIES, canConfirmSuggestion, reviewCategory, type TransactionKind } from '@/lib/transactions/ai-review-contract';
 import { reviewPresentation, transactionReviewKey } from '@/lib/transactions/review-presentation';
 import { formatTransactionDate } from '@/lib/transactions/calendar-date';
+import { formatRecordedTransactionAmount } from '@/lib/transactions/amount-display';
 import { bulkConfirmedLocally, bulkOfferFor, canOfferPurposeConfirmation, confirmPurposeUpdates, firstOpenQuestion, groupUnreviewedByMerchant, proposedBusinessPurpose,
   questionAnswered, rejectProposalUpdates, type BulkConfirmRequest } from '@/lib/transactions/review-proposals';
 import { PurposeConfirmChip } from '@/components/review/purpose-confirm-chip';
@@ -22,6 +23,7 @@ import { ExplanationCard } from '@/components/ai/explanation-card';
 import { normalizeExplanation } from '@/lib/ai/explanation';
 import { AnalysisStatusNotice } from '@/components/analysis-status-notice';
 import { summarizeAnalysisBacklog } from '@/lib/ai/analysis-state';
+import { prioritizeTransactionReview } from '@/lib/transactions/review-priority';
 
 interface ReviewTransactionsScreenProps {
   user: { id: string; email?: string; user_metadata?: { name?: string } };
@@ -84,19 +86,22 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
     const key = transactionReviewKey(transaction);
     return (transaction.trans_id || transaction.id) === focusedTransactionId && !reviewed.has(key) && !deferred.has(key);
   }) : undefined;
-  const normalQueue = resolved.filter(transaction => transactionNeedsCategoryReview(transaction));
+  const normalQueue = prioritizeTransactionReview(resolved.filter(transaction => transactionNeedsCategoryReview(transaction)));
   const remaining = focused
     ? [focused, ...normalQueue.filter(transaction => transactionReviewKey(transaction) !== transactionReviewKey(focused))]
     : normalQueue;
-  const taxQuestions = resolved.filter(transaction => !transactionNeedsCategoryReview(transaction) && transactionNeedsTaxReview(transaction));
+  const taxQuestions = prioritizeTransactionReview(resolved.filter(transaction => !transactionNeedsCategoryReview(transaction) && transactionNeedsTaxReview(transaction)));
   const current = remaining.find(transaction => !deferred.has(transactionReviewKey(transaction)));
   const currentKey = current ? transactionReviewKey(current) : '';
   const activeKey = useRef(currentKey);
   activeKey.current = currentKey;
-  const presentation = current ? reviewPresentation(current) : null;
-  const suggestion = current?.ai_suggestion;
   const analysisRunning = current?.analysisStatus === 'running' || current?.analysis_status === 'running';
   const analysisQueued = !!current?.analysisJobId && (current.analysisStatus === 'pending' || current.analysis_status === 'pending');
+  const backgroundAnalysis = analysisRunning || analysisQueued;
+  const profileRefresh = backgroundAnalysis && current?.analysisRefreshReason === 'profile_changed';
+  const factsRefresh = backgroundAnalysis && current?.analysisRefreshReason === 'transaction_changed';
+  const presentation = current ? reviewPresentation(backgroundAnalysis ? { ...current, ai_suggestion: null, ai_explanation: null } : current) : null;
+  const suggestion = backgroundAnalysis ? null : current?.ai_suggestion;
   // Backlog across the loaded records, so a queued card can say how long the wait may be.
   const analysisWaiting = analysisQueued ? summarizeAnalysisBacklog(resolved).waiting : 0;
   const mayConfirm = !!current && current.pending !== true && !analysisRunning && !analysisQueued && canConfirmSuggestion(suggestion);
@@ -386,7 +391,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
           <div className="space-y-3 p-3 sm:p-4">
             <div className="flex justify-between gap-3">
               <div className="min-w-0"><h2 className="break-words text-lg font-semibold leading-snug">{current.merchant_name || 'Transaction'}</h2><p className="mt-0.5 text-xs text-muted-foreground">{formatTransactionDate(current.date, 'en-US', { month: 'short', day: 'numeric', year: 'numeric' })}{current.pending ? ' · Bank pending' : ''}</p></div>
-              <div className="shrink-0 text-right"><p className="text-xl font-semibold tabular-nums">{Number.isFinite(current.amount) ? `$${Math.abs(current.amount).toFixed(2)}` : 'Amount needs review'}</p><p className="text-xs text-muted-foreground">{current.amount < 0 ? 'Received' : 'Spent'}</p></div>
+              <div className="shrink-0 text-right"><p className="text-xl font-semibold tabular-nums">{formatRecordedTransactionAmount(current)}</p><p className="text-xs text-muted-foreground">{current.amount < 0 ? 'Received' : 'Spent'}</p></div>
             </div>
 
             {!editing && <>
@@ -394,18 +399,18 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
                 <div className="flex items-center gap-1.5 text-xs font-medium text-primary"><Sparkles className="h-3.5 w-3.5 shrink-0" /><span>{mayConfirm && presentation!.needsTaxFacts ? 'AI suggested category' : presentation!.label}</span></div>
                 <h3 id="suggestion-heading" className="text-xl font-semibold leading-tight">{presentation!.categoryLabel}</h3>
                 {presentation!.outcome ? <AnalysisStatusNotice compact outcome={presentation!.outcome} accountIds={[current.account_id || current.accountId || ''].filter(Boolean)} disabled={busy} />
-                  : current.ai_explanation ? <ExplanationCard explanation={normalizeExplanation(current.ai_explanation)} />
+                  : !backgroundAnalysis && current.ai_explanation ? <ExplanationCard explanation={normalizeExplanation(current.ai_explanation)} />
                   : <p className={suggestion ? 'line-clamp-2 text-sm leading-5' : 'text-sm leading-5'}>{presentation!.reasoning}</p>}
               </section>
 
               {offerPurpose && <PurposeConfirmChip key={currentKey} proposal={proposal} question={openQuestion?.kind === 'business_purpose' ? openQuestion.question : null}
                 busy={operation === 'saving'} disabled={busy}
-                onConfirm={purpose => saveDecision(confirmPurposeUpdates(purpose, proposal), 'Business purpose confirmed and deduction recorded')}
+                onConfirm={purpose => saveDecision(confirmPurposeUpdates(purpose, proposal), 'Purpose saved for AI review. Your tax decision is unchanged.', true)}
                 onReject={() => saveDecision(rejectProposalUpdates(), 'Marked not business; no deduction recorded')} />}
 
               {offerQuestion && <QuestionChips key={`${currentKey}:${openQuestion!.kind}`} question={openQuestion!} transaction={current} proposal={proposal}
                 busy={operation === 'saving'} disabled={busy}
-                onSave={(updates, saved) => saveDecision(updates, `${saved}. Run analysis again for an updated suggestion.`, true)}
+                onSave={(updates, saved) => saveDecision(updates, `${saved}. AI review updates automatically.`, true)}
                 onOpenDetails={onTransactionClick ? () => onTransactionClick({ ...current, _source: 'review-transactions' }, 'details') : undefined} />}
 
               {offerPurpose ? <p id="review-confirmation-hint" className="text-xs leading-4 text-muted-foreground">{mayConfirm ? `${confirmationLabel} below saves the category${recordsDeduction ? ' and the deduction' : ' only'}; the purpose is saved when you confirm it above.` : presentation!.confirmationHint}</p>
@@ -420,8 +425,10 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
               </div>}
 
               {!suggestion && analysisControls}
-              {analysisQueued && <p role="status" className="text-xs leading-5 text-muted-foreground">{`Queued for automatic analysis.${analysisWaiting > 1 ? ` ${analysisWaiting} transactions are waiting; a first import can take a while.` : ''} Run it now or wait for the result.`}</p>}
-              {analysisRunning && <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 shrink-0 animate-spin" />AI is analyzing. Results refresh here.</p>}
+              {profileRefresh && <p role="status" className="text-xs leading-5 text-muted-foreground">Updating AI review using your new profile. Confirmed categories stay saved.</p>}
+              {factsRefresh && <p role="status" className="text-xs leading-5 text-muted-foreground">Details saved. AI is updating your review automatically.</p>}
+              {analysisQueued && !profileRefresh && !factsRefresh && <p role="status" className="text-xs leading-5 text-muted-foreground">{`Queued for automatic analysis.${analysisWaiting > 1 ? ` ${analysisWaiting} transactions are waiting; a first import can take a while.` : ''} Run it now or wait for the result.`}</p>}
+              {analysisRunning && !profileRefresh && !factsRefresh && <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 shrink-0 animate-spin" />AI is analyzing. Results refresh here.</p>}
               {!suggestion && availability.status === 'unavailable' && <p className="text-xs text-muted-foreground">{availability.message} Manual categorization remains available.</p>}
             </>}
 

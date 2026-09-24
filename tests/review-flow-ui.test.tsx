@@ -36,10 +36,10 @@ describe('Confirm purpose chip', () => {
   it('shows the proposed purpose as a one-tap answer to the first question, with edit and not-business paths and nothing pre-selected', () => {
     const markup = html(<PurposeConfirmChip proposal="Design software for client work" question="What is this software used for?" onConfirm={noop} onReject={noop} />);
     expect(markup).toContain('What is this software used for?');
-    expect(markup).toContain('aria-label="Confirm purpose: Design software for client work"');
+    expect(markup).toContain('aria-label="Save purpose: Design software for client work"');
     expect(markup).toContain('Something else');
     expect(markup).toContain('Not business');
-    expect(markup).toContain('Nothing is saved until you tap.');
+    expect(markup).toContain('This does not confirm a deduction.');
     expect(markup).not.toMatch(/checked|aria-pressed="true"|aria-checked="true"/);
     expect(count(markup, /<button/g)).toBe(3);
     expect(count(markup, /min-h-11/g)).toBe(3);
@@ -49,7 +49,7 @@ describe('Confirm purpose chip', () => {
     expect(markup).toContain('<textarea');
     expect(markup).toContain('placeholder="Why was this needed for your business?"');
     expect(markup).toContain('disabled=""');
-    expect(markup).toContain('Proposed business purpose');
+    expect(markup).toContain('What was the business purpose?');
     const group = html(<PurposeConfirmChip id="merchant-group-2" proposal="Design software" confirmLabel="Confirm 3 charges" note="Confirming saves this purpose and records a deduction for each of the 3 charges. Nothing is saved until you tap." onConfirm={noop} onReject={noop} />);
     expect(group).toContain('id="merchant-group-2-heading"');
     expect(group).toContain('aria-label="Confirm 3 charges: Design software"');
@@ -134,7 +134,7 @@ describe('One question at a time', () => {
     const settings = html(<QuestionChips question={ask('settings_gate', 'entity_tax_treatment', 'How is your business taxed?')} transaction={{}} onSave={noop} />);
     expect(settings).toContain(`href="${TAX_SETTINGS_HREF}"`);
     expect(settings).toContain('Update tax settings');
-    expect(settings).toContain('run analysis again');
+    expect(settings).toContain('AI will refresh the review automatically');
     const other = html(<QuestionChips question={ask('other', 'receipt', 'Do you have the receipt?')} transaction={{}} onSave={noop} onOpenDetails={noop} />);
     expect(other).toContain('Add details');
     const purpose = html(<QuestionChips question={ask('business_purpose', 'business_purpose', 'What is this for?')} transaction={{}} proposal="Design software" onSave={noop} />);

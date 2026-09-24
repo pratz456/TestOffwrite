@@ -40,6 +40,15 @@ describe('sign-in session handoff', () => {
     expect((await signInUser('a@example.test', 'synthetic-password')).data?.user.id).toBe('user-a');
     expect(request).toHaveBeenCalledWith('/api/auth/session', expect.objectContaining({ credentials: 'include', method: 'POST' }));
   });
+  it('keeps email sign-in available when localStorage is blocked but initialized storage works', async () => {
+    sdk.persistence.mockRejectedValue({ code: 'auth/web-storage-unsupported' });
+    sdk.email.mockResolvedValue({ user: user() });
+    const result = await signInUser('a@example.test', 'synthetic-password');
+    expect(result.error).toBeNull();
+    expect(result.data?.user.id).toBe('user-a');
+    expect(sdk.persistence).not.toHaveBeenCalled();
+    expect(request).toHaveBeenCalledWith('/api/auth/session', expect.objectContaining({ credentials: 'include', method: 'POST' }));
+  });
   it('does not swallow failed session creation or expose the server diagnostic', async () => {
     sdk.email.mockResolvedValue({ user: user() });
     request.mockResolvedValue(new Response('private diagnostic', { status: 503 }));

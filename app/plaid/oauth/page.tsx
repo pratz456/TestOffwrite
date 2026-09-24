@@ -35,7 +35,8 @@ export default function PlaidOAuthPage() {
     <p className="text-sm text-muted-foreground">This sign-in session expired or opened in a different browser. Your saved records are unchanged.</p>
     <Button asChild><Link href={banks}>Return to banks</Link></Button>
   </main>;
-  return <PlaidLinkScreen user={user} oauthResume={resume} fromSettings={resume.session.fromSettings} updateItemId={resume.session.itemId}
-    onBack={() => { clearPlaidOAuthSession(window.sessionStorage); router.replace(banks); }}
-    onSuccess={() => router.replace(resume.session.fromSettings || resume.session.itemId ? banks : '/protected')} />;
+  const reconnect = resume.session.reconnectSessionId ? `/plaid/reconnect?sessionId=${encodeURIComponent(resume.session.reconnectSessionId)}` : null;
+  return <PlaidLinkScreen user={user} oauthResume={resume} fromSettings={resume.session.fromSettings} updateItemId={resume.session.itemId} reconnectSessionId={resume.session.reconnectSessionId}
+    onBack={() => { clearPlaidOAuthSession(window.sessionStorage); router.replace(reconnect || banks); }}
+    onSuccess={() => router.replace(reconnect || (resume.session.fromSettings || resume.session.itemId ? banks : '/protected'))} />;
 }

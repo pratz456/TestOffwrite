@@ -87,6 +87,10 @@ const nextConfig: NextConfig = {
 
   // Image optimization
   images: {
+    // The Firebase CLI otherwise adds sharp 0.33, whose native decoders have
+    // known vulnerabilities. Serve our static branding directly; private photo
+    // previews already bypass the optimizer. This also avoids that CLI injection.
+    unoptimized: true,
     formats: ["image/webp", "image/avif"],
     minimumCacheTTL: 60,
   },
@@ -151,12 +155,16 @@ const nextConfig: NextConfig = {
 export default withPWA({
   dest: "public",
   disable: process.env.NODE_ENV === "development",
+  // The root update prompt owns registration and refresh. Background worker or
+  // connectivity events must not erase an active bank connection or form.
+  register: false,
+  reloadOnOnline: false,
   cacheStartUrl: false,
   dynamicStartUrl: false,
   cacheOnFrontEndNav: false,
   extendDefaultRuntimeCaching: false,
   customWorkerSrc: 'worker',
-  workboxOptions: { runtimeCaching: privacyRuntimeCaching },
+  workboxOptions: { runtimeCaching: privacyRuntimeCaching, skipWaiting: false },
   fallbacks: {
     document: "/~offline",
   },

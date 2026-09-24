@@ -1,0 +1,45 @@
+{
+  "checkedAt": "2026-09-24T00:09:21.092Z",
+  "project": "demo-writeoff-security",
+  "assertions": [
+    "Real GPT-4o chooses owner-bound review, receipt and preparer actions; saved rows appear",
+    "Assistant matches the validated federal endpoint and preserves its eligibility gates",
+    "Legal questions retain reviewed conditions and official sources through the new assistant gateway",
+    "Posted bank transaction analyzed automatically; saving business purpose triggers a fresh real model response without a manual analysis request; confirmation remains user-controlled",
+    "Private receipt upload, selected-year ZIP, temporary immutable sharing, anonymous download, revocation and Free-plan denial work against emulators"
+  ],
+  "responses": [
+    {
+      "case": "Your next reviews",
+      "success": true,
+      "items": 5
+    },
+    {
+      "case": "Collect supporting records",
+      "success": true,
+      "items": 4
+    },
+    {
+      "case": "Your accountant handoff",
+      "success": true,
+      "items": 0
+    },
+    {
+      "case": "tax position",
+      "success": true,
+      "calculationStatus": 200
+    },
+    {
+      "case": "tax changes",
+      "success": true,
+      "calculationStatus": 200
+    },
+    {
+      "case": "automatic transaction refresh",
+      "model": "gpt-4.1-mini-2025-04-14",
+      "status": "ok",
+      "success": true
+    }
+  ],
+  "success": true
+}

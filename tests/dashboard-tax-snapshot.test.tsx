@@ -86,10 +86,10 @@ async function transport(url: string) {
   h.lastJson = await response.clone().json();
   return response;
 }
-function expense(amount: number, extra = {}) { return { amount, date: '2026-09-02', category: 'office_expense', is_deductible: true, ...extra }; }
+function expense(amount: number, extra = {}) { return { amount, date: '2026-09-02', iso_currency_code: 'USD', category: 'office_expense', is_deductible: true, ...extra }; }
 beforeEach(() => {
   h.slots = []; h.cursor = 0; h.effects = []; h.uid = 'dashboard-owner';
-  h.profile = { id: h.uid, filing_status: 'Single' }; h.tx = []; h.records = { tax_organizers: [reviewedPersonalDeductionOrganizer()] }; h.paid = 0; h.apiError = null; h.lastJson = null;
+  h.profile = { id: h.uid, filing_status: 'Single', income: 0 }; h.tx = []; h.records = { tax_organizers: [reviewedPersonalDeductionOrganizer()] }; h.paid = 0; h.apiError = null; h.lastJson = null;
   h.request.mockReset().mockImplementation(transport);
   vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-09-15T12:00:00Z'));
   vi.stubGlobal('fetch', vi.fn(async () => Response.json({})));
@@ -141,7 +141,7 @@ describe('dashboard tax cards share the federal server calculation', () => {
     row('Office refund').props.onClick(); expect(click).toHaveBeenCalledWith({ ...tx[0], _source: 'dashboard' });
   });
 
-  it.each([{}, { iso_currency_code: 'CAD' }, { iso_currency_code: 'USD', amount: NaN }, { iso_currency_code: 'USD', amount: Infinity }])('withholds category money totals for ambiguous currency/amount %j while retaining record counts', bad => {
+  it.each([{ iso_currency_code: undefined }, { iso_currency_code: 'CAD' }, { iso_currency_code: 'USD', amount: NaN }, { iso_currency_code: 'USD', amount: Infinity }])('withholds category money totals for ambiguous currency/amount %j while retaining record counts', bad => {
     const summary = summarizeDashboardRecords([expense(100, { iso_currency_code: 'USD' }), expense(-20, bad)]);
     expect(summary.deductibleCount).toBe(2);
     expect(summary.categoryEntries).toEqual([]); expect(summary.categoryIssue).toBeTruthy();
@@ -179,11 +179,11 @@ describe('dashboard tax cards share the federal server calculation', () => {
   });
   it('uses actual route year/confirmation/pending/category/refund rules and exact JSON totals', async () => {
     h.tx = [
-      { amount: -100000, date: '2026-02-01', category: 'income' },
+      { amount: -100000, date: '2026-02-01', iso_currency_code: 'USD', category: 'income' },
       expense(20), expense(42.5, { is_deductible: false }), expense(25, { is_deductible: null }),
       expense(75, { pending: true }), expense(90, { date: '2025-12-31' }),
       expense(100, { category: 'FOOD_AND_DRINK_RESTAURANT' }), expense(-5),
-      { amount: -500, date: '2026-02-01', category: 'transfer', is_deductible: false },
+      { amount: -500, date: '2026-02-01', iso_currency_code: 'USD', category: 'transfer', is_deductible: false },
     ];
     render(); await flush(); const props = render(), income = props.state.snapshot.income;
     expect(income).toEqual({ grossReceipts: 100000, totalDeductible: 65, scheduleCNetProfit: 99935 });
@@ -203,7 +203,7 @@ describe('dashboard tax cards share the federal server calculation', () => {
   });
   it.each(['income', 'status', 'personal', 'dependent', 'loss'])('422 %s review cannot become zero tax or stale previous totals', async kind => {
     render(); await flush(); render();
-    if (kind === 'income') { h.tx = [{ amount: -100, category: 'income', date: '2026-01-01' }]; h.records.gross_receipts = [{ amount: 100 }]; }
+    if (kind === 'income') { h.tx = [{ amount: -100, category: 'income', date: '2026-01-01', iso_currency_code: 'USD' }]; h.records.gross_receipts = [{ amount: 100 }]; }
     else if (kind === 'loss') h.tx = [expense(20)]; // A Schedule C loss without at-risk/participation/profit-motive facts is review-blocked, not clamped to $0.
     else if (kind === 'personal' || kind === 'dependent') {
       h.records.tax_organizers = kind === 'personal' ? [] : [reviewedPersonalDeductionOrganizer(2026, {}, { dependents: '1' })];
@@ -211,7 +211,7 @@ describe('dashboard tax cards share the federal server calculation', () => {
     }
     else h.profile = { ...h.profile, filing_status: 'Qualifying Widower' };
     expect(render().state.status).toBe('loading'); await flush(); const props = render();
-    expect(props.state.status).toBe('review'); expect(props.state).not.toHaveProperty('snapshot'); expect(cards(props)).toEqual([]);
+    expect(props.state.status).toBe('review'); expect(props.state).not.toHaveProperty('snapshot'); expect(cards(props)).toEqual([{ title: '2026 confirmed expenses', value: kind === 'loss' ? '$20.00' : '$0.00' }]);
     if (kind === 'loss') expect(h.lastJson).toMatchObject({ code: 'BUSINESS_LOSS_REVIEW_REQUIRED' });
     const nav = vi.fn(); const tree = KpiGrid({ ...props, onReview: nav } as any);
     expect(text(tree)).toContain('needs review');
@@ -224,7 +224,7 @@ describe('dashboard tax cards share the federal server calculation', () => {
     render(); await flush(); const ready = render(); expect(ready.state.status).toBe('ready');
     h.tx = [expense(20)]; h.apiError = 'synthetic unavailable';
     expect(render().state.status).toBe('loading'); await flush(); const error = render();
-    expect(error.state.status).toBe('error'); expect(cards(error)).toEqual([]);
+    expect(error.state.status).toBe('error'); expect(cards(error)).toEqual([{ title: '2026 confirmed expenses', value: '$20.00' }]);
     h.apiError = null; error.onRetry(); expect(render().state.status).toBe('loading'); await flush();
     expect(render().state.snapshot.income.scheduleCNetProfit).toBe(-20);
   });
@@ -238,8 +238,7 @@ describe('dashboard tax cards share the federal server calculation', () => {
   });
   it('ignores an old user request after a new user calculation is ready', async () => {
     let finish!: (value: Response) => void;
-    h.request.mockImplementationOnce(() => Promise.resolve(Response.json({ data: {} })))
-      .mockImplementationOnce(() => new Promise<Response>(resolve => { finish = resolve; }));
+    h.request.mockImplementationOnce(() => new Promise<Response>(resolve => { finish = resolve; }));
     render(); h.uid = 'next-owner'; h.profile = { ...h.profile, id: h.uid };
     render(); await flush(); expect(render().state.snapshot.income.grossReceipts).toBe(0);
     finish(Response.json({ taxYear: 2026, income: { grossReceipts: 999, totalDeductible: 0, scheduleCNetProfit: 999 }, form1040: { totalTax: 999, balanceDue: 999, refund: 0 } }));

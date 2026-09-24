@@ -96,6 +96,26 @@ describe('compact settings preserve profile editing and account access', () => {
     const emailWrapper = walk(tree).find(node => node.props.label === 'Email')!;
     expect(walk(emailWrapper).find(node => node.props.readOnly)?.props.value).toBe('identity@example.test');
   });
+  it('announces future AI updates only after a relevant profile change saves successfully', async () => {
+    await mount(); change('W-2 Income', '61000');
+    expect(text(render())).not.toContain('AI reviews will update');
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(text(render())).toContain('AI reviews will update using your new profile. Confirmed categories stay saved.');
+    change('Full Name', 'Cosmetic name change');
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(text(render())).not.toContain('AI reviews will update');
+  });
+  it('does not announce AI updates for cosmetic-only changes or a failed profile save', async () => {
+    await mount(); change('Full Name', 'Cosmetic name');
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(text(render())).not.toContain('AI reviews will update');
+    state.save.mockResolvedValueOnce({ error: new Error('Synthetic save failure') });
+    change('W-2 Income', '65000');
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(text(render())).toContain('Save failed');
+    expect(text(render())).not.toContain('AI reviews will update');
+  });
+
   it('merges rapid edits across sections and saves the newest values', async () => {
     await mount(); change('Full Name', 'Edited Name'); change('W-2 Income', '61000');
     await vi.advanceTimersByTimeAsync(1500);

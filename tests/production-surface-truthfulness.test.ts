@@ -39,6 +39,7 @@ describe('omitted tax-year parameters use the latest complete published registry
   it('uses the current published EITC and SEP limits instead of a stale 2025 default', () => {
     const rules = getFederalTaxRules(LATEST_PUBLISHED_TAX_YEAR);
     const eitc = calculateEITC({
+      taxYear: LATEST_PUBLISHED_TAX_YEAR,
       earnedIncome: 20_000,
       agi: 20_000,
       filingStatus: 'single',
@@ -47,6 +48,6 @@ describe('omitted tax-year parameters use the latest complete published registry
       taxableIncome: 0,
     });
     expect(eitc.amount).toBe(rules.eitc[1].maxCredit);
-    expect(calculateSEPIRAMax(1_000_000)).toBe(rules.sepContributionLimit);
+    expect(calculateSEPIRAMax(1_000_000, LATEST_PUBLISHED_TAX_YEAR, 0)).toBe(rules.sepContributionLimit);
   });
 });

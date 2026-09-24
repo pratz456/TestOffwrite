@@ -6,24 +6,20 @@ import { pathToFileURL } from 'node:url';
 /**
  * Parse a KEY=value env file with only Node built-ins. The release scripts run inside a freshly
  * exported release directory BEFORE `npm ci`, so they cannot depend on any package. Supports
- * comments, blank lines, `export KEY=`, and single- or double-quoted single-line values with
- * the common escapes dotenv accepts for our files (\n, \r, \t, \\, \", \').
+ * dotenv's assignment, quoting and comment syntax. Only double-quoted \\n and \\r escapes
+ * expand: escaped quotes and backslashes must remain literal, as they do at runtime.
+ * Contract tests compare this dependency-free parser with the installed dotenv package.
  */
 export function parseEnvFile(contents) {
   const env = {};
-  for (const rawLine of String(contents).split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith('#')) continue;
-    const match = line.match(/^(?:export\s+)?([A-Za-z_][A-Za-z0-9_.-]*)\s*=\s*(.*)$/);
-    if (!match) continue;
-    let value = match[2].trim();
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-      const quote = value[0];
-      value = value.slice(1, -1);
-      if (quote === '"') value = value.replace(/\\(n|r|t|\\|"|')/g, (_, code) => ({ n: '\n', r: '\r', t: '\t', '\\': '\\', '"': '"', "'": "'" })[code]);
-    } else {
-      value = value.replace(/\s+#.*$/, '').trim();
-    }
+  const lines = String(contents).replace(/\r\n?/g, '\n');
+  const assignment = /^\s*(?:export\s+)?([\w.-]+)(?:\s*=\s*?|:\s+?)(\s*'(?:\\'|[^'])*'|\s*"(?:\\"|[^"])*"|\s*`(?:\\`|[^`])*`|[^#\r\n]+)?\s*(?:#.*)?$/mg;
+  let match;
+  while ((match = assignment.exec(lines)) !== null) {
+    let value = (match[2] || '').trim();
+    const quote = value[0];
+    value = value.replace(/^(['"`])([\s\S]*)\1$/mg, '$2');
+    if (quote === '"') value = value.replace(/\\n/g, '\n').replace(/\\r/g, '\r');
     env[match[1]] = value;
   }
   return env;
@@ -115,6 +111,7 @@ export function validateProductionConfiguration(env, { project, hosting, firebas
   if (project !== PRODUCTION_PROJECT) errors.push('Deploy project must be the approved production project');
   const hosts = Array.isArray(hosting) ? hosting : [hosting];
   if (!hosts.length || hosts.some(host => host?.site !== PRODUCTION_PROJECT || host?.target || host?.source !== '.')) errors.push('Hosting must explicitly select the production site and release directory');
+  if (hosts.some(host => host?.frameworksBackend?.minInstances)) errors.push('Pinned Firebase Hosting revisions require frameworksBackend.minInstances to be zero');
   requireValue('NEXT_PUBLIC_FIREBASE_PROJECT_ID');
   for (const [name, value] of Object.entries({
     NEXT_PUBLIC_FIREBASE_PROJECT_ID: env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,

@@ -175,6 +175,7 @@ lerna-debug.log*
 
 # Build artifacts
 *.tgz
+!vendor/firebase-frameworks-0.11.8-writeoff.1.tgz
 
 # Deployment & Services
 .sentryclirc

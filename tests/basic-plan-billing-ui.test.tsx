@@ -57,7 +57,7 @@ describe('Basic billing presentation and actions', () => {
     expect(html).not.toContain('WriteOff Premium is active');
     expect(mocks.buttons.map(button => text(button.children))).toEqual(['Manage billing']);
     mocks.buttons[0].onClick();
-    expect(mocks.push).toHaveBeenCalledExactlyOnceWith('/protected/settings?tab=account');
+    expect(mocks.push).toHaveBeenCalledExactlyOnceWith('/protected/settings?tab=payment');
     expect(mocks.request).not.toHaveBeenCalled();
   });
 
@@ -72,12 +72,49 @@ describe('Basic billing presentation and actions', () => {
     expect(mocks.buttons.map(button => text(button.children))).toEqual(['Manage billing']);
   });
 
-  it('does not claim expired Basic access or invite a duplicate checkout', () => {
+  it('does not claim past-due Basic access or invite a duplicate checkout', () => {
     mocks.status = status('basic', true);
+    mocks.status!.subscription!.status = 'past_due';
     const html = renderCard();
     expect(html).toContain('WriteOff Basic is inactive');
     expect(html).toContain('Extended bank history is not active');
     expect(mocks.buttons.map(button => text(button.children))).toEqual(['Manage billing']);
+  });
+
+  it.each(['default', 'slim', 'square'] as const)('offers a fresh Premium plan after Basic is terminal in the %s card', variant => {
+    for (const providerStatus of ['canceled', 'incomplete_expired']) {
+      mocks.buttons = [];
+      mocks.status = status('basic', true);
+      mocks.status!.subscription!.status = providerStatus;
+      const html = renderCard(variant);
+      expect(html).toContain('Unlock WriteOff Premium');
+      expect(mocks.buttons.map(button => text(button.children))).toEqual([variant === 'default' ? 'Subscribe Now' : 'Subscribe']);
+      expect(html).not.toContain('Basic is inactive');
+    }
+  });
+
+  it.each(['default', 'slim', 'square'] as const)('recovers existing Premium billing without offering duplicate checkout in the %s card', variant => {
+    for (const providerStatus of ['active', 'trialing', 'past_due', 'unpaid', 'incomplete', 'paused', 'payment_pending', 'payment_required']) {
+      mocks.buttons = [];
+      mocks.status = status('premium', true);
+      mocks.status!.subscription!.status = providerStatus;
+      const html = renderCard(variant);
+      expect(html).not.toContain('Subscribe');
+      expect(mocks.buttons.map(button => text(button.children))).toEqual(['Manage billing']);
+      mocks.buttons[0].onClick();
+      expect(mocks.push).toHaveBeenLastCalledWith('/protected/settings?tab=payment');
+      expect(mocks.request).not.toHaveBeenCalled();
+    }
+  });
+
+  it('routes an existing Stripe trial to billing while a local free trial can subscribe', () => {
+    mocks.status = status('trial');
+    mocks.status.subscription = { ...status('premium').subscription!, status: 'trialing' };
+    expect(renderCard()).not.toContain('Subscribe Now');
+    expect(mocks.buttons.map(button => text(button.children))).toEqual(['Manage billing']);
+    mocks.buttons = [];
+    mocks.status = status('trial');
+    expect(renderCard()).toContain('Subscribe Now');
   });
 
   it('does not infer feature access solely from paid Basic status', () => {

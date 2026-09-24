@@ -57,6 +57,7 @@ import { assertSocialSecurityBenefitsSupported, SocialSecurityReviewRequiredErro
 import { decryptSensitive, isEncrypted } from '../lib/security/utils';
 import { EMPTY_ORGANIZER_ANSWERS } from '../components/tax-organizer-screen';
 import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductions';
+import { eligibilityOrganizer, hsaFacts } from './fixtures/eligibility';
 import { KpiGrid } from '../components/dashboard/KpiGrid';
 
 const jsonRequest = (year = 2026) => new NextRequest(`http://localhost/api/tax/compute-1040?year=${year}`);
@@ -169,6 +170,24 @@ const supportedBenefits = () => ({
 });
 
 describe('complete Social Security facts reach real JSON and PDF', () => {
+  it('persists supported HSA eligibility and reconciles its deduction across the Social Security JSON/PDF worksheets', async () => {
+    await save({ ...supportedBenefits(), socialSecurityNetBenefits: '20000', amountOtherIncome: '17000', paidHSA: 'yes', hsaAmount: '1000',
+      ...eligibilityOrganizer({ hsa: hsaFacts() }) });
+    const response = await getEstimate(jsonRequest()); expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.socialSecurityWorksheet).toMatchObject({ allowedAdjustments: 1000, combinedIncome: 26000, taxableBenefits: 500 });
+    expect(body.form1040.appliedAdjustments.hsaDeduction).toBe(1000);
+    const pdf = await exportPdf(pdfRequest()); expect(pdf.status).toBe(200);
+    expect(state.calculations[0]).toEqual(state.calculations[1]);
+    expect(Buffer.from(await pdf.arrayBuffer()).subarray(0, 5).toString()).toBe('%PDF-');
+  });
+  it.each([
+    '{"version":1,"taxYear":2025}', '{"version":1,"taxYear":2026,"approved":true}',
+    '{"version":1,"taxYear":2026,"hsa":{"age55":true}}', 'not json',
+  ])('rejects malformed or other-year eligibility without writing answers: %s', adjustmentEligibilityFacts => {
+    return saveOrganizer(new NextRequest('http://localhost/api/tax/organizer', { method: 'POST', body: JSON.stringify({ taxYear: 2026, adjustmentEligibilityFacts }) }))
+      .then(response => { expect(response.status).toBe(400); expect(state.records.tax_organizers).toBeUndefined(); });
+  });
   it('saves the full real organizer defaults with one reserved personal-deduction JSON field', async () => {
     const answers = { ...EMPTY_ORGANIZER_ANSWERS, personalDeductionFacts: '{}' };
     expect(Object.keys(answers).length).toBeLessThanOrEqual(80);
@@ -205,12 +224,12 @@ describe('complete Social Security facts reach real JSON and PDF', () => {
     const body = await (await getEstimate(jsonRequest())).json();
     expect(body.income.socialSecurity).toBe(6275); expect(body.form1040.totalIncome).toBe(46575);
   });
-  it('uses allowed adjustments once while excluding student-loan interest from the benefit worksheet', async () => {
+  it('excludes student-loan interest from the benefit worksheet while applying it once to AGI', async () => {
     await save({ ...supportedBenefits(), socialSecurityNetBenefits: '20000', amountOtherIncome: '17000' });
-    state.records.tax_deductions = [{ userId: 'benefits-owner', taxYear: 2026, hsaContribution: 1000, studentLoanInterest: 1000 }];
+    state.records.tax_deductions = [{ userId: 'benefits-owner', taxYear: 2026, studentLoanInterest: 1000 }];
     const body = await (await getEstimate(jsonRequest())).json();
-    expect(body.socialSecurityWorksheet).toMatchObject({ allowedAdjustments: 1000, combinedIncome: 26000, taxableBenefits: 500 });
-    expect(body.form1040.adjustments).toBe(2000); expect(body.form1040.totalIncome).toBe(17500);
+    expect(body.socialSecurityWorksheet).toMatchObject({ allowedAdjustments: 0, combinedIncome: 27000, taxableBenefits: 1000 });
+    expect(body.form1040.adjustments).toBe(1000); expect(body.form1040.totalIncome).toBe(18000);
   });
   it.each([['yes', 0], ['no', 3400]])('uses MFS lived-apart answer%s consistently in JSON/PDF', async (livedApart, expected) => {
     state.profile.filing_status = 'married_filing_separately';
@@ -230,13 +249,19 @@ describe('complete Social Security facts reach real JSON and PDF', () => {
     }
     expect(state.calculations).toHaveLength(0);
   });
-  it('does not silently omit an HSA entered only in the organizer, then succeeds after reconciliation', async () => {
+  it('preserves Social Security reconciliation precedence, then requires HSA eligibility after amounts match', async () => {
     await save({ ...supportedBenefits(), socialSecurityNetBenefits: '20000', amountOtherIncome: '17000', paidHSA: 'yes', hsaAmount: '1000' });
-    const missing = await getEstimate(jsonRequest()); expect(missing.status).toBe(422);
-    expect((await missing.json()).error).toContain('Tax Deductions');
+    state.records.tax_deductions = [{ userId: 'benefits-owner', taxYear: 2026, hsaContribution: 500 }];
+    for (const missing of [await getEstimate(jsonRequest()), await exportPdf(pdfRequest())]) {
+      expect(missing.status).toBe(422);
+      expect(await missing.json()).toEqual({ code: 'SOCIAL_SECURITY_REVIEW_REQUIRED', error: expect.stringContaining('Tax Deductions') });
+    }
     state.records.tax_deductions = [{ userId: 'benefits-owner', taxYear: 2026, hsaContribution: 1000 }];
-    const fixed = await getEstimate(jsonRequest()); expect(fixed.status).toBe(200);
-    expect((await fixed.json()).socialSecurityWorksheet).toMatchObject({ allowedAdjustments: 1000, taxableBenefits: 500 });
+    for (const response of [await getEstimate(jsonRequest()), await exportPdf(pdfRequest()), await getQuarterlySummary(new NextRequest('http://localhost/api/tax/quarterly-reminders?year=2026'))]) {
+      expect(response.status).toBe(422);
+      expect(await response.json()).toEqual({ code: 'TAX_CALCULATION_SCOPE_REVIEW_REQUIRED', error: expect.stringContaining('HSA eligibility') });
+    }
+    expect(state.calculations).toEqual([]);
   });
   it('quarterly records include benefit withholding once and retain the separate W2 field', async () => {
     await save(supportedBenefits());

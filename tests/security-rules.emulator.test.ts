@@ -68,6 +68,17 @@ async function seed(path: string, values: Record<string, string | number | boole
   });
   afterAll(async () => { await Promise.all(apps.map(app => deleteApp(app))); });
 
+  it('keeps handoff capabilities, snapshots, and saved tax baselines server-only', async () => {
+    for (const path of ['preparer_handoffs/private', 'preparer_handoff_owners/alice_uid', 'user_profiles/alice_uid/assistant_tax_snapshots/2026']) {
+      await seed(path, { userId: owner, private: true });
+      for (const db of [alice, bob, anonymous]) {
+        await expect(getDoc(doc(db, path))).rejects.toMatchObject({ code: 'permission-denied' });
+        await expect(setDoc(doc(db, path), { userId: owner })).rejects.toMatchObject({ code: 'permission-denied' });
+      }
+    }
+    await expect(uploadBytes(ref(aliceStorage, 'preparer_handoffs/alice_uid/id/package.zip'), png, { contentType: 'application/zip' })).rejects.toMatchObject({ code: 'storage/unauthorized' });
+    await expect(getBytes(ref(aliceStorage, 'preparer_handoffs/alice_uid/id/package.zip'))).rejects.toMatchObject({ code: 'storage/unauthorized' });
+  });
   it('allows each job owner while denying other authenticated users and anonymous readers', async () => {
     expect((await getDoc(doc(alice, 'analysis_jobs/alice_uid_account'))).exists()).toBe(true);
     expect((await getDoc(doc(bob, 'analysis_jobs/bob_account'))).exists()).toBe(true);
@@ -145,11 +156,13 @@ async function seed(path: string, values: Record<string, string | number | boole
     await expect(getDocs(query(collectionGroup(alice, 'transactions'), where('userId', '==', 'bob')))).rejects.toMatchObject({ code: 'permission-denied' });
     await expect(getDoc(doc(alice, 'transactions/top-bob'))).rejects.toMatchObject({ code: 'permission-denied' });
   });
-  it('allows ordinary profile creation and edits, denies subscription escalation on create/update', async () => {
+  it('keeps all profile creation and updates behind the validated server API', async () => {
     await expect(setDoc(doc(bob, 'user_profiles/bob'), { name: 'Bob', subscriptionPlan: 'premium' })).rejects.toMatchObject({ code: 'permission-denied' });
     await expect(setDoc(doc(bob, 'user_profiles/bob'), { name: 'Bob', subscriptionStatus: 'active', hasHistoricalAccess: true })).rejects.toMatchObject({ code: 'permission-denied' });
-    await setDoc(doc(bob, 'user_profiles/bob'), { name: 'Bob', onboardingIntroCompleted: false });
-    await updateDoc(doc(bob, 'user_profiles/bob'), { name: 'Bob Updated', profession: 'Designer' });
+    await expect(setDoc(doc(bob, 'user_profiles/bob'), { name: 'Bob', onboardingIntroCompleted: false })).rejects.toMatchObject({ code: 'permission-denied' });
+    await seed('user_profiles/bob', { name: 'Bob', onboardingIntroCompleted: false });
+    expect((await getDoc(doc(bob, 'user_profiles/bob'))).data()?.name).toBe('Bob');
+    await expect(updateDoc(doc(bob, 'user_profiles/bob'), { name: 'Bob Updated', profession: 'Designer' })).rejects.toMatchObject({ code: 'permission-denied' });
     await expect(updateDoc(doc(bob, 'user_profiles/bob'), { subscriptionStatus: 'active' })).rejects.toMatchObject({ code: 'permission-denied' });
     await expect(updateDoc(doc(bob, 'user_profiles/bob'), { subscriptionPlan: 'premium' })).rejects.toMatchObject({ code: 'permission-denied' });
     // Admin/server writers bypass client rules, as do the real trial manager/webhook.
@@ -166,11 +179,20 @@ async function seed(path: string, values: Record<string, string | number | boole
     const consents = { version: CONSENT_TERMS_VERSION, source: 'profile-setup', accepted_at: '2026-09-17T12:00:00.000Z', terms: true, bank_data: true, ai_review: true, communications: false };
     await expect(setDoc(doc(alice, `user_profiles/${owner}`), { name: 'Alice', consents })).rejects.toMatchObject({ code: 'permission-denied' });
     await seed(`user_profiles/${owner}`, { name: 'Alice', consents_recorded_at: 'server-stamped' });
-    await updateDoc(doc(alice, `user_profiles/${owner}`), { profession: 'Designer' });
+    await expect(updateDoc(doc(alice, `user_profiles/${owner}`), { profession: 'Designer' })).rejects.toMatchObject({ code: 'permission-denied' });
     await expect(updateDoc(doc(alice, `user_profiles/${owner}`), { consents })).rejects.toMatchObject({ code: 'permission-denied' });
     await expect(updateDoc(doc(alice, `user_profiles/${owner}`), { consents_recorded_at: 'forged' })).rejects.toMatchObject({ code: 'permission-denied' });
     await expect(updateDoc(doc(alice, `user_profiles/${owner}`), { consents_recorded_at: deleteField() })).rejects.toMatchObject({ code: 'permission-denied' });
     expect((await getDoc(doc(alice, `user_profiles/${owner}`))).data()?.consents_recorded_at).toBe('server-stamped');
+  });
+  it('requires server migration before a legacy plaintext profile EIN can be read', async () => {
+    await seed(`user_profiles/${owner}`, { name: 'Alice', ein: '12-3456789' });
+    await expect(getDoc(doc(alice, `user_profiles/${owner}`))).rejects.toMatchObject({ code: 'permission-denied' });
+    await seed(`user_profiles/${owner}`, { name: 'Alice', ein_encrypted: 'synthetic-ciphertext', ein_last4: '6789' });
+    const migrated = await getDoc(doc(alice, `user_profiles/${owner}`));
+    expect(migrated.data()).toMatchObject({ name: 'Alice', ein_last4: '6789' });
+    expect(migrated.data()).not.toHaveProperty('ein');
+    await expect(updateDoc(doc(alice, `user_profiles/${owner}`), { ein_last4: '0000' })).rejects.toMatchObject({ code: 'permission-denied' });
   });
   it('denies all client reads and writes of private Plaid connections, including the owner', async () => {
     await seed('plaid_connections/bank-synthetic', { uid: owner, encryptedAccessToken: 'synthetic-ciphertext', cursor: 'cursor' });

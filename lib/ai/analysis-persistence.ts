@@ -5,6 +5,8 @@ import type { OutputType } from './analyzeTransaction';
 import { composeExplanation, type ExplainableResult, type ExplanationProfile } from './explanation';
 import { getOpenAIModel } from '@/lib/openai/client';
 import { reviewCategory, type AiReviewSuggestion, type TransactionKind } from '@/lib/transactions/ai-review-contract';
+import { analysisProfileHash } from './profile-context';
+import { isCountableRecord } from '@/lib/transactions/record-scope';
 
 export const ANALYSIS_LEASE_MS = 240_000;
 export interface AnalysisLease { token: string; inputHash: string; expiresAt: number }
@@ -45,7 +47,9 @@ export function analysisLeaseUpdate(lease: AnalysisLease) {
 }
 
 export function isAnalysisLeaseCurrent(data: Record<string, unknown>, lease: AnalysisLease, now = Date.now()): boolean {
-  return data.analysisLeaseToken === lease.token && data.analysisInputHash === lease.inputHash &&
+  // Removal and supersession do not change model inputs, but either invalidates
+  // a suggestion from an in-flight manual or background run.
+  return isCountableRecord(data) && data.analysisLeaseToken === lease.token && data.analysisInputHash === lease.inputHash &&
     lease.expiresAt > now && analysisInputHash(data) === lease.inputHash;
 }
 
@@ -203,7 +207,7 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), c
       proposed_purpose: proposedPurpose ?? null, schedule_c_line: scheduleCLine ?? null,
       model, last_analyzed_at: now,
     },
-    analyzed: true, analysis_status: 'completed', analysisStatus: 'completed', analysisErrorCode: null,
+    analyzed: true, analysis_status: 'completed', analysisStatus: 'completed', analysisErrorCode: null, analysisRefreshReason: null,
     analysisCompletedAt: new Date(now), analysisUpdatedAt: new Date(now).toISOString(),
     analysisLeaseToken: null, analysisLeaseExpiresAt: null,
   };
@@ -211,9 +215,17 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), c
 
 export async function persistAnalysisSuggestion(ref: DocumentReference, result: OutputType, lease: AnalysisLease, profileHash?: string,
   profile?: ExplanationProfile | Record<string, unknown> | null) {
+  const parts = ref.path.split('/');
+  if (!profileHash || parts.length !== 6 || parts[0] !== 'user_profiles' || parts[2] !== 'accounts' || parts[4] !== 'transactions') {
+    return { status: 'stale' as const };
+  }
+  const profileRef = adminDb.doc(`user_profiles/${parts[1]}`);
   return adminDb.runTransaction(async tx => {
-    const snap = await tx.get(ref);
+    const [snap, currentProfile] = await Promise.all([tx.get(ref), tx.get(profileRef)]);
     if (!snap.exists || !isAnalysisLeaseCurrent(snap.data()!, lease)) return { status: 'stale' as const };
+    // Profile edits can change both the decision and displayed tax effect while the model runs.
+    // Reading profile and transaction inside one commit transaction prevents publishing old facts.
+    if (!currentProfile.exists || analysisProfileHash(currentProfile.data()!, snap.data()!.date) !== profileHash) return { status: 'stale' as const };
     const update = analysisSuggestionUpdate(result, Date.now(), snap.data()!, profileHash, profile);
     tx.update(ref, update);
     return {

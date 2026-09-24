@@ -18,8 +18,8 @@ import {
 } from '@/lib/icons';
 import { Lightbulb, Target, Car, Phone, Calendar, PieChart } from 'lucide-react';
 import { getUserProfile } from '@/lib/firebase/profiles';
-import { getUserTaxRateDisplay } from '@/lib/tax-rules/federal-brackets';
-import { FilingStatusReviewRequiredError } from '@/lib/tax-rules/filing-status';
+import { summarizeConfirmedDeductions, isReviewableBusinessOutflow } from '@/lib/tax/display-deductions';
+import { isCountableRecord } from '@/lib/transactions/record-scope';
 import { useTransactions } from '@/lib/firebase/hooks';
 import type { Transaction } from '@/lib/firebase/transactions';
 
@@ -40,8 +40,9 @@ interface AIInsight {
 interface UserInsights {
   topOpportunities: AIInsight[];
   monthlySummary: {
-    totalDeductions: number;
-    potentialSavings: number;
+    totalDeductions: number | null;
+    deductionReviewMessage: string | null;
+    reviewableSpending: number;
     identifiedDeductions: number;
     confirmedDeductions: number;
   };
@@ -84,7 +85,7 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
         const generatedInsights = await generateAIInsights(profile, transactions || []);
         setInsights(generatedInsights);
       } catch (error) {
-        if (error instanceof FilingStatusReviewRequiredError) setTaxReviewMessage(error.message);
+        setTaxReviewMessage('Insights could not be loaded. Please retry.');
         console.error('Error loading user data for insights:', error);
       } finally {
         setIsLoading(false);
@@ -95,9 +96,6 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
   }, [user.id, transactions]);
 
   const generateAIInsights = async (profile: any, txList: Transaction[]): Promise<UserInsights> => {
-    const taxRateDisplay = getUserTaxRateDisplay(profile);
-    const taxRateEstimate = taxRateDisplay.rate;
-    if (taxRateDisplay.reviewMessage) setTaxReviewMessage(taxRateDisplay.reviewMessage);
     const effectiveProfile = profile || {
       profession: ['Freelancer'],
       business_purpose: '',
@@ -106,13 +104,13 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
     };
 
     // Only the user's own transactions drive totals; an empty account shows zero, not sample data.
-    const list: Transaction[] = txList;
+    const list: Transaction[] = txList.filter(t => isCountableRecord(t));
 
     const categoryOrDetail = (t: Transaction) =>
       t.category || t.personal_finance_category?.detailed || t.personal_finance_category?.primary || '';
 
-    const deductibleTransactions = list.filter(t => t.is_deductible === true);
-    const totalDeductions = deductibleTransactions.reduce((sum, t) => sum + Math.abs(Number(t.amount)), 0);
+    const deductionSummary = summarizeConfirmedDeductions(list);
+    const totalDeductions = deductionSummary.totalDeductible;
 
     // Likely business-related categories/merchants that might be deductible if not yet marked
     const businessLike = (t: Transaction) => {
@@ -125,15 +123,12 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
     };
 
     const potentialDeductions = list.filter(t =>
-      t.is_deductible !== true && businessLike(t) && Number(t.amount) < 0
+      isReviewableBusinessOutflow(t) && businessLike(t)
     );
-    const potentialSavings = potentialDeductions.reduce(
-      (sum, t) => sum + Math.abs(Number(t.amount)) * (taxRateEstimate ?? 0),
-      0
-    );
+    const reviewableSpending = potentialDeductions.reduce((sum, t) => sum + Math.round(t.amount * 100), 0) / 100;
 
     const professionInsights = generateProfessionInsights(effectiveProfile, list);
-    const spendingPatternInsights = generateSpendingPatternInsights(list);
+    const spendingPatternInsights = generateSpendingPatternInsights(list.filter(t => t.amount > 0));
 
     // Top opportunities: sort by estimatedSavings (desc), then impact, take up to 3; fill with medium if needed
     const bySavings = (a: AIInsight, b: AIInsight) => (b.estimatedSavings ?? 0) - (a.estimatedSavings ?? 0);
@@ -145,9 +140,10 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
       topOpportunities,
       monthlySummary: {
         totalDeductions,
-        potentialSavings,
+        reviewableSpending,
+        deductionReviewMessage: deductionSummary.reviewMessage,
         identifiedDeductions: potentialDeductions.length,
-        confirmedDeductions: deductibleTransactions.length
+        confirmedDeductions: deductionSummary.transactions.length
       },
       professionInsights,
       spendingPatternInsights
@@ -280,7 +276,7 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
       insights.push({
         id: 'subscription-optimization',
         title: 'Subscription Audit',
-        description: `You have ${subscriptions.length} recurring subscriptions. Review which ones are business-related and mark them as deductible.`,
+        description: `You have ${subscriptions.length} transactions that may relate to subscriptions. Review the business purpose and personal use before confirming a deduction.`,
         category: 'optimization',
         impact: 'medium',
         difficulty: 'easy',
@@ -394,10 +390,10 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
         {/* Summary Card */}
         <Card className="p-4 sm:p-6 mb-6 sm:mb-8 border border-border bg-card">
           <h2 className="text-lg sm:text-xl font-semibold text-foreground mb-1">
-            Your Top Tax-Saving Opportunities
+            Your Tax Review Opportunities
           </h2>
           <p className="text-sm text-muted-foreground mb-4 sm:mb-6">
-            Based on your {professionLabel} profile and spending patterns
+            Based on your {professionLabel} profile and all saved transaction dates. Suggestions require your review.
           </p>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
             <div className="rounded-lg bg-muted/40 dark:bg-muted/20 p-3 sm:p-4 text-center">
@@ -409,17 +405,17 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
               <div className="text-xs sm:text-sm text-muted-foreground mt-0.5">New Opportunities</div>
             </div>
             <div className="rounded-lg bg-green-600/10 dark:bg-green-600/15 p-3 sm:p-4 text-center">
-              <div className="text-xl sm:text-2xl font-bold text-green-700 dark:text-green-300">
-                {taxReviewMessage ? 'Review profile' : `$${Math.round(insights.monthlySummary.potentialSavings)}`}
-              </div>
-              <div className="text-xs sm:text-sm text-muted-foreground mt-0.5">Estimated Tax Effect of Unreviewed Items</div>
+              <div className="text-xl sm:text-2xl font-bold text-green-700 dark:text-green-300">${insights.monthlySummary.reviewableSpending.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+              <div className="text-xs sm:text-sm text-muted-foreground mt-0.5">Spending to Review (not tax savings)</div>
             </div>
             <div className="rounded-lg bg-muted/40 dark:bg-muted/20 p-3 sm:p-4 text-center">
-              <div className="text-xl sm:text-2xl font-bold text-foreground">${Math.round(insights.monthlySummary.totalDeductions)}</div>
-              <div className="text-xs sm:text-sm text-muted-foreground mt-0.5">Confirmed Deduction Total</div>
+              <div className="text-xl sm:text-2xl font-bold text-foreground">{insights.monthlySummary.totalDeductions === null ? "Review required" : insights.monthlySummary.totalDeductions.toLocaleString("en-US", { style: "currency", currency: "USD" })}</div>
+              <div className="text-xs sm:text-sm text-muted-foreground mt-0.5">Confirmed Transaction Deductions</div>
             </div>
           </div>
         </Card>
+
+        <p role={insights.monthlySummary.deductionReviewMessage ? "alert" : undefined} className="mb-4 text-xs text-muted-foreground">{insights.monthlySummary.deductionReviewMessage || "Refunds and the meals limit are included. Vehicle methods, assets and home-office deductions need separate review in Tax Preview. These record totals are not your tax savings or final tax return."}</p>
 
         {/* Tab Navigation */}
         <div className="flex gap-1 p-1 rounded-lg bg-muted/40 dark:bg-muted/30 mb-6 overflow-x-auto">

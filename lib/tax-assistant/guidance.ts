@@ -8,7 +8,7 @@ import { redactIdentifierText } from '@/lib/security/identifier-redaction';
  * Tax explanations are reviewed server content stored with each packet in ./knowledge.ts. The model
  * selects a topic and follow-up facts; it never writes the answer, the placement or the citations.
  */
-const NOT_SUPPORTED_ANSWER = 'This question needs rules beyond the reviewed guidance in this assistant. It covers common federal questions for a self-employed person: everyday business purchases, vehicles and mileage, home offices, meals and travel, health insurance, retirement plans and HSAs, contractor payments and information returns, estimated taxes, losses, the qualified business income deduction, and the 2025–2028 deductions for tips, overtime, vehicle loan interest and seniors. Employee exceptions, state or international tax, credits, S corporations and partnerships, rental real estate, investments and crypto, and complete-return calculations need additional source review before an answer can be supported here. A CPA or enrolled agent can review those.';
+const NOT_SUPPORTED_ANSWER = 'This question needs rules beyond the reviewed guidance in this assistant. It covers common federal questions for a self-employed person: everyday business purchases, vehicles and mileage, home offices, meals and travel, health insurance and Marketplace credit eligibility, retirement plans and HSAs, the 2027 Saver’s Match and scholarship contribution credit, contractor payments and information returns, estimated taxes, losses, the qualified business income deduction, and the 2025–2028 deductions for tips, overtime, vehicle loan interest and seniors. Employee exceptions, state or international tax, other credits, S corporations and partnerships, rental real estate, investments and crypto, and complete-return calculations need additional source review before an answer can be supported here. A CPA or enrolled agent can review those.';
 
 const isSelectable = (id: string): id is SelectableTopic => (SELECTABLE_TOPICS as readonly string[]).includes(id);
 
@@ -47,10 +47,11 @@ const ROUTING_RULES = `Routing rules for confusable questions:
 - Space: coworking, studio or office outside the home -> office-rent; any question about deducting rent or mortgage for the home the user lives in, or how much of it, -> home-rent (even when a home office is mentioned); only whether a room qualifies or which method (simplified or regular) -> home-office.
 - Cars: driving, mileage, commuting, rideshare or delivery miles -> car-mileage-vs-actual; buying, leasing or depreciating a vehicle, 6,000 pounds -> vehicles-records; interest on a personal-use car loan -> vehicle-loan-interest; interest on a business card or loan -> business-interest; parking or tolls -> parking-tolls.
 - Money to people: paying contractors or the duty to file 1099-NEC -> contract-labor; paying a spouse or child -> family-employees; paying yourself or moving money to a personal account -> owner-draws; receiving a 1099-K or 1099-NEC -> information-returns; processor or bank fees -> bank-payment-fees.
-- Insurance: own health premiums -> health-insurance; dental or vision -> dental-vision; liability, E&O, property or cyber -> business-insurance.
-- Retirement and health accounts: SEP-IRA, solo 401(k) or SIMPLE contributions, including "what is the limit" -> retirement-plans; HSA -> hsa. The packet states the published limits; selecting it is not calculating an amount.
+- Insurance: Marketplace/ACA subsidies, premium tax credit, employer coverage affordability or Form 1095-A reconciliation -> marketplace-premium-credit; deducting own health premiums -> health-insurance; dental or vision -> dental-vision; liability, E&O, property or cyber -> business-insurance.
+- Retirement and health accounts: Saver’s Match, the government retirement match or how it differs from the Saver’s Credit -> savers-match; SEP-IRA, solo 401(k) or SIMPLE contributions, including "what is the limit" -> retirement-plans; HSA -> hsa. The packet states the published limits; selecting it is not calculating an amount.
+- Personal food: ordinary family groceries or everyday meals for yourself -> solo-meals; the packet explains personal meals versus qualifying overnight business travel.
 - Learning: courses or certifications -> education-courses; conferences or trade shows -> conferences; books or journals -> books-publications.
-- Giving: gifts to clients -> business-gifts; donations or sponsorships -> charitable-gifts; personal gifts by someone taking the standard deduction -> charitable-non-itemizer.
+- Giving: the federal scholarship credit, Section 25F or a scholarship granting organization donation -> scholarship-contribution-credit; gifts to clients -> business-gifts; donations or sponsorships -> charitable-gifts; personal gifts by someone taking the standard deduction -> charitable-non-itemizer.
 - Bigger picture: business versus hobby -> hobby-loss; deducting a loss -> business-losses; W-2 job plus side income -> side-hustle-w2; quarterly payments -> estimated-taxes; 20% or QBI deduction -> qbi-deduction; trades or swaps -> bartering; cash or unreported income -> cash-income; "no tax on tips" or overtime -> tips-overtime; age-65 deduction -> senior-deduction; S corporation, employees, multi-state, notices, amended returns -> when-to-see-a-cpa.
 - Equipment: a laptop, camera or monitor purchase -> computer-equipment; a recurring app or SaaS charge -> software-subscriptions; a website build, hosting or domain -> website-domain; phone bills -> cell-phone; internet bills -> home-internet.
 - Use business-expenses only when no specific packet fits an operating business cost.`;
@@ -70,8 +71,8 @@ export function buildGuidanceMessages(input: AssistantRequest, context?: Assista
     {
       role: 'system',
       content: `You help route questions in WriteOff's US federal business deduction assistant. You select reviewed guidance and missing facts. You do not write tax answers, calculate amounts or determine eligibility.
-Selected tax year: ${modelInput.taxYear}. Reviewed guidance date: 2026-09-17.
-${yearNotice(modelInput.taxYear) || 'Annual limits are not calculated by this workflow.'}
+Selected tax year: ${input.taxYear}. Each packet has its own review date; annual-amount readiness is described below.
+${yearNotice(input.taxYear) || 'Annual limits are not calculated by this workflow.'}
 
 Return JSON only: {"topic":"<one of: ${GUIDANCE_TOPICS.join(' | ')}>", "missingFactIds":["exact IDs from that topic"], "photoCategories":["vehicle|receipt|workspace|equipment|food|unclear"]}. These are enum choices, not literal pipe-separated strings. No additional fields or free text.
 
@@ -81,10 +82,10 @@ Select up to five missingFactIds from the selected topic's REQUIRED FACTS below,
 
 ${ROUTING_RULES}
 
-Choose not-supported for W-2 employee deduction eligibility, detailed exceptions not in these packets, state/international taxes, credits, S corporation or partnership questions, rental real estate, investments or crypto, whole-return tax due, the user's own deductible amount or savings, and unsupported entity issues. Never calculate an amount; a packet that states a published statutory limit is still the right selection. For not-supported, missingFactIds must be empty.
+Choose not-supported for W-2 employee deduction eligibility, detailed exceptions not in these packets, state/international taxes, credits or matches not covered by the Marketplace, Saver’s Match or scholarship-contribution packets, S corporation or partnership questions, rental real estate, investments or crypto, whole-return tax due, the user's own deductible amount or savings, and unsupported entity issues. Never calculate an amount; a packet that states a published statutory limit is still the right selection. For not-supported, missingFactIds must be empty.
 
 GUIDANCE PACKETS:
-${JSON.stringify(packets.map(source => ({ id: source.id, title: source.title, summary: source.summary })))}
+${JSON.stringify(packets.map(source => ({ id: source.id, title: source.title, summary: source.summary, reviewedAt: source.reviewedAt })))}
 REQUIRED FACTS:
 ${JSON.stringify(packets.map(source => ({ topic: source.id, facts: topicFacts(source.id as GuidanceTopic, modelInput.taxYear) })))}${userContext ? `
 

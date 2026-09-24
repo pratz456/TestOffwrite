@@ -1,0 +1,31 @@
+{
+  "run": "1790206190476",
+  "checkedAt": "2026-09-23T23:29:50.476Z",
+  "project": "demo-writeoff-security",
+  "cases": [
+    {
+      "id": "confirmed",
+      "model": "gpt-4.1-mini-2025-04-14",
+      "status": "ok",
+      "profileHashChanged": true,
+      "suggestionIdChanged": true
+    },
+    {
+      "id": "unreviewed",
+      "model": "gpt-4.1-mini-2025-04-14",
+      "status": "ok",
+      "profileHashChanged": true,
+      "suggestionIdChanged": true
+    }
+  ],
+  "assertions": [
+    "Name/email changes do not schedule model work",
+    "A relevant profile change automatically refreshes confirmed and unreviewed transaction suggestions",
+    "Latest profile hash and official sources persisted from real OpenAI responses",
+    "Confirmed classifications remain unchanged",
+    "Unreviewed transactions remain unconfirmed",
+    "Pending bank transactions wait until posted",
+    "Durable scan completes with two queued records"
+  ],
+  "success": true
+}

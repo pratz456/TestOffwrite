@@ -1,3 +1,5 @@
+import { ACA_2027_PARAMETERS, HSA_2027_LIMITS, TAX_YEAR_2027_REVIEWED_AT } from '../tax-rules/tax-year-2027';
+
 /** Reviewed guidance packets, not a complete tax-code retrieval system. */
 export interface GuidanceSource {
   id: string;
@@ -26,11 +28,11 @@ export interface GuidanceSource {
 export const SELECTABLE_TOPICS = [
   // Original packets
   'business-expenses', 'vehicles-records', 'depreciation', 'home-office', 'meals',
-  'tips-overtime', 'vehicle-loan-interest', 'senior-deduction', 'information-returns', 'charitable-non-itemizer',
+  'tips-overtime', 'vehicle-loan-interest', 'senior-deduction', 'information-returns', 'charitable-non-itemizer', 'scholarship-contribution-credit', 'savers-match',
   // Everyday freelancer purchases
   'cell-phone', 'home-internet', 'computer-equipment', 'software-subscriptions', 'office-rent', 'home-rent',
   'car-mileage-vs-actual', 'parking-tolls', 'business-travel', 'solo-meals', 'clothing-uniforms', 'grooming',
-  'gym-membership', 'health-insurance', 'dental-vision', 'retirement-plans', 'hsa', 'education-courses',
+  'gym-membership', 'health-insurance', 'marketplace-premium-credit', 'dental-vision', 'retirement-plans', 'hsa', 'education-courses',
   'conferences', 'books-publications', 'advertising', 'website-domain', 'contract-labor', 'family-employees',
   'owner-draws', 'estimated-taxes', 'state-taxes-licenses', 'bank-payment-fees', 'business-interest',
   'business-insurance', 'legal-professional-fees', 'startup-costs', 'business-gifts', 'charitable-gifts',
@@ -44,7 +46,9 @@ const supportedTaxYears = [2026, 2027] as const;
 const code = (section: string) => `https://uscode.house.gov/view.xhtml?req=granuleid:USC-prelim-title26-section${section}&num=0&edition=prelim`;
 const reg = (section: string) => `https://www.ecfr.gov/current/title-26/section-${section}`;
 const SCHEDULE_C_INSTRUCTIONS = 'https://www.irs.gov/instructions/i1040sc';
-const pending2027 = (what: string, plural = false) => `The 2027 ${what} ${plural ? 'have' : 'has'} not been published as of September 17, 2026.`;
+const reviewDate2027 = new Date(`${TAX_YEAR_2027_REVIEWED_AT}T12:00:00Z`).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+const pending2027 = (what: string, plural = false) => `The 2027 ${what} ${plural ? 'have' : 'has'} not been verified as published in this release, reviewed ${reviewDate2027}.`;
+const dollars = (amount: number) => `$${amount.toLocaleString('en-US')}`;
 
 /**
  * OBBBA (P.L. 119-21) figures below are statutory and not indexed for 2025–2028, so they hold for
@@ -60,7 +64,9 @@ const pending2027 = (what: string, plural = false) => `The 2027 ${what} ${plural
  * Annual amounts quoted for 2026 (mileage, retirement, HSA, QBI thresholds, excess business loss,
  * Social Security wage base) come from docs/research/self-employed-rules-2025-2027.md and
  * docs/research/business-deductions-2026-2027.md, each traced there to its revenue procedure or notice.
- * 2027 annual amounts are stated as unpublished unless the research marks them VERIFIED (HSA only).
+ * Published 2027 HSA/health-plan amounts come from Rev. Proc. 2026-24 and ACA percentages
+ * from Rev. Proc. 2026-26. Other annual values remain pending verification, never copied from 2026.
+ * Unchanged packets retain their earlier review date; revised packets carry the new review date.
  */
 
 export const GUIDANCE_SOURCES: readonly GuidanceSource[] = [
@@ -87,6 +93,65 @@ export const GUIDANCE_SOURCES: readonly GuidanceSource[] = [
     url: code('262'),
     reviewedAt, supportedTaxYears,
     summary: 'No deduction is allowed for personal, living or family expenses. A cost that also benefits the business is deductible only for an identifiable business share.',
+    requiredFacts: [],
+  },
+
+  {
+    id: 'hsa-2027-limits',
+    title: 'IRS Rev. Proc. 2026-24: Published 2027 HSA and health-plan limits',
+    url: 'https://www.irs.gov/pub/irs-drop/rp-26-24.pdf',
+    reviewedAt: TAX_YEAR_2027_REVIEWED_AT, supportedTaxYears: [2027],
+    summary: 'Published annual HSA contribution, HDHP minimum deductible and maximum out-of-pocket limits for calendar year 2027. A limit is not an eligibility determination.',
+    requiredFacts: [],
+  },
+  {
+    id: 'hsa-expanded-eligibility',
+    title: 'IRS Notice 2026-5: Expanded HSA eligibility',
+    url: 'https://www.irs.gov/pub/irs-drop/n-26-05.pdf',
+    reviewedAt: TAX_YEAR_2027_REVIEWED_AT, supportedTaxYears,
+    summary: 'From 2026, qualifying individual-market bronze and catastrophic plans have special HSA treatment. Qualifying direct primary care and telehealth arrangements have separate conditions. Other HSA eligibility requirements still apply.',
+    requiredFacts: [],
+  },
+  {
+    id: 'aca-2026-percentages',
+    title: 'IRS Rev. Proc. 2025-25: 2026 Marketplace credit and affordability percentages',
+    url: 'https://www.irs.gov/pub/irs-drop/rp-25-25.pdf',
+    reviewedAt: TAX_YEAR_2027_REVIEWED_AT, supportedTaxYears: [2026],
+    summary: 'Published applicable percentage table and 9.96% employer affordability percentage for taxable years and plan years beginning in calendar year 2026.',
+    requiredFacts: [],
+  },
+  {
+    id: 'aca-2027-percentages',
+    title: 'IRS Rev. Proc. 2026-26: Published 2027 Marketplace credit and affordability percentages',
+    url: 'https://www.irs.gov/pub/irs-drop/rp-26-26.pdf',
+    reviewedAt: TAX_YEAR_2027_REVIEWED_AT, supportedTaxYears: [2027],
+    summary: 'Published 2027 premium tax credit applicable percentage table and 10.22% required contribution percentage for employer-plan affordability. Eligibility and an actual credit calculation require more facts.',
+    requiredFacts: [],
+  },
+
+  {
+    id: 'savers-match-implementation',
+    title: 'IRS Notice 2026-48: Saver’s Match statute and planned implementation guidance',
+    url: 'https://www.irs.gov/irb/2026-35_IRB',
+    reviewedAt: TAX_YEAR_2027_REVIEWED_AT, supportedTaxYears,
+    summary: 'Section 6433 matching contributions start after 2026. The notice describes statutory limits and planned regulations; not all implementation procedures are final.',
+    requiredFacts: [],
+  },
+  {
+    id: 'scholarship-credit-conditions',
+    title: 'IRS Notice 2025-70: Section 25F scholarship contribution credit conditions',
+    url: 'https://www.irs.gov/irb/2025-50_IRB',
+    reviewedAt: TAX_YEAR_2027_REVIEWED_AT, supportedTaxYears,
+    summary: 'Section 25F starts in 2027. Qualified cash gifts require an eligible organization on the participating state list. Credit cap, state-credit reduction, no charitable double benefit and five-year carryforward apply.',
+    requiredFacts: [],
+  },
+
+  {
+    id: 'employee-expense-exceptions',
+    title: 'IRS Form 2106 instructions: Limited employee-expense exceptions',
+    url: 'https://www.irs.gov/instructions/i2106',
+    reviewedAt: TAX_YEAR_2027_REVIEWED_AT, supportedTaxYears,
+    summary: 'Form 2106 covers limited employee categories including qualifying reservists, performing artists, fee-basis government officials and impairment-related work expenses. Ordinary W-2 employment does not make employee costs Schedule C deductions.',
     requiredFacts: [],
   },
 
@@ -161,14 +226,14 @@ export const GUIDANCE_SOURCES: readonly GuidanceSource[] = [
   },
   {
     id: 'vehicle-loan-interest',
-    title: 'IRS FS-2025-03: Qualified passenger vehicle loan interest deduction (section 163(h)(4))',
-    url: 'https://www.irs.gov/newsroom/one-big-beautiful-bill-act-tax-deductions-for-working-americans-and-seniors',
-    reviewedAt, supportedTaxYears,
-    summary: 'For 2025 through 2028, up to $10,000 a year of interest on a loan taken out after December 31, 2024 to buy a new personal-use vehicle can be deducted without itemizing, reduced by $200 for each $1,000 of modified AGI above $100,000 ($200,000 joint). The vehicle must be new (original use begins with the taxpayer), under 14,000 pounds GVWR, and finally assembled in the United States; leases, used vehicles, fleet and commercial vehicles and related-party loans do not qualify, and the VIN must be reported on the return. Interest on a vehicle used in a trade or business is a Schedule C business-interest question limited to the business-use percentage, not a section 163(h)(4) deduction.',
-    requiredFacts: ['Is the vehicle used personally, for business, or both, and what share is business use?', 'Was the loan taken out after December 31, 2024 to buy the vehicle, and is it secured by the vehicle?', 'Is the vehicle new with final assembly in the United States, and is it owned rather than leased?', 'What is your filing status and approximate modified adjusted gross income?'],
-    answer: 'Interest on a loan for a new personal-use vehicle may be deductible for tax years 2025 through 2028, up to $10,000 of interest a year, reduced by $200 for each $1,000 of modified adjusted gross income above $100,000 ($200,000 on a joint return). The loan must have been taken out after December 31, 2024 to buy the vehicle and be secured by it; the vehicle must be new, under 14,000 pounds, and finally assembled in the United States, and its VIN goes on the return. Leases, used vehicles, fleet or commercial vehicles and related-party loans do not qualify. Interest on a vehicle used in your business is instead a business-interest question on Schedule C, limited to the business-use percentage, and the two treatments do not stack on the same interest.',
-    placement: 'Schedule 1-A for the personal-use vehicle; the business share on Schedule C line 16b',
-    records: ['the loan agreement showing origination date and lien', 'the window label or VIN decoder showing final assembly location', 'the lender interest statement'],
+    title: 'IRS T.D. 10054: Qualified passenger vehicle loan interest, personal use and mixed-use coordination',
+    url: 'https://www.irs.gov/irb/2026-39_irb',
+    reviewedAt: TAX_YEAR_2027_REVIEWED_AT, supportedTaxYears,
+    summary: 'Section 163(h)(4), 2025–2028: $10,000 annual limit and MAGI phaseout, qualifying post-2024 secured purchase debt and new U.S.-assembled vehicle below 14,000 pounds GVWR. T.D. 10054 tests expected personal use above 50% when debt is incurred. Mixed business use alone does not disqualify an otherwise eligible vehicle; independently deductible business interest may be claimed alternatively, never twice.',
+    requiredFacts: ['When the debt was incurred, did you expect personal use above 50% over your ownership, and what business use and other interest deductions apply?', 'Was the loan taken out after December 31, 2024 to buy the vehicle, and is it secured by the vehicle?', 'Is the vehicle new with final assembly in the United States, and is it owned rather than leased?', 'What is your filing status and approximate modified adjusted gross income?'],
+    answer: 'For 2025–2028, qualifying vehicle loan interest may be deductible up to $10,000 yearly, phased out by $200 for each $1,000 or fraction of modified AGI above $100,000 ($200,000 joint). The loan must originate after December 31, 2024, finance a new vehicle and be secured by it. The vehicle must have gross vehicle weight rating below 14,000 pounds, be finally assembled in the United States, and meet the original-use rules; report its VIN. Leases, used vehicles and related-party loans do not qualify. Under the final rules, when the debt is incurred you must expect more than 50% personal use over the ownership period. Mixed business use alone does not disqualify an eligible vehicle. If interest independently qualifies as business interest, you may claim that portion on Schedule C or, if eligible, under the vehicle-interest deduction on Schedule 1-A, subject to the respective limits. Never deduct the same interest twice. Expected predominantly business use needs separate business-interest treatment. Verify the loan, use records and allocation with your preparer; this assistant does not calculate or elect a deduction.',
+    placement: 'Schedule 1-A for eligible qualified vehicle interest; independently deductible business interest may instead go on Schedule C line 16b, with no double deduction',
+    records: ['the loan agreement showing origination date and lien', 'the window label or VIN decoder showing final assembly location', 'the lender interest statement and expected/actual use records'],
     citations: ['vehicles-records'],
   },
   {
@@ -189,7 +254,7 @@ export const GUIDANCE_SOURCES: readonly GuidanceSource[] = [
     reviewedAt, supportedTaxYears,
     summary: 'Forms 1099-K from Venmo, PayPal, Etsy or a gig platform, and 1099-NEC thresholds. All business income is taxable whether or not an information return arrives. For payments made in 2025 and later, a third-party settlement organization files Form 1099-K only when gross payments exceed $20,000 and there are more than 200 transactions (P.L. 119-21 §70432); payment-card transactions have no minimum, and some states require reporting at lower thresholds. Form 1099-NEC/1099-MISC is required for payments of $600 or more made in 2025 and $2,000 or more made in 2026; indexed after 2026. A 1099-K reports gross amounts before platform fees.',
     requiredFacts: ['Are you asking as the person who was paid or as the business that made payments?', 'Which calendar year were the payments made in, and were they through a payment app or marketplace, by card, or directly?', 'Do the amounts on the form match your own records, including platform fees and personal transfers that were mixed in?'],
-    answer: (taxYear) => `All business income is taxable whether or not a form arrives. For payments made in 2025 and later, a payment app or marketplace files Form 1099-K only when gross payments exceed $20,000 and there are more than 200 transactions; the $600 rule and the IRS phase-in amounts were repealed before they took effect. Payment-card transactions have no minimum, and a few states require reporting at lower amounts. ${taxYear >= 2027 ? 'Form 1099-NEC or 1099-MISC is required for payments of $2,000 or more made in 2026; the threshold is indexed for payments made after 2026 and the 2027 amount has not been published.' : 'Form 1099-NEC or 1099-MISC is required for payments of $600 or more made in 2025 and $2,000 or more made in 2026.'} A 1099-K shows gross amounts before platform fees, so gross receipts should match the gross figure with fees deducted separately; personal transfers mixed into a business account need to be identified and excluded with records.`,
+    answer: (taxYear) => `All business income is taxable whether or not a form arrives. For payments made in 2025 and later, a payment app or marketplace files Form 1099-K only when gross payments exceed $20,000 and there are more than 200 transactions; the $600 rule and the IRS phase-in amounts were repealed before they took effect. Payment-card transactions have no minimum, and a few states require reporting at lower amounts. ${taxYear >= 2027 ? 'Form 1099-NEC or 1099-MISC is required for payments of $2,000 or more made in 2026; the threshold is indexed for payments made after 2026 and the 2027 amount remains pending verification in this release.' : 'Form 1099-NEC or 1099-MISC is required for payments of $600 or more made in 2025 and $2,000 or more made in 2026.'} A 1099-K shows gross amounts before platform fees, so gross receipts should match the gross figure with fees deducted separately; personal transfers mixed into a business account need to be identified and excluded with records.`,
     placement: 'Schedule C line 1 (gross receipts) at the gross amount, with fees deducted separately',
     records: ['Forms 1099-K and 1099-NEC', 'your own sales records and fee statements'],
   },
@@ -203,6 +268,35 @@ export const GUIDANCE_SOURCES: readonly GuidanceSource[] = [
     answer: 'Beginning with tax year 2026, a taxpayer who takes the standard deduction may deduct up to $1,000 ($2,000 on a joint return) of cash gifts to public charities. Gifts to donor-advised funds or supporting organizations and non-cash gifts do not count, and the deduction is not available for tax year 2025. Itemizers instead deduct gifts on Schedule A, where a floor of 0.5% of the contribution base applies for 2026 and later. Ordinary substantiation still applies, including a written acknowledgment from the charity for any single gift of $250 or more. Business-related payments to charities can be a different question and need separate review.',
     placement: 'Form 1040 (non-itemizer deduction) or Schedule A (itemizers); not Schedule C',
     records: ['bank records for every cash gift', 'a written acknowledgment for any gift of $250 or more'],
+  },
+
+  {
+    id: 'savers-match',
+    title: 'IRS: Saver’s Match starting with tax year 2027',
+    url: 'https://www.irs.gov/credits-deductions/savers-match',
+    reviewedAt: TAX_YEAR_2027_REVIEWED_AT, supportedTaxYears,
+    summary: 'New Saver’s Match for eligible retirement contributions beginning in tax year 2027, claimed in 2028. Up to a $1,000 match per person, normally deposited to a designated eligible retirement account. The 2026 Saver’s Credit is a different provision. Eligibility guidance only; no match is calculated or claimed by this app.',
+    requiredFacts: ['Are these contributions for tax year 2027 or a return you will file during 2027?', 'What are your filing status and modified adjusted gross income, and are you age 18 or older, a tax resident, a student or another person’s dependent?', 'Which retirement plan received your contributions, were there retirement withdrawals, and can the designated account accept the match?'],
+    answer: (taxYear) => taxYear === 2027
+      ? 'For eligible 2027 retirement contributions, the Saver’s Match can add up to 50% of the first $2,000 contributed, or $1,000 per person. It normally goes into a designated eligible retirement account; a match under $100 has a separate refundable-credit election. The full-match MAGI ceilings are $20,500 single/married filing separately, $30,750 head of household and $41,000 joint/qualifying surviving spouse. The match phases out to zero at $35,500, $53,250 and $71,000 respectively. You generally must be at least 18, a U.S. tax resident, not a qualifying student and not another taxpayer’s dependent. MAGI includes special addbacks, including pre-tax retirement contributions; retirement withdrawals can reduce qualifying contributions. Ordinary AGI and a bank transfer alone do not establish eligibility. The IRS describes claiming this on Form 8880-A with the 2027 return filed in 2028. Some implementation procedures remain under development; follow final forms and account-provider requirements. This app provides guidance only and does not calculate, claim or deposit a match.'
+      : 'The Saver’s Match does not apply to tax year 2026 retirement contributions. It starts with qualifying contributions for tax year 2027, generally claimed with the 2027 return filed in 2028. A tax return filed during 2027 normally concerns tax year 2026 and uses that year’s rules. The existing Saver’s Credit is a separate provision for 2026; this packet does not calculate it or establish eligibility.',
+    placement: 'Form 1040 with Form 8880-A for tax year 2027 under the IRS’s announced process; not Schedule C',
+    records: ['retirement contribution and distribution statements', 'filing-status, residency, student and dependent information', 'MAGI adjustments and designated retirement-account details'],
+    citations: ['savers-match-implementation'],
+  },
+  {
+    id: 'scholarship-contribution-credit',
+    title: 'IRS: Federal scholarship tax credit beginning January 1, 2027',
+    url: 'https://www.irs.gov/government-entities/federal-state-local-governments/federal-scholarship-tax-credit-fstc',
+    reviewedAt: TAX_YEAR_2027_REVIEWED_AT, supportedTaxYears,
+    summary: 'Section 25F credit for qualifying cash donations to listed scholarship granting organizations from 2027. A state advance election alone does not establish that a recipient qualifies. Education only; no credit is automatically inferred from a donation or claimed by the app.',
+    requiredFacts: ['Was the cash contribution made on or after January 1, 2027, and are you a U.S. citizen or resident?', 'Which scholarship granting organization received it, and is that organization on its state’s eligible list for the contribution year?', 'Will you receive a state tax credit for this gift or seek a charitable deduction for the same contribution?'],
+    answer: (taxYear) => taxYear === 2027
+      ? 'Beginning January 1, 2027, a U.S. citizen or resident may qualify for a Section 25F federal credit of up to $1,700 for eligible cash contributions to scholarship granting organizations. The state where the organization is located must participate and list that organization for the applicable year. A state’s advance election, a school name or a donation receipt alone does not establish eligibility; confirm the actual eligible organization list before relying on a credit. This is a nonrefundable credit subject to tax-liability limits, with unused credit potentially carried forward for up to five years. Any state credit allowed for the qualified contribution reduces the federal credit. A qualified contribution for which this credit is allowed cannot also receive a charitable deduction. Donating stock, services or other property does not satisfy the cash-contribution requirement. Keep the donation record and organization eligibility evidence. This assistant does not verify a specific organization, calculate your credit or submit a claim; final IRS filing instructions and individual facts still govern.'
+      : 'The Section 25F federal scholarship contribution credit starts January 1, 2027 and does not apply to donations made in tax year 2026. A return filed in 2027 generally reports tax year 2026, so filing during 2027 does not make a 2026 donation eligible. Keep any 2026 donation records for separate charitable-deduction review; a future state participation announcement does not create an earlier credit.',
+    placement: 'Form 1040 credit for tax year 2027 under final IRS filing instructions; not Schedule C',
+    records: ['cash contribution receipts and payment date', 'applicable-year eligible SGO list evidence', 'state credit amounts and unused federal credit records'],
+    citations: ['scholarship-credit-conditions'],
   },
 
   // ── Everyday freelancer purchases ─────────────────────────────────────────────────────────
@@ -375,6 +469,18 @@ export const GUIDANCE_SOURCES: readonly GuidanceSource[] = [
     citations: ['business-expenses'],
   },
   {
+    id: 'marketplace-premium-credit',
+    title: 'IRS: Premium tax credit eligibility and reconciliation',
+    url: 'https://www.irs.gov/affordable-care-act/individuals-and-families/questions-and-answers-on-the-premium-tax-credit',
+    reviewedAt: TAX_YEAR_2027_REVIEWED_AT, supportedTaxYears,
+    summary: 'Marketplace/ACA premium tax credit, subsidies, affordable employer coverage and Form 1095-A reconciliation. Published 2027 percentages are available. These are eligibility guidelines, not a calculated credit or assurance of qualification; self-employed premium deductions have separate rules.',
+    requiredFacts: ['Which tax year and employer plan-start year apply, and which months did you have Marketplace coverage?', 'What are your household income, family size and filing status, and could anyone claim you as a dependent?', 'Were you offered employer or government coverage, and do you have Form 1095-A showing any advance credit payments?'],
+    answer: (taxYear) => `The premium tax credit can help an eligible household pay for Marketplace insurance. Household income, family size, filing status, dependent status and other available coverage affect eligibility; an offer of affordable employer coverage meeting minimum value can disqualify you even if you decline it. For plan years beginning in ${taxYear === 2027 ? `2027, the published employer-coverage affordability percentage is ${ACA_2027_PARAMETERS.employerAffordabilityPercent}%` : '2026, the published employer-coverage affordability percentage is 9.96%'} of household income. For the employee, use the required cost of the lowest-cost self-only option meeting minimum value; spouse/dependent affordability uses the applicable family-coverage cost. The published ${taxYear === 2027 ? '2027 credit table ranges from 2.15% to 10.22%' : '2026 credit table ranges from 2.10% to 9.96%'} across income bands. These percentages alone do not establish eligibility or the credit amount. Reconcile advance credit payments using Form 1095-A and Form 8962 with actual annual income. For years after 2025, excess advance credits have no repayment cap. Do not also deduct premiums covered by the credit; the self-employed insurance deduction and credit may require a coordinated calculation. This assistant does not calculate that credit.`,
+    placement: 'Form 1040 via Form 8962; not a Schedule C expense',
+    records: ['Form 1095-A for each Marketplace policy', 'household income and family-size records', 'employer coverage offers, plan-start dates and premium costs'],
+    citations: ['aca-2026-percentages', 'aca-2027-percentages'],
+  },
+  {
     id: 'dental-vision',
     title: '26 USC 213: Medical, dental and related expenses',
     url: code('213'),
@@ -399,15 +505,15 @@ export const GUIDANCE_SOURCES: readonly GuidanceSource[] = [
   },
   {
     id: 'hsa',
-    title: 'IRS Publication 969 (2025): Health savings accounts',
+    title: 'IRS Publication 969: HSA contributions and eligibility',
     url: 'https://www.irs.gov/publications/p969',
-    reviewedAt, supportedTaxYears,
-    summary: 'Health savings account contributions and eligibility (high-deductible health plan). A Schedule 1 deduction via Form 8889, not a Schedule C expense.',
-    requiredFacts: ['Were you covered by a high-deductible health plan, and for which months?', 'Is the coverage self-only or family, and are you 55 or older?'],
-    answer: (taxYear) => `Contributions to a health savings account are deductible on Schedule 1, not Schedule C, if you were covered by a high-deductible health plan and had no other disqualifying coverage. For ${taxYear >= 2027 ? '2027 the limits are $4,500 for self-only coverage and $9,000 for family coverage' : '2026 the limits are $4,400 for self-only coverage and $8,750 for family coverage'}, plus $1,000 if you are 55 or older; a qualifying plan has a deductible of at least ${taxYear >= 2027 ? '$1,750 self-only or $3,500 family' : '$1,700 self-only or $3,400 family'}. The deduction reduces income tax but not self-employment tax. Withdrawals for qualified medical, dental and vision costs are not taxed, and unused balances carry over from year to year. Contributions are allowed until the return due date without extensions and are prorated by months of eligibility. Enrolling in Medicare ends eligibility. Amounts an employer or spouse\'s employer contributed count toward the same limit.`,
+    reviewedAt: TAX_YEAR_2027_REVIEWED_AT, supportedTaxYears,
+    summary: 'Health savings account contributions, published 2027 limits and monthly eligibility. Qualifying individual-market bronze/catastrophic plans have special treatment from 2026. Eligible personal contributions go on Schedule 1 via Form 8889, not Schedule C.',
+    requiredFacts: ['What plan covered you in each month, and did you also have Medicare or other coverage or qualify as someone else\'s dependent?', 'Is the coverage self-only or family, are you 55 or older, and how much did employers or anyone else contribute?'],
+    answer: (taxYear) => `Eligible personal HSA contributions go on Schedule 1 via Form 8889, not Schedule C. For ${taxYear === 2027 ? `2027 the limits are ${dollars(HSA_2027_LIMITS.selfOnly)} self-only or ${dollars(HSA_2027_LIMITS.family)} family` : '2026 the limits are $4,400 self-only or $8,750 family'}, plus ${dollars(HSA_2027_LIMITS.catchUp)} for an eligible person age 55 or older. Employer contributions count toward the limit and cannot also be deducted personally. General HDHP rules require minimum deductibles of ${taxYear === 2027 ? `${dollars(HSA_2027_LIMITS.minimumDeductible.selfOnly)} self-only/${dollars(HSA_2027_LIMITS.minimumDeductible.family)} family` : '$1,700 self-only/$3,400 family'} and maximum out-of-pocket expenses of ${taxYear === 2027 ? `${dollars(HSA_2027_LIMITS.maximumOutOfPocket.selfOnly)} self-only/${dollars(HSA_2027_LIMITS.maximumOutOfPocket.family)} family` : '$8,500 self-only/$17,000 family'}, excluding premiums. A deductible alone does not establish eligibility. From 2026, qualifying individual-market bronze and catastrophic plans have special HSA treatment even if those HDHP dollar tests are not met. Other disqualifying coverage, Medicare enrollment and dependent status still matter. Eligibility is generally monthly; the last-month rule has a testing period and needs separate review. Each spouse needs their own HSA for a catch-up contribution. Personal contributions are generally due by the return deadline without extensions. Qualified medical withdrawals may be tax-free; unused balances carry forward.`,
     placement: 'Schedule 1 line 13 (Form 8889)',
-    records: ['Form 5498-SA', 'proof of high-deductible plan coverage by month', 'receipts for withdrawals'],
-    citations: ['dental-vision'],
+    records: ['Form 5498-SA and employer contributions', 'coverage and eligibility by month', 'receipts for withdrawals'],
+    citations: ['hsa-2027-limits', 'hsa-expanded-eligibility'],
   },
   {
     id: 'education-courses',
@@ -476,7 +582,7 @@ export const GUIDANCE_SOURCES: readonly GuidanceSource[] = [
     reviewedAt, supportedTaxYears,
     summary: 'Paying freelancers, subcontractors or assistants, and the duty to file Form 1099-NEC ($600 for payments made in 2025; $2,000 for payments made in 2026; indexed after 2026). Worker classification.',
     requiredFacts: ['How much did you pay this person during the year, and how (check, bank transfer, card or payment app)?', 'Is the person an individual or LLC rather than a corporation, and do you have their Form W-9?'],
-    answer: (taxYear) => `Payments to independent contractors, such as a designer, editor, assistant, subcontractor or virtual assistant, are deductible as contract labor when the work is for your business. The flip side is a reporting duty: you must file Form 1099-NEC for each unincorporated contractor paid ${taxYear >= 2027 ? 'at or above the threshold in the course of your business ($2,000 for payments made in 2026; the amount is indexed for payments made after 2026 and the 2027 figure has not been published)' : '$2,000 or more during 2026 in the course of your business (the threshold was $600 for payments made in 2025)'}, due to the contractor and the IRS by January 31. Collect a Form W-9 before paying. Payments made by credit card or through a payment app\'s goods-and-services option are reported by the processor on Form 1099-K instead, so you do not issue a 1099-NEC for those. Payments to corporations are generally exempt, except to attorneys. If you control how, when and where the person works, they may be an employee, which brings payroll taxes.`,
+    answer: (taxYear) => `Payments to independent contractors, such as a designer, editor, assistant, subcontractor or virtual assistant, are deductible as contract labor when the work is for your business. The flip side is a reporting duty: you must file Form 1099-NEC for each unincorporated contractor paid ${taxYear >= 2027 ? 'at or above the threshold in the course of your business ($2,000 for payments made in 2026; the amount is indexed for payments made after 2026 and the 2027 figure remains pending verification in this release)' : '$2,000 or more during 2026 in the course of your business (the threshold was $600 for payments made in 2025)'}, due to the contractor and the IRS by January 31. Collect a Form W-9 before paying. Payments made by credit card or through a payment app\'s goods-and-services option are reported by the processor on Form 1099-K instead, so you do not issue a 1099-NEC for those. Payments to corporations are generally exempt, except to attorneys. If you control how, when and where the person works, they may be an employee, which brings payroll taxes.`,
     placement: 'Schedule C line 11 (contract labor)',
     records: ['a Form W-9 for each contractor', 'invoices and payment records', 'copies of the Forms 1099-NEC you filed'],
     citations: ['information-returns'],
@@ -521,10 +627,10 @@ export const GUIDANCE_SOURCES: readonly GuidanceSource[] = [
     id: 'state-taxes-licenses',
     title: 'IRS Schedule C instructions (2025): Line 23 taxes and licenses',
     url: SCHEDULE_C_INSTRUCTIONS,
-    reviewedAt, supportedTaxYears,
+    reviewedAt: TAX_YEAR_2027_REVIEWED_AT, supportedTaxYears,
     summary: 'Business licenses, permits, professional license renewals, sales tax, payroll taxes and franchise taxes versus state income tax and self-employment tax.',
     requiredFacts: ['Is this a license, permit or tax imposed on the business, or your personal state income tax?'],
-    answer: 'Business taxes and licenses are deductible on Schedule C: business license and permit fees, professional license renewals, state and local sales tax you paid on business purchases (as part of the item\'s cost), the employer share of payroll taxes, personal property tax on business equipment, and state gross-receipts or franchise taxes imposed on the business itself. Sales tax you collect from customers and remit is neither income nor expense. Not deductible on Schedule C: your state and federal income taxes, self-employment tax (half goes on Schedule 1), and penalties or fines. State income tax is a personal itemized deduction on Schedule A, subject to the state and local tax cap. A vehicle registration fee splits between the business-use portion of any value-based tax and the rest.',
+    answer: 'Business taxes and licenses are deductible on Schedule C: business license and permit fees, professional license renewals, state and local sales tax you paid on business purchases (as part of the item\'s cost), the employer share of payroll taxes, personal property tax on business equipment, and state gross-receipts or franchise taxes imposed on the business itself. Buyer-imposed sales tax you collect and remit is neither income nor expense. Seller-imposed sales tax is generally included in gross receipts and may be deducted; confirm legal incidence and receipt treatment. Not deductible on Schedule C: your state and federal income taxes, self-employment tax (half goes on Schedule 1), and penalties or fines. State income tax is a personal itemized deduction on Schedule A, subject to the state and local tax cap. A vehicle registration fee splits between the business-use portion of any value-based tax and the rest.',
     placement: 'Schedule C line 23 (taxes and licenses); state income tax on Schedule A only',
     records: ['license and permit receipts', 'tax bills showing what the tax was imposed on'],
     citations: ['business-expenses'],
@@ -629,15 +735,15 @@ export const GUIDANCE_SOURCES: readonly GuidanceSource[] = [
   },
   {
     id: 'side-hustle-w2',
-    title: 'IRS Schedule SE instructions (2025): Self-employment tax with wages',
+    title: 'IRS Schedule SE instructions: Self-employment tax with wages',
     url: 'https://www.irs.gov/instructions/i1040sse',
-    reviewedAt, supportedTaxYears,
-    summary: 'Running a side business alongside a W-2 job: Schedule C reporting, self-employment tax above $400, the Social Security wage base, withholding versus estimated payments, and nondeductible W-2 job costs.',
+    reviewedAt: TAX_YEAR_2027_REVIEWED_AT, supportedTaxYears,
+    summary: 'A side business alongside a W-2 job: Schedule C reporting, the $400 Schedule SE net-earnings threshold, Social Security wage base, Medicare taxes and payment planning. Employee-expense exceptions require separate review.',
     requiredFacts: ['How much net profit do you expect from the side business this year?', 'Roughly what are your W-2 wages, and can you adjust your withholding?'],
-    answer: (taxYear) => `Income from a side business is reported on Schedule C alongside your W-2 wages, and its expenses are deductible against it under the same rules as any business. Self-employment tax applies once net profit reaches $400, at 15.3% of 92.35% of profit; your W-2 Social Security wages count toward the annual wage base${taxYear >= 2027 ? ' (the 2027 wage base has not been published as of September 17, 2026)' : ' ($184,500 for 2026)'}, so high earners pay only the 2.9% Medicare part on side income above it. Half of self-employment tax is deductible on Schedule 1. Nothing is withheld from side income, so either make quarterly estimated payments or raise the withholding at your job on Form W-4, which is treated as paid evenly through the year. Expenses of your W-2 job, such as a home office for it or a laptop your employer did not reimburse, are not deductible on Schedule C or anywhere else. Keep the side business in its own account.`,
-    placement: 'Schedule C and Schedule SE; half of self-employment tax on Schedule 1 line 15',
+    answer: (taxYear) => `Income from a side business is reported on Schedule C alongside W-2 wages. Its ordinary and necessary business expenses reduce that business income. Self-employment tax generally applies when Schedule SE net earnings reach $400; under the regular method, net earnings are usually 92.35% of net profit, not gross receipts. The regular tax combines 12.4% Social Security, limited by the annual wage base${taxYear >= 2027 ? ' (the 2027 wage base remains pending verification in this release)' : ' ($184,500 for 2026)'}, and 2.9% Medicare without that cap. Your W-2 Social Security wages count toward the same wage base. A separate 0.9% Additional Medicare Tax may apply based on combined wages and self-employment income and filing status. Half of regular self-employment tax is deductible on Schedule 1; the Additional Medicare Tax is not included in that deduction. Plan for estimated payments or additional W-2 withholding; withholding is generally treated as paid evenly through the year. Ordinary W-2 job expenses do not become Schedule C expenses of a separate side business. Most unreimbursed employee expenses are nondeductible, but limited employee exceptions require separate review. Keep business records separate.`,
+    placement: 'Schedule C and Schedule SE; half of regular self-employment tax on Schedule 1 line 15',
     records: ['a separate account for the side business', 'income records including any Forms 1099', 'your Forms W-2'],
-    citations: ['estimated-taxes'],
+    citations: ['estimated-taxes', 'employee-expense-exceptions'],
   },
   {
     id: 'bartering',
@@ -667,22 +773,32 @@ export const GUIDANCE_SOURCES: readonly GuidanceSource[] = [
     id: 'business-losses',
     title: 'IRS Instructions for Form 461: Limitation on business losses',
     url: 'https://www.irs.gov/instructions/i461',
-    reviewedAt, supportedTaxYears,
-    summary: 'Deducting a Schedule C loss against wages or other income: profit motive, at-risk rules, the excess business loss cap ($256,000 / $512,000 joint for 2026), net operating loss carryforwards.',
-    requiredFacts: ['How large is the loss, and is any of your investment financed without personal liability?', 'How many years has the business shown a loss?'],
-    answer: (taxYear) => `A Schedule C loss can offset other income, including wages, when three tests are passed. First, the activity must be a business with a profit motive, not a hobby. Second, you must be at risk for the loss, meaning money you invested or borrowed with personal liability, which is normal for a sole proprietor (see line 32a). Third, the excess business loss rule caps the net loss from all your businesses that can offset non-business income${taxYear >= 2027 ? '' : ' at $256,000 ($512,000 on a joint return) for 2026'}; anything above becomes a net operating loss carried to later years.${taxYear >= 2027 ? ` ${pending2027('threshold')}` : ''} A loss does not reduce self-employment tax below zero, and it can wipe out the qualified business income deduction and carry a negative QBI amount forward. Repeated losses invite the hobby question. Startup-year losses are common and allowed when the business is real.`,
+    reviewedAt: TAX_YEAR_2027_REVIEWED_AT, supportedTaxYears,
+    summary: 'Deducting a Schedule C loss against wages or other income: profit motive, at-risk and passive-activity rules, the excess business loss cap ($256,000 / $512,000 joint for 2026), net operating loss carryforwards.',
+    requiredFacts: ['How large is the loss, and is any of your investment financed without personal liability?', 'How many years has the business shown a loss?', 'Did you materially participate in this business, and what work and hours establish your participation?'],
+    answer: (taxYear) => `A Schedule C loss can offset other income, including wages, only after the applicable loss limits are checked. First, the activity must be a business with a profit motive, not a hobby. Second, you must be at risk for the loss, meaning money you invested or borrowed with personal liability, subject to the at-risk rules (see line 32a). Third, passive-activity rules generally prevent a business loss from offsetting wages unless you materially participate; ownership alone is not enough. Check participation and suspended losses (Form 8582). Fourth, the excess business loss rule caps the net loss from all your businesses that can offset non-business income${taxYear >= 2027 ? '' : ' at $256,000 ($512,000 on a joint return) for 2026'}; anything above becomes a net operating loss carried to later years.${taxYear >= 2027 ? ` ${pending2027('threshold')}` : ''} A loss does not reduce self-employment tax below zero, and it can wipe out the qualified business income deduction and carry a negative QBI amount forward. Repeated losses invite the hobby question. Startup-year losses still need these checks.`,
     placement: 'Schedule C line 31 flows to Schedule 1 line 3; Form 461 if the loss is large; a net operating loss carries forward on Schedule 1',
     records: ['proof of your investment and of personal liability on loans', 'a business plan and evidence of profit efforts'],
-    citations: ['hobby-loss'],
+    citations: ['hobby-loss', 'passive-losses-925'],
+  },
+  {
+    id: 'passive-losses-925',
+    title: 'IRS Publication 925: Passive activity and at-risk rules',
+    url: 'https://www.irs.gov/publications/p925',
+    reviewedAt: TAX_YEAR_2027_REVIEWED_AT, supportedTaxYears,
+    summary: 'Section 469 can suspend losses from a trade or business in which the taxpayer does not materially participate. Apply basis and at-risk limits before passive activity limits; losses that survive those limits may still face section 461(l).',
+    requiredFacts: ['What work and participation hours establish material participation in this business?'],
   },
   {
     id: 'qbi-deduction',
     title: '26 USC 199A: Qualified business income deduction',
     url: code('199A'),
-    reviewedAt, supportedTaxYears,
+    reviewedAt: TAX_YEAR_2027_REVIEWED_AT, supportedTaxYears,
     summary: 'The 20% qualified business income deduction for a sole proprietor: how QBI is computed, the taxable-income thresholds and phase-in, service businesses, and the minimum deduction from 2026.',
     requiredFacts: ['What is your expected taxable income and filing status?', 'Is your business a service business such as consulting, health, law, accounting, financial services or performing arts?'],
-    answer: (taxYear) => `The qualified business income deduction lets a sole proprietor deduct up to 20% of net business profit, after subtracting half of self-employment tax, self-employed health insurance and retirement contributions, without spending anything. It is taken on Form 1040 after adjusted gross income, so it reduces income tax but not self-employment tax, and it is capped at 20% of taxable income minus net capital gains. ${taxYear >= 2027 ? 'Below a taxable-income threshold (the 2027 threshold has not been published as of September 17, 2026) the full deduction applies to any business.' : 'Below taxable income of $201,750 ($403,500 on a joint return) for 2026 the full deduction applies to any business.'} Above that, a phase-in over $75,000 ($150,000 joint) brings in limits based on W-2 wages paid and business property, and service businesses such as consulting, health, law, accounting, financial services and performing arts lose the deduction entirely at the top of the range. From 2026 a minimum deduction of $400 applies when active business income is at least $1,000. Use Form 8995 or 8995-A.`,
+    answer: (taxYear) => taxYear === 2027
+      ? `The Section 199A deduction may reduce income tax by up to 20% of qualified business income; it does not reduce self-employment tax. Net QBI generally reflects half of self-employment tax, self-employed health insurance and retirement adjustments. The ordinary calculation is capped by taxable income less net capital gain. Above an indexed taxable-income threshold, wage/property limits and specified-service-business rules phase in over $75,000 ($150,000 joint). ${pending2027('taxable-income threshold')} A separate minimum deduction requires aggregate QBI from active businesses in which you materially participate. Both that minimum deduction and its qualifying income floor are indexed after 2026; their 2027 amounts remain pending verification, so the earlier $400 and $1,000 figures are not stated as 2027 limits. Loss carryforwards, tips excluded from QBI, entity facts and filing status can affect the result. Use the correct-year Form 8995 or 8995-A; this packet does not calculate your deduction.`
+      : `The qualified business income deduction lets a sole proprietor deduct up to 20% of net business profit, after subtracting half of self-employment tax, self-employed health insurance and retirement contributions, without spending anything. It is taken on Form 1040 after adjusted gross income, so it reduces income tax but not self-employment tax, and it is capped at 20% of taxable income minus net capital gains. Below taxable income of $201,750 ($403,500 on a joint return) for 2026 the full deduction applies to any business. Above that, a phase-in over $75,000 ($150,000 joint) brings in limits based on W-2 wages paid and business property, and service businesses such as consulting, health, law, accounting, financial services and performing arts lose the deduction entirely at the top of the range. From 2026 a minimum deduction of $400 applies when active business income is at least $1,000. Use Form 8995 or 8995-A.`,
     placement: 'Form 1040 line 13 via Form 8995 or 8995-A; not Schedule C',
     records: ['Schedule C net profit', 'the Schedule 1 adjustments used to compute QBI'],
     citations: ['health-insurance', 'retirement-plans'],
@@ -711,6 +827,6 @@ export function guidanceSource(id: string): GuidanceSource | undefined {
 
 export function yearNotice(year: number): string | null {
   return year === 2027
-    ? '2027 planning: some annual IRS and Social Security amounts (inflation-indexed brackets, standard deductions, wage base, mileage rate, retirement limits, the indexed 1099-NEC threshold) have not been verified or published as of September 17, 2026, and remain pending. This answer uses general reviewed rules and statutory amounts that are fixed through 2028; it does not substitute 2026 limits or calculate a deduction amount.'
+    ? `Tax year 2027 covers income and expenses in 2027, generally reported on a return filed in 2028; a return filed in 2027 generally concerns tax year 2026. Published 2027 HSA limits and Marketplace health-insurance percentages are included. Other annual amounts, including brackets, standard deductions, Social Security wage base, mileage and retirement limits, remain pending verification in this release as of ${reviewDate2027}. Guidance uses published amounts and applicable enacted rules; it does not substitute 2026 limits or calculate a deduction amount. Full-return calculations remain unavailable.`
     : null;
 }

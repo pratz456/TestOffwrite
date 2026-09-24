@@ -8,7 +8,7 @@
  *   - IRS Rev. Proc. 2023-34 and 2025-32 (2024 and 2026 annual amounts)
  */
 
-import { getFederalTaxRules, LATEST_PUBLISHED_TAX_YEAR } from './federal-year-rules';
+import { getFederalTaxRules } from './federal-year-rules';
 import { calculateFederalIncomeTax } from './federal-brackets';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -20,7 +20,7 @@ export type FilingStatus =
   | 'head_of_household';
 
 export interface CreditInput {
-  taxYear?: number;             // Omitted calls use the latest complete published parameter set
+  taxYear: number;
   taxLiabilityBeforeCTC?: number; // Credit Limit Worksheet A, after other nonrefundable credits; excludes regular SE tax
   earnedIncome: number;        // W-2 wages + net SE income (Schedule C profit)
   agi: number;                 // Adjusted Gross Income (Line 11)
@@ -70,7 +70,7 @@ export function calculateEITC(input: CreditInput): { amount: number; eligible: b
     investmentIncome = 0,
   } = input;
 
-  const year = getFederalTaxRules(input.taxYear ?? LATEST_PUBLISHED_TAX_YEAR);
+  const year = getFederalTaxRules(input.taxYear);
 
   // Cannot file MFS (with limited exceptions we don't model)
   if (filingStatus === 'married_filing_separately') {
@@ -128,7 +128,7 @@ export function calculateEITC(input: CreditInput): { amount: number; eligible: b
 
 export function calculateCTC(input: CreditInput): { ctc: number; actc: number } {
   const { agi, earnedIncome, filingStatus, numDependents } = input;
-  const year = getFederalTaxRules(input.taxYear ?? LATEST_PUBLISHED_TAX_YEAR);
+  const year = getFederalTaxRules(input.taxYear);
 
   if (numDependents <= 0) return { ctc: 0, actc: 0 };
 
@@ -169,7 +169,7 @@ export function calculateLTCGTax(
   longTermGains: number,
   taxableIncome: number,
   filingStatus: FilingStatus,
-  taxYear: number = LATEST_PUBLISHED_TAX_YEAR,
+  taxYear: number,
 ): number {
   const [zeroRateEnd, fifteenRateEnd] = getFederalTaxRules(taxYear).capitalGainsThresholds[filingStatus];
   if (longTermGains <= 0 || taxableIncome <= 0) return 0;
@@ -204,21 +204,18 @@ export function calculateLTCGTax(
 /**
  * Owner-only sole-proprietor SEP with a 25% plan rate: reduced rate = .25/1.25 = .20.
  * IRS Publication 560, chapter 5. This is not the remaining combined-plan limit.
- * Supply the actual deductible half of regular SE tax when wages/other SE income exist.
- * Legacy one-argument calls use the latest published year and assume no Social Security wages/other businesses.
+ * Supply the actual deductible half of regular SE tax from the shared Schedule SE calculation.
+ * Recomputing it here would require W-2 Social Security wages and other SE businesses that this helper does not receive.
  */
 export function calculateSEPIRAMax(
   scheduleC_netProfit: number,
-  taxYear: number = LATEST_PUBLISHED_TAX_YEAR,
-  halfSEDeduction?: number,
+  taxYear: number,
+  halfSEDeduction: number,
 ): number {
   const year = getFederalTaxRules(taxYear);
   if (scheduleC_netProfit <= 0) return 0;
-  const seBase = scheduleC_netProfit * 0.9235;
-  const regularSETax = seBase < 400 ? 0
-    : Math.min(seBase, year.socialSecurityWageBase) * 0.124 + seBase * 0.029;
-  const halfSE = halfSEDeduction ?? regularSETax / 2;
-  const netSEEarnings = Math.max(0, scheduleC_netProfit - Math.max(0, halfSE));
+  if (!Number.isFinite(halfSEDeduction) || halfSEDeduction < 0) throw new RangeError('Provide the deductible half of regular self-employment tax.');
+  const netSEEarnings = Math.max(0, scheduleC_netProfit - halfSEDeduction);
   return Math.round(Math.min(netSEEarnings * 0.20, year.sepContributionLimit) * 100) / 100;
 }
 
@@ -252,7 +249,7 @@ export function calculateAllCredits(input: CreditInput): CreditResult {
     input.longTermCapGains ?? 0,
     input.taxableIncome,
     input.filingStatus,
-    input.taxYear ?? LATEST_PUBLISHED_TAX_YEAR
+    input.taxYear
   );
 
   if ((input.longTermCapGains ?? 0) > 0) {

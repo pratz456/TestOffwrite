@@ -146,20 +146,19 @@ describe('analysis context wiring', () => {
     expect(buildAnalysisContext(transaction, { ...context, profession: [] }, extras).profession_context).toBeNull();
   });
 
-  it('includes bounded receipt evidence while redacting taxpayer identifiers', () => {
+  it('includes receipt presence and confidence without sending raw OCR text', () => {
     const built = buildAnalysisContext({
       ...transaction,
       receipt_context: {
         attached: true,
-        ocr_text: 'Adobe invoice for design subscription, EIN 12-3456789',
         ocr_confidence: 0.93,
       },
     }, context, extras);
     expect(built.tx.receipt_context).toMatchObject({
       attached: true,
-      ocr_text: 'Adobe invoice for design subscription, EIN [redacted-id]',
       ocr_confidence: 0.93,
     });
+    expect(JSON.stringify(built.tx.receipt_context)).not.toContain('ocr_text');
   });
 
   describe('prompt contract', () => {

@@ -1,6 +1,9 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
-const mock = vi.hoisted(() => ({ auth: vi.fn(), connection: vi.fn(), link: vi.fn(), trial: vi.fn(), history: vi.fn() }));
+const mock = vi.hoisted(() => ({ auth: vi.fn(), connection: vi.fn(), link: vi.fn(), trial: vi.fn(), history: vi.fn(), historyReady: vi.fn(), reconnectCanLink: vi.fn() }));
+vi.mock('@/lib/plaid/reconnect', () => ({ assertReconnectCanLink: mock.reconnectCanLink }));
+vi.mock('@/lib/plaid/history-review', () => ({ assertBankHistoryReadyForNewConnection: mock.historyReady,
+  BANK_HISTORY_REVIEW_REQUIRED: 'BANK_HISTORY_REVIEW_REQUIRED', BANK_HISTORY_REVIEW_MESSAGE: 'Review saved bank history with WriteOff support.' }));
 vi.mock('@/app/api/_lib/auth', () => ({ getUserFromReqOrThrow: mock.auth }));
 vi.mock('@/lib/plaid/connections', () => ({ getPlaidConnection: mock.connection }));
 vi.mock('@/lib/plaid/client', () => ({ plaidClient: { linkTokenCreate: mock.link } }));
@@ -12,6 +15,7 @@ import { RATE_LIMITS } from '@/lib/security/rate-limit';
 import { exhaustRateLimit, failRateLimitStore, resetRateLimitStore } from './fixtures/rate-limit-store';
 const req = (body = {}) => new NextRequest('https://staging.example.test/api/plaid/create-link-token', { method: 'POST', body: JSON.stringify(body) });
 beforeEach(() => { vi.clearAllMocks(); resetRateLimitStore(); mock.auth.mockResolvedValue({ uid: 'owner' }); mock.link.mockResolvedValue({ data: { link_token: 'public-link-token' } });
+  mock.historyReady.mockResolvedValue(undefined);
   mock.connection.mockResolvedValue({ uid: 'owner', itemId: 'owned-item', accessToken: 'synthetic-private-token' }); mock.trial.mockResolvedValue({ success: true });
   mock.history.mockResolvedValue({ days: 90 }); vi.stubEnv('PLAID_ENV', 'sandbox'); vi.stubEnv('PLAID_WEBHOOK_URL', '');
   vi.stubEnv('NEXT_PUBLIC_SITE_URL', 'https://staging.example.test'); vi.stubEnv('VERCEL_URL', '');
@@ -19,12 +23,31 @@ beforeEach(() => { vi.clearAllMocks(); resetRateLimitStore(); mock.auth.mockReso
 });
 afterEach(() => vi.unstubAllEnvs());
 describe('authenticated bank Link update mode', () => {
+  it('blocks legacy-history new Items before trial or provider work', async () => {
+    mock.historyReady.mockRejectedValue(new Error('BANK_HISTORY_REVIEW_REQUIRED'));
+    const response = await POST(req());
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: 'BANK_HISTORY_REVIEW_REQUIRED' });
+    expect(mock.historyReady).toHaveBeenCalledWith('owner');
+    expect(mock.trial).not.toHaveBeenCalled(); expect(mock.link).not.toHaveBeenCalled();
+  });
+  it('continues repairing an owned current-provider Item even with legacy history', async () => {
+    mock.historyReady.mockRejectedValue(new Error('BANK_HISTORY_REVIEW_REQUIRED'));
+    expect((await POST(req({ itemId: 'owned-item' }))).status).toBe(200);
+    expect(mock.historyReady).not.toHaveBeenCalled();
+    expect(mock.link.mock.calls[0][0]).toHaveProperty('access_token', 'synthetic-private-token');
+  });
+  it('fails closed when bank history cannot be checked', async () => {
+    mock.historyReady.mockRejectedValue(new Error('store unavailable'));
+    expect((await POST(req())).status).toBe(503);
+    expect(mock.link).not.toHaveBeenCalled(); expect(mock.trial).not.toHaveBeenCalled();
+  });
   it('uses an owned server token, omits new-item product/history parameters, and returns only a public Link token', async () => {
     const response = await POST(req({ itemId: 'owned-item', access_token: 'injected-token' }));
     expect(response.status).toBe(200);
     const body = await response.json(); expect(body).toEqual({ link_token: 'public-link-token', mode: 'update', itemId: 'owned-item' });
     expect(JSON.stringify(body)).not.toContain('private-token');
-    expect(mock.connection).toHaveBeenCalledWith('owner', 'owned-item');
+    expect(mock.connection).toHaveBeenCalledWith('owner', 'owned-item', true);
     expect(mock.link.mock.calls[0][0]).toMatchObject({ access_token: 'synthetic-private-token', webhook: 'https://staging.example.test/api/plaid/webhook' });
     expect(mock.link.mock.calls[0][0]).not.toHaveProperty('products'); expect(mock.link.mock.calls[0][0]).not.toHaveProperty('transactions');
     expect(mock.trial).not.toHaveBeenCalled(); expect(mock.history).not.toHaveBeenCalled();
@@ -74,3 +97,14 @@ describe('authenticated bank Link update mode', () => {
     expect(mock.link).not.toHaveBeenCalled(); expect(mock.trial).not.toHaveBeenCalled();
   });
 });
+
+ it('issues a create-mode Link token only after validating the owner reconnect session', async () => {
+  expect((await POST(req({ reconnectSessionId: 'review' }))).status).toBe(200);
+  expect(mock.reconnectCanLink).toHaveBeenCalledWith('owner', 'review');
+  expect(mock.historyReady).not.toHaveBeenCalled();
+  expect(mock.link.mock.calls[0][0]).toHaveProperty('products');
+ });
+ it('rejects mixing Item update mode with a new reconnect session', async () => {
+  expect((await POST(req({ itemId: 'existing', reconnectSessionId: 'review' }))).status).toBe(400);
+  expect(mock.link).not.toHaveBeenCalled();
+ });

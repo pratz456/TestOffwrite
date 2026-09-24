@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
-const mocks = vi.hoisted(() => ({ enqueue: vi.fn(), process: vi.fn(), account: vi.fn(), auth: vi.fn(), transactions: vi.fn(), jobs: vi.fn(), configured: true }));
+const mocks = vi.hoisted(() => ({ enqueue: vi.fn(), process: vi.fn(), enqueueProfile: vi.fn(), processProfile: vi.fn(), account: vi.fn(), auth: vi.fn(), transactions: vi.fn(), jobs: vi.fn(), configured: true }));
 vi.mock('@/lib/ai/analysis-jobs', () => ({ enqueueBankTransactionAnalysis: mocks.enqueue, processAnalysisTask: mocks.process, enqueueAccountAnalysis: mocks.account,
   validAnalysisId: (value: unknown) => typeof value === 'string' && /^[^/\\\u0000-\u001f]{1,256}$/.test(value) && !['.', '..'].includes(value),
 }));
+vi.mock('@/lib/ai/profile-analysis-refresh', () => ({ enqueueProfileAnalysisRefresh: mocks.enqueueProfile, processProfileAnalysisRefresh: mocks.processProfile }));
 vi.mock('@/lib/ai/provider-status', () => ({ getAIProviderStatus: () => ({ configured: mocks.configured }) }));
 vi.mock('@/app/api/_lib/auth', () => ({ getUserFromReqOrThrow: mocks.auth }));
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({ user: { uid: 'synthetic-owner' }, error: null }) }));
@@ -25,6 +26,8 @@ beforeEach(() => {
   mocks.auth.mockResolvedValue({ uid: 'synthetic-owner' });
   mocks.account.mockResolvedValue({ status: 'queued', queued: 3, jobId: 'synthetic-owner_bank' });
   mocks.process.mockResolvedValue({ status: 'completed', retry: false });
+  mocks.enqueueProfile.mockResolvedValue({ status: 'queued' });
+  mocks.processProfile.mockResolvedValue({ status: 'completed', retry: false });
   mocks.enqueue.mockResolvedValue({ status: 'queued', taskId: task.taskId });
   mocks.jobs.mockResolvedValue({ empty: true, docs: [] });
   vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -60,6 +63,19 @@ describe('analysis worker authentication and queue boundaries', () => {
     mocks.process.mockRejectedValue(new Error('sensitive provider data'));
     const failed = await internal(request());
     expect(failed.status).toBe(503); expect(await failed.text()).not.toContain('sensitive');
+  });
+  it('authenticates and awaits profile refresh queue and page processing', async () => {
+    const enqueue = { action: 'enqueue-profile-refresh', userId: 'owner' };
+    const process = { action: 'process-profile-refresh', userId: 'owner', generation: 'page-1' };
+    expect((await internal(request(enqueue, 'wrong'))).status).toBe(401);
+    expect(mocks.enqueueProfile).not.toHaveBeenCalled();
+    expect((await internal(request({ ...enqueue, userId: 'owner/other' }))).status).toBe(400);
+    expect((await internal(request(enqueue))).status).toBe(200);
+    expect(mocks.enqueueProfile).toHaveBeenCalledWith('owner');
+    expect((await internal(request(process))).status).toBe(200);
+    expect(mocks.processProfile).toHaveBeenCalledWith('owner', 'page-1');
+    mocks.processProfile.mockResolvedValue({ status: 'busy', retry: true });
+    expect((await internal(request(process))).status).toBe(503);
   });
   it('queues only the address in the validated service request', async () => {
     expect((await internal(request({ action: 'enqueue', userId: 'owner', accountId: 'bank', transactionId: 'posted' }))).status).toBe(200);

@@ -8,7 +8,7 @@ export interface UserProfile {
   business_entity_type?: string;
   primary_work_location?: string;
   work_related_travel_pattern?: string;
-  income: string;
+  income: string | number;
   state: string;
   filing_status: string;
   bankConnected?: boolean;
@@ -38,6 +38,8 @@ export interface UserProfile {
   business_purpose?: string;
   ein?: string;
   w2_income?: number;
+  w2_social_security_wages?: number;
+  w2_medicare_wages?: number;
   w2_federal_withheld?: number;     // Box 2 of W-2 — federal tax already withheld
   business_income?: number;
   other_income?: number;
@@ -46,6 +48,7 @@ export interface UserProfile {
   sep_ira_contribution?: number;        // SEP-IRA contribution (Schedule 1 Line 16)
   solo_401k_contribution?: number;      // Solo 401(k) contribution (Schedule 1 Line 16)
   hsa_contribution?: number;            // HSA contribution (Schedule 1 Line 13)
+  simple_ira_contribution?: number;
   tax_bracket?: number;
   professional_licenses?: string[];
 
@@ -138,8 +141,55 @@ export async function getUserProfileServer(userId: string): Promise<{ data: User
           plaid_import_in_progress: data.plaid_import_in_progress,
           plaid_import_started_at: data.plaid_import_started_at,
           last_sync: data.last_sync,
+          last_sync_source: data.last_sync_source,
+          year_of_birth: data.year_of_birth,
           created_at: data.created_at,
           updated_at: data.updated_at,
+
+          itemization_status: data.itemization_status,
+          business_start_date: data.business_start_date,
+          home_office_sqft: data.home_office_sqft,
+          total_home_sqft: data.total_home_sqft,
+          home_office_method: data.home_office_method,
+          vehicle_business_use_percentage: data.vehicle_business_use_percentage,
+          vehicle_deduction_method: data.vehicle_deduction_method,
+          naics_code: data.naics_code,
+          business_purpose: data.business_purpose,
+          ein: typeof data.ein_last4 === 'string' ? `**-***${data.ein_last4}` : data.ein,
+          w2_income: data.w2_income,
+          w2_social_security_wages: data.w2_social_security_wages,
+          w2_medicare_wages: data.w2_medicare_wages,
+          w2_federal_withheld: data.w2_federal_withheld,
+          business_income: data.business_income,
+          other_income: data.other_income,
+          health_insurance_premiums: data.health_insurance_premiums,
+          sep_ira_contribution: data.sep_ira_contribution,
+          solo_401k_contribution: data.solo_401k_contribution,
+          hsa_contribution: data.hsa_contribution,
+          simple_ira_contribution: data.simple_ira_contribution,
+          tax_bracket: data.tax_bracket,
+          professional_licenses: data.professional_licenses,
+          prior_year_tax: data.prior_year_tax,
+          mailing_address: data.mailing_address,
+          prior_year_deductions: data.prior_year_deductions,
+          audit_history: data.audit_history,
+          tax_professional: data.tax_professional,
+          documentation_habits: data.documentation_habits,
+          business_seasonality: data.business_seasonality,
+          multiple_locations: data.multiple_locations,
+          international_business: data.international_business,
+          business_vehicle: data.business_vehicle,
+          home_office_details: data.home_office_details,
+          income_breakdown: data.income_breakdown,
+          hasHistoricalAccess: data.hasHistoricalAccess,
+          subscriptionStatus: data.subscriptionStatus,
+          trialStart: data.trialStart,
+          trialEnd: data.trialEnd,
+          subscriptionEnd: data.subscriptionEnd,
+          stripeCustomerId: data.stripeCustomerId,
+          stripeSubscriptionId: data.stripeSubscriptionId,
+          stripeSubscriptionStatus: data.stripeSubscriptionStatus,
+          subscriptionPlan: data.subscriptionPlan,
         },
         error: null
       };
@@ -147,7 +197,7 @@ export async function getUserProfileServer(userId: string): Promise<{ data: User
       return { data: null, error: { code: 'PGRST116', message: 'Profile not found' } };
     }
   } catch (error) {
-    console.error('Error getting user profile (server):', error);
+    console.error('Error getting user profile (server)');
     return { data: null, error };
   }
 }
@@ -158,12 +208,9 @@ export async function upsertUserProfileServer(
   profileData: Partial<UserProfile>
 ): Promise<{ data: UserProfile | null; error: any }> {
   try {
-    console.log('🔄 [Firebase Profile Server] Upserting profile for user:', userId);
-    console.log('🔄 [Firebase Profile Server] Profile data:', profileData);
-    console.log('📂 [Firebase Profile Server] Writing to user_profiles collection for user:', userId);
+    console.log('🔄 [Firebase Profile Server] Upserting owner profile');
 
     const docRef = adminDb.collection("user_profiles").doc(userId);
-    console.log('📂 [Firebase Profile Server] Document reference created:', docRef.path);
 
     // Filter out undefined values as Firebase doesn't allow them (including nested objects)
     const filterUndefinedValues = (obj: any): any => {
@@ -192,32 +239,22 @@ export async function upsertUserProfileServer(
       updated_at: new Date(),
     };
 
-    console.log('🔄 [Firebase Profile Server] Update data prepared:', updateData);
-
     // Check if document exists
-    console.log('🔍 [Firebase Profile Server] Checking if document exists...');
     const docSnap = await docRef.get();
-    console.log('🔍 [Firebase Profile Server] Document exists:', docSnap.exists);
 
     if (docSnap.exists) {
-      console.log('📝 [Firebase Profile Server] Document exists, updating...');
       // Update existing document
       await docRef.update(updateData);
-      console.log('✅ [Firebase Profile Server] Document updated successfully');
     } else {
-      console.log('📝 [Firebase Profile Server] Document does not exist, creating...');
       // Create new document
       const createData = {
         ...updateData,
         created_at: new Date(),
       };
-      console.log('📝 [Firebase Profile Server] Creating document with data:', createData);
       await docRef.set(createData);
-      console.log('✅ [Firebase Profile Server] Document created successfully');
     }
 
     // Return the updated profile
-    console.log('🔄 [Firebase Profile Server] Retrieving updated document...');
     const updatedDoc = await docRef.get();
     if (updatedDoc.exists) {
       const data = updatedDoc.data();
@@ -225,7 +262,7 @@ export async function upsertUserProfileServer(
         console.error('❌ [Firebase Profile Server] Document exists but data is null');
         return { data: null, error: new Error('Document data is null') };
       }
-      console.log('✅ [Firebase Profile Server] Successfully retrieved updated document:', data);
+      console.log('✅ [Firebase Profile Server] Owner profile saved');
       return {
         data: {
           id: updatedDoc.id,
@@ -255,12 +292,22 @@ export async function upsertUserProfileServer(
           // Phase 2: Medium Impact Fields
           naics_code: data.naics_code,
           business_purpose: data.business_purpose,
-          ein: data.ein,
+          ein: typeof data.ein_last4 === 'string' ? `**-***${data.ein_last4}` : data.ein,
           w2_income: data.w2_income,
+          w2_social_security_wages: data.w2_social_security_wages,
+          w2_medicare_wages: data.w2_medicare_wages,
+          w2_federal_withheld: data.w2_federal_withheld,
           business_income: data.business_income,
           other_income: data.other_income,
+          health_insurance_premiums: data.health_insurance_premiums,
+          sep_ira_contribution: data.sep_ira_contribution,
+          solo_401k_contribution: data.solo_401k_contribution,
+          hsa_contribution: data.hsa_contribution,
+          simple_ira_contribution: data.simple_ira_contribution,
           tax_bracket: data.tax_bracket,
           professional_licenses: data.professional_licenses,
+          prior_year_tax: data.prior_year_tax,
+          mailing_address: data.mailing_address,
 
           // Phase 3: Advanced Fields
           prior_year_deductions: data.prior_year_deductions,
@@ -287,13 +334,7 @@ export async function upsertUserProfileServer(
     console.error('❌ [Firebase Profile Server] Failed to retrieve updated document');
     return { data: null, error: new Error('Failed to retrieve updated profile') };
   } catch (error) {
-    console.error('❌ [Firebase Profile Server] Error upserting user profile:', error);
-    console.error('❌ [Firebase Profile Server] Error type:', typeof error);
-    console.error('❌ [Firebase Profile Server] Error details:', JSON.stringify(error, null, 2));
-    if (error instanceof Error) {
-      console.error('❌ [Firebase Profile Server] Error message:', error.message);
-      console.error('❌ [Firebase Profile Server] Error code:', (error as any).code);
-    }
+    console.error('❌ [Firebase Profile Server] Error saving owner profile');
     return { data: null, error };
   }
 }

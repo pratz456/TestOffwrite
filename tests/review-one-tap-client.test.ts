@@ -55,20 +55,22 @@ describe('one-tap purpose confirmation on the review screen', () => {
     expect(text(view)).toContain('the purpose is saved when you confirm it above');
   });
 
-  it('records purpose, deduction and the AI-confirmed reason through the existing update route', async () => {
-    harness.request.mockResolvedValue(serverPut(records[0], { business_purpose: 'Printer paper and ink for client proposals', is_deductible: true, review_source: 'ai_confirmed' }));
+  it('saves the purpose as a fact and keeps unresolved review in place', async () => {
+    harness.request.mockResolvedValue(Response.json({ success: true, transaction: { ...records[0], business_purpose: 'Printer paper and ink for client proposals', tax_review_required: true } }));
     await chip(page())!.props.onConfirm!('Printer paper and ink for client proposals');
     expect(harness.request).toHaveBeenCalledExactlyOnceWith('/api/transactions/tx-1', expect.objectContaining({ method: 'PUT',
-      body: JSON.stringify({ business_purpose: 'Printer paper and ink for client proposals', is_deductible: true, expense_type: 'business', user_classification_reason: 'confirmed_ai_proposal' }) }));
-    expect(harness.updated).toHaveBeenCalledWith(expect.objectContaining({ id: 'tx-1', is_deductible: true, review_status: 'confirmed', review_source: 'ai_confirmed' }));
-    expect(harness.toast).toHaveBeenCalledWith('Business purpose confirmed and deduction recorded');
-    expect(text(page())).toContain('Categories reviewed');
+      body: JSON.stringify({ business_purpose: 'Printer paper and ink for client proposals' }) }));
+    expect(harness.updated).toHaveBeenCalledWith(expect.objectContaining({ id: 'tx-1', is_deductible: null, tax_review_required: true }));
+    expect(harness.updated.mock.calls[0][0]).not.toHaveProperty('review_status');
+    expect(harness.toast).toHaveBeenCalledWith('Purpose saved for AI review. Your tax decision is unchanged.');
+    expect(text(page())).toContain('Synthetic Office Mart');
+    expect(text(page())).not.toContain('confirmed this session');
   });
 
-  it('keeps an edited purpose tied to the AI proposal and records "Not business" as a correction', async () => {
-    harness.request.mockResolvedValue(serverPut(records[0], { is_deductible: true }));
+  it('saves an edited purpose without a tax decision and records "Not business" as an explicit correction', async () => {
+    harness.request.mockResolvedValue(Response.json({ success: true, transaction: { ...records[0], business_purpose: 'Paper for the Q3 client pitch' } }));
     await chip(page())!.props.onConfirm!('Paper for the Q3 client pitch');
-    expect(JSON.parse(harness.request.mock.calls[0][1].body)).toMatchObject({ business_purpose: 'Paper for the Q3 client pitch', user_classification_reason: 'confirmed_ai_proposal' });
+    expect(JSON.parse(harness.request.mock.calls[0][1].body)).toEqual({ business_purpose: 'Paper for the Q3 client pitch' });
     harness.slots = []; records = [base()]; harness.request.mockReset();
     harness.request.mockResolvedValue(serverPut(records[0], { is_deductible: false, review_source: 'user_corrected' }));
     await chip(page())!.props.onReject!();
@@ -84,13 +86,21 @@ describe('one-tap purpose confirmation on the review screen', () => {
     expect(harness.updated).not.toHaveBeenCalled(); expect(harness.toast).not.toHaveBeenCalled();
   });
 
-  it('falls back to the tailored reason when the suggestion predates proposed_purpose', () => {
+  it('asks for the actual purpose instead of offering legacy or current model reasoning as a fact', () => {
     const older = { ...suggestion };
     delete older.proposed_purpose;
-    records = [base({ ai_suggestion: older, ai_customized_reason: 'Supplies bought for the saved client project.' })];
-    expect(chip(page())!.props.proposal).toBe('Supplies bought for the saved client project.');
+    records = [base({ ai_suggestion: older, ai_customized_reason: 'This lodging is likely business travel. Confirm the business purpose and which nights were business.' })];
+    expect(chip(page())!.props.proposal).toBeNull();
+    expect(chip(page())!.props.question).toBe('What did you use these supplies for?');
     records = [base({ ai_suggestion: older })];
-    expect(chip(page())).toBeUndefined();
+    expect(chip(page())!.props.proposal).toBeNull();
+  });
+
+  it('does not accept duplicated reasoning from an incorrectly populated dedicated proposal field', () => {
+    const reasoning = 'Confirm what activity required this lodging and which nights were business.';
+    records = [base({ ai_suggestion: { ...suggestion, reasoning, proposed_purpose: reasoning } })];
+    expect(proposedBusinessPurpose(records[0])).toBeNull();
+    expect(chip(page())!.props.proposal).toBeNull();
   });
 
   it.each([
@@ -100,6 +110,7 @@ describe('one-tap purpose confirmation on the review screen', () => {
     ['a personal decision', { is_deductible: false }],
     ['a tax-method category', { ai_suggestion: { ...suggestion, category: 'equipment' as const } }],
     ['a non-expense flow', { ai_suggestion: { ...suggestion, transactionKind: 'refund' as const } }],
+    ['a blocked analysis', { ai_suggestion: { ...suggestion, status: 'blocked' as const } }],
   ])('does not offer the chip for %s', (_label, changes) => {
     records = [base(changes as Partial<Transaction>)];
     expect(canOfferPurposeConfirmation(records[0])).toBe(false);
@@ -120,36 +131,36 @@ describe('apply to similar charges after a single decision', () => {
   const similar = (id: string, changes: Partial<Transaction> = {}) => base({ id, trans_id: id, merchant_name: 'SYNTHETIC OFFICE MART', ai_suggestion: null, ai_missing_fields: [], ...changes });
   const purpose = 'Printer paper and ink for client proposals';
 
-  it('offers the merchant\u2019s other unreviewed charges once, with the confirmed purpose, and none for a lone charge', async () => {
+  it('offers the merchant\u2019s other unreviewed charges once, after an explicit personal decision, and none for a lone charge', async () => {
     records = [base(), similar('tx-2'), similar('tx-3'), similar('tx-4', { is_deductible: false }), similar('tx-5', { pending: true }), base({ id: 'tx-6', trans_id: 'tx-6', merchant_name: 'Other Shop' })];
-    harness.request.mockResolvedValue(serverPut(records[0], { business_purpose: purpose, is_deductible: true, review_source: 'ai_confirmed' }));
+    harness.request.mockResolvedValue(serverPut(records[0], { is_deductible: false, review_source: 'user_corrected' }));
     expect(offerOn(page())).toBeUndefined();
-    await chip(page())!.props.onConfirm!(purpose);
+    await chip(page())!.props.onReject!();
     const offer = offerOn(page())!;
-    expect(offer.props.offer).toEqual({ merchantKey: 'synthetic office mart', merchant: 'Synthetic Office Mart', count: 2, decision: 'business', businessPurpose: purpose, category: null });
+    expect(offer.props.offer).toEqual({ merchantKey: 'synthetic office mart', merchant: 'Synthetic Office Mart', count: 2, decision: 'personal', businessPurpose: null, category: null });
     expect(harness.request).toHaveBeenCalledTimes(1);
     offer.props.onDismiss!();
     expect(offerOn(page())).toBeUndefined();
 
     harness.slots = []; harness.request.mockReset(); harness.updated.mockReset();
     records = [base(), similar('tx-2'), base({ id: 'tx-6', trans_id: 'tx-6', merchant_name: 'Other Shop' })];
-    harness.request.mockResolvedValue(serverPut(records[0], { business_purpose: purpose, is_deductible: true }));
-    await chip(page())!.props.onConfirm!(purpose);
+    harness.request.mockResolvedValue(serverPut(records[0], { is_deductible: false }));
+    await chip(page())!.props.onReject!();
     expect(offerOn(page())).toBeUndefined();
   });
 
   it('marks exactly the server-stamped rows reviewed locally and reports the server count', async () => {
     records = [base(), similar('tx-2'), similar('tx-3'), similar('tx-4', { ai_suggestion: { ...suggestion, transactionKind: 'transfer' } })];
-    harness.request.mockResolvedValue(serverPut(records[0], { business_purpose: purpose, is_deductible: true }));
-    await chip(page())!.props.onConfirm!(purpose);
+    harness.request.mockResolvedValue(serverPut(records[0], { is_deductible: false }));
+    await chip(page())!.props.onReject!();
     const offer = offerOn(page())!;
     expect(offer.props.offer!.count).toBe(3);
     harness.updated.mockReset();
     offer.props.onApplied!({ updated: 2, skipped: 1, truncated: false, transactionIds: ['tx-2', 'tx-3'] }, offer.props.offer!);
     expect(harness.updated).toHaveBeenCalledTimes(2);
-    expect(harness.updated).toHaveBeenCalledWith(expect.objectContaining({ id: 'tx-2', is_deductible: true, expense_type: 'business', business_purpose: purpose,
-      user_classification_reason: 'confirmed_ai_proposal', review_status: 'confirmed', review_source: 'user_decision', tax_review_required: false }));
-    expect(harness.toast).toHaveBeenLastCalledWith('Recorded 2 charges from Synthetic Office Mart as business deductions; 1 still needs your individual review.');
+    expect(harness.updated).toHaveBeenCalledWith(expect.objectContaining({ id: 'tx-2', is_deductible: false, expense_type: 'personal',
+      user_classification_reason: 'rejected_ai_proposal', review_status: 'confirmed', review_source: 'user_corrected', tax_review_required: false }));
+    expect(harness.toast).toHaveBeenLastCalledWith('Marked 2 charges from Synthetic Office Mart as not business; 1 still needs your individual review.');
     const view = page();
     expect(text(view)).toContain('3 confirmed this session');
     expect(text(view)).toContain('1 needs review');
@@ -199,7 +210,7 @@ describe('merchant-grouped triage', () => {
       at('r1', 'Refund Co', { amount: -20 }), at('p1', 'Pending Co', { pending: true }), at('d1', 'Decided Co', { is_deductible: true })];
     let view = page();
     expect(grouped(view)).toBeUndefined();
-    expect(text(view)).toContain('Adobe');
+    expect(text(view)).toContain('ADOBE'); // The unanswered purpose takes priority over unanalyzed/newest records.
     toggle(view).props.onClick!();
     view = page();
     const list = grouped(view)!;
@@ -253,7 +264,7 @@ describe('one question at a time with suggested answers', () => {
     harness.request.mockResolvedValue(Response.json({ success: true, transaction: { ...records[0], equipment_details: { make: 'Framework', business_use_percentage: 75 } } }));
     await element.props.onSave!({ equipment_details: { make: 'Framework', business_use_percentage: 75 } }, 'Business use saved: 75%');
     expect(JSON.parse(harness.request.mock.calls[0][1].body)).toEqual({ equipment_details: { make: 'Framework', business_use_percentage: 75 } });
-    expect(harness.toast).toHaveBeenCalledWith('Business use saved: 75%. Run analysis again for an updated suggestion.');
+    expect(harness.toast).toHaveBeenCalledWith('Business use saved: 75%. AI review updates automatically.');
     view = page();
     expect(text(view)).toContain('Synthetic Office Mart');
     expect(text(view)).not.toContain('confirmed this session');
@@ -278,8 +289,8 @@ describe('one question at a time with suggested answers', () => {
 describe('server stamps for one-tap decisions', () => {
   const record = { category: 'GENERAL_MERCHANDISE', ai_suggestion: { id: 'suggestion-1' } };
   const at = new Date('2026-09-17T12:00:00.000Z');
-  it('records an AI-confirmed deduction and a user-corrected rejection with the shared review fields', () => {
-    expect(taxDecisionUpdate(record, confirmPurposeUpdates('Paper for proposals', 'Paper for proposals'), at)).toEqual({ tax_review_required: false, review_status: 'confirmed', review_source: 'ai_confirmed', reviewed_at: at.toISOString() });
+  it('keeps purpose saves free of tax decision stamps and stamps an explicit rejection', () => {
+    expect(taxDecisionUpdate(record, { ...confirmPurposeUpdates('Paper for proposals', 'Paper for proposals') }, at)).toEqual({});
     expect(taxDecisionUpdate(record, rejectProposalUpdates(), at)).toEqual({ tax_review_required: false, review_status: 'confirmed', review_source: 'user_corrected', reviewed_at: at.toISOString() });
   });
   it('never labels a decision AI-confirmed without a saved suggestion or with a mismatched reason', () => {
@@ -287,10 +298,11 @@ describe('server stamps for one-tap decisions', () => {
     expect(reviewSourceFor(record, { is_deductible: false, user_classification_reason: 'confirmed_ai_proposal' })).toBe('user_decision');
     expect(reviewSourceFor(record, { is_deductible: true, user_classification_reason: 'rejected_ai_proposal' })).toBe('user_decision');
     expect(reviewSourceFor(record, { is_deductible: true, user_classification_reason: 'Business deduction included by user after reviewing eligibility' })).toBe('user_decision');
-    expect(confirmPurposeUpdates('Typed by the user', null).user_classification_reason).not.toBe('confirmed_ai_proposal');
+    expect(confirmPurposeUpdates('Typed by the user', null)).toEqual({ business_purpose: 'Typed by the user' });
   });
   it('still refuses a deduction that needs a separate tax-method review', () => {
-    expect(() => taxDecisionUpdate({ ...record, category: 'EQUIPMENT_REVIEW_REQUIRED' }, confirmPurposeUpdates('Laptop', 'Laptop'), at)).toThrow('requires tax-method');
+    expect(() => taxDecisionUpdate({ ...record, category: 'EQUIPMENT_REVIEW_REQUIRED' }, { is_deductible: true }, at)).toThrow('requires tax-method');
+    expect(taxDecisionUpdate({ ...record, category: 'EQUIPMENT_REVIEW_REQUIRED' }, { ...confirmPurposeUpdates('Laptop', 'Laptop') }, at)).toEqual({});
     expect(proposedBusinessPurpose({ ai_suggestion: null })).toBeNull();
   });
 });

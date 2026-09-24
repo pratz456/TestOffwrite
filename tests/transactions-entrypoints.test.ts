@@ -56,6 +56,9 @@ import TransactionsPage from '../app/protected/transactions/page';
 import { AddManualTransactionScreen } from '../components/add-manual-transaction-screen';
 import { SyncStatusIndicator } from '../components/sync-status-indicator';
 import { TransactionDetailScreen } from '../components/transaction-detail-screen';
+import { ExplanationCard } from '../components/ai/explanation-card';
+import { PurposeConfirmChip } from '../components/review/purpose-confirm-chip';
+import { BulkConfirmOffer } from '../components/review/bulk-confirm-offer';
 import { AddExpenseScreen } from '../components/add-expense-screen';
 import { requestAppNavigation } from '../lib/navigation/navigation-guard';
 
@@ -235,14 +238,105 @@ describe('transaction detail preserves manual work without guessed tax impact or
     reasoning: 'Confirm the business purpose.', questions: ['Who attended?'], documentationRequired: [],
     irsReferences: [], sources: [], taxYear: 2026, policyVersion: 'synthetic-policy', model: 'synthetic-model', analyzedAt: 1,
   };
-  function detail(changes: Partial<DetailTransaction> = {}, initialSection?: 'summary' | 'details') {
+  function detail(changes: Partial<DetailTransaction> = {}, initialSection?: 'summary' | 'details', transactions?: Transaction[]) {
     harness.cursor = 0;
-    const page = TransactionDetailScreen({ transaction: { ...base, ...changes }, initialSection, onBack: harness.back, onSave: harness.save }) as Element;
+    const page = TransactionDetailScreen({ transaction: { ...base, ...changes }, transactions, initialSection, onBack: harness.back, onSave: harness.save }) as Element;
     harness.effects.splice(0).forEach(effect => effect());
     return page;
   }
   const action = (page: Element, label: string) => walk(page).find(node => typeof node.props.onClick === 'function' && text(node).trim() === label)!;
   const analyzed = () => Response.json({ success: true, analysis: { deductionStatus: 'Possibly Deductible', reasoning: 'Review the saved business purpose.', confidence: 0.7, updatedAt: '2026-09-16T12:00:00Z' } });
+
+  it.each([null, true])('saves an actual lodging purpose without changing the existing %s deduction decision or offering bulk confirmation', async decision => {
+    const reasoning = 'This is a lodging expense. Confirm what business activity required the overnight stay and which nights were business.';
+    const changes: Partial<DetailTransaction> = { merchant_name: 'Synthetic Marriott', is_deductible: decision,
+      review_status: decision === true ? 'confirmed' : undefined, analysisStatus: 'completed', ai_missing_fields: ['business_purpose'],
+      ai_customized_reason: reasoning, ai_suggestion: { ...categorySuggestion, category: 'travel', reasoning,
+        questions: ['What business activity required an overnight stay away from your tax home?'] } };
+    const others = ['other-1', 'other-2'].map(id => ({ ...base, ...changes, id, trans_id: id, is_deductible: null, review_status: undefined })) as Transaction[];
+    const purpose = 'Attended the two-day client design workshop in Chicago on September 14 and 15.';
+    harness.mutate.mockResolvedValue({ ...base, ...changes, business_purpose: purpose });
+    const page = detail(changes, undefined, others);
+    const chip = walk(page).find(node => node.type === PurposeConfirmChip) as ReactElement<Parameters<typeof PurposeConfirmChip>[0]>;
+    expect(chip.props.proposal).toBeNull();
+    expect(chip.props.question).toBe('What business activity required an overnight stay away from your tax home?');
+    await chip.props.onConfirm(purpose);
+    expect(harness.mutate).toHaveBeenCalledExactlyOnceWith({ transactionId: 'detail-id', userId: 'new-accountless-user', updates: { business_purpose: purpose } });
+    expect(harness.save).toHaveBeenCalledWith(expect.objectContaining({ business_purpose: purpose, is_deductible: decision, review_status: changes.review_status }));
+    expect(harness.success).toHaveBeenCalledWith('Purpose saved', 'Your answer is saved for AI review. Your tax decision is unchanged.');
+    expect(walk(detail(changes, undefined, others)).some(node => node.type === BulkConfirmOffer)).toBe(false);
+  });
+
+  it.each(['pending', 'running'] as const)('hides earlier AI amounts and confirmation while a profile refresh is %s', status => {
+    const stale = { headline: 'Old profile estimate', why: 'Earlier business facts', yourFacts: [], scheduleCLine: null,
+      estimatedTaxEffect: { low: 35, high: 35, basis: 'Old profile' }, strengthen: [], nextQuestion: null };
+    const view = detail({ analysisStatus: status, analysisJobId: 'profile-refresh-job', analysisRefreshReason: 'profile_changed',
+      ai_suggestion: categorySuggestion, ai_explanation: stale, is_deductible: true, review_status: 'confirmed' });
+    expect(text(view)).toContain('Updating AI review using your new profile. Confirmed categories stay saved.');
+    expect(text(view)).toContain('Deduction recorded');
+    expect(walk(view).some(node => node.type === ExplanationCard)).toBe(false);
+    expect(text(view)).not.toContain('Confirm or change category');
+    expect(harness.fetch).not.toHaveBeenCalled();
+  });
+
+  it('refreshes a pending background result through the saved-record API and stops polling on completion', async () => {
+    harness.runEffects = true;
+    const fresh = { headline: 'Updated review', why: 'Current profile facts', yourFacts: [], scheduleCLine: null,
+      estimatedTaxEffect: null, strengthen: [], nextQuestion: null };
+    const completed = { ...base, analysisStatus: 'completed' as const, analysisRefreshReason: null,
+      ai_suggestion: categorySuggestion, ai_explanation: fresh, business_purpose: 'Original purpose' };
+    harness.request.mockResolvedValue(Response.json({ transaction: completed }));
+    detail({ analysisStatus: 'pending', analysisJobId: 'profile-refresh-job', analysisRefreshReason: 'profile_changed' });
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(harness.request).toHaveBeenCalledExactlyOnceWith('/api/transactions/detail-id', expect.objectContaining({ cache: 'no-store' }));
+    expect(harness.save).toHaveBeenCalledWith(completed);
+    const view = detail(completed);
+    expect(walk(view).find(node => node.type === ExplanationCard)?.props).toMatchObject({ explanation: fresh });
+    expect(text(view)).not.toContain('Updating AI review');
+    await vi.advanceTimersByTimeAsync(15000);
+    expect(harness.request).toHaveBeenCalledOnce();
+    expect(harness.fetch).not.toHaveBeenCalled();
+  });
+
+  it('does not apply a late background result after leaving the transaction', async () => {
+    harness.runEffects = true;
+    let complete!: (response: Response) => void;
+    harness.request.mockReturnValueOnce(new Promise<Response>(resolve => { complete = resolve; }));
+    detail({ analysisStatus: 'running', analysisJobId: 'profile-refresh-job' });
+    await vi.advanceTimersByTimeAsync(5000);
+    detail({ id: 'next-record', trans_id: 'next-record', analysisStatus: 'completed' });
+    complete(Response.json({ transaction: { ...base, analysisStatus: 'completed' } }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(harness.save).not.toHaveBeenCalled();
+  });
+
+  it('replaces the displayed explanation after saving purpose and rerunning AI, without confirming the deduction', async () => {
+    const stale: NonNullable<DetailTransaction['ai_explanation']> = { headline: 'Confirm the business purpose', why: 'The bank record alone does not establish a business use.', yourFacts: [], scheduleCLine: null, estimatedTaxEffect: null, strengthen: ['Save the purpose'], nextQuestion: 'What was this for?' };
+    const fresh = { ...stale, headline: 'Client design supplies', why: 'These supplies support the documented client design work.', yourFacts: ['Purpose: Client design supplies'], scheduleCLine: 'Schedule C line 22 (Supplies)', strengthen: ['Keep the itemized receipt'], nextQuestion: null };
+    const freshSuggestion = { ...categorySuggestion, id: 'fresh-suggestion', status: 'ok' as const, category: 'supplies_small_tools' as const, isDeductible: true, deductiblePercent: 100, questions: [] };
+    const changes = { is_deductible: null, ai_explanation: stale, ai_suggestion: categorySuggestion };
+    harness.fetch.mockResolvedValueOnce(Response.json({ ...await analyzed().json(), ai_suggestion: freshSuggestion, explanation: fresh }));
+    walk(detail(changes)).find(node => node.props.id === 'business-purpose')!.props.onChange!({ target: { value: 'Client design supplies' } });
+    await action(detail(changes), 'Run AI Analysis').props.onClick!();
+    expect(harness.mutate).toHaveBeenCalledWith(expect.objectContaining({ updates: expect.objectContaining({ business_purpose: 'Client design supplies' }) }));
+    expect(harness.save).toHaveBeenLastCalledWith(expect.objectContaining({ ai_explanation: fresh, ai_suggestion: freshSuggestion, is_deductible: null }));
+    const saved: DetailTransaction = harness.save.mock.lastCall![0];
+    const card = walk(detail(saved)).find(node => node.type === ExplanationCard) as ReactElement<Parameters<typeof ExplanationCard>[0]>;
+    expect(card.props.explanation).toEqual(fresh);
+    expect(card.props.explanation?.nextQuestion).toBeNull();
+    expect(card.props.compact).toBe(true);
+    expect(harness.error).not.toHaveBeenCalled();
+  });
+
+  it.each([null, undefined, { headline: 'Incomplete payload' }])('clears an old explanation when a successful rerun returns %j', async explanation => {
+    const stale: NonNullable<DetailTransaction['ai_explanation']> = { headline: 'Old question', why: 'Older reasoning', yourFacts: [], scheduleCLine: null, estimatedTaxEffect: null, strengthen: [], nextQuestion: 'Old unresolved question?' };
+    harness.fetch.mockResolvedValueOnce(Response.json({ ...await analyzed().json(), ai_suggestion: categorySuggestion, explanation }));
+    await action(detail({ ai_explanation: stale, is_deductible: null }), 'Run AI Analysis').props.onClick!();
+    expect(harness.save).toHaveBeenLastCalledWith(expect.objectContaining({ ai_explanation: null, is_deductible: null }));
+    const saved: DetailTransaction = harness.save.mock.lastCall![0];
+    expect(walk(detail(saved)).some(node => node.type === ExplanationCard)).toBe(false);
+    expect(harness.error).not.toHaveBeenCalled();
+  });
 
   it('explains a superseded duplicate opened by direct link and shows nothing extra otherwise', () => {
     const notice = 'This bank record duplicates an earlier one you already reviewed; it is excluded from totals.';
@@ -569,6 +663,17 @@ describe('transaction detail preserves manual work without guessed tax impact or
     detail({ business_purpose: 'Saved purpose' }); // Failed-save rollback.
     expect(walk(detail({ business_purpose: 'Saved purpose' })).find(node => node.props.id === 'business-purpose')!.props.value).toBe('Keep my draft');
     expect(harness.error).toHaveBeenCalledWith('Context not saved', expect.any(String));
+  });
+
+  it('uses the durable refresh from a successful fact save without racing a second manual AI call', async () => {
+    const queued = { ...base, business_purpose: 'Paid client work', analysisStatus: 'pending', analysisRefreshReason: 'transaction_changed', analysisJobId: 'refresh-job', ai_suggestion: null, ai_explanation: null };
+    harness.mutate.mockResolvedValueOnce(queued);
+    walk(detail()).find(node => node.props.id === 'business-purpose')!.props.onChange!({ target: { value: 'Paid client work' } });
+    await action(detail(), 'Run AI Analysis').props.onClick!();
+    expect(harness.mutate).toHaveBeenCalledOnce();
+    expect(harness.save).toHaveBeenCalledWith(expect.objectContaining(queued));
+    expect(harness.fetch).not.toHaveBeenCalled();
+    expect(text(detail(queued as Partial<DetailTransaction>))).toContain('Details saved. AI is updating your review automatically.');
   });
 
   it('waits for edited context to be saved before explicit analysis reads the canonical record', async () => {

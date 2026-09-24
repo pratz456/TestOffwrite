@@ -1,6 +1,7 @@
 "use client";
 
 import { EmbeddedFilingCard } from '@/components/embedded-filing-card';
+import { PreparerPackageCard } from '@/components/preparer-package-card';
 import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
 import { PremiumFeatureGate } from '@/components/premium-feature-gate';
 import React, { useState, useEffect, useCallback, useRef } from "react";
@@ -95,7 +96,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
       const income = tax1040.income;
       if (Number(tax1040.taxYear) !== Number(year) || ![
         federalEstimate?.totalIncome, federalEstimate?.totalTax, federalEstimate?.balanceDue, federalEstimate?.refund,
-        income?.grossReceipts, income?.income1099, income?.scheduleCNetProfit, income?.totalDeductible, income?.w2Wages,
+        income?.grossReceipts, income?.income1099, income?.scheduleCLine31NetProfit, income?.totalDeductible, income?.w2Wages,
         tax1040.seCalc?.totalSETax, tax1040.w2?.withheld, tax1040.payments?.estimatedPayments,
       ].every(value => typeof value === "number" && Number.isFinite(value))) {
         throw new Error("The federal estimate is incomplete or belongs to another year. Open Tax Preview to retry.");
@@ -105,7 +106,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
       setCalculationWarnings(federalEstimate.calculationWarnings);
 
       const totalExpenses = income.totalDeductible;
-      const netProfit = income.scheduleCNetProfit;
+      const netProfit = income.scheduleCLine31NetProfit;
       const seTax = tax1040.seCalc.totalSETax;
 
       setSummary({
@@ -411,6 +412,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
           </FilingTabs.Content>
 
           <FilingTabs.Content value="export" className="space-y-3 focus-visible:outline-none">
+            <PreparerPackageCard year={Number(year)} userId={user.id} />
             <h2 className="text-sm font-semibold">Share with your tax preparer</h2>
             <section className="flex items-center gap-3 rounded-2xl border border-border/70 bg-card px-3.5 py-3 sm:px-4">
               <div className="min-w-0 flex-1">

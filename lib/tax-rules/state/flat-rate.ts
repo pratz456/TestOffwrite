@@ -70,8 +70,8 @@ function pennsylvania(taxYear: StateRegistryTaxYear): FlatRateRules {
 // ── Georgia ──────────────────────────────────────────────────────────────────────
 // 2025: flat 5.19%; standard deduction $12,000 ($24,000 joint); $4,000 per dependent.
 // 2026: flat 4.99%; standard deduction $15,000 ($30,000 joint) per the department's
-// 2026 income tax changes. The 2026 dependent exemption has not been published in a
-// 2026 IT-511 booklet at review time and is therefore not applied for 2026.
+// 2026 income tax changes; HB 463 sections 2-2 and 5-1 set the dependent exemption at $5,000
+// for taxable years beginning January 1, 2026. Future increases remain subject to statutory triggers.
 const GA_SOURCES_2025: StateSource[] = [
   {
     // The earlier ".../document/booklet/..." path returned HTTP 404 on 2026-09-18; the
@@ -81,6 +81,10 @@ const GA_SOURCES_2025: StateSource[] = [
   },
 ];
 const GA_SOURCES_2026: StateSource[] = [
+  {
+    url: 'https://gov.georgia.gov/document/2026-signed-legislation/hb-463/download',
+    note: 'Signed HB 463 (2026), sections 2-2 and 5-1: O.C.G.A. 48-7-26(b) dependent exemption increases from $4,000 to $5,000 for tax years beginning on or after January 1, 2026. The prospective $125 annual increases from 2027 depend on statutory conditions and are not assumed here.',
+  },
   {
     url: 'https://dor.georgia.gov/taxes/important-tax-updates',
     note: 'Georgia Department of Revenue, 2026 Income Tax Changes: "The Georgia income tax rate has been reduced to a flat rate of 4.99%" and "the Georgia standard deduction has been increased to $15,000 for single taxpayers, heads of households, and married taxpayers filing separately, or $30,000 for married taxpayers filing jointly" (HB 463, effective January 1, 2026).',
@@ -99,13 +103,10 @@ function georgia(taxYear: StateRegistryTaxYear): FlatRateRules {
       sources: GA_SOURCES_2025, unmodeled: GA_UNMODELED,
     }
     : {
-      kind: 'flat', stateCode: 'GA', taxYear, reviewedAt: REVIEWED_AT, rate: 0.0499, incomeBase: 'federal_agi',
-      standardDeduction: byStatus(15000, 30000, 15000, 15000),
+      kind: 'flat', stateCode: 'GA', taxYear, reviewedAt: '2026-09-23', rate: 0.0499, incomeBase: 'federal_agi',
+      standardDeduction: byStatus(15000, 30000, 15000, 15000), dependentExemption: 5000,
       sources: GA_SOURCES_2026,
-      unmodeled: [
-        ...GA_UNMODELED,
-        'The 2026 Georgia dependent exemption has not been published in a 2026 IT-511 booklet at review time; no dependent exemption is applied for 2026, so the estimate may be high for taxpayers with dependents.',
-      ],
+      unmodeled: GA_UNMODELED,
     };
 }
 

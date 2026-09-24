@@ -1,3 +1,5 @@
+import { TaxCalculationScopeReviewRequiredError } from '@/lib/tax-rules/calculation-scope';
+import { QBIReviewRequiredError } from '@/lib/tax-rules/qbi';
 /**
  * Form 1040 Complete Computation API
  * GET ?year=2025 — returns the full 1040 line-by-line calculation including
@@ -136,8 +138,8 @@ export async function GET(request: NextRequest) {
   }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (error) {
     if (error instanceof IncomeReconciliationRequiredError) return NextResponse.json(incomeReconciliationReviewBody(error, year), { status: 422 });
-    if (error instanceof ExportReviewRequiredError || error instanceof IncomeReconciliationRequiredError || error instanceof FilingStatusReviewRequiredError || error instanceof SocialSecurityReviewRequiredError || error instanceof PersonalDeductionReviewRequiredError || error instanceof DependentCreditReviewRequiredError
-      || error instanceof CapitalGainReviewRequiredError || error instanceof BusinessLossReviewRequiredError || error instanceof OBBBADeductionReviewRequiredError) return NextResponse.json({ error: error.message, code: error.code }, { status: 422 });
+    if (error instanceof ExportReviewRequiredError || error instanceof IncomeReconciliationRequiredError || error instanceof TaxCalculationScopeReviewRequiredError || error instanceof FilingStatusReviewRequiredError || error instanceof SocialSecurityReviewRequiredError || error instanceof PersonalDeductionReviewRequiredError || error instanceof DependentCreditReviewRequiredError
+      || error instanceof CapitalGainReviewRequiredError || error instanceof BusinessLossReviewRequiredError || error instanceof OBBBADeductionReviewRequiredError || error instanceof QBIReviewRequiredError) return NextResponse.json({ error: error.message, code: error.code }, { status: 422 });
     const reviewCode = scheduleCReviewCode(error);
     if (reviewCode) return NextResponse.json({ error: error instanceof Error ? error.message : 'Schedule C records need review', code: reviewCode }, { status: 422 });
     return NextResponse.json({ error: 'Could not complete the tax calculation. Please retry.' }, { status: 503 });
