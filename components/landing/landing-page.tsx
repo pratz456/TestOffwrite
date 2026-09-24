@@ -1,19 +1,27 @@
 "use client";
 
-import { LandingHeader } from "./landing-header";
-import { HeroSection } from "./hero-section";
-import { ComparisonSection } from "./comparison-section";
-import { HowItWorksSection } from "./how-it-works-section";
-import { LandingFooter } from "./landing-footer";
+import { PageBackground } from "@/components/graphics/page-background";
+import { SubtlePattern } from "@/components/graphics/subtle-pattern";
+import { LandingHeader } from "./restored/landing-header";
+import { HeroSection } from "./restored/hero-section";
+import { ProblemSection } from "./problem-section";
+import { FeaturesSection } from "./features-section";
+import { ComparisonSection } from "./restored/comparison-section";
+import { HowItWorksSection } from "./restored/how-it-works-section";
+import { LandingFooter } from "./restored/landing-footer";
 
 export function LandingPage() {
   return (
-    <div className="light min-h-screen bg-[#f5f5f7] text-slate-950" style={{ colorScheme: "light", fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
+    <div className="light relative min-h-screen overflow-x-hidden bg-background text-foreground" style={{ colorScheme: "light" }}>
+      <PageBackground />
+      <SubtlePattern />
       <LandingHeader />
       <main>
         <HeroSection />
-        <HowItWorksSection />
+        <ProblemSection />
+        <FeaturesSection />
         <ComparisonSection />
+        <HowItWorksSection />
       </main>
       <LandingFooter />
     </div>
