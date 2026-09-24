@@ -3,7 +3,6 @@
 import React from 'react';
 import { toast } from 'sonner';
 import { Card } from '@/components/ui/card';
-import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
 import { TrendingUp, Calendar, DollarSign } from 'lucide-react';
 
 interface TaxSavingsData {
@@ -16,9 +15,10 @@ interface TaxSavingsData {
 
 interface TaxSavingsChartProps {
   transactions?: any[];
+  taxRate?: number | null;
 }
 
-export const TaxSavingsChart: React.FC<TaxSavingsChartProps> = ({ transactions = [] }) => {
+export const TaxSavingsChart: React.FC<TaxSavingsChartProps> = ({ transactions = [], taxRate = null }) => {
   // Generate data from real transactions instead of mock data
   const generateChartData = (): TaxSavingsData[] => {
     if (!transactions || transactions.length === 0) {
@@ -45,7 +45,7 @@ export const TaxSavingsChart: React.FC<TaxSavingsChartProps> = ({ transactions =
       // Calculate deductible amount and tax savings for this day
       const deductibleTransactions = dayTransactions.filter(t => t.is_deductible === true);
       const deductibleAmount = deductibleTransactions.reduce((sum, t) => sum + (t.amount || 0), 0);
-      const taxSavings = deductibleAmount * getUserTaxRate();
+      const taxSavings = taxRate === null ? 0 : deductibleAmount * taxRate;
       
       cumulativeSavings += taxSavings;
       
@@ -259,7 +259,9 @@ export const TaxSavingsChart: React.FC<TaxSavingsChartProps> = ({ transactions =
       </div>
       
       <div className="mt-3 text-[10px] sm:text-xs text-muted-foreground text-center">
-        💡 Based on {Math.round(getUserTaxRate() * 100)}% effective tax rate. Each bar shows daily tax savings.
+        {taxRate === null
+          ? 'Add income and filing status in Profile before estimating tax savings.'
+          : `💡 Based on your ${Math.round(taxRate * 100)}% estimated effective tax rate. Each bar shows daily tax savings.`}
       </div>
 
       {/* Insights */}

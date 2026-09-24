@@ -13,7 +13,6 @@ import { makeAuthenticatedRequest } from './api-client';
 import { auth } from './client';
 import { Transaction } from './transactions';
 import { queryKeys } from './hooks';
-import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
 import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 
 // Types for transaction updates
@@ -77,7 +76,9 @@ function calculateLocalStats(transactions: Transaction[]) {
   const totalDeductibleAmount = transactions
     .filter(t => t.is_deductible === true && !transactionNeedsTaxReview(t))
     .reduce((sum, t) => sum + Math.abs(t.amount || 0), 0);
-  const potentialSavings = totalDeductibleAmount * getUserTaxRate();
+  // Optimistic transaction state has no verified profile context. The authenticated
+  // tax-savings endpoint fills this value; never apply a fabricated percentage here.
+  const potentialSavings = 0;
 
   return {
     totalTransactions,

@@ -625,6 +625,7 @@ export default function ProtectedPage() {
           user={safeUser}
           onBack={handleGoBack}
           transactions={transactions}
+          profile={userProfile}
         />
       );
     }
@@ -669,6 +670,7 @@ export default function ProtectedPage() {
           user={safeUser}
           onBack={handleGoBack}
           transactions={transactions}
+          profile={userProfile}
           onTransactionClick={(transaction) => {
             // Ensure transaction has trans_id and add source
             const transactionWithSource = {

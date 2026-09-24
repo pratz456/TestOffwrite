@@ -18,7 +18,7 @@ import {
 } from '@/lib/icons';
 import { Lightbulb, Target, Car, Phone, Calendar, PieChart } from 'lucide-react';
 import { getUserProfile } from '@/lib/firebase/profiles';
-import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
+import { getUserTaxRateDisplay } from '@/lib/tax-rules/federal-brackets';
 import { FilingStatusReviewRequiredError } from '@/lib/tax-rules/filing-status';
 import { useTransactions } from '@/lib/firebase/hooks';
 import type { Transaction } from '@/lib/firebase/transactions';
@@ -95,7 +95,9 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
   }, [user.id, transactions]);
 
   const generateAIInsights = async (profile: any, txList: Transaction[]): Promise<UserInsights> => {
-    const TAX_RATE_ESTIMATE = getUserTaxRate(profile);
+    const taxRateDisplay = getUserTaxRateDisplay(profile);
+    const taxRateEstimate = taxRateDisplay.rate;
+    if (taxRateDisplay.reviewMessage) setTaxReviewMessage(taxRateDisplay.reviewMessage);
     const effectiveProfile = profile || {
       profession: ['Freelancer'],
       business_purpose: '',
@@ -126,7 +128,7 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
       t.is_deductible !== true && businessLike(t) && Number(t.amount) < 0
     );
     const potentialSavings = potentialDeductions.reduce(
-      (sum, t) => sum + Math.abs(Number(t.amount)) * TAX_RATE_ESTIMATE,
+      (sum, t) => sum + Math.abs(Number(t.amount)) * (taxRateEstimate ?? 0),
       0
     );
 

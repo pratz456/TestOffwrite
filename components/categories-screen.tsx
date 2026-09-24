@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Search, ChevronDown, ChevronUp, Building, Settings, Info, Home, TrendingUp } from 'lucide-react';
 import { formatCategory, consolidateCategory } from '@/lib/utils';
-import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
+import { getUserTaxRateDisplay, type UserProfile } from '@/lib/tax-rules/federal-brackets';
 
 const writeOffLogo = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAzMiAzMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iOCIgZmlsbD0iIzMzNjZDQyIvPgo8dGV4dCB4PSIxNiIgeT0iMjIiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxOCIgZm9udC13ZWlnaHQ9ImJvbGQiIGZpbGw9IndoaXRlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5XPC90ZXh0Pgo8L3N2Zz4K';
 
@@ -33,6 +33,7 @@ interface CategoriesScreenProps {
   };
   onBack: () => void;
   transactions: Transaction[] | null | undefined;
+  profile?: Partial<UserProfile> | null;
   onTransactionClick?: (transaction: Transaction) => void;
 }
 
@@ -115,12 +116,15 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
   user, 
   onBack, 
   transactions,
+  profile,
   onTransactionClick 
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
   const [showDeductionsTooltip, setShowDeductionsTooltip] = useState(false);
   const [showSavingsTooltip, setShowSavingsTooltip] = useState(false);
+  const taxRateDisplay = getUserTaxRateDisplay(profile);
+  const taxRate = taxRateDisplay.rate;
 
   if (transactions == null) {
     return <CategoriesSkeleton />;
@@ -176,7 +180,7 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
   const categoryData = Object.entries(categoryGroups).map(([consolidatedName, groupData]) => {
     const totalAmount = groupData.transactions.reduce((sum, t) => sum + Math.abs(t.amount || 0), 0);
     const percentage = totalDeductions > 0 ? (totalAmount / totalDeductions) * 100 : 0;
-    const taxSavings = totalAmount * getUserTaxRate();
+    const taxSavings = taxRate === null ? null : totalAmount * taxRate;
     
     return {
       category: consolidatedName,
@@ -207,7 +211,7 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
   };
 
   // Calculate total tax savings directly from total deductions
-  const totalTaxSavings = totalDeductions * getUserTaxRate();
+  const totalTaxSavings = taxRate === null ? null : totalDeductions * taxRate;
   const activeCategories = categoryData.length;
 
   return (
@@ -232,8 +236,12 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
             <div className="text-xs sm:text-sm text-muted-foreground/75 mt-1">Deductible transactions</div>
           </div>
           <div className="bg-card rounded-xl p-4 sm:p-5 border border-border border-l-2 border-l-cyan-500/60 shadow-[0_0_0_1px_rgba(34,211,238,0.06),0_2px_6px_-2px_rgba(34,211,238,0.1)] min-h-[44px] flex flex-col justify-center">
-            <div className="text-xl sm:text-2xl font-semibold text-foreground tabular-nums whitespace-nowrap overflow-hidden text-ellipsis">${totalTaxSavings.toFixed(2)}</div>
-            <div className="text-xs sm:text-sm text-muted-foreground/75 mt-1">Potential savings</div>
+            <div className="text-xl sm:text-2xl font-semibold text-foreground tabular-nums whitespace-nowrap overflow-hidden text-ellipsis">
+              {totalTaxSavings === null ? 'Add income' : `$${totalTaxSavings.toFixed(2)}`}
+            </div>
+            <div className="text-xs sm:text-sm text-muted-foreground/75 mt-1">
+              {totalTaxSavings === null ? 'Profile needed for an estimate' : 'Potential savings'}
+            </div>
           </div>
           <div className="bg-card rounded-xl p-4 sm:p-5 border border-border border-l-2 border-l-muted-foreground/45 shadow-[0_2px_6px_-2px_rgba(0,0,0,0.06)] min-h-[44px] flex flex-col justify-center hover:bg-muted/20 transition-all duration-150">
             <div className="text-xl sm:text-2xl font-semibold text-foreground tabular-nums whitespace-nowrap">{transactions.length}</div>
@@ -311,7 +319,7 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
                         <div className="col-span-2 flex items-center gap-1.5">
                           <TrendingUp className="w-3.5 h-3.5 text-[hsl(var(--success))] shrink-0 mt-0.5" />
                           <div className="font-semibold text-[hsl(var(--success))] tabular-nums">
-                            ${categoryData.taxSavings.toFixed(2)}
+                            {categoryData.taxSavings === null ? '—' : `$${categoryData.taxSavings.toFixed(2)}`}
                           </div>
                         </div>
                         <div className="col-span-2 flex items-center gap-2">
@@ -376,7 +384,7 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
                                   ${Math.abs(transaction.amount).toFixed(2)}
                                 </div>
                                 <div className="col-span-2 font-semibold text-[hsl(var(--success))] tabular-nums">
-                                  ${(Math.abs(transaction.amount) * getUserTaxRate()).toFixed(2)}
+                                  {taxRate === null ? '—' : `$${(Math.abs(transaction.amount) * taxRate).toFixed(2)}`}
                                 </div>
                                 <div className="col-span-2 text-xs text-muted-foreground">
                                   {((Math.abs(transaction.amount) / categoryData.totalAmount) * 100).toFixed(1)}%
@@ -438,7 +446,9 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
                     <div className="flex items-center gap-1">
                       <TrendingUp className="w-3 h-3 text-[hsl(var(--success))] shrink-0" />
                       <span className="text-xs text-muted-foreground">Tax savings</span>
-                      <span className="font-semibold text-[hsl(var(--success))] text-sm tabular-nums whitespace-nowrap">${categoryData.taxSavings.toFixed(2)}</span>
+                      <span className="font-semibold text-[hsl(var(--success))] text-sm tabular-nums whitespace-nowrap">
+                        {categoryData.taxSavings === null ? '—' : `$${categoryData.taxSavings.toFixed(2)}`}
+                      </span>
                     </div>
                   </div>
                   {/* Row 3: Progress bar */}
@@ -493,7 +503,7 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
                                 ${Math.abs(transaction.amount).toFixed(2)}
                               </div>
                               <div className="text-xs text-[hsl(var(--success))]">
-                                ${(Math.abs(transaction.amount) * getUserTaxRate()).toFixed(0)} tax saved
+                                {taxRate === null ? 'Add income to estimate' : `$${(Math.abs(transaction.amount) * taxRate).toFixed(0)} tax saved`}
                               </div>
                             </div>
                           </div>

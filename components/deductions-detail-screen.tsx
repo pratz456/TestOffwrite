@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ArrowLeft, DollarSign, FileText, TrendingUp, Calendar } from 'lucide-react';
 import { formatCategory } from '@/lib/utils';
-import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
+import { getUserTaxRateDisplay, type UserProfile } from '@/lib/tax-rules/federal-brackets';
 
 interface Transaction {
   id: string;
@@ -31,12 +31,13 @@ interface DeductionsDetailScreenProps {
   };
   onBack: () => void;
   transactions?: Transaction[] | null;
+  profile?: Partial<UserProfile> | null;
 }
 
 export const DeductionsDetailScreen: React.FC<DeductionsDetailScreenProps> = ({ 
-  user, 
   onBack, 
-  transactions 
+  transactions,
+  profile,
 }) => {
   const [selectedPeriod, setSelectedPeriod] = useState('This Year');
   const [selectedCategory, setSelectedCategory] = useState('All Categories');
@@ -134,7 +135,8 @@ export const DeductionsDetailScreen: React.FC<DeductionsDetailScreenProps> = ({
   });
 
   const totalDeductions = filteredTransactions.reduce((sum, t) => sum + t.amount, 0);
-  const estimatedTaxSavings = totalDeductions * getUserTaxRate();
+  const taxRateDisplay = getUserTaxRateDisplay(profile);
+  const estimatedTaxSavings = taxRateDisplay.rate === null ? null : totalDeductions * taxRateDisplay.rate;
 
   // Group by category for breakdown
   const categoryBreakdown = filteredTransactions.reduce((acc, transaction) => {
@@ -188,7 +190,9 @@ export const DeductionsDetailScreen: React.FC<DeductionsDetailScreenProps> = ({
               </div>
               <div>
                 <p className="text-sm text-slate-600">Estimated Tax Savings</p>
-                <p className="text-2xl font-bold text-slate-900">${estimatedTaxSavings.toLocaleString()}</p>
+                <p className="text-2xl font-bold text-slate-900">
+                  {estimatedTaxSavings === null ? 'Add income to estimate' : `$${estimatedTaxSavings.toLocaleString()}`}
+                </p>
               </div>
             </div>
           </Card>

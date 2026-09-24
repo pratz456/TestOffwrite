@@ -12,7 +12,6 @@ import {
 import { getAuth } from 'firebase/auth';
 import { db } from './client';
 import { Transaction, hydrateTransactionRecord } from './transactions';
-import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 
@@ -224,7 +223,8 @@ export function useUserStats(uid: string) {
             .filter((t: Transaction) => t.is_deductible === true && !transactionNeedsTaxReview(t))
             .reduce((sum: number, t: Transaction) => sum + Math.abs(t.amount || 0), 0);
 
-          const potentialSavings = totalDeductibleAmount * getUserTaxRate();
+          // This low-level listener has no verified profile context; do not invent a tax rate.
+          const potentialSavings = 0;
 
           setStats({
             totalTransactions,

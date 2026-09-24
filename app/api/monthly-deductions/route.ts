@@ -7,6 +7,7 @@ import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getUserProfileServer } from '@/lib/firebase/profiles-server';
 import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
 import { FilingStatusReviewRequiredError } from '@/lib/tax-rules/filing-status';
+import { UnsupportedTaxYearError } from '@/lib/tax-rules/federal-year-rules';
 
 const OWNER_DATA_CACHE_CONTROL = 'private, no-store';
 
@@ -22,19 +23,25 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { data: userProfile } = await getUserProfileServer(user.uid);
-    const TAX_RATE = getUserTaxRate(userProfile ?? undefined);
-
     console.log('✅ [Monthly Deductions API] User authenticated:', user.uid);
 
     // Support optional year query param for viewing previous years (e.g. ?year=2024)
     const now = new Date();
     const currentYearActual = now.getFullYear();
     const yearParam = request.nextUrl.searchParams.get('year');
-    const requestedYear = yearParam ? parseInt(yearParam, 10) : currentYearActual;
-    const currentYear = Number.isNaN(requestedYear) || requestedYear < 2000 || requestedYear > currentYearActual
-      ? currentYearActual
-      : requestedYear;
+    if (yearParam !== null && !/^\d{4}$/.test(yearParam)) {
+      return NextResponse.json({ error: 'Year must be a four-digit tax year' }, { status: 400 });
+    }
+    const currentYear = yearParam === null ? currentYearActual : Number(yearParam);
+    if (!Number.isInteger(currentYear) || currentYear < 2000 || currentYear > currentYearActual) {
+      return NextResponse.json({ error: `Year must be from 2000 through ${currentYearActual}` }, { status: 400 });
+    }
+    const { data: userProfile } = await getUserProfileServer(user.uid);
+    const rawIncome = typeof userProfile?.income === 'string'
+      ? Number(userProfile.income.replace(/[,$\s]/g, ''))
+      : userProfile?.income;
+    const taxRateAvailable = Number.isFinite(rawIncome) && Number(rawIncome) > 0;
+    const taxRate = taxRateAvailable ? getUserTaxRate(userProfile, currentYear) : null;
     const startOfYear = new Date(currentYear, 0, 1);
     const endOfYear = new Date(currentYear, 11, 31);
 
@@ -47,8 +54,7 @@ export async function GET(request: NextRequest) {
     if (error) {
       console.error('❌ [Monthly Deductions API] Error fetching transactions:', error);
       return NextResponse.json({ 
-        error: 'Failed to fetch transactions',
-        details: error.message || error
+        error: 'Failed to fetch transactions'
       }, { status: 500 });
     }
 
@@ -87,6 +93,7 @@ export async function GET(request: NextRequest) {
             expensesInYear: 0,
             deductibleInYear: 0,
             unclassifiedInYear: 0,
+            taxRateReviewMessage: taxRateAvailable ? null : 'Add self-employment income in Profile before estimating tax savings.',
           },
         }
       }, { headers: { 'Cache-Control': OWNER_DATA_CACHE_CONTROL } });
@@ -129,7 +136,7 @@ export async function GET(request: NextRequest) {
         let taxSavings = 0;
         if (transaction.is_deductible === true) {
           // Use full transaction amount for deductible transactions
-          taxSavings = transaction.amount * TAX_RATE;
+          taxSavings = transaction.amount * (taxRate ?? 0);
           totalDeductibleTransactions++;
         } else if (transaction.is_deductible === false) {
           // For explicitly non-deductible transactions, use 0
@@ -185,6 +192,7 @@ export async function GET(request: NextRequest) {
         expensesInYear: transactions.length,
         deductibleInYear,
         unclassifiedInYear,
+        taxRateReviewMessage: taxRateAvailable ? null : 'Add self-employment income in Profile before estimating tax savings.',
       },
     };
 
@@ -201,12 +209,12 @@ export async function GET(request: NextRequest) {
     }, { headers: { 'Cache-Control': OWNER_DATA_CACHE_CONTROL } });
   } catch (error) {
     if (error instanceof FilingStatusReviewRequiredError) return NextResponse.json({ error: error.message, code: error.code }, { status: 422 });
+    if (error instanceof UnsupportedTaxYearError) {
+      return NextResponse.json({ error: error.message, code: 'TAX_YEAR_UNAVAILABLE' }, { status: 422 });
+    }
     console.error('❌ [Monthly Deductions API] Unexpected error:', error);
     return NextResponse.json(
-      { 
-        error: 'Failed to calculate monthly deductions',
-        details: error instanceof Error ? error.message : 'Unknown error'
-      },
+      { error: 'Failed to calculate monthly deductions' },
       { status: 500 }
     );
   }

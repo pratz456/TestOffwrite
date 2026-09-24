@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { formatCategory } from '@/lib/utils';
@@ -10,14 +10,13 @@ import {
   TrendingDown,
   DollarSign,
   Calendar,
-  Filter,
   FileText,
   BarChart3
 } from 'lucide-react';
 
 interface ProfitLossDetailScreenProps {
   onNavigate: (screen: string) => void;
-  transactions?: any[];
+  transactions?: Array<Record<string, any>>;
 }
 
 export const ProfitLossDetailScreen: React.FC<ProfitLossDetailScreenProps> = ({ 
@@ -26,21 +25,42 @@ export const ProfitLossDetailScreen: React.FC<ProfitLossDetailScreenProps> = ({
 }) => {
   const [selectedPeriod, setSelectedPeriod] = useState('this-month');
 
-  // Sample transactions with revenue and expenses
-  const sampleTransactions = [
-    { id: '1', description: 'Client Project Payment', amount: 2500.00, category: 'Consulting Revenue', date: '2024-12-28', type: 'income' },
-    { id: '2', description: 'Monthly Retainer - ABC Corp', amount: 3000.00, category: 'Retainer Revenue', date: '2024-12-25', type: 'income' },
-    { id: '3', description: 'Freelance Design Work', amount: 1200.00, category: 'Design Revenue', date: '2024-12-26', type: 'income' },
-    { id: '4', description: 'Product Sales', amount: 850.00, category: 'Product Revenue', date: '2024-12-24', type: 'income' },
-    { id: '5', description: 'Office Supplies - Staples', amount: 149.99, category: 'Office Supplies', date: '2024-12-28', type: 'expense' },
-    { id: '6', description: 'Adobe Creative Suite', amount: 52.99, category: 'Software & Subscriptions', date: '2024-12-27', type: 'expense' },
-    { id: '7', description: 'Client Meeting Lunch', amount: 85.50, category: 'Meals & Entertainment', date: '2024-12-26', type: 'expense' },
-    { id: '8', description: 'Marketing Campaign', amount: 450.00, category: 'Marketing', date: '2024-12-23', type: 'expense' },
-    { id: '9', description: 'Web Hosting', amount: 29.99, category: 'Technology', date: '2024-12-22', type: 'expense' },
-    { id: '10', description: 'Business Insurance', amount: 125.00, category: 'Insurance', date: '2024-12-21', type: 'expense' },
-  ];
-
-  const allTransactions = transactions.length > 0 ? transactions : sampleTransactions;
+  const allTransactions = useMemo(() => {
+    const now = new Date();
+    let start = new Date(now.getFullYear(), now.getMonth(), 1);
+    let end = now;
+    if (selectedPeriod === 'last-month') {
+      start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      end = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+    } else if (selectedPeriod === 'quarter') {
+      start = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
+    } else if (selectedPeriod === 'year') {
+      start = new Date(now.getFullYear(), 0, 1);
+    }
+    return transactions
+      .filter(transaction => transaction.pending !== true && !transaction.superseded_by)
+      .filter(transaction => {
+        const date = new Date(transaction.date);
+        return Number.isFinite(date.getTime()) && date >= start && date <= end;
+      })
+      .map(transaction => {
+        const amount = Math.abs(Number(transaction.amount) || 0);
+        const category = String(transaction.category || 'Uncategorized');
+        const kind = transaction.transaction_kind || transaction.type;
+        const type = kind === 'income' || (Number(transaction.amount) < 0 && /income|revenue|sales/i.test(category))
+          ? 'income'
+          : kind === 'transfer' ? 'transfer' : 'expense';
+        return {
+          ...transaction,
+          id: transaction.id || transaction.trans_id,
+          description: transaction.merchant_name || transaction.description || 'Recorded transaction',
+          category,
+          amount,
+          type,
+        };
+      })
+      .filter(transaction => transaction.type !== 'transfer' && transaction.amount > 0);
+  }, [selectedPeriod, transactions]);
   
   // Calculate P/L metrics
   const revenue = allTransactions.filter(t => t.type === 'income');
@@ -77,8 +97,8 @@ export const ProfitLossDetailScreen: React.FC<ProfitLossDetailScreenProps> = ({
             Back to Dashboard
           </Button>
           <div>
-            <h1 className="text-3xl font-bold text-slate-900">Profit & Loss Statement</h1>
-            <p className="text-slate-600">Detailed breakdown of revenue and expenses</p>
+            <h1 className="text-3xl font-bold text-slate-900">Recorded Cash Flow</h1>
+            <p className="text-slate-600">Your saved inflows and outflows for the selected period—not a filed tax return</p>
           </div>
         </div>
 
@@ -179,6 +199,9 @@ export const ProfitLossDetailScreen: React.FC<ProfitLossDetailScreenProps> = ({
               Revenue Breakdown
             </h3>
             <div className="space-y-4">
+              {Object.keys(revenueByCategory).length === 0 && (
+                <p className="text-sm text-slate-600">No recorded inflows for this period.</p>
+              )}
               {Object.entries(revenueByCategory)
                 .sort(([,a], [,b]) => (b as number) - (a as number))
                 .map(([category, amount]) => (
@@ -204,6 +227,9 @@ export const ProfitLossDetailScreen: React.FC<ProfitLossDetailScreenProps> = ({
               Expenses Breakdown
             </h3>
             <div className="space-y-4">
+              {Object.keys(expensesByCategory).length === 0 && (
+                <p className="text-sm text-slate-600">No recorded outflows for this period.</p>
+              )}
               {Object.entries(expensesByCategory)
                 .sort(([,a], [,b]) => (b as number) - (a as number))
                 .map(([category, amount]) => (
@@ -230,7 +256,10 @@ export const ProfitLossDetailScreen: React.FC<ProfitLossDetailScreenProps> = ({
             Recent Transactions
           </h3>
           <div className="space-y-3">
-            {allTransactions
+            {allTransactions.length === 0 && (
+              <p className="text-sm text-slate-600">No transactions were recorded for this period.</p>
+            )}
+            {[...allTransactions]
               .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
               .slice(0, 10)
               .map((transaction) => (

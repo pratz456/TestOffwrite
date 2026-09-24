@@ -32,7 +32,7 @@ describe('published parameter registry versus primary sources (Rev. Proc. 2024-4
     expect(TAX_YEAR_2027_STATUS.knownByStatute.join(' ')).not.toMatch(/2027 bracket amounts are/);
   });
 
-  it('routes display helpers to the nearest published year instead of a stale hard-coded 2025', () => {
+  it('keeps an explicit nearest-year label helper but makes calculation helpers fail closed', () => {
     expect(nearestPublishedTaxYear(2027)).toBe(2026);
     expect(nearestPublishedTaxYear(2023)).toBe(2024);
     expect(calculateFederalIncomeTax(12400, 'single')).toBe(1240);
@@ -40,7 +40,9 @@ describe('published parameter registry versus primary sources (Rev. Proc. 2024-4
     const profile = { income: 100000, filing_status: 'Single' };
     expect(calculateEffectiveTaxRate(profile, 2026)).not.toBe(calculateEffectiveTaxRate(profile, 2025));
     expect(calculateEffectiveTaxRate(profile)).toBe(calculateEffectiveTaxRate(profile, 2026));
-    expect(getUserTaxRate(profile, 2027)).toBe(getUserTaxRate(profile, 2026));
+    expect(() => getUserTaxRate(profile, 2027)).toThrow(UnsupportedTaxYearError);
+    expect(() => getMarginalTaxRate(profile, 2027)).toThrow(UnsupportedTaxYearError);
+    expect(() => calcCombinedSERate(60000, 'Single', 0, 2027)).toThrow(UnsupportedTaxYearError);
     expect(getMarginalTaxRate({ income: 60000, filing_status: 'Single' }, 2026)).toBe(22);
     expect(calcCombinedSERate(60000, 'Single', 0, 2026).incomeTaxDollars).not.toBe(calcCombinedSERate(60000, 'Single', 0, 2025).incomeTaxDollars);
   });

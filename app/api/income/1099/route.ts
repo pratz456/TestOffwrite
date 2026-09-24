@@ -31,6 +31,13 @@ function isValidFormType(v: string): v is Form1099Type {
   return FORM_TYPES.includes(v as Form1099Type);
 }
 
+function requestedTaxYear(value: unknown, currentYear: number): number | null {
+  if (value === undefined || value === null || value === '') return currentYear;
+  if ((typeof value !== 'number' && typeof value !== 'string') || !/^\d{4}$/.test(String(value))) return null;
+  const year = Number(value);
+  return Number.isInteger(year) && year >= 2000 && year <= currentYear ? year : null;
+}
+
 /** GET - List all 1099 forms for the authenticated user */
 export async function GET(request: NextRequest) {
   try {
@@ -41,11 +48,10 @@ export async function GET(request: NextRequest) {
 
     const yearParam = request.nextUrl.searchParams.get('year');
     const currentYear = new Date().getFullYear();
-    const taxYear = yearParam ? parseInt(yearParam, 10) : currentYear;
-    const requestedYear =
-      Number.isNaN(taxYear) || taxYear < 2000 || taxYear > currentYear
-        ? currentYear
-        : taxYear;
+    const requestedYear = requestedTaxYear(yearParam, currentYear);
+    if (requestedYear === null) {
+      return NextResponse.json({ error: `Tax year must be a four-digit year from 2000 through ${currentYear}` }, { status: 400 });
+    }
 
     const snapshot = await adminDb
       .collection('income_1099')
@@ -92,10 +98,7 @@ export async function POST(request: NextRequest) {
     const payerName = typeof body.payerName === 'string' ? body.payerName.trim().slice(0, 200) : '';
     const amount = typeof body.amount === 'number' ? body.amount : Number(body.amount) || 0;
     const currentYear = new Date().getFullYear();
-    const taxYear =
-      typeof body.taxYear === 'number'
-        ? body.taxYear
-        : parseInt(String(body.taxYear || currentYear), 10);
+    const taxYear = requestedTaxYear(body.taxYear, currentYear);
 
     if (!isValidFormType(formType)) {
       return NextResponse.json(
@@ -115,17 +118,19 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    const validYear =
-      !Number.isNaN(taxYear) && taxYear >= 2000 && taxYear <= currentYear
-        ? taxYear
-        : currentYear;
+    if (taxYear === null) {
+      return NextResponse.json(
+        { error: `Tax year must be a four-digit year from 2000 through ${currentYear}` },
+        { status: 400 },
+      );
+    }
 
     const docRef = await adminDb.collection('income_1099').add({
       userId: user.uid,
       formType,
       payerName,
       amount,
-      taxYear: validYear,
+      taxYear,
       createdAt: new Date(),
     });
 

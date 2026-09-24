@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { auth } from '@/lib/firebase/client';
 import { getTransactions as getTransactionsClient } from '@/lib/firebase/transactions';
 import { getUserProfile } from '@/lib/firebase/profiles';
-import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
+import { getUserTaxRateDisplay } from '@/lib/tax-rules/federal-brackets';
 
 type MonthlyData = {
   month: number;
@@ -32,7 +32,7 @@ async function computeMonthlyDeductionsClient(userId: string, year?: number) {
           .sort((a, b) => b - a)
       : [new Date().getFullYear()];
 
-  const taxRate = getUserTaxRate(profile ? {
+  const taxRateDisplay = getUserTaxRateDisplay(profile ? {
     ...profile,
     w2_income: profile.w2_income ?? undefined,
     health_insurance_premiums: profile.health_insurance_premiums ?? undefined,
@@ -40,7 +40,8 @@ async function computeMonthlyDeductionsClient(userId: string, year?: number) {
     solo_401k_contribution: profile.solo_401k_contribution ?? undefined,
     hsa_contribution: profile.hsa_contribution ?? undefined,
     simple_ira_contribution: profile.simple_ira_contribution ?? undefined,
-  } : undefined);
+  } : undefined, targetYear);
+  const taxRate = taxRateDisplay.rate ?? 0;
 
   const monthlyData: MonthlyData[] = Array.from({ length: 12 }, (_, i) => ({
     month: i,
@@ -96,6 +97,7 @@ async function computeMonthlyDeductionsClient(userId: string, year?: number) {
         estimatedTaxSavingsFromMarkedDeductions: yearToDateTotal,
       },
       availableYears,
+      diagnostics: { taxRateReviewMessage: taxRateDisplay.reviewMessage },
     },
   };
 }

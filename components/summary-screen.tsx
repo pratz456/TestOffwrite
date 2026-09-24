@@ -3,28 +3,23 @@
 import React, { useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, FileText, TrendingUp, DollarSign, Calendar, PieChart, Download } from 'lucide-react';
+import { ArrowLeft, FileText, TrendingUp, DollarSign, PieChart } from 'lucide-react';
 
 interface SummaryScreenProps {
   onBack: () => void;
   user: any;
 }
 
-export const SummaryScreen: React.FC<SummaryScreenProps> = ({ onBack, user }) => {
-  const [selectedPeriod, setSelectedPeriod] = useState('2024');
+export const SummaryScreen: React.FC<SummaryScreenProps> = ({ onBack }) => {
+  const currentYear = new Date().getFullYear();
+  const [selectedPeriod, setSelectedPeriod] = useState(String(currentYear));
 
+  // This legacy screen is not routed. If it is restored, an empty state is safer than demo money.
   const summaryData = {
-    totalExpenses: 12450.75,
-    totalDeductions: 8320.50,
-    taxSavings: 2496.15,
-    categories: [
-      { name: 'Office Supplies', amount: 2180.40, percentage: 17.5 },
-      { name: 'Travel & Transportation', amount: 3240.30, percentage: 26.0 },
-      { name: 'Meals & Entertainment', amount: 1890.25, percentage: 15.2 },
-      { name: 'Professional Services', amount: 2450.80, percentage: 19.7 },
-      { name: 'Software & Subscriptions', amount: 1680.50, percentage: 13.5 },
-      { name: 'Other', amount: 1008.50, percentage: 8.1 }
-    ]
+    totalExpenses: 0,
+    totalDeductions: 0,
+    taxSavings: 0,
+    categories: [] as Array<{ name: string; amount: number; percentage: number }>,
   };
 
   return (
@@ -55,7 +50,7 @@ export const SummaryScreen: React.FC<SummaryScreenProps> = ({ onBack, user }) =>
         {/* Period Selector */}
         <div className="flex justify-center mb-6">
           <div className="bg-white rounded-xl p-1 shadow-lg">
-            {['2023', '2024', 'YTD'].map((period) => (
+            {[currentYear - 2, currentYear - 1, currentYear].map(String).map((period) => (
               <button
                 key={period}
                 onClick={() => setSelectedPeriod(period)}
@@ -131,6 +126,9 @@ export const SummaryScreen: React.FC<SummaryScreenProps> = ({ onBack, user }) =>
           </div>
 
           <div className="space-y-4">
+            {summaryData.categories.length === 0 && (
+              <p className="text-sm text-slate-600">No saved summary data is available on this legacy screen. Use Reports for live records.</p>
+            )}
             {summaryData.categories.map((category, index) => (
               <div key={index} className="flex items-center justify-between">
                 <div className="flex-1">
@@ -155,21 +153,6 @@ export const SummaryScreen: React.FC<SummaryScreenProps> = ({ onBack, user }) =>
           </div>
         </Card>
 
-        {/* Actions */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Button className="h-14 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white rounded-2xl gap-3">
-            <Download className="w-5 h-5" />
-            Export Tax Report
-          </Button>
-          
-          <Button 
-            variant="outline"
-            className="h-14 border-2 border-emerald-200 hover:border-emerald-300 hover:bg-emerald-50 rounded-2xl gap-3"
-          >
-            <Calendar className="w-5 h-5 text-emerald-600" />
-            Schedule Review
-          </Button>
-        </div>
       </div>
     </div>
   );
