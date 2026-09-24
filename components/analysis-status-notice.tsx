@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { AlertCircle, Check, ChevronRight, Loader2, RefreshCw } from 'lucide-react';
+import { AlertCircle, Check, ChevronDown, ChevronRight, Loader2, RefreshCw } from 'lucide-react';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import { parseAnalysisQueue } from '@/lib/ai/client-job-progress';
 import { analysisBacklogMessage, analysisOutcomeMessage, analysisOutcomeTitle, type AnalysisOutcomeView } from '@/lib/ai/analysis-state';
@@ -54,6 +54,8 @@ interface AnalysisStatusNoticeProps {
   disabled?: boolean;
   /** Borderless, for embedding in an existing card. */
   compact?: boolean;
+  /** Dashboard status row; details stay available without filling the page. */
+  condensed?: boolean;
   className?: string;
 }
 
@@ -64,7 +66,7 @@ const actionClass = 'inline-flex min-h-11 max-w-full items-center justify-center
  * forward: wait (with a count), fix the profile, retry the durable queue, or
  * review the record manually. Renders nothing when there is nothing to explain.
  */
-export function AnalysisStatusNotice({ waiting = 0, outcome = null, count = 1, accountIds = [], onReview, disabled = false, compact = false, className = '' }: AnalysisStatusNoticeProps) {
+export function AnalysisStatusNotice({ waiting = 0, outcome = null, count = 1, accountIds = [], onReview, disabled = false, compact = false, condensed = false, className = '' }: AnalysisStatusNoticeProps) {
   const [retry, setRetry] = useState<{ state: 'idle' | 'queuing' | 'done'; result: AnalysisRetryResult | null }>({ state: 'idle', result: null });
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
@@ -80,6 +82,46 @@ export function AnalysisStatusNotice({ waiting = 0, outcome = null, count = 1, a
     if (!mounted.current) return;
     setRetry({ state: result.ok ? 'done' : 'idle', result });
   };
+
+  const actions = outcome && ((outcome.link || retryable || (outcome.manualReview && onReview)) && (
+            <div className="flex flex-wrap gap-2">
+              {outcome.link && <Link href={outcome.link.href} className={actionClass}>{outcome.link.label}<ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0" /></Link>}
+              {retryable && (
+                <button type="button" onClick={requestRetry} disabled={disabled || retry.state !== 'idle'} className={actionClass}>
+                  {retry.state === 'queuing' ? <Loader2 aria-hidden="true" className="h-4 w-4 shrink-0 animate-spin" /> : <RefreshCw aria-hidden="true" className="h-4 w-4 shrink-0" />}
+                  {retry.state === 'queuing' ? 'Retrying…' : retry.state === 'done' ? 'Retry requested' : 'Retry analysis'}
+                </button>
+              )}
+              {outcome.manualReview && onReview && (
+                <button type="button" onClick={onReview} disabled={disabled} className={actionClass}>{count > 1 ? 'Review records' : 'Review record'}<ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0" /></button>
+              )}
+            </div>
+          ));
+
+  if (condensed) return (
+    <section role="status" aria-label="AI analysis status" className={`rounded-xl border border-slate-200/80 bg-white px-4 py-2 text-sm ${className}`}>
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+        <div className="flex min-w-0 flex-1 items-start gap-2.5 py-1">
+          {outcome ? <AlertCircle aria-hidden="true" className={`mt-0.5 h-4 w-4 shrink-0 ${outcome.kind === 'failed' ? 'text-destructive' : 'text-amber-600'}`} />
+            : <Loader2 aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-primary" />}
+          <div className="min-w-0">
+            <p className="text-xs font-semibold text-slate-800">AI review{waiting > 0 && <span className="ml-2 font-normal text-slate-500">{waiting.toLocaleString()} waiting</span>}</p>
+            <details className="group mt-0.5">
+              <summary className="flex min-h-8 cursor-pointer list-none items-center gap-2 rounded text-xs leading-5 text-slate-600 [&::-webkit-details-marker]:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+                <span>{outcome ? analysisOutcomeTitle(outcome, count) : 'Reviewing your saved transactions'}</span><ChevronDown aria-hidden="true" className="h-3 w-3 shrink-0 transition-transform group-open:rotate-180" />
+              </summary>
+              <div className="max-w-2xl space-y-1 pb-2 pt-1 text-xs leading-5 text-slate-500">
+                {waiting > 0 && <p>{analysisBacklogMessage(waiting)}</p>}
+                {outcome && <p>{analysisOutcomeMessage(outcome, count)}</p>}
+              </div>
+            </details>
+          </div>
+        </div>
+        {actions}
+      </div>
+      {retry.result && <p role={retry.result.ok ? 'status' : 'alert'} className="border-t border-slate-100 py-2 text-xs leading-5 text-slate-600">{retry.result.message}</p>}
+    </section>
+  );
 
   return (
     <section role="status" aria-label="AI analysis status"
@@ -103,20 +145,7 @@ export function AnalysisStatusNotice({ waiting = 0, outcome = null, count = 1, a
               <span className="min-w-0 break-words">{retry.result.message}</span>
             </p>
           )}
-          {(outcome.link || retryable || (outcome.manualReview && onReview)) && (
-            <div className="flex flex-wrap gap-2">
-              {outcome.link && <Link href={outcome.link.href} className={actionClass}>{outcome.link.label}<ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0" /></Link>}
-              {retryable && (
-                <button type="button" onClick={requestRetry} disabled={disabled || retry.state !== 'idle'} className={actionClass}>
-                  {retry.state === 'queuing' ? <Loader2 aria-hidden="true" className="h-4 w-4 shrink-0 animate-spin" /> : <RefreshCw aria-hidden="true" className="h-4 w-4 shrink-0" />}
-                  {retry.state === 'queuing' ? 'Retrying…' : retry.state === 'done' ? 'Retry requested' : 'Retry analysis'}
-                </button>
-              )}
-              {outcome.manualReview && onReview && (
-                <button type="button" onClick={onReview} disabled={disabled} className={actionClass}>{count > 1 ? 'Review records' : 'Review record'}<ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0" /></button>
-              )}
-            </div>
-          )}
+          {actions}
         </div>
       )}
     </section>

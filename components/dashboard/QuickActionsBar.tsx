@@ -18,10 +18,10 @@ export function QuickActionsBar({ onNavigate, needsReviewCount, needsAnalysisCou
     { label: 'AI insights', screen: 'ai-insights', icon: Lightbulb, show: true },
     { label: 'Quarterly taxes', screen: 'quarterly-taxes', icon: Calculator, show: true },
   ];
-  return <div className="grid grid-cols-[1fr_1fr_auto] gap-2" aria-label="Quick actions">
-    {[{ label: 'Add Income', screen: 'income-tracking' }, { label: 'Add Expense', screen: 'add-manual-transaction' }].map(action => <button key={action.screen} type="button" onClick={() => onNavigate(action.screen)} className="flex min-h-11 items-center justify-center gap-1 rounded-xl border border-border/70 bg-card px-2 text-sm font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><Plus className="h-3.5 w-3.5 shrink-0" />{action.label}</button>)}
+  return <div className="grid w-full grid-cols-[1fr_1fr_auto] gap-2 sm:flex sm:w-auto" aria-label="Quick actions">
+    {[{ label: 'Add Income', screen: 'income-tracking' }, { label: 'Add Expense', screen: 'add-manual-transaction' }].map(action => <button key={action.screen} type="button" onClick={() => onNavigate(action.screen)} className="flex min-h-11 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><Plus className="h-3.5 w-3.5 shrink-0" />{action.label}</button>)}
     <DropdownMenu>
-      <DropdownMenuTrigger asChild><button type="button" aria-label="More actions" className="flex h-11 w-11 items-center justify-center rounded-xl border border-border/70 bg-card text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><MoreHorizontal className="h-5 w-5" /></button></DropdownMenuTrigger>
+      <DropdownMenuTrigger asChild><button type="button" aria-label="More actions" className="flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 bg-white text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><MoreHorizontal className="h-5 w-5" /></button></DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56 rounded-xl">
         {extraActions.filter(action => action.show).map(action => <DropdownMenuItem key={action.screen} onClick={() => onNavigate(action.screen)} className="min-h-11 gap-2 rounded-lg"><action.icon className="h-4 w-4" />{action.label}</DropdownMenuItem>)}
       </DropdownMenuContent>

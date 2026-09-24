@@ -58,6 +58,27 @@
 }
 
 @layer base {
+  /* Keep the signed-in workspace within the viewport, including environment
+     notices above it. The content pane is the single page scroll container. */
+  body:has(.app-workspace) {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  body:has(.app-workspace) > [role="note"] {
+    flex-shrink: 0;
+  }
+
+  body .app-workspace {
+    flex: 1 1 0%;
+    height: auto;
+    min-height: 0;
+    width: 100%;
+  }
+
   /* A quiet, native-feeling workspace; marketing pages keep their own theme. */
   .app-workspace {
     --background: 240 10% 97%;

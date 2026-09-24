@@ -104,7 +104,7 @@ const ProtectedLayoutContent: React.FC<ProtectedLayoutClientProps> = ({ children
     <>
       <ToastContainer toasts={toasts} onClose={removeToast} />
       <ErrorBoundary>
-        <div className="app-workspace flex h-dvh flex-col lg:flex-row">
+        <div className="app-workspace flex flex-col lg:flex-row">
           {showNavigation && <MobileNav user={{ ...user, email: user.email ?? undefined }} userProfile={userProfile ?? undefined} />}
           {showNavigation && <SidebarNav user={{ ...user, email: user.email ?? undefined }} userProfile={userProfile ?? undefined} />}
           <main ref={mainRef} className={`${showNavigation ? 'flex-1' : 'w-full'} min-h-0 min-w-0 overflow-auto`}>
