@@ -40,10 +40,6 @@ const MileageTrackerScreen = dynamic(
   () => import("@/components/mileage-tracker-screen").then((m) => m.MileageTrackerScreen || m.default),
   { ssr: false }
 );
-const ProfitLossDetailScreen = dynamic(
-  () => import("@/components/profit-loss-detail-screen").then((m) => m.ProfitLossDetailScreen || m.default),
-  { ssr: false }
-);
 const QuarterlyTaxCalculator = dynamic(
   () => import("@/components/quarterly-tax-calculator").then((m) => m.QuarterlyTaxCalculator || m.default),
   { ssr: false }
@@ -653,15 +649,6 @@ export default function ProtectedPage() {
       );
     }
 
-    if (currentScreen === 'profit-loss-detail') {
-      return (
-        <ProfitLossDetailScreen
-          onNavigate={handleNavigate}
-          transactions={transactions}
-        />
-      );
-    }
-
     if (currentScreen === 'categories') {
       const safeUser = { ...user, email: user.email ?? undefined };
       return (
@@ -770,7 +757,7 @@ export default function ProtectedPage() {
       );
     }
 
-    if (currentScreen === 'profit-loss-report') {
+    if (currentScreen === 'profit-loss-report' || currentScreen === 'profit-loss-detail') {
       return (
         <ProfitLossReportScreen
           user={{ id: user.id, email: user.email ?? undefined }}

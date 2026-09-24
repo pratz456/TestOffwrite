@@ -26,7 +26,15 @@ export function KpiGrid({ state, taxYear, confirmedDeductions, onRetry, onReview
         <p className="mt-1 text-xs text-muted-foreground">{confirmedDeductions.reviewMessage || 'After category limits and refunds. Assets and home office are separate.'}</p></dl>}
       <div role="alert">
       <h2 className="font-medium">{taxYear} federal estimate {state.status === 'review' ? 'needs review' : 'unavailable'}</h2>
-      <p className="mt-1">{state.message}</p>
+      {state.status === 'review' ? <>
+        <p className="mt-1 text-muted-foreground">{state.code === 'INCOME_RECONCILIATION_REQUIRED'
+          ? 'Check overlapping income so the same payment is counted once.'
+          : 'Resolve the flagged details before we calculate your estimate.'}</p>
+        <details className="mt-1">
+          <summary className="min-h-11 cursor-pointer py-3 text-xs text-muted-foreground">Why review is needed</summary>
+          <p className="pb-2 text-xs leading-relaxed text-muted-foreground">{state.message}</p>
+        </details>
+      </> : <p className="mt-1">{state.message}</p>}
       <div className="mt-2 flex flex-wrap gap-x-4">
         {state.status === 'review' && <button className="min-h-[44px] underline underline-offset-4" onClick={() => onReview(target.screen)}>{target.label}</button>}
         <button className="min-h-[44px] underline underline-offset-4" onClick={onRetry}>Retry estimate</button>

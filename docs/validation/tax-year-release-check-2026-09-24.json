@@ -1,0 +1,84 @@
+{
+  "checkedDate": "2026-09-24",
+  "scope": "Bounded federal 2025/2026 and published 2027 planning-parameter release check; not certification of every tax rule, complete return preparation, or universal model accuracy.",
+  "applicationChanges": [],
+  "customerDataReadOrWritten": false,
+  "officialSourceChecks": [
+    {
+      "url": "https://www.irs.gov/irb/2025-45_IRB",
+      "result": "2025 amended standard deductions and Section 179 limits; 2026 brackets, standard deductions, QBI thresholds, Section 179 and excess-business-loss limits match the reviewed registry."
+    },
+    {
+      "url": "https://www.irs.gov/pub/irs-drop/rp-24-40.pdf",
+      "result": "2025 annual source remains available; superseded standard-deduction and Section 179 amounts are replaced by the enacted changes and Rev. Proc. 2025-32."
+    },
+    {
+      "url": "https://www.ssa.gov/oact/cola/cbb.html",
+      "result": "Actual table ends at 2026: 2025 wage base 176100 and 2026 wage base 184500. No final 2027 value located."
+    },
+    {
+      "url": "https://www.irs.gov/tax-professionals/standard-mileage-rates",
+      "result": "2025 business rate 0.70; 2026 January-June 0.725; 2026 July-December 0.76. All match the date-based registry; 2027 remains unavailable."
+    },
+    {
+      "url": "https://www.irs.gov/payments/quarterly-interest-rates",
+      "result": "2025 underpayment rate 7% in all quarters; 2026 quarterly rates 7%, 6%, 7%, 7% match. No 2027 quarter is filled by assumption."
+    },
+    {
+      "url": "https://www.irs.gov/pub/irs-drop/rp-26-24.pdf",
+      "result": "Published 2027 HSA limits 4500/9000, HDHP minimums 1750/3500, maximums 8700/17400, direct-primary-care monthly limits 150/300 and excepted-benefit HRA 2250 match. Guidance only."
+    },
+    {
+      "url": "https://www.irs.gov/pub/irs-drop/rp-26-26.pdf",
+      "result": "Published 2027 applicable-percentage table and 10.22% affordability amount match. No credit eligibility or reconciliation is inferred from these figures alone."
+    },
+    {
+      "url": "https://www.irs.gov/newsroom/inflation-adjusted-tax-items-by-tax-year",
+      "result": "Index ends at 2026; no complete final 2027 annual tax or retirement adjustment release located in this review."
+    }
+  ],
+  "offlineValidation": {
+    "passed": 432,
+    "failed": 0,
+    "skipped": 0,
+    "files": 14,
+    "log": "/tmp/writeoff-tax-year-release-check-20260924.log",
+    "testFiles": [
+      "tests/federal-figures-audit.test.ts",
+      "tests/federal-calculation-audit.test.ts",
+      "tests/tax-year-2027.test.ts",
+      "tests/tax-year-status.test.ts",
+      "tests/mileage-rates.test.ts",
+      "tests/schedule-se-regressions.test.ts",
+      "tests/taxpayer-context.test.ts",
+      "tests/taxpayer-context-memo.test.ts",
+      "tests/transaction-tax-policy.test.ts",
+      "tests/tax-assistant-guidance.test.ts",
+      "tests/tax-assistant-context.test.ts",
+      "tests/tax-assistant-topics.test.ts",
+      "tests/tax-calculator-regressions.test.ts",
+      "tests/tax-export-pdfs.test.ts"
+    ]
+  },
+  "liveProviderValidation": {
+    "model": "gpt-4.1-mini",
+    "generatedAt": "2026-09-24T19:23:23.654Z",
+    "cases": 14,
+    "failedCases": 0,
+    "syntheticOnly": true,
+    "firebaseMocked": true,
+    "keySource": "Existing private candidate production configuration; secret not included",
+    "testFile": "tests/ai-live-tax-policy-regressions.test.ts",
+    "log": "/tmp/writeoff-tax-policy-live-20260924.log",
+    "rawReport": "/var/folders/j2/csvxynjs0h7_8c5kx1r7f6sr0000gn/T/writeoff-ai-tax-policy-targeted-gpt-4.1-mini-1790277803655.json"
+  },
+  "remainingLimits": [
+    "2027 bracket, standard-deduction, wage-base and other annual values await actual official publication; complete 2027 annual estimates remain unavailable.",
+    "Selected 2027 planning guidance does not enable 2027 transaction deduction determinations or state/local calculations.",
+    "Transaction legal-policy scope is selected 2025/2026 U.S. federal sole-proprietor/disregarded single-member LLC matters; missing material facts require review.",
+    "Model suggestions and tests do not certify tax eligibility, complete returns or filing readiness for every taxpayer.",
+    "Reviewed tax constants and source packets are intentionally versioned static rules; personalized facts and calculations are dynamic."
+  ],
+  "baselineCommit": "84a45bdccfed17b347a94aabfe2b13d3857f529b",
+  "workingTreeNote": "Review began at the baseline commit; focused checks ran during the owner-review changes. Tax rules were unchanged; AI confirmed-history exclusions were corrected separately in 4292d61."
+}

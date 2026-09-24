@@ -69,7 +69,7 @@ export function canUseSubscriptionFeature(
 export function premiumFeatureForLocation(pathname: string | null, screen?: string | null): PremiumFeature | null {
   if (pathname === '/protected/reports' || pathname?.startsWith('/protected/reports/')) return 'reports';
   if (pathname !== '/protected') return null;
-  if (screen === 'reports' || screen === 'profit-loss-report') return 'reports';
+  if (screen === 'reports' || screen === 'profit-loss-report' || screen === 'profit-loss-detail') return 'reports';
   if (screen === 'schedule-c-export') return 'exports';
   return null;
 }

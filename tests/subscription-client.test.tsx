@@ -129,6 +129,7 @@ describe('feature navigation boundaries', () => {
   it.each([
     ['/protected/reports', null, 'reports'], ['/protected/reports/detail', null, 'reports'],
     ['/protected', 'reports', 'reports'], ['/protected', 'profit-loss-report', 'reports'],
+    ['/protected', 'profit-loss-detail', 'reports'],
     ['/protected', 'schedule-c-export', 'exports'],
   ])('requires feature at %s screen %s', (pathname, screen, feature) => {
     expect(premiumFeatureForLocation(pathname, screen)).toBe(feature);

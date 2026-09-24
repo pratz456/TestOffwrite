@@ -12,7 +12,9 @@ export function dashboardNextSteps(records: Transaction[], taxState: DashboardTa
   const steps: DashboardNextStep[] = [];
   if (taxState.status === 'review') {
     const target = reviewTargetForCode(taxState.code);
-    steps.push({ id: 'tax-inputs', title: 'Complete your tax estimate', detail: taxState.message, action: target.label, screen: target.screen });
+    steps.push({ id: 'tax-inputs', title: 'Complete your tax estimate',
+      detail: taxState.code === 'INCOME_RECONCILIATION_REQUIRED' ? 'Match overlapping income records before calculating tax.' : 'Resolve the flagged inputs to continue.',
+      action: target.label, screen: target.screen });
   } else if (taxState.status === 'error') {
     steps.push({ id: 'tax-retry', title: 'Refresh your tax estimate', detail: 'The latest estimate could not load. Your records are saved.', action: 'Retry', retry: true });
   }
