@@ -14,11 +14,12 @@ not a recurring backup. Both application schedules were enabled.
 
 The release operator applied the minimal recovery and monitoring configuration.
 Independent read-back confirmed PITR and delete protection enabled, one daily
-backup schedule with 14-week retention, one uptime check, four enabled alert
+backup schedule with 14-week retention, one uptime check, five enabled alert
 policies and two log metrics. A subsequent independent read-back confirmed the
 throttle TTL policy **ACTIVE**. The first scheduled backup,
 heartbeat detection, alert delivery and restore drill are not yet verified.
-There are no notification channels; recipient approval is pending.
+One explicitly authorized email notification channel is enabled and attached to
+all five production policies; the exact recipient is retained in private evidence.
 
 | Control | Applied state | Verification and limitation |
 | --- | --- | --- |
@@ -30,16 +31,37 @@ There are no notification channels; recipient approval is pending.
 | Availability incident | More than one checker fails for 5 minutes | Filters one-checker blips; investigate in Cloud Monitoring. |
 | Server incident | At least 5 SSR 5xx responses in 5 minutes | Ignores ordinary 4xx review/authorization responses. Inspect affected route/revision. |
 | Background incident | At least 10 worker ERROR entries in 10 minutes | Includes transient retries; inspect backlog, provider limits, origin and secret bindings. |
+| Analysis transport backlog | Oldest unacknowledged message exceeds 15 minutes for 10 minutes | Bound to the four actual analysis Eventarc/Pub/Sub subscriptions. Detects delivery delay, not silently stalled work already acknowledged by transport. |
 | Scheduled-sync silence | No completion heartbeat for 6 hours | Three expected two-hour runs. Absence detection requires an initial observed heartbeat; a completion can include partial failures. |
 
-These enabled alert policies create console incidents only. They do not page or email
-anyone until an authorized notification channel is attached and delivery tested.
-There is no alert for every ordinary tax review or isolated model retry.
+These policies now route to the one authorized operator inbox. Channel and policy
+read-back confirms configuration; actual inbox delivery is not yet verified.
+The channel does not require an email verification code. There is no alert for
+every ordinary tax review or isolated model retry.
 
 The private evidence directory retains the applied monitoring read-back, an
 independent recovery read-back and the exact narrowly scoped setup scripts.
 It contains no application secrets. No new IAM grants, billing budget, backup
 bucket retention changes or weekly export job were applied.
+
+### Backlog coverage
+
+At 18:52 UTC, the four analysis transport subscriptions each had zero undelivered
+messages and zero oldest-unacknowledged age throughout the preceding hour.
+The configured delay threshold uses the official
+[Pub/Sub backlog-age metric](https://docs.cloud.google.com/monitoring/api/metrics_gcp_p_z#gcp-pubsub),
+whose value is seconds. Re-resolve subscription names if Eventarc triggers are
+recreated. This snapshot is not a throughput or outage-detection test.
+
+The current application stores durable work in `analysis_tasks`, version-1
+progress summaries in `analysis_jobs`, and profile-refresh work in
+`profile_analysis_refresh`. Read-only inspection found no active/paused durable
+analysis tasks or profile refreshes. Eight historical unversioned job summaries
+remain marked running; the current status endpoint excludes those legacy records.
+None was changed or deleted. The production error and transport alerts do not
+detect a task silently stalled after transport acknowledgement. Continuous
+coverage of that case would require an application queue-age metric or a
+read-only watchdog; neither is claimed as implemented here.
 
 ## Authentication and application hardening
 
