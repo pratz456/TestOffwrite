@@ -20,7 +20,7 @@ ACTIVE, then the next coordinated deployment removed its undeclared field
 override. Read-back at 18:58:52 UTC returned no TTL policy. Declarative retention
 in `firestore.indexes.json` and a subsequent deployment are pending; do not
 manually reapply it during the release. The first scheduled backup,
-heartbeat detection and restore drill are not yet verified. Alert inbox delivery
+six-hour silence detection and restore drill are not yet verified. Alert inbox delivery
 was verified with the intentional test described below.
 One explicitly authorized email notification channel is enabled and attached to
 all five production policies; the exact recipient is retained in private evidence.
@@ -36,7 +36,7 @@ all five production policies; the exact recipient is retained in private evidenc
 | Server incident | At least 5 SSR 5xx responses in 5 minutes | Ignores ordinary 4xx review/authorization responses. Inspect affected route/revision. |
 | Background incident | At least 10 worker ERROR entries in 10 minutes | Includes transient retries; inspect backlog, provider limits, origin and secret bindings. |
 | Analysis transport backlog | Oldest unacknowledged message exceeds 15 minutes for 10 minutes | Bound to the four actual analysis Eventarc/Pub/Sub subscriptions. Detects delivery delay, not silently stalled work already acknowledged by transport. |
-| Scheduled-sync silence | No completion heartbeat for 6 hours | Three expected two-hour runs. Absence detection requires an initial observed heartbeat; a completion can include partial failures. |
+| Scheduled-sync silence | No completion heartbeat for 6 hours | Three expected two-hour runs. First real completion metric observed at 19:04 UTC; the six-hour silence condition itself has not been outage-tested. A completion can include partial failures. |
 
 These policies now route to the one authorized operator inbox. Channel and policy
 read-back confirms configuration. At **19:00 UTC**, the release operator opened
@@ -53,6 +53,14 @@ latency or behavior of every real failure condition.
 The channel does not require an email verification code. There is no alert for
 every ordinary tax review or isolated model retry. Operational-alert approval
 does not authorize unrelated application emails or marketing sends.
+
+One operator-triggered invocation of the normal scheduled-sync job completed at
+**19:03:35 UTC** on revision `syncalluserstransactions-00003-taj`: HTTP 200, 1,259 ms
+worker elapsed time, zero failures. No eligible bank owners were selected, so no
+owner synchronization was exercised. At **19:04:37 UTC**, Cloud Monitoring exposed
+positive samples for `writeoff_launch_scheduled_sync_completed` on that revision.
+This verifies execution of the updated worker and primes heartbeat monitoring;
+it does not verify a new bank connection or a six-hour outage.
 
 The private evidence directory retains the applied monitoring read-back, an
 independent recovery read-back and the exact narrowly scoped setup scripts.
