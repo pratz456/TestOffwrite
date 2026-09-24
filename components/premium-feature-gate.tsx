@@ -7,9 +7,10 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Sparkles, Lock, Loader2 } from 'lucide-react';
 import type { PremiumFeature, SubscriptionStatus } from '@/lib/subscriptions/client-status';
+import { openLocalPreviewBilling, type BillingDestination } from '@/lib/subscriptions/local-preview-billing';
 
 /** Match checkout recovery: nonterminal subscriptions must be managed, not duplicated. */
-export function subscriptionGateDestination(status: SubscriptionStatus | null): string {
+export function subscriptionGateDestination(status: SubscriptionStatus | null): BillingDestination {
   const existing = status?.subscription;
   return existing && !['canceled', 'incomplete_expired'].includes(existing.status)
     ? '/protected/settings?tab=payment' : '/protected/subscriptions';
@@ -75,7 +76,7 @@ export function PremiumFeatureGate({
         <p className="text-sm text-muted-foreground">Please retry to check access to {featureName}.</p>
         <div className="flex flex-wrap gap-2">
           <Button onClick={() => void refetch()}>Try again</Button>
-          <Button variant="outline" onClick={() => router.push('/protected/settings?tab=payment')}>Manage billing</Button>
+          <Button variant="outline" onClick={() => { if (!openLocalPreviewBilling('/protected/settings?tab=payment')) router.push('/protected/settings?tab=payment'); }}>Manage billing</Button>
         </div>
       </Card>
     );
@@ -99,7 +100,7 @@ export function PremiumFeatureGate({
           {manageBilling ? basicPlan ? `Premium is required for ${featureName}` : `Check billing for ${featureName}` : `Subscribe to access ${featureName}`}
         </span>
         <Button
-          onClick={() => router.push(destination)}
+          onClick={() => { if (!openLocalPreviewBilling(destination)) router.push(destination); }}
           size="sm"
           className="ml-auto bg-purple-600 hover:bg-purple-700 text-white"
         >
@@ -124,7 +125,7 @@ export function PremiumFeatureGate({
           </p>
           <div className="flex flex-wrap gap-3">
             <Button
-              onClick={() => router.push(destination)}
+              onClick={() => { if (!openLocalPreviewBilling(destination)) router.push(destination); }}
               className="bg-purple-600 hover:bg-purple-700 text-white"
             >
               <Sparkles className="w-4 h-4 mr-2" />
@@ -132,7 +133,7 @@ export function PremiumFeatureGate({
             </Button>
             {!manageBilling && <Button
               variant="outline"
-              onClick={() => router.push('/protected/subscriptions')}
+              onClick={() => { if (!openLocalPreviewBilling('/protected/subscriptions')) router.push('/protected/subscriptions'); }}
               className="border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/30"
             >
               View Plans

@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { HistoricalAccessUpgradeCard } from '@/components/historical-access-upgrade-card';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, FileText, Clock, Shield, Zap, Check } from 'lucide-react';
+import { openLocalPreviewBilling } from '@/lib/subscriptions/local-preview-billing';
 
 export default function SubscriptionsPage() {
   const { user } = useAuth();
@@ -81,7 +82,7 @@ export default function SubscriptionsPage() {
         <div className="max-w-xl mx-auto mb-10 sm:mb-14">
           <HistoricalAccessUpgradeCard />
           <div className="mt-4 text-center space-y-2">
-            <Button variant="outline" onClick={() => router.push('/protected/settings?tab=payment')}>Manage billing and payment methods</Button>
+            <Button variant="outline" onClick={() => { if (!openLocalPreviewBilling('/protected/settings?tab=payment')) router.push('/protected/settings?tab=payment'); }}>Manage billing and payment methods</Button>
             <p className="text-xs text-muted-foreground">Billing and your saved records remain accessible when a plan ends.</p>
           </div>
         </div>

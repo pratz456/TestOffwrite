@@ -29,6 +29,7 @@ import { toast } from 'sonner';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { Badge } from '@/components/ui/badge';
 import { canUseSubscriptionFeature } from '@/lib/subscriptions/client-status';
+import { openLocalPreviewBilling } from '@/lib/subscriptions/local-preview-billing';
 import { homeOfficeReviewReasons, SIMPLIFIED_MAX_SQFT, SIMPLIFIED_RATE_PER_SQFT, type HomeOfficeSettings } from '@/lib/reports/calc8829';
 import { DE_MINIMIS_SAFE_HARBOR_LIMIT } from '@/lib/reports/calc4562';
 import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
@@ -61,6 +62,7 @@ export const PaymentSettingsTab: React.FC<{ beforeNavigate: (action: () => void)
 
   const handleManageBilling = async () => {
     if (billingAction.current) return;
+    if (openLocalPreviewBilling()) return;
     billingAction.current = true;
     setPortalLoading(true);
     try {
@@ -80,6 +82,7 @@ export const PaymentSettingsTab: React.FC<{ beforeNavigate: (action: () => void)
 
   const doCancelSubscription = async () => {
     if (billingAction.current) return;
+    if (openLocalPreviewBilling()) return;
     billingAction.current = true;
     setCancelLoading(true);
     try {
@@ -105,6 +108,7 @@ export const PaymentSettingsTab: React.FC<{ beforeNavigate: (action: () => void)
   };
 
   const handleCancelSubscription = () => {
+    if (openLocalPreviewBilling()) return;
     setConfirmDialog({
       open: true,
       title: 'Cancel Subscription',
@@ -266,7 +270,10 @@ export const PaymentSettingsTab: React.FC<{ beforeNavigate: (action: () => void)
             </p>
             <div className="flex flex-wrap gap-3">
               <Button
-                onClick={() => beforeNavigate(() => window.location.assign('/protected/subscriptions'))}
+                onClick={() => {
+                  if (openLocalPreviewBilling('/protected/subscriptions')) return;
+                  beforeNavigate(() => window.location.assign('/protected/subscriptions'));
+                }}
                 variant="outline"
                 size="sm"
                 className="min-h-11 flex-1 whitespace-normal"
@@ -276,6 +283,7 @@ export const PaymentSettingsTab: React.FC<{ beforeNavigate: (action: () => void)
               </Button>
               <Button
                 onClick={() => {
+                  if (openLocalPreviewBilling()) return;
                   setConfirmDialog({
                     open: true,
                     title: 'Sync Subscription',

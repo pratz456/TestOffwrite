@@ -13,6 +13,7 @@ import { TrialCountdown } from '@/components/trial-countdown';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { canUseSubscriptionFeature } from '@/lib/subscriptions/client-status';
+import { openLocalPreviewBilling } from '@/lib/subscriptions/local-preview-billing';
 
 export function HistoricalAccessUpgradeCard({ variant = 'default' }: { variant?: 'default' | 'slim' | 'square' }) {
   const { user } = useAuth();
@@ -24,6 +25,7 @@ export function HistoricalAccessUpgradeCard({ variant = 'default' }: { variant?:
 
   const handleUpgrade = async () => {
     if (!user?.id || actionPending.current) return;
+    if (openLocalPreviewBilling('/protected/subscriptions')) return;
     actionPending.current = true;
     setCheckoutLoading(true);
     try {
@@ -73,6 +75,7 @@ export function HistoricalAccessUpgradeCard({ variant = 'default' }: { variant?:
 
   const handleReactivate = async () => {
     if (!user?.id || actionPending.current) return;
+    if (openLocalPreviewBilling()) return;
     actionPending.current = true;
     setCheckoutLoading(true);
     try {
@@ -156,7 +159,7 @@ export function HistoricalAccessUpgradeCard({ variant = 'default' }: { variant?:
           {subscription.planCurrency?.toLowerCase() === 'usd' ? '$' : `${subscription.planCurrency?.toUpperCase() || ''} `}{subscription.planAmount.toFixed(2)}{subscription.planInterval ? `/${subscription.planInterval}` : ''}
         </p>}
         {basicActive && accessStatus?.cancelAtPeriodEnd && <p className="text-sm">Basic access continues until {accessStatus.currentPeriodEnd?.toLocaleDateString() || 'the current period ends'}. Renewal is off.</p>}
-        <Button variant="outline" className="min-h-11" onClick={() => router.push('/protected/settings?tab=payment')}>Manage billing</Button>
+        <Button variant="outline" className="min-h-11" onClick={() => { if (!openLocalPreviewBilling('/protected/settings?tab=payment')) router.push('/protected/settings?tab=payment'); }}>Manage billing</Button>
       </Card>
     );
   }
@@ -169,7 +172,7 @@ export function HistoricalAccessUpgradeCard({ variant = 'default' }: { variant?:
         <p className="font-semibold">WriteOff Premium is active</p>
         <p className="text-sm text-muted-foreground">Reports, exports and extended bank history are included.</p>
         {accessStatus.subscriptionEnd && <p className="text-sm">Current period ends {accessStatus.subscriptionEnd.toLocaleDateString()}.</p>}
-        <Button variant="outline" onClick={() => router.push('/protected/settings?tab=payment')}>Manage billing</Button>
+        <Button variant="outline" onClick={() => { if (!openLocalPreviewBilling('/protected/settings?tab=payment')) router.push('/protected/settings?tab=payment'); }}>Manage billing</Button>
       </Card>
     );
   }
@@ -185,7 +188,7 @@ export function HistoricalAccessUpgradeCard({ variant = 'default' }: { variant?:
         <p className="text-sm text-muted-foreground">{paymentPending
           ? 'Bank payments can take 4–5 business days to clear. Check billing for your latest payment status.'
           : 'Review your existing subscription and payment details in billing.'} Your saved records remain available.</p>
-        <Button variant="outline" className="min-h-11" onClick={() => router.push('/protected/settings?tab=payment')}>Manage billing</Button>
+        <Button variant="outline" className="min-h-11" onClick={() => { if (!openLocalPreviewBilling('/protected/settings?tab=payment')) router.push('/protected/settings?tab=payment'); }}>Manage billing</Button>
       </Card>
     );
   }
