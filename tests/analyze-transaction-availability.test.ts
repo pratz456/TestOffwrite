@@ -29,7 +29,6 @@ vi.mock('@/lib/ai/profile-context', () => ({ getAnalysisProfile: mocks.profile, 
 vi.mock('@/lib/ai/taxpayer-context-server', () => ({ loadTaxpayerContext: mocks.taxpayerContext }));
 vi.mock('@/lib/ai/analysis-persistence', () => ({
   claimAnalysisLease: mocks.claim, persistAnalysisSuggestion: mocks.persist, releaseAnalysisLease: mocks.release,
-  analysisSuggestionUpdate: () => ({ ai: { status_label: 'Likely Deductible' }, analysisUpdatedAt: '2026-09-16T12:00:00.000Z' }),
 }));
 // The durable per-owner limiter shares this fake store; ownership lookups stay mocked.
 vi.mock('@/lib/firebase/admin', async () => {
@@ -77,7 +76,21 @@ beforeEach(() => {
   mocks.taxpayerContext.mockImplementation(async (_uid: string, profile: UserContext, merchant: string | null | undefined, transactionDate: string | null) =>
     buildTaxpayerContext({ profile, homeOffice: null, confirmed: [], merchant, transactionDate }));
   mocks.claim.mockResolvedValue({ status: 'claimed', lease: { token: 'synthetic-lease', inputHash: 'hash', expiresAt: Date.now()+60000 }, data: { ...body.transaction, iso_currency_code: 'USD', pending: false, notes: 'Saved owner context' } });
-  mocks.persist.mockResolvedValue({ status: 'saved' });
+  mocks.persist.mockResolvedValue({
+    status: 'saved',
+    suggestion: { id: 'persisted', status: 'needs_more_info', reasoning: 'Saved gate requires one more fact.' },
+    explanation: { headline: 'Needs more information' },
+    display: {
+      status: 'needs_more_info',
+      statusLabel: 'Needs more information',
+      confidence: 0.9,
+      reasoning: 'Saved gate requires one more fact.',
+      irsPublication: 'Synthetic reference',
+      irsSection: null,
+      updatedAt: '2026-09-16T12:00:00.000Z',
+      ai: { status: 'needs_more_info', status_label: 'Needs more information' },
+    },
+  });
   mocks.release.mockResolvedValue(undefined);
   mocks.convertContext.mockReturnValue({ profession: 'Designer' });
   mocks.missingFields.mockReturnValue([]);
@@ -145,7 +158,16 @@ describe('transaction analysis availability', () => {
   it('allows configured analysis, scopes the write to the authenticated owner, and leaves suggestions unconfirmed', async () => {
     const response = await POST(request());
     expect(response.status).toBe(200);
-    expect((await response.json()).success).toBe(true);
+    expect(await response.json()).toMatchObject({
+      success: true,
+      ai_suggestion: { status: 'needs_more_info' },
+      explanation: { headline: 'Needs more information' },
+      analysis: {
+        status: 'needs_more_info',
+        deductionStatus: 'Needs more information',
+        reasoning: 'Saved gate requires one more fact.',
+      },
+    });
     expect(mocks.profile).toHaveBeenCalledWith(uid);
     expect(mocks.analyze).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ tx_id: body.transactionId, amount_usd: 35 }),

@@ -48,15 +48,12 @@ describe('flat-rate states', () => {
     expect(result.estimate).toBeCloseTo((40000 - 2850) * 0.0495, 2);
   });
 
-  it('Pennsylvania: 3.07% of the positive income classes, no standard deduction, losses do not offset wages', () => {
+  it('Pennsylvania: 3.07% of positive income classes, while a business loss requires review', () => {
     const result = supported({ stateCode: 'PA', taxYear: 2026, federalAGI: 85000, scheduleCNetProfit: 30000, w2Wages: 50000, otherIncome: 5000 });
     expect(result.components.stateAGI).toBe(85000); expect(result.components.deductions).toEqual([]);
     expect(result.estimate).toBeCloseTo(85000 * 0.0307, 2);
-    const loss = supported({ stateCode: 'PA', taxYear: 2025, federalAGI: 40000, scheduleCNetProfit: -10000, w2Wages: 50000 });
-    expect(loss.components.stateAGI).toBe(50000);
-    expect(loss.estimate).toBeCloseTo(50000 * 0.0307, 2);
-    expect(loss.warnings.join(' ')).toMatch(/loss/i);
-    expect(loss.warnings.join(' ')).toMatch(/no standard deduction/);
+    const loss = estimateStateTax({ ...base, stateCode: 'PA', taxYear: 2025, federalAGI: 40000, scheduleCNetProfit: -10000, w2Wages: 50000 });
+    expect(loss).toMatchObject({ supported: false, reason: expect.stringContaining('business losses') });
     const hsa = supported({ stateCode: 'PA', taxYear: 2025, federalAGI: 47000, scheduleCNetProfit: 50000, w2Wages: 0, hsaContribution: 3000 });
     expect(line(hsa.components.deductions, /Health savings/)).toBe(3000);
     expect(hsa.estimate).toBeCloseTo(47000 * 0.0307, 2);
@@ -233,10 +230,9 @@ describe('unsupported results and input handling', () => {
     expect(result.stateCode).toBe('NY'); expect(result.stateName).toBe('New York');
   });
 
-  it('treats a Schedule C loss as zero business income with a warning and never returns a negative estimate', () => {
-    const result = supported({ stateCode: 'GA', taxYear: 2025, federalAGI: 5000, scheduleCNetProfit: -20000, w2Wages: 25000 });
-    expect(result.estimate).toBe(0);
-    expect(result.warnings.join(' ')).toMatch(/Schedule C loss is treated as zero/);
+  it('withholds a state dollar estimate when Schedule C has a loss', () => {
+    const result = estimateStateTax({ ...base, stateCode: 'GA', taxYear: 2025, federalAGI: 5000, scheduleCNetProfit: -20000, w2Wages: 25000 });
+    expect(result).toMatchObject({ supported: false, reason: expect.stringContaining('business losses') });
   });
 });
 

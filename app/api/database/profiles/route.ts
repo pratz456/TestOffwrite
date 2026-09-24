@@ -4,13 +4,54 @@ import { adminDb, FieldValue } from '@/lib/firebase/admin';
 import { migrateLegacyPlaidConnection } from '@/lib/plaid/connections';
 import { EDITABLE_PROFILE_FIELDS, publicProfile } from '@/lib/firebase/profile-fields';
 import { parseConsentRecord, storedDocumentImportSignature } from '@/lib/onboarding/consents';
+import { encryptSensitive } from '@/lib/security/utils';
+import { isLocalAccountPreview } from '@/lib/firebase/local-account-preview';
+
+class ProfileInputError extends Error {}
+
+function encryptedEinUpdate(value: unknown, existingLast4?: unknown): { error?: string; fields?: Record<string, unknown>; omit?: boolean } {
+  if (typeof value !== 'string') return { error: 'EIN must be a string' };
+  const trimmed = value.trim();
+  const masked = /^\*{2}-\*{3}(\d{4})$/.exec(trimmed);
+  if (masked) {
+    return existingLast4 === masked[1] ? { omit: true } : { error: 'The masked EIN does not match the stored value' };
+  }
+  if (!trimmed) {
+    return { fields: { ein: FieldValue.delete(), ein_encrypted: FieldValue.delete(), ein_last4: FieldValue.delete() } };
+  }
+  const digits = trimmed.replace(/\D/g, '');
+  if (digits.length !== 9 || digits === '000000000') {
+    return { error: 'EIN must contain exactly nine digits' };
+  }
+  return {
+    fields: {
+      ein: FieldValue.delete(),
+      ein_encrypted: encryptSensitive(digits),
+      ein_last4: digits.slice(-4),
+    },
+  };
+}
 
 export async function GET(request: NextRequest) {
   const { user } = await getAuthenticatedUser(request);
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
     await migrateLegacyPlaidConnection(user.uid);
-    const snapshot = await adminDb.doc(`user_profiles/${user.uid}`).get();
+    const ref = adminDb.doc(`user_profiles/${user.uid}`);
+    let snapshot = await ref.get();
+    const legacyEin = snapshot.exists ? snapshot.data()?.ein : undefined;
+    // A preview reads the live account without running identifier migrations.
+    // publicProfile still masks legacy values in the response.
+    if (!isLocalAccountPreview() && snapshot.exists && typeof legacyEin === 'string' && legacyEin.trim()) {
+      const migration = encryptedEinUpdate(legacyEin, snapshot.data()?.ein_last4);
+      const legacyDigits = legacyEin.replace(/\D/g, '');
+      await ref.update(migration.fields ?? {
+        ein: FieldValue.delete(),
+        ein_encrypted: encryptSensitive(legacyEin.trim()),
+        ...(legacyDigits.length >= 4 ? { ein_last4: legacyDigits.slice(-4) } : {}),
+      });
+      snapshot = await ref.get();
+    }
     return NextResponse.json({ success: true, profile: snapshot.exists ? publicProfile(snapshot.data()!, user.uid) : null },
       { headers: { 'Cache-Control': 'private, no-store' } });
   } catch {
@@ -21,12 +62,13 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const { user } = await getAuthenticatedUser(request);
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  let body;
-  try { body = await request.json(); }
+  let parsedBody;
+  try { parsedBody = await request.json(); }
   catch { return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 }); }
-  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+  if (!parsedBody || typeof parsedBody !== 'object' || Array.isArray(parsedBody)) {
     return NextResponse.json({ error: 'A profile object is required' }, { status: 400 });
   }
+  const body: Record<string, any> = { ...parsedBody };
   if (Object.keys(body).some(key => !EDITABLE_PROFILE_FIELDS.has(key))) {
     return NextResponse.json({ error: 'Profile contains fields that cannot be edited' }, { status: 400 });
   }
@@ -42,6 +84,10 @@ export async function POST(request: NextRequest) {
     const ref = adminDb.doc(`user_profiles/${user.uid}`);
     await adminDb.runTransaction(async transaction => {
       const snapshot = await transaction.get(ref);
+      const ein = 'ein' in body ? encryptedEinUpdate(body.ein, snapshot.data()?.ein_last4) : null;
+      if (ein?.error) throw new ProfileInputError(ein.error);
+      const profileFields = { ...body };
+      delete profileFields.ein;
       const stored = snapshot.exists ? snapshot.data()?.consents : undefined;
       let consents = 'consents' in body ? body.consents : undefined;
       // Re-acknowledging updated terms re-collects the acknowledgments, not the separately signed §7216
@@ -54,12 +100,14 @@ export async function POST(request: NextRequest) {
       // A merge keeps nested fields, so a withdrawn §7216 signature is removed explicitly.
       const withdrawn = consents && !consents.document_import_signature
         && stored && typeof stored === 'object' && 'document_import_signature' in stored;
-      transaction.set(ref, { ...body, ...(consents ? { consents: withdrawn ? { ...consents, document_import_signature: FieldValue.delete() } : consents } : {}),
+      transaction.set(ref, { ...profileFields, ...(ein?.fields ?? {}),
+        ...(consents ? { consents: withdrawn ? { ...consents, document_import_signature: FieldValue.delete() } : consents } : {}),
         ...stamps, updated_at: FieldValue.serverTimestamp(),
         ...(!snapshot.exists ? { created_at: FieldValue.serverTimestamp() } : {}) }, { merge: true });
     });
     return NextResponse.json({ success: true });
-  } catch {
+  } catch (error) {
+    if (error instanceof ProfileInputError) return NextResponse.json({ error: error.message }, { status: 400 });
     return NextResponse.json({ error: 'Failed to save profile' }, { status: 503 });
   }
 }

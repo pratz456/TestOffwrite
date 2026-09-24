@@ -158,6 +158,7 @@ describe('dashboard tax cards share the federal server calculation', () => {
   });
 
   it('removes confirmed records while keeping skipped records unresolved', async () => {
+    h.profile.income = 100000;
     h.tx = [expense(20), expense(30, { is_deductible: false }),
       expense(40, { is_deductible: null, user_classification_reason: 'Skipped by user' })];
     const reviewed = render(); await flush();

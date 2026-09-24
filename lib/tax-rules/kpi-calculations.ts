@@ -25,7 +25,7 @@ export function calcScheduleCNetProfit(
   homeOfficeDeduction = 0,
 ): number {
   // Line 7 (gross income) - Line 28 (total expenses) - Line 30 (home office) = Line 31
-  return Math.max(0, grossReceipts - totalConfirmedExpenses - homeOfficeDeduction);
+  return grossReceipts - totalConfirmedExpenses - homeOfficeDeduction;
 }
 
 // ── Combined Self-Employment Tax Rate ─────────────────────────────────────────

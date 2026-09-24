@@ -381,6 +381,12 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
       </header>
 
       <div className="p-4 sm:p-6 max-w-6xl mx-auto">
+        {taxReviewMessage && (
+          <div role="alert" className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-foreground">
+            <p>{taxReviewMessage}</p>
+            <Link className="mt-2 inline-block font-medium underline" href="/protected/settings">Review profile</Link>
+          </div>
+        )}
         {/* Summary Card */}
         <Card className="p-4 sm:p-6 mb-6 sm:mb-8 border border-border bg-card">
           <h2 className="text-lg sm:text-xl font-semibold text-foreground mb-1">

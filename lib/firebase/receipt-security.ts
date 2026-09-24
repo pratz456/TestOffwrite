@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { getStorage } from 'firebase-admin/storage';
-import { adminApp, adminAuth } from './admin';
+import { adminApp } from './admin';
+import { getAuthenticatedUser } from './api-auth';
 import { isTrustedApplicationRequest } from '@/lib/security/request-origin';
 
 export const MAX_RECEIPT_BYTES = 10 * 1024 * 1024;
@@ -16,18 +17,8 @@ export class ReceiptRequestError extends Error {
 
 /** Firebase Hosting forwards __session; browser receipt links have no Bearer header. */
 export async function receiptUser(request: NextRequest): Promise<string | null> {
-  try {
-    const authorization = request.headers.get('authorization');
-    if (authorization) {
-      if (!authorization.startsWith('Bearer ') || !authorization.slice(7).trim()) return null;
-      return (await adminAuth.verifyIdToken(authorization.slice(7), true)).uid;
-    }
-    const session = request.cookies.get('__session')?.value;
-    if (session) return (await adminAuth.verifySessionCookie(session, true)).uid;
-    return null;
-  } catch {
-    return null;
-  }
+  const { user } = await getAuthenticatedUser(request);
+  return user?.uid ?? null;
 }
 
 export function assertReceiptUploadOrigin(request: NextRequest) {

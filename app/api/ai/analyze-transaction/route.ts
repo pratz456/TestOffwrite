@@ -9,7 +9,7 @@ import { getAnalysisProfile, analysisProfileHash } from '@/lib/ai/profile-contex
 import { loadTaxpayerContext } from '@/lib/ai/taxpayer-context-server';
 import { adminDb } from '@/lib/firebase/admin';
 import { getAIProviderStatus } from '@/lib/ai/provider-status';
-import { claimAnalysisLease, persistAnalysisSuggestion, releaseAnalysisLease, analysisSuggestionUpdate } from '@/lib/ai/analysis-persistence';
+import { claimAnalysisLease, persistAnalysisSuggestion, releaseAnalysisLease } from '@/lib/ai/analysis-persistence';
 import type { AnalysisLease } from '@/lib/ai/analysis-persistence';
 import type { DocumentReference } from 'firebase-admin/firestore';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
@@ -122,6 +122,14 @@ export async function POST(request: NextRequest) {
 
     // Client-supplied financial values cannot override the owner's saved record.
     // The client saves edited context first; the lease detects changes during analysis.
+    const pathParts = ref.path.split('/');
+    const accountId = pathParts[3];
+    const accountSnapshot = await adminDb.doc(pathParts.slice(0, 4).join('/')).get();
+    const account = accountSnapshot.exists ? accountSnapshot.data() ?? {} : {};
+    const accountUsageType = ['business', 'personal', 'mixed'].includes(account.usageType)
+      ? account.usageType as 'business' | 'personal' | 'mixed'
+      : 'unknown';
+    const accountBusinessUse = Number(account.businessUsePercent ?? account.business_use_percentage);
     const input: TransactionInput = {
       ...transaction,
       tx_id: transactionId,
@@ -131,7 +139,18 @@ export async function POST(request: NextRequest) {
       datetime_iso: transaction.datetime,
       note: transaction.notes || transaction.note || transaction.description,
       mcc: transaction.mcc || transaction.merchant_category_code,
-      account_id: ref.path.split('/')[3],
+      account_id: accountId,
+      account_usage_type: accountUsageType,
+      receipt_context: transaction.receipt_url || transaction.receipt_filename || transaction.ocr_data ? {
+        attached: true,
+        ...(typeof transaction.ocr_data?.confidence === 'number' && Number.isFinite(transaction.ocr_data.confidence)
+          ? { ocr_confidence: transaction.ocr_data.confidence }
+          : {}),
+      } : { attached: false },
+      ...(transaction.business_use_percentage == null && accountUsageType === 'mixed'
+        && Number.isFinite(accountBusinessUse) && accountBusinessUse >= 0 && accountBusinessUse <= 100
+        ? { business_use_percentage: accountBusinessUse }
+        : {}),
     };
     const taxpayer = await loadTaxpayerContext(user.uid, context, input.merchant, date).catch(() => undefined);
     const analysis = await analyzeTransactionWithRetry(input, taxpayer ? { ...context, taxpayer_context: taxpayer } : context);
@@ -149,15 +168,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ code: releaseCode, error: 'Your transaction or business profile changed during analysis. Review the latest details and run analysis again.' }, { status: 409 });
     }
     lease = null;
-    const fields = analysisSuggestionUpdate(analysis.result);
-    return NextResponse.json({ success: true, ai_suggestion: saved.suggestion ?? null, explanation: saved.explanation ?? null, analysis: {
-      status: analysis.result.status,
-      deductionStatus: fields.ai.status_label,
-      confidence: analysis.result.confidence ?? null,
-      reasoning: analysis.result.customized_reason || analysis.result.reasoning_summary || analysis.result.key_analysis_factor || 'Review the saved AI suggestion.',
-      irsReference: { publication: analysis.result.irs_refs?.[0] || null, section: null },
-      updatedAt: fields.analysisUpdatedAt,
-    }, updatedAt: fields.analysisUpdatedAt });
+    return NextResponse.json({
+      success: true,
+      ai_suggestion: saved.suggestion,
+      explanation: saved.explanation,
+      ai: saved.display.ai,
+      analysis: {
+        status: saved.display.status,
+        deductionStatus: saved.display.statusLabel,
+        confidence: saved.display.confidence,
+        reasoning: saved.display.reasoning || 'Review the saved AI suggestion.',
+        irsReference: {
+          publication: saved.display.irsPublication,
+          section: saved.display.irsSection,
+        },
+        updatedAt: saved.display.updatedAt,
+      },
+      updatedAt: saved.display.updatedAt,
+    });
   } catch {
     // Model and database payloads can contain financial details; never echo them.
     return NextResponse.json({ code: 'AI_FAILED', error: 'Analysis could not complete. Please retry; your saved records are unchanged.' }, { status: 500 });

@@ -53,7 +53,13 @@ beforeEach(() => {
   vi.resetAllMocks();
   vi.spyOn(console, 'log').mockImplementation(() => {});
   firestore.record = structuredClone(profile);
-  firestore.prepare.mockResolvedValue(new Response('{}'));
+  firestore.prepare.mockImplementation(async (_url: string, options?: RequestInit) => {
+    if (options?.method === 'POST') {
+      const values = JSON.parse(String(options.body || '{}'));
+      firestore.record = { ...firestore.record, ...structuredClone(values) };
+    }
+    return Response.json({ success: true });
+  });
   firestore.doc.mockImplementation((_db, collection, id) => ({ collection, id }));
   firestore.waitForAuth.mockResolvedValue('profile-owner');
   firestore.getDoc.mockImplementation(async () => {
@@ -95,7 +101,11 @@ describe.each(readers)('profile settings persistence through $label', ({ read })
     expect(saved.error).toBeNull();
     expect(saved.data).toMatchObject({ ...taxFacts, mailing_address: mailingAddress, name: 'Updated Name' });
     expect(firestore.record).toMatchObject({ ...taxFacts, mailing_address: mailingAddress, name: 'Updated Name' });
-    expect(firestore.updateDoc).toHaveBeenCalledWith({ collection: 'user_profiles', id: 'profile-owner' }, expect.objectContaining(taxFacts));
+    expect(firestore.prepare).toHaveBeenCalledWith('/api/database/profiles', expect.objectContaining({
+      method: 'POST',
+      body: expect.stringContaining('"w2_income":50000'),
+    }));
+    expect(firestore.updateDoc).not.toHaveBeenCalled();
     expect(firestore.setDoc).not.toHaveBeenCalled();
   });
 
@@ -133,7 +143,8 @@ describe.each(readers)('profile settings persistence through $label', ({ read })
 
     firestore.record.w2_federal_withheld = 900;
     await upsertUserProfile('profile-owner', { name: 'Changed name', w2_federal_withheld: undefined });
-    expect(firestore.updateDoc.mock.calls[0][1]).not.toHaveProperty('w2_federal_withheld');
+    const post = firestore.prepare.mock.calls.find(([, options]) => options?.method === 'POST');
+    expect(JSON.parse(String(post?.[1]?.body))).not.toHaveProperty('w2_federal_withheld');
     expect((await read()).data?.w2_federal_withheld).toBe(900);
   });
 });

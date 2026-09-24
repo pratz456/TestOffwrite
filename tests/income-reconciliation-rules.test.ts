@@ -47,7 +47,8 @@ describe('owner-recorded reconciliation decisions count each payment stream once
     expect(result.feeExpenseCandidates).toEqual([{ decisionId: 'fee', formId: 'k1', label: '1099-K · Synthetic platform', amount: 500 }]);
     expect(result.warnings.some(warning => warning.includes('expense candidate') && warning.includes('not recorded as a deductible expense'))).toBe(true);
     const snapshot = buildFederalTaxSnapshot({ taxYear: 2026, transactions, grossReceipts: [], forms1099: [form('k1', 10500)], reconciliationDecisions: decisions,
-      w2Entries: [{ wages: 100000, federalWithheld: 0 }], profile: { filing_status: 'single' }, organizer: reviewedPersonalDeductionOrganizer(), deductions: {}, assets: [], estimatedPayments: 0 });
+      w2Entries: [{ wages: 100000, federalWithheld: 0, socialSecurityWages: 100000, medicareWages: 100000 }],
+      profile: { filing_status: 'single' }, organizer: reviewedPersonalDeductionOrganizer(), deductions: {}, assets: [], estimatedPayments: 0 });
     expect(snapshot.income).toMatchObject({ grossReceipts: 10500, totalDeductible: 0, scheduleCNetProfit: 10500 });
     expect(snapshot.result.calculationWarnings.some(warning => warning.includes('$500.00'))).toBe(true);
   });

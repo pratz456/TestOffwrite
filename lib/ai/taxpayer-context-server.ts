@@ -1,7 +1,14 @@
 import { adminDb } from '@/lib/firebase/admin';
 import { isCountableRecord } from '@/lib/transactions/record-scope';
 import type { UserContext } from './analyzeTransaction';
-import { buildTaxpayerContext, summarizeConfirmedMerchants, type ConfirmedTransactionRecord, type HomeOfficeFacts, type TaxpayerAnalysisContext } from './taxpayer-context';
+import {
+  buildTaxpayerContext,
+  summarizeConfirmedMerchants,
+  type ConfirmedTransactionRecord,
+  type HomeOfficeFacts,
+  type TaxpayerAnalysisContext,
+  type TaxYearRecordFacts,
+} from './taxpayer-context';
 
 /** Per-account cap used by the legacy per-account fallback read. */
 export const CONFIRMED_PER_ACCOUNT = 150;
@@ -14,6 +21,8 @@ export const CONFIRMED_HISTORY_CACHE_MAX_ENTRIES = 256;
 
 interface CacheEntry { expiresAt: number; value: Promise<ConfirmedTransactionRecord[]> }
 const confirmedHistoryCache = new Map<string, CacheEntry>();
+interface TaxYearFactsCacheEntry { expiresAt: number; value: Promise<TaxYearRecordFacts | null> }
+const taxYearFactsCache = new Map<string, TaxYearFactsCacheEntry>();
 
 function toRecord(doc: FirebaseFirestore.QueryDocumentSnapshot): ConfirmedTransactionRecord {
   const data = doc.data();
@@ -89,8 +98,13 @@ export function loadConfirmedTransactionRecords(uid: string): Promise<ConfirmedT
  * within CONFIRMED_HISTORY_TTL_MS.
  */
 export function invalidateTaxpayerContextCache(uid?: string): void {
-  if (uid === undefined) confirmedHistoryCache.clear();
-  else confirmedHistoryCache.delete(uid);
+  if (uid === undefined) {
+    confirmedHistoryCache.clear();
+    taxYearFactsCache.clear();
+  } else {
+    confirmedHistoryCache.delete(uid);
+    for (const key of taxYearFactsCache.keys()) if (key.startsWith(`${uid}:`)) taxYearFactsCache.delete(key);
+  }
 }
 
 /** Test/diagnostic hook: number of memoized users. */
@@ -105,14 +119,65 @@ async function loadHomeOfficeFacts(uid: string): Promise<HomeOfficeFacts | null>
   return { officeSqFt: typeof data.officeSqFt === 'number' ? data.officeSqFt : null, totalHomeSqFt: typeof data.totalHomeSqFt === 'number' ? data.totalHomeSqFt : null };
 }
 
+async function ownedRows(collection: string, uid: string): Promise<Record<string, unknown>[]> {
+  const rows = new Map<string, Record<string, unknown>>();
+  for (const field of ['userId', 'user_id']) {
+    const snapshot = await adminDb.collection(collection).where(field, '==', uid).get();
+    for (const doc of snapshot.docs) rows.set(doc.id, doc.data());
+  }
+  return [...rows.values()];
+}
+
+async function readTaxYearRecordFacts(uid: string, taxYear?: number): Promise<TaxYearRecordFacts | null> {
+  if (!taxYear) return null;
+  const [w2, forms1099, grossReceipts] = await Promise.all([
+    ownedRows('w2_income', uid),
+    ownedRows('income_1099', uid),
+    ownedRows('gross_receipts', uid),
+  ]);
+  const inYear = (record: Record<string, unknown>) => Number(record.taxYear ?? record.tax_year) === taxYear;
+  return {
+    taxYear,
+    hasW2: w2.some(inYear),
+    form1099Types: [...new Set(forms1099.filter(inYear)
+      .map(record => typeof record.formType === 'string' ? record.formType.slice(0, 40) : null)
+      .filter((value): value is string => Boolean(value)))].sort(),
+    hasGrossReceipts: grossReceipts.some(inYear),
+  };
+}
+
+function loadTaxYearRecordFacts(uid: string, taxYear?: number): Promise<TaxYearRecordFacts | null> {
+  if (!taxYear) return Promise.resolve(null);
+  const key = `${uid}:${taxYear}`;
+  const now = Date.now();
+  const cached = taxYearFactsCache.get(key);
+  if (cached && cached.expiresAt > now) return cached.value;
+  const value = readTaxYearRecordFacts(uid, taxYear);
+  taxYearFactsCache.delete(key);
+  taxYearFactsCache.set(key, { expiresAt: now + CONFIRMED_HISTORY_TTL_MS, value });
+  while (taxYearFactsCache.size > CONFIRMED_HISTORY_CACHE_MAX_ENTRIES) {
+    const oldest = taxYearFactsCache.keys().next().value;
+    if (oldest === undefined) break;
+    taxYearFactsCache.delete(oldest);
+  }
+  value.catch(() => { if (taxYearFactsCache.get(key)?.value === value) taxYearFactsCache.delete(key); });
+  return value;
+}
+
 /**
  * Best-effort enrichment. Any read failure yields profile-only context so
  * analysis still runs; it never fails a transaction because history was unavailable.
  */
 export async function loadTaxpayerContext(uid: string, profile: UserContext, merchant: string | null | undefined, transactionDate: string | null): Promise<TaxpayerAnalysisContext> {
-  const [homeOffice, confirmed] = await Promise.all([
+  const taxYear = typeof transactionDate === 'string' && /^\d{4}-\d{2}-\d{2}/.test(transactionDate)
+    ? Number(transactionDate.slice(0, 4))
+    : undefined;
+  const [homeOffice, confirmed, taxYearRecords] = await Promise.all([
     loadHomeOfficeFacts(uid).catch(() => null),
-    loadConfirmedTransactionRecords(uid).then(summarizeConfirmedMerchants).catch(() => [] as ReturnType<typeof summarizeConfirmedMerchants>),
+    loadConfirmedTransactionRecords(uid)
+      .then(records => summarizeConfirmedMerchants(records, 40, taxYear))
+      .catch(() => [] as ReturnType<typeof summarizeConfirmedMerchants>),
+    loadTaxYearRecordFacts(uid, taxYear).catch(() => null),
   ]);
-  return buildTaxpayerContext({ profile, homeOffice, confirmed, merchant, transactionDate });
+  return buildTaxpayerContext({ profile, homeOffice, confirmed, taxYearRecords, merchant, transactionDate });
 }

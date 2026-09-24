@@ -69,11 +69,18 @@ describe('estimate1099FederalTax', () => {
     expect(result.qbiDeduction).toBeGreaterThan(0);
   });
 
-  it('counts W-2 wages against the wage base and the Additional Medicare threshold before SE earnings', () => {
-    const result = estimate1099FederalTax({ grossIncome: 50000, expenses: 0, w2Wages: 150000, filingStatus: 'married_filing_separately', taxYear: 2026 });
+  it('requires Boxes 3 and 5 before combining W-2 and business income', () => {
+    expect(() => estimate1099FederalTax({
+      grossIncome: 50000, expenses: 0, w2Wages: 150000,
+      filingStatus: 'married_filing_separately', taxYear: 2026,
+    })).toThrow(TaxCalculationScopeReviewRequiredError);
+    const result = estimate1099FederalTax({
+      grossIncome: 50000, expenses: 0, w2Wages: 150000,
+      w2SocialSecurityWages: 150000, w2MedicareWages: 150000,
+      filingStatus: 'married_filing_separately', taxYear: 2026,
+    });
     const seBase = 50000 * 0.9235;
     expect(result.seBreakdown.socialSecurityTax).toBe(round2((184500 - 150000) * 0.124));
-    // MFS threshold is $125,000: all SE earnings are above it once wages exceed the threshold, plus 0.9% on excess wages.
     expect(result.additionalMedicareTax).toBe(round2(seBase * 0.009) + (150000 - 125000) * 0.009);
   });
 
@@ -83,9 +90,10 @@ describe('estimate1099FederalTax', () => {
     expect(result.taxableIncome).toBe(0);
     expect(result.incomeTax).toBe(0);
     expect(result.effectiveRate).toBe(0);
-    const loss = estimate1099FederalTax({ grossIncome: 1000, expenses: 5000, w2Wages: 0, filingStatus: 'single', taxYear: 2025 });
-    expect(loss.netProfit).toBe(0);
-    expect(loss.totalTax).toBe(0);
+    expect(() => estimate1099FederalTax({
+      grossIncome: 1000, expenses: 5000, w2Wages: 0,
+      filingStatus: 'single', taxYear: 2025,
+    })).toThrow(TaxCalculationScopeReviewRequiredError);
   });
 
   it('changes brackets and deductions when the tax year changes', () => {
@@ -102,13 +110,25 @@ describe('estimate1099FederalTax', () => {
     expect(() => estimate1099FederalTax({ grossIncome: 300000, expenses: 0, w2Wages: 0, filingStatus: 'single', taxYear }))
       .toThrow(QBIReviewRequiredError);
     // Wage-only income does not require nonexistent business QBI facts.
-    expect(estimate1099FederalTax({ grossIncome: 0, expenses: 0, w2Wages: 300000, filingStatus: 'single', taxYear }).qbiDeduction).toBe(0);
+    expect(estimate1099FederalTax({
+      grossIncome: 0, expenses: 0, w2Wages: 300000,
+      w2SocialSecurityWages: 184500, w2MedicareWages: 300000,
+      filingStatus: 'single', taxYear,
+    }).qbiDeduction).toBe(0);
   });
 
   it('requires owner-specific wages for a joint mixed-wage/business estimate', () => {
-    expect(() => estimate1099FederalTax({ grossIncome: 50000, expenses: 0, w2Wages: 100000, filingStatus: 'married_filing_jointly', taxYear: 2026 }))
+    expect(() => estimate1099FederalTax({
+      grossIncome: 50000, expenses: 0, w2Wages: 100000,
+      w2SocialSecurityWages: 100000, w2MedicareWages: 100000,
+      filingStatus: 'married_filing_jointly', taxYear: 2026,
+    }))
       .toThrow(TaxCalculationScopeReviewRequiredError);
-    expect(estimate1099FederalTax({ grossIncome: 0, expenses: 0, w2Wages: 100000, filingStatus: 'married_filing_jointly', taxYear: 2026 }).seTax).toBe(0);
+    expect(estimate1099FederalTax({
+      grossIncome: 0, expenses: 0, w2Wages: 100000,
+      w2SocialSecurityWages: 100000, w2MedicareWages: 100000,
+      filingStatus: 'married_filing_jointly', taxYear: 2026,
+    }).seTax).toBe(0);
   });
 
   it('withholds affected 2026 minimum-QBI cases without applying that new rule to 2025', () => {

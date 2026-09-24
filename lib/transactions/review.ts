@@ -3,6 +3,7 @@ import { adminDb } from '@/lib/firebase/admin';
 import { analysisInputHash } from '@/lib/ai/analysis-persistence';
 import { analysisProfileHash } from '@/lib/ai/profile-context';
 import { invalidateTaxpayerContextCache } from '@/lib/ai/taxpayer-context-server';
+import { TRANSACTION_TAX_POLICY_VERSION } from '@/lib/ai/transaction-tax-policy';
 import { transactionIdInput } from './client-updates';
 import { canConfirmAiSuggestion, recordedTransactionType, reviewCategory, reviewHydrationFields,
   type AiReviewSuggestion, type TransactionReviewRequest } from './ai-review-contract';
@@ -67,6 +68,9 @@ export async function reviewTransaction(uid: string, id: string, input: Transact
       const suggestion = data.ai_suggestion as AiReviewSuggestion | undefined;
       if (!suggestion || suggestion.id !== input.suggestionId || suggestion.inputHash !== analysisInputHash(data)) {
         throw new TransactionReviewError('AI_SUGGESTION_CHANGED', 'The transaction or AI suggestion changed. Refresh and review the latest suggestion.', 409);
+      }
+      if (suggestion.policyVersion !== TRANSACTION_TAX_POLICY_VERSION) {
+        throw new TransactionReviewError('AI_POLICY_CHANGED', 'WriteOff tax guidance changed after this analysis. Run AI again before confirming it.', 409);
       }
       if (!profile.exists || !suggestion.profileHash || suggestion.profileHash !== analysisProfileHash(profile.data()!, data.date)) {
         throw new TransactionReviewError('AI_PROFILE_CHANGED', 'Your business profile changed after this analysis. Run AI again or correct the category manually.', 409);

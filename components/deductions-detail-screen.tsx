@@ -34,9 +34,8 @@ interface DeductionsDetailScreenProps {
 }
 
 export const DeductionsDetailScreen: React.FC<DeductionsDetailScreenProps> = ({ 
-  user, 
   onBack, 
-  transactions 
+  transactions,
 }) => {
   const [selectedPeriod, setSelectedPeriod] = useState('This Year');
   const [selectedCategory, setSelectedCategory] = useState('All Categories');

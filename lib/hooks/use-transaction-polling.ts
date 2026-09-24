@@ -31,7 +31,7 @@ interface UseTransactionPollingResult {
 }
 
 const DEFAULT_INTERVAL = 15 * 60 * 1000; // 15 minutes
-const STORAGE_KEY = 'writeoff_last_sync_time';
+const storageKey = (uid: string) => `writeoff_last_sync_time_${uid}`;
 
 /**
  * Hook that polls for new transactions periodically
@@ -63,10 +63,12 @@ export function useTransactionPolling(
   const syncInProgressRef = useRef(false);
   const infoTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Load last sync time from localStorage on mount
+  // Load only this owner's timestamp. A shared browser must not show another account's sync state.
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem(STORAGE_KEY);
+    setLastSyncTime(null);
+    setLastSyncCount(null);
+    if (typeof window !== 'undefined' && user?.id) {
+      const stored = localStorage.getItem(storageKey(user.id));
       if (stored) {
         try {
           const parsed = new Date(stored);
@@ -78,7 +80,7 @@ export function useTransactionPolling(
         }
       }
     }
-  }, []);
+  }, [user?.id]);
 
   // Track tab visibility
   useEffect(() => {
@@ -150,7 +152,7 @@ export function useTransactionPolling(
 
         // Persist to localStorage
         if (typeof window !== 'undefined') {
-          localStorage.setItem(STORAGE_KEY, now.toISOString());
+          localStorage.setItem(storageKey(user.id), now.toISOString());
         }
 
         console.log(`✅ [Transaction Polling] Synced ${data.transactions_saved} transactions`);

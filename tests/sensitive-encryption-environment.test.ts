@@ -7,11 +7,24 @@ beforeEach(() => {
   vi.stubEnv('NODE_ENV', 'development');
   vi.stubEnv('WRITEOFF_ENV', '');
   vi.stubEnv('NEXT_PUBLIC_APP_ENV', '');
+  vi.stubEnv('WRITEOFF_LOCAL_ACCOUNT_PREVIEW', '');
   vi.stubEnv('SSN_ENCRYPTION_KEY', '');
 });
 afterEach(() => vi.unstubAllEnvs());
 
 describe('sensitive encryption environment boundaries', () => {
+  it.each([
+    ['WRITEOFF_LOCAL_ACCOUNT_PREVIEW', 'true'],
+    ['WRITEOFF_ENV', 'local-account-preview'],
+    ['NEXT_PUBLIC_APP_ENV', 'local-account-preview'],
+  ])('rejects demo-key encryption and decryption when %s selects real-account preview', (marker, value) => {
+    const demoCiphertext = encryptSensitive(fixture);
+    vi.stubEnv(marker, value);
+
+    expect(() => encryptSensitive(fixture)).toThrow('Encryption failed');
+    expect(() => decryptSensitive(demoCiphertext)).toThrow('Decryption failed');
+  });
+
   it.each(['NODE_ENV', 'WRITEOFF_ENV', 'NEXT_PUBLIC_APP_ENV'])(
     'rejects an absent key when %s selects production', marker => {
       const demoCiphertext = encryptSensitive(fixture);

@@ -88,10 +88,13 @@ function getEncryptionKey(): Buffer {
   const keyHex = process.env.SSN_ENCRYPTION_KEY;
   if (!keyHex || keyHex.length < 64) {
     // A development server can connect to live data; its build mode must not
-    // permit the demo key when either application marker selects production.
+    // permit the demo key when any marker selects production or a real account.
     if (process.env.NODE_ENV === 'production' || process.env.WRITEOFF_ENV === 'production'
-      || process.env.NEXT_PUBLIC_APP_ENV === 'production') {
-      throw new Error('SSN_ENCRYPTION_KEY is required in production (64-char hex)');
+      || process.env.NEXT_PUBLIC_APP_ENV === 'production'
+      || process.env.WRITEOFF_LOCAL_ACCOUNT_PREVIEW === 'true'
+      || process.env.WRITEOFF_ENV === 'local-account-preview'
+      || process.env.NEXT_PUBLIC_APP_ENV === 'local-account-preview') {
+      throw new Error('SSN_ENCRYPTION_KEY is required for real account data (64-char hex)');
     }
     // Dev fallback - deterministic but not for production
     return Buffer.from('dev_key_not_for_production_use__'.repeat(1).padEnd(32, '0').slice(0, 32));

@@ -19,6 +19,11 @@ type Scope = 'learning_only' | 'unreviewed_tax_labels';
  *   (requires confirm: true — may include manual entries that never set a reason).
  */
 export async function POST(request: NextRequest) {
+  // Destructive one-time migration, never a production product surface.
+  if (process.env.NODE_ENV === 'production' || process.env.WRITEOFF_ENV === 'production'
+    || process.env.NEXT_PUBLIC_APP_ENV === 'production') {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
   const { user, error: authError } = await getAuthenticatedUser(request);
   if (authError || !user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

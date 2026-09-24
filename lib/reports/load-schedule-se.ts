@@ -36,6 +36,7 @@ export async function loadScheduleCRecords(uid: string, taxYear: number) {
   return {
     taxYear, profile: profile.data, transactions, receipts, expense, w2, w2Count: wages.docs.length,
     w2SocialSecurityBoxesComplete: wages.docs.every(doc => doc.data().box3SocialSecurityWages != null || doc.data().socialSecurityWages != null),
+    w2MedicareBoxesComplete: wages.docs.every(doc => doc.data().box5MedicareWages != null || doc.data().medicareWages != null),
     deductions: deductions.empty ? {} : deductions.docs[0].data(),
     assets: settings.data.assets, homeOffice: settings.data.homeOffice, depreciationElections: settings.data.depreciationElections,
     /** §179(b)(3) business income: Schedule C profit before assets plus employee wages (Pub 946 ch. 2). */
@@ -62,10 +63,10 @@ export async function loadScheduleSEData(uid: string, taxYear: number) {
   const netProfitBeforeDepreciation = scheduleC.profitBeforeAssets;
   const { depreciationDeduction, deMinimisExpense, homeOfficeDeduction, netProfit } = scheduleC;
   let organizer: Record<string, unknown> | undefined;
-  if (filingStatus === 'married_filing_jointly' && netProfit > 0) {
-    if (!records.w2SocialSecurityBoxesComplete) throw new TaxCalculationScopeReviewRequiredError('Complete each spouse’s W-2 Social Security wages (Box 3, including explicit zero) before assigning the separate spouse wage bases');
-    if (w2.wages > 0 || w2.socialSecurityWages > 0 || w2.medicareWagesForSE > 0) {
-      if (w2.medicareWages === undefined) throw new TaxCalculationScopeReviewRequiredError('Complete every spouse’s W-2 Box 5 Medicare wages, including explicit zero, before calculating the joint return');
+  if (netProfit > 0 && records.w2Count > 0) {
+    if (!records.w2SocialSecurityBoxesComplete) throw new TaxCalculationScopeReviewRequiredError('Complete every W-2 Social Security wages amount (Box 3, including explicit zero) before calculating self-employment tax against the remaining wage base');
+    if (!records.w2MedicareBoxesComplete) throw new TaxCalculationScopeReviewRequiredError('Complete every W-2 Box 5 Medicare wages amount, including explicit zero, before coordinating self-employment and Additional Medicare tax');
+    if (filingStatus === 'married_filing_jointly' && (w2.wages > 0 || w2.socialSecurityWages > 0 || w2.medicareWagesForSE > 0)) {
       const intake = await adminDb.collection('tax_organizers').where('userId', '==', uid).where('taxYear', '==', taxYear).limit(1).get();
       organizer = intake.empty ? undefined : intake.docs[0].data();
     }

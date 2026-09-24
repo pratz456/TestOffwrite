@@ -290,6 +290,24 @@ describe('saved manual W-2 flows into real tax calculations', () => {
     expect(state.computedResults).toEqual([]);
   });
 
+  it('withholds single-filer SE calculations when legacy W-2 rows lack Box 3 or Box 5', async () => {
+    const legacy: Record<string, unknown> = { ...fixture };
+    delete legacy.socialSecurityWages;
+    delete legacy.medicareWages;
+    state.records.w2_income = [{ userId: 'w2-contract-user', ...legacy }];
+    for (const response of [
+      await compute1040(request('/api/tax/compute-1040')),
+      await scheduleSE(request('/api/tax/schedule-se/auto')),
+    ]) {
+      expect(response.status).toBe(422);
+      expect(await response.json()).toMatchObject({
+        code: 'TAX_CALCULATION_SCOPE_REVIEW_REQUIRED',
+        error: expect.stringMatching(/Box 3|Box 5/),
+      });
+    }
+    expect(state.computedResults).toEqual([]);
+  });
+
   it('withholds high-income annual JSON and PDF when QBI needs Form 8995-A review', async () => {
     await save({ wages: 200000 });
     for (const response of [

@@ -102,7 +102,25 @@ describe('confirmed-history memo', () => {
     expect(fake.reads.filter(read => read.startsWith('collectionGroup'))).toHaveLength(1);
     for (let task = 0; task < 5; task++) await loadTaxpayerContext(uid, profile, 'Adobe Creative Cloud', '2026-09-01');
     expect(fake.reads.filter(read => read.startsWith('collectionGroup'))).toHaveLength(1);
+    for (const collection of ['w2_income', 'income_1099', 'gross_receipts']) {
+      expect(fake.reads.filter(read => read === collection)).toHaveLength(2); // userId + legacy user_id, once per TTL
+    }
     expect(taxpayerContextCacheSize()).toBe(1);
+  });
+
+  it('adds only year-matched income-form presence, never payer identifiers or amounts', async () => {
+    fake.docs.set('w2_income/w2-2026', { userId: uid, taxYear: 2026, employer: 'Private employer', ein: '12-3456789', wages: 50_000 });
+    fake.docs.set('income_1099/nec-2026', { userId: uid, taxYear: 2026, formType: '1099-NEC', payerName: 'Private payer', amount: 10_000 });
+    fake.docs.set('income_1099/old-2025', { userId: uid, taxYear: 2025, formType: '1099-K' });
+    fake.docs.set('gross_receipts/receipt-2026', { userId: uid, taxYear: 2026, source: 'Private client', amount: 500 });
+    const context = await loadTaxpayerContext(uid, profile, 'Adobe', '2026-09-01');
+    expect(context.identity.taxYearRecords).toEqual({
+      taxYear: 2026,
+      hasW2: true,
+      form1099Types: ['1099-NEC'],
+      hasGrossReceipts: true,
+    });
+    expect(JSON.stringify(context)).not.toMatch(/Private employer|Private payer|Private client|12-3456789|50000|10000/);
   });
 
   it('memoizes per user and expires after the TTL', async () => {

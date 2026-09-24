@@ -118,10 +118,9 @@ async function seed(path: string, values: Record<string, string | number | boole
     await expect(updateDoc(tx, { amount: deleteField() })).rejects.toMatchObject({ code: 'permission-denied' });
     await expect(deleteDoc(tx)).rejects.toMatchObject({ code: 'permission-denied' });
   });
-  it('keeps is_deductible owner-editable only until the server records a review', async () => {
-    // Pre-review records keep the current client flow, on both storage paths.
-    await updateDoc(doc(alice, 'user_profiles/alice_uid/accounts/account/transactions/tx'), { is_deductible: true, expense_type: 'business' });
-    await updateDoc(doc(alice, 'transactions/legacy'), { is_deductible: false });
+  it('keeps every tax decision server-owned before and after review', async () => {
+    await expect(updateDoc(doc(alice, 'user_profiles/alice_uid/accounts/account/transactions/tx'), { is_deductible: true, expense_type: 'business' })).rejects.toMatchObject({ code: 'permission-denied' });
+    await expect(updateDoc(doc(alice, 'transactions/legacy'), { is_deductible: false })).rejects.toMatchObject({ code: 'permission-denied' });
     for (const path of ['user_profiles/alice_uid/accounts/account/transactions/reviewed', 'transactions/legacy-reviewed']) {
       await seed(path, { userId: owner, amount: 100, is_deductible: true, review_status: 'confirmed', notes: 'before' });
       const reviewed = doc(alice, path);
@@ -157,11 +156,13 @@ async function seed(path: string, values: Record<string, string | number | boole
     await expect(getDocs(query(collectionGroup(alice, 'transactions'), where('userId', '==', 'bob')))).rejects.toMatchObject({ code: 'permission-denied' });
     await expect(getDoc(doc(alice, 'transactions/top-bob'))).rejects.toMatchObject({ code: 'permission-denied' });
   });
-  it('allows ordinary profile creation and edits, denies subscription escalation on create/update', async () => {
+  it('keeps all profile creation and updates behind the validated server API', async () => {
     await expect(setDoc(doc(bob, 'user_profiles/bob'), { name: 'Bob', subscriptionPlan: 'premium' })).rejects.toMatchObject({ code: 'permission-denied' });
     await expect(setDoc(doc(bob, 'user_profiles/bob'), { name: 'Bob', subscriptionStatus: 'active', hasHistoricalAccess: true })).rejects.toMatchObject({ code: 'permission-denied' });
-    await setDoc(doc(bob, 'user_profiles/bob'), { name: 'Bob', onboardingIntroCompleted: false });
-    await updateDoc(doc(bob, 'user_profiles/bob'), { name: 'Bob Updated', profession: 'Designer' });
+    await expect(setDoc(doc(bob, 'user_profiles/bob'), { name: 'Bob', onboardingIntroCompleted: false })).rejects.toMatchObject({ code: 'permission-denied' });
+    await seed('user_profiles/bob', { name: 'Bob', onboardingIntroCompleted: false });
+    expect((await getDoc(doc(bob, 'user_profiles/bob'))).data()?.name).toBe('Bob');
+    await expect(updateDoc(doc(bob, 'user_profiles/bob'), { name: 'Bob Updated', profession: 'Designer' })).rejects.toMatchObject({ code: 'permission-denied' });
     await expect(updateDoc(doc(bob, 'user_profiles/bob'), { subscriptionStatus: 'active' })).rejects.toMatchObject({ code: 'permission-denied' });
     await expect(updateDoc(doc(bob, 'user_profiles/bob'), { subscriptionPlan: 'premium' })).rejects.toMatchObject({ code: 'permission-denied' });
     // Admin/server writers bypass client rules, as do the real trial manager/webhook.
@@ -170,17 +171,28 @@ async function seed(path: string, values: Record<string, string | number | boole
     await seed('user_profiles/bob', { name: 'Bob', subscriptionPlan: 'basic' });
     await expect(updateDoc(doc(bob, 'user_profiles/bob'), { subscriptionPlan: 'premium' })).rejects.toMatchObject({ code: 'permission-denied' });
     await expect(updateDoc(doc(bob, 'user_profiles/bob'), { subscriptionPlan: deleteField() })).rejects.toMatchObject({ code: 'permission-denied' });
+    await expect(updateDoc(doc(bob, 'user_profiles/bob'), { ein: '12-3456789' })).rejects.toMatchObject({ code: 'permission-denied' });
+    await expect(updateDoc(doc(bob, 'user_profiles/bob'), { ein_encrypted: 'forged', ein_last4: '6789' })).rejects.toMatchObject({ code: 'permission-denied' });
     await expect(setDoc(doc(alice, 'user_profiles/somebody-else'), { name: 'Wrong owner' })).rejects.toMatchObject({ code: 'permission-denied' });
   });
   it('keeps the sign-up consent record server-only on create and update', async () => {
     const consents = { version: CONSENT_TERMS_VERSION, source: 'profile-setup', accepted_at: '2026-09-17T12:00:00.000Z', terms: true, bank_data: true, ai_review: true, communications: false };
     await expect(setDoc(doc(alice, `user_profiles/${owner}`), { name: 'Alice', consents })).rejects.toMatchObject({ code: 'permission-denied' });
     await seed(`user_profiles/${owner}`, { name: 'Alice', consents_recorded_at: 'server-stamped' });
-    await updateDoc(doc(alice, `user_profiles/${owner}`), { profession: 'Designer' });
+    await expect(updateDoc(doc(alice, `user_profiles/${owner}`), { profession: 'Designer' })).rejects.toMatchObject({ code: 'permission-denied' });
     await expect(updateDoc(doc(alice, `user_profiles/${owner}`), { consents })).rejects.toMatchObject({ code: 'permission-denied' });
     await expect(updateDoc(doc(alice, `user_profiles/${owner}`), { consents_recorded_at: 'forged' })).rejects.toMatchObject({ code: 'permission-denied' });
     await expect(updateDoc(doc(alice, `user_profiles/${owner}`), { consents_recorded_at: deleteField() })).rejects.toMatchObject({ code: 'permission-denied' });
     expect((await getDoc(doc(alice, `user_profiles/${owner}`))).data()?.consents_recorded_at).toBe('server-stamped');
+  });
+  it('requires server migration before a legacy plaintext profile EIN can be read', async () => {
+    await seed(`user_profiles/${owner}`, { name: 'Alice', ein: '12-3456789' });
+    await expect(getDoc(doc(alice, `user_profiles/${owner}`))).rejects.toMatchObject({ code: 'permission-denied' });
+    await seed(`user_profiles/${owner}`, { name: 'Alice', ein_encrypted: 'synthetic-ciphertext', ein_last4: '6789' });
+    const migrated = await getDoc(doc(alice, `user_profiles/${owner}`));
+    expect(migrated.data()).toMatchObject({ name: 'Alice', ein_last4: '6789' });
+    expect(migrated.data()).not.toHaveProperty('ein');
+    await expect(updateDoc(doc(alice, `user_profiles/${owner}`), { ein_last4: '0000' })).rejects.toMatchObject({ code: 'permission-denied' });
   });
   it('denies all client reads and writes of private Plaid connections, including the owner', async () => {
     await seed('plaid_connections/bank-synthetic', { uid: owner, encryptedAccessToken: 'synthetic-ciphertext', cursor: 'cursor' });
@@ -237,14 +249,13 @@ async function seed(path: string, values: Record<string, string | number | boole
       await expect(setDoc(doc(db, 'rate_limits/forged-window'), { scope: 'auth.session', windowStart: 1, count: 0 })).rejects.toMatchObject({ code: 'permission-denied' });
     }
   });
-  it('allows valid owner receipt uploads, reads, replacements and deletes', async () => {
+  it('keeps receipt bytes behind owner-checking API routes instead of direct client Storage access', async () => {
     const receipt = ref(aliceStorage, `receipts/${owner}/tx/rules-valid.png`);
-    await uploadBytes(receipt, png, { contentType: 'image/png' });
-    expect((await getBytes(receipt)).byteLength).toBe(png.byteLength);
-    await uploadBytes(receipt, png, { contentType: 'image/png' });
+    await expect(uploadBytes(receipt, png, { contentType: 'image/png' })).rejects.toMatchObject({ code: 'storage/unauthorized' });
+    await expect(getBytes(receipt)).rejects.toMatchObject({ code: 'storage/unauthorized' });
+    await expect(deleteObject(receipt)).rejects.toMatchObject({ code: 'storage/unauthorized' });
     await expect(getBytes(ref(bobStorage, receipt.fullPath))).rejects.toMatchObject({ code: 'storage/unauthorized' });
     await expect(deleteObject(ref(bobStorage, receipt.fullPath))).rejects.toMatchObject({ code: 'storage/unauthorized' });
-    await deleteObject(receipt);
   });
   it('rejects unauthorized, unsupported, empty and oversized receipt uploads', async () => {
     await expect(uploadBytes(ref(bobStorage, `receipts/${owner}/tx/foreign.png`), png, { contentType: 'image/png' })).rejects.toMatchObject({ code: 'storage/unauthorized' });
@@ -252,10 +263,9 @@ async function seed(path: string, values: Record<string, string | number | boole
     await expect(uploadBytes(ref(aliceStorage, `receipts/${owner}/tx/empty.png`), new Uint8Array(), { contentType: 'image/png' })).rejects.toMatchObject({ code: 'storage/unauthorized' });
     await expect(uploadBytes(ref(aliceStorage, `receipts/${owner}/tx/large.png`), new Uint8Array(10 * 1024 * 1024 + 1), { contentType: 'image/png' })).rejects.toMatchObject({ code: 'storage/unauthorized' });
   });
-  it('applies content-type restrictions to replacements too', async () => {
+  it('rejects direct receipt replacements regardless of content type', async () => {
     const receipt = ref(aliceStorage, `receipts/${owner}/tx/replacement.png`);
-    await uploadBytes(receipt, png, { contentType: 'image/png' });
+    await expect(uploadBytes(receipt, png, { contentType: 'image/png' })).rejects.toMatchObject({ code: 'storage/unauthorized' });
     await expect(uploadBytes(receipt, png, { contentType: 'text/html' })).rejects.toMatchObject({ code: 'storage/unauthorized' });
-    await deleteObject(receipt);
   });
 });

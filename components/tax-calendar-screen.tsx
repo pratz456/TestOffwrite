@@ -1,9 +1,11 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Calendar, Bell, CheckCircle, AlertTriangle, Clock } from 'lucide-react';
+import { Bell, AlertTriangle, Clock } from 'lucide-react';
+import { SUPPORTED_TAX_YEARS, LATEST_PUBLISHED_TAX_YEAR } from '@/lib/tax-rules/federal-year-rules';
+import { getEstimatedTaxDeadline, getIndividualReturnDueDate } from '@/lib/tax-provider/payment-deadlines';
 
 interface TaxCalendarScreenProps {
   user: {
@@ -25,76 +27,52 @@ interface TaxEvent {
   priority: 'high' | 'medium' | 'low';
 }
 
-export const TaxCalendarScreen: React.FC<TaxCalendarScreenProps> = ({ user, onBack }) => {
-  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+function iso(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
 
-  const taxEvents: TaxEvent[] = [
+export function taxCalendarEventsForYear(calendarYear: number): TaxEvent[] {
+  const previousTaxYear = calendarYear - 1;
+  return [
     {
-      id: '1',
-      title: 'Q4 2024 Estimated Tax Payment',
-      date: '2025-01-15',
-      description: 'Fourth quarter estimated tax payment for 2024',
+      id: `${previousTaxYear}-q4`,
+      title: `Q4 ${previousTaxYear} Estimated Tax Payment`,
+      date: iso(getEstimatedTaxDeadline(previousTaxYear, 4)),
+      description: `Fourth estimated-tax installment for tax year ${previousTaxYear}.`,
       type: 'deadline',
-      priority: 'high'
+      priority: 'high',
     },
     {
-      id: '2',
-      title: 'W-2 and 1099 Forms Due',
-      date: '2025-01-31',
-      description: 'Employers must provide W-2s and 1099s to employees/contractors',
+      id: `${previousTaxYear}-return`,
+      title: `${previousTaxYear} Individual Return Due`,
+      date: iso(getIndividualReturnDueDate(previousTaxYear)),
+      description: `General federal filing deadline for a calendar-year individual return. Extensions and disaster relief can change it.`,
+      type: 'deadline',
+      priority: 'high',
+    },
+    ...([1, 2, 3] as const).map((quarter) => ({
+      id: `${calendarYear}-q${quarter}`,
+      title: `Q${quarter} ${calendarYear} Estimated Tax Payment`,
+      date: iso(getEstimatedTaxDeadline(calendarYear, quarter)),
+      description: `Estimated-tax installment ${quarter} for tax year ${calendarYear}.`,
+      type: 'deadline' as const,
+      priority: quarter === 1 ? 'high' as const : 'medium' as const,
+    })),
+    {
+      id: `${calendarYear}-planning`,
+      title: `${calendarYear} Year-End Records Review`,
+      date: `${calendarYear}-12-01`,
+      description: 'Review transaction categories, receipts, mileage, income records and estimated payments before year end.',
       type: 'reminder',
-      priority: 'medium'
+      priority: 'medium',
     },
-    {
-      id: '3',
-      title: 'Individual Tax Return Filing Deadline',
-      date: '2025-04-15',
-      description: 'File your 2024 individual tax return (Form 1040)',
-      type: 'deadline',
-      priority: 'high'
-    },
-    {
-      id: '4',
-      title: 'Q1 2025 Estimated Tax Payment',
-      date: '2025-04-15',
-      description: 'First quarter estimated tax payment for 2025',
-      type: 'deadline',
-      priority: 'high'
-    },
-    {
-      id: '5',
-      title: 'Q2 2025 Estimated Tax Payment',
-      date: '2025-06-17',
-      description: 'Second quarter estimated tax payment for 2025',
-      type: 'deadline',
-      priority: 'medium'
-    },
-    {
-      id: '6',
-      title: 'Mid-Year Tax Planning Review',
-      date: '2025-07-01',
-      description: 'Review your tax situation and make adjustments',
-      type: 'reminder',
-      priority: 'low'
-    },
-    {
-      id: '7',
-      title: 'Q3 2025 Estimated Tax Payment',
-      date: '2025-09-15',
-      description: 'Third quarter estimated tax payment for 2025',
-      type: 'deadline',
-      priority: 'medium'
-    },
-    {
-      id: '8',
-      title: 'Year-End Tax Planning',
-      date: '2025-12-01',
-      description: 'Start planning for year-end tax strategies',
-      type: 'reminder',
-      priority: 'medium'
-    }
   ];
+}
+
+export const TaxCalendarScreen: React.FC<TaxCalendarScreenProps> = ({ onBack }) => {
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
+  const [selectedYear, setSelectedYear] = useState<number>(LATEST_PUBLISHED_TAX_YEAR);
+  const taxEvents = useMemo(() => taxCalendarEventsForYear(selectedYear), [selectedYear]);
 
   const months = [
     'January', 'February', 'March', 'April', 'May', 'June',
@@ -102,14 +80,12 @@ export const TaxCalendarScreen: React.FC<TaxCalendarScreenProps> = ({ user, onBa
   ];
 
   const getEventIcon = (type: string, priority: string) => {
-    if (type === 'completed') return <CheckCircle className="w-5 h-5 text-green-600" />;
     if (priority === 'high') return <AlertTriangle className="w-5 h-5 text-red-600" />;
     if (type === 'deadline') return <Clock className="w-5 h-5 text-orange-600" />;
     return <Bell className="w-5 h-5 text-blue-600" />;
   };
 
   const getEventColor = (type: string, priority: string) => {
-    if (type === 'completed') return 'border-l-green-500 bg-green-50';
     if (priority === 'high') return 'border-l-red-500 bg-red-50';
     if (type === 'deadline') return 'border-l-orange-500 bg-orange-50';
     return 'border-l-blue-500 bg-blue-50';
@@ -127,6 +103,13 @@ export const TaxCalendarScreen: React.FC<TaxCalendarScreenProps> = ({ user, onBa
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     return diffDays;
   };
+  const daysUntilLabel = (date: string) => {
+    const days = getDaysUntil(date);
+    if (days === 0) return 'Today';
+    if (days === 1) return 'Tomorrow';
+    if (days < 0) return `${Math.abs(days)} days ago`;
+    return `${days} days`;
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
@@ -134,6 +117,7 @@ export const TaxCalendarScreen: React.FC<TaxCalendarScreenProps> = ({ user, onBa
       <div className="bg-white border-b border-blue-100 sticky top-0 z-50 shadow-sm">
         <div className="max-w-6xl mx-auto px-6 py-4">
           <div className="flex items-center gap-4">
+            <Button variant="outline" size="sm" onClick={onBack}>Back</Button>
             <div>
               <h1 className="text-xl font-semibold text-slate-900">Tax Calendar</h1>
               <p className="text-sm text-slate-600">Important tax dates and deadlines</p>
@@ -149,13 +133,12 @@ export const TaxCalendarScreen: React.FC<TaxCalendarScreenProps> = ({ user, onBa
             <Card className="p-6 bg-white border-0 shadow-xl">
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-lg font-semibold text-slate-900">Upcoming Deadlines</h3>
-                <Button variant="outline" size="sm" className="gap-2">
-                  <Bell className="w-4 h-4" />
-                  Set Reminders
-                </Button>
               </div>
 
               <div className="space-y-4">
+                {upcomingEvents.length === 0 && (
+                  <p className="text-sm text-slate-600">No remaining listed deadlines in {selectedYear}. Select another year to review its dates.</p>
+                )}
                 {upcomingEvents.map((event) => {
                   const daysUntil = getDaysUntil(event.date);
                   return (
@@ -183,16 +166,11 @@ export const TaxCalendarScreen: React.FC<TaxCalendarScreenProps> = ({ user, onBa
                                 daysUntil <= 30 ? 'bg-orange-100 text-orange-700' :
                                 'bg-blue-100 text-blue-700'
                               }`}>
-                                {daysUntil === 0 ? 'Today' :
-                                 daysUntil === 1 ? 'Tomorrow' :
-                                 `${daysUntil} days`}
+                                {daysUntilLabel(event.date)}
                               </span>
                             </div>
                           </div>
                         </div>
-                        <Button variant="outline" size="sm">
-                          Mark Done
-                        </Button>
                       </div>
                     </div>
                   );
@@ -219,9 +197,7 @@ export const TaxCalendarScreen: React.FC<TaxCalendarScreenProps> = ({ user, onBa
                     onChange={(e) => setSelectedYear(parseInt(e.target.value))}
                     className="px-3 py-1 border border-gray-300 rounded-md text-sm"
                   >
-                    <option value={2024}>2024</option>
-                    <option value={2025}>2025</option>
-                    <option value={2026}>2026</option>
+                    {SUPPORTED_TAX_YEARS.map(year => <option key={year} value={year}>{year}</option>)}
                   </select>
                 </div>
               </div>
@@ -261,18 +237,14 @@ export const TaxCalendarScreen: React.FC<TaxCalendarScreenProps> = ({ user, onBa
               <h3 className="text-lg font-semibold text-slate-900 mb-4">Tax Year Overview</h3>
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-slate-600">Days until April 15</span>
+                  <span className="text-sm text-slate-600">Days until filing deadline</span>
                   <span className="font-bold text-red-600">
-                    {getDaysUntil('2025-04-15')} days
+                    {daysUntilLabel(iso(getIndividualReturnDueDate(selectedYear - 1)))}
                   </span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-slate-600">Completed Tasks</span>
-                  <span className="font-bold text-green-600">0/8</span>
-                </div>
-                <div className="flex justify-between items-center">
                   <span className="text-sm text-slate-600">High Priority</span>
-                  <span className="font-bold text-orange-600">3 items</span>
+                  <span className="font-bold text-orange-600">{taxEvents.filter(event => event.priority === 'high').length} items</span>
                 </div>
               </div>
             </Card>
@@ -290,24 +262,6 @@ export const TaxCalendarScreen: React.FC<TaxCalendarScreenProps> = ({ user, onBa
               </Button>
             </Card>
 
-            {/* Quick Actions */}
-            <Card className="p-6 bg-white border-0 shadow-xl">
-              <h3 className="text-lg font-semibold text-slate-900 mb-4">Quick Actions</h3>
-              <div className="space-y-3">
-                <Button variant="outline" className="w-full justify-start gap-2">
-                  <Calendar className="w-4 h-4" />
-                  Add Custom Reminder
-                </Button>
-                <Button variant="outline" className="w-full justify-start gap-2">
-                  <Bell className="w-4 h-4" />
-                  Email Notifications
-                </Button>
-                <Button variant="outline" className="w-full justify-start gap-2">
-                  <CheckCircle className="w-4 h-4" />
-                  View Completed
-                </Button>
-              </div>
-            </Card>
           </div>
         </div>
       </div>

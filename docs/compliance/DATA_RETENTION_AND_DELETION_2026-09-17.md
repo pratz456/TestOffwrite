@@ -1,6 +1,6 @@
 # WriteOff Data Retention and Disposal Policy
 
-Date: 2026-09-17. Version: 1.1 (reviewed 2026-09-21 against the live project `writeoff-23910` and release candidate 1405212). Owner: Qualified Individual (WISP §2) with counsel. Next review: 2027-09-21, and sooner after a material change. Implements 16 CFR 314.4(c)(6) (secure disposal no later than two years after last use unless a business need or legal requirement applies) and describes what the code does today. Nothing here is a guarantee to users beyond what `lib/firebase/delete-user-data.ts` and the vendor terms actually provide.
+Date: 2026-09-17. Version: 1.2 (reviewed 2026-09-24 against live production release `a219cbe`, the live recovery controls, and the subsequent deletion candidate). Owner: Qualified Individual (WISP §2) with counsel. Next review: 2027-09-24, and sooner after a material change. Implements 16 CFR 314.4(c)(6) (secure disposal no later than two years after last use unless a business need or legal requirement applies) and describes what the code does today. Nothing here is a guarantee to users beyond what `lib/firebase/delete-user-data.ts` and the vendor terms actually provide.
 
 Principles: the user is the record keeper for their own tax substantiation; WriteOff keeps user data only while the account exists (plus backup windows) and keeps a small set of operational records afterward; deletion is all-or-nothing and refuses to finish when a step fails, so that no account is left half-erased.
 
@@ -15,7 +15,7 @@ Principles: the user is the record keeper for their own tax substantiation; Writ
 | AI analysis outputs | `deduction_score` and `ai_analysis` on transactions; `analysis_jobs`, `analysis_tasks`, `analysis_status`; `learning_patterns/{uid}`; `user_corrections` | Account active | Deleted with the account | OpenAI receives prompts with `store: false`; OpenAI keeps abuse-monitoring logs up to 30 days and does not train on API data (OpenAI policy) |
 | Consent records | `user_profiles.consents` (version `2026-09-18`, source, accepted_at, booleans) | Account active | Deleted with the profile tree | After deletion WriteOff has no proof that consent was given. Recommendation (counsel): keep a minimal consent receipt (UID hash, version, timestamp) for 3 years after deletion |
 | Support access audit | `support_audit` entries: admin UID, target UID, timestamp | Indefinitely (no purge in code) | None today | Proposed: retain 3 years, then purge by Firestore TTL policy; needed to demonstrate §314.4(c)(8) monitoring |
-| Support requests to a CPA | `cpa_questions` documents (merchant, amount, date, category, question, user email); copy emailed via Resend to the operator mailbox | Indefinitely | Not removed by account deletion (WISP gap G9) | Add `cpa_questions` to the owned-collection list and purge mailbox copies on a schedule |
+| Support requests to a CPA | `cpa_questions` documents (merchant, amount, date, category, question, user email); copy emailed via Resend to the operator mailbox | While account exists in the candidate; mailbox per operator retention | Candidate account deletion removes owned `cpa_questions`; mailbox copies require operator purge | Verify candidate deletion in staging and automate/document mailbox purge |
 | Deletion marker | `account_deletions/{uid}`: `deletionRequested` flag and in-flight bank/billing operation leases | Permanently | Never deleted (support runbook forbids it) | Prevents already-issued tokens from re-creating bank or billing access after the profile is erased. Contains the UID and lease ids only |
 | Rate-limit counters | `rate_limits` documents keyed by hashed UID or IP | Indefinitely (no expiry logic) | None today | Proposed: Firestore TTL of 24 hours after window end |
 | Webhook replay markers | `processed_webhooks` | Indefinitely unless `user_id` is set | Documents carrying the user's id are deleted with the account | Markers without `user_id` remain |
@@ -48,7 +48,7 @@ Any unexpected error returns `ACCOUNT_CLEANUP_FAILED` (retryable). Because steps
 
 ### 2.1 Retained after a successful deletion
 
-- `account_deletions/{uid}` (by design), `support_audit` entries about the user, `rate_limits` counters, `processed_webhooks` without a `user_id`, `cpa_questions` documents.
+- `account_deletions/{uid}` (by design), `support_audit` entries about the user, `rate_limits` counters, and `processed_webhooks` without a `user_id`. Candidate deletion removes owned `cpa_questions`.
 - Cloud Logging entries for up to 30 days; Admin Activity audit logs up to 400 days.
 - Vendor copies: Stripe payment records under Stripe's retention; Plaid's records of the removed item under Plaid's End User Privacy Policy; OpenAI abuse-monitoring logs for up to 30 days; the operator mailbox copies of CPA questions.
 - Backups (§4).
@@ -67,8 +67,8 @@ No legal-hold mechanism exists in code: a deletion request proceeds regardless o
 
 ## 4. Backups and point-in-time recovery
 
-- Firestore point-in-time recovery, when enabled, keeps one version per minute for 7 days; when disabled only the last hour is readable. Verified 2026-09-21: PITR is DISABLED on `writeoff-23910`, delete protection is DISABLED, and no backup schedule exists (WISP gap G7). Any PITR window means deleted documents remain recoverable for that window, so a deletion is final only after the window elapses.
-- Firestore scheduled backups, if configured, keep snapshots for their configured retention. None is configured on the production database as of 2026-09-21.
+- Firestore point-in-time recovery is enabled on `writeoff-23910` and keeps one version per minute for 7 days. Delete protection is enabled. Deleted documents remain recoverable for the PITR window, so a deletion is final only after it elapses.
+- One daily managed backup schedule is configured with 14-week retention. The first completed managed backup and a restore from it have not yet been verified. A pre-cutover export was restored into a separate deny-all database and structurally validated; that is not proof of managed-backup restoration.
 - Google's infrastructure backups: Google commits to delete customer data from active and backup systems within about 180 days of a deletion request. Users should be told that deleted data can persist in backups for up to six months.
 - Cloud Storage: no object versioning or soft-delete configuration is in this repository (unverified in the console). If bucket soft delete is on, deleted receipts remain restorable for the soft-delete window.
 - A restore from PITR or a backup would resurrect data for users who deleted their accounts after the snapshot. After any restore, re-run deletion for every UID in `account_deletions` with `deletionRequested = true` that has no `user_profiles` document in the live database before the restore was applied.
@@ -103,9 +103,9 @@ Revisit this schedule when a collection is added (the owned-collection list in `
 - `lib/stripe/cancel-subscription.ts`: `subscriptions.cancel`, `customers.del`.
 - `lib/stripe/checkout-operations.ts`, `lib/plaid/link-operations.ts`: leases stored on `account_deletions/{uid}`.
 - `lib/reports/data-export.ts`: export contents (`TOP_LEVEL`, `PROFILE_CHILDREN`, accounts, transactions, receipts metadata with sign-in links, AI analysis).
-- `app/api/cpa-question/route.ts`: `cpa_questions` write and Resend email; not in the owned-collection list.
+- `app/api/cpa-question/route.ts`, `lib/firebase/delete-user-data.ts`: `cpa_questions` write plus Resend email; candidate owned-collection deletion.
 - `lib/support/access.ts`: `support_audit` writes; no purge.
 - `lib/security/rate-limit-store.ts`: no expiry logic.
 - `lib/onboarding/consents.ts`: consent record shape and version stored on the profile.
 - `lib/error-logger.ts`: console-only logging.
-- Absent: legal-hold flag, inactivity purge, TTL policies, backup configuration, single-receipt delete route.
+- Absent: legal-hold flag, inactivity purge, a verified managed-backup restore, and single-receipt delete route. Rate-limit TTL is live; retention for other replay/audit records remains explicit above.

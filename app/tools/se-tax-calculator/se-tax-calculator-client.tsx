@@ -36,23 +36,32 @@ export function SETaxCalculatorClient() {
   const [taxYear, setTaxYear] = useState<PublicCalculatorTaxYear>(DEFAULT_TAX_YEAR);
   const [netProfit, setNetProfit] = useState("");
   const [filingStatus, setFilingStatus] = useState("single");
-  const [w2Wages, setW2Wages] = useState("");
+  const [w2SocialSecurityWages, setW2SocialSecurityWages] = useState("");
+  const [w2MedicareWages, setW2MedicareWages] = useState("");
 
   const parsedProfit = Number(netProfit.replace(/[,$\s]/g, ""));
-  const parsedW2 = Number(w2Wages.replace(/[,$\s]/g, ""));
+  const parsedW2SocialSecurity = Number(w2SocialSecurityWages.replace(/[,$\s]/g, ""));
+  const parsedW2Medicare = Number(w2MedicareWages.replace(/[,$\s]/g, ""));
   const wageBase = socialSecurityWageBase(taxYear);
   const medicareThreshold = additionalMedicareThreshold(filingStatus);
 
   const outcome = useMemo(() => {
     try {
-      if (![parsedProfit, parsedW2].every(value => Number.isFinite(value) && value >= 0)) throw new Error('Enter valid nonnegative profit and wages.');
+      if (![parsedProfit, parsedW2SocialSecurity, parsedW2Medicare].every(value => Number.isFinite(value) && value >= 0)) throw new Error('Enter valid nonnegative profit and wages.');
       if (parsedProfit === 0) return { value: null, error: null };
-      assertWageOwnershipScope(filingStatus, parsedProfit, parsedW2);
-      return { value: calcScheduleSE({ scheduleCNetProfit: parsedProfit, taxYear }, filingStatus, parsedW2, parsedW2), error: null };
+      const hasW2 = w2SocialSecurityWages.trim() !== '' || w2MedicareWages.trim() !== '';
+      if (hasW2 && (w2SocialSecurityWages.trim() === '' || w2MedicareWages.trim() === '')) {
+        throw new Error('Enter both W-2 Box 3 and Box 5, including explicit zero.');
+      }
+      assertWageOwnershipScope(filingStatus, parsedProfit, 0, {
+        socialSecurityWages: parsedW2SocialSecurity,
+        medicareWages: parsedW2Medicare,
+      });
+      return { value: calcScheduleSE({ scheduleCNetProfit: parsedProfit, taxYear }, filingStatus, parsedW2SocialSecurity, parsedW2Medicare), error: null };
     } catch (error) {
       return { value: null, error: error instanceof Error ? error.message : 'This calculation requires review.' };
     }
-  }, [parsedProfit, filingStatus, parsedW2, taxYear]);
+  }, [parsedProfit, filingStatus, parsedW2SocialSecurity, parsedW2Medicare, taxYear, w2SocialSecurityWages, w2MedicareWages]);
   const calculation = outcome.value;
 
   const handleYearChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
@@ -153,7 +162,7 @@ export function SETaxCalculatorClient() {
 
               <div>
                 <label htmlFor="w2-wages" className="block text-sm font-medium text-gray-700 mb-1.5">
-                  W-2 Social Security Wages (optional)
+                  W-2 Box 3 - Social Security Wages (optional)
                 </label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
@@ -162,13 +171,27 @@ export function SETaxCalculatorClient() {
                     type="text"
                     inputMode="decimal"
                     placeholder="0"
-                    value={w2Wages}
-                    onChange={(e) => setW2Wages(e.target.value)}
+                    value={w2SocialSecurityWages}
+                    onChange={(e) => setW2SocialSecurityWages(e.target.value)}
                     className="w-full pl-7 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-gray-900"
                   />
                 </div>
                 <p className="mt-1 text-xs text-gray-500">
-                  Box 3 of your W-2  - uses up part of the Social Security wage base and the Additional Medicare threshold
+                  Box 3 uses part of the Social Security wage base. Enter zero when the printed box is zero.
+                </p>
+              </div>
+              <div>
+                <label htmlFor="w2-medicare-wages" className="block text-sm font-medium text-gray-700 mb-1.5">
+                  W-2 Box 5 - Medicare Wages (required with Box 3)
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                  <input id="w2-medicare-wages" type="text" inputMode="decimal" placeholder="0"
+                    value={w2MedicareWages} onChange={(event) => setW2MedicareWages(event.target.value)}
+                    className="w-full pl-7 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-gray-900" />
+                </div>
+                <p className="mt-1 text-xs text-gray-500">
+                  Box 5 coordinates Additional Medicare tax. Enter zero when the printed box is zero.
                 </p>
               </div>
             </CardContent>

@@ -19,6 +19,7 @@ const OWNED_COLLECTIONS: Record<string, string[]> = {
   transactions: ['userId', 'user_id'], receipts: ['userId', 'user_id'], plaid_connections: ['uid'], processed_webhooks: ['user_id'],
   gross_receipts: ['userId', 'user_id'], income_1099: ['userId', 'user_id'], income_reconciliations: ['userId'], w2_income: ['userId', 'user_id'],
   tax_deductions: ['userId', 'user_id'], tax_organizers: ['userId', 'user_id'], user_corrections: ['userId'],
+  cpa_questions: ['userId'],
 };
 
 /** Revoke bank access first; retain the login and recovery metadata whenever cleanup fails. */

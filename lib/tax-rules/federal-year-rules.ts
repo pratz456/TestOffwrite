@@ -251,12 +251,6 @@ export function getSection179Limits(taxYear: number): Section179Limits {
   return getFederalTaxRules(taxYear).section179;
 }
 
-/** Rates for display helpers: the requested year when published, otherwise the latest published year. */
-export function nearestPublishedTaxYear(taxYear: number): SupportedTaxYear {
-  if (SUPPORTED_TAX_YEARS.includes(taxYear as SupportedTaxYear)) return taxYear as SupportedTaxYear;
-  return taxYear > LATEST_PUBLISHED_TAX_YEAR ? LATEST_PUBLISHED_TAX_YEAR : SUPPORTED_TAX_YEARS[0];
-}
-
 /** Schedule A personal SALT only; caller supplies SALT MAGI, including applicable exclusions. */
 export function calculateSALTLimit(taxYear: number, filingStatus: FederalFilingStatus, modifiedAGI: number): number {
   const year = getFederalTaxRules(taxYear);

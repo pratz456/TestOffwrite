@@ -39,6 +39,12 @@ export interface TaxpayerAnalysisContext {
     yearsInBusiness: number | null;
     hasW2Income: boolean;
     hasBusinessIncome: boolean;
+    naicsCode: string | null;
+    businessPurpose: string | null;
+    filingStatus: string | null;
+    itemizationStatus: string | null;
+    professionalLicenseCount: number;
+    taxYearRecords: TaxYearRecordFacts | null;
   };
   methods: {
     homeOffice: { method: 'simplified' | 'actual' | null; officeSqFt: number | null; totalHomeSqFt: number | null; exclusiveUseConfirmed: boolean } | null;
@@ -71,6 +77,13 @@ export interface HomeOfficeFacts {
   totalHomeSqFt?: number | null;
 }
 
+export interface TaxYearRecordFacts {
+  taxYear: number;
+  hasW2: boolean;
+  form1099Types: string[];
+  hasGrossReceipts: boolean;
+}
+
 /** Normalizes merchant text so "STARBUCKS #1234" and "Starbucks" compare equal. */
 export function merchantKey(value: string | null | undefined): string {
   return (value ?? '')
@@ -86,10 +99,16 @@ export function merchantKey(value: string | null | undefined): string {
 const isoDay = (value: unknown): string | null => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value) ? value.slice(0, 10) : null;
 
 /** Reduces confirmed records to per-merchant history. Unconfirmed rows and AI suggestions are ignored. */
-export function summarizeConfirmedMerchants(records: ConfirmedTransactionRecord[], limit = 40): ConfirmedMerchantPrior[] {
+export function summarizeConfirmedMerchants(
+  records: ConfirmedTransactionRecord[],
+  limit = 40,
+  taxYear?: number,
+): ConfirmedMerchantPrior[] {
   const byMerchant = new Map<string, ConfirmedMerchantPrior & { categories: Map<string, number> }>();
   for (const record of records) {
     if (record.review_status !== 'confirmed') continue;
+    const recordDay = isoDay(record.date);
+    if (taxYear !== undefined && recordDay?.slice(0, 4) !== String(taxYear)) continue;
     const key = merchantKey(record.merchant_name || record.name);
     if (!key) continue;
     const entry = byMerchant.get(key) ?? {
@@ -100,7 +119,7 @@ export function summarizeConfirmedMerchants(records: ConfirmedTransactionRecord[
     if (record.is_deductible === true || record.expense_type === 'business') entry.businessCount++;
     else if (record.is_deductible === false || record.expense_type === 'personal') entry.personalCount++;
     if (record.category) entry.categories.set(record.category, (entry.categories.get(record.category) ?? 0) + 1);
-    const day = isoDay(record.date);
+    const day = recordDay;
     if (day) entry.dates.push(day);
     const reviewedAt = typeof record.reviewed_at === 'string' ? record.reviewed_at : day;
     if (reviewedAt && (!entry.lastConfirmedAt || reviewedAt > entry.lastConfirmedAt)) {
@@ -142,6 +161,7 @@ export function detectRecurrence(dates: string[], currentDate?: string | null): 
 export function buildTaxpayerContext(input: {
   profile: UserContext;
   homeOffice?: HomeOfficeFacts | null;
+  taxYearRecords?: TaxYearRecordFacts | null;
   confirmed: ConfirmedMerchantPrior[];
   merchant: string | null | undefined;
   transactionDate?: string | null;
@@ -178,6 +198,12 @@ export function buildTaxpayerContext(input: {
       yearsInBusiness: profile.years_in_business ?? null,
       hasW2Income: (profile.w2_income ?? profile.income_breakdown?.w2_income ?? 0) > 0,
       hasBusinessIncome: (profile.business_income ?? profile.income_breakdown?.business_income ?? 0) > 0,
+      naicsCode: typeof profile.naics_code === 'string' ? profile.naics_code.trim().slice(0, 12) || null : null,
+      businessPurpose: typeof profile.business_purpose === 'string' ? profile.business_purpose.trim().slice(0, 500) || null : null,
+      filingStatus: typeof profile.filing_status === 'string' ? profile.filing_status : null,
+      itemizationStatus: profile.itemization_status ?? null,
+      professionalLicenseCount: Array.isArray(profile.professional_licenses) ? profile.professional_licenses.length : 0,
+      taxYearRecords: input.taxYearRecords ?? null,
     },
     methods: {
       homeOffice: hasHomeOffice ? { method: homeOfficeMethod, officeSqFt: officeSqFt ?? null, totalHomeSqFt: totalHomeSqFt ?? null, exclusiveUseConfirmed: profile.home_office_details?.exclusive_use === true } : null,
@@ -190,7 +216,9 @@ export function buildTaxpayerContext(input: {
     },
     gaps,
     provenance: {
-      sources: ['profile', ...(input.homeOffice ? ['home_office_settings'] : []), ...(input.confirmed.length ? ['confirmed_transactions'] : [])],
+      sources: ['profile', ...(input.homeOffice ? ['home_office_settings'] : []),
+        ...(input.taxYearRecords ? ['tax_year_income_records'] : []),
+        ...(input.confirmed.length ? ['confirmed_transactions'] : [])],
       generatedAt: input.generatedAt ?? new Date().toISOString(),
     },
   };

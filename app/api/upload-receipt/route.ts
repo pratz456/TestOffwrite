@@ -13,11 +13,16 @@ import {
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 
 export async function POST(request: NextRequest) {
+  try {
+    assertReceiptUploadOrigin(request);
+  } catch (error) {
+    const status = error instanceof ReceiptRequestError ? error.status : 403;
+    return NextResponse.json({ error: 'Cross-site uploads are not allowed' }, { status, headers: PRIVATE_RECEIPT_HEADERS });
+  }
   const userId = await receiptUser(request);
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: PRIVATE_RECEIPT_HEADERS });
 
   try {
-    assertReceiptUploadOrigin(request);
     // Durable per-owner bound before the multipart body is read or Storage is touched.
     const limit = await enforceRateLimit({ ...RATE_LIMITS.receiptUpload, key: userId });
     if (!limit.allowed) return rateLimitResponse(limit, { headers: PRIVATE_RECEIPT_HEADERS, error: 'Too many receipt uploads. Please wait a few minutes and try again.' });

@@ -1,8 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
-const mock = vi.hoisted(() => ({ verifyIdToken: vi.fn(), verifySessionCookie: vi.fn(), createSessionCookie: vi.fn(), get: vi.fn(), set: vi.fn(), transaction: vi.fn() }));
-vi.mock('@/lib/firebase/admin', () => ({ adminAuth: mock, adminDb: { doc: vi.fn(() => ({ get: mock.get })), runTransaction: mock.transaction }, FieldValue: { serverTimestamp: () => 'server-time', delete: () => 'delete-field' } }));
+const mock = vi.hoisted(() => ({ verifyIdToken: vi.fn(), verifySessionCookie: vi.fn(), createSessionCookie: vi.fn(), get: vi.fn(), set: vi.fn(), update: vi.fn(), transaction: vi.fn() }));
+vi.mock('@/lib/firebase/admin', () => ({ adminAuth: mock, adminDb: { doc: vi.fn(() => ({ get: mock.get, update: mock.update })), runTransaction: mock.transaction }, FieldValue: { serverTimestamp: () => 'server-time', delete: () => 'delete-field' } }));
 vi.mock('@/lib/plaid/connections', () => ({ migrateLegacyPlaidConnection: vi.fn() }));
 vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
@@ -26,6 +26,18 @@ beforeEach(() => {
   mock.createSessionCookie.mockResolvedValue('verified-session');
   mock.get.mockResolvedValue({ exists: true, data: () => ({ name: 'Owner', stripeCustomerId: 'secret-customer', plaid_token: 'secret-bank-token' }) });
 });
+afterEach(() => vi.unstubAllEnvs());
+
+function useRealAccountPreview() {
+  for (const [name, value] of Object.entries({
+    NODE_ENV: 'development', WRITEOFF_LOCAL_ACCOUNT_PREVIEW: 'true',
+    WRITEOFF_ENV: 'local-account-preview', NEXT_PUBLIC_APP_ENV: 'local-account-preview',
+    NEXT_PUBLIC_AUTO_SYNC_ON_VISIT: 'false', NEXT_PUBLIC_FIREBASE_PROJECT_ID: 'writeoff-23910',
+    FIREBASE_ADMIN_PROJECT_ID: 'writeoff-23910', NEXT_PUBLIC_SITE_URL: 'http://127.0.0.1:3002',
+    WRITEOFF_LOCAL_ACCOUNT_PREVIEW_EMAIL: 'owner@example.com', SSN_ENCRYPTION_KEY: '',
+  })) vi.stubEnv(name, value);
+  mock.verifyIdToken.mockResolvedValue({ uid: 'owner', email: 'owner@example.com', email_verified: true });
+}
 
 describe('verified API credentials and browser sessions', () => {
   it('verifies the hosting session cookie with revocation checking', async () => {
@@ -111,6 +123,40 @@ describe('verified API credentials and browser sessions', () => {
 });
 
 describe('server profile API boundaries', () => {
+  it('reads a masked legacy EIN in real-account preview without migrating or writing it', async () => {
+    useRealAccountPreview();
+    mock.get.mockResolvedValue({ exists: true, data: () => ({ name: 'Owner', ein: '12-3456789' }) });
+
+    const response = await profileGet(request({ authorization: 'Bearer id' }));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ success: true, profile: { id: 'owner', name: 'Owner', ein: '**-***6789' } });
+    expect(mock.update).not.toHaveBeenCalled();
+    expect(mock.set).not.toHaveBeenCalled();
+    expect(mock.transaction).not.toHaveBeenCalled();
+  });
+  it('refuses EIN encryption without a real key in preview while allowing ordinary profile edits', async () => {
+    useRealAccountPreview();
+    mock.transaction.mockImplementation(async (callback: (transaction: unknown) => Promise<void>) => callback({ get: mock.get, set: mock.set }));
+    mock.get.mockResolvedValue({ exists: true, data: () => ({ name: 'Owner' }) });
+
+    expect((await profilePost(request({ authorization: 'Bearer id' }, 'POST', { ein: '12-3456789' }))).status).toBe(503);
+    expect(mock.set).not.toHaveBeenCalled();
+    expect((await profilePost(request({ authorization: 'Bearer id' }, 'POST', { profession: 'Designer' }))).status).toBe(200);
+    expect(mock.set).toHaveBeenCalledExactlyOnceWith(expect.anything(), { profession: 'Designer', updated_at: 'server-time' }, { merge: true });
+  });
+  it('preserves legacy EIN migration outside real-account preview using the configured key', async () => {
+    vi.stubEnv('SSN_ENCRYPTION_KEY', '11'.repeat(32));
+    mock.get.mockResolvedValueOnce({ exists: true, data: () => ({ name: 'Owner', ein: '12-3456789' }) })
+      .mockResolvedValue({ exists: true, data: () => ({ name: 'Owner', ein_last4: '6789' }) });
+
+    const response = await profileGet(request({ authorization: 'Bearer id' }));
+
+    expect(response.status).toBe(200);
+    expect(mock.update).toHaveBeenCalledExactlyOnceWith({ ein: 'delete-field', ein_last4: '6789', ein_encrypted: expect.any(String) });
+    expect(JSON.stringify(mock.update.mock.calls)).not.toContain('123456789');
+    expect(await response.json()).toEqual({ success: true, profile: { id: 'owner', name: 'Owner', ein: '**-***6789' } });
+  });
   it('returns editable fields without bank or billing credentials', async () => {
     const response = await profileGet(request({ authorization: 'Bearer id' }));
     expect(await response.json()).toEqual({ success: true, profile: { id: 'owner', name: 'Owner' } });
@@ -124,6 +170,25 @@ describe('server profile API boundaries', () => {
     expect(await (await profileGet(request({ authorization: 'Bearer id' }))).json()).toEqual({ success: true, profile: null });
     mock.get.mockRejectedValue(new Error('private error'));
     expect((await profileGet(request({ authorization: 'Bearer id' }))).status).toBe(503);
+  });
+  it('encrypts a new EIN, returns only its mask, and never writes the plaintext field', async () => {
+    vi.stubEnv('SSN_ENCRYPTION_KEY', '11'.repeat(32));
+    mock.transaction.mockImplementation(async (callback: (transaction: unknown) => Promise<void>) => callback({ get: mock.get, set: mock.set }));
+    mock.get.mockResolvedValue({ exists: true, data: () => ({ name: 'Owner' }) });
+    const response = await profilePost(request({ authorization: 'Bearer id' }, 'POST', { ein: '12-3456789' }));
+    expect(response.status).toBe(200);
+    const written = mock.set.mock.calls[0][1];
+    expect(written.ein).toBe('delete-field');
+    expect(written.ein_last4).toBe('6789');
+    expect(written.ein_encrypted).toMatch(/^[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+$/);
+    expect(JSON.stringify(written)).not.toContain('123456789');
+
+    mock.get.mockResolvedValue({ exists: true, data: () => ({ name: 'Owner', ein_last4: '6789', ein_encrypted: written.ein_encrypted }) });
+    expect(await (await profileGet(request({ authorization: 'Bearer id' }))).json()).toEqual({
+      success: true,
+      profile: { id: 'owner', name: 'Owner', ein: '**-***6789' },
+    });
+    vi.unstubAllEnvs();
   });
 
   describe('sign-up consent record', () => {

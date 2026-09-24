@@ -62,6 +62,7 @@ describe('account deletion boundaries', () => {
       ['user_profiles/owner/accounts/a/transactions/x', { amount: 20 }], ['user_profiles/owner/settings/taxSummary', { private: true }],
       ['receipts/mine', { userId: 'owner' }], ['receipts/legacy', { user_id: 'owner' }], ['tax_organizers/mine', { userId: 'owner' }],
       ['analysis_tasks/mine', { userId: 'owner' }], ['w2_income/mine', { user_id: 'owner' }],
+      ['cpa_questions/mine', { userId: 'owner' }],
       ['receipts/other', { userId: 'owner-other' }], ['user_profiles/owner-other', { name: 'Other' }],
     ] as const) h.records.set(path, data);
     h.files.add('receipts/owner/tx/file'); h.files.add('receipts/owner-other/tx/file');
