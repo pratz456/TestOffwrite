@@ -405,7 +405,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
 
               {offerPurpose && <PurposeConfirmChip key={currentKey} proposal={proposal} question={openQuestion?.kind === 'business_purpose' ? openQuestion.question : null}
                 busy={operation === 'saving'} disabled={busy}
-                onConfirm={purpose => saveDecision(confirmPurposeUpdates(purpose, proposal), 'Business purpose confirmed and deduction recorded')}
+                onConfirm={purpose => saveDecision(confirmPurposeUpdates(purpose, proposal), 'Purpose saved for AI review. Your tax decision is unchanged.', true)}
                 onReject={() => saveDecision(rejectProposalUpdates(), 'Marked not business; no deduction recorded')} />}
 
               {offerQuestion && <QuestionChips key={`${currentKey}:${openQuestion!.kind}`} question={openQuestion!} transaction={current} proposal={proposal}

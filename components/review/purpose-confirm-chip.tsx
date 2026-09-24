@@ -10,7 +10,7 @@ interface PurposeConfirmChipProps {
   question?: string | null;
   busy?: boolean;
   disabled?: boolean;
-  /** Called with the purpose the user confirmed; the caller records the deduction. */
+  /** Called with the fact supplied by the user; default individual review saves only that fact. */
   onConfirm: (purpose: string) => void | Promise<void>;
   onReject: () => void | Promise<void>;
   /** Button text; a group card says how many charges it covers. */
@@ -22,11 +22,11 @@ interface PurposeConfirmChipProps {
 }
 
 /**
- * One tap confirms the proposed purpose and records the deduction through the caller.
- * Nothing is pre-selected: the tap itself is the user's decision.
+ * Saves a user's purpose without implying that purpose alone establishes deductibility.
+ * Group decisions pass their own explicit action label and description.
  */
-export function PurposeConfirmChip({ proposal, question, busy = false, disabled = false, onConfirm, onReject, confirmLabel = 'Confirm purpose',
-  note = 'Confirming saves this purpose and records the deduction. Nothing is saved until you tap.', id = 'purpose-proposal' }: PurposeConfirmChipProps) {
+export function PurposeConfirmChip({ proposal, question, busy = false, disabled = false, onConfirm, onReject, confirmLabel = 'Save purpose',
+  note = 'Saves your answer for AI review. This does not confirm a deduction.', id = 'purpose-proposal' }: PurposeConfirmChipProps) {
   const [editing, setEditing] = useState(proposal === null);
   const [draft, setDraft] = useState(proposal ?? '');
   useEffect(() => { setEditing(proposal === null); setDraft(proposal ?? ''); }, [proposal]);
@@ -37,7 +37,7 @@ export function PurposeConfirmChip({ proposal, question, busy = false, disabled 
     <section className="space-y-2 rounded-xl border border-primary/20 bg-primary/5 p-3" aria-labelledby={`${id}-heading`}>
       <p id={`${id}-heading`} className="flex items-start gap-1.5 text-xs font-medium text-primary">
         <Sparkles aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-        <span>{question?.trim() || 'Proposed business purpose'}</span>
+        <span>{question?.trim() || (proposal ? 'Proposed business purpose' : 'What was the business purpose?')}</span>
       </p>
       {editing ? (
         <div className="space-y-2">

@@ -29,6 +29,7 @@ import { analysisTaskId, enqueueBankTransactionAnalysis, enqueueAccountAnalysis,
 import { claimAnalysisLease, persistAnalysisSuggestion, releaseAnalysisLease, analysisSuggestionUpdate } from '@/lib/ai/analysis-persistence';
 import { analysisProfileHash } from '@/lib/ai/profile-context';
 import { saveTransactionChanges } from '@/lib/transactions/save-changes';
+import { confirmPurposeUpdates } from '@/lib/transactions/review-proposals';
 import { shouldQueueBankWrite } from '../functions-analysis/src/bridge';
 
 const address = { userId: 'synthetic-user', accountId: 'bank-account', transactionId: 'posted-transaction' };
@@ -59,6 +60,16 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); });
 
 describe('saved facts automatically refresh durable AI review', () => {
+  it('a purpose answer queues a new analysis without resolving outstanding eligibility questions or creating a deduction', async () => {
+    change(path, { tax_review_required: true, ai_missing_fields: ['business_purpose', 'travel_dates'],
+      ai_suggestion: { status: 'needs_more_info', questions: ['Why did you travel?', 'Which nights were business?'] } });
+    const saved = await saveTransactionChanges(adminDb.doc(path), address.userId,
+      confirmPurposeUpdates('Attended a client workshop in Chicago', null));
+    expect(saved).toMatchObject({ business_purpose: 'Attended a client workshop in Chicago',
+      is_deductible: null, tax_review_required: true, analysisStatus: 'pending', analysisRefreshReason: 'transaction_changed' });
+    expect(saved).not.toHaveProperty('review_status'); expect(saved).not.toHaveProperty('reviewed_at');
+    expect(saved).not.toHaveProperty('user_classification_reason');
+  });
   it('atomically queues changed facts, deduplicates replayed events, and preserves confirmed decisions/receipts', async () => {
     await enqueueBankTransactionAnalysis(address); await run();
     change(path, { is_deductible: false, review_status: 'confirmed', review_source: 'user_corrected',

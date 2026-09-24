@@ -57,6 +57,8 @@ import { AddManualTransactionScreen } from '../components/add-manual-transaction
 import { SyncStatusIndicator } from '../components/sync-status-indicator';
 import { TransactionDetailScreen } from '../components/transaction-detail-screen';
 import { ExplanationCard } from '../components/ai/explanation-card';
+import { PurposeConfirmChip } from '../components/review/purpose-confirm-chip';
+import { BulkConfirmOffer } from '../components/review/bulk-confirm-offer';
 import { AddExpenseScreen } from '../components/add-expense-screen';
 import { requestAppNavigation } from '../lib/navigation/navigation-guard';
 
@@ -236,14 +238,34 @@ describe('transaction detail preserves manual work without guessed tax impact or
     reasoning: 'Confirm the business purpose.', questions: ['Who attended?'], documentationRequired: [],
     irsReferences: [], sources: [], taxYear: 2026, policyVersion: 'synthetic-policy', model: 'synthetic-model', analyzedAt: 1,
   };
-  function detail(changes: Partial<DetailTransaction> = {}, initialSection?: 'summary' | 'details') {
+  function detail(changes: Partial<DetailTransaction> = {}, initialSection?: 'summary' | 'details', transactions?: Transaction[]) {
     harness.cursor = 0;
-    const page = TransactionDetailScreen({ transaction: { ...base, ...changes }, initialSection, onBack: harness.back, onSave: harness.save }) as Element;
+    const page = TransactionDetailScreen({ transaction: { ...base, ...changes }, transactions, initialSection, onBack: harness.back, onSave: harness.save }) as Element;
     harness.effects.splice(0).forEach(effect => effect());
     return page;
   }
   const action = (page: Element, label: string) => walk(page).find(node => typeof node.props.onClick === 'function' && text(node).trim() === label)!;
   const analyzed = () => Response.json({ success: true, analysis: { deductionStatus: 'Possibly Deductible', reasoning: 'Review the saved business purpose.', confidence: 0.7, updatedAt: '2026-09-16T12:00:00Z' } });
+
+  it.each([null, true])('saves an actual lodging purpose without changing the existing %s deduction decision or offering bulk confirmation', async decision => {
+    const reasoning = 'This is a lodging expense. Confirm what business activity required the overnight stay and which nights were business.';
+    const changes: Partial<DetailTransaction> = { merchant_name: 'Synthetic Marriott', is_deductible: decision,
+      review_status: decision === true ? 'confirmed' : undefined, analysisStatus: 'completed', ai_missing_fields: ['business_purpose'],
+      ai_customized_reason: reasoning, ai_suggestion: { ...categorySuggestion, category: 'travel', reasoning,
+        questions: ['What business activity required an overnight stay away from your tax home?'] } };
+    const others = ['other-1', 'other-2'].map(id => ({ ...base, ...changes, id, trans_id: id, is_deductible: null, review_status: undefined })) as Transaction[];
+    const purpose = 'Attended the two-day client design workshop in Chicago on September 14 and 15.';
+    harness.mutate.mockResolvedValue({ ...base, ...changes, business_purpose: purpose });
+    const page = detail(changes, undefined, others);
+    const chip = walk(page).find(node => node.type === PurposeConfirmChip) as ReactElement<Parameters<typeof PurposeConfirmChip>[0]>;
+    expect(chip.props.proposal).toBeNull();
+    expect(chip.props.question).toBe('What business activity required an overnight stay away from your tax home?');
+    await chip.props.onConfirm(purpose);
+    expect(harness.mutate).toHaveBeenCalledExactlyOnceWith({ transactionId: 'detail-id', userId: 'new-accountless-user', updates: { business_purpose: purpose } });
+    expect(harness.save).toHaveBeenCalledWith(expect.objectContaining({ business_purpose: purpose, is_deductible: decision, review_status: changes.review_status }));
+    expect(harness.success).toHaveBeenCalledWith('Purpose saved', 'Your answer is saved for AI review. Your tax decision is unchanged.');
+    expect(walk(detail(changes, undefined, others)).some(node => node.type === BulkConfirmOffer)).toBe(false);
+  });
 
   it.each(['pending', 'running'] as const)('hides earlier AI amounts and confirmation while a profile refresh is %s', status => {
     const stale = { headline: 'Old profile estimate', why: 'Earlier business facts', yourFacts: [], scheduleCLine: null,

@@ -1,5 +1,6 @@
 import { adminAuth } from './admin';
 import { isTrustedApplicationRequest } from '@/lib/security/request-origin';
+import { isLocalAccountPreview } from './local-account-preview';
 
 export interface AuthenticatedUser {
   uid: string;
@@ -46,6 +47,9 @@ export async function getAuthenticatedUser(request: Request): Promise<{
       else return { user: null, error: 'No authentication token found' };
     }
     if (decoded.email_verified !== true) return { user: null, error: 'Email verification required' };
+    if (isLocalAccountPreview() && decoded.email?.toLowerCase() !== process.env.WRITEOFF_LOCAL_ACCOUNT_PREVIEW_EMAIL?.toLowerCase()) {
+      return { user: null, error: 'This local preview is restricted to its configured account.' };
+    }
     return {
       user: { uid: decoded.uid, email: decoded.email || null, emailVerified: decoded.email_verified === true,
         authTime: typeof decoded.auth_time === 'number' ? decoded.auth_time : undefined,

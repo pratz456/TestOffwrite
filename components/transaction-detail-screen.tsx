@@ -428,7 +428,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
     }
   };
 
-  // One-tap decision on the AI's proposed purpose. The same PUT route stamps the review server-side.
+  // Purpose saves supply facts; only an explicit tax decision stamps review state.
   const [proposalSaving, setProposalSaving] = useState(false);
   const [bulkOffer, setBulkOffer] = useState<BulkConfirmRequest | null>(null);
   useEffect(() => { setBulkOffer(null); }, [analysisContext]);
@@ -445,7 +445,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
       if (typeof updates.business_purpose === 'string') setBusinessPurpose(updates.business_purpose);
       if (typeof updates.is_deductible === 'boolean') { setClassification(updates.is_deductible ? 'business' : 'personal'); localClassificationDraft.current = null; }
       const decided = { ...transaction, ...updates, ...saved } as unknown as StoredTransaction;
-      setBulkOffer(transactions ? bulkOfferFor(decided, transactions) : null);
+      setBulkOffer(typeof updates.is_deductible === 'boolean' && transactions ? bulkOfferFor(decided, transactions) : null);
       showSuccess(title, detail);
       await onSave(decided);
     } catch {
@@ -874,7 +874,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
               </div>}
             {offerPurpose && <PurposeConfirmChip key={`${analysisContext}:${proposal ?? ''}`} proposal={proposal} question={openQuestion?.kind === 'business_purpose' ? openQuestion.question : null}
               busy={proposalSaving} disabled={isSaving || isUploadingReceipt}
-              onConfirm={purpose => handleProposalDecision(confirmPurposeUpdates(purpose, proposal), 'Purpose confirmed', 'The business purpose is saved and the deduction is recorded.')}
+              onConfirm={purpose => handleProposalDecision(confirmPurposeUpdates(purpose, proposal), 'Purpose saved', 'Your answer is saved for AI review. Your tax decision is unchanged.')}
               onReject={() => handleProposalDecision(rejectProposalUpdates(), 'Marked not business', 'No deduction is recorded for this transaction.')} />}
             {bulkOffer && <BulkConfirmOffer key={`${bulkOffer.merchantKey}:${bulkOffer.decision}`} offer={bulkOffer} disabled={isSaving || proposalSaving}
               onApplied={(outcome, offer) => showSuccess('Applied to similar charges', bulkOutcomeMessage(offer, outcome))} onDismiss={() => setBulkOffer(null)} />}

@@ -34,11 +34,13 @@ function cleanText(value: unknown): string | null {
   return text ? text.slice(0, MAX_PURPOSE_LENGTH) : null;
 }
 
-/** The AI's proposed business purpose, or its tailored reason when the suggestion predates `proposed_purpose`. */
+/** Only a dedicated proposed-purpose field is a proposal. Tax reasoning never supplies a user's missing facts. */
 export function proposedBusinessPurpose(transaction: ReviewRecord): string | null {
   const suggestion = transaction.ai_suggestion as SuggestionWithProposal | null | undefined;
   if (!suggestion) return null;
-  return cleanText(suggestion.proposed_purpose) ?? cleanText(suggestion.proposedPurpose) ?? cleanText(transaction.ai_customized_reason);
+  const proposal = cleanText(suggestion.proposed_purpose) ?? cleanText(suggestion.proposedPurpose);
+  if (proposal === cleanText(suggestion.reasoning) || proposal === cleanText(transaction.ai_customized_reason)) return null;
+  return proposal;
 }
 
 export function suggestionScheduleCLine(transaction: ReviewRecord): string | null {
@@ -75,20 +77,19 @@ export function canRecordDeductionByTap(transaction: ReviewRecord): boolean {
   return true;
 }
 
-/** Show the "Confirm purpose" chip: a proposal exists, no purpose is saved and the tap can record a deduction. */
+/** Ask for a missing purpose, with a dedicated proposal only when one actually exists. */
 export function canOfferPurposeConfirmation(transaction: ReviewRecord): boolean {
   if (transaction.is_deductible === false) return false;
   if (cleanText(transaction.business_purpose)) return false;
-  return proposedBusinessPurpose(transaction) !== null && canRecordDeductionByTap(transaction);
+  if (transaction.ai_suggestion?.status === 'blocked') return false;
+  return canRecordDeductionByTap(transaction) && (proposedBusinessPurpose(transaction) !== null
+    || suggestionMissingFields(transaction).includes('business_purpose'));
 }
 
-/** Body for the existing PUT /api/transactions/[id]; the server stamps review_status/review_source/reviewed_at. */
-export function confirmPurposeUpdates(purpose: string, proposal: string | null) {
+/** Saving a purpose supplies a fact for reanalysis. It never records or changes a tax decision. */
+export function confirmPurposeUpdates(purpose: string, _proposal?: string | null) {
   return {
     business_purpose: purpose.trim().slice(0, MAX_PURPOSE_LENGTH),
-    is_deductible: true as const,
-    expense_type: 'business' as const,
-    user_classification_reason: proposal ? AI_PROPOSAL_CONFIRMED_REASON : 'business_purpose_entered_by_user',
   };
 }
 

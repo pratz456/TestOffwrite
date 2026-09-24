@@ -95,6 +95,11 @@ export default function RootLayout({
             WriteOff testing site · Use sample information only
           </div>
         )}
+        {process.env.NEXT_PUBLIC_APP_ENV === 'local-account-preview' && (
+          <div role="note" className="bg-blue-50 px-3 py-1.5 text-center text-xs text-blue-950 print:hidden">
+            Your real account · Changes and AI reviews are saved · Bank syncing and billing are disabled here
+          </div>
+        )}
         <script
           type="application/ld+json"
           suppressHydrationWarning
