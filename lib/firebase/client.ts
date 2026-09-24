@@ -50,8 +50,18 @@ const missingFirebaseClientConfig = !localEmulatorConfig && [
 if (missingFirebaseClientConfig && process.env.NODE_ENV !== 'test') {
   throw new Error('Firebase client configuration is incomplete. Refusing to fall back to a production project.');
 }
-// Unit tests receive a non-routable demo project. Staging and production never do.
-const firebaseConfig = localEmulatorConfig || missingFirebaseClientConfig ? LOCAL_FIREBASE_OPTIONS : configuredFirebase;
+// Unit tests receive a non-routable, non-production project. Staging and production never do.
+const unitTestFirebaseConfig = {
+  apiKey: 'unit-test-not-live',
+  authDomain: 'writeoff-unit-test.invalid',
+  projectId: 'writeoff-unit-test',
+  storageBucket: 'writeoff-unit-test.invalid',
+  messagingSenderId: '0',
+  appId: '1:0:web:unit-test',
+};
+const firebaseConfig = localEmulatorConfig
+  ? LOCAL_FIREBASE_OPTIONS
+  : missingFirebaseClientConfig ? unitTestFirebaseConfig : configuredFirebase;
 
 export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 assertLocalEmulatorApp(app.options, localEmulatorConfig);
