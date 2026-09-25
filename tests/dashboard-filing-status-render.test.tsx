@@ -30,7 +30,7 @@ vi.mock('react', async importOriginal => {
   };
   return { ...actual, ...hooks, default: { ...actual.default, ...hooks } };
 });
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push: harness.navigate }) }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: harness.navigate }), useSearchParams: () => new URLSearchParams() }));
 vi.mock('@/lib/firebase/client', () => ({ auth: { currentUser: { uid: 'synthetic', getIdToken: async () => 'synthetic-token' } } }));
 vi.mock('@/lib/firebase/auth-context', () => ({ useAuth: () => ({ user: { id: 'synthetic' }, loading: false }) }));
 vi.mock('@/lib/firebase/profiles', () => ({ getUserProfile: async () => ({ data: harness.profile, error: null }) }));
