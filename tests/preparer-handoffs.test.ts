@@ -86,7 +86,6 @@ describe('scoped preparer handoff snapshots', () => {
     expect([...mock.files.keys()]).toEqual(['preparer_handoffs/owner-other/private/package.zip']);
   });
   it('treats an empty or already-cleared handoff prefix as idempotent', async () => {
-    mock.deleteFiles.mockRejectedValueOnce(new Error('synthetic storage outage'));
     await expect(deletePreparerHandoffsForUser('owner')).resolves.toBeUndefined();
     expect(mock.deleteFiles).not.toHaveBeenCalled();
     expect(mock.docs.has('user_profiles/owner')).toBe(true);
