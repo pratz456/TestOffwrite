@@ -126,10 +126,10 @@ export class AILearningEngine {
       // Update learning patterns
       await this.updateLearningPatterns(userId, correction);
 
-      console.log(`✅ [AI Learning] Recorded correction for user ${userId}, transaction ${transactionId}`);
-    } catch (error) {
-      console.error('❌ [AI Learning] Error recording correction:', error);
-      throw error;
+      console.log('✅ [AI Learning] Recorded correction');
+    } catch {
+      console.error('❌ [AI Learning] Error recording correction');
+      throw new Error('Correction could not be recorded');
     }
   }
 

@@ -161,13 +161,13 @@ describe('estimated tax effect boundaries', () => {
     }
   });
 
-  it('preserves explicit zero W-2 SS and Medicare boxes', () => {
+  it('requires explicit W-2 SS and Medicare boxes and preserves explicit zero', () => {
     const wages = { income: 100000, w2_income: 200000, filing_status: 'single' };
-    const defaultBoxes = explain('okSoftware', {}, wages).estimatedTaxEffect!;
+    expect(explain('okSoftware', {}, wages).estimatedTaxEffect).toBeNull();
     const zeroBoxes = composeExplanation({ result: corpus.okSoftware,
       transaction: { ...transactions.okSoftware, iso_currency_code: 'USD' },
       profile: { ...wages, w2_social_security_wages: 0, w2_medicare_wages: 0 }, taxYear: 2026 }).estimatedTaxEffect!;
-    expect(zeroBoxes.high).toBeGreaterThan(defaultBoxes.high);
+    expect(zeroBoxes).not.toBeNull();
   });
 
   it.each(['ok', 'blocked'] as const)('never labels a raw EUR charge as dollars in a %s explanation', status => {
@@ -213,7 +213,10 @@ describe('estimated tax effect boundaries', () => {
   });
 
   it('does not add Social Security tax when W-2 wages already exhaust the wage base', () => {
-    const effect = explain('okSoftware', {}, { income: 20000, w2_income: 200000, filing_status: 'single' }).estimatedTaxEffect!;
+    const effect = explain('okSoftware', {}, {
+      income: 20000, w2_income: 200000, w2_social_security_wages: 200000,
+      w2_medicare_wages: 200000, filing_status: 'single',
+    }).estimatedTaxEffect!;
     // 2026 single taxable income exceeds $201,775: 32% marginal income tax.
     // $54.99 reduces net SE earnings by $50.78: $1.47 Medicare + $0.46 additional
     // Medicare + $17.36 income tax after the half-SE adjustment = about $19.
@@ -228,7 +231,10 @@ describe('estimated tax effect boundaries', () => {
 
   it('lets saved W-2 wages raise the bracket used for the top of the range', () => {
     const seOnly = explain('okSoftware', {}, { income: 20000, filing_status: 'single' }).estimatedTaxEffect!;
-    const withWages = explain('okSoftware', {}, { income: 20000, w2_income: 120000, filing_status: 'single' }).estimatedTaxEffect!;
+    const withWages = explain('okSoftware', {}, {
+      income: 20000, w2_income: 120000, w2_social_security_wages: 120000,
+      w2_medicare_wages: 120000, filing_status: 'single',
+    }).estimatedTaxEffect!;
     expect(withWages.high).toBeGreaterThan(seOnly.high);
     expect(withWages.high).toBeGreaterThanOrEqual(Math.floor(54.99 * (0.1413 + 0.24)));
   });

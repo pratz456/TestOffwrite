@@ -4,7 +4,8 @@ import { buildMonthlySavings } from '@/lib/tax/savings-summary';
 
 const state = vi.hoisted(() => ({ slots: [] as any[], cursor: 0, effects: [] as (() => void)[],
   profile: { income: 100000, filing_status: 'single' }, transactions: { transactions: [] as Record<string, unknown>[] },
-  reports: {} as any, fetching: false, refetch: vi.fn(), toast: vi.fn() }));
+  reports: {} as any, fetching: false, refetch: vi.fn(), toast: vi.fn(), replace: vi.fn(),
+  queryYear: null as string | null, requestedYears: [] as number[] }));
 vi.mock('react', async importOriginal => {
   const actual = await importOriginal<typeof import('react')>();
   const same = (a: unknown[] | undefined, b: unknown[] | undefined) => a && b && a.length === b.length && a.every((item, index) => Object.is(item, b[index]));
@@ -18,14 +19,20 @@ vi.mock('react', async importOriginal => {
   };
   return { ...actual, ...hooks, default: { ...actual.default, ...hooks } };
 });
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push() {} }) }));
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push() {}, replace: state.replace }),
+  useSearchParams: () => new URLSearchParams(state.queryYear ? { year: state.queryYear } : {}),
+}));
 vi.mock('sonner', () => ({ toast: { error: state.toast, warning: state.toast } }));
 vi.mock('@/lib/firebase/client', () => ({ auth: { currentUser: { getIdToken: async () => 'synthetic' } } }));
 vi.mock('@/lib/firebase/auth-context', () => ({ useAuth: () => ({ user: { id: 'reports-owner' }, loading: false }) }));
 vi.mock('@/lib/firebase/profiles', () => ({ getUserProfile: async () => ({ data: state.profile }) }));
 vi.mock('@/lib/hooks/use-subscription', () => ({ useSubscription: () => ({ canAccess: () => true, isLoading: false }) }));
 vi.mock('@/lib/react-query/hooks', () => ({
-  useMonthlyDeductions: () => ({ data: state.reports, isLoading: false, isFetching: state.fetching, error: null, refetch: state.refetch }),
+  useMonthlyDeductions: (_uid: string, year: number) => {
+    state.requestedYears.push(year);
+    return { data: state.reports, isLoading: false, isFetching: state.fetching, error: null, refetch: state.refetch };
+  },
   useTransactions: () => ({ data: state.transactions, isLoading: false, isFetching: false, error: null }),
 }));
 vi.mock('@/components/ui/toast', () => ({ ToastContainer: 'ToastContainer', useToasts: () => ({ toasts: [], removeToast() {} }) }));
@@ -45,7 +52,9 @@ function records(rows: Record<string, unknown>[], rate = .2, year = 2026) {
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-09-23T12:00:00Z'));
   state.slots = []; state.cursor = 0; state.effects = []; state.fetching = false;
+  state.queryYear = null; state.requestedYears = [];
   state.profile = { income: 100000, filing_status: 'single' }; state.refetch.mockReset(); state.toast.mockReset();
+  state.replace.mockReset();
   records([expense()]);
   vi.stubGlobal('fetch', vi.fn(async () => Response.json({})));
 });
@@ -104,5 +113,29 @@ describe('Reports planning labels and confirmed month drilldown', () => {
     expect(text(await ready())).toContain('$100.00 confirmed deduction basis');
     state.fetching = true;
     expect(text(render())).not.toContain('$100.00 confirmed deduction basis');
+  });
+
+  it('opens one accessible export flow instead of bypassing errors with a raw download link', async () => {
+    const tree = await ready();
+    const exportButton = walk(tree).find(node => node.props?.onClick && text(node).trim() === 'Export report')!;
+    exportButton.props.onClick();
+    const modal = render();
+    expect(text(modal)).toContain('Generate Report');
+    expect(walk(modal).find(node => node.props?.role === 'dialog')?.props).toMatchObject({
+      'aria-modal': 'true',
+      'aria-labelledby': 'report-export-title',
+    });
+    expect(walk(tree).some(node => node.type === 'a' && String(node.props?.href).includes('export-csv'))).toBe(false);
+  });
+
+  it('honors a deep-linked year and keeps later year selections shareable', async () => {
+    state.queryYear = '2025';
+    records([expense({ date: '2025-09-01' })], .2, 2025);
+    const tree = await ready();
+    expect(state.requestedYears).toContain(2025);
+    const select = walk(tree).find(node => node.type === 'select' && node.props?.['aria-label'] === 'Select year for chart')!;
+    expect(select.props.value).toBe(2025);
+    select.props.onChange({ target: { value: '2026' } });
+    expect(state.replace).toHaveBeenCalledWith('/protected/reports?year=2026', { scroll: false });
   });
 });

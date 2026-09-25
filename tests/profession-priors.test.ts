@@ -146,6 +146,21 @@ describe('analysis context wiring', () => {
     expect(buildAnalysisContext(transaction, { ...context, profession: [] }, extras).profession_context).toBeNull();
   });
 
+  it('includes receipt presence and confidence without sending raw OCR text', () => {
+    const built = buildAnalysisContext({
+      ...transaction,
+      receipt_context: {
+        attached: true,
+        ocr_confidence: 0.93,
+      },
+    }, context, extras);
+    expect(built.tx.receipt_context).toMatchObject({
+      attached: true,
+      ocr_confidence: 0.93,
+    });
+    expect(JSON.stringify(built.tx.receipt_context)).not.toContain('ocr_text');
+  });
+
   describe('prompt contract', () => {
     beforeEach(() => { vi.clearAllMocks(); vi.stubEnv('OPENAI_API_KEY', 'synthetic-key'); vi.stubEnv('OPENAI_MODEL', ''); });
     afterEach(() => vi.unstubAllEnvs());

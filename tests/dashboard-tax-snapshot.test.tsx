@@ -158,6 +158,7 @@ describe('dashboard tax cards share the federal server calculation', () => {
   });
 
   it('removes confirmed records while keeping skipped records unresolved', async () => {
+    h.profile.income = 100000;
     h.tx = [expense(20), expense(30, { is_deductible: false }),
       expense(40, { is_deductible: null, user_classification_reason: 'Skipped by user' })];
     const reviewed = render(); await flush();
@@ -234,6 +235,36 @@ describe('dashboard tax cards share the federal server calculation', () => {
     expect(render().state.status).toBe('loading'); await flush();
     expect(render().state.snapshot.income.grossReceipts).toBe(25000);
     expect(h.request.mock.calls.some(([url]) => url.includes('/plaid/refresh-balances'))).toBe(false);
+  });
+  it('keeps ready tax cards stable across AI-only progress updates', async () => {
+    h.records.tax_organizers = [reviewedPersonalDeductionOrganizer(2026, {}, { businessLossFacts: reviewedBusinessLossFacts() })];
+    h.tx = [expense(20, { id: 'expense', trans_id: 'expense', updated_at: 1 })];
+    render(); await flush(); const ready = render();
+    expect(ready.state.status).toBe('ready');
+    const taxCalls = h.request.mock.calls.filter(([url]) => String(url).includes('/api/tax/compute-1040')).length;
+    h.tx = [{ ...h.tx[0], analysisStatus: 'running', ai_status: 'needs_more_info', analysisUpdatedAt: 'later' }];
+    expect(render().state.status).toBe('ready');
+    await flush();
+    expect(h.request.mock.calls.filter(([url]) => String(url).includes('/api/tax/compute-1040'))).toHaveLength(taxCalls);
+  });
+  it.each([
+    'income',
+    'business_income',
+    'w2_income',
+    'w2_social_security_wages',
+    'w2_medicare_wages',
+    'health_insurance_premium',
+    'simple_ira_contribution',
+    'retirement_contribution',
+  ])('invalidates ready tax cards when the legacy profile field %s changes without a revision timestamp', async field => {
+    h.records.tax_organizers = [reviewedPersonalDeductionOrganizer(2026, {}, { businessLossFacts: reviewedBusinessLossFacts() })];
+    h.tx = [expense(20, { id: 'expense', trans_id: 'expense', updated_at: 1 })];
+    render(); await flush(); expect(render().state.status).toBe('ready');
+    const taxCalls = h.request.mock.calls.filter(([url]) => String(url).includes('/api/tax/compute-1040')).length;
+    h.profile = { ...h.profile, [field]: 1 };
+    expect(render().state.status).toBe('loading');
+    await flush();
+    expect(h.request.mock.calls.filter(([url]) => String(url).includes('/api/tax/compute-1040'))).toHaveLength(taxCalls + 1);
   });
   it('ignores an old user request after a new user calculation is ready', async () => {
     let finish!: (value: Response) => void;

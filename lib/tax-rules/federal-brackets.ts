@@ -55,8 +55,14 @@ function profileIncomeTaxInputs(profile: UserProfile, taxYear: number) {
   };
   const seIncome = missingBusinessIncome ? 0 : amount(profile.income);
   const w2Income = amount(profile.w2_income ?? 0);
-  const socialSecurityWages = amount(profile.w2_social_security_wages ?? w2Income);
-  const medicareWages = amount(profile.w2_medicare_wages ?? w2Income);
+  const hasWageEvidence = [w2Income, profile.w2_social_security_wages, profile.w2_medicare_wages]
+    .some(value => typeof value === 'number' && value > 0);
+  if (seIncome > 0 && hasWageEvidence
+      && (profile.w2_social_security_wages === undefined || profile.w2_medicare_wages === undefined)) {
+    throw new TaxCalculationScopeReviewRequiredError('W-2 plus self-employment estimates require explicit Box 3 Social Security wages and Box 5 Medicare wages, including explicit zero');
+  }
+  const socialSecurityWages = amount(profile.w2_social_security_wages ?? 0);
+  const medicareWages = amount(profile.w2_medicare_wages ?? 0);
   assertWageOwnershipScope(filingStatus, seIncome, w2Income, { socialSecurityWages, medicareWages });
   // Profile amounts do not include the eligibility/coverage/plan facts needed to
   // validate these deductions. Do not subtract an uncapped claim or silently omit it.

@@ -1,15 +1,13 @@
 import {
   doc,
   getDoc,
-  setDoc,
-  updateDoc,
-  serverTimestamp,
   DocumentData
 } from "firebase/firestore";
 import { db } from "./client";
 import { waitForAuth } from "./auth";
 import { makeAuthenticatedRequest } from "./api-client";
 import type { ConsentRecord } from "@/lib/onboarding/consents";
+import { EDITABLE_PROFILE_FIELDS } from "./profile-fields";
 
 // Admin migration runs before SDK reads: Firestore cannot redact a secret field.
 async function prepareProfileRead() {
@@ -161,7 +159,7 @@ export async function getUserProfileSafe(): Promise<{ data: UserProfile | null; 
             // Phase 2: Medium Impact Fields
             naics_code: data.naics_code,
             business_purpose: data.business_purpose,
-            ein: data.ein,
+            ein: typeof data.ein_last4 === 'string' ? `**-***${data.ein_last4}` : data.ein,
             w2_income: data.w2_income,
             w2_federal_withheld: data.w2_federal_withheld,
             health_insurance_premiums: data.health_insurance_premiums,
@@ -253,7 +251,7 @@ export async function getUserProfile(userId: string): Promise<{ data: UserProfil
           // Phase 2: Medium Impact Fields
           naics_code: data.naics_code,
           business_purpose: data.business_purpose,
-          ein: data.ein,
+          ein: typeof data.ein_last4 === 'string' ? `**-***${data.ein_last4}` : data.ein,
           w2_income: data.w2_income,
           w2_federal_withheld: data.w2_federal_withheld,
           health_insurance_premiums: data.health_insurance_premiums,
@@ -310,139 +308,29 @@ export async function upsertUserProfile(
   profileData: Partial<UserProfile>
 ): Promise<{ data: UserProfile | null; error: any }> {
   try {
-    console.log('🔄 [Firebase Profile] Upserting profile for user:', userId);
-    console.log('🔄 [Firebase Profile] Profile data:', profileData);
-
-    await prepareProfileRead();
-    const docRef = doc(db, "user_profiles", userId);
-
-    // Filter out undefined values as Firebase doesn't allow them (including nested objects)
-    const filterUndefinedValues = (obj: any): any => {
-      if (obj === null || obj === undefined) {
-        return null;
+    const withoutUndefined = (value: any): any => {
+      if (Array.isArray(value)) return value.map(withoutUndefined);
+      if (value && typeof value === 'object') {
+        return Object.fromEntries(Object.entries(value)
+          .filter(([, entry]) => entry !== undefined)
+          .map(([key, entry]) => [key, withoutUndefined(entry)]));
       }
-      if (Array.isArray(obj)) {
-        return obj.map(filterUndefinedValues);
-      }
-      if (typeof obj === 'object') {
-        const filtered: any = {};
-        for (const [key, value] of Object.entries(obj)) {
-          if (value !== undefined) {
-            filtered[key] = filterUndefinedValues(value);
-          }
-        }
-        return filtered;
-      }
-      return obj;
+      return value;
     };
-
-    const filteredProfileData = filterUndefinedValues(profileData);
-
-    const updateData = {
-      ...filteredProfileData,
-      updated_at: serverTimestamp(),
-    };
-
-    console.log('🔄 [Firebase Profile] Update data prepared:', updateData);
-
-    // Check if document exists
-    console.log('🔍 [Firebase Profile] Checking if document exists...');
-    const docSnap = await getDoc(docRef);
-
-    if (docSnap.exists()) {
-      console.log('📝 [Firebase Profile] Document exists, updating...');
-      // Update existing document
-      await updateDoc(docRef, updateData);
-      console.log('✅ [Firebase Profile] Document updated successfully');
-    } else {
-      console.log('📝 [Firebase Profile] Document does not exist, creating...');
-      // Create new document with default onboarding values
-      await setDoc(docRef, {
-        ...updateData,
-        onboardingIntroCompleted: false,
-        onboardingPlaidGuideCompleted: false,
-        created_at: serverTimestamp(),
-      });
-      console.log('✅ [Firebase Profile] Document created successfully');
+    const payload = Object.fromEntries(Object.entries(profileData)
+      .filter(([key, value]) => EDITABLE_PROFILE_FIELDS.has(key) && value !== undefined)
+      .map(([key, value]) => [key, withoutUndefined(value)]));
+    const response = await makeAuthenticatedRequest('/api/database/profiles', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const issue = await response.json().catch(() => ({}));
+      throw new Error(issue.error || 'Profile could not be saved');
     }
-
-    // Return the updated profile
-    const updatedDoc = await getDoc(docRef);
-    if (updatedDoc.exists()) {
-      const data = updatedDoc.data() as DocumentData;
-      return {
-        data: {
-          id: updatedDoc.id,
-          email: data.email || '',
-          name: data.name || '',
-          profession: data.profession || '',
-          business_entity_type: data.business_entity_type || '',
-          primary_work_location: data.primary_work_location || '',
-          work_related_travel_pattern: data.work_related_travel_pattern || '',
-          income: data.income || '',
-          state: data.state || '',
-          filing_status: data.filing_status || '',
-          bankConnected: data.bankConnected === true,
-          onboardingIntroCompleted: data.onboardingIntroCompleted,
-          onboardingPlaidGuideCompleted: data.onboardingPlaidGuideCompleted,
-          created_at: data.created_at,
-          updated_at: data.updated_at,
-          consents: data.consents,
-
-          // Phase 1: High Impact Fields
-          itemization_status: data.itemization_status,
-          business_start_date: data.business_start_date,
-          home_office_sqft: data.home_office_sqft,
-          total_home_sqft: data.total_home_sqft,
-          home_office_method: data.home_office_method,
-          vehicle_business_use_percentage: data.vehicle_business_use_percentage,
-          vehicle_deduction_method: data.vehicle_deduction_method,
-
-          // Phase 2: Medium Impact Fields
-          naics_code: data.naics_code,
-          business_purpose: data.business_purpose,
-          ein: data.ein,
-          w2_income: data.w2_income,
-          w2_federal_withheld: data.w2_federal_withheld,
-          health_insurance_premiums: data.health_insurance_premiums,
-          sep_ira_contribution: data.sep_ira_contribution,
-          solo_401k_contribution: data.solo_401k_contribution,
-          hsa_contribution: data.hsa_contribution,
-          simple_ira_contribution: data.simple_ira_contribution,
-          prior_year_tax: data.prior_year_tax,
-          mailing_address: data.mailing_address,
-          business_income: data.business_income,
-          other_income: data.other_income,
-          tax_bracket: data.tax_bracket,
-          professional_licenses: data.professional_licenses,
-
-          // Phase 3: Advanced Fields
-          prior_year_deductions: data.prior_year_deductions,
-          audit_history: data.audit_history,
-          tax_professional: data.tax_professional,
-          documentation_habits: data.documentation_habits,
-          business_seasonality: data.business_seasonality,
-          multiple_locations: data.multiple_locations,
-          international_business: data.international_business,
-
-          // Vehicle Details
-          business_vehicle: data.business_vehicle,
-
-          // Home Office Details
-          home_office_details: data.home_office_details,
-
-          // Income Breakdown
-          income_breakdown: data.income_breakdown
-        } as UserProfile,
-        error: null
-      };
-    }
-
-    return { data: null, error: new Error('Failed to retrieve updated profile') };
+    return getUserProfile(userId);
   } catch (error) {
-    console.error('❌ [Firebase Profile] Error upserting user profile:', error);
-    console.error('❌ [Firebase Profile] Error type:', typeof error);
-    console.error('❌ [Firebase Profile] Error details:', JSON.stringify(error, null, 2));
+    console.error('❌ [Firebase Profile] Error upserting user profile');
     return { data: null, error };
   }
 }
@@ -452,46 +340,5 @@ export async function updateUserProfile(
   userId: string,
   updates: Partial<UserProfile>
 ): Promise<{ data: UserProfile | null; error: any }> {
-  try {
-    console.log('🔄 [Firebase Profile] Updating profile for user:', userId);
-    console.log('🔄 [Firebase Profile] Updates:', updates);
-
-    await prepareProfileRead();
-    const docRef = doc(db, "user_profiles", userId);
-    const updateData = {
-      ...updates,
-      updated_at: serverTimestamp(),
-    };
-
-    await updateDoc(docRef, updateData);
-    console.log('✅ [Firebase Profile] Profile updated successfully');
-
-    // Return the updated profile
-    const updatedDoc = await getDoc(docRef);
-    if (updatedDoc.exists()) {
-      const data = updatedDoc.data() as DocumentData;
-      return {
-        data: {
-          id: updatedDoc.id,
-          email: data.email || '',
-          name: data.name || '',
-          profession: data.profession || '',
-          income: data.income || '',
-          state: data.state || '',
-          filing_status: data.filing_status || '',
-          bankConnected: data.bankConnected === true,
-          onboardingIntroCompleted: data.onboardingIntroCompleted,
-          onboardingPlaidGuideCompleted: data.onboardingPlaidGuideCompleted,
-          created_at: data.created_at,
-          updated_at: data.updated_at,
-        },
-        error: null
-      };
-    }
-
-    return { data: null, error: new Error('Failed to retrieve updated profile') };
-  } catch (error) {
-    console.error('❌ [Firebase Profile] Error updating user profile:', error);
-    return { data: null, error };
-  }
+  return upsertUserProfile(userId, updates);
 }

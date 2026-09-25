@@ -32,6 +32,7 @@ import { saveTransactionChanges } from '@/lib/transactions/save-changes';
 import { confirmPurposeUpdates } from '@/lib/transactions/review-proposals';
 import { shouldQueueBankWrite } from '../functions-analysis/src/bridge';
 import { isCountableRecord } from '@/lib/transactions/record-scope';
+import { TRANSACTION_TAX_POLICY_VERSION } from '@/lib/ai/transaction-tax-policy';
 
 const address = { userId: 'synthetic-user', accountId: 'bank-account', transactionId: 'posted-transaction' };
 const profilePath = `user_profiles/${address.userId}`;
@@ -39,7 +40,7 @@ const accountPath = `${profilePath}/accounts/${address.accountId}`;
 const path = `${accountPath}/transactions/${address.transactionId}`;
 const taskPath = `analysis_tasks/${analysisTaskId(address)}`;
 const jobPath = `analysis_jobs/${address.userId}_${address.accountId}`;
-const suggestion = { status: 'ok' as const, is_deductible: true, expense_type: 'business' as const, deductible_percent: 100, category: 'supplies_small_tools' as const, confidence: 0.9, customized_reason: 'A suggestion requiring confirmation', irs_refs: ['Synthetic reference'] };
+const suggestion = { status: 'ok' as const, is_deductible: true, expense_type: 'business' as const, deductible_percent: 100, category: 'supplies_small_tools' as const, confidence: 0.9, customized_reason: 'A suggestion requiring confirmation', irs_refs: ['Synthetic reference'], policy_version: TRANSACTION_TAX_POLICY_VERSION };
 function generation() { return mocks.docs.get(taskPath)!.generation; }
 function currentProfileHash() { return analysisProfileHash(mocks.docs.get(profilePath)!, mocks.docs.get(path)!.date); }
 function change(p: string, values: Record<string, unknown>) { mocks.docs.set(p, { ...mocks.docs.get(p), ...values }); }
@@ -126,6 +127,17 @@ describe('durable bank transaction analysis', () => {
     await run();
     expect(mocks.analyze).toHaveBeenCalledTimes(1);
     expect(mocks.docs.get(path)).toMatchObject({ is_deductible: false, expense_type: 'personal', ai_suggestion: { category: 'supplies_small_tools' } });
+  });
+  it('requeues a completed suggestion after the server tax policy changes', async () => {
+    change(path, {
+      analyzed: true,
+      analysisStatus: 'completed',
+      ai_suggestion: { id: 'old-suggestion', policyVersion: 'federal-transactions-old' },
+    });
+    expect((await enqueueBankTransactionAnalysis(address)).status).toBe('queued');
+    await run();
+    expect(mocks.analyze).toHaveBeenCalledTimes(1);
+    expect(mocks.docs.get(path)?.ai_suggestion.policyVersion).toBe(TRANSACTION_TAX_POLICY_VERSION);
   });
   it('shows a paused legacy catch-up as failed rather than retaining a completed flag', async () => {
     change(path, { analyzed: true, analysisStatus: 'completed' }); mocks.configured = false;

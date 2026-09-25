@@ -6,7 +6,7 @@ import { anonymousRateLimitKey, enforceRateLimit, rateLimitResponse } from "@/li
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const SUPPORT_EMAIL = "writeoffapp@gmail.com";
+const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL || "writeoffapp@gmail.com";
 
 export type ContactRequestBody = {
   name: string;
@@ -70,7 +70,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true }, { headers: { "Cache-Control": "no-store" } });
   } catch {
-    return NextResponse.json({ error: "Failed to process request." }, { status: 500 });
+    return unavailable();
   }
 }
 

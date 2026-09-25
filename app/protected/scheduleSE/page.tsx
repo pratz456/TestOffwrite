@@ -1,6 +1,6 @@
 "use client";
 
-import { SUPPORTED_TAX_YEARS, getFederalTaxRules, nearestPublishedTaxYear } from '@/lib/tax-rules/federal-year-rules';
+import { SUPPORTED_TAX_YEARS, getFederalTaxRules } from '@/lib/tax-rules/federal-year-rules';
 import { PremiumFeatureGate } from '@/components/premium-feature-gate';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -339,7 +339,7 @@ export default function ScheduleSEPage() {
             </p>
             <div className="text-sm text-gray-500 space-y-1">
               <p>• Net earnings from self-employment are 92.35% of Schedule C net profit</p>
-              <p>• Social Security tax: 12.4% up to ${getFederalTaxRules(nearestPublishedTaxYear(Number(selectedYear))).socialSecurityWageBase.toLocaleString('en-US')} of combined wages and net earnings ({nearestPublishedTaxYear(Number(selectedYear))} wage base)</p>
+              <p>• Social Security tax: 12.4% up to ${getFederalTaxRules(Number(selectedYear)).socialSecurityWageBase.toLocaleString('en-US')} of combined wages and net earnings ({selectedYear} wage base)</p>
               <p>• Medicare tax: 2.9% on all net earnings</p>
               <p>• Additional Medicare tax: 0.9% above $200,000 ($250,000 married filing jointly; $125,000 married filing separately); these thresholds are not indexed</p>
               <p>• Half of SE tax is deductible on Schedule 1</p>

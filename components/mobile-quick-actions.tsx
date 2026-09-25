@@ -6,7 +6,6 @@ import { Card, CardContent } from '@/components/ui/card';
 import { 
   Plus, 
   Camera, 
-  FileText, 
   TrendingUp,
   Receipt,
   Car,
@@ -96,41 +95,41 @@ export function MobileQuickActions({
       label: 'Receipts',
       icon: Receipt,
       action: () => onNavigate('receipt-upload'),
-      color: 'bg-green-100 text-green-700 hover:bg-green-200'
+      color: 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-950/50 dark:text-green-300 dark:hover:bg-green-900/60'
     },
     {
       id: 'mileage',
       label: 'Mileage',
       icon: Car,
       action: () => onNavigate('mileage-tracker'),
-      color: 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+      color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:hover:bg-blue-900/60'
     },
     {
       id: 'home-office',
       label: 'Home Office',
       icon: Home,
       action: () => onNavigate('settings'),
-      color: 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'
+      color: 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200 dark:bg-yellow-950/50 dark:text-yellow-300 dark:hover:bg-yellow-900/60'
     },
     {
       id: 'business',
       label: 'Business',
       icon: Briefcase,
       action: () => onNavigate('settings'),
-      color: 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+      color: 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-950/50 dark:text-purple-300 dark:hover:bg-purple-900/60'
     }
   ];
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 pb-safe">
+    <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-border bg-card p-4 pb-safe">
       {/* Install Prompt */}
       {!isInstalled && deferredPrompt && (
-        <Card className="mb-4 bg-gradient-to-r from-teal-50 to-blue-50 border-teal-200">
+        <Card className="mb-4 border-primary/20 bg-primary/5">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="font-semibold text-teal-900">Install WriteOff</h3>
-                <p className="text-sm text-teal-700">Get quick access from your home screen</p>
+                <h3 className="font-semibold text-foreground">Install WriteOff</h3>
+                <p className="text-sm text-muted-foreground">Get quick access from your home screen</p>
               </div>
               <Button 
                 onClick={handleInstallClick}
@@ -182,9 +181,10 @@ export function MobileQuickActions({
 
       {/* Floating Action Button for Calculator */}
       <Button
-        onClick={() => onNavigate('calculator')}
+        onClick={() => onNavigate('quarterly-taxes')}
         className="fixed bottom-20 right-4 bg-teal-600 hover:bg-teal-700 text-white rounded-full w-14 h-14 shadow-lg"
         size="icon"
+        aria-label="Open quarterly tax calculator"
       >
         <Calculator className="h-6 w-6" />
       </Button>

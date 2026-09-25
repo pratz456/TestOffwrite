@@ -1,11 +1,11 @@
 "use client";
 
 import React, { useState } from 'react';
-import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { ArrowLeft, DollarSign, FileText, TrendingUp, Calendar } from 'lucide-react';
+import { DollarSign, FileText } from 'lucide-react';
 import { formatCategory } from '@/lib/utils';
 import { summarizeConfirmedDeductions } from '@/lib/tax/display-deductions';
+import { AppMetricStrip, AppPageHeader, AppScreenShell } from '@/components/app/app-screen-shell';
 
 interface Transaction {
   id: string;
@@ -34,9 +34,8 @@ interface DeductionsDetailScreenProps {
 }
 
 export const DeductionsDetailScreen: React.FC<DeductionsDetailScreenProps> = ({ 
-  user, 
   onBack, 
-  transactions 
+  transactions,
 }) => {
   const [selectedPeriod, setSelectedPeriod] = useState('This Year');
   const [selectedCategory, setSelectedCategory] = useState('All Categories');
@@ -45,45 +44,36 @@ export const DeductionsDetailScreen: React.FC<DeductionsDetailScreenProps> = ({
 
   if (!transactions) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
-        <div className="bg-white border-b border-blue-100 sticky top-0 z-50 shadow-sm">
-          <div className="max-w-6xl mx-auto px-6 py-4">
-            <div className="flex items-center gap-4">
-              <div className="h-9 w-20 bg-muted rounded animate-pulse" />
-              <div className="space-y-2">
-                <div className="h-6 w-56 bg-muted rounded animate-pulse" />
-                <div className="h-4 w-72 bg-muted rounded animate-pulse" />
-              </div>
-            </div>
-          </div>
+      <AppScreenShell width="wide">
+        <div role="status" aria-busy="true" className="h-20 animate-pulse rounded-xl border border-border/70 bg-card">
+          <span className="sr-only">Loading deduction records…</span>
         </div>
-        <div className="max-w-6xl mx-auto p-6 space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {[...Array(3)].map((_, i) => (
-              <div key={i} className="h-24 bg-muted rounded-xl animate-pulse" />
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="h-20 animate-pulse rounded-xl bg-muted" />
+          ))}
+        </div>
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+          <div className="space-y-2 lg:col-span-2">
+            {[...Array(6)].map((_, i) => (
+              <div key={i} className="h-16 animate-pulse rounded-lg bg-muted" />
             ))}
           </div>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <div className="lg:col-span-2 space-y-3">
-              <div className="h-10 w-48 bg-muted rounded animate-pulse" />
-              {[...Array(6)].map((_, i) => (
-                <div key={i} className="h-16 bg-muted rounded-lg animate-pulse" />
-              ))}
-            </div>
-            <div className="space-y-3">
-              <div className="h-10 w-40 bg-muted rounded animate-pulse" />
-              {[...Array(4)].map((_, i) => (
-                <div key={i} className="h-12 bg-muted rounded-lg animate-pulse" />
-              ))}
-            </div>
-          </div>
+          <div className="h-64 animate-pulse rounded-xl bg-muted" />
         </div>
-      </div>
+      </AppScreenShell>
     );
   }
 
   const summary = summarizeConfirmedDeductions(transactions);
-  if (summary.reviewMessage) return <div className="p-6"><h1 className="text-xl font-semibold">Deductions</h1><p role="alert" className="mt-3 text-sm text-muted-foreground">{summary.reviewMessage}</p><Button className="mt-3" onClick={onBack}>Back</Button></div>;
+  if (summary.reviewMessage) return (
+    <AppScreenShell width="wide">
+      <AppPageHeader title="Tax deductions" description="Confirmed transaction deductions for a selected period." onBack={onBack} />
+      <Card className="border-border/70 bg-card p-4 shadow-[var(--shadow-tight)]">
+        <p role="alert" className="text-sm text-muted-foreground">{summary.reviewMessage}</p>
+      </Card>
+    </AppScreenShell>
+  );
   const deductibleTransactions = summary.transactions;
   
   // Get unique categories
@@ -150,76 +140,27 @@ export const DeductionsDetailScreen: React.FC<DeductionsDetailScreenProps> = ({
     .sort(([,a], [,b]) => b - a);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
-      {/* Header */}
-      <div className="bg-white border-b border-blue-100 sticky top-0 z-50 shadow-sm">
-        <div className="max-w-6xl mx-auto px-6 py-4">
-          <div className="flex items-center gap-4">
-            <Button onClick={onBack} variant="outline" size="sm" className="gap-2">
-              <ArrowLeft className="w-4 h-4" />
-              Back
-            </Button>
-            <div>
-              <h1 className="text-xl font-semibold text-slate-900">Tax Deductions Breakdown</h1>
-              <p className="text-sm text-slate-600">Confirmed transaction deductions for the selected period</p>
-            </div>
-          </div>
-        </div>
-      </div>
+    <AppScreenShell width="wide">
+      <AppPageHeader title="Tax deductions" description="Confirmed transaction deductions for the selected period." onBack={onBack} />
+      <p className="px-1 text-xs leading-5 text-muted-foreground">Refunds reduce deductions; the meals limit is applied. Vehicle methods, assets and home-office deductions need separate review in Tax Preview. These amounts are not tax savings.</p>
+      <AppMetricStrip metrics={[
+        { label: 'Confirmed deductions', value: `$${totalDeductions.toLocaleString()}`, tone: 'success' },
+        { label: 'Confirmed net outflows', value: `$${totalRecordedAmount.toLocaleString()}` },
+        { label: 'Confirmed records', value: filteredTransactions.length },
+      ]} />
 
-      <div className="max-w-6xl mx-auto p-6">
-        <p className="mb-4 text-xs text-slate-600">Refunds reduce deductions; the meals limit is applied. Vehicle methods, assets and home-office deductions need separate review in Tax Preview. These amounts are not tax savings.</p>
-        {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <Card className="p-6 bg-white border-0 shadow-xl">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center">
-                <DollarSign className="w-6 h-6 text-emerald-600" />
-              </div>
-              <div>
-                <p className="text-sm text-slate-600">Confirmed Transaction Deductions</p>
-                <p className="text-2xl font-bold text-slate-900">${totalDeductions.toLocaleString()}</p>
-              </div>
-            </div>
-          </Card>
-
-          <Card className="p-6 bg-white border-0 shadow-xl">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
-                <TrendingUp className="w-6 h-6 text-green-600" />
-              </div>
-              <div>
-                <p className="text-sm text-slate-600">Confirmed Net Outflows</p>
-                <p className="text-2xl font-bold text-slate-900">${totalRecordedAmount.toLocaleString()}</p>
-              </div>
-            </div>
-          </Card>
-
-          <Card className="p-6 bg-white border-0 shadow-xl">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
-                <FileText className="w-6 h-6 text-blue-600" />
-              </div>
-              <div>
-                <p className="text-sm text-slate-600">Confirmed Records</p>
-                <p className="text-2xl font-bold text-slate-900">{filteredTransactions.length}</p>
-              </div>
-            </div>
-          </Card>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
           {/* Transactions List */}
           <div className="lg:col-span-2">
-            <Card className="p-6 bg-white border-0 shadow-xl">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-semibold text-slate-900">Confirmed Expenses and Refunds</h3>
-                <div className="flex gap-3">
+            <Card className="border-border/70 bg-card p-4 shadow-[var(--shadow-tight)]">
+              <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <h3 className="text-base font-semibold text-foreground">Confirmed expenses and refunds</h3>
+                <div className="grid grid-cols-2 gap-2">
                   <select
                     value={selectedPeriod}
                     onChange={(e) => setSelectedPeriod(e.target.value)}
                     aria-label="Filter by time period"
-                    className="px-3 py-2 border border-gray-300 rounded-md text-sm"
+                    className="min-h-11 min-w-0 rounded-lg border border-input bg-background px-3 text-sm text-foreground"
                   >
                     {periods.map(period => (
                       <option key={period} value={period}>{period}</option>
@@ -229,25 +170,25 @@ export const DeductionsDetailScreen: React.FC<DeductionsDetailScreenProps> = ({
                     value={selectedCategory}
                     onChange={(e) => setSelectedCategory(e.target.value)}
                     aria-label="Filter by category"
-                    className="px-3 py-2 border border-gray-300 rounded-md text-sm"
+                    className="min-h-11 min-w-0 rounded-lg border border-input bg-background px-3 text-sm text-foreground"
                   >
                     {categories.map(category => (
-                      <option key={category} value={category}>{category}</option>
+                      <option key={category} value={category}>{category === 'All Categories' ? category : formatCategory(category)}</option>
                     ))}
                   </select>
                 </div>
               </div>
 
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {filteredTransactions.length === 0 ? (
-                  <div className="text-center py-12">
-                    <FileText className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                    <h4 className="text-sm font-medium text-slate-700 mb-1">
+                  <div className="py-10 text-center">
+                    <FileText className="mx-auto mb-3 h-10 w-10 text-muted-foreground/35" />
+                    <h4 className="mb-1 text-sm font-medium text-foreground">
                       {deductibleTransactions.length === 0
                         ? 'No deductible expenses yet'
                         : 'No results for this filter'}
                     </h4>
-                    <p className="text-sm text-slate-500 max-w-sm mx-auto">
+                    <p className="mx-auto max-w-sm text-sm text-muted-foreground">
                       {deductibleTransactions.length === 0
                         ? 'Confirmed business transactions appear here after review, including refunds and the meals limit.'
                         : 'Try changing the time period or category filter to see more expenses.'}
@@ -257,23 +198,23 @@ export const DeductionsDetailScreen: React.FC<DeductionsDetailScreenProps> = ({
                   filteredTransactions
                     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
                     .map((transaction) => (
-                      <div key={transaction.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center">
-                            <DollarSign className="w-4 h-4 text-emerald-600" />
+                      <div key={transaction.id} className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/25 p-3 transition-colors hover:bg-muted/45">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[hsl(var(--success)/0.12)]">
+                            <DollarSign className="h-4 w-4 text-[hsl(var(--success))]" />
                           </div>
-                          <div>
-                            <p className="font-medium text-slate-900">{transaction.description}</p>
-                            <div className="flex items-center gap-2 text-sm text-slate-600">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-foreground">{transaction.description || transaction.merchant_name || 'Recorded expense'}</p>
+                            <div className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
                               <span>{formatCategory(transaction.category)}</span>
                               <span>•</span>
                               <span>{transaction.date.slice(0, 10)}</span>
                             </div>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <p className="font-bold text-slate-900">${summary.contributions.get(transaction)!.toFixed(2)}</p>
-                          <p className="text-xs text-emerald-600">Deduction contribution</p>
+                        <div className="shrink-0 text-right">
+                          <p className="text-sm font-semibold tabular-nums text-foreground">${summary.contributions.get(transaction)!.toFixed(2)}</p>
+                          <p className="text-[11px] text-[hsl(var(--success))]">Deduction basis</p>
                         </div>
                       </div>
                     ))
@@ -284,25 +225,26 @@ export const DeductionsDetailScreen: React.FC<DeductionsDetailScreenProps> = ({
 
           {/* Category Breakdown */}
           <div>
-            <Card className="p-6 bg-white border-0 shadow-xl">
-              <h3 className="text-lg font-semibold text-slate-900 mb-4">Category Breakdown</h3>
+            <Card className="border-border/70 bg-card p-4 shadow-[var(--shadow-tight)]">
+              <h3 className="mb-4 text-base font-semibold text-foreground">Category breakdown</h3>
               <div className="space-y-3">
+                {categoryEntries.length === 0 && <p className="text-sm text-muted-foreground">No categories match these filters.</p>}
                 {categoryEntries.map(([category, amount]) => {
                   const magnitude = categoryEntries.reduce((sum, [, value]) => sum + Math.abs(value), 0);
                   const percentage = magnitude > 0 ? Math.abs(amount) / magnitude * 100 : 0;
                   return (
                     <div key={category} className="space-y-1">
                       <div className="flex justify-between items-center">
-                        <span className="text-sm font-medium text-slate-700">{category}</span>
-                        <span className="text-sm text-slate-900">${amount.toFixed(2)}</span>
+                        <span className="text-sm font-medium text-foreground">{formatCategory(category)}</span>
+                        <span className="text-sm tabular-nums text-foreground">${amount.toFixed(2)}</span>
                       </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div className="h-2 w-full rounded-full bg-muted">
                         <div 
-                          className="bg-emerald-600 h-2 rounded-full transition-all duration-300"
+                          className="h-2 rounded-full bg-[hsl(var(--success))] transition-all duration-300"
                           style={{ width: `${percentage}%` }}
                         ></div>
                       </div>
-                      <div className="text-xs text-slate-500">{percentage.toFixed(1)}% of category magnitude</div>
+                      <div className="text-xs text-muted-foreground">{percentage.toFixed(1)}% of category magnitude</div>
                     </div>
                   );
                 })}
@@ -310,20 +252,14 @@ export const DeductionsDetailScreen: React.FC<DeductionsDetailScreenProps> = ({
             </Card>
 
             {/* Tax Tips */}
-            <Card className="p-6 bg-gradient-to-br from-emerald-600 to-emerald-700 border-0 shadow-xl text-white mt-6">
-              <div className="mb-4">
-                <h3 className="text-lg font-semibold mb-2">💡 Deduction Tip</h3>
-                <p className="text-sm text-emerald-100">
-                  Keep detailed records and receipts for all business expenses. The IRS requires documentation to support your deductions.
-                </p>
-              </div>
-              <Button size="sm" variant="secondary" className="w-full">
-                Learn More About Deductions
-              </Button>
+            <Card className="mt-3 border-primary/20 bg-primary/5 p-4 shadow-[var(--shadow-tight)]">
+              <h3 className="text-sm font-semibold text-foreground">Recordkeeping reminder</h3>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                Keep receipts and business-purpose notes with each expense. A category alone may not be enough to support a deduction.
+              </p>
             </Card>
           </div>
         </div>
-      </div>
-    </div>
+    </AppScreenShell>
   );
 };

@@ -49,6 +49,17 @@ describe('reviewed guidance routing', () => {
     ]);
   });
 
+  it('redacts SSN and EIN-shaped text from current and prior provider messages', () => {
+    const messages = buildGuidanceMessages({
+      ...input,
+      message: 'Can I deduct this? SSN 123-45-6789',
+      conversationHistory: [{ role: 'user', content: 'My EIN is 12-3456789' }],
+    });
+    const payload = JSON.stringify(messages);
+    expect(payload).not.toMatch(/123-45-6789|12-3456789/);
+    expect(payload.match(/\[redacted-id\]/g)?.length).toBeGreaterThanOrEqual(2);
+  });
+
   it.each([
     { ...vehicle, answer: 'Your deduction is 30000' },
     { ...vehicle, answer: 'You qualify for the full deduction because it exceeds 6,000 pounds' },

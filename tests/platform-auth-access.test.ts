@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
-const mock = vi.hoisted(() => ({ verifyIdToken: vi.fn(), verifySessionCookie: vi.fn(), createSessionCookie: vi.fn(), get: vi.fn(), set: vi.fn(), transaction: vi.fn() }));
-vi.mock('@/lib/firebase/admin', () => ({ adminAuth: mock, adminDb: { doc: vi.fn(() => ({ get: mock.get })), runTransaction: mock.transaction }, FieldValue: { serverTimestamp: () => 'server-time', delete: () => 'delete-field' } }));
+const mock = vi.hoisted(() => ({ verifyIdToken: vi.fn(), verifySessionCookie: vi.fn(), createSessionCookie: vi.fn(), get: vi.fn(), set: vi.fn(), update: vi.fn(), transaction: vi.fn() }));
+vi.mock('@/lib/firebase/admin', () => ({ adminAuth: mock, adminDb: { doc: vi.fn(() => ({ get: mock.get, update: mock.update })), runTransaction: mock.transaction }, FieldValue: { serverTimestamp: () => 'server-time', delete: () => 'delete-field' } }));
 vi.mock('@/lib/plaid/connections', () => ({ migrateLegacyPlaidConnection: vi.fn() }));
 vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
@@ -124,6 +124,25 @@ describe('server profile API boundaries', () => {
     expect(await (await profileGet(request({ authorization: 'Bearer id' }))).json()).toEqual({ success: true, profile: null });
     mock.get.mockRejectedValue(new Error('private error'));
     expect((await profileGet(request({ authorization: 'Bearer id' }))).status).toBe(503);
+  });
+  it('encrypts a new EIN, returns only its mask, and never writes the plaintext field', async () => {
+    vi.stubEnv('SSN_ENCRYPTION_KEY', '11'.repeat(32));
+    mock.transaction.mockImplementation(async (callback: (transaction: unknown) => Promise<void>) => callback({ get: mock.get, set: mock.set }));
+    mock.get.mockResolvedValue({ exists: true, data: () => ({ name: 'Owner' }) });
+    const response = await profilePost(request({ authorization: 'Bearer id' }, 'POST', { ein: '12-3456789' }));
+    expect(response.status).toBe(200);
+    const written = mock.set.mock.calls[0][1];
+    expect(written.ein).toBe('delete-field');
+    expect(written.ein_last4).toBe('6789');
+    expect(written.ein_encrypted).toMatch(/^[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+$/);
+    expect(JSON.stringify(written)).not.toContain('123456789');
+
+    mock.get.mockResolvedValue({ exists: true, data: () => ({ name: 'Owner', ein_last4: '6789', ein_encrypted: written.ein_encrypted }) });
+    expect(await (await profileGet(request({ authorization: 'Bearer id' }))).json()).toEqual({
+      success: true,
+      profile: { id: 'owner', name: 'Owner', ein: '**-***6789' },
+    });
+    vi.unstubAllEnvs();
   });
 
   describe('sign-up consent record', () => {

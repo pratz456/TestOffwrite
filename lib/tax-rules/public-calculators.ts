@@ -79,6 +79,8 @@ export interface Public1099EstimateInput {
   grossIncome: number;
   expenses: number;
   w2Wages: number;
+  w2SocialSecurityWages?: number;
+  w2MedicareWages?: number;
   filingStatus: string;
   taxYear: PublicCalculatorTaxYear;
 }
@@ -110,11 +112,26 @@ export function estimate1099FederalTax(input: Public1099EstimateInput): Public10
   const { taxYear } = input;
   const filingStatus = normalizeFilingStatus(input.filingStatus);
   const rules = getFederalTaxRules(taxYear);
-  const netProfit = Math.max(0, input.grossIncome - Math.max(0, input.expenses));
+  const netProfit = input.grossIncome - Math.max(0, input.expenses);
+  if (netProfit < 0) {
+    throw new TaxCalculationScopeReviewRequiredError('This simplified public calculator does not model a Schedule C loss or its limits against other income');
+  }
   const w2Wages = Math.max(0, input.w2Wages);
-  assertWageOwnershipScope(filingStatus, netProfit, w2Wages);
+  if (w2Wages > 0 && (input.w2SocialSecurityWages === undefined || input.w2MedicareWages === undefined)) {
+    throw new TaxCalculationScopeReviewRequiredError('A W-2 estimate requires Box 3 Social Security wages and Box 5 Medicare wages, including explicit zero');
+  }
+  if ([input.w2SocialSecurityWages, input.w2MedicareWages]
+    .some(value => value !== undefined && (!Number.isFinite(value) || value < 0))) {
+    throw new RangeError('W-2 Box 3 and Box 5 amounts must be finite and nonnegative.');
+  }
+  const w2SocialSecurityWages = Math.max(0, input.w2SocialSecurityWages ?? 0);
+  const w2MedicareWages = Math.max(0, input.w2MedicareWages ?? 0);
+  assertWageOwnershipScope(filingStatus, netProfit, w2Wages, {
+    socialSecurityWages: w2SocialSecurityWages,
+    medicareWages: w2MedicareWages,
+  });
 
-  const se = calcScheduleSE({ scheduleCNetProfit: netProfit, taxYear }, filingStatus, w2Wages, w2Wages);
+  const se = calcScheduleSE({ scheduleCNetProfit: netProfit, taxYear }, filingStatus, w2SocialSecurityWages, w2MedicareWages);
 
   const totalIncome = netProfit + w2Wages;
   const agi = Math.max(0, totalIncome - se.halfSEDeduction);
@@ -139,7 +156,7 @@ export function estimate1099FederalTax(input: Public1099EstimateInput): Public10
   const taxableIncome = Math.max(0, taxableBeforeQBI - qbiDeduction);
   const incomeTax = calculateFederalIncomeTax(taxableIncome, filingStatus, taxYear);
   const additionalMedicareTax = se.additionalMedicareTax
-    + Math.max(0, w2Wages - additionalMedicareThreshold(filingStatus)) * 0.009;
+    + Math.max(0, w2MedicareWages - additionalMedicareThreshold(filingStatus)) * 0.009;
   const totalTax = incomeTax + se.totalSETax + additionalMedicareTax;
 
   return {

@@ -315,6 +315,8 @@ const PROFESSIONAL_SERVICE_WORDS = /\b(?:attorney|lawyer|law\s+(?:firm|office|gr
 const PERSONAL_LEGAL_MATTER_PATTERN = /\b(?:divorce|custody|child\s+support|alimony|prenup\w*|estate\s+plan\w*|(?:my|our)\s+will\b|will\s+(?:and|&)\s+trust|living\s+trust|personal\s+injury|dui|dwi|speeding\s+ticket|traffic\s+(?:ticket|court)|criminal\s+(?:defense|charge)|immigration\s+(?:attorney|lawyer|filing|case)|buying\s+(?:a|my|our)\s+(?:house|home|condo)|(?:my|our)\s+(?:house|home)\s+(?:purchase|closing)|residential\s+closing)\b/i;
 const PERSONAL_RETURN_PATTERN = /\bpersonal\s+(?:tax\s+)?(?:return|taxes|1040)\b/i;
 const BUSINESS_SCHEDULE_WORDS = /\b(?:schedule\s+c|schedule\s+se|business\s+(?:schedule|return|forms?|portion|share|taxes)|1099|llc|self[- ]employ\w*)\b/i;
+/** Education that expressly qualifies the taxpayer for a new trade fails Reg. §1.162-5 even when useful later. */
+const NEW_TRADE_EDUCATION_PATTERN = /\b(?:career\s+(?:change|switch|transition)|switch(?:ing)?\s+(?:careers?|professions?|trades?)|new\s+(?:career|profession|trade|line\s+of\s+work)|qualif(?:y|ies|ied|ying)\s+(?:me|the\s+taxpayer|you)?\s*(?:for|as)\s+(?:a\s+)?(?:new|different)\s+(?:career|profession|trade|business)|(?:degree|course|program|school|training)\s+(?:to|so\s+i\s+can)\s+(?:become|start|work\s+as)\s+(?:a|an)\b|minimum\s+(?:education|requirements?)\s+(?:for|to\s+enter))\b/i;
 /** State filings and licences a filing service may collect on the taxpayer's behalf (line 23), as opposed to its own service fee (line 17). */
 const STATE_FILING_PATTERN = /\b(?:annual\s+report|biennial\s+report|statement\s+of\s+information|secretary\s+of\s+state|business\s+licen[cs]e|licen[cs]e\s+(?:renewal|fee)|(?:professional|state|nursing|real\s+estate|cosmetology|contractor'?s?|insurance|notary)\s+licen[cs]e|permit\s+fee|(?:city|county|state)\s+permit|llc\s+(?:annual|renewal|fee|tax|filing\s+fee)|franchise\s+tax|registration\s+fee|sales\s+tax\s+permit|dba\s+filing|fictitious\s+(?:business\s+)?name)\b/i;
 /** Business coverage types (Pub 334: liability, professional/E&O, property, workers' compensation, business interruption, bonds). */
@@ -577,6 +579,14 @@ export function groundTransactionAnalysis(
     addEvidence('insurance-334');
     markPersonal('Your note describes life, disability, accident or pet coverage on yourself or your household. Those premiums are personal, not business insurance; only coverage of a business risk or business property belongs on Schedule C line 15. Edit the note if this policy covers your business.',
       'Recorded as personal coverage by your note.');
+  }
+  if (kind === 'expense' && result.status !== 'blocked' && result.category === 'education_training'
+      && NEW_TRADE_EDUCATION_PATTERN.test(purpose)) {
+    addEvidence('education-reg-1.162-5');
+    markPersonal(
+      'Your note says this education qualifies you for a new career, profession or trade. Education that prepares you for a new trade or meets its minimum entry requirements is not a Schedule C expense under Treas. Reg. §1.162-5, even if it may help future work. Edit the note if it instead maintains or improves skills in the business you already perform.',
+      'Recorded as education for a new trade or profession.',
+    );
   }
   if (openExpense && kind === 'expense' && federalBusinessTax) {
     addEvidence('taxes-licenses-sch-c');

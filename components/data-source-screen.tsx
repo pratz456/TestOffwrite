@@ -14,6 +14,7 @@ interface DataSourceScreenProps {
   user: any;
   onConnectBank: () => void;     // Go to Plaid flow
   onSkipToApp: () => void;       // Skip everything, go to dashboard
+  onNavigateToApp?: (screen: string) => void;
   onBack: () => void;
 }
 
@@ -82,7 +83,7 @@ export async function uploadOnboardingDocument(file: File, year: number): Promis
   return data;
 }
 
-export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: DataSourceScreenProps) {
+export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onNavigateToApp, onBack }: DataSourceScreenProps) {
   const [selected, setSelected] = useState<DataSource>(null);
   const [uploadState, setUploadState] = useState<UploadState>('idle');
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
@@ -297,7 +298,7 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
 
             <button
               onClick={() => setSelected(null)}
-              className="w-full text-xs text-muted-foreground hover:text-foreground text-center py-1 transition-colors"
+              className="flex min-h-11 w-full items-center justify-center text-center text-xs text-muted-foreground transition-colors hover:text-foreground"
             >
               Choose a different method
             </button>
@@ -418,7 +419,7 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
               </Button>
               <button
                 onClick={onSkipToApp}
-                className="w-full text-xs text-muted-foreground hover:text-foreground text-center py-1.5 transition-colors"
+                className="flex min-h-11 w-full items-center justify-center text-center text-xs text-muted-foreground transition-colors hover:text-foreground"
               >
                 {hasSuccessfulUploads ? 'Continue to dashboard' : 'Skip for now  -  I\'ll add data later'}
               </button>
@@ -455,20 +456,22 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
             {/* Quick action cards */}
             <div className="grid grid-cols-2 gap-2">
               {[
-                { icon: Banknote, label: 'Add Income', sub: '1099, freelance, sales', screen: 'income-tracking', color: 'emerald' },
-                { icon: Receipt, label: 'Add Expense', sub: 'Business purchases', screen: 'add-manual-transaction', color: 'blue' },
-                { icon: FileSpreadsheet, label: 'Tax Organizer', sub: 'W-2, investments, SSN', screen: 'tax-organizer', color: 'violet' },
-                { icon: CreditCard, label: 'Import Document', sub: 'W-2, 1099 forms', screen: 'document-import', color: 'orange' },
-              ].map(({ icon: Icon, label, sub, color }) => (
-                <div key={label} className="rounded-xl border border-border bg-card p-3 flex items-start gap-2">
-                  <div className={`w-8 h-8 rounded-lg bg-${color}-100 dark:bg-${color}-950/30 flex items-center justify-center shrink-0`}>
-                    <Icon className={`w-4 h-4 text-${color}-600 dark:text-${color}-400`} />
+                { icon: Banknote, label: 'Add Income', sub: '1099, freelance, sales', screen: 'income-tracking', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300' },
+                { icon: Receipt, label: 'Add Expense', sub: 'Business purchases', screen: 'add-manual-transaction', color: 'bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300' },
+                { icon: FileSpreadsheet, label: 'Tax Organizer', sub: 'W-2, investments, identity', screen: 'tax-organizer', color: 'bg-violet-100 text-violet-700 dark:bg-violet-950/50 dark:text-violet-300' },
+                { icon: CreditCard, label: 'Import Document', sub: 'W-2 and 1099 forms', screen: 'document-import', color: 'bg-orange-100 text-orange-700 dark:bg-orange-950/50 dark:text-orange-300' },
+              ].map(({ icon: Icon, label, sub, screen, color }) => (
+                <button type="button" key={label} onClick={() => onNavigateToApp?.(screen)}
+                  className="flex min-h-16 items-start gap-2 rounded-xl border border-border bg-card p-3 text-left transition-colors hover:border-primary/30 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${color}`}>
+                    <Icon className="h-4 w-4" aria-hidden="true" />
                   </div>
                   <div className="min-w-0">
                     <p className="text-xs font-semibold text-foreground">{label}</p>
                     <p className="text-xs text-muted-foreground">{sub}</p>
                   </div>
-                </div>
+                  <ChevronRight className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                </button>
               ))}
             </div>
 
@@ -482,7 +485,7 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
             </Button>
             <button
               onClick={() => setSelected(null)}
-              className="w-full text-xs text-muted-foreground hover:text-foreground text-center py-1 transition-colors"
+              className="flex min-h-11 w-full items-center justify-center text-center text-xs text-muted-foreground transition-colors hover:text-foreground"
             >
               Back to options
             </button>

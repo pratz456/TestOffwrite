@@ -90,19 +90,34 @@ export async function downloadPreparerHandoff(id: string, token: string) {
   return { bytes, filename: `writeoff-preparer-${Number.isInteger(year) ? year : 'records'}${data!.receiptIssues ? '-receipt-review-needed' : ''}.zip`, receiptIssues: Number(data!.receiptIssues) || 0 };
 }
 
-/** Account deletion calls this before deleting the owner's remaining records. Errors must propagate. */
+/** Account deletion calls this before deleting the owner's remaining records. Metadata errors must propagate. */
 export async function deletePreparerHandoffsForUser(uid: string) {
   if (!validUid(uid)) throw new Error('Invalid handoff owner');
+  const ownerRef = adminDb.doc(`preparer_handoff_owners/${uid}`);
+  const ownerExists = (await ownerRef.get()).exists;
+  let hadSnapshots = false;
   for (;;) {
     const rows = await adminDb.collection('preparer_handoffs').where('userId', '==', uid).limit(100).get();
     if (!rows.docs.length) break;
+    if (!ownerExists && !hadSnapshots) {
+      await ownerRef.set({ userId: uid, slots: {}, deletionCleanupPending: true }, { merge: true });
+    }
+    hadSnapshots = true;
     for (const doc of rows.docs) {
-      await doc.ref.update({ revokedAt: Date.now() });
-      await receiptBucket().file(storagePath(uid, doc.id)).delete({ ignoreNotFound: true });
+      if (ID.test(doc.id)) {
+        await receiptBucket().file(storagePath(uid, doc.id)).delete({ ignoreNotFound: true });
+      }
+      // Removing metadata revokes token-based access and is idempotent if a
+      // retention task already deleted the row after this query completed.
       await doc.ref.delete();
     }
   }
-  await adminDb.doc(`preparer_handoff_owners/${uid}`).delete();
-  // Also removes any snapshot whose create failed before its metadata was committed.
-  await receiptBucket().deleteFiles({ prefix: `preparer_handoffs/${uid}/` });
+  // A user who never created a handoff has no owner marker or snapshot, so
+  // there is no Storage cleanup to perform. This keeps empty-state deletion
+  // idempotent while known handoff owners still fail closed on Storage errors.
+  if (ownerExists || hadSnapshots) {
+    await receiptBucket().deleteFiles({ prefix: `preparer_handoffs/${uid}/` });
+  }
+  // Keep this retry marker until every known and orphaned snapshot is gone.
+  await ownerRef.delete();
 }

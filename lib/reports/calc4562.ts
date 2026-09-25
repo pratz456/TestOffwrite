@@ -109,7 +109,7 @@ const businessBasis = (asset: Asset) => asset.cost * asset.businessUsePercent / 
  * and mid-quarter cases require facts the existing asset form does not collect.
  * https://www.irs.gov/publications/p946 · https://www.irs.gov/instructions/i4562
  */
-export function calc4562(assets: Asset[], businessIncome: number, taxYear = 2026, elections?: DepreciationElections | null): Form4562Calculation {
+export function calc4562(assets: Asset[], businessIncome: number, taxYear: number, elections?: DepreciationElections | null): Form4562Calculation {
   if (!SUPPORTED_TAX_YEARS.includes(taxYear as typeof SUPPORTED_TAX_YEARS[number])) throw new DepreciationReviewRequiredError('Select a supported tax year (2024–2026).');
   if (!Number.isFinite(businessIncome)) throw new DepreciationReviewRequiredError('Business income must be a finite amount.');
   const errors = validateAssets(assets);

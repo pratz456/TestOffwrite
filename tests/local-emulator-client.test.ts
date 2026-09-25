@@ -62,6 +62,7 @@ describe('Firebase client emulator integration order', () => {
     vi.stubEnv('NODE_ENV', 'production'); vi.stubEnv('NEXT_PUBLIC_USE_FIREBASE_EMULATORS', 'false'); vi.stubEnv('NEXT_PUBLIC_APP_ENV', 'staging');
     vi.stubEnv('NEXT_PUBLIC_FIREBASE_PROJECT_ID', 'writeoff-production-testing'); vi.stubEnv('NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN', 'writeoff-production-testing.firebaseapp.com');
     vi.stubEnv('NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET', 'writeoff-production-testing.firebasestorage.app'); vi.stubEnv('NEXT_PUBLIC_FIREBASE_API_KEY', 'staging-key'); vi.stubEnv('NEXT_PUBLIC_FIREBASE_APP_ID', 'staging-app');
+    vi.stubEnv('NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID', 'staging-sender');
     vi.stubGlobal('window', { location: { hostname: 'writeoff-production-testing.web.app' } });
     const client = await import('@/lib/firebase/client'); await import('@/lib/firebase/storage');
     expect(client.localEmulatorConfig).toBeNull(); expect(client.app.options.projectId).toBe('writeoff-production-testing');

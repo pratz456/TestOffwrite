@@ -9,7 +9,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, Plus, Loader2, TrendingUp, TrendingDown, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, Plus, Loader2, TrendingUp, TrendingDown, CheckCircle2, Sparkles } from "lucide-react";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 import { localCalendarYMD } from "@/lib/transactions/calendar-date";
 
@@ -60,7 +60,6 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
   const [exp, setExp] = useState(() => ({
     merchant_name: "", amount: "", date: localCalendarYMD(),
     category: "other", notes: "", business_purpose: "",
-    is_deductible: true as boolean,
   }));
 
   // Income fields
@@ -86,12 +85,12 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
           notes: exp.notes,
           business_purpose: exp.business_purpose,
           type: "expense",
-          is_deductible: exp.is_deductible,
+          is_deductible: null,
         }),
       });
       if (!res.ok) { let m = "Failed to save"; try { m = (await res.json()).error || m; } catch {} throw new Error(m); }
       setSaved(true);
-      setExp({ merchant_name: "", amount: "", date: localCalendarYMD(), category: "other", notes: "", business_purpose: "", is_deductible: true });
+      setExp({ merchant_name: "", amount: "", date: localCalendarYMD(), category: "other", notes: "", business_purpose: "" });
       setTimeout(() => { setSaved(false); onSaved?.(); }, 1800);
     } catch (err) { setError(err instanceof Error ? err.message : "Failed to save"); }
     finally { setSaving(false); }
@@ -216,13 +215,14 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
                     placeholder="Receipt #, project name, client, etc." className="bg-background" />
                 </div>
 
-                <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/30 border border-border">
-                  <input type="checkbox" id="deductible" checked={exp.is_deductible}
-                    onChange={e => setExp(p => ({ ...p, is_deductible: e.target.checked }))}
-                    className="rounded border-border w-4 h-4" />
-                  <Label htmlFor="deductible" className="text-sm cursor-pointer">
-                    Mark as confirmed deductible (will appear in Schedule C totals)
-                  </Label>
+                <div className="flex items-start gap-3 rounded-lg border border-primary/20 bg-primary/5 p-3">
+                  <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Review before it enters tax totals</p>
+                    <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+                      WriteOff will suggest a category and tax treatment. You confirm or correct it in Review; saving this form does not record a deduction.
+                    </p>
+                  </div>
                 </div>
 
                 <Button type="submit" disabled={saving || !exp.merchant_name.trim() || !exp.amount} className="w-full gap-2 min-h-[44px]">

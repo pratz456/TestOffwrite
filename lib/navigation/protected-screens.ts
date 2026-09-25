@@ -21,11 +21,23 @@ export function protectedScreen(raw: string | null | undefined): ProtectedScreen
 export function protectedScreenUrl(raw: string): string {
   const screen = protectedScreen(raw);
   if (screen === 'dashboard') return '/protected';
-  if (screen === 'settings' || screen === 'transactions' || screen === 'reports') return `/protected/${screen}`;
   const query = new URLSearchParams(raw.includes('?') ? raw.slice(raw.indexOf('?') + 1) : '');
+  if (screen === 'settings') {
+    const target = new URLSearchParams();
+    if (/^[a-z-]+$/.test(query.get('tab') ?? '')) target.set('tab', query.get('tab')!);
+    return `/protected/settings${target.size ? `?${target.toString()}` : ''}`;
+  }
+  if (screen === 'reports') {
+    const target = new URLSearchParams();
+    const year = Number(query.get('year'));
+    if (Number.isInteger(year) && year >= 2000 && year <= new Date().getUTCFullYear()) target.set('year', String(year));
+    return `/protected/reports${target.size ? `?${target.toString()}` : ''}`;
+  }
+  if (screen === 'transactions') return '/protected/transactions';
   const target = new URLSearchParams({ screen });
   if (query.has('from')) target.set('from', protectedScreen(query.get('from')));
   if ((screen === 'transaction-detail' || screen === 'review-transactions') && query.get('transactionId')) target.set('transactionId', query.get('transactionId')!);
+  if (screen === 'transaction-detail' && query.get('section') === 'details') target.set('section', 'details');
   if (screen === 'income-tracking') {
     // Deep link from an income-reconciliation notice: open one tab for one tax year.
     if (/^[a-z]+$/.test(query.get('tab') ?? '')) target.set('tab', query.get('tab')!);

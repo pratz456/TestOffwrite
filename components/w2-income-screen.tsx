@@ -7,8 +7,15 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Trash2, Loader2, Briefcase, CheckCircle2, AlertCircle } from "lucide-react";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
+import { AppMetricStrip, AppPageHeader, AppScreenShell } from "@/components/app/app-screen-shell";
 
-interface W2Entry { id: string; employer: string; wages: number; federalWithheld: number; box1Wages?: number; box2FederalWithheld?: number; stateWithheld?: number; state?: string; taxYear: number; }
+interface W2Entry {
+  id: string; employer: string; wages: number; federalWithheld: number;
+  box1Wages?: number; box2FederalWithheld?: number;
+  socialSecurityWages?: number; box3SocialSecurityWages?: number;
+  medicareWages?: number; box5MedicareWages?: number;
+  stateWithheld?: number; state?: string; taxYear: number;
+}
 interface Props { user: { id: string; email?: string }; onBack: () => void; }
 const fmt = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const US_STATES = ["AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY","DC"];
@@ -22,7 +29,10 @@ export function W2IncomeScreen({ user, onBack }: Props) {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ employer: "", wages: "", federalWithheld: "", stateWithheld: "", state: "" });
+  const [form, setForm] = useState({
+    employer: "", wages: "", federalWithheld: "", socialSecurityWages: "",
+    medicareWages: "", stateWithheld: "", state: "",
+  });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -41,16 +51,29 @@ export function W2IncomeScreen({ user, onBack }: Props) {
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.employer.trim() || !form.wages) return;
+    if (!form.employer.trim() || !form.wages || form.socialSecurityWages === '' || form.medicareWages === '') return;
     setSaving(true); setError(null);
     try {
-      const res = await makeAuthenticatedRequest("/api/income/w2", { method: "POST", body: JSON.stringify({ employer: form.employer, box1Wages: parseFloat(form.wages), wages: parseFloat(form.wages), box2FederalWithheld: parseFloat(form.federalWithheld || "0"), federalWithheld: parseFloat(form.federalWithheld || "0"), stateWithheld: form.stateWithheld ? parseFloat(form.stateWithheld) : undefined, state: form.state || undefined, taxYear: year }) });
+      const res = await makeAuthenticatedRequest("/api/income/w2", { method: "POST", body: JSON.stringify({
+        employer: form.employer,
+        box1Wages: parseFloat(form.wages),
+        wages: parseFloat(form.wages),
+        box2FederalWithheld: parseFloat(form.federalWithheld || "0"),
+        federalWithheld: parseFloat(form.federalWithheld || "0"),
+        box3SocialSecurityWages: parseFloat(form.socialSecurityWages),
+        socialSecurityWages: parseFloat(form.socialSecurityWages),
+        box5MedicareWages: parseFloat(form.medicareWages),
+        medicareWages: parseFloat(form.medicareWages),
+        stateWithheld: form.stateWithheld ? parseFloat(form.stateWithheld) : undefined,
+        state: form.state || undefined,
+        taxYear: year,
+      }) });
       if (!res.ok) {
         let errMsg = "Failed to save W-2";
         try { const errData = await res.json(); errMsg = errData.error || errMsg; } catch {}
         throw new Error(errMsg);
       }
-      setForm({ employer: "", wages: "", federalWithheld: "", stateWithheld: "", state: "" });
+      setForm({ employer: "", wages: "", federalWithheld: "", socialSecurityWages: "", medicareWages: "", stateWithheld: "", state: "" });
       setShowForm(false);
       load();
     } catch (err) { setError(err instanceof Error ? err.message : "Failed"); }
@@ -66,33 +89,30 @@ export function W2IncomeScreen({ user, onBack }: Props) {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="sticky top-0 z-50 bg-background border-b border-border">
-        <div className="max-w-2xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3">
-          <div className="flex-1">
-            <h1 className="text-lg sm:text-xl font-semibold">W-2 Income</h1>
-            <p className="text-xs text-muted-foreground">Salary income from employers - affects your combined tax bracket</p>
-          </div>
+    <AppScreenShell width="narrow">
+      <AppPageHeader
+        title="W-2 income"
+        description="Add each employer form once. Boxes 3 and 5 keep self-employment tax accurate."
+        onBack={onBack}
+        actions={
           <Select value={String(year)} onValueChange={v => setYear(parseInt(v))}>
-            <SelectTrigger className="w-[90px] h-9"><SelectValue /></SelectTrigger>
+            <SelectTrigger aria-label="Tax year" className="h-11 w-[96px]"><SelectValue /></SelectTrigger>
             <SelectContent>{Array.from({length:4},(_,i)=>currentYear-i).map(y=><SelectItem key={y} value={String(y)}>{y}</SelectItem>)}</SelectContent>
           </Select>
-        </div>
-      </div>
-
-      <div className="max-w-2xl mx-auto px-4 sm:px-6 py-5 space-y-4">
+        }
+      />
         {/* Info banner */}
         <div className="flex items-start gap-3 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 px-4 py-3 text-sm text-blue-800 dark:text-blue-300">
           <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-          <p>W-2 income is added to your self-employment income to determine your combined tax bracket. The federal tax withheld by your employer offsets what you owe in April.</p>
+          <p>Enter Boxes 1, 2, 3 and 5 exactly as printed. Boxes 3 and 5 are required—even when zero—so WriteOff does not guess the Social Security wage base or Additional Medicare tax.</p>
         </div>
 
         {/* Summary */}
         {entries.length > 0 && (
-          <div className="grid grid-cols-2 gap-3">
-            <Card className="bg-card border-border"><CardContent className="p-3 sm:p-4"><p className="text-xs text-muted-foreground mb-1">Total W-2 Wages</p><p className="text-base sm:text-lg font-semibold text-foreground tabular-nums">${fmt(totalWages)}</p></CardContent></Card>
-            <Card className="bg-card border-border"><CardContent className="p-3 sm:p-4"><p className="text-xs text-muted-foreground mb-1">Federal Withheld</p><p className="text-base sm:text-lg font-semibold text-green-600 dark:text-green-400 tabular-nums">${fmt(totalWithheld)}</p></CardContent></Card>
-          </div>
+          <AppMetricStrip metrics={[
+            { label: "Total W-2 wages", value: `$${fmt(totalWages)}` },
+            { label: "Federal withheld", value: `$${fmt(totalWithheld)}`, tone: "success" },
+          ]} />
         )}
 
         {error && <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div>}
@@ -124,6 +144,20 @@ export function W2IncomeScreen({ user, onBack }: Props) {
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Box 3 - Social Security Wages ($) *</Label>
+                    <Input type="number" min="0" step="0.01" value={form.socialSecurityWages}
+                      onChange={e=>setForm(p=>({...p,socialSecurityWages:e.target.value}))}
+                      placeholder="Enter 0 when Box 3 is zero" className="bg-background" required />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Box 5 - Medicare Wages ($) *</Label>
+                    <Input type="number" min="0" step="0.01" value={form.medicareWages}
+                      onChange={e=>setForm(p=>({...p,medicareWages:e.target.value}))}
+                      placeholder="Enter 0 when Box 5 is zero" className="bg-background" required />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
                     <Label className="text-xs text-muted-foreground">Box 17 - State Withheld ($)</Label>
                     <Input type="number" min="0" step="0.01" value={form.stateWithheld} onChange={e=>setForm(p=>({...p,stateWithheld:e.target.value}))} placeholder="0.00" className="bg-background" />
                   </div>
@@ -137,7 +171,7 @@ export function W2IncomeScreen({ user, onBack }: Props) {
                 </div>
                 <div className="flex gap-2 pt-1">
                   <Button type="button" variant="outline" onClick={()=>setShowForm(false)} className="flex-1">Cancel</Button>
-                  <Button type="submit" disabled={saving || !form.employer.trim() || !form.wages} className="flex-1 gap-2">
+                  <Button type="submit" disabled={saving || !form.employer.trim() || !form.wages || form.socialSecurityWages === '' || form.medicareWages === ''} className="flex-1 gap-2">
                     {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}Save W-2
                   </Button>
                 </div>
@@ -158,7 +192,15 @@ export function W2IncomeScreen({ user, onBack }: Props) {
                   <li key={e.id} className="flex items-center justify-between gap-3 p-3 rounded-lg border border-border bg-card hover:bg-muted/20 transition-colors">
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-foreground text-sm truncate">{e.employer}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">Box 1: ${fmt((e.box1Wages ?? e.wages))} · Federal withheld: ${fmt((e.box2FederalWithheld ?? e.federalWithheld))}{e.state ? ` · ${e.state}` : ""}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Box 1: ${fmt((e.box1Wages ?? e.wages))}
+                        {' · '}Box 3: {(e.box3SocialSecurityWages ?? e.socialSecurityWages) == null ? 'Needs entry' : `$${fmt((e.box3SocialSecurityWages ?? e.socialSecurityWages)!)}`
+                        }
+                        {' · '}Box 5: {(e.box5MedicareWages ?? e.medicareWages) == null ? 'Needs entry' : `$${fmt((e.box5MedicareWages ?? e.medicareWages)!)}`
+                        }
+                        {' · '}Federal withheld: ${fmt((e.box2FederalWithheld ?? e.federalWithheld))}
+                        {e.state ? ` · ${e.state}` : ""}
+                      </p>
                     </div>
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-semibold tabular-nums whitespace-nowrap">${fmt((e.box1Wages ?? e.wages))}</p>
@@ -181,8 +223,7 @@ export function W2IncomeScreen({ user, onBack }: Props) {
           <p className="font-medium text-foreground text-sm">How this affects your taxes</p>
           <p>Your W-2 wages are combined with self-employment income to determine which tax bracket you fall in. The federal tax your employer already withheld (Box 2) counts against what you owe, reducing your April balance due or increasing your refund.</p>
         </div>
-      </div>
-    </div>
+    </AppScreenShell>
   );
 }
 export default W2IncomeScreen;

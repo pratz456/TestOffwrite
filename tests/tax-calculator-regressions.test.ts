@@ -49,7 +49,7 @@ describe('annual federal parameters are applied by the real 1040 function', () =
   it.each([2023, 2027, 2026.5, NaN])('rejects unsupported year %s without substituting another year', taxYear => {
     expect(() => compute1040({ ...ordinaryWageInput, taxYear })).toThrow(UnsupportedTaxYearError);
     expect(() => calculateFederalIncomeTax(0, 'single', taxYear)).toThrow(UnsupportedTaxYearError);
-    expect(() => calculateSEPIRAMax(0, taxYear)).toThrow(UnsupportedTaxYearError);
+    expect(() => calculateSEPIRAMax(0, taxYear, 0)).toThrow(UnsupportedTaxYearError);
   });
 });
 
@@ -105,7 +105,7 @@ describe('Child Tax Credit and Additional Child Tax Credit', () => {
 
 describe('SEP maximum under the Publication 560 reduced-rate worksheet', () => {
   it('uses 20% of profit after the deductible half of SE tax', () => {
-    expect(calculateSEPIRAMax(100000)).toBe(18587.05);
+    expect(calculateSEPIRAMax(100000, 2026, 7064.775)).toBe(18587.05);
   });
   it('uses the actual half-SE deduction when W-2 wages consume the Social Security base', () => {
     // $100,000 profit * .9235 * .029 / 2 = $1,339.075 regular half-SE deduction.
@@ -115,12 +115,12 @@ describe('SEP maximum under the Publication 560 reduced-rate worksheet', () => {
     expect(result.sepIRAMaxContribution).toBe(19732.19);
   });
   it.each([[2024, 69000], [2025, 70000], [2026, 72000]])('caps tax year %i at its published dollar limit', (taxYear, limit) => {
-    expect(calculateSEPIRAMax(1000000, taxYear)).toBe(limit);
+    expect(calculateSEPIRAMax(1000000, taxYear, 0)).toBe(limit);
   });
   it('applies the Schedule SE threshold and does not create negative contributions', () => {
-    expect(calculateSEPIRAMax(400, 2026)).toBe(80);
-    expect(calculateSEPIRAMax(-10000, 2026)).toBe(0);
-    expect(calculateSEPIRAMax(0, 2026)).toBe(0);
+    expect(calculateSEPIRAMax(400, 2026, 0)).toBe(80);
+    expect(calculateSEPIRAMax(-10000, 2026, 0)).toBe(0);
+    expect(calculateSEPIRAMax(0, 2026, 0)).toBe(0);
   });
 });
 

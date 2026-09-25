@@ -285,12 +285,11 @@ export function estimateTaxEffect(result: ExplainableResult, amount: number | nu
     const deductible = Math.round(amount * percent) / 100;
     // A loss needs additional scope facts. Do not invent its effect against W-2 income.
     if (deductible > seIncome) return null;
-    // Only absent boxes use the documented wages approximation. Invalid recorded
-    // wages must not become a zero or a replacement box value.
     const w2Income = profile.w2_income == null ? 0 : finite(profile.w2_income);
     if (w2Income === null || w2Income < 0) return null;
-    const ssWages = profile.w2_social_security_wages == null ? w2Income : finite(profile.w2_social_security_wages);
-    const medicareWages = profile.w2_medicare_wages == null ? w2Income : finite(profile.w2_medicare_wages);
+    if (w2Income > 0 && (profile.w2_social_security_wages == null || profile.w2_medicare_wages == null)) return null;
+    const ssWages = profile.w2_social_security_wages == null ? 0 : finite(profile.w2_social_security_wages);
+    const medicareWages = profile.w2_medicare_wages == null ? 0 : finite(profile.w2_medicare_wages);
     if (ssWages === null || ssWages < 0 || medicareWages === null || medicareWages < 0) return null;
     const taxAt = (profit: number) => {
       const basicProfile = { income: profit, w2_income: w2Income, w2_social_security_wages: ssWages, w2_medicare_wages: medicareWages, filing_status: status };
@@ -304,7 +303,7 @@ export function estimateTaxEffect(result: ExplainableResult, amount: number | nu
     if (!Number.isFinite(effect)) return null;
     const share = percent < 100 ? ` at ${percent}%` : '';
     return { low: effect, high: effect, label: ESTIMATE_LABEL,
-      basis: `${money(deductible)} deductible${share} from ${money(amount)}. Uses saved income, ${FILING_LABELS[status] ?? status} status and ${year} rules for basic federal income and SE tax. Assumes standard deduction; excludes QBI, credits, other deductions and state tax. W-2 wages approximate SS/Medicare wages unless saved separately. Not a refund.` };
+      basis: `${money(deductible)} deductible${share} from ${money(amount)}. Uses saved income, ${FILING_LABELS[status] ?? status} status and ${year} rules for basic federal income and SE tax. Assumes standard deduction; excludes QBI, credits, other deductions and state tax. Not a refund.` };
 
   } catch {
     return null;
