@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-const mock = vi.hoisted(() => ({ docs: new Map<string, any>(), files: new Map<string, Buffer>(), onDownload: null as null | (() => void), saved: vi.fn(), reads: vi.fn() }));
+const mock = vi.hoisted(() => ({ docs: new Map<string, any>(), files: new Map<string, Buffer>(), onDownload: null as null | (() => void), saved: vi.fn(), reads: vi.fn(), deleteFiles: vi.fn() }));
 vi.mock('@/lib/firebase/admin', () => {
   const ref = (path: string): any => ({ path, id: path.split('/').at(-1), get: async () => snap(path), delete: async () => mock.docs.delete(path), update: async (data: any) => mock.docs.set(path, { ...mock.docs.get(path), ...data }) });
   const snap = (path: string) => ({ exists: mock.docs.has(path), id: path.split('/').at(-1)!, ref: ref(path), data: () => structuredClone(mock.docs.get(path)) });
@@ -8,11 +8,20 @@ vi.mock('@/lib/firebase/admin', () => {
   } } };
 });
 vi.mock('@/lib/firebase/receipt-security', () => ({ receiptBucket: () => ({ file: (path: string) => ({ save: async (bytes: Buffer, options: any) => { mock.saved(path, options); mock.files.set(path, Buffer.from(bytes)); }, delete: async () => mock.files.delete(path),
-  getMetadata: async () => { mock.reads(path); return [{ size: mock.files.get(path)?.length }]; }, download: async () => { mock.onDownload?.(); return [mock.files.get(path)!]; } }), deleteFiles: async ({ prefix }: { prefix: string }) => { for (const key of mock.files.keys()) if (key.startsWith(prefix)) mock.files.delete(key); } }) }));
+  getMetadata: async () => { mock.reads(path); return [{ size: mock.files.get(path)?.length }]; }, download: async () => { mock.onDownload?.(); return [mock.files.get(path)!]; } }), deleteFiles: mock.deleteFiles }) }));
 vi.mock('@/lib/reports/preparer-package', () => ({ MAX_PACKAGE_BYTES: 20 * 1024 * 1024, PreparerPackageError: class extends Error { constructor(message: string, public code: string, public status: number) { super(message); } } }));
 import { createPreparerHandoff, downloadPreparerHandoff, listPreparerHandoffs, revokePreparerHandoff, deletePreparerHandoffsForUser } from '@/lib/preparer/handoffs';
 const bundle = () => ({ bytes: Buffer.from('synthetic zip bytes'), filename: 'writeoff-preparer-2026.zip', manifest: { taxYear: 2026, receiptFiles: 1, receiptIssues: 0, unresolvedQuestions: 2 } as any });
-beforeEach(() => { vi.clearAllMocks(); mock.docs.clear(); mock.files.clear(); mock.onDownload = null; mock.docs.set('user_profiles/owner', { name: 'Synthetic owner' }); });
+beforeEach(() => {
+  vi.clearAllMocks();
+  mock.docs.clear();
+  mock.files.clear();
+  mock.onDownload = null;
+  mock.deleteFiles.mockImplementation(async ({ prefix }: { prefix: string }) => {
+    for (const key of mock.files.keys()) if (key.startsWith(prefix)) mock.files.delete(key);
+  });
+  mock.docs.set('user_profiles/owner', { name: 'Synthetic owner' });
+});
 describe('scoped preparer handoff snapshots', () => {
   it('stores only a hash of the 256-bit token and downloads the same immutable bytes', async () => {
     const created = await createPreparerHandoff('owner', bundle(), 3);
@@ -73,5 +82,10 @@ describe('scoped preparer handoff snapshots', () => {
     expect(mock.docs.has('preparer_handoff_owners/owner')).toBe(false);
     expect([...mock.docs.keys()].some(path => path.startsWith('preparer_handoffs/'))).toBe(false);
     expect([...mock.files.keys()]).toEqual(['preparer_handoffs/owner-other/private/package.zip']);
+  });
+  it('treats an empty or already-cleared handoff prefix as idempotent', async () => {
+    mock.deleteFiles.mockRejectedValueOnce(new Error('synthetic storage outage'));
+    await expect(deletePreparerHandoffsForUser('owner')).resolves.toBeUndefined();
+    expect(mock.docs.has('user_profiles/owner')).toBe(true);
   });
 });

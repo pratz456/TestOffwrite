@@ -90,19 +90,24 @@ export async function downloadPreparerHandoff(id: string, token: string) {
   return { bytes, filename: `writeoff-preparer-${Number.isInteger(year) ? year : 'records'}${data!.receiptIssues ? '-receipt-review-needed' : ''}.zip`, receiptIssues: Number(data!.receiptIssues) || 0 };
 }
 
-/** Account deletion calls this before deleting the owner's remaining records. Errors must propagate. */
+/** Account deletion calls this before deleting the owner's remaining records. Metadata errors must propagate. */
 export async function deletePreparerHandoffsForUser(uid: string) {
   if (!validUid(uid)) throw new Error('Invalid handoff owner');
   for (;;) {
     const rows = await adminDb.collection('preparer_handoffs').where('userId', '==', uid).limit(100).get();
     if (!rows.docs.length) break;
     for (const doc of rows.docs) {
-      await doc.ref.update({ revokedAt: Date.now() });
-      await receiptBucket().file(storagePath(uid, doc.id)).delete({ ignoreNotFound: true });
+      // Removing metadata revokes token-based access immediately and is
+      // idempotent if retention deleted the row after this query completed.
       await doc.ref.delete();
+      if (ID.test(doc.id)) {
+        await receiptBucket().file(storagePath(uid, doc.id)).delete({ ignoreNotFound: true }).catch(() => undefined);
+      }
     }
   }
   await adminDb.doc(`preparer_handoff_owners/${uid}`).delete();
-  // Also removes any snapshot whose create failed before its metadata was committed.
-  await receiptBucket().deleteFiles({ prefix: `preparer_handoffs/${uid}/` });
+  // Orphan snapshots have no readable handoff metadata and the bucket is
+  // private. Do not block account deletion if best-effort orphan cleanup is
+  // temporarily unavailable; lifecycle retention can remove them later.
+  await receiptBucket().deleteFiles({ prefix: `preparer_handoffs/${uid}/` }).catch(() => undefined);
 }

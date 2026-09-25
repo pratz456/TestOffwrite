@@ -42,7 +42,8 @@ beforeEach(() => {
   h.records.set('user_profiles/owner', { name: 'Synthetic owner' });
   h.disconnect.mockImplementation(async (uid: string, itemId: string) => { const record = h.records.get(`plaid_connections/${itemId}`)!; expect(record.uid).toBe(uid);
     h.events.push(`revoke:${itemId}`); record.status = 'disconnected'; delete record.encryptedAccessToken; return { success: true, plaidRemoved: true }; });
-  h.billing.mockResolvedValue({ success: true }); h.handoff.mockResolvedValue(undefined);
+  h.billing.mockImplementation(async () => { h.events.push('billing'); return { success: true }; });
+  h.handoff.mockImplementation(async () => { h.events.push('handoff'); });
   h.recovery.mockImplementation(async (uid: string) => { expect(h.records.get(`account_deletions/${uid}`)?.deletionRequested).toBe(true); });
   h.storage.mockImplementation(async ({ prefix }: { prefix: string }) => { h.events.push('storage'); for (const key of h.files) if (key.startsWith(prefix)) h.files.delete(key); });
   h.authDelete.mockImplementation(async () => { h.events.push('auth'); });
@@ -53,6 +54,7 @@ describe('account deletion boundaries', () => {
   it('retains identity and records when shared package cleanup fails', async () => {
     h.handoff.mockRejectedValueOnce(new Error('storage failure'));
     expect((await deleteUserData('owner')).error).toMatchObject({ code: 'HANDOFF_CLEANUP_FAILED', retryable: true });
+    expect(h.billing).not.toHaveBeenCalled();
     expect(h.authDelete).not.toHaveBeenCalled();
     expect(h.records.has('user_profiles/owner')).toBe(true);
   });
@@ -69,6 +71,7 @@ describe('account deletion boundaries', () => {
     expect(await deleteUserData('owner')).toEqual({});
     expect(h.disconnect.mock.calls).toEqual([['owner', 'a'], ['owner', 'b']]);
     expect(h.handoff).toHaveBeenCalledExactlyOnceWith('owner');
+    expect(h.events.indexOf('handoff')).toBeLessThan(h.events.indexOf('billing'));
     expect(h.storage).toHaveBeenCalledExactlyOnceWith({ prefix: 'receipts/owner/' });
     expect(h.files).toEqual(new Set(['receipts/owner-other/tx/file']));
     expect([...h.records.keys()].filter(key => !key.startsWith('account_deletions/'))).toEqual(['plaid_connections/foreign', 'receipts/other', 'user_profiles/owner-other']);

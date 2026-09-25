@@ -73,14 +73,14 @@ export async function deleteUserData(uid: string): Promise<{ error?: AccountDele
       throw new AccountDeletionError('Bank cleanup is incomplete. Your account has not been deleted. Please retry.', 'BANK_REVOCATION_FAILED', true);
     }
 
-    const billing = await cancelUserStripeSubscriptions(uid);
-    if (!billing.success) throw new AccountDeletionError(
-      'Billing could not be closed. Your account has not been deleted. Please retry.', 'BILLING_CLEANUP_FAILED', true);
-
     try { await deletePreparerHandoffsForUser(uid); }
     catch {
       throw new AccountDeletionError('Shared package cleanup could not finish. Your account has not been deleted. Please retry.', 'HANDOFF_CLEANUP_FAILED', true);
     }
+
+    const billing = await cancelUserStripeSubscriptions(uid);
+    if (!billing.success) throw new AccountDeletionError(
+      'Billing could not be closed. Your account has not been deleted. Please retry.', 'BILLING_CLEANUP_FAILED', true);
 
     try {
       // Trailing slash prevents deleting another user's similarly prefixed UID.
