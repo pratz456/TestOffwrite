@@ -298,7 +298,7 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onNavigateT
 
             <button
               onClick={() => setSelected(null)}
-              className="w-full text-xs text-muted-foreground hover:text-foreground text-center py-1 transition-colors"
+              className="flex min-h-11 w-full items-center justify-center text-center text-xs text-muted-foreground transition-colors hover:text-foreground"
             >
               Choose a different method
             </button>
@@ -419,7 +419,7 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onNavigateT
               </Button>
               <button
                 onClick={onSkipToApp}
-                className="w-full text-xs text-muted-foreground hover:text-foreground text-center py-1.5 transition-colors"
+                className="flex min-h-11 w-full items-center justify-center text-center text-xs text-muted-foreground transition-colors hover:text-foreground"
               >
                 {hasSuccessfulUploads ? 'Continue to dashboard' : 'Skip for now  -  I\'ll add data later'}
               </button>
@@ -485,7 +485,7 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onNavigateT
             </Button>
             <button
               onClick={() => setSelected(null)}
-              className="w-full text-xs text-muted-foreground hover:text-foreground text-center py-1 transition-colors"
+              className="flex min-h-11 w-full items-center justify-center text-center text-xs text-muted-foreground transition-colors hover:text-foreground"
             >
               Back to options
             </button>

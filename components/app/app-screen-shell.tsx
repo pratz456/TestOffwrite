@@ -117,9 +117,9 @@ export function AppMetricStrip({
     <dl className={`grid ${columns} divide-x divide-y divide-border/60 overflow-hidden rounded-xl border border-border/70 bg-card shadow-[var(--shadow-tight)] sm:divide-y-0`}>
       {metrics.map((metric) => (
         <div key={metric.label} className="min-w-0 px-3 py-2.5 sm:px-4">
-          <dt className="truncate text-xs text-muted-foreground">{metric.label}</dt>
-          <dd className={`mt-0.5 truncate text-lg font-semibold tabular-nums ${tones[metric.tone ?? "default"]}`}>{metric.value}</dd>
-          {metric.detail && <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{metric.detail}</p>}
+          <dt className="text-xs leading-4 text-muted-foreground">{metric.label}</dt>
+          <dd className={`mt-0.5 break-words text-lg font-semibold leading-6 tabular-nums ${tones[metric.tone ?? "default"]}`}>{metric.value}</dd>
+          {metric.detail && <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">{metric.detail}</p>}
         </div>
       ))}
     </dl>

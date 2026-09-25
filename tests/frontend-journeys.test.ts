@@ -118,6 +118,7 @@ describe('protected browser journey destinations', () => {
     expect(details.searchParams.get('section')).toBe('details');
     expect(protectedScreenUrl('settings?tab=payment')).toBe('/protected/settings?tab=payment');
     expect(protectedScreenUrl('reports?year=2026')).toBe('/protected/reports?year=2026');
+    expect(protectedScreenUrl('reports?year=9999')).toBe('/protected/reports');
   });
   it('preserves the selected record when opening review from transaction details', () => {
     const url = new URL(protectedScreenUrl('review-transactions?transactionId=abc%26def%2Fghi&from=transaction-detail'), 'https://staging.example');

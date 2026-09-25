@@ -271,6 +271,13 @@ export default function ReportsPage() {
     if (requestedYear != null) setChartYear(requestedYear);
   }, [requestedYear]);
 
+  const selectChartYear = (year: number) => {
+    setChartYear(year);
+    const next = new URLSearchParams(searchParams.toString());
+    next.set('year', String(year));
+    router.replace(`/protected/reports?${next.toString()}`, { scroll: false });
+  };
+
   // When available years load, if current chartYear isn't in the list, switch to most recent available
   useEffect(() => {
     if (requestedYear == null && reportsData?.availableYears && reportsData.availableYears.length > 0 && !reportsData.availableYears.includes(chartYear)) {
@@ -703,7 +710,7 @@ export default function ReportsPage() {
                   <span className="shrink-0">Year</span>
                   <select
                     value={chartYear}
-                    onChange={(e) => setChartYear(Number(e.target.value))}
+                    onChange={(e) => selectChartYear(Number(e.target.value))}
                     className="min-h-[44px] flex-1 sm:w-auto min-w-0 px-3 rounded-xl border border-border bg-background text-foreground text-sm font-medium focus:outline-none focus:ring-2 focus:ring-ring focus:border-primary/30 transition-all duration-150"
                     aria-label="Select year for chart"
                   >

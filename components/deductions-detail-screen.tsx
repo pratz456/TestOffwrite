@@ -45,7 +45,9 @@ export const DeductionsDetailScreen: React.FC<DeductionsDetailScreenProps> = ({
   if (!transactions) {
     return (
       <AppScreenShell width="wide">
-        <div className="h-20 animate-pulse rounded-xl border border-border/70 bg-card" />
+        <div role="status" aria-busy="true" className="h-20 animate-pulse rounded-xl border border-border/70 bg-card">
+          <span className="sr-only">Loading deduction records…</span>
+        </div>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           {[...Array(3)].map((_, i) => (
             <div key={i} className="h-20 animate-pulse rounded-xl bg-muted" />
@@ -171,7 +173,7 @@ export const DeductionsDetailScreen: React.FC<DeductionsDetailScreenProps> = ({
                     className="min-h-11 min-w-0 rounded-lg border border-input bg-background px-3 text-sm text-foreground"
                   >
                     {categories.map(category => (
-                      <option key={category} value={category}>{category}</option>
+                      <option key={category} value={category}>{category === 'All Categories' ? category : formatCategory(category)}</option>
                     ))}
                   </select>
                 </div>

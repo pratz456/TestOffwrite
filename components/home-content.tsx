@@ -15,7 +15,7 @@ import {
 
 export function HomeContent() {
   return (
-    <main className="flex min-h-svh flex-col overflow-x-hidden bg-background text-foreground safe-area-inset-top safe-area-inset-bottom">
+    <div className="flex min-h-svh flex-col overflow-x-hidden bg-background text-foreground safe-area-inset-top safe-area-inset-bottom">
       <header className="border-b border-border/70 bg-card/80 backdrop-blur">
       <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-3 px-4 sm:px-6">
         <Link href="/" className="inline-flex min-h-11 items-center gap-2" aria-label="WriteOff home">
@@ -28,7 +28,7 @@ export function HomeContent() {
       </div>
       </header>
 
-      <div className="relative flex-1">
+      <main className="relative flex-1">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-[radial-gradient(circle_at_20%_10%,hsl(var(--primary)/0.12),transparent_45%),radial-gradient(circle_at_85%_15%,hsl(var(--info)/0.10),transparent_40%)]" aria-hidden="true" />
         <section className="relative mx-auto grid w-full max-w-6xl items-center gap-6 px-4 py-7 sm:px-6 sm:py-10 lg:grid-cols-[1.04fr_.96fr] lg:gap-10 lg:py-14">
           <div>
@@ -61,7 +61,7 @@ export function HomeContent() {
 
           <div className="relative">
             <div className="absolute -inset-3 rounded-[28px] bg-gradient-to-br from-primary/10 via-transparent to-[hsl(var(--info)/0.10)] blur-xl" aria-hidden="true" />
-            <div className="relative overflow-hidden rounded-2xl border border-border bg-card shadow-[var(--shadow-soft)]" aria-label="WriteOff product preview">
+            <div className="relative overflow-hidden rounded-2xl border border-border bg-card shadow-[var(--shadow-soft)]" role="group" aria-label="WriteOff example product workflow">
               <div className="flex items-center justify-between border-b border-border/70 px-4 py-3">
                 <div>
                   <p className="text-sm font-semibold">Your next best action</p>
@@ -121,7 +121,7 @@ export function HomeContent() {
           </div>
           <p className="mt-3 text-center text-xs leading-5 text-muted-foreground">Planning and recordkeeping only. WriteOff does not file returns or replace a qualified tax professional.</p>
         </section>
-      </div>
+      </main>
 
       <footer className="border-t border-border/70 bg-card/60 px-4 sm:px-6">
         <div className="mx-auto flex w-full max-w-6xl flex-col items-center justify-between gap-1 py-3 sm:flex-row">
@@ -135,6 +135,6 @@ export function HomeContent() {
           <p className="text-center text-xs text-muted-foreground">© {new Date().getFullYear()} WriteOff.</p>
         </div>
       </footer>
-    </main>
+    </div>
   );
 }

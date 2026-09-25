@@ -96,7 +96,7 @@ export const ProfitLossDetailScreen: React.FC<ProfitLossDetailScreenProps> = ({
             <Calendar className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm font-medium text-foreground">Period</span>
           </div>
-          <div className="grid flex-1 grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="grid flex-1 grid-cols-2 gap-2 sm:grid-cols-4" role="group" aria-label="Cash flow period">
             {[
               { key: 'this-month', label: 'This Month' },
               { key: 'last-month', label: 'Last Month' },
@@ -108,6 +108,7 @@ export const ProfitLossDetailScreen: React.FC<ProfitLossDetailScreenProps> = ({
                 variant={selectedPeriod === period.key ? "default" : "outline"}
                 size="sm"
                 onClick={() => setSelectedPeriod(period.key)}
+                aria-pressed={selectedPeriod === period.key}
                 className="min-h-11"
               >
                 {period.label}

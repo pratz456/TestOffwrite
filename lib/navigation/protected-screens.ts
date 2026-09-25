@@ -29,7 +29,8 @@ export function protectedScreenUrl(raw: string): string {
   }
   if (screen === 'reports') {
     const target = new URLSearchParams();
-    if (/^\d{4}$/.test(query.get('year') ?? '')) target.set('year', query.get('year')!);
+    const year = Number(query.get('year'));
+    if (Number.isInteger(year) && year >= 2000 && year <= new Date().getUTCFullYear()) target.set('year', String(year));
     return `/protected/reports${target.size ? `?${target.toString()}` : ''}`;
   }
   if (screen === 'transactions') return '/protected/transactions';
