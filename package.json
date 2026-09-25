@@ -11,6 +11,7 @@
     "lint:fix": "eslint . --fix",
     "test": "vitest run",
     "test:watch": "vitest",
+    "blog:manifest": "node scripts/generate-blog-manifest.mjs",
     "ci": "npm run lint && npm test && npm run build",
     "production:prepare": "node scripts/prepare-production-release.mjs",
     "production:migration-inventory": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/production-migration-inventory.mjs",

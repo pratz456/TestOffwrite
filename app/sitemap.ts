@@ -1,7 +1,17 @@
 import type { MetadataRoute } from "next";
-import { getAllPosts } from "@/lib/blog";
+import blogManifest from "@/lib/blog-manifest.json";
 
 export const dynamic = 'force-dynamic';
+
+interface BlogManifestEntry {
+  slug: string;
+  date: string;
+  reviewed: string | null;
+}
+
+// The Firebase SSR package ships .next and public only, so content/blog does not
+// exist at request time. Posts come from lib/blog-manifest.json (npm run blog:manifest).
+const posts = blogManifest as BlogManifestEntry[];
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const baseUrl =
@@ -27,8 +37,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${baseUrl}/tools/quarterly-estimate-calculator`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
   ];
 
-  const blogPosts: MetadataRoute.Sitemap = getAllPosts().map((post) => {
-    const parsedDate = post.date ? new Date(post.date) : now;
+  const blogPosts: MetadataRoute.Sitemap = posts.map((post) => {
+    const parsedDate = new Date(post.reviewed ?? post.date);
     const lastModified = Number.isNaN(parsedDate.getTime()) ? now : parsedDate;
     return {
       url: `${baseUrl}/blog/${post.slug}`,
