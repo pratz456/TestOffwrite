@@ -1,0 +1,82 @@
+---
+title: "Why Tax Apps Shouldn't Run Ad Pixels on Your Financial Data"
+description: "Tax software is covered by federal privacy rules most apps never mention. What IRC §7216 and the FTC say about ad pixels and analytics, how to check a tax site yourself, and what WriteOff does instead."
+date: "2026-09-25"
+reviewed: "2026-09-25"
+reviewedFor: "rules in effect September 2026"
+author: "WriteOff Team"
+tags:
+ - Privacy
+ - Tax Software
+ - Data Security
+---
+
+In November 2022, The Markup reported that several well-known online tax-filing services had the Meta Pixel on pages where people prepared their returns, and that it was sending information such as income, refund amounts and details about dependents to Facebook. A 2023 congressional investigation, published as *Attacks on Tax Privacy*, reached similar conclusions.
+
+Most people assume their tax information is protected the moment they type it into tax software. The rules are stricter than most apps let on, and they cover more than filing.
+
+## Tax software counts as a "tax return preparer"
+
+Section 7216 of the Internal Revenue Code makes it a crime for a tax return preparer to knowingly or recklessly disclose or use tax return information for anything other than preparing the return. Section 6713 adds a civil penalty. For these rules, Treasury regulations define "tax return preparer" broadly: it includes anyone who develops software used to prepare or file a return, not only the person who signs it.
+
+"Tax return information" is broad too. It covers information furnished in any form in connection with preparing a return, and the regulations' own examples include the registration details someone gives a do-it-yourself tax program. In practice, almost everything you give tax software is protected.
+
+Using or disclosing that information for another purpose, such as advertising or marketing other products, requires your prior written consent in a prescribed format; Rev. Proc. 2013-14 sets it for individual returns. That consent can't be a condition of using the service, and clicking through a privacy policy doesn't count.
+
+## The FTC has named pixels specifically
+
+In September 2023 the Federal Trade Commission sent notices of penalty offenses to five tax-preparation companies. The notices warned that using information collected in a confidential context for advertising or other unrelated purposes without affirmative express consent, including through pixels, cookies, software development kits and similar code, may be an unfair or deceptive practice. Violations can carry civil penalties of up to $50,120 each. The FTC also made clear that terms buried in a privacy policy aren't consent.
+
+## What a tracking pixel actually sends
+
+A pixel is a small script from an advertising or analytics company. When a page loads, it sends an event to that company, often with the page address, the page title, the button you clicked and an identifier that can link the visit to your account on its platform. On a tax screen, even the page address can reveal something: `/deductions/medical`, `/dependents/add`, `/refund`.
+
+That's why where a tag loads matters as much as whether a site uses one.
+
+## How to check a tax site yourself
+
+You don't need special tools:
+
+1. Open the site in a desktop browser, right-click and choose **Inspect**, then open the **Network** tab.
+2. Sign in and move through a few screens where you enter financial information.
+3. Filter the requests for domains such as `facebook.com/tr`, `googleadservices.com`, `doubleclick.net`, `google-analytics.com` and `analytics.tiktok.com`.
+
+Requests to those domains from screens where you enter income, deductions or dependents are worth asking the company about. A request isn't proof of wrongdoing, because some analytics can be configured narrowly, but you're entitled to a plain answer.
+
+<BlogCTA />
+
+## What WriteOff does
+
+WriteOff is built for freelancers, so it handles bank transactions, receipts and tax records every day. Our rules:
+
+- **No advertising tags.** WriteOff doesn't load Meta, TikTok or Google Ads tags.
+- **Analytics stays on public pages.** When analytics is turned on, the tag loads only on public pages like this blog and our calculators. It never loads on sign-in, onboarding, billing or any signed-in screen, and signed-in page views aren't reported.
+- **Your records aren't used to advertise to you.** We use them to provide the service, not to market other products.
+- **You decide when records leave your account.** They leave only when you download them or create a share link for your preparer, and share links expire after one to seven days.
+
+We also keep a written information security program, which the FTC's Safeguards Rule requires of businesses that handle this kind of financial data.
+
+## Questions to ask any tax app
+
+- Which third-party scripts load on the screens where I enter financial information?
+- Is my information used to advertise other products to me, and where did I agree to that?
+- Which companies receive my data to provide the service, and why?
+- Can I export my records and delete my account without calling support?
+
+If an app can't answer these plainly, that tells you something.
+
+---
+
+*This article explains general rules and our own practices. It isn't legal advice.*
+
+---
+
+## Sources
+
+- [26 CFR §301.7216-1: who is a tax return preparer and what is tax return information](https://www.law.cornell.edu/cfr/text/26/301.7216-1)
+- [26 CFR §301.7216-3: disclosure or use permitted only with the taxpayer's consent](https://www.law.cornell.edu/cfr/text/26/301.7216-3)
+- [Rev. Proc. 2013-14: required consent format for individual returns](https://www.irs.gov/pub/irs-drop/rp-13-14.pdf)
+- [FTC: FTC warns tax preparation companies about misuse of consumer data (September 2023)](https://www.ftc.gov/news-events/news/press-releases/2023/09/ftc-warns-tax-preparation-companies-about-misuse-consumer-data)
+- [The Markup: Tax filing websites have been sending users' financial information to Facebook (November 2022)](https://themarkup.org/pixel-hunt/2022/11/22/tax-filing-websites-have-been-sending-users-financial-information-to-facebook)
+- [Attacks on Tax Privacy: congressional investigation report (2023)](https://s3.documentcloud.org/documents/23980365/attacks-on-tax-privacy_formatted.pdf)
+- [FTC Safeguards Rule, 16 CFR Part 314](https://www.ecfr.gov/current/title-16/chapter-I/subchapter-C/part-314)
