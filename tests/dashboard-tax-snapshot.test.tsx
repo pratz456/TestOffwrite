@@ -236,6 +236,16 @@ describe('dashboard tax cards share the federal server calculation', () => {
     expect(render().state.snapshot.income.grossReceipts).toBe(25000);
     expect(h.request.mock.calls.some(([url]) => url.includes('/plaid/refresh-balances'))).toBe(false);
   });
+  it('keeps ready tax cards stable across AI-only progress updates', async () => {
+    h.tx = [expense(20, { id: 'expense', trans_id: 'expense', updated_at: 1 })];
+    render(); await flush(); const ready = render();
+    expect(ready.state.status).toBe('ready');
+    const taxCalls = h.request.mock.calls.filter(([url]) => String(url).includes('/api/tax/compute-1040')).length;
+    h.tx = [{ ...h.tx[0], analysisStatus: 'running', ai_status: 'needs_more_info', analysisUpdatedAt: 'later' }];
+    expect(render().state.status).toBe('ready');
+    await flush();
+    expect(h.request.mock.calls.filter(([url]) => String(url).includes('/api/tax/compute-1040'))).toHaveLength(taxCalls);
+  });
   it('ignores an old user request after a new user calculation is ready', async () => {
     let finish!: (value: Response) => void;
     h.request.mockImplementationOnce(() => new Promise<Response>(resolve => { finish = resolve; }));

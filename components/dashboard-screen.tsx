@@ -10,7 +10,6 @@ import { ArrowRight, CheckCircle, ChevronDown } from 'lucide-react';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import { useTransactions } from '@/lib/firebase/hooks';
 import { getUserTaxRateDisplay } from '@/lib/tax-rules/federal-brackets';
-import { ToastContainer, useToasts } from '@/components/ui/toast';
 import { auth } from '@/lib/firebase/client';
 import { HistoricalAccessUpgradeCard } from '@/components/historical-access-upgrade-card';
 import { dashboardRecordStatus, summarizeDashboardRecords } from '@/lib/dashboard/record-summary';
@@ -43,6 +42,16 @@ interface DashboardScreenProps {
   onSignOut?: () => void;
 }
 
+function recordRevision(value: unknown): number | string | null {
+  if (typeof value === 'number' || typeof value === 'string') return value;
+  if (value && typeof value === 'object') {
+    const timestamp = value as { toMillis?: () => number; seconds?: number };
+    if (typeof timestamp.toMillis === 'function') return timestamp.toMillis();
+    if (typeof timestamp.seconds === 'number') return timestamp.seconds * 1000;
+  }
+  return null;
+}
+
 export default function DashboardScreen({
   profile,
   transactions: propTransactions,
@@ -55,7 +64,6 @@ export default function DashboardScreen({
   const currentUser = auth.currentUser;
   const userId = currentUser?.uid;
   const { transactions: realtimeTransactions, isLoading: transactionsLoading } = useTransactions(userId || '');
-  const { toasts, removeToast } = useToasts();
 
   const transactions = realtimeTransactions.length > 0 ? realtimeTransactions : propTransactions;
 
@@ -91,24 +99,48 @@ export default function DashboardScreen({
   }, [userId]);
 
   // The current-year tax cards use the same authenticated calculation as Tax Preview.
-  // Include source data in the key so even the first render after an edit cannot
-  // display a result computed from the previous user's or previous records' data.
+  // Refresh only for facts that can affect the server snapshot. AI progress and
+  // other cosmetic writes must not make ready KPI cards flash back to zero/loading.
   const taxYear = new Date().getFullYear();
   const [taxRetry, setTaxRetry] = useState(0);
-  const taxInputKey = JSON.stringify({ userId, taxYear, profile, transactions, taxRetry });
+  const taxInputKey = JSON.stringify({
+    userId,
+    taxYear,
+    taxRetry,
+    profileRevision: recordRevision(profile?.updated_at),
+    transactions: transactions.map(transaction => [
+      transaction.trans_id || transaction.id,
+      transaction.date,
+      transaction.amount,
+      transaction.iso_currency_code,
+      transaction.unofficial_currency_code,
+      transaction.pending === true,
+      transaction.superseded_by ?? null,
+      transaction.category,
+      transaction.is_deductible,
+      transaction.review_status ?? null,
+      transaction.tax_review_required ?? null,
+      recordRevision(transaction.updated_at ?? transaction.updatedAt),
+    ]),
+  });
   const [taxResult, setTaxResult] = useState<{ key: string; state: DashboardTaxState } | null>(null);
+  const [taxRefreshing, setTaxRefreshing] = useState(false);
   const taxState: DashboardTaxState = taxResult?.key === taxInputKey ? taxResult.state : { status: 'loading' };
 
   useEffect(() => {
     let current = true;
     const controller = new AbortController();
+    setTaxRefreshing(true);
     setTaxResult({ key: taxInputKey, state: { status: 'loading' } });
     if (!userId) {
       setTaxResult({ key: taxInputKey, state: { status: 'error', message: 'Sign in to load your federal estimate.' } });
+      setTaxRefreshing(false);
       return () => { current = false; controller.abort(); };
     }
     void loadDashboardTaxSnapshot(taxYear, controller.signal).then(state => {
       if (current && auth.currentUser?.uid === userId) setTaxResult({ key: taxInputKey, state });
+    }).finally(() => {
+      if (current) setTaxRefreshing(false);
     });
     return () => { current = false; controller.abort(); };
   }, [taxInputKey, userId, taxYear]);
@@ -169,14 +201,11 @@ export default function DashboardScreen({
 
   // --- Render ---
   return (
-    <>
-      <ToastContainer toasts={toasts} onClose={removeToast} />
-
-      <div className="min-h-full bg-background safe-area-inset-bottom">
+    <div className="min-h-full bg-background safe-area-inset-bottom">
         {/* Header */}
         <DashboardHeader
           userName={profile?.name?.split(' ')[0] || 'there'}
-          isRefreshing={isRefreshingBalances || taxState.status === 'loading'}
+          isRefreshing={isRefreshingBalances || taxRefreshing}
           onRefresh={handleRefresh}
           lastSync={lastSync}
           analysisInProgress={isAnalyzing}
@@ -247,7 +276,6 @@ export default function DashboardScreen({
             <HistoricalAccessUpgradeCard variant="slim" />
           </div>
         </div>
-      </div>
-    </>
+    </div>
   );
 }
