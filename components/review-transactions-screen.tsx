@@ -106,23 +106,22 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
   const analysisWaiting = analysisQueued ? summarizeAnalysisBacklog(resolved).waiting : 0;
   const mayConfirm = !!current && current.pending !== true && !analysisRunning && !analysisQueued && canConfirmSuggestion(suggestion);
   const suggestedCategory = reviewCategory(suggestion?.category);
+  const proposal = current ? proposedBusinessPurpose(current) : null;
+  const openQuestion = current ? firstOpenQuestion(current) : null;
+  const offerPurpose = !!current && !analysisRunning && !analysisQueued && canOfferPurposeConfirmation(current);
+  const offerQuestion = !!current && !!openQuestion && !offerPurpose && current.pending !== true && !analysisRunning && !analysisQueued && !questionAnswered(current, openQuestion);
   // Describe the existing review endpoint's supported deduction cases, not just the model's status.
   const recordsDeduction = mayConfirm && suggestion?.status === 'ok' && suggestion.transactionKind === 'expense' &&
     suggestion.isDeductible === true && !!suggestedCategory && !suggestedCategory.recordedCategory.endsWith('_REVIEW_REQUIRED') &&
     suggestion.deductiblePercent === (suggestedCategory.value === 'meals_50' ? 50 : 100);
   const needsTaxFacts = presentation?.needsTaxFacts || suggestion?.transactionKind === 'refund' ||
     (mayConfirm && suggestion?.isDeductible === true && !recordsDeduction);
-  const confirmationLabel = recordsDeduction ? 'Confirm deduction' : 'Confirm category';
+  const confirmationLabel = recordsDeduction ? 'Confirm deduction' : offerPurpose || offerQuestion || needsTaxFacts ? 'Save category' : 'Confirm category';
   const confirmationHint = !mayConfirm ? presentation?.confirmationHint : recordsDeduction
     ? `Confirm saves this category and marks it deductible. ${suggestedCategory?.value === 'meals_50' ? 'Verify business use; the 50% meal limit applies.' : 'Verify business use first.'}`
     : suggestion?.transactionKind === 'expense' ? 'Confirm also marks this expense not deductible.' : 'No expense deduction will be recorded.';
   const busy = operation !== null;
-  // One-tap purpose confirmation: only offered while the proposal can be recorded through the update API.
-  const proposal = current ? proposedBusinessPurpose(current) : null;
-  const openQuestion = current ? firstOpenQuestion(current) : null;
-  const offerPurpose = !!current && !analysisRunning && !analysisQueued && canOfferPurposeConfirmation(current);
-  // Otherwise the first open question gets suggested-answer chips that save facts only.
-  const offerQuestion = !!current && !!openQuestion && !offerPurpose && current.pending !== true && !analysisRunning && !analysisQueued && !questionAnswered(current, openQuestion);
+  // Purpose and answer chips save facts only; the separate action names whether it records a deduction or category.
   const groups = view === 'merchant' ? groupUnreviewedByMerchant(resolved) : [];
 
   useEffect(() => {
@@ -192,7 +191,9 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
       if (!response.ok || !result?.success || !result.transaction) {
         if (response.status === 409) {
           try { remember(await readCurrent(current)); } catch { /* Keep the error actionable without hiding the card. */ }
-          setMessage('This transaction or its AI suggestion changed. Review the latest details before confirming.');
+          setMessage(result?.code === 'CLASSIFICATION_EXISTS'
+            ? result.error || 'A tax decision is already saved. Use Change to review it deliberately.'
+            : 'This transaction or its AI suggestion changed. Review the latest details before confirming.');
         } else setMessage(response.status === 401 ? 'Your session expired. Sign in again to save your review.' : result?.error || 'Your review was not saved. Please try again.');
         return;
       }
@@ -328,7 +329,11 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
     <div className="min-h-full bg-background px-4 py-6 flex items-center justify-center">
       <div className="max-w-md w-full rounded-2xl border border-border bg-card p-5 text-center space-y-3">
         <CheckCircle className="h-9 w-9 mx-auto text-primary" />
-        <h1 className="text-2xl font-semibold">{remaining.length ? 'Saved for later' : transactions.length ? 'Categories reviewed' : 'Your review queue starts here'}</h1>
+        <h1 className="text-2xl font-semibold">{remaining.length
+          ? 'Saved for later'
+          : taxQuestions.length > 0
+            ? 'Categories saved · tax details next'
+            : transactions.length ? 'Review complete' : 'Your review queue starts here'}</h1>
         <p className="text-sm leading-5 text-muted-foreground">{remaining.length
           ? `${remaining.length} transaction${remaining.length === 1 ? ' still needs' : 's still need'} review. Nothing was confirmed when you chose Later.`
           : transactions.length ? 'Your categorization decisions are saved. New transactions will appear here for review.'

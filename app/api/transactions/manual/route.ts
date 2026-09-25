@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
 
   const parsed = manualInput.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: 'Provide a merchant, positive finite amount, valid date (YYYY-MM-DD), and valid transaction fields.' }, { status: 400 });
-  const { merchant_name, amount, date, category, notes, type, is_deductible, business_purpose, iso_currency_code } = parsed.data;
+  const { merchant_name, amount, date, category, notes, type, business_purpose, iso_currency_code } = parsed.data;
 
   const numAmount = Math.abs(Number(amount));
   const txType: 'income' | 'expense' = type === 'income' ? 'income' : 'expense';
@@ -57,7 +57,8 @@ export async function POST(request: NextRequest) {
     notes: notes?.trim() || '',
     business_purpose: business_purpose?.trim() || '',
     type: txType,
-    is_deductible: is_deductible !== undefined ? is_deductible : null,
+    // Creation records facts only. A tax decision is server-stamped later by the review API.
+    is_deductible: null,
     analyzed: false,
     analysis_status: 'pending',
     analysisStatus: 'pending',

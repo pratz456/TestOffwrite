@@ -94,7 +94,7 @@ describe('AI category swipe review', () => {
   ] as const)('keeps $category at $deductiblePercent percent category-only when the server withholds its deduction', ({ category, deductiblePercent }) => {
     records = [base({ ai_suggestion: { ...suggestion, category, deductiblePercent } })];
     const view = page();
-    expect(action(view, 'Confirm category').props.disabled).toBe(false);
+    expect(action(view, 'Save category').props.disabled).toBe(false);
     expect(text(view)).toContain('Deduction unresolved');
     expect(text(view)).toContain('Confirm saves the category only.');
     expect(text(view)).not.toContain('marks it deductible');
@@ -114,12 +114,12 @@ describe('AI category swipe review', () => {
   it('lets a known category be confirmed while showing that missing tax facts remain unresolved', async () => {
     records = [base({ ai_suggestion: { ...suggestion, status: 'needs_more_info', isDeductible: null, deductiblePercent: null, questions: ['What was the business purpose?'] } })];
     harness.request.mockResolvedValue(Response.json({ success: true, transaction: { ...records[0], review_status: 'confirmed', tax_review_required: true, is_deductible: null } }));
-    expect(action(page(), 'Confirm category').props.disabled).toBe(false);
+    expect(action(page(), 'Save category').props.disabled).toBe(false);
     expect(text(page())).toContain('category only');
     expect(text(page())).toContain('Deduction unresolved');
     const evidence = walk(page()).find(node => node.type === AiTaxAnalysisDialog) as ReactElement<{ suggestion: AiReviewSuggestion }>;
     expect(text(AiTaxExplanation({ suggestion: evidence.props.suggestion }))).toContain('What was the business purpose?');
-    await action(page(), 'Confirm category').props.onClick!();
+    await action(page(), 'Save category').props.onClick!();
     expect(text(page())).toContain('Deductions remain unresolved');
     await action(page(), 'Resolve missing tax details').props.onClick!();
     expect(harness.open).toHaveBeenCalledWith(expect.objectContaining({ is_deductible: null }), 'details');
@@ -167,7 +167,7 @@ describe('AI category swipe review', () => {
     expect(text(page('owner', 'confirmed-bank-id'))).not.toContain('Selected confirmed record');
     harness.request.mockResolvedValue(serverReview(records[0]));
     await action(page('owner', 'confirmed-bank-id'), 'Confirm deduction').props.onClick!();
-    expect(text(page('owner', 'confirmed-bank-id'))).toContain('Categories reviewed');
+    expect(text(page('owner', 'confirmed-bank-id'))).toContain('Review complete');
     expect(text(page('owner', 'confirmed-bank-id'))).not.toContain('Selected confirmed record');
   });
 
@@ -335,7 +335,7 @@ describe('AI category swipe review', () => {
   it('honors a fresh bank snapshot that invalidates an earlier confirmed suggestion', async () => {
     harness.request.mockResolvedValue(serverReview());
     await action(page(), 'Confirm deduction').props.onClick!();
-    expect(text(page())).toContain('Categories reviewed');
+    expect(text(page())).toContain('Review complete');
     records = [base({ ai_suggestion: null, amount: 40, is_deductible: null, review_status: undefined, analysisStatus: 'pending' })];
     expect(text(page())).toContain('$40.00'); expect(text(page())).toContain('No AI suggestion yet');
     expect(action(page(), 'Confirm category').props.disabled).toBe(true);

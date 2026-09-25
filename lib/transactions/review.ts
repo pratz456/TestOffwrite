@@ -76,7 +76,12 @@ export async function reviewTransaction(uid: string, id: string, input: Transact
         throw new TransactionReviewError('AI_PROFILE_CHANGED', 'Your business profile changed after this analysis. Run AI again or correct the category manually.', 409);
       }
       if (!canConfirmAiSuggestion(suggestion)) throw new TransactionReviewError('AI_REVIEW_REQUIRED', 'This suggestion needs more information before its category can be confirmed.');
-      if (typeof data.is_deductible === 'boolean') throw new TransactionReviewError('CLASSIFICATION_EXISTS', 'This transaction already has a saved tax decision. Use Correct to change it.', 409);
+      const legacyClassification = typeof data.is_deductible === 'boolean' && data.review_status !== 'confirmed'
+        ? data.is_deductible
+        : null;
+      if (typeof data.is_deductible === 'boolean' && legacyClassification === null) {
+        throw new TransactionReviewError('CLASSIFICATION_EXISTS', 'This transaction already has a saved tax decision. Use Correct to change it.', 409);
+      }
       kind = suggestion.transactionKind as typeof kind;
       category = suggestion.category ?? 'other';
       deduction = suggestion.status === 'ok' ? suggestion.isDeductible : null;
@@ -87,6 +92,9 @@ export async function reviewTransaction(uid: string, id: string, input: Transact
         const mapped = reviewCategory(category);
         if (!mapped || mapped.recordedCategory.endsWith('_REVIEW_REQUIRED') ||
             suggestion.deductiblePercent !== (mapped.value === 'meals_50' ? 50 : 100)) deduction = null;
+      }
+      if (legacyClassification !== null && deduction !== legacyClassification) {
+        throw new TransactionReviewError('CLASSIFICATION_EXISTS', 'Your earlier manual choice differs from this suggestion. Use Change to confirm the tax treatment deliberately.', 409);
       }
     } else {
       kind = input.transactionKind; category = input.category; deduction = input.isDeductible;

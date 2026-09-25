@@ -95,6 +95,24 @@ describe('saved AI categorization confirmation', () => {
     change({ notes: 'Actually partly personal' }); expect((await send(confirm())).status).toBe(409);
     expect(record().is_deductible).toBeNull();
   });
+  it('upgrades a matching legacy manual choice into a server-stamped review', async () => {
+    change({ is_deductible: true, expense_type: 'business', review_status: undefined });
+    const response = await send(confirm());
+    expect(response.status).toBe(200);
+    expect(record()).toMatchObject({
+      is_deductible: true,
+      review_status: 'confirmed',
+      review_source: 'ai_confirmed',
+      tax_review_required: false,
+    });
+  });
+  it('does not overwrite a conflicting legacy manual choice', async () => {
+    change({ is_deductible: false, expense_type: 'personal', review_status: undefined });
+    const response = await send(confirm());
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: 'CLASSIFICATION_EXISTS' });
+    expect(record().is_deductible).toBe(false);
+  });
   it('requires reanalysis when the server tax policy changed after the suggestion', async () => {
     change({ ai_suggestion: { ...record().ai_suggestion, policyVersion: 'federal-transactions-old' } });
     const response = await send(confirm());
