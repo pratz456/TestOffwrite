@@ -17,9 +17,9 @@ describe('install prompt policy', () => {
     expect(recordInstallVisit(storage)).toBe(2);
     expect(recordInstallVisit(memoryStorage({ 'writeoff-pwa-visit-count': 'garbage' }))).toBe(1);
   });
-  it('stays quiet during sign-in, onboarding and checkout routes', () => {
-    for (const route of ['/auth/login', '/auth/sign-up-success', '/onboarding', '/protected/onboarding/plaid', '/stripe/success']) expect(isQuietInstallRoute(route)).toBe(true);
-    for (const route of ['/', '/protected', '/protected/reports', '/tools/1099-tax-calculator', null]) expect(isQuietInstallRoute(route)).toBe(false);
+  it('stays quiet on first-value, sign-in, onboarding and checkout routes', () => {
+    for (const route of ['/', '/welcome', '/tools', '/tools/1099-tax-calculator', '/auth/login', '/auth/sign-up-success', '/onboarding', '/protected/onboarding/plaid', '/stripe/success']) expect(isQuietInstallRoute(route)).toBe(true);
+    for (const route of ['/protected', '/protected/reports', null]) expect(isQuietInstallRoute(route)).toBe(false);
   });
   it('offers installation only from the third visit on an ordinary screen', () => {
     const storage = memoryStorage();

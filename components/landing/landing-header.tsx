@@ -4,16 +4,18 @@ import Image from "next/image";
 import writeOffLogo from "@/public/writeofflogo.png";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { Menu, X } from "lucide-react";
 import { CtaButton } from "./cta-button";
 
 const NAV_LINKS = [
   { label: "How it works", href: "/#how-it-works" },
-  { label: "Plans & questions", href: "/#availability" },
+  { label: "Pricing", href: "/#availability" },
   { label: "Free tools", href: "/tools" },
 ];
 
 export function LandingHeader() {
+  const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const menuButton = useRef<HTMLButtonElement>(null);
 
@@ -37,10 +39,12 @@ export function LandingHeader() {
         </Link>
         <nav className="hidden items-center gap-1 md:flex" aria-label="Main navigation">
           {NAV_LINKS.map((link) => (
-            <a key={link.href} href={link.href} className="inline-flex min-h-11 items-center rounded-md px-3 text-sm text-slate-600 hover:text-blue-600">{link.label}</a>
+            <a key={link.href} href={link.href} aria-current={link.href === "/tools" && pathname === "/tools" ? "page" : undefined}
+              className={`inline-flex min-h-11 items-center rounded-md px-3 text-sm transition-colors ${link.href === "/tools" && pathname.startsWith("/tools") ? "bg-blue-50 font-medium text-blue-700" : "text-slate-600 hover:text-blue-600"}`}>{link.label}</a>
           ))}
         </nav>
         <div className="flex items-center gap-1">
+          <Link href="/auth/login" className="hidden min-h-11 items-center rounded-md px-3 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-blue-600 md:inline-flex">Sign in</Link>
           <CtaButton label="Get started" />
           <button ref={menuButton} type="button" className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 md:hidden no-tap-highlight" onClick={() => setMobileOpen(!mobileOpen)} aria-label={mobileOpen ? "Close navigation" : "Open navigation"} aria-expanded={mobileOpen} aria-controls="landing-mobile-navigation">
             {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}

@@ -182,9 +182,10 @@ export function MobileQuickActions({
 
       {/* Floating Action Button for Calculator */}
       <Button
-        onClick={() => onNavigate('calculator')}
+        onClick={() => onNavigate('quarterly-taxes')}
         className="fixed bottom-20 right-4 bg-teal-600 hover:bg-teal-700 text-white rounded-full w-14 h-14 shadow-lg"
         size="icon"
+        aria-label="Open quarterly tax calculator"
       >
         <Calculator className="h-6 w-6" />
       </Button>

@@ -114,6 +114,10 @@ describe('protected browser journey destinations', () => {
     const url = new URL(protectedScreenUrl('transaction-detail?transactionId=abc%26def&from=review-transactions'), 'https://staging.example');
     expect(url.searchParams.get('transactionId')).toBe('abc&def');
     expect(url.searchParams.get('from')).toBe('review-transactions');
+    const details = new URL(protectedScreenUrl('transaction-detail?transactionId=tx-1&section=details'), 'https://staging.example');
+    expect(details.searchParams.get('section')).toBe('details');
+    expect(protectedScreenUrl('settings?tab=payment')).toBe('/protected/settings?tab=payment');
+    expect(protectedScreenUrl('reports?year=2026')).toBe('/protected/reports?year=2026');
   });
   it('preserves the selected record when opening review from transaction details', () => {
     const url = new URL(protectedScreenUrl('review-transactions?transactionId=abc%26def%2Fghi&from=transaction-detail'), 'https://staging.example');

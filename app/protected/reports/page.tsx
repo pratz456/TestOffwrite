@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { toast } from 'sonner';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { KpiTooltip } from '@/components/ui/kpi-tooltip';
 import { FileText, TrendingUp, TrendingDown, Calendar, BarChart3, AlertCircle, Download, Eye, X, Filter, ChevronDown, DollarSign, ArrowUpRight, ArrowDownRight, Info, RefreshCw, Target, Lock, Sparkles } from 'lucide-react';
 import { Card } from '@/components/ui/card';
@@ -102,6 +102,7 @@ interface MonthlyBreakdown {
 
 export default function ReportsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, loading: authLoading } = useAuth();
   const [activeTab, setActiveTab] = useState('overview');
   const [selectedMonth, setSelectedMonth] = useState<MonthlyBreakdown | null>(null);
@@ -110,7 +111,12 @@ export default function ReportsPage() {
   const [exportFormat, setExportFormat] = useState<'PDF' | 'CSV'>('PDF');
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const currentYear = new Date().getUTCFullYear();
-  const [chartYear, setChartYear] = useState(currentYear);
+  const requestedYear = (() => {
+    const value = searchParams.get('year');
+    const year = value && /^\d{4}$/.test(value) ? Number(value) : NaN;
+    return Number.isInteger(year) && year >= 2000 && year <= currentYear ? year : null;
+  })();
+  const [chartYear, setChartYear] = useState(requestedYear ?? currentYear);
   const { toasts, removeToast } = useToasts();
   const [lastSync, setLastSync] = useState<number | null>(null);
   const [analysisInProgress, setAnalysisInProgress] = useState(false);
@@ -234,14 +240,18 @@ export default function ReportsPage() {
   }, [reportsData, chartYear, currentYear]);
 
   // Years that have transaction activity (from API); fallback to current year while loading
-  const availableYears = reportsData?.availableYears ?? [currentYear];
+  const availableYears = Array.from(new Set([chartYear, ...(reportsData?.availableYears ?? [currentYear])])).sort((a, b) => b - a);
+
+  useEffect(() => {
+    if (requestedYear != null) setChartYear(requestedYear);
+  }, [requestedYear]);
 
   // When available years load, if current chartYear isn't in the list, switch to most recent available
   useEffect(() => {
-    if (reportsData?.availableYears && reportsData.availableYears.length > 0 && !reportsData.availableYears.includes(chartYear)) {
+    if (requestedYear == null && reportsData?.availableYears && reportsData.availableYears.length > 0 && !reportsData.availableYears.includes(chartYear)) {
       setChartYear(reportsData.availableYears[0]);
     }
-  }, [reportsData?.availableYears, chartYear]);
+  }, [reportsData?.availableYears, chartYear, requestedYear]);
 
   // Function to handle monthly breakdown
   const handleMonthClick = (monthData: MonthlyData) => {

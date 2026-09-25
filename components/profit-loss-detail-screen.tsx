@@ -5,14 +5,12 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { formatCategory } from '@/lib/utils';
 import { 
-  ArrowLeft, 
   TrendingUp, 
   TrendingDown,
-  DollarSign,
   Calendar,
   FileText,
-  BarChart3
 } from 'lucide-react';
+import { AppMetricStrip, AppPageHeader, AppScreenShell } from '@/components/app/app-screen-shell';
 
 interface ProfitLossDetailScreenProps {
   onNavigate: (screen: string) => void;
@@ -84,32 +82,21 @@ export const ProfitLossDetailScreen: React.FC<ProfitLossDetailScreenProps> = ({
   }, {} as Record<string, number>);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 p-6">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center gap-4 mb-8">
-          <Button 
-            onClick={() => onNavigate('dashboard')}
-            variant="outline" 
-            size="sm"
-            className="gap-2"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Back to Dashboard
-          </Button>
-          <div>
-            <h1 className="text-3xl font-bold text-slate-900">Recorded Cash Flow</h1>
-            <p className="text-slate-600">Your saved inflows and outflows for the selected period—not a filed tax return</p>
-          </div>
-        </div>
+    <AppScreenShell width="wide">
+        <AppPageHeader
+          title="Recorded cash flow"
+          description="Saved inflows and outflows for the selected period—not a filed tax return."
+          onBack={() => onNavigate('dashboard')}
+          backLabel="Dashboard"
+        />
 
         {/* Period Filter */}
-        <div className="flex items-center gap-4 mb-6">
-          <div className="flex items-center gap-2">
-            <Calendar className="w-5 h-5 text-slate-600" />
-            <span className="font-medium text-slate-700">Period:</span>
+        <div className="flex flex-col gap-2 rounded-xl border border-border/70 bg-card p-3 shadow-[var(--shadow-tight)] sm:flex-row sm:items-center">
+          <div className="flex shrink-0 items-center gap-2">
+            <Calendar className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm font-medium text-foreground">Period</span>
           </div>
-          <div className="flex gap-2">
+          <div className="grid flex-1 grid-cols-2 gap-2 sm:grid-cols-4">
             {[
               { key: 'this-month', label: 'This Month' },
               { key: 'last-month', label: 'Last Month' },
@@ -121,6 +108,7 @@ export const ProfitLossDetailScreen: React.FC<ProfitLossDetailScreenProps> = ({
                 variant={selectedPeriod === period.key ? "default" : "outline"}
                 size="sm"
                 onClick={() => setSelectedPeriod(period.key)}
+                className="min-h-11"
               >
                 {period.label}
               </Button>
@@ -128,92 +116,36 @@ export const ProfitLossDetailScreen: React.FC<ProfitLossDetailScreenProps> = ({
           </div>
         </div>
 
-        {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <Card className="p-6 bg-white border-0 shadow-lg">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center">
-                <TrendingUp className="w-6 h-6 text-emerald-600" />
-              </div>
-              <div>
-                <p className="text-sm text-slate-600">Total Revenue</p>
-                <p className="text-2xl font-bold text-emerald-600">${totalRevenue.toLocaleString()}</p>
-              </div>
-            </div>
-          </Card>
-
-          <Card className="p-6 bg-white border-0 shadow-lg">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-red-100 rounded-xl flex items-center justify-center">
-                <TrendingDown className="w-6 h-6 text-red-600" />
-              </div>
-              <div>
-                <p className="text-sm text-slate-600">Total Expenses</p>
-                <p className="text-2xl font-bold text-red-600">${totalExpenses.toLocaleString()}</p>
-              </div>
-            </div>
-          </Card>
-
-          <Card className="p-6 bg-white border-0 shadow-lg">
-            <div className="flex items-center gap-4">
-              <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
-                netProfitLoss >= 0 ? 'bg-blue-100' : 'bg-orange-100'
-              }`}>
-                <DollarSign className={`w-6 h-6 ${
-                  netProfitLoss >= 0 ? 'text-blue-600' : 'text-orange-600'
-                }`} />
-              </div>
-              <div>
-                <p className="text-sm text-slate-600">Net P/L</p>
-                <p className={`text-2xl font-bold ${
-                  netProfitLoss >= 0 ? 'text-blue-600' : 'text-orange-600'
-                }`}>
-                  {netProfitLoss >= 0 ? '+' : ''}${netProfitLoss.toLocaleString()}
-                </p>
-              </div>
-            </div>
-          </Card>
-
-          <Card className="p-6 bg-white border-0 shadow-lg">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center">
-                <BarChart3 className="w-6 h-6 text-purple-600" />
-              </div>
-              <div>
-                <p className="text-sm text-slate-600">Profit Margin</p>
-                <p className={`text-2xl font-bold ${
-                  profitMargin >= 0 ? 'text-purple-600' : 'text-red-600'
-                }`}>
-                  {profitMargin.toFixed(1)}%
-                </p>
-              </div>
-            </div>
-          </Card>
-        </div>
+        <AppMetricStrip metrics={[
+          { label: 'Recorded revenue', value: `$${totalRevenue.toLocaleString()}`, tone: 'success' },
+          { label: 'Recorded expenses', value: `$${totalExpenses.toLocaleString()}`, tone: 'danger' },
+          { label: 'Net cash flow', value: `${netProfitLoss >= 0 ? '+' : ''}$${netProfitLoss.toLocaleString()}`, tone: netProfitLoss >= 0 ? 'success' : 'danger' },
+          { label: 'Cash-flow margin', value: `${profitMargin.toFixed(1)}%` },
+        ]} />
 
         {/* Revenue & Expenses Breakdown */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           {/* Revenue Breakdown */}
-          <Card className="p-6 bg-white border-0 shadow-lg">
-            <h3 className="text-xl font-semibold text-slate-900 mb-6 flex items-center gap-2">
-              <TrendingUp className="w-5 h-5 text-emerald-600" />
-              Revenue Breakdown
+          <Card className="border-border/70 bg-card p-4 shadow-[var(--shadow-tight)]">
+            <h3 className="mb-4 flex items-center gap-2 text-base font-semibold text-foreground">
+              <TrendingUp className="h-5 w-5 text-[hsl(var(--success))]" />
+              Revenue breakdown
             </h3>
-            <div className="space-y-4">
+            <div className="space-y-2">
               {Object.keys(revenueByCategory).length === 0 && (
-                <p className="text-sm text-slate-600">No recorded inflows for this period.</p>
+                <p className="text-sm text-muted-foreground">No recorded inflows for this period.</p>
               )}
               {Object.entries(revenueByCategory)
                 .sort(([,a], [,b]) => (b as number) - (a as number))
                 .map(([category, amount]) => (
-                  <div key={category} className="flex items-center justify-between p-4 bg-emerald-50 rounded-lg">
-                    <div>
-                      <p className="font-medium text-slate-900">{category}</p>
-                      <p className="text-sm text-slate-600">
+                  <div key={category} className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/25 p-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-foreground">{formatCategory(category)}</p>
+                      <p className="text-xs text-muted-foreground">
                         {(((amount as number) / totalRevenue) * 100).toFixed(1)}% of total revenue
                       </p>
                     </div>
-                    <p className="text-lg font-bold text-emerald-600">
+                    <p className="shrink-0 text-sm font-semibold tabular-nums text-[hsl(var(--success))]">
                       ${(amount as number).toLocaleString()}
                     </p>
                   </div>
@@ -222,26 +154,26 @@ export const ProfitLossDetailScreen: React.FC<ProfitLossDetailScreenProps> = ({
           </Card>
 
           {/* Expenses Breakdown */}
-          <Card className="p-6 bg-white border-0 shadow-lg">
-            <h3 className="text-xl font-semibold text-slate-900 mb-6 flex items-center gap-2">
-              <TrendingDown className="w-5 h-5 text-red-600" />
-              Expenses Breakdown
+          <Card className="border-border/70 bg-card p-4 shadow-[var(--shadow-tight)]">
+            <h3 className="mb-4 flex items-center gap-2 text-base font-semibold text-foreground">
+              <TrendingDown className="h-5 w-5 text-destructive" />
+              Expenses breakdown
             </h3>
-            <div className="space-y-4">
+            <div className="space-y-2">
               {Object.keys(expensesByCategory).length === 0 && (
-                <p className="text-sm text-slate-600">No recorded outflows for this period.</p>
+                <p className="text-sm text-muted-foreground">No recorded outflows for this period.</p>
               )}
               {Object.entries(expensesByCategory)
                 .sort(([,a], [,b]) => (b as number) - (a as number))
                 .map(([category, amount]) => (
-                  <div key={category} className="flex items-center justify-between p-4 bg-red-50 rounded-lg">
-                    <div>
-                      <p className="font-medium text-slate-900">{category}</p>
-                      <p className="text-sm text-slate-600">
+                  <div key={category} className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/25 p-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-foreground">{formatCategory(category)}</p>
+                      <p className="text-xs text-muted-foreground">
                         {(((amount as number) / totalExpenses) * 100).toFixed(1)}% of total expenses
                       </p>
                     </div>
-                    <p className="text-lg font-bold text-red-600">
+                    <p className="shrink-0 text-sm font-semibold tabular-nums text-destructive">
                       ${(amount as number).toLocaleString()}
                     </p>
                   </div>
@@ -251,47 +183,47 @@ export const ProfitLossDetailScreen: React.FC<ProfitLossDetailScreenProps> = ({
         </div>
 
         {/* Recent Transactions */}
-        <Card className="p-6 bg-white border-0 shadow-lg mt-8">
-          <h3 className="text-xl font-semibold text-slate-900 mb-6 flex items-center gap-2">
-            <FileText className="w-5 h-5 text-blue-600" />
-            Recent Transactions
+        <Card className="border-border/70 bg-card p-4 shadow-[var(--shadow-tight)]">
+          <h3 className="mb-4 flex items-center gap-2 text-base font-semibold text-foreground">
+            <FileText className="h-5 w-5 text-primary" />
+            Recent transactions
           </h3>
-          <div className="space-y-3">
+          <div className="space-y-2">
             {allTransactions.length === 0 && (
-              <p className="text-sm text-slate-600">No transactions were recorded for this period.</p>
+              <p className="text-sm text-muted-foreground">No transactions were recorded for this period.</p>
             )}
             {[...allTransactions]
               .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
               .slice(0, 10)
               .map((transaction) => (
-                <div key={transaction.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors">
-                  <div className="flex items-center gap-4">
-                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                      transaction.type === 'income' ? 'bg-emerald-100' : 'bg-red-100'
+                <div key={transaction.id} className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/25 p-3 transition-colors hover:bg-muted/45">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
+                      transaction.type === 'income' ? 'bg-[hsl(var(--success)/0.12)]' : 'bg-destructive/10'
                     }`}>
                       {transaction.type === 'income' ? (
-                        <TrendingUp className="w-5 h-5 text-emerald-600" />
+                        <TrendingUp className="h-4 w-4 text-[hsl(var(--success))]" />
                       ) : (
-                        <TrendingDown className="w-5 h-5 text-red-600" />
+                        <TrendingDown className="h-4 w-4 text-destructive" />
                       )}
                     </div>
-                    <div>
-                      <p className="font-medium text-slate-900">{transaction.description}</p>
-                      <div className="flex items-center gap-2 text-sm text-slate-600">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-foreground">{transaction.description}</p>
+                      <div className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
                         <span>{formatCategory(transaction.category)}</span>
                         <span>•</span>
                         <span>{new Date(transaction.date).toLocaleDateString()}</span>
                         <span>•</span>
                         <span className={`font-medium ${
-                          transaction.type === 'income' ? 'text-emerald-600' : 'text-red-600'
+                          transaction.type === 'income' ? 'text-[hsl(var(--success))]' : 'text-destructive'
                         }`}>
                           {transaction.type === 'income' ? 'Revenue' : 'Expense'}
                         </span>
                       </div>
                     </div>
                   </div>
-                  <p className={`text-lg font-bold ${
-                    transaction.type === 'income' ? 'text-emerald-600' : 'text-red-600'
+                  <p className={`shrink-0 text-sm font-semibold tabular-nums ${
+                    transaction.type === 'income' ? 'text-[hsl(var(--success))]' : 'text-destructive'
                   }`}>
                     {transaction.type === 'income' ? '+' : '-'}${transaction.amount.toLocaleString()}
                   </p>
@@ -299,8 +231,7 @@ export const ProfitLossDetailScreen: React.FC<ProfitLossDetailScreenProps> = ({
               ))}
           </div>
         </Card>
-      </div>
-    </div>
+    </AppScreenShell>
   );
 };
 

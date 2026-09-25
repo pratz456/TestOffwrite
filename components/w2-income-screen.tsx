@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Trash2, Loader2, Briefcase, CheckCircle2, AlertCircle } from "lucide-react";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
+import { AppMetricStrip, AppPageHeader, AppScreenShell } from "@/components/app/app-screen-shell";
 
 interface W2Entry {
   id: string; employer: string; wages: number; federalWithheld: number;
@@ -88,21 +89,18 @@ export function W2IncomeScreen({ user, onBack }: Props) {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="sticky top-0 z-50 bg-background border-b border-border">
-        <div className="max-w-2xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3">
-          <div className="flex-1">
-            <h1 className="text-lg sm:text-xl font-semibold">W-2 Income</h1>
-            <p className="text-xs text-muted-foreground">Salary income from employers - affects your combined tax bracket</p>
-          </div>
+    <AppScreenShell width="narrow">
+      <AppPageHeader
+        title="W-2 income"
+        description="Add each employer form once. Boxes 3 and 5 keep self-employment tax accurate."
+        onBack={onBack}
+        actions={
           <Select value={String(year)} onValueChange={v => setYear(parseInt(v))}>
-            <SelectTrigger className="w-[90px] h-9"><SelectValue /></SelectTrigger>
+            <SelectTrigger aria-label="Tax year" className="h-11 w-[96px]"><SelectValue /></SelectTrigger>
             <SelectContent>{Array.from({length:4},(_,i)=>currentYear-i).map(y=><SelectItem key={y} value={String(y)}>{y}</SelectItem>)}</SelectContent>
           </Select>
-        </div>
-      </div>
-
-      <div className="max-w-2xl mx-auto px-4 sm:px-6 py-5 space-y-4">
+        }
+      />
         {/* Info banner */}
         <div className="flex items-start gap-3 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 px-4 py-3 text-sm text-blue-800 dark:text-blue-300">
           <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
@@ -111,10 +109,10 @@ export function W2IncomeScreen({ user, onBack }: Props) {
 
         {/* Summary */}
         {entries.length > 0 && (
-          <div className="grid grid-cols-2 gap-3">
-            <Card className="bg-card border-border"><CardContent className="p-3 sm:p-4"><p className="text-xs text-muted-foreground mb-1">Total W-2 Wages</p><p className="text-base sm:text-lg font-semibold text-foreground tabular-nums">${fmt(totalWages)}</p></CardContent></Card>
-            <Card className="bg-card border-border"><CardContent className="p-3 sm:p-4"><p className="text-xs text-muted-foreground mb-1">Federal Withheld</p><p className="text-base sm:text-lg font-semibold text-green-600 dark:text-green-400 tabular-nums">${fmt(totalWithheld)}</p></CardContent></Card>
-          </div>
+          <AppMetricStrip metrics={[
+            { label: "Total W-2 wages", value: `$${fmt(totalWages)}` },
+            { label: "Federal withheld", value: `$${fmt(totalWithheld)}`, tone: "success" },
+          ]} />
         )}
 
         {error && <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div>}
@@ -225,8 +223,7 @@ export function W2IncomeScreen({ user, onBack }: Props) {
           <p className="font-medium text-foreground text-sm">How this affects your taxes</p>
           <p>Your W-2 wages are combined with self-employment income to determine which tax bracket you fall in. The federal tax your employer already withheld (Box 2) counts against what you owe, reducing your April balance due or increasing your refund.</p>
         </div>
-      </div>
-    </div>
+    </AppScreenShell>
   );
 }
 export default W2IncomeScreen;

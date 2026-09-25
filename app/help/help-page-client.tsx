@@ -4,25 +4,28 @@ import React, { useState, useEffect, Suspense } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { HelpCircle, Shield, Info, Mail, MessageCircle, BookOpen, CreditCard, FileText, Users, Heart, Camera, Calculator, TrendingUp, Smartphone, GraduationCap } from 'lucide-react';
+import { HelpCircle, Shield, Info, MessageCircle, BookOpen, CreditCard, FileText, Users, Heart, Camera, Calculator, TrendingUp, Smartphone, GraduationCap } from 'lucide-react';
 import Link from 'next/link';
 import writeOffLogo from '@/public/writeofflogo.png';
 import Image from 'next/image';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { FAQSection } from '@/components/faq-section';
 import { ContactSupportForm } from '@/components/contact-support-form';
 
 function HelpPageContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState('help');
 
   // Handle URL parameters for direct tab navigation
   useEffect(() => {
     const tab = searchParams.get('tab');
-    if (tab && ['help', 'privacy', 'about', 'faq', 'contact'].includes(tab)) {
+    if (tab === 'privacy' || tab === 'about') {
+      router.replace(`/${tab}`);
+    } else if (tab && ['help', 'faq', 'contact'].includes(tab)) {
       setActiveTab(tab);
     }
-  }, [searchParams]);
+  }, [router, searchParams]);
 
   const handleTutorialClick = (tutorialType: string) => {
     // For now, these will open in new tabs/windows
@@ -55,12 +58,12 @@ function HelpPageContent() {
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="bg-white border-b border-border">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <div className="border-b border-border bg-card/80 backdrop-blur">
+        <div className="mx-auto max-w-6xl px-4 py-3 sm:px-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <Image src={writeOffLogo} alt="WriteOff" className="w-8 h-auto" />
-              <h1 className="text-2xl font-bold text-foreground">Help & Support</h1>
+              <h1 className="text-xl font-semibold tracking-tight text-foreground">Help & Support</h1>
             </div>
             <Link href="/">
               <Button variant="outline" size="sm">
@@ -72,9 +75,9 @@ function HelpPageContent() {
       </div>
 
       {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-5">
+      <div className="mx-auto max-w-6xl px-4 py-4 sm:px-6">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+          <TabsList className="grid h-auto w-full grid-cols-3">
             <TabsTrigger value="help" className="flex items-center gap-2">
               <HelpCircle className="w-4 h-4" />
               Help & Support
@@ -87,19 +90,11 @@ function HelpPageContent() {
               <MessageCircle className="w-4 h-4" />
               Contact
             </TabsTrigger>
-            <TabsTrigger value="privacy" className="flex items-center gap-2">
-              <Shield className="w-4 h-4" />
-              Privacy Policy
-            </TabsTrigger>
-            <TabsTrigger value="about" className="flex items-center gap-2">
-              <Info className="w-4 h-4" />
-              About Us
-            </TabsTrigger>
           </TabsList>
 
           {/* Help & Support Tab */}
-          <TabsContent value="help" className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <TabsContent value="help" className="space-y-4">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
               {/* Getting Started */}
               <Card>
                 <CardHeader>
@@ -193,7 +188,7 @@ function HelpPageContent() {
                   <Button 
                     className="w-full" 
                     size="sm"
-                    onClick={() => window.open('/protected?screen=quarterly-tax', '_blank')}
+                    onClick={() => window.open('/protected?screen=quarterly-taxes', '_blank')}
                   >
                     Calculate Quarterly Taxes
                   </Button>

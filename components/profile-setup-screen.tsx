@@ -276,6 +276,7 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
         user={user}
         onConnectBank={() => setCurrentStep('plaid')}
         onSkipToApp={() => onComplete(formData, PROFILE_COMPLETE_SCREEN)}
+        onNavigateToApp={(screen) => onComplete(formData, screen)}
         onBack={() => setCurrentStep('profile')}
       />
     );
