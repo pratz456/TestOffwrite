@@ -210,6 +210,11 @@
     "reviewed": "2026-09-17"
   },
   {
+    "slug": "tax-apps-ad-pixels-privacy",
+    "date": "2026-09-25",
+    "reviewed": "2026-09-25"
+  },
+  {
     "slug": "tax-court-stories-freelancers",
     "date": "2026-07-08",
     "reviewed": "2026-09-17"
@@ -218,6 +223,21 @@
     "slug": "tax-deductions-content-creators-influencers",
     "date": "2026-04-08",
     "reviewed": "2026-09-17"
+  },
+  {
+    "slug": "tax-deductions-freelance-designers",
+    "date": "2026-09-25",
+    "reviewed": "2026-09-25"
+  },
+  {
+    "slug": "tax-deductions-freelance-software-developers",
+    "date": "2026-09-25",
+    "reviewed": "2026-09-25"
+  },
+  {
+    "slug": "tax-deductions-independent-consultants",
+    "date": "2026-09-25",
+    "reviewed": "2026-09-25"
   },
   {
     "slug": "tax-document-organizer-checklist",
