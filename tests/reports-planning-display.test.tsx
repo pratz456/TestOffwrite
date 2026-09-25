@@ -105,4 +105,17 @@ describe('Reports planning labels and confirmed month drilldown', () => {
     state.fetching = true;
     expect(text(render())).not.toContain('$100.00 confirmed deduction basis');
   });
+
+  it('opens one accessible export flow instead of bypassing errors with a raw download link', async () => {
+    const tree = await ready();
+    const exportButton = walk(tree).find(node => node.props?.onClick && text(node).trim() === 'Export report')!;
+    exportButton.props.onClick();
+    const modal = render();
+    expect(text(modal)).toContain('Generate Report');
+    expect(walk(modal).find(node => node.props?.role === 'dialog')?.props).toMatchObject({
+      'aria-modal': 'true',
+      'aria-labelledby': 'report-export-title',
+    });
+    expect(walk(tree).some(node => node.type === 'a' && String(node.props?.href).includes('export-csv'))).toBe(false);
+  });
 });

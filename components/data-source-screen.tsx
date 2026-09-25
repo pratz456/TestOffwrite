@@ -456,10 +456,10 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onNavigateT
             {/* Quick action cards */}
             <div className="grid grid-cols-2 gap-2">
               {[
-                { icon: Banknote, label: 'Add Income', sub: '1099, freelance, sales', screen: 'income-tracking', color: 'bg-emerald-100 text-emerald-700' },
-                { icon: Receipt, label: 'Add Expense', sub: 'Business purchases', screen: 'add-manual-transaction', color: 'bg-blue-100 text-blue-700' },
-                { icon: FileSpreadsheet, label: 'Tax Organizer', sub: 'W-2, investments, identity', screen: 'tax-organizer', color: 'bg-violet-100 text-violet-700' },
-                { icon: CreditCard, label: 'Import Document', sub: 'W-2 and 1099 forms', screen: 'document-import', color: 'bg-orange-100 text-orange-700' },
+                { icon: Banknote, label: 'Add Income', sub: '1099, freelance, sales', screen: 'income-tracking', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300' },
+                { icon: Receipt, label: 'Add Expense', sub: 'Business purchases', screen: 'add-manual-transaction', color: 'bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300' },
+                { icon: FileSpreadsheet, label: 'Tax Organizer', sub: 'W-2, investments, identity', screen: 'tax-organizer', color: 'bg-violet-100 text-violet-700 dark:bg-violet-950/50 dark:text-violet-300' },
+                { icon: CreditCard, label: 'Import Document', sub: 'W-2 and 1099 forms', screen: 'document-import', color: 'bg-orange-100 text-orange-700 dark:bg-orange-950/50 dark:text-orange-300' },
               ].map(({ icon: Icon, label, sub, screen, color }) => (
                 <button type="button" key={label} onClick={() => onNavigateToApp?.(screen)}
                   className="flex min-h-16 items-start gap-2 rounded-xl border border-border bg-card p-3 text-left transition-colors hover:border-primary/30 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">

@@ -100,6 +100,31 @@ interface MonthlyBreakdown {
   categoryBreakdown: Record<string, number>;
 }
 
+function keepFocusInDialog(event: React.KeyboardEvent<HTMLDivElement>, close: () => void) {
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    close();
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  const focusable = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(
+    'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+  )).filter(element => !element.hasAttribute('hidden'));
+  if (!focusable.length) {
+    event.preventDefault();
+    return;
+  }
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
 export default function ReportsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -480,6 +505,7 @@ export default function ReportsPage() {
             size="sm"
             className="min-h-[44px] h-11 px-4 border border-border bg-card hover:bg-muted/60 hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.08)] text-foreground transition-all duration-150 no-tap-highlight focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             title="Refresh reports data"
+            aria-label="Refresh reports data"
           >
             <RefreshCw className="w-4 h-4" />
             <span className="hidden sm:inline ml-2 text-sm font-medium">Refresh</span>
@@ -492,15 +518,16 @@ export default function ReportsPage() {
             <Download className="w-4 h-4" />
             <span className="ml-2 text-sm font-medium">Schedule C</span>
           </Button>
-          <a
-            href={`/api/transactions/export-csv?year=${chartYear}`}
-            download
-            className="inline-flex items-center gap-2 min-h-[44px] h-11 px-4 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors"
-            title="Export all saved transactions for the selected year for preparer review"
+          <Button
+            type="button"
+            onClick={() => setShowExportModal(true)}
+            disabled={!canExport}
+            className="min-h-[44px] h-11 px-4 bg-blue-600 hover:bg-blue-700 text-white"
+            title="Export the selected year for preparer review"
           >
             <Download className="w-4 h-4" />
-            <span className="ml-2 text-sm font-medium">Export CSV</span>
-          </a>
+            <span className="ml-2 text-sm font-medium">Export report</span>
+          </Button>
         </div>
       </div>
 
@@ -1032,10 +1059,18 @@ export default function ReportsPage() {
       {/* Monthly Breakdown Modal */}
       {showMonthlyModal && selectedMonth && (
         <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-card border border-border rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="monthly-breakdown-title"
+            tabIndex={-1}
+            autoFocus
+            onKeyDown={event => keepFocusInDialog(event, () => setShowMonthlyModal(false))}
+            className="bg-card border border-border rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto shadow-2xl"
+          >
             <div className="p-6 border-b border-border sticky top-0 bg-card z-10">
               <div className="flex justify-between items-center">
-                <h2 className="text-2xl font-bold text-card-foreground">
+                <h2 id="monthly-breakdown-title" className="text-2xl font-bold text-card-foreground">
                   {selectedMonth.monthName} {chartYear} Detailed Breakdown
                 </h2>
                 <button
@@ -1136,10 +1171,18 @@ export default function ReportsPage() {
       {/* Export Modal */}
       {showExportModal && (
         <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-card border border-border rounded-lg max-w-md w-full max-h-[90vh] overflow-y-auto shadow-2xl">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="report-export-title"
+            tabIndex={-1}
+            autoFocus
+            onKeyDown={event => keepFocusInDialog(event, () => setShowExportModal(false))}
+            className="bg-card border border-border rounded-lg max-w-md w-full max-h-[90vh] overflow-y-auto shadow-2xl"
+          >
             <div className="p-6 border-b border-border sticky top-0 bg-card z-10">
               <div className="flex justify-between items-center">
-                <h2 className="text-xl font-bold text-card-foreground">Generate Report</h2>
+                <h2 id="report-export-title" className="text-xl font-bold text-card-foreground">Generate Report</h2>
                 <button
                   onClick={() => setShowExportModal(false)}
                   className="text-muted-foreground hover:text-foreground active:text-foreground touch-target p-2 rounded-lg hover:bg-muted transition-colors"

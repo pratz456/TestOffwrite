@@ -103,6 +103,10 @@ export const TaxCalendarScreen: React.FC<TaxCalendarScreenProps> = ({ onBack }) 
     })
     .sort((a, b) => parseCalendarDate(a.date).getTime() - parseCalendarDate(b.date).getTime())
     .slice(0, 5);
+  const selectedMonthEvents = taxEvents.filter(event => {
+    const eventDate = parseCalendarDate(event.date);
+    return eventDate.getMonth() === selectedMonth && eventDate.getFullYear() === selectedYear;
+  });
 
   const getDaysUntil = (date: string) => {
     const today = new Date();
@@ -195,12 +199,12 @@ export const TaxCalendarScreen: React.FC<TaxCalendarScreenProps> = ({ onBack }) 
               }>
 
               <div className="space-y-3">
-                {taxEvents
-                  .filter(event => {
-                    const eventDate = parseCalendarDate(event.date);
-                    return eventDate.getMonth() === selectedMonth && eventDate.getFullYear() === selectedYear;
-                  })
-                  .map((event) => (
+                {selectedMonthEvents.length === 0 && (
+                  <p className="rounded-lg bg-muted/30 p-3 text-sm text-muted-foreground">
+                    No standard federal deadline is listed for {months[selectedMonth]} {selectedYear}.
+                  </p>
+                )}
+                {selectedMonthEvents.map((event) => (
                     <div key={event.id} className="flex min-h-14 items-center justify-between gap-3 rounded-lg bg-muted/40 p-3">
                       <div className="flex items-center gap-3">
                         {getEventIcon(event.type, event.priority)}
