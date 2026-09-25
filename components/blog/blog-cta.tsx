@@ -52,7 +52,7 @@ export function BlogCTA({ variant = "inline" }: { variant?: "inline" | "full" })
         Ready to organize your business expenses?
       </h3>
       <p className="mx-auto mt-3 max-w-lg text-muted-foreground">
-        Save expenses and receipts as you go. Review their business purpose and prepare records for your accountant. In-app filing and AI analysis are not available in this preview.
+        Save expenses and receipts as you go. AI suggests a category with its reasoning, you confirm the business purpose, and your accountant gets organized records. In-app filing is not available.
       </p>
       <div className="mt-6 flex flex-col items-center gap-3">
         <Link href={href}>
