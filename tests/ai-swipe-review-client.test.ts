@@ -241,7 +241,8 @@ describe('AI category swipe review', () => {
     { ai_suggestion: { ...suggestion, status: 'blocked' as const } },
     { ai_suggestion: { ...suggestion, transactionKind: 'unknown' as const } },
   ])('does not falsely confirm a pending, running, absent, blocked or unknown suggestion', async changes => {
-    records = [base(changes)]; const confirm = action(page(), 'Confirm category');
+    records = [base(changes)];
+    const confirm = walk(page()).find(node => node.props.onClick && ['Confirm category', 'Save category', 'Confirm deduction'].includes(text(node).trim()))!;
     expect(confirm.props.disabled).toBe(true); await confirm.props.onClick!(); expect(harness.request).not.toHaveBeenCalled();
   });
 

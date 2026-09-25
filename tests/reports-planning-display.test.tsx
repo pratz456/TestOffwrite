@@ -18,7 +18,7 @@ vi.mock('react', async importOriginal => {
   };
   return { ...actual, ...hooks, default: { ...actual.default, ...hooks } };
 });
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push() {} }) }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push() {} }), useSearchParams: () => new URLSearchParams() }));
 vi.mock('sonner', () => ({ toast: { error: state.toast, warning: state.toast } }));
 vi.mock('@/lib/firebase/client', () => ({ auth: { currentUser: { getIdToken: async () => 'synthetic' } } }));
 vi.mock('@/lib/firebase/auth-context', () => ({ useAuth: () => ({ user: { id: 'reports-owner' }, loading: false }) }));

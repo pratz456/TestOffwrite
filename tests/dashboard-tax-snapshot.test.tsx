@@ -237,6 +237,7 @@ describe('dashboard tax cards share the federal server calculation', () => {
     expect(h.request.mock.calls.some(([url]) => url.includes('/plaid/refresh-balances'))).toBe(false);
   });
   it('keeps ready tax cards stable across AI-only progress updates', async () => {
+    h.records.gross_receipts = [{ amount: 100 }];
     h.tx = [expense(20, { id: 'expense', trans_id: 'expense', updated_at: 1 })];
     render(); await flush(); const ready = render();
     expect(ready.state.status).toBe('ready');
