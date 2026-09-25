@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mock = vi.hoisted(() => ({ docs: new Map<string, any>(), files: new Map<string, Buffer>(), onDownload: null as null | (() => void), saved: vi.fn(), reads: vi.fn(), deleteFiles: vi.fn() }));
 vi.mock('@/lib/firebase/admin', () => {
-  const ref = (path: string): any => ({ path, id: path.split('/').at(-1), get: async () => snap(path), delete: async () => mock.docs.delete(path), update: async (data: any) => mock.docs.set(path, { ...mock.docs.get(path), ...data }) });
+  const ref = (path: string): any => ({ path, id: path.split('/').at(-1), get: async () => snap(path), delete: async () => mock.docs.delete(path),
+    set: async (data: any, options?: { merge?: boolean }) => mock.docs.set(path, { ...(options?.merge ? mock.docs.get(path) : {}), ...data }),
+    update: async (data: any) => mock.docs.set(path, { ...mock.docs.get(path), ...data }) });
   const snap = (path: string) => ({ exists: mock.docs.has(path), id: path.split('/').at(-1)!, ref: ref(path), data: () => structuredClone(mock.docs.get(path)) });
   return { adminDb: { doc: ref, collection: (name: string) => ({ where: (key: string, _op: string, value: unknown) => ({ limit: (limit: number) => ({ get: async () => ({ docs: [...mock.docs].filter(([path, data]) => path.startsWith(`${name}/`) && data[key] === value).slice(0, limit).map(([path]) => snap(path)) }) }) }) }), runTransaction: async (fn: any) => {
     const writes: any[] = []; const result = await fn({ get: (value: any) => value.get(), set: (value: any, data: any) => writes.push(() => mock.docs.set(value.path, structuredClone(data))), update: (value: any, data: any) => writes.push(() => mock.docs.set(value.path, { ...mock.docs.get(value.path), ...structuredClone(data) })) }); writes.forEach(write => write()); return result;
@@ -86,6 +88,16 @@ describe('scoped preparer handoff snapshots', () => {
   it('treats an empty or already-cleared handoff prefix as idempotent', async () => {
     mock.deleteFiles.mockRejectedValueOnce(new Error('synthetic storage outage'));
     await expect(deletePreparerHandoffsForUser('owner')).resolves.toBeUndefined();
+    expect(mock.deleteFiles).not.toHaveBeenCalled();
     expect(mock.docs.has('user_profiles/owner')).toBe(true);
+  });
+  it('retains the owner cleanup marker until known handoff storage is deleted', async () => {
+    const created = await createPreparerHandoff('owner', bundle(), 1);
+    mock.deleteFiles.mockRejectedValueOnce(new Error('synthetic storage outage'));
+    await expect(deletePreparerHandoffsForUser('owner')).rejects.toThrow('synthetic storage outage');
+    expect(mock.docs.has(`preparer_handoffs/${created.id}`)).toBe(false);
+    expect(mock.docs.has('preparer_handoff_owners/owner')).toBe(true);
+    await expect(deletePreparerHandoffsForUser('owner')).resolves.toBeUndefined();
+    expect(mock.docs.has('preparer_handoff_owners/owner')).toBe(false);
   });
 });
