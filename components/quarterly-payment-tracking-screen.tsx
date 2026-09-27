@@ -86,7 +86,7 @@ export function QuarterlyPaymentTrackingScreen({
   const [submittingQuarter, setSubmittingQuarter] = useState<number | null>(null);
 
   const currentYear = LATEST_PUBLISHED_TAX_YEAR;
-  const [selectedYear, setSelectedYear] = useState(currentYear);
+  const [selectedYear, setSelectedYear] = useState<number>(currentYear);
 
   // Payment form state (per quarter)
   const [formAmount, setFormAmount] = useState("");

@@ -158,7 +158,7 @@ export default function ProtectedPage() {
       const { data: profile } = await getUserProfile(currentUser.id);
       const connected = await readActiveBankConnection(profile?.bankConnected === true);
       setBankConnected(connected);
-      setUserProfile(previous => previous ? { ...previous, bankConnected: connected } : profile ? { ...profile, bankConnected: connected } : previous);
+      setUserProfile((previous: any) => previous ? { ...previous, bankConnected: connected } : profile ? { ...profile, bankConnected: connected } : previous);
 
       if (connected) {
         // Only sync transactions if explicitly requested, not on every page load
@@ -168,7 +168,7 @@ export default function ProtectedPage() {
     } catch (error) {
       console.error('Error checking bank connection:', error);
       setBankConnected(false);
-      setUserProfile(previous => previous ? { ...previous, bankConnected: false } : previous);
+      setUserProfile((previous: any) => previous ? { ...previous, bankConnected: false } : previous);
       // Transactions are now automatically managed by useTransactionState
     }
   };

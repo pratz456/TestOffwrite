@@ -23,7 +23,7 @@ const US_STATES = ["AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","
 
 export function W2IncomeScreen({ user, onBack }: Props) {
   const currentYear = LATEST_PUBLISHED_TAX_YEAR;
-  const [year, setYear] = useState(currentYear);
+  const [year, setYear] = useState<number>(currentYear);
   const [entries, setEntries] = useState<W2Entry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
