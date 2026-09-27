@@ -100,7 +100,7 @@ describe('income reconciliation panel', () => {
     expect(content).toContain('1099-K · Synthetic platform');
     expect(content).toContain('Direct income · Synthetic platform');
     expect(content).toContain('Needs a decision');
-    expect(content).toContain('$20,000 and 200 transactions');
+    expect(content).toContain('Form 1099-K reporting thresholds vary by tax year');
     expect(walk(tree).filter(node => node.props?.type === 'checkbox')).toHaveLength(2);
     expect(preview(tree)).toBe('Select the records this decision covers.');
     expect(walk(tree).find(node => node.props?.type === 'submit')!.props.disabled).toBe(true);
