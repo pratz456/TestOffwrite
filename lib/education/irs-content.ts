@@ -8,6 +8,8 @@
  *   - Business expenses generally: IRS Pub 334 (Publication 535 was discontinued after 2022) —
  *     https://www.irs.gov/forms-pubs/about-publication-535
  */
+import { describeBusinessMileageRatesForYear } from '@/lib/tax-rules/mileage-rates';
+
 export interface IRSContent {
   id: string;
   title: string;
@@ -110,10 +112,9 @@ Actual Expense Method:
     content: `Vehicle expenses for business use are deductible. You can choose between the standard mileage rate or actual expenses.
 
 Standard Mileage Rate (business use; the rate depends on the date driven):
-- 2025: 70 cents per mile (IRS Notice 2025-5)
-- January 1 - June 30, 2026: 72.5 cents per mile (IRS Notice 2026-10)
-- July 1 - December 31, 2026: 76 cents per mile (IRS Announcement 2026-11)
-- 2027: not yet announced; the IRS normally publishes the rate in December
+- ${describeBusinessMileageRatesForYear(2025)}
+- ${describeBusinessMileageRatesForYear(2026)}
+- ${describeBusinessMileageRatesForYear(2027)}
 - Includes depreciation, gas, insurance, maintenance; parking and tolls are deductible separately
 - Must be chosen in the first year the car is used for business to remain available later
 - Simpler recordkeeping

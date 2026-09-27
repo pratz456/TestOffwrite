@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BUSINESS_STANDARD_MILEAGE_RATES, businessMileageRateForDate, summarizeBusinessMileage } from '../lib/tax-rules/mileage-rates';
+import { BUSINESS_STANDARD_MILEAGE_RATES, businessMileageRateForDate, describeBusinessMileageRatesForYear, summarizeBusinessMileage } from '../lib/tax-rules/mileage-rates';
 
 describe('IRS business standard mileage rates', () => {
   it.each([
@@ -21,6 +21,11 @@ describe('IRS business standard mileage rates', () => {
       expect(period.from <= period.to).toBe(true);
       if (index) expect(BUSINESS_STANDARD_MILEAGE_RATES[index - 1].to < period.from).toBe(true);
     }
+  });
+  it('builds user-facing annual rate copy from the dated registry and fails closed for unpublished years', () => {
+    expect(describeBusinessMileageRatesForYear(2025)).toBe('The 2025 business standard mileage rate is 70 cents per mile.');
+    expect(describeBusinessMileageRatesForYear(2026)).toContain('January 1 through June 30: 72.5 cents per mile. July 1 through December 31: 76 cents per mile.');
+    expect(describeBusinessMileageRatesForYear(2027)).toContain('has not been verified as published');
   });
   it('sums trips at each trip date rate and reports unrated trips separately', () => {
     const summary = summarizeBusinessMileage([
