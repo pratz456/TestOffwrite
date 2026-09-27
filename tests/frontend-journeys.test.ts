@@ -111,6 +111,10 @@ describe('protected browser journey destinations', () => {
   });
   it('preserves the bank-connection return destination and escapes transaction IDs', () => {
     expect(protectedScreenUrl('plaid-link?from=settings')).toBe('/protected?screen=plaid-link&from=settings');
+    expect(protectedScreenUrl('plaid-link?from=banks-detail&itemId=item_abc-123')).toBe('/protected?screen=plaid-link&from=banks-detail&itemId=item_abc-123');
+    expect(protectedScreenUrl('plaid-link?itemId=..%2Fother')).toBe('/protected?screen=plaid-link');
+    expect(protectedScreen('plaid')).toBe('banks-detail');
+    expect(protectedScreen('add-expense')).toBe('add-manual-transaction');
     const url = new URL(protectedScreenUrl('transaction-detail?transactionId=abc%26def&from=review-transactions'), 'https://staging.example');
     expect(url.searchParams.get('transactionId')).toBe('abc&def');
     expect(url.searchParams.get('from')).toBe('review-transactions');
@@ -131,6 +135,20 @@ describe('protected browser journey destinations', () => {
   it.each(['javascript:alert(1)', '//example.com', 'unknown-screen'])('keeps unknown destination %s inside the dashboard', value => {
     expect(protectedScreenUrl(value)).toBe('/protected');
     expect(protectedScreenUrl(previousProtectedScreen('transaction-detail', [], value).screen)).toBe('/protected');
+  });
+  it.each([
+    ['add-expense', '/protected?screen=add-manual-transaction'],
+    ['edit-expense', '/protected/transactions'],
+    ['plaid', '/protected?screen=banks-detail'],
+    ['tax-calendar', '/protected?screen=quarterly-taxes'],
+    ['deductions-detail', '/protected?screen=deductions-entry'],
+    ['expenses-detail', '/protected/transactions'],
+    ['profit-loss-detail', '/protected/reports'],
+    ['profit-loss-report', '/protected/reports'],
+    ['tax-form-wizard', '/protected?screen=tax-filing-hub'],
+    ['state-tax-calculator', '/protected?screen=tax-preview'],
+  ])('redirects legacy screen %s to its canonical destination', (legacy, expected) => {
+    expect(protectedScreenUrl(legacy)).toBe(expected);
   });
 });
 
@@ -192,7 +210,7 @@ describe('manual dashboard entry and review actions', () => {
     const manual = actions.findIndex(action => action.id === 'add-first-transaction');
     const bank = actions.findIndex(action => action.id === 'connect-bank');
     expect(actions[manual]).toMatchObject({ priority: 'high', screen: 'add-manual-transaction' });
-    expect(actions[bank]).toMatchObject({ priority: 'low', screen: 'plaid-link' });
+    expect(actions[bank]).toMatchObject({ priority: 'low', screen: 'banks-detail' });
     expect(manual).toBeLessThan(bank);
     expect(generateActionItems({ ...profile, bankConnected: true }, []).some(action => action.id === 'connect-bank')).toBe(false);
   });

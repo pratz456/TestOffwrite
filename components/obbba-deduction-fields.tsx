@@ -97,7 +97,7 @@ export function OBBBADeductionFields({ taxYear, filingStatus, value, onChange }:
     </div>}
 
     {claiming && yesNo('magiForeignExclusions', 'Do you exclude foreign earned income (Form 2555) or U.S. territory income?', 'Schedule 1-A modified AGI adds those exclusions back. Yes routes the estimate to review; the exclusions are not calculated here.')}
-    {joint && <p className="text-xs text-muted-foreground">Joint return limits and thresholds are applied automatically.</p>}
+    {joint && <p className="text-xs text-muted-foreground">Joint return limits and thresholds are applied from the selected filing status.</p>}
     <p className="text-xs text-muted-foreground">Save the organizer to apply changes. Answers are your declarations for the planning estimate; keep statements and receipts for your tax preparer.</p>
   </section>;
 }

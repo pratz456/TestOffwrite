@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { XCircle, ArrowLeft } from 'lucide-react';
+import { PRODUCT_ACCESS } from '@/lib/subscriptions/product-config';
 
 export default function StripeCancelPage() {
   const router = useRouter();
@@ -25,7 +26,7 @@ export default function StripeCancelPage() {
         <CardContent className="space-y-4">
           <div className="bg-muted rounded-lg p-4">
             <p className="text-sm text-muted-foreground">
-              You can upgrade anytime to access up to 24 months (depending on your bank).
+              You can upgrade anytime to access {PRODUCT_ACCESS.extendedHistoryLabel}.
             </p>
           </div>
 

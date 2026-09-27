@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Calendar, Clock, Sparkles } from "lucide-react";
 import { BlogSearch } from "./blog-search";
 import { ScrollRevealWrapper } from "./scroll-reveal-wrapper";
+import { PRODUCT_ACCESS } from "@/lib/subscriptions/product-config";
 
 interface BlogPostMeta {
   slug: string;
@@ -154,7 +155,7 @@ export function BlogGridClient({ posts, tagStyles, tagIcons }: BlogGridClientPro
           <Sparkles className="mb-3 h-8 w-8 text-primary" />
           <h3 className="text-lg font-semibold text-foreground">Organize your deductions</h3>
           <p className="mt-2 text-sm text-muted-foreground">
-            WriteOff tracks expenses and suggests write-offs for your review. Try it free for 30 days.
+            WriteOff tracks expenses and suggests write-offs for your review. Try it free for {PRODUCT_ACCESS.trialDays} days.
           </p>
           <Link
             href="/welcome"

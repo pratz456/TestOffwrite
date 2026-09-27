@@ -66,7 +66,7 @@ export default function PrivacyPolicyPageClient() {
             <div>
               <h3>Purposes of Collection</h3>
               <ul>
-                <li>To provide AI-powered tax deduction analysis and generate comprehensive reports</li>
+                <li>To provide AI-assisted transaction review and supported reports</li>
                 <li>To automatically process receipts and extract transaction details using OCR</li>
                 <li>To calculate federal planning estimates using the published tax brackets for the selected tax year</li>
                 <li>To provide personalized AI insights and tax optimization recommendations</li>

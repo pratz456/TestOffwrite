@@ -1,3 +1,5 @@
+import { PREMIUM_MONTHLY_PRICE, PREMIUM_YEARLY_PRICE, PRODUCT_ACCESS } from '@/lib/subscriptions/product-config';
+
 /** Reviewed FAQ copy shared by the landing FAQ accordion and the /help FAQPage JSON-LD (claims policy: docs/PRODUCT_ROADMAP_2026-09-17.md §4). */
 export interface FAQItem {
   question: string;
@@ -53,7 +55,7 @@ export const faqData: FAQItem[] = [
   },
   {
     question: "How much does WriteOff cost?",
-    answer: "The Free plan keeps basic records and the records archive accessible. The 30-day trial and Premium plans unlock reports and exports. Listed Premium pricing is $14.99 monthly or $149.99 yearly; existing Basic subscribers keep their $7.99 monthly price and extended history. In-app tax filing is not offered on any plan.",
+    answer: `The Free plan keeps basic records and the records archive accessible. The ${PRODUCT_ACCESS.trialDays}-day trial and Premium plans unlock reports and exports. Listed Premium pricing is $${PREMIUM_MONTHLY_PRICE} monthly or $${PREMIUM_YEARLY_PRICE} yearly. Existing subscriptions show their actual price in Billing. In-app tax filing is not offered on any plan.`,
     category: "pricing"
   }
 ];

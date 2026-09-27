@@ -58,7 +58,8 @@ export async function refreshBankConnectionProjection(db: Firestore, uid: string
   if (isLocalAccountPreview()) return;
   await db.runTransaction(async tx => {
     const snapshot = await tx.get(db.collection('plaid_connections').where('uid', '==', uid));
-    const bankConnected = snapshot.docs.some(doc => doc.data().status === 'active' && isCurrent(doc.data()));
+    const bankConnected = snapshot.docs.some(doc =>
+      doc.data().status === 'active' && isCurrent(doc.data()) && doc.data().reauthenticationRequired !== true);
     tx.update(db.doc(`user_profiles/${uid}`), { bankConnected });
   });
 }
@@ -104,7 +105,8 @@ export async function migrateLegacyPlaidCredentials(db: Firestore, FieldValue: F
     // interrupted run is simply resumed by running the migration again.
     tx.update(profileRef, { plaid_token: FieldValue.delete(), access_token: FieldValue.delete(), plaid_item_id: FieldValue.delete(),
       plaid_transactions_cursor: FieldValue.delete(), ...(deferred.length ? {} : { plaid_credentials_migrated: true }),
-      ...(token ? { bankConnected: existing.exists && existing.data()?.status === 'active' && isCurrent(existing.data()!) } : {}) });
+      ...(token ? { bankConnected: existing.exists && existing.data()?.status === 'active'
+        && isCurrent(existing.data()!) && existing.data()?.reauthenticationRequired !== true } : {}) });
     return { tokenMoved: Boolean(token) && !existing.exists, cleared: paginated ? 0 : tokenAccounts.length, paginated, deferred };
   });
   let cleared = first.cleared;

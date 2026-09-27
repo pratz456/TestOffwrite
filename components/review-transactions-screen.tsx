@@ -415,7 +415,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
 
               {offerQuestion && <QuestionChips key={`${currentKey}:${openQuestion!.kind}`} question={openQuestion!} transaction={current} proposal={proposal}
                 busy={operation === 'saving'} disabled={busy}
-                onSave={(updates, saved) => saveDecision(updates, `${saved}. AI review updates automatically.`, true)}
+                onSave={(updates, saved) => saveDecision(updates, `${saved}. A new AI review will use the saved details.`, true)}
                 onOpenDetails={onTransactionClick ? () => onTransactionClick({ ...current, _source: 'review-transactions' }, 'details') : undefined} />}
 
               {offerPurpose ? <p id="review-confirmation-hint" className="text-xs leading-4 text-muted-foreground">{mayConfirm ? `${confirmationLabel} below saves the category${recordsDeduction ? ' and the deduction' : ' only'}; the purpose is saved when you confirm it above.` : presentation!.confirmationHint}</p>
@@ -431,8 +431,8 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
 
               {!suggestion && analysisControls}
               {profileRefresh && <p role="status" className="text-xs leading-5 text-muted-foreground">Updating AI review using your new profile. Confirmed categories stay saved.</p>}
-              {factsRefresh && <p role="status" className="text-xs leading-5 text-muted-foreground">Details saved. AI is updating your review automatically.</p>}
-              {analysisQueued && !profileRefresh && !factsRefresh && <p role="status" className="text-xs leading-5 text-muted-foreground">{`Queued for automatic analysis.${analysisWaiting > 1 ? ` ${analysisWaiting} transactions are waiting; a first import can take a while.` : ''} Run it now or wait for the result.`}</p>}
+              {factsRefresh && <p role="status" className="text-xs leading-5 text-muted-foreground">Details saved. A new AI review is running with those facts.</p>}
+              {analysisQueued && !profileRefresh && !factsRefresh && <p role="status" className="text-xs leading-5 text-muted-foreground">{`Queued for AI analysis.${analysisWaiting > 1 ? ` ${analysisWaiting} transactions are waiting; a first import can take a while.` : ''} Run it now or wait for the result.`}</p>}
               {analysisRunning && !profileRefresh && !factsRefresh && <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 shrink-0 animate-spin" />AI is analyzing. Results refresh here.</p>}
               {!suggestion && availability.status === 'unavailable' && <p className="text-xs text-muted-foreground">{availability.message} Manual categorization remains available.</p>}
             </>}

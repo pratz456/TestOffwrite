@@ -17,7 +17,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${baseUrl}/resources/freelance-expense-reset`, lastModified: now, changeFrequency: "monthly", priority: 0.75 },
     { url: `${baseUrl}/contact`, lastModified: now, changeFrequency: "monthly", priority: 0.7 },
     { url: `${baseUrl}/help`, lastModified: now, changeFrequency: "monthly", priority: 0.7 },
-    { url: `${baseUrl}/help-support`, lastModified: now, changeFrequency: "monthly", priority: 0.6 },
     { url: `${baseUrl}/about`, lastModified: now, changeFrequency: "monthly", priority: 0.6 },
     { url: `${baseUrl}/privacy`, lastModified: now, changeFrequency: "yearly", priority: 0.4 },
     { url: `${baseUrl}/terms`, lastModified: now, changeFrequency: "yearly", priority: 0.4 },

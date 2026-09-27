@@ -59,7 +59,6 @@ import { TransactionDetailScreen } from '../components/transaction-detail-screen
 import { ExplanationCard } from '../components/ai/explanation-card';
 import { PurposeConfirmChip } from '../components/review/purpose-confirm-chip';
 import { BulkConfirmOffer } from '../components/review/bulk-confirm-offer';
-import { AddExpenseScreen } from '../components/add-expense-screen';
 import { requestAppNavigation } from '../lib/navigation/navigation-guard';
 
 type Props = {
@@ -97,15 +96,6 @@ beforeEach(() => { harness.slots = []; harness.cursor = 0; harness.effects = [];
 afterEach(() => { unmountDetail(); vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('transaction page actions reach working accountless flows', () => {
-  it('routes the legacy editor through saved-record detail and unsaved entry through the real manual form', () => {
-    const transaction = { id: 'saved-expense', merchant_name: 'Synthetic saved expense', amount: 20, date: '2026-09-16', category: 'other' };
-    const existing = AddExpenseScreen({ user: { id: 'new-accountless-user' }, onBack() {}, onSave: harness.save, editingExpense: transaction });
-    expect(existing.type).toBe(TransactionDetailScreen);
-    expect(existing.props.transaction).toBe(transaction);
-    const newEntry = AddExpenseScreen({ user: { id: 'new-accountless-user' }, onBack() {}, onSave: harness.save });
-    expect(walk(newEntry).some(node => node.type === AddManualTransactionScreen)).toBe(true);
-    expect(harness.request).not.toHaveBeenCalled(); expect(harness.fetch).not.toHaveBeenCalled();
-  });
   it.each([
     ['Upload receipt', '/protected?screen=receipt-upload'],
     ['Add transaction', '/protected?screen=add-manual-transaction'],
@@ -673,7 +663,7 @@ describe('transaction detail preserves manual work without guessed tax impact or
     expect(harness.mutate).toHaveBeenCalledOnce();
     expect(harness.save).toHaveBeenCalledWith(expect.objectContaining(queued));
     expect(harness.fetch).not.toHaveBeenCalled();
-    expect(text(detail(queued as Partial<DetailTransaction>))).toContain('Details saved. AI is updating your review automatically.');
+    expect(text(detail(queued as Partial<DetailTransaction>))).toContain('Details saved. A new AI review is running with those facts.');
   });
 
   it('waits for edited context to be saved before explicit analysis reads the canonical record', async () => {

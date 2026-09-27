@@ -113,7 +113,7 @@ describe('AI provider request and result contract', () => {
       status: 'ok', is_deductible: true, expense_type: 'business', category: 'supplies_small_tools',
       key_analysis_factor: output().key_analysis_factor, customized_reason: output().customized_reason,
       // The category rule (supplies / de minimis) is surfaced next to the general §162 rule.
-      irs_refs: ['26 USC 162 — Trade or business expenses', 'Treas. Reg. §1.263(a)-1(f) — Supplies and the de minimis safe harbor'], audit_risk: 'low', confidence: 0.85,
+      irs_refs: ['26 USC 162: Trade or business expenses', 'Treas. Reg. §1.263(a)-1(f): Supplies and the de minimis safe harbor'], audit_risk: 'low', confidence: 0.85,
       tax_year: 2026, jurisdiction: 'US-federal', deductible_percent: 100,
       sources: [{ id: 'business-162', url: expect.stringContaining('uscode.house.gov'), edition: expect.any(String) }, { id: 'supplies-263a', url: expect.stringContaining('ecfr.gov'), edition: expect.any(String) }],
       provenance: { provider: 'openai', model: 'gpt-4o-mini', kind: 'model_with_curated_tax_policy' },

@@ -1,5 +1,6 @@
 import { Plus } from "lucide-react";
 import { CtaButton } from "./cta-button";
+import { PREMIUM_MONTHLY_PRICE, PREMIUM_YEARLY_PRICE, PRODUCT_ACCESS } from "@/lib/subscriptions/product-config";
 
 const QUESTIONS = [
   { question: "Do I have to connect my bank?", answer: "No. Start with a manual expense or receipt upload, and add income as you go." },
@@ -12,7 +13,7 @@ export function ComparisonSection() {
     <section id="availability" className="mx-auto grid max-w-5xl scroll-mt-20 gap-6 px-4 py-7 sm:px-6 sm:py-9 md:grid-cols-2 md:gap-10">
       <div>
         <h2 className="text-xl font-semibold tracking-tight">Start free. Keep your records.</h2>
-        <p className="mt-2 text-sm leading-5 text-slate-600">30 days of Premium reports included.</p>
+        <p className="mt-2 text-sm leading-5 text-slate-600">{PRODUCT_ACCESS.trialDays} days of Premium reports included.</p>
         <dl className="mt-3 divide-y divide-slate-200 text-sm">
           <div className="flex gap-4 py-3">
             <dt className="w-20 shrink-0 font-semibold">Free</dt>
@@ -20,7 +21,7 @@ export function ComparisonSection() {
           </div>
           <div className="flex gap-4 py-3">
             <dt className="w-20 shrink-0 font-semibold">Premium</dt>
-            <dd className="text-slate-600"><span className="font-medium text-slate-950">$14.99/mo or $149.99/yr.</span> PDF/CSV reports and extended history. Cancel anytime.</dd>
+            <dd className="text-slate-600"><span className="font-medium text-slate-950">${PREMIUM_MONTHLY_PRICE}/mo or ${PREMIUM_YEARLY_PRICE}/yr.</span> PDF/CSV reports and extended history. Cancel anytime.</dd>
           </div>
         </dl>
         <CtaButton label="Try WriteOff" className="mt-2" />

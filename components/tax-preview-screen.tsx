@@ -121,7 +121,7 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
     if (!data.deductions.healthInsurancePremiums && !data.deductions.sepIraContribution) gaps.push({ msg: "Review eligible health insurance and retirement deductions", screen: "tax-organizer" });
   }
   const nextStep = gaps[0] ?? { msg: "Review your saved income and tax details", screen: "tax-organizer" };
-  const amountOrDash = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? fmt(value) : "—";
+  const amountOrDash = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? fmt(value) : "Not available";
 
   return (
     <div className="min-h-full bg-background">
@@ -355,7 +355,7 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
                         <p>Effective federal rate (incl. SE tax) <span className="font-semibold text-foreground tabular-nums">{pct(f1040.effectiveRate)}</span></p>
                       </div>
                       <p>The rate is total modeled federal tax divided by total income, including self-employment and Additional Medicare tax and after nonrefundable credits.</p>
-                      <p>Estimated — based on your current data. Review with a tax professional before filing.</p>
+                      <p>Estimated from your current data. Review with a tax professional before filing.</p>
                     </div>
                   {([
                     { section: "INCOME" as string, lines: [

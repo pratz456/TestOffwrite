@@ -5,6 +5,7 @@ import { useAuth } from '@/lib/firebase/auth-context';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { PRODUCT_ACCESS } from '@/lib/subscriptions/product-config';
 import { X, Calendar, Sparkles, AlertTriangle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
@@ -67,8 +68,8 @@ export function HistoricalAccessNotification() {
         <AlertDescription className="text-foreground">
           <div className="flex items-center justify-between">
             <span>
-              Your free trial has ended. Free accounts can import the last 90 days; your saved records remain accessible.
-              Upgrade to request up to 2 years of bank history, depending on bank availability.
+              Your free trial has ended. Free accounts can import the last {PRODUCT_ACCESS.freeHistoryDays} days; your saved records remain accessible.
+              Upgrade to request {PRODUCT_ACCESS.extendedHistoryLabel}.
             </span>
             <div className="flex items-center gap-2 ml-4">
               <Button

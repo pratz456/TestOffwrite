@@ -16,9 +16,9 @@ End-to-end flow as implemented: **Account creation/sign-in → Plaid connect →
 | `/auth/sign-up-success` | Success message (app/auth/sign-up-success/page.tsx) |
 | `/auth/forgot-password`, `/auth/update-password`, `/auth/confirm`, `/auth/error` | Auth flows |
 | `/welcome` | HomeContent or redirect to /protected if user (app/welcome/page.tsx) |
-| `/protected` | ProtectedLayoutClient + app content; screen state via `?screen=` (app/protected/page.tsx). Renders DashboardScreen, ReviewTransactionsScreen, PlaidScreen, etc. by currentScreen |
-| `/protected/plaid` | PlaidScreen — banks list, "Connect Bank" → /protected/plaid-link (app/protected/plaid/page.tsx) |
-| `/protected/plaid-link` | PlaidLinkScreen — link token, Plaid Link, exchange, then redirect to account-usage (app/protected/plaid-link/page.tsx, components/plaid-link-screen.tsx) |
+| `/protected` | ProtectedLayoutClient + app content; screen state via `?screen=` (app/protected/page.tsx). Renders DashboardScreen, ReviewTransactionsScreen, BanksDetailScreen, PlaidLinkScreen, etc. by currentScreen |
+| `/protected/plaid` | Legacy URL redirect to `/protected?screen=banks-detail` |
+| `/protected/plaid-link` | Legacy URL redirect to `/protected?screen=plaid-link`; the canonical screen creates the Link token, opens Plaid, exchanges, then redirects to account usage |
 | `/protected/account-usage/[accountId]` | Account usage form — Business/Personal/Mixed, Save → PATCH usage, mark-personal or auto-analyze, redirect (app/protected/account-usage/[accountId]/page.tsx) |
 | `/protected/transactions` | Transactions list page (app/protected/transactions/page.tsx) |
 | `/protected/settings`, `/protected/subscriptions`, `/protected/reports`, `/protected/schedule-c`, etc. | Other protected pages |
@@ -136,7 +136,7 @@ stateDiagram-v2
 ## 3. Ambiguities / TODOs
 
 - **Review screen as route:** The app does not have a route `/protected/review-transactions`. Review is a **screen** on `/protected` with `?screen=review-transactions&accountId=...`. The diagram uses `UI_ReviewTransactions` as the logical state; the URL can be `/protected` with query params.
-- **Sync trigger from BanksDetailScreen:** Manual sync is also triggered from `components/banks-detail-screen.tsx` (Sync button). The diagram groups this under `SYS_SyncTrigger_Manual`; both PlaidScreen and BanksDetailScreen call `POST /api/plaid/sync-transactions`.
+- **Sync trigger from BanksDetailScreen:** The canonical bank hub triggers item-scoped manual sync from `components/banks-detail-screen.tsx`. Legacy Plaid management screens redirect to this hub.
 - **analysis_status vs analysis_jobs:** The code uses `analysis_jobs` for new flow (auto-analyze) and can fall back to `analysis_status` in analysis-status API. The diagram does not distinguish; both represent “job progress.”
 - **Profile setup branch:** If the user has no profile doc, ProtectedLayoutClient can show profile-setup mode (full-width, no nav). The diagram does not add a separate state; it is a variant of “dashboard loading” before UI_Dashboard.
 

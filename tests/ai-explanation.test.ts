@@ -16,25 +16,25 @@ const base = { tax_year: 2026, policy_version: 'test-policy', confidence: 0.9 };
 const corpus = {
   okSoftware: { ...base, status: 'ok', transaction_kind: 'expense', category: 'software_subscriptions', is_deductible: true, expense_type: 'business', deductible_percent: 100,
     customized_reason: 'Design software used for the saved client work.', key_analysis_factor: 'Ordinary design tool.', documentation_required: ['Subscription invoice'],
-    sources: [source('business-162', '26 USC 162 — Trade or business expenses')] },
+    sources: [source('business-162', '26 USC 162: Trade or business expenses')] },
   okMeal: { ...base, status: 'ok', transaction_kind: 'expense', category: 'meals_50', is_deductible: true, expense_type: 'business', deductible_percent: 50,
     customized_reason: 'Client lunch with the saved attendees.', key_analysis_factor: 'Business meal with a client.', documentation_required: ['Receipt', 'Attendee names'],
-    sources: [source('meals-274', '26 USC 274 — Meal conditions and entertainment limits'), source('business-162', '26 USC 162 — Trade or business expenses')] },
+    sources: [source('meals-274', '26 USC 274: Meal conditions and entertainment limits'), source('business-162', '26 USC 162: Trade or business expenses')] },
   needsPurpose: { ...base, status: 'needs_more_info', transaction_kind: 'expense', category: 'software_subscriptions', missing_fields: ['business_purpose'],
     questions: ['Is this the design software you use for client work?'], proposed_purpose: 'Design software for client projects', documentation_required: ['Subscription invoice'],
-    sources: [source('business-162', '26 USC 162 — Trade or business expenses')] },
+    sources: [source('business-162', '26 USC 162: Trade or business expenses')] },
   needsVehicle: { ...base, status: 'needs_more_info', transaction_kind: 'expense', category: 'vehicle_expense', missing_fields: ['vehicle_method'],
-    questions: ['Was this commuting or business driving, and which vehicle method do you use?'], sources: [source('travel-463', 'IRS Publication 463 — Travel, gift and car expenses')] },
+    questions: ['Was this commuting or business driving, and which vehicle method do you use?'], sources: [source('travel-463', 'IRS Publication 463: Travel, gift and car expenses')] },
   blockedYear: { ...base, tax_year: 2027, status: 'blocked', transaction_kind: 'expense', category: 'supplies_small_tools', missing_fields: ['supported_tax_year'],
     questions: ['Confirm the transaction date and review this tax year with your tax professional.'], reason: 'Outside the verified scope.',
-    sources: [source('business-162', '26 USC 162 — Trade or business expenses')] },
+    sources: [source('business-162', '26 USC 162: Trade or business expenses')] },
   refund: { ...base, status: 'needs_more_info', transaction_kind: 'refund', category: 'other', missing_fields: ['original_expense'],
     questions: ['Which original purchase does this refund match, and in which tax year was that purchase deducted?'],
-    documentation_required: ['Refund record and matching original invoice'], sources: [source('records-334', 'IRS Publication 334 — Small-business income and expenses')] },
+    documentation_required: ['Refund record and matching original invoice'], sources: [source('records-334', 'IRS Publication 334: Small-business income and expenses')] },
   income: { ...base, status: 'ok', transaction_kind: 'income', category: 'other', is_deductible: false, deductible_percent: 0,
-    customized_reason: 'Recorded client invoice payment.', key_analysis_factor: 'Customer payment.', sources: [source('records-334', 'IRS Publication 334 — Small-business income and expenses')] },
+    customized_reason: 'Recorded client invoice payment.', key_analysis_factor: 'Customer payment.', sources: [source('records-334', 'IRS Publication 334: Small-business income and expenses')] },
   personal: { ...base, status: 'ok', transaction_kind: 'personal', category: 'other', is_deductible: false, expense_type: 'personal', deductible_percent: 0,
-    customized_reason: 'Groceries recorded as family use.', key_analysis_factor: 'Personal purchase.', sources: [source('personal-262', '26 USC 262 — Personal, living and family expenses')] },
+    customized_reason: 'Groceries recorded as family use.', key_analysis_factor: 'Personal purchase.', sources: [source('personal-262', '26 USC 262: Personal, living and family expenses')] },
 } satisfies Record<string, ExplainableResult>;
 
 const transactions = {
@@ -75,7 +75,7 @@ describe('composeExplanation over corpus-style results', () => {
 
   it('ok deduction: estimate range in whole dollars with the exact label, Schedule C line from the category map, rule from the source id', () => {
     const explanation = explain('okSoftware');
-    expect(explanation.headline).toBe('Likely deductible: Software and subscriptions — Adobe, $54.99');
+    expect(explanation.headline).toBe('Likely deductible: Software and subscriptions: Adobe, $54.99');
     expect(explanation.why).toContain('26 USC 162 allows a cost that is ordinary and necessary');
     expect(explanation.scheduleCLine).toBe('Schedule C line 18 (Office expense)');
     expect(explanation.yourFacts).toEqual(['Purpose you saved: Creative Cloud for client design work', 'Filing status used for the estimate: single']);
@@ -96,7 +96,7 @@ describe('composeExplanation over corpus-style results', () => {
 
   it('ok meal: applies the 50% share to the estimate and lists the attendees actually saved', () => {
     const explanation = explain('okMeal');
-    expect(explanation.headline).toBe('Likely deductible: Business meals (50% limit) — Cafe Roma, $86.40');
+    expect(explanation.headline).toBe('Likely deductible: Business meals (50% limit): Cafe Roma, $86.40');
     expect(explanation.why).toMatch(/^26 USC 274 limits a qualifying business meal to 50%/);
     expect(explanation.scheduleCLine).toBe('Schedule C line 24b (Meals)');
     expect(explanation.yourFacts).toContain('Attendees: Dana Lee (client), me');
@@ -108,7 +108,7 @@ describe('composeExplanation over corpus-style results', () => {
 
   it('needs_more_info with a proposed purpose: headline asks to confirm it and the effect is withheld', () => {
     const explanation = explain('needsPurpose');
-    expect(explanation.headline).toBe('Confirm: Design software for client projects — Adobe, $54.99');
+    expect(explanation.headline).toBe('Confirm: Design software for client projects: Adobe, $54.99');
     expect(explanation.estimatedTaxEffect).toBeNull();
     expect(explanation.scheduleCLine).toBe('Schedule C line 18 (Office expense)');
     expect(explanation.nextQuestion).toBe('Is this the design software you use for client work?');
@@ -117,7 +117,7 @@ describe('composeExplanation over corpus-style results', () => {
 
   it('needs_more_info without a proposed purpose: names the missing fact and the category records', () => {
     const explanation = explain('needsVehicle');
-    expect(explanation.headline).toBe('Needs one fact: the business miles driven and your vehicle deduction method — Shell, $61.20');
+    expect(explanation.headline).toBe('Needs one fact: the business miles driven and your vehicle deduction method: Shell, $61.20');
     expect(explanation.yourFacts).toEqual(['Mileage: 42 miles (Studio to Client site)']);
     expect(explanation.scheduleCLine).toBeNull();
     expect(explanation.strengthen[0]).toBe('Mileage log with date, miles, destination and purpose for each trip');
@@ -126,7 +126,7 @@ describe('composeExplanation over corpus-style results', () => {
 
   it('blocked: states the scope limit and never estimates, even if a deductible flag survived', () => {
     const explanation = explain('blockedYear');
-    expect(explanation.headline).toBe('Outside the reviewed tax years: category only — Staples, $40.00');
+    expect(explanation.headline).toBe('Outside the reviewed tax years: category only: Staples, $40.00');
     expect(explanation.estimatedTaxEffect).toBeNull();
     expect(explain('blockedYear', { is_deductible: true }).estimatedTaxEffect).toBeNull();
     expect(explain('blockedYear', { missing_fields: ['entity_tax_treatment'] }).headline).toMatch(/^Entity return: category only/);
@@ -134,7 +134,7 @@ describe('composeExplanation over corpus-style results', () => {
 
   it('refund: no Schedule C line, refund records, and the matching question leads', () => {
     const explanation = explain('refund');
-    expect(explanation.headline).toBe('Needs one fact: which original purchase this refund matches — Amazon, $35.50');
+    expect(explanation.headline).toBe('Needs one fact: which original purchase this refund matches: Amazon, $35.50');
     expect(explanation.scheduleCLine).toBeNull();
     expect(explanation.strengthen).toEqual(['Refund record and matching original invoice', 'Refund record and the original invoice', 'Tax year and treatment of the original purchase']);
     expect(explanation.why).toContain('a refund needs the original purchase and tax year checked');
@@ -142,12 +142,12 @@ describe('composeExplanation over corpus-style results', () => {
 
   it('income and personal flows: state the flow, keep the effect and Schedule C line empty, and ask for nothing personal', () => {
     const income = explain('income');
-    expect(income.headline).toBe('Business income: reported as receipts, not an expense — ACME Corp, $1,200.00');
+    expect(income.headline).toBe('Business income: reported as receipts, not an expense: ACME Corp, $1,200.00');
     expect(income.estimatedTaxEffect).toBeNull();
     expect(income.scheduleCLine).toBeNull();
     expect(income.strengthen).toEqual(['Invoice or payment record that matches this deposit']);
     const personal = explain('personal');
-    expect(personal.headline).toBe('Personal purchase: not a business deduction — Trader Joes, $92.13');
+    expect(personal.headline).toBe('Personal purchase: not a business deduction: Trader Joes, $92.13');
     expect(personal.strengthen).toEqual([]);
     expect(personal.yourFacts).toEqual(['Purpose you saved: Family groceries']);
     expect(personal.why).toMatch(/^26 USC 262 disallows personal, living and family costs/);
@@ -181,7 +181,7 @@ describe('estimated tax effect boundaries', () => {
   it.each([{}, { iso_currency_code: 'USD', unofficial_currency_code: 'USDC' }])('withholds raw dollar amounts and tax effects without unambiguous currency: %j', currency => {
     const explanation = composeExplanation({ result: corpus.okSoftware,
       transaction: { merchant_name: 'Adobe', amount: 54.99, ...currency }, profile, taxYear: 2026 });
-    expect(explanation.headline).toMatch(/ — Adobe$/);
+    expect(explanation.headline).toMatch(/: Adobe$/);
     expect(explanation.headline).not.toContain('$');
     expect(explanation.estimatedTaxEffect).toBeNull();
   });
@@ -289,7 +289,7 @@ describe('Schedule C placement and stored payloads', () => {
     const ok = analysisSuggestionUpdate(corpus.okSoftware, 1770000000000, { ...saved, merchant_name: 'Adobe', amount: 54.99, equipment_details: undefined }, 'profile-hash', profile);
     expect(ok.ai_suggestion.status).toBe('ok');
     expect(ok.ai_explanation.estimatedTaxEffect?.label).toBe(ESTIMATE_LABEL);
-    expect(ok.ai_explanation.headline).toMatch(/^Likely deductible: Software and subscriptions — Adobe, \$54\.99$/);
+    expect(ok.ai_explanation.headline).toMatch(/^Likely deductible: Software and subscriptions: Adobe, \$54\.99$/);
     expect(reviewHydrationFields({ ai_explanation: ok.ai_explanation }).ai_explanation).toEqual(ok.ai_explanation);
     expect(reviewHydrationFields({}).ai_explanation).toBeNull();
     expect(reviewHydrationFields({ analysisRefreshReason: 'profile_changed' }).analysisRefreshReason).toBe('profile_changed');

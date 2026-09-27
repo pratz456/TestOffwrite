@@ -176,7 +176,7 @@ describe('red team: over-eager outputs are downgraded, never approved', () => {
   });
   it('forged irs_refs are replaced by server-resolved source titles', () => {
     const result = ground({ irs_refs: ['IRS Pub 535', 'Rev. Rul. 99-7'] });
-    expect(result?.irs_refs).toEqual(['26 USC 162 — Trade or business expenses', 'Treas. Reg. §1.263(a)-1(f) — Supplies and the de minimis safe harbor']);
+    expect(result?.irs_refs).toEqual(['26 USC 162: Trade or business expenses', 'Treas. Reg. §1.263(a)-1(f): Supplies and the de minimis safe harbor']);
     expect(JSON.stringify(result)).not.toContain('535');
     expect(JSON.stringify(result)).not.toContain('99-7');
   });

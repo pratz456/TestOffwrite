@@ -311,15 +311,15 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
         {/* Schedule C Preview */}
         <Card className="p-4 sm:p-6 bg-card border border-border shadow-sm min-w-0 overflow-hidden">
           <h3 className="text-lg font-semibold text-foreground mb-6">
-            Schedule C Preview - Tax Year {selectedYear}
+            Schedule C Preview: Tax Year {selectedYear}
           </h3>
 
           {/* Enhanced Form Style Preview */}
           {categorySummaries.length > 0 && (
             <div className="mb-10">
               <div className="mb-4">
-                <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Form 1040 - Schedule C (Draft Preview)</h4>
-                <p className="text-xs text-muted-foreground">Part II - Expenses (aggregated from your classified and potential business transactions)</p>
+                <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Form 1040, Schedule C (Draft Preview)</h4>
+                <p className="text-xs text-muted-foreground">Part II expenses from reviewed transaction records</p>
               </div>
               <div className="overflow-x-auto max-w-full rounded-lg border border-border">
                 <table className="w-full min-w-[480px] text-sm">
@@ -433,7 +433,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
                 <p className="text-sm mb-4 text-muted-foreground/70">Make sure to categorize your transactions as business expenses first.</p>
                 {potentialCount > 0 && (
                   <div className="bg-muted border border-border rounded-lg p-4 mt-4 text-foreground">
-                    <p className="font-medium">💡 Found {potentialCount} transactions that might be deductible</p>
+                    <p className="font-medium">{potentialCount} transactions may need deduction review</p>
                     <p className="text-sm text-muted-foreground mt-1">
                       Go to "Review Transactions" to classify these as business expenses.
                     </p>

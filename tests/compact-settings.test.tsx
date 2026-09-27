@@ -226,13 +226,10 @@ describe('compact settings preserve profile editing and account access', () => {
     state.cleanups.forEach(cleanup => cleanup()); pending.resolve({ error: null }); await effects(); await vi.advanceTimersByTimeAsync(2000);
     expect(state.push).not.toHaveBeenCalled(); expect(requestAppNavigation('/protected')).toBe(true);
   });
-  it('guards both internal bank routes until dirty edits save', async () => {
+  it('guards the canonical bank hub until dirty edits save', async () => {
     await mount(); change('Full Name', 'Bank connection draft'); await click('AccountAccount');
-    await click('Connect Bank'); expect(state.navigate).not.toHaveBeenCalled(); await effects(); await vi.advanceTimersByTimeAsync(0);
-    expect(state.navigate).toHaveBeenCalledExactlyOnceWith('plaid-link?from=settings');
-    await click('ProfileProfile'); change('Full Name', 'Manage bank draft'); await click('AccountAccount');
-    await click('Accounts'); expect(state.navigate).toHaveBeenCalledTimes(1); await effects(); await vi.advanceTimersByTimeAsync(0);
-    expect(state.navigate).toHaveBeenLastCalledWith('plaid');
+    await click('Manage bank accounts'); expect(state.navigate).not.toHaveBeenCalled(); await effects(); await vi.advanceTimersByTimeAsync(0);
+    expect(state.navigate).toHaveBeenCalledExactlyOnceWith('banks-detail');
   });
   it('shows legacy picker values without silently changing the saved profile', async () => {
     state.load.mockResolvedValueOnce({ data: { ...saved, state: 'TX', filing_status: 'single' }, error: null }); await mount();

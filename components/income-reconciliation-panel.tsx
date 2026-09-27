@@ -151,7 +151,7 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
       <section aria-label="How reconciliation works" className="rounded-lg border border-border bg-card p-3 text-xs leading-relaxed text-muted-foreground">
         <p className="text-sm font-semibold text-foreground">Count each payment once</p>
         <p className="mt-1">A 1099, a direct income entry and a bank deposit can all describe one payment. Choose the records that belong together and say how they relate. {summary?.policy ?? "WriteOff never merges, edits or deletes income records automatically."}</p>
-        <p className="mt-1">All business income is taxable whether or not a 1099 arrives. For 2025 and later, a platform sends a 1099-K only above $20,000 and 200 transactions, and it reports gross amounts before fees.</p>
+        <p className="mt-1">All business income is reportable whether or not a 1099 arrives. Form 1099-K reporting thresholds vary by tax year and can differ under state rules; the form reports gross payment volume before platform fees.</p>
       </section>
 
       {loading ? (
@@ -183,7 +183,7 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
           ) : (
             <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
               <p className="text-xs text-muted-foreground">Gross receipts for {taxYear} (Schedule C line 1)</p>
-              <p className="text-lg font-semibold tabular-nums">{summary.grossReceipts === null ? "—" : fmt(summary.grossReceipts)}</p>
+              <p className="text-lg font-semibold tabular-nums">{summary.grossReceipts === null ? "Not available" : fmt(summary.grossReceipts)}</p>
               <p className="text-xs text-muted-foreground">
                 Each payment counted once across {summary.candidates.length} record{summary.candidates.length === 1 ? "" : "s"}{appliedCount ? ` and ${appliedCount} saved decision${appliedCount === 1 ? "" : "s"}` : ""}.
               </p>

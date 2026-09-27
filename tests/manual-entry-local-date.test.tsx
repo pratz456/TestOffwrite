@@ -18,7 +18,6 @@ vi.mock('react', async importOriginal => {
   return { ...actual, ...hooks, default: { ...actual.default, ...hooks } };
 });
 
-import { AddManualEntryScreen } from '../components/add-manual-entry-screen';
 import { AddManualTransactionScreen } from '../components/add-manual-transaction-screen';
 import { localCalendarYMD } from '../lib/transactions/calendar-date';
 
@@ -30,10 +29,9 @@ function walk(node: unknown): Element[] {
   return [element, ...walk(element.props.children)];
 }
 const screens = [
-  ['entry', AddManualEntryScreen],
   ['transaction', AddManualTransactionScreen],
 ] as const;
-function render(Screen: typeof AddManualEntryScreen | typeof AddManualTransactionScreen) {
+function render(Screen: typeof AddManualTransactionScreen) {
   harness.cursor = 0;
   return Screen({ user: { id: 'synthetic-owner' }, onBack() {} }) as Element;
 }

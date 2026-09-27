@@ -175,11 +175,11 @@ export function DeductionsEntryScreen({ user, onBack, onNavigate }: Props) {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <p className="text-xs text-muted-foreground">Income adjustments</p>
-              <p className="text-lg font-semibold tabular-nums">{loading || loadedYear !== year ? "—" : fmt(totalDeductions)}</p>
+              <p className="text-lg font-semibold tabular-nums">{loading || loadedYear !== year ? "Not available" : fmt(totalDeductions)}</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Charitable donations</p>
-              <p className="text-lg font-semibold tabular-nums">{loading || loadedYear !== year ? "—" : fmt(num(fields.charitableCashDonations) + num(fields.charitableNonCashDonations))}</p>
+              <p className="text-lg font-semibold tabular-nums">{loading || loadedYear !== year ? "Not available" : fmt(num(fields.charitableCashDonations) + num(fields.charitableNonCashDonations))}</p>
             </div>
           </div>
           <p className="mt-2 text-xs text-muted-foreground">Amounts entered, subject to eligibility and limits.</p>

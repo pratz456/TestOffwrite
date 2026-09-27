@@ -264,7 +264,7 @@ describe('one question at a time with suggested answers', () => {
     harness.request.mockResolvedValue(Response.json({ success: true, transaction: { ...records[0], equipment_details: { make: 'Framework', business_use_percentage: 75 } } }));
     await element.props.onSave!({ equipment_details: { make: 'Framework', business_use_percentage: 75 } }, 'Business use saved: 75%');
     expect(JSON.parse(harness.request.mock.calls[0][1].body)).toEqual({ equipment_details: { make: 'Framework', business_use_percentage: 75 } });
-    expect(harness.toast).toHaveBeenCalledWith('Business use saved: 75%. AI review updates automatically.');
+    expect(harness.toast).toHaveBeenCalledWith('Business use saved: 75%. A new AI review will use the saved details.');
     view = page();
     expect(text(view)).toContain('Synthetic Office Mart');
     expect(text(view)).not.toContain('confirmed this session');

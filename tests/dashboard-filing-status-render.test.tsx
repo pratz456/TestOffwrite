@@ -42,7 +42,6 @@ vi.mock('@/components/ui/toast', () => ({ ToastContainer: 'ToastContainer', useT
 vi.mock('@/components/historical-access-upgrade-card', () => ({ HistoricalAccessUpgradeCard: 'HistoricalAccessUpgradeCard' }));
 vi.mock('@/components/dashboard/index', () => Object.fromEntries(['DashboardHeader', 'KpiGrid', 'AnalyticsPanel', 'OptimizationCard', 'TopCategoriesCard', 'RecentActivityCard', 'AiAdvisoryCard', 'QuickActionsBar', 'ActionItemsBanner'].map(name => [name, name])));
 import DashboardScreen from '../components/dashboard-screen';
-import { Dashboard } from '../components/dashboard';
 import { AIInsightsPage } from '../components/ai-insights-page';
 import ReportsPage from '../app/protected/reports/page';
 
@@ -99,15 +98,12 @@ describe('dashboard filing-status review display', () => {
     expect(content).not.toContain('Estimated Tax Effect of Unreviewed Items');
     expect(content).not.toContain('NaN');
   });
-  it.each([
-    ['legacy dashboard', () => Dashboard({ user: { id: 'synthetic' }, onNavigate: harness.navigate }) as Element],
-    ['reports', () => ReportsPage() as Element],
-  ] as const)('%s remains usable and displays the actionable status problem', async (_label, component) => {
+  it('reports remain usable and display the actionable status problem', async () => {
+    const component = () => ReportsPage() as Element;
     render(component); await flush();
     let tree = render(component); await flush(); tree = render(component);
     expect(text(tree)).toContain('filing status in Profile');
     expect(text(tree)).toContain('Review profile');
     expect(text(tree)).not.toContain('NaN');
-    if (_label === 'legacy dashboard') expect(text(tree)).toContain('Review needed');
   });
 });

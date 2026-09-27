@@ -96,19 +96,13 @@ export default function ToolsPage() {
             </Link>
           ))}
 
-          {/* Coming soon placeholder */}
-          <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50/50 p-6 flex flex-col items-center justify-center text-center">
-            <Calculator className="h-6 w-6 text-gray-400 mb-3" />
-            <p className="text-sm font-medium text-gray-500">Home Office Deduction Calculator</p>
-            <p className="text-xs text-gray-400 mt-1">Coming soon</p>
-          </div>
         </div>
 
         {/* CTA */}
         <div className="mt-16 text-center rounded-2xl bg-gradient-to-r from-green-600 to-emerald-600 p-10 text-white">
           <h3 className="text-xl font-bold mb-2">Want help keeping your deduction records?</h3>
           <p className="text-green-100 mb-6 max-w-md mx-auto">
-            WriteOff tracks expenses, suggests likely deductions for your review, and prepares Schedule C-ready summaries your preparer can use.
+            WriteOff tracks expenses, suggests possible deductions for your review, and prepares Schedule C summaries for preparer review.
           </p>
           <Link href="/auth/sign-up">
             <Button size="lg" className="bg-white text-green-700 hover:bg-green-50">

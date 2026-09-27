@@ -214,7 +214,7 @@ flowchart LR
 ```
 Sync triggers:
   ├─> On visit: /protected load, bankConnected → POST sync-transactions { incremental: true } (once per visit)
-  └─> Manual: PlaidScreen or BanksDetailScreen "Sync" → POST sync-transactions
+  └─> Manual: canonical BanksDetailScreen "Sync" → POST sync-transactions
 
 POST /api/plaid/sync-transactions { userId, import_timeframe?, incremental? }
   │

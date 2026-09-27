@@ -223,6 +223,6 @@ export function calcProjectedAnnual(
   const reliable = monthsOfData >= 3;
   const caveat = reliable
     ? `Based on ${monthsOfData} months of data`
-    : `Only ${monthsOfData} month${monthsOfData === 1 ? '' : 's'} of data — estimate may be inaccurate`;
+    : `Only ${monthsOfData} month${monthsOfData === 1 ? '' : 's'} of data. The estimate may be incomplete.`;
   return { projected: Math.round(projected), reliable, caveat };
 }

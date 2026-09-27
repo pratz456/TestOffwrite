@@ -87,6 +87,9 @@ describe('private bank credentials and item ownership', () => {
     expect(await listPlaidConnectionSummaries('owner')).toMatchObject([
       { itemId: 'bank-a', status: 'relink_required' }, { itemId: 'bank-b', status: 'active' },
     ]);
+    expect(record(profile).bankConnected).toBe(true);
+    expect(await markPlaidConnectionLoginRequired('bank-b')).toBe(true);
+    expect(record(profile).bankConnected).toBe(false);
     expect((await getPlaidConnection('owner', 'bank-a'))?.accessToken).toBe('synthetic-secret-bank-a');
     await withPlaidConnection('owner', 'bank-a', async (_connection, lease) => {
       await updatePlaidConnection('owner', 'bank-a', {}, lease);
@@ -96,6 +99,7 @@ describe('private bank credentials and item ownership', () => {
       await updatePlaidConnection('owner', 'bank-a', { reauthenticationRequired: false }, lease);
     });
     expect((await listPlaidConnectionSummaries('owner'))[0].status).toBe('active');
+    expect(record(profile).bankConnected).toBe(true);
     expect(record('plaid_connections/bank-a').encryptedAccessToken).toBe(encrypted);
   });
   it('never marks or reactivates unknown, old-provider or disconnected Items after a provider error', async () => {

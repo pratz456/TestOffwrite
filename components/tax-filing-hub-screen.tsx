@@ -185,7 +185,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
       label: "Schedule SE calculated",
       description: "Self-Employment Tax",
       status: summary.netProfit > 0 ? "complete" : summary.totalIncome > 0 ? "partial" : "missing",
-      detail: summary.seTax > 0 ? `SE tax: ${fmt(summary.seTax)}` : "Calculated automatically from net profit",
+      detail: summary.seTax > 0 ? `SE tax: ${fmt(summary.seTax)}` : "Derived from reviewed net profit",
       action: "View Schedule SE",
       actionScreen: undefined,
     },

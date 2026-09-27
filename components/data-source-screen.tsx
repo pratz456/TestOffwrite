@@ -4,7 +4,7 @@ import React, { useState, useRef } from 'react';
 import {
   Building2, FileText, PenLine, ArrowLeft, ArrowRight, Upload,
   CheckCircle2, Loader2, AlertCircle, ChevronRight, X, Info,
-  CreditCard, Receipt, FileSpreadsheet, Banknote
+  CreditCard, Receipt, FileSpreadsheet, Banknote, Calendar, Camera
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -18,7 +18,7 @@ interface DataSourceScreenProps {
   onBack: () => void;
 }
 
-type DataSource = 'bank' | 'upload' | 'manual' | null;
+type DataSource = 'upload' | 'manual' | null;
 type UploadState = 'idle' | 'uploading' | 'success' | 'error';
 
 interface UploadedFile {
@@ -38,21 +38,21 @@ interface UploadedFile {
 
 const SUPPORTED_IMAGE_TYPES = [
   {
-    icon: '🏦',
+    icon: Building2,
     title: 'Bank Statements',
     desc: 'Chase, Bank of America, Wells Fargo, etc.',
     examples: 'Clear PNG, JPEG, or WebP images',
     color: 'blue',
   },
   {
-    icon: '💳',
+    icon: CreditCard,
     title: 'Credit Card Statements',
     desc: 'Visa, Mastercard, Amex, Discover',
     examples: 'Any credit card monthly statement',
     color: 'purple',
   },
   {
-    icon: '🧾',
+    icon: Receipt,
     title: 'Receipts & Invoices',
     desc: 'Clear photos of business receipts',
     examples: 'Restaurant, supplies, subscriptions',
@@ -61,10 +61,10 @@ const SUPPORTED_IMAGE_TYPES = [
 ];
 
 const MANUAL_TIPS = [
-  { icon: '📅', text: 'Add income and expenses manually without connecting a bank' },
-  { icon: '📸', text: 'Attach receipt photos and review or enter the details yourself' },
-  { icon: '✅', text: 'Review each expense and record its business purpose' },
-  { icon: '📤', text: 'You can connect your bank anytime later in Settings' },
+  { icon: Calendar, text: 'Add income and expenses manually without connecting a bank' },
+  { icon: Camera, text: 'Attach receipt photos and review or enter the details yourself' },
+  { icon: CheckCircle2, text: 'Review each expense and record its business purpose' },
+  { icon: Upload, text: 'You can connect your bank anytime later in Settings' },
 ];
 
 export async function uploadOnboardingDocument(file: File, year: number): Promise<NonNullable<UploadedFile['result']>> {
@@ -180,7 +180,7 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onNavigateT
             {/* Option 1: Connect Bank */}
             <button
               type="button"
-              onClick={() => setSelected('bank')}
+              onClick={onConnectBank}
               className="w-full text-left rounded-2xl border-2 border-primary/20 hover:border-primary/50 bg-gradient-to-br from-blue-50/50 to-blue-100/30 dark:from-blue-950/30 dark:to-blue-900/20 p-4 transition-all hover:shadow-md group"
             >
               <div className="flex items-start gap-3">
@@ -194,7 +194,7 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onNavigateT
                   </div>
                   <p className="text-xs text-muted-foreground">Optional: request transaction sync from a supported bank, then review the imported records.</p>
                   <div className="flex flex-wrap gap-1 mt-2">
-                    {['Chase', 'Bank of America', 'Wells Fargo', 'Citi', '12,000+ banks'].map(bank => (
+                    {['Chase', 'Bank of America', 'Wells Fargo', 'Citi', 'Other supported banks'].map(bank => (
                       <span key={bank} className="text-xs bg-background/80 border border-border px-1.5 py-0.5 rounded text-muted-foreground">{bank}</span>
                     ))}
                   </div>
@@ -253,55 +253,9 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onNavigateT
             <div className="flex items-start gap-2 px-1 py-2">
               <Info className="w-3.5 h-3.5 text-muted-foreground shrink-0 mt-0.5" />
               <p className="text-xs text-muted-foreground">
-                WriteOff never sells your financial data. Bank connections use Plaid with 256-bit encryption. You can disconnect anytime.
+                Bank connections use encrypted, read-only access through Plaid. You can disconnect a bank at any time while keeping your saved records.
               </p>
             </div>
-          </div>
-        )}
-
-        {/* ── BANK CONNECT DETAIL ── */}
-        {selected === 'bank' && (
-          <div className="space-y-4 py-2">
-            <div className="text-center">
-              <div className="w-14 h-14 rounded-2xl bg-blue-600 flex items-center justify-center mx-auto mb-3">
-                <Building2 className="w-7 h-7 text-white" />
-              </div>
-              <h2 className="text-lg font-bold text-foreground">Connect Your Bank</h2>
-              <p className="text-sm text-muted-foreground mt-1">Available transaction history depends on your bank and plan</p>
-            </div>
-
-            <div className="rounded-xl border border-border bg-card p-4 space-y-3">
-              {[
-                { icon: '📥', label: 'Transaction sync', desc: 'Request available records from a supported account' },
-                { icon: '✅', label: 'Your review', desc: 'Check categories and business purpose before confirming expenses' },
-                { icon: '🔒', label: 'Read-only access', desc: 'Encrypted connection via Plaid  -  WriteOff cannot move money' },
-                { icon: '🔌', label: 'Disconnect anytime', desc: 'Revoke access in Settings at any time' },
-              ].map(item => (
-                <div key={item.label} className="flex items-start gap-3">
-                  <span className="text-base w-5 shrink-0">{item.icon}</span>
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{item.label}</p>
-                    <p className="text-xs text-muted-foreground">{item.desc}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <Button
-              onClick={onConnectBank}
-              className="w-full h-12 text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white"
-            >
-              <Building2 className="w-4 h-4 mr-2" />
-              Connect Bank with Plaid
-              <ArrowRight className="w-4 h-4 ml-auto" />
-            </Button>
-
-            <button
-              onClick={() => setSelected(null)}
-              className="flex min-h-11 w-full items-center justify-center text-center text-xs text-muted-foreground transition-colors hover:text-foreground"
-            >
-              Choose a different method
-            </button>
           </div>
         )}
 
@@ -318,14 +272,17 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onNavigateT
 
             {/* What works */}
             <div className="grid grid-cols-2 gap-2">
-              {SUPPORTED_IMAGE_TYPES.map(item => (
+              {SUPPORTED_IMAGE_TYPES.map(item => {
+                const Icon = item.icon;
+                return (
                 <div key={item.title} className="rounded-xl border border-border bg-card p-3">
-                  <div className="text-xl mb-1">{item.icon}</div>
+                  <Icon className="mb-2 h-5 w-5 text-primary" aria-hidden="true" />
                   <p className="text-xs font-semibold text-foreground">{item.title}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">{item.desc}</p>
                   <p className="text-xs text-muted-foreground/70 mt-0.5 italic">{item.examples}</p>
                 </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* Drop zone */}
@@ -360,7 +317,7 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onNavigateT
                     <Upload className="w-5 h-5 text-muted-foreground" />
                   </div>
                   <p className="text-sm font-medium text-foreground">Drop files here or tap to upload</p>
-                  <p className="text-xs text-muted-foreground">PNG, JPEG, WebP up to 10 MB — bank statements, credit cards, receipts with explicit USD currency</p>
+                  <p className="text-xs text-muted-foreground">PNG, JPEG, or WebP up to 10 MB. Use bank statements, credit card statements, or receipts with explicit USD currency.</p>
                 </div>
               )}
             </div>
@@ -387,7 +344,7 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onNavigateT
                           {f.result?.transactionsImported
                             ? `${f.result.transactionsImported} transactions imported from ${f.result.bankName || 'statement'}`
                             : f.result?.merchant
-                            ? `Receipt: ${f.result.merchant}  -  $${f.result.amount}`
+                            ? `Receipt: ${f.result.merchant}, $${f.result.amount}`
                             : f.result?.message || 'Processed successfully'}
                         </p>
                       )}
@@ -421,7 +378,7 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onNavigateT
                 onClick={onSkipToApp}
                 className="flex min-h-11 w-full items-center justify-center text-center text-xs text-muted-foreground transition-colors hover:text-foreground"
               >
-                {hasSuccessfulUploads ? 'Continue to dashboard' : 'Skip for now  -  I\'ll add data later'}
+                {hasSuccessfulUploads ? 'Continue to dashboard' : 'Skip for now. I\'ll add data later'}
               </button>
             </div>
           </div>
@@ -435,21 +392,24 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onNavigateT
                 <PenLine className="w-7 h-7 text-white" />
               </div>
               <h2 className="text-lg font-bold text-foreground">Manual Entry</h2>
-              <p className="text-sm text-muted-foreground mt-1">You're in full control  -  add what you need, when you need it</p>
+              <p className="text-sm text-muted-foreground mt-1">Add the records you need without connecting a bank.</p>
             </div>
 
             <div className="rounded-xl border border-border bg-card p-4 space-y-3">
-              {MANUAL_TIPS.map(tip => (
+              {MANUAL_TIPS.map(tip => {
+                const Icon = tip.icon;
+                return (
                 <div key={tip.text} className="flex items-start gap-3">
-                  <span className="text-base w-5 shrink-0">{tip.icon}</span>
+                  <Icon className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
                   <p className="text-sm text-foreground">{tip.text}</p>
                 </div>
-              ))}
+                );
+              })}
             </div>
 
             <div className="rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20 p-3">
               <p className="text-xs text-blue-800 dark:text-blue-300">
-                <span className="font-semibold">Tip:</span> You can connect your bank account or upload statements anytime  -  just go to Settings → Connect Bank. Many users start manual and connect later.
+                <span className="font-semibold">Tip:</span> You can connect a bank or upload statements later from Settings.
               </p>
             </div>
 
@@ -480,7 +440,7 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onNavigateT
               className="w-full h-12 text-sm font-semibold bg-violet-600 hover:bg-violet-700 text-white"
             >
               <PenLine className="w-4 h-4 mr-2" />
-              Go to Dashboard  -  I'll add data manually
+              Continue with manual entry
               <ArrowRight className="w-4 h-4 ml-auto" />
             </Button>
             <button

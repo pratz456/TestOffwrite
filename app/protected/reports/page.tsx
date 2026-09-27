@@ -362,7 +362,7 @@ export default function ReportsPage() {
 
       setShowExportModal(false);
     } catch (error) {
-      console.error('❌ [Reports Page] Error generating report:', error);
+      console.error('[Reports] Error generating report:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to generate report. Please try again.';
       toast.error(errorMessage);
     } finally {
@@ -520,7 +520,7 @@ export default function ReportsPage() {
           <Button
             size="sm"
             className="min-h-[44px] h-11 px-4 bg-[hsl(var(--success))] hover:bg-[hsl(var(--success)/0.9)] text-white font-medium shadow-[0_2px_8px_-2px_hsl(var(--success)/0.35)] hover:shadow-[0_4px_12px_-2px_hsl(var(--success)/0.4)] transition-all duration-150 no-tap-highlight focus-visible:ring-2 focus-visible:ring-[hsl(var(--success)/0.5)] focus-visible:ring-offset-2"
-            onClick={() => router.push('/protected/schedule-c')}
+            onClick={() => router.push('/protected?screen=schedule-c-export')}
           >
             <Download className="w-4 h-4" />
             <span className="ml-2 text-sm font-medium">Schedule C</span>

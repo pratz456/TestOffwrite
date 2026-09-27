@@ -5,6 +5,7 @@ import React, { useState } from 'react';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { useRouter } from 'next/navigation';
 import { SettingsScreen } from '@/components/settings-screen';
+import { protectedScreenUrl } from '@/lib/navigation/protected-screens';
 
 export default function SettingsPage() {
   const { user } = useAuth();
@@ -14,15 +15,8 @@ export default function SettingsPage() {
     router.back();
   };
 
-  // Always use router.push for navigation in this context
   const handleNavigate = (screen: string) => {
-    if (screen === 'dashboard') {
-      router.push('/protected');
-    } else if (screen === 'plaid-link') {
-      router.push('/protected/plaid-link');
-    } else if (screen === 'plaid') {
-      router.push('/protected/plaid');
-    }
+    router.push(protectedScreenUrl(screen));
   };
 
   if (!user) {

@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Plus, Trash2, Loader2, Briefcase, CheckCircle2, AlertCircle } from "lucide-react";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 import { AppMetricStrip, AppPageHeader, AppScreenShell } from "@/components/app/app-screen-shell";
+import { LATEST_PUBLISHED_TAX_YEAR, SUPPORTED_TAX_YEARS } from "@/lib/tax-rules/federal-year-rules";
 
 interface W2Entry {
   id: string; employer: string; wages: number; federalWithheld: number;
@@ -21,7 +22,7 @@ const fmt = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2,
 const US_STATES = ["AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY","DC"];
 
 export function W2IncomeScreen({ user, onBack }: Props) {
-  const currentYear = new Date().getFullYear();
+  const currentYear = LATEST_PUBLISHED_TAX_YEAR;
   const [year, setYear] = useState(currentYear);
   const [entries, setEntries] = useState<W2Entry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -97,14 +98,14 @@ export function W2IncomeScreen({ user, onBack }: Props) {
         actions={
           <Select value={String(year)} onValueChange={v => setYear(parseInt(v))}>
             <SelectTrigger aria-label="Tax year" className="h-11 w-[96px]"><SelectValue /></SelectTrigger>
-            <SelectContent>{Array.from({length:4},(_,i)=>currentYear-i).map(y=><SelectItem key={y} value={String(y)}>{y}</SelectItem>)}</SelectContent>
+            <SelectContent>{[...SUPPORTED_TAX_YEARS].sort((a, b) => b - a).map(y=><SelectItem key={y} value={String(y)}>{y}</SelectItem>)}</SelectContent>
           </Select>
         }
       />
         {/* Info banner */}
         <div className="flex items-start gap-3 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 px-4 py-3 text-sm text-blue-800 dark:text-blue-300">
           <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-          <p>Enter Boxes 1, 2, 3 and 5 exactly as printed. Boxes 3 and 5 are required—even when zero—so WriteOff does not guess the Social Security wage base or Additional Medicare tax.</p>
+          <p>Enter Boxes 1, 2, 3 and 5 exactly as printed. Boxes 3 and 5 are required, including explicit zero values, so WriteOff does not guess the Social Security wage base or Additional Medicare tax.</p>
         </div>
 
         {/* Summary */}

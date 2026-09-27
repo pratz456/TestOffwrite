@@ -1,19 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { taxCalendarEventsForYear } from '@/components/tax-calendar-screen';
+import { taxCalendarEventsForYear } from '@/lib/tax/tax-calendar-events';
 import { calculateEITC, calculateSEPIRAMax } from '@/lib/tax-rules/credits';
 import { getFederalTaxRules, LATEST_PUBLISHED_TAX_YEAR } from '@/lib/tax-rules/federal-year-rules';
 
 const source = (relative: string) => readFileSync(new URL(`../${relative}`, import.meta.url), 'utf8');
 
 describe('production financial surfaces use saved data rather than demos', () => {
-  it('contains no fabricated Profit & Loss transaction fallback', () => {
-    const code = source('components/profit-loss-detail-screen.tsx');
-    expect(code).not.toContain('sampleTransactions');
-    expect(code).not.toContain('Client Project Payment');
-    expect(code).toContain('No transactions were recorded for this period');
-  });
-
   it('does not return fabricated category totals or claim a no-op category update succeeded', () => {
     const code = source('app/api/categories/route.ts');
     expect(code).not.toContain('sampleCategories');

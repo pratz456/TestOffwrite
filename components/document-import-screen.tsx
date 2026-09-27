@@ -181,7 +181,7 @@ const PLATFORM_FIELDS: FieldDef[] = [
   { key: "grossEarnings", label: "Gross Earnings (before fees)", irsLabel: "Gross earnings / Gross trip earnings", location: "Usually the largest amount near the top", flowsTo: "Schedule C Line 1 - your total self-employment income before deductions", isMonetary: true, isCritical: true, warningIfZero: "Gross earnings should not be $0" },
   { key: "platformFees", label: "Platform Fees / Service Fees", irsLabel: "Uber service fee, Etsy transaction fees, etc.", location: "Deduction section - subtracted from gross", flowsTo: "Schedule C Line 10 (Commissions and fees) - deductible", isMonetary: true, isCritical: false },
   { key: "netEarnings", label: "Net Earnings (after fees)", irsLabel: "Net earnings / Driver pay", location: "Bottom summary - gross minus fees", flowsTo: "NOT what you report as income - report gross, then deduct fees separately", isMonetary: true, isCritical: false },
-  { key: "milesDriven", label: "Miles Driven", irsLabel: "Mileage / Online miles", location: "Activity summary section", flowsTo: "Schedule C Line 9 (Car and truck expenses) at $0.70/mile (2025)", isMonetary: false, isCritical: false },
+  { key: "milesDriven", label: "Miles Driven", irsLabel: "Mileage / Online miles", location: "Activity summary section", flowsTo: "Schedule C Line 9 (Car and truck expenses), using the IRS rate for each trip date after mileage review", isMonetary: false, isCritical: false },
   { key: "form1099KAmount", label: "1099-K Amount", irsLabel: "Box 1a on Form 1099-K", location: "Tax document section", flowsTo: "Schedule C Line 1 - must match what you report", isMonetary: true, isCritical: true },
 ];
 
@@ -192,7 +192,7 @@ const fmt = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits
 function ConfidenceDot({ score }: { score: number | undefined }) {
   if (score === undefined) return null;
   const color = score >= 0.9 ? "bg-green-500" : score >= 0.75 ? "bg-amber-400" : "bg-red-500";
-  const label = score >= 0.9 ? "High confidence" : score >= 0.75 ? "Medium - verify" : "Low - must verify";
+  const label = score >= 0.9 ? "High confidence" : score >= 0.75 ? "Medium confidence; verify" : "Low confidence; verify";
   return (
     <div className="flex items-center gap-1.5 shrink-0" title={label}>
       <div className={`w-2 h-2 rounded-full ${color}`} />
@@ -230,7 +230,7 @@ function FieldRow({
               <span className="text-xs bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded font-medium">Tax-critical</span>
             )}
             {(isLowConf || hasCrossCheck) && (
-              <span className="text-xs bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded font-medium">⚠ Verify</span>
+              <span className="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"><AlertCircle className="h-3 w-3" aria-hidden="true" />Needs verification</span>
             )}
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">{def.irsLabel}</p>
@@ -415,7 +415,7 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
         <div className="max-w-2xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3">
           <div className="flex-1 min-w-0">
             <h1 className="text-lg sm:text-xl font-semibold">Import Tax Document</h1>
-            <p className="text-xs sm:text-sm text-muted-foreground">AI reads the form - you verify each field before saving</p>
+            <p className="text-xs sm:text-sm text-muted-foreground">Extract document fields, then verify each value before saving</p>
           </div>
           <Select value={year} onValueChange={setYear}>
             <SelectTrigger className="w-[90px] h-9"><SelectValue /></SelectTrigger>
@@ -447,7 +447,7 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
           <div className="flex items-start gap-2 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/30 px-4 py-3 text-xs text-blue-800 dark:text-blue-300">
             <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
             <div className="space-y-1">
-              <p>Upload a photo or scan of your W-2, 1099, or platform summary. The extracted fields come with confidence scores - you see <strong>exactly where to find each value on your document</strong> and can edit anything before saving.</p>
+              <p>Upload a photo or scan of your W-2, 1099, or platform summary. Extracted fields include confidence scores and document locations so you can verify and edit each value before saving.</p>
               <p>WriteOff reads the document on its own server first and removes Social Security, ITIN and employer identification numbers before sending only that text to OpenAI. The full image is sent only if the text cannot be read, and only with your signed consent.</p>
             </div>
           </div>
@@ -482,7 +482,7 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
                 : <>
                     <Upload className="w-8 h-8 text-muted-foreground/50 mb-2" />
                     <p className="text-sm font-medium">Drop file here or click to upload</p>
-                    <p className="text-xs text-muted-foreground mt-1">JPG, PNG, PDF - phone photo works</p>
+                    <p className="text-xs text-muted-foreground mt-1">JPG, PNG, or PDF. A clear phone photo is supported.</p>
                   </>
               }
               {file && <p className="text-xs text-muted-foreground mt-2">{file.name}</p>}
@@ -540,7 +540,7 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
             <div className="flex items-center gap-4 text-xs text-muted-foreground bg-muted/40 rounded-lg px-3 py-2">
               <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> High confidence</span>
               <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block" /> Verify manually</span>
-              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Low - must verify</span>
+              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Low confidence; verify</span>
             </div>
 
             {/* Field rows */}
@@ -584,7 +584,7 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
 
             {/* Disclaimer */}
             <div className="text-xs text-center text-muted-foreground px-2 leading-relaxed">
-              AI is not 100% accurate. The values above are what the AI read - your actual document is the source of truth.
+              Automated extraction can be wrong. The original document remains the source of truth for every value.
               Edit any field using the Edit button before saving. Tax-critical fields are labeled.
             </div>
 

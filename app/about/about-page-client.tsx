@@ -52,12 +52,14 @@ export default function AboutUsPageClient() {
             <div>
               <h3 className="text-lg font-semibold text-foreground mb-3">What We Do</h3>
               <p className="mb-3">
-                In the current preview, you can:
+                With WriteOff, you can:
               </p>
               <ul className="list-disc list-inside space-y-1 ml-4">
                 <li>Enter income and expenses manually</li>
                 <li>Upload receipts and check the extracted merchant, date and amount</li>
                 <li>Edit categories and add business-purpose notes</li>
+                <li>Connect supported banks through Plaid when you choose</li>
+                <li>Review AI category and tax-treatment suggestions where analysis is enabled</li>
                 <li>Keep receipt attachments linked privately to your account</li>
                 <li>Download your records archive on any plan</li>
                 <li>Export supported PDF and CSV reports with a trial or Premium plan</li>
@@ -72,7 +74,8 @@ export default function AboutUsPageClient() {
                 Receipt text extraction helps reduce retyping, but you need to check the results.
                 A saved purchase is not automatically a tax deduction. Federal estimates depend on
                 reviewed facts and supported situations; missing information can require further review.
-                AI analysis, bank connections and in-app filing are unavailable in this preview.
+                Bank history depends on your institution and plan, and every AI suggestion requires your confirmation.
+                In-app filing is not available.
                 WriteOff does not prepare a complete federal or state return or guarantee tax savings.
               </p>
             </div>

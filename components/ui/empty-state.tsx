@@ -81,7 +81,7 @@ export const EmptyTransactionsState: React.FC<{
   <EmptyState
     icon={<CreditCard className="w-12 h-12" />}
     title="No transactions yet"
-    description="Connect your bank account to automatically import transactions, or add expenses manually to get started with tax deductions."
+    description="Connect a bank to import activity, or add an expense manually. Review the business purpose and tax treatment before anything counts."
     action={onConnectBank ? {
       label: 'Connect Bank Account',
       onClick: onConnectBank,
@@ -100,7 +100,7 @@ export const EmptyCategoriesState: React.FC<{
   <EmptyState
     icon={<FolderOpen className="w-12 h-12" />}
     title="No expense categories"
-    description="Categorize your transactions to track tax deductions by category and see where your money is going."
+    description="Review transaction categories to organize spending and identify records that may need a tax decision."
     action={onAddExpense ? {
       label: 'Add First Expense',
       onClick: onAddExpense,
@@ -115,7 +115,7 @@ export const EmptyReceiptsState: React.FC<{
   <EmptyState
     icon={<Receipt className="w-12 h-12" />}
     title="No receipts uploaded"
-    description="Upload receipts to support your tax deductions and keep organized records for tax season."
+    description="Upload receipts to support reviewed business expenses and keep organized records for tax time."
     action={onUploadReceipt ? {
       label: 'Upload Receipt',
       onClick: onUploadReceipt,
@@ -130,7 +130,7 @@ export const EmptyReportsState: React.FC<{
   <EmptyState
     icon={<TrendingUp className="w-12 h-12" />}
     title="No reports available"
-    description="Connect your bank account and categorize transactions to generate tax reports and see your deduction savings."
+    description="Add and review transactions to build supported tax summaries and planning reports."
     action={onConnectBank ? {
       label: 'Connect Bank Account',
       onClick: onConnectBank,

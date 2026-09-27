@@ -256,7 +256,7 @@ export function calculateAllCredits(input: CreditInput): CreditResult {
     const stcgNote = (input.shortTermCapGains ?? 0) > 0
       ? ` Short-term gains ($${(input.shortTermCapGains ?? 0).toLocaleString()}) taxed as ordinary income.`
       : '';
-    notes.push(`Capital Gains: Long-term gains taxed at preferential 0/15/20% rates — saves vs ordinary income rates.${stcgNote}`);
+    notes.push(`Capital gains: Long-term gains use preferential 0%, 15%, or 20% rates instead of ordinary income rates.${stcgNote}`);
   }
 
   const totalCredits = ctcResult.ctc;

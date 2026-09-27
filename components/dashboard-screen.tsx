@@ -1,5 +1,5 @@
 /**
- * WriteOff Home — review first, financial summary second.
+ * WriteOff Home: review first, financial summary second.
  *
  * All data fetching and computation stays in this parent component.
  * Presentation is delegated to components/dashboard/*.

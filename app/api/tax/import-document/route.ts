@@ -436,7 +436,7 @@ export async function POST(request: NextRequest) {
 
     if (!extracted || extracted.needs_image === true) {
       return NextResponse.json({
-        error: 'Failed to parse document — image may be unclear or unsupported format',
+        error: 'Failed to parse the document. The image may be unclear or use an unsupported format.',
         rawResponse: rawText.slice(0, 500),
         disclosure,
       }, { status: 422 });
@@ -452,12 +452,12 @@ export async function POST(request: NextRequest) {
       const einField = extracted.docType === 'w2' || docType === 'w2' ? 'employerEIN' : extracted.docType === '1099' || docType === '1099' ? 'payerEIN' : null;
       if (einField) {
         extracted[einField] = localEINs[0] ?? null;
-        if (localEINs.length > 1) einNotes.push(`Verify ${einField} — more than one EIN-shaped number was read from the document`);
+        if (localEINs.length > 1) einNotes.push(`Verify ${einField}. More than one EIN-shaped number was read from the document.`);
       }
     }
     const documentOwner = await matchDocumentOwner(user.uid, extracted.taxYear || taxYear || new Date().getFullYear() - 1, ssnLast4);
     if (documentOwner === 'unmatched') {
-      einNotes.push(`The Social Security number on this document (***-**-${ssnLast4}) does not match the taxpayer or spouse SSN saved in your Tax Organizer — confirm this document is yours before saving`);
+      einNotes.push(`The Social Security number on this document (***-**-${ssnLast4}) does not match the taxpayer or spouse SSN saved in your Tax Organizer. Confirm this document is yours before saving.`);
     }
 
     // Low confidence warning
@@ -490,7 +490,7 @@ export async function POST(request: NextRequest) {
     // Build verification checklist for the UI
     const verificationRequired = [
       ...warnings,
-      ...lowConfFields.map((f: string) => `Verify ${f} — low read confidence`),
+      ...lowConfFields.map((f: string) => `Verify ${f}. The read confidence is low.`),
       ...imageIssues.length > 0 ? [`Image issues detected: ${imageIssues.join(', ')}`] : [],
       ...einNotes,
     ];

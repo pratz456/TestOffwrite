@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { HistoricalAccessUpgradeCard } from '@/components/historical-access-upgrade-card';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, FileText, Clock, Shield, Zap, Check } from 'lucide-react';
+import { PRODUCT_ACCESS } from '@/lib/subscriptions/product-config';
 
 export default function SubscriptionsPage() {
   const { user } = useAuth();
@@ -30,8 +31,8 @@ export default function SubscriptionsPage() {
     },
     {
       icon: Clock,
-      title: '24 Months History',
-      description: 'Up to 24 months (depending on your bank)',
+      title: 'Extended history',
+      description: PRODUCT_ACCESS.extendedHistoryTitle,
     },
     {
       icon: Shield,
@@ -111,7 +112,7 @@ export default function SubscriptionsPage() {
             {[
               'Export Schedule C reports as PDF',
               'Export transaction data as CSV',
-              'Access up to 24 months (depending on your bank)',
+              `Access ${PRODUCT_ACCESS.extendedHistoryLabel}`,
               'Automatic transaction syncing',
               'Priority support',
               'Cancel anytime, no questions asked',

@@ -176,9 +176,7 @@ describe('account usage queue responses', () => {
         : Response.json({ jobId: 'owner_acct_with_underscores', queued: status === 'queued' ? 2 : 0, status }));
     const tree = render(AccountUsagePage);
     await action(tree, 'Save & Start Analysis').props.onClick!();
-    expect(h.push).toHaveBeenCalledWith(status === 'queued'
-      ? '/protected?screen=plaid-link&accountId=acct_with_underscores&analyzing=true'
-      : '/protected?screen=review-transactions&accountId=acct_with_underscores');
+    expect(h.push).toHaveBeenCalledWith('/protected?screen=review-transactions&accountId=acct_with_underscores');
     expect([...h.info.mock.calls, ...h.warning.mock.calls].flat().join(' ')).not.toMatch(/completed|successfully analyzed/i);
     expect(h.error).not.toHaveBeenCalled();
   });
@@ -200,7 +198,7 @@ describe('account usage queue responses', () => {
       : Response.json({ jobId: 'owner_acct_with_underscores', queued: 2, status: 'queued' }));
     render(AccountUsagePage);
     await action(render(AccountUsagePage), 'Save & Continue').props.onClick!();
-    expect(h.push).toHaveBeenCalledExactlyOnceWith('/protected?screen=plaid-link&accountId=acct_with_underscores&analyzing=true');
+    expect(h.push).toHaveBeenCalledExactlyOnceWith('/protected?screen=review-transactions&accountId=acct_with_underscores');
     expect(h.info).toHaveBeenCalledWith('2 records queued for analysis. Suggestions still require your review.');
   });
   it.each(['http-error', 'invalid-acknowledgement', 'network-error'])('does not claim personal classification or navigate after %s', async failure => {

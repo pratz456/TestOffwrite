@@ -1,5 +1,6 @@
 import { adminDb } from '../firebase/admin';
 import { canStartFreeTrial, evaluateEntitlements, type SubscriptionStatus } from './entitlements';
+import { PRODUCT_ACCESS } from './product-config';
 export type { SubscriptionStatus } from './entitlements';
 
 export async function userHasHistoricalAccess(userId: string): Promise<boolean> {
@@ -11,7 +12,7 @@ export async function userTrialExpired(userId: string): Promise<boolean> {
   return Boolean(status.trialEnd && status.trialEnd <= new Date() && !status.hasAccess);
 }
 
-/** Claim the existing 30-day app trial once, atomically across concurrent requests. */
+/** Claim the configured app trial once, atomically across concurrent requests. */
 export async function startFreeTrial(userId: string): Promise<{ success: boolean; error?: string }> {
   try {
     const ref = adminDb.doc(`user_profiles/${userId}`);
@@ -22,7 +23,7 @@ export async function startFreeTrial(userId: string): Promise<{ success: boolean
       if (!canStartFreeTrial(profile)) return { success: true };
       const now = new Date();
       transaction.update(ref, { subscriptionStatus: 'trial', trialStart: now,
-        trialEnd: new Date(now.getTime() + 30 * 86400000), hasHistoricalAccess: true });
+        trialEnd: new Date(now.getTime() + PRODUCT_ACCESS.trialDays * 86400000), hasHistoricalAccess: true });
       return { success: true };
     });
   } catch {

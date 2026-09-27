@@ -5,7 +5,7 @@ import { establishVerifiedSession } from '@/lib/onboarding/verification';
 const profile: ProfileSetupData = {
   email: ' example@example.com ', name: ' Alex Example ', profession: ['Consultant'],
   businessEntityType: 'Sole Proprietor / Independent Contractor', primaryWorkLocation: 'Home Office',
-  workRelatedTravelPattern: '', income: '$47,150 - $100,525', state: 'California', filingStatus: 'Single',
+  workRelatedTravelPattern: '', income: '$50,000 - $75,000', state: 'California', filingStatus: 'Single',
 };
 
 describe('profile setup validation and persistence', () => {

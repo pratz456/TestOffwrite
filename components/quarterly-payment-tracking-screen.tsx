@@ -24,10 +24,13 @@ import {
   Loader2,
 } from "lucide-react";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
+import { AppPageHeader, AppScreenShell } from "@/components/app/app-screen-shell";
+import { LATEST_PUBLISHED_TAX_YEAR, SUPPORTED_TAX_YEARS } from "@/lib/tax-rules/federal-year-rules";
 
 interface QuarterlyPaymentTrackingScreenProps {
   user: { id: string; email?: string };
   onBack: () => void;
+  onNavigate?: (screen: string) => void;
 }
 
 interface Payment {
@@ -73,6 +76,7 @@ function StatusBadge({ status }: { status: Payment["status"] }) {
 export function QuarterlyPaymentTrackingScreen({
   user,
   onBack,
+  onNavigate,
 }: QuarterlyPaymentTrackingScreenProps) {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -81,7 +85,7 @@ export function QuarterlyPaymentTrackingScreen({
   const [expandedQuarter, setExpandedQuarter] = useState<number | null>(null);
   const [submittingQuarter, setSubmittingQuarter] = useState<number | null>(null);
 
-  const currentYear = new Date().getFullYear();
+  const currentYear = LATEST_PUBLISHED_TAX_YEAR;
   const [selectedYear, setSelectedYear] = useState(currentYear);
 
   // Payment form state (per quarter)
@@ -197,24 +201,14 @@ export function QuarterlyPaymentTrackingScreen({
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <div className="sticky top-0 z-50 bg-background border-b border-border">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
-          <div className="flex items-center gap-3 sm:gap-4">
-            <div>
-              <h1 className="text-lg sm:text-xl font-semibold text-foreground">
-                Quarterly Tax Payments
-              </h1>
-              <p className="text-xs sm:text-sm text-muted-foreground">
-                Track your estimated tax payments
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4 sm:py-6 space-y-6">
+    <AppScreenShell>
+      <AppPageHeader
+        title="Quarterly tax payments"
+        description="Record payment targets and payments you made. Penalty and sufficiency review remain separate."
+        onBack={onBack}
+        actions={onNavigate ? <Button variant="outline" className="min-h-11" onClick={() => onNavigate('quarterly-taxes')}>Estimate planner</Button> : undefined}
+      />
+      <div className="space-y-4">
         {/* Year selector */}
         <div className="flex items-center gap-2">
           <Label className="text-sm text-muted-foreground">Year:</Label>
@@ -226,10 +220,9 @@ export function QuarterlyPaymentTrackingScreen({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={String(currentYear)}>{currentYear}</SelectItem>
-              <SelectItem value={String(currentYear - 1)}>
-                {currentYear - 1}
-              </SelectItem>
+              {SUPPORTED_TAX_YEARS.map(year => (
+                <SelectItem key={year} value={String(year)}>{year}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -503,6 +496,6 @@ export function QuarterlyPaymentTrackingScreen({
           </>
         )}
       </div>
-    </div>
+    </AppScreenShell>
   );
 }

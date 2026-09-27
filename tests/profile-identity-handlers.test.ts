@@ -124,13 +124,13 @@ describe('profile setup uses the hydrated authenticated email', () => {
     button(hydrated, 'Next').props.onClick();
     const work = render('google-owner@example.test');
     select(work, 'profile-businessEntityType', 'Sole Proprietor / Independent Contractor');
-    select(work, 'profile-primaryWorkLocation', 'Home Office'); select(work, 'profile-income', 'Under $11,600');
+    select(work, 'profile-primaryWorkLocation', 'Home Office'); select(work, 'profile-income', 'Under $25,000');
     select(work, 'profile-profession', 'Software Developer');
     button(render('google-owner@example.test'), 'Next').props.onClick();
     await button(render('google-owner@example.test'), 'Save and continue').props.onClick();
     expect(harness.upsert).toHaveBeenCalledWith('google-user', expect.objectContaining({
       email: 'google-owner@example.test', name: 'My preferred name', state: 'California', filing_status: 'Single',
-      primary_work_location: 'Home Office', income: 'Under $11,600',
+      primary_work_location: 'Home Office', income: 'Under $25,000',
     }));
   });
 });
@@ -153,7 +153,7 @@ describe('short profile setup steps preserve required facts', () => {
   function completeWork() {
     const tree = completePersonal();
     select(tree, 'profile-businessEntityType', 'Sole Proprietor / Independent Contractor');
-    select(tree, 'profile-primaryWorkLocation', 'Home Office'); select(tree, 'profile-income', 'Under $11,600');
+    select(tree, 'profile-primaryWorkLocation', 'Home Office'); select(tree, 'profile-income', 'Under $25,000');
     select(tree, 'profile-profession', 'Software Developer');
     button(render(email), 'Next').props.onClick();
     return render(email);
@@ -195,7 +195,7 @@ describe('short profile setup steps preserve required facts', () => {
   it('supports multiple professions and still requires custom profession text', () => {
     const work = completePersonal();
     select(work, 'profile-businessEntityType', 'Sole Proprietor / Independent Contractor');
-    select(work, 'profile-primaryWorkLocation', 'Home Office'); select(work, 'profile-income', 'Under $11,600');
+    select(work, 'profile-primaryWorkLocation', 'Home Office'); select(work, 'profile-income', 'Under $25,000');
     select(work, 'profile-profession', 'Software Developer'); select(render(email), 'profile-profession', 'Other');
     expect(button(render(email), 'Next').props.disabled).toBe(true);
     const custom = walk(render(email)).find(node => node.props['aria-label'] === 'Your profession')!;
@@ -225,7 +225,7 @@ describe('short profile setup steps preserve required facts', () => {
     expect(harness.upsert).toHaveBeenCalledExactlyOnceWith('google-user', expect.objectContaining({
       email, name: 'Original Google Name', year_of_birth: '1990', profession: 'Software Developer',
       state: 'California', filing_status: 'Single', business_entity_type: 'Sole Proprietor / Independent Contractor',
-      primary_work_location: 'Home Office', income: 'Under $11,600',
+      primary_work_location: 'Home Office', income: 'Under $25,000',
     }));
   });
 });

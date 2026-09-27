@@ -31,7 +31,6 @@ export default function AccountUsagePage() {
       const count = parseInt(importedParam, 10);
       if (Number.isSafeInteger(count) && count >= 0) {
         setImportedCount(count);
-        console.log(`📊 [Account Usage] Found ${count} imported transactions`);
       }
     }
   }, [user, router]);
@@ -111,7 +110,7 @@ export default function AccountUsagePage() {
         return;
       }
       toast.info(`${queued.queued} records queued for analysis. Suggestions still require your review.`);
-      router.push(`/protected?screen=plaid-link&accountId=${encodeURIComponent(accountId)}&analyzing=true`);
+      router.push(`/protected?screen=review-transactions&accountId=${encodeURIComponent(accountId)}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not save account usage. Please retry.');
     } finally {
@@ -276,7 +275,7 @@ export default function AccountUsagePage() {
             <div className="flex items-center justify-center gap-3 text-sm">
               <button
                 type="button"
-                onClick={() => router.push('/protected/plaid-link')}
+                onClick={() => router.push('/protected?screen=plaid-link&from=banks-detail')}
                 className="text-muted-foreground hover:text-foreground font-medium transition-colors hover:underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 rounded"
               >
                 Connect a different bank
@@ -284,7 +283,7 @@ export default function AccountUsagePage() {
               <span className="text-muted-foreground/60" aria-hidden="true">·</span>
               <button
                 type="button"
-                onClick={() => router.push('/protected/plaid')}
+                onClick={() => router.push('/protected?screen=banks-detail')}
                 className="text-muted-foreground hover:text-foreground transition-colors hover:underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 rounded"
               >
                 Skip for now

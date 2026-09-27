@@ -330,7 +330,7 @@ export function composeExplanation({ result, transaction, profile, taxYear }: Co
   if (estimate) {
     try { facts.push(`Filing status used for the estimate: ${FILING_LABELS[normalizeFilingStatus(saved.filing_status)] ?? 'single'}`); } catch { /* the estimate already withheld itself */ }
   }
-  const subject = merchant && amountLabel ? ` — ${merchant}, ${amountLabel}` : merchant ? ` — ${merchant}` : '';
+  const subject = merchant && amountLabel ? `: ${merchant}, ${amountLabel}` : merchant ? `: ${merchant}` : '';
   return {
     headline: `${headlineFor(result, category?.label)}${subject}`,
     why: whyFor(result),

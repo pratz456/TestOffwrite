@@ -35,7 +35,7 @@ export const FixAnalysisButton: React.FC<FixAnalysisButtonProps> = ({ onAnalysis
         throw new Error(result.error || 'Failed to fix analysis');
       }
 
-      console.log('✅ [Fix Analysis] Fix completed:', result);
+      console.log('[Fix Analysis] Fix completed:', result);
       
       // Show success message with details
       const { summary } = result;
@@ -61,7 +61,7 @@ export const FixAnalysisButton: React.FC<FixAnalysisButtonProps> = ({ onAnalysis
       }
       
     } catch (error) {
-      console.error('❌ [Fix Analysis] Error fixing analysis:', error);
+      console.error('[Fix Analysis] Error fixing analysis:', error);
       showError('Fix Failed', `Failed to fix analysis: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsFixing(false);
@@ -118,7 +118,7 @@ export const FixAnalysisButtonDetailed: React.FC<FixAnalysisButtonProps> = ({ on
         throw new Error(result.error || 'Failed to fix analysis');
       }
 
-      console.log('✅ [Fix Analysis] Fix completed:', result);
+      console.log('[Fix Analysis] Fix completed:', result);
       setFixResult(result);
       
       // Show success message
@@ -130,7 +130,7 @@ export const FixAnalysisButtonDetailed: React.FC<FixAnalysisButtonProps> = ({ on
       }
       
     } catch (error) {
-      console.error('❌ [Fix Analysis] Error fixing analysis:', error);
+      console.error('[Fix Analysis] Error fixing analysis:', error);
       showError('Fix Failed', `Failed to fix analysis: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsFixing(false);

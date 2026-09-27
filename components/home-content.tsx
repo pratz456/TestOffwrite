@@ -2,6 +2,7 @@ import { Button } from '@/components/ui/button';
 import writeOffLogo from '@/public/writeofflogo.png';
 import Image from 'next/image';
 import Link from 'next/link';
+import { PRODUCT_ACCESS } from '@/lib/subscriptions/product-config';
 import {
   ArrowLeft,
   ArrowRight,
@@ -53,7 +54,7 @@ export function HomeContent() {
               </Button>
             </div>
             <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-xs text-muted-foreground">
-              {['30 days Premium included', 'No credit card required', 'Bank connection optional'].map(item => (
+              {[`${PRODUCT_ACCESS.trialDays} days Premium included`, 'No credit card required', 'Bank connection optional'].map(item => (
                 <span key={item} className="inline-flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-[hsl(var(--success))]" aria-hidden="true" />{item}</span>
               ))}
             </div>
@@ -65,7 +66,7 @@ export function HomeContent() {
               <div className="flex items-center justify-between border-b border-border/70 px-4 py-3">
                 <div>
                   <p className="text-sm font-semibold">Your next best action</p>
-                  <p className="text-xs text-muted-foreground">A guided review queue—not another spreadsheet</p>
+                  <p className="text-xs text-muted-foreground">A guided review queue, not another spreadsheet</p>
                 </div>
                 <span className="rounded-full bg-primary/10 px-2 py-1 text-[11px] font-medium text-primary">Example workflow</span>
               </div>

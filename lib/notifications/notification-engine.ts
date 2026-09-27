@@ -264,16 +264,16 @@ export class NotificationEngine {
         let priority: 'low' | 'medium' | 'high' | 'urgent';
 
         if (daysUntilDeadline <= 3) {
-          title = '🚨 Tax Deadline Approaching!';
+          title = 'Tax deadline approaching';
           priority = 'urgent';
         } else if (daysUntilDeadline <= 7) {
-          title = '⚠️ Tax Deadline Next Week';
+          title = 'Tax deadline next week';
           priority = 'high';
         } else if (daysUntilDeadline <= 14) {
-          title = '📅 Tax Deadline Reminder';
+          title = 'Tax deadline reminder';
           priority = 'medium';
         } else {
-          title = '📊 Upcoming Tax Deadline';
+          title = 'Upcoming tax deadline';
           priority = 'low';
         }
 
@@ -316,7 +316,7 @@ export class NotificationEngine {
           await this.sendNotification({
             userId,
             type: 'unreviewed_transactions',
-            title: '📋 Transactions Need Review',
+            title: 'Transactions need review',
             message: `You have ${unreviewedCount} transactions waiting for review. Confirmed records are what count toward your Schedule C totals.`,
             priority: unreviewedCount >= 20 ? 'high' : 'medium',
             actionUrl: '/protected?screen=review-transactions',
@@ -406,7 +406,7 @@ export class NotificationEngine {
           await this.sendNotification({
             userId,
             type: 'celebration',
-            title: '🎉 Great Job!',
+            title: 'Mileage log update',
             message: `You've confirmed $${totalDeductions.toFixed(0)} in business expenses this month. At your planning rate of ${Math.round(rate * 100)}%, that is roughly $${(totalDeductions * rate).toFixed(0)} in potential federal tax impact, subject to your full-year review.`,
             priority: 'low',
             actionUrl: '/protected?screen=ai-insights',

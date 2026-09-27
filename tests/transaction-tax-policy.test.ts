@@ -24,11 +24,11 @@ describe('curated transaction tax grounding', () => {
       status: 'ok', category: 'supplies_small_tools', deductible_percent: 100, tax_year: 2026,
       jurisdiction: 'US-federal', policy_version: 'federal-transactions-2026-09-23.2',
       sources: [
-        { id: 'business-162', title: '26 USC 162 — Trade or business expenses', url: expect.stringContaining('https://uscode.house.gov/'), reviewed_at: '2026-09-16' },
+        { id: 'business-162', title: '26 USC 162: Trade or business expenses', url: expect.stringContaining('https://uscode.house.gov/'), reviewed_at: '2026-09-16' },
         // The category-specific rule is attached by the server so the user sees the applicable test.
         { id: 'supplies-263a', title: expect.stringContaining('§1.263(a)-1(f)'), url: expect.stringContaining('https://www.ecfr.gov/'), reviewed_at: '2026-09-23' },
       ],
-      irs_refs: ['26 USC 162 — Trade or business expenses', 'Treas. Reg. §1.263(a)-1(f) — Supplies and the de minimis safe harbor'],
+      irs_refs: ['26 USC 162: Trade or business expenses', 'Treas. Reg. §1.263(a)-1(f): Supplies and the de minimis safe harbor'],
       provenance: { provider: 'openai', model: 'synthetic-model', kind: 'model_with_curated_tax_policy' },
     });
     expect(TRANSACTION_TAX_POLICY_VERSION).toBe('federal-transactions-2026-09-23.2');

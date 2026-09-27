@@ -1,17 +1,17 @@
 import type { Metadata } from "next";
 import { getAllPosts } from "@/lib/blog";
-import { Sparkles, PlayCircle } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { BlogGridClient } from "@/components/blog/blog-grid-client";
 
 export const metadata: Metadata = {
   title: "Tax Tips & Guides for Freelancers",
   description:
-    "Practical tax deduction tips, expense tracking guides, and IRS filing advice for freelancers, contractors, and self-employed workers.",
+    "Educational deduction, expense-recordkeeping, and estimated-tax guides for freelancers, contractors, and self-employed workers.",
   alternates: { canonical: "/blog" },
   openGraph: {
     title: "Tax Tips & Guides for Freelancers | WriteOff",
     description:
-      "Practical tax deduction tips, expense tracking guides, and IRS filing advice for freelancers and self-employed workers.",
+      "Educational deduction and expense-recordkeeping guides for freelancers and self-employed workers.",
     type: "website",
     url: "/blog",
   },
@@ -143,48 +143,19 @@ export default function BlogIndexPage() {
             Tax Tips &amp; Insights
           </div>
           <h1 className="animate-hero-enter-delay-1 text-3xl font-extrabold tracking-tight sm:text-4xl lg:text-5xl">
-            <span className="text-foreground">Smart tax advice for </span>
+            <span className="text-foreground">Practical tax guides for </span>
             <span className="bg-gradient-to-r from-primary via-blue-500 to-cyan-500 bg-clip-text text-transparent">
               freelancers
             </span>
           </h1>
           <p className="animate-hero-enter-delay-2 mx-auto mt-4 max-w-2xl text-lg leading-relaxed text-muted-foreground">
-            Practical guides on deductions, quarterly payments, expense tracking, and IRS filing so you keep more of what you earn.
+            Educational guides on deductions, quarterly payments, expense tracking, and records to discuss with your preparer.
           </p>
         </div>
       </section>
 
       {/* Post Grid */}
       <section className="mx-auto max-w-6xl px-4 pb-16 sm:px-6 lg:px-8">
-        {/* Tutorial videos placeholder */}
-        <div className="mb-8 rounded-xl border border-border bg-card p-5 sm:p-6">
-          <div className="mb-4 flex items-center gap-2">
-            <PlayCircle className="h-5 w-5 text-primary" />
-            <h2 className="text-lg font-semibold text-foreground">Tutorial Videos</h2>
-          </div>
-          <p className="mb-4 text-sm text-muted-foreground">
-            Step-by-step video walkthroughs are coming soon. In the meantime, use the written guides below.
-          </p>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {[
-              "Getting started with WriteOff",
-              "How to categorize transactions",
-              "How to prepare for filing",
-            ].map((title) => (
-              <div
-                key={title}
-                className="rounded-lg border border-dashed border-primary/30 bg-primary/5 p-4"
-              >
-                <div className="mb-2 flex items-center gap-2">
-                  <PlayCircle className="h-4 w-4 text-primary" />
-                  <span className="text-sm font-medium text-foreground">{title}</span>
-                </div>
-                <p className="text-xs text-muted-foreground">coming soon</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
         <BlogGridClient
           posts={posts}
           tagStyles={TAG_STYLES}

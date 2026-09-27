@@ -33,7 +33,7 @@ function HelpPageContent() {
         router.push('/welcome');
         break;
       case 'plaid':
-        router.push('/protected?screen=plaid-link');
+        router.push('/protected?screen=banks-detail');
         break;
       case 'reports':
         router.push('/protected/reports');
@@ -312,7 +312,7 @@ function HelpPageContent() {
                   <Button 
                     className="w-full" 
                     size="sm"
-                    onClick={() => router.push('/protected/schedule-c')}
+                    onClick={() => router.push('/protected?screen=schedule-c-export')}
                   >
                     Open Tax Summaries
                   </Button>
@@ -386,14 +386,13 @@ function HelpPageContent() {
                 <div>
                   <h3 className="text-lg font-semibold text-foreground mb-3">Data Security</h3>
                   <p className="mb-3">
-                    We implement industry-standard security measures to protect your personal and financial information. 
-                    This includes encryption, secure connections, and regular security audits. We never share your 
-                    personal information with third parties without your explicit consent.
+                    We use encryption, authenticated access controls and provider safeguards to reduce risk to personal
+                    and financial information. No system can guarantee absolute security.
                   </p>
                   <p>
-                    We work with trusted third-party services including OCR processing providers and AI models 
-                    for receipt processing and insights generation. All data processing is done securely and 
-                    in compliance with applicable privacy regulations.
+                    We use service providers including Plaid, Stripe, hosting, email and AI processing vendors as
+                    described in the Privacy Policy. We limit data sent to each workflow and apply the controls
+                    described there.
                   </p>
                 </div>
 
@@ -452,7 +451,7 @@ function HelpPageContent() {
                     <li>Record and categorize business expenses, with AI suggestions where enabled</li>
                     <li>Flag possible deductions and the facts still needed for your review</li>
                     <li>Extract merchant, date and amount from receipt photos for you to confirm</li>
-                    <li>Show federal planning estimates using the published brackets for the selected tax year (2025 and 2026)</li>
+                    <li>Show federal planning estimates using published parameters for the selected supported tax year</li>
                     <li>Suggest recordkeeping steps based on your recorded expenses</li>
                     <li>Build Schedule C and Form 8829 summaries your preparer can use</li>
                     <li>Voice input for hands-free expense tracking</li>
