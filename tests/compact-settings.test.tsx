@@ -185,7 +185,7 @@ describe('compact settings preserve profile editing and account access', () => {
     state.tab = 'tax'; await mount(); change('HSA Contribution', '3200');
     await vi.advanceTimersByTimeAsync(1500); expect(state.save.mock.calls[0][1]).toMatchObject({ hsa_contribution: 3200, name: 'Saved Name' });
     await click('AccountAccount');
-    const tree = render(); expect(text(tree)).toContain('Connect Bank'); expect(text(tree)).toContain('Export Data'); expect(text(tree)).toContain('Delete Account');
+    const tree = render(); expect(text(tree)).toContain('Manage bank accounts'); expect(text(tree)).toContain('Export Data'); expect(text(tree)).toContain('Delete Account');
   });
   it('preserves selected professions and custom text when adding and removing professions', async () => {
     await mount(); change('Add profession', 'Other'); change('Custom Profession', 'Illustrator');

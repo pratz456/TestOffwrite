@@ -12,7 +12,7 @@ function sourceFiles(directory: string): string[] {
 describe('user-facing product copy', () => {
   it('avoids decorative emoji, em dashes, placeholders, and unsupported automation claims', () => {
     const files = [...sourceFiles(path.resolve('app')), ...sourceFiles(path.resolve('components'))];
-    const forbidden = /—|[✅❌⚠️📥🔒🔌📊🔄🧹🔑💡📱📧📋🏦💳🧾📅📸📤🎉🚨⚡🎯💰]|coming soon|effortless tax|AI-powered|256-bit encryption|no manual data entry required|AI automatically categorizes/i;
+    const forbidden = /—|[✅❌⚠️📥🔒🔌📊🔄🧹🔑💡📱📧📋🏦💳🧾📅📸📤🎉🚨⚡🎯💰]|coming soon|effortless tax|AI-powered|256-bit encryption|no manual data entry required|AI automatically categorizes/iu;
     const failures = files.flatMap(file => {
       const match = readFileSync(file, 'utf8').match(forbidden);
       return match ? [`${path.relative(process.cwd(), file)}: ${match[0]}`] : [];
