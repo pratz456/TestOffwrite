@@ -696,7 +696,7 @@ export const PROFESSION_CONTEXT_LIMIT = 900;
 interface BlockPlan { categories: number; traps: number; summary: boolean; merchants: boolean }
 function professionBlock(prior: ProfessionPrior, plan: BlockPlan): string {
   const typical = prior.typical.slice(0, plan.categories).map(item => `${item.category}: ${item.nuance}`).join('; ');
-  const parts = [plan.summary ? `${prior.label} — ${prior.summary}` : `${prior.label}.`, `Typical: ${typical}.`];
+  const parts = [plan.summary ? `${prior.label}: ${prior.summary}` : `${prior.label}.`, `Typical: ${typical}.`];
   if (plan.traps > 0) parts.push(`Traps: ${prior.auditTraps.slice(0, plan.traps).join(' ')}`);
   if (plan.merchants && prior.merchants.length) parts.push(`Merchants: ${prior.merchants.slice(0, 6).join(', ')}.`);
   return parts.join(' ');

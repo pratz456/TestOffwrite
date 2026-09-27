@@ -105,9 +105,12 @@ const ProtectedLayoutContent: React.FC<ProtectedLayoutClientProps> = ({ children
       <ToastContainer toasts={toasts} onClose={removeToast} />
       <ErrorBoundary>
         <div className="app-workspace flex h-dvh flex-col lg:flex-row">
+          <a href="#protected-main" className="sr-only z-[120] rounded-md bg-card px-3 py-2 text-sm font-medium text-foreground shadow focus:not-sr-only focus:fixed focus:left-3 focus:top-3">
+            Skip to main content
+          </a>
           {showNavigation && <MobileNav user={{ ...user, email: user.email ?? undefined }} userProfile={userProfile ?? undefined} />}
           {showNavigation && <SidebarNav user={{ ...user, email: user.email ?? undefined }} userProfile={userProfile ?? undefined} />}
-          <main ref={mainRef} className={`${showNavigation ? 'flex-1' : 'w-full'} min-h-0 min-w-0 overflow-auto`}>
+          <main id="protected-main" tabIndex={-1} ref={mainRef} className={`${showNavigation ? 'flex-1' : 'w-full'} min-h-0 min-w-0 overflow-auto focus:outline-none`}>
             {currentProfile?.error && (
               <div role="alert" className="m-4 rounded-lg border p-4 flex flex-wrap items-center gap-3">
                 <p className="text-sm">Your profile could not be loaded. Account and billing remain available.</p>

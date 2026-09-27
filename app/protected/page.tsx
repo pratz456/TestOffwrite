@@ -7,24 +7,17 @@ import { profileLookupState } from "@/lib/onboarding/profile";
 import { notifyProfileUpdated } from "@/lib/onboarding/profile-events";
 import { protectedScreen, protectedScreenUrl, previousProtectedScreen, type ProtectedScreen } from "@/lib/navigation/protected-screens";
 import { Button } from "@/components/ui/button";
+import { AppPageHeader, AppScreenShell } from "@/components/app/app-screen-shell";
 import { ProfileSetupScreen } from "@/components/profile-setup-screen";
 import DashboardScreen from "@/components/dashboard-screen";
 import { SettingsScreen } from "@/components/settings-screen";
-import { AddExpenseScreen } from "@/components/add-expense-screen";
 import { ReceiptUploadScreen } from "@/components/receipt-upload-screen";
-import { TaxCalendarScreen } from "@/components/tax-calendar-screen";
 import { TransactionDetailScreen } from "@/components/transaction-detail-screen";
 import { ReviewTransactionsScreen } from "@/components/review-transactions-screen";
-import { DeductionsDetailScreen } from "@/components/deductions-detail-screen";
-import { ExpensesDetailScreen } from "@/components/expenses-detail-screen";
 import { BanksDetailScreen } from "@/components/banks-detail-screen";
 import { CategoriesScreen } from "@/components/categories-screen";
 import { PlaidLinkScreen } from "@/components/plaid-link-screen";
-import { PlaidScreen } from "@/components/plaid-screen";
 import { AIInsightsPage } from "@/components/ai-insights-page";
-import { TaxEducationModal } from "@/components/tax-education-modal";
-import { MobileQuickActions } from "@/components/mobile-quick-actions";
-import { ProfitLossReportScreen } from "@/components/profit-loss-report-screen";
 import { QuarterlyPaymentTrackingScreen } from "@/components/quarterly-payment-tracking-screen";
 import { ActionItemsScreen } from "@/components/action-items-screen";
 
@@ -40,24 +33,12 @@ const MileageTrackerScreen = dynamic(
   () => import("@/components/mileage-tracker-screen").then((m) => m.MileageTrackerScreen || m.default),
   { ssr: false }
 );
-const ProfitLossDetailScreen = dynamic(
-  () => import("@/components/profit-loss-detail-screen").then((m) => m.ProfitLossDetailScreen || m.default),
-  { ssr: false }
-);
 const QuarterlyTaxCalculator = dynamic(
   () => import("@/components/quarterly-tax-calculator").then((m) => m.QuarterlyTaxCalculator || m.default),
   { ssr: false }
 );
 const IncomeTrackingScreen = dynamic(
   () => import("@/components/income-tracking-screen").then((m) => m.IncomeTrackingScreen || m.default),
-  { ssr: false }
-);
-const TaxFormWizardScreen = dynamic(
-  () => import("@/components/tax-form-wizard-screen").then((m) => m.TaxFormWizardScreen || m.default),
-  { ssr: false }
-);
-const StateTaxCalculatorScreen = dynamic(
-  () => import("@/components/state-tax-calculator-screen").then((m) => m.StateTaxCalculatorScreen || m.default),
   { ssr: false }
 );
 const AddManualTransactionScreen = dynamic(
@@ -111,6 +92,16 @@ interface UserProfile {
 // Use Transaction type from firebase library
 type Transaction = FirebaseTransaction;
 
+async function readActiveBankConnection(fallback = false) {
+  try {
+    const response = await makeAuthenticatedRequest('/api/plaid/items', { cache: 'no-store' });
+    const data = await response.json().catch(() => null);
+    return response.ok ? data?.hasConnection === true : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export default function ProtectedPage() {
   const { user, loading } = useAuth();
   const [userProfile, setUserProfile] = useState<any>(null);
@@ -120,12 +111,8 @@ export default function ProtectedPage() {
   const [profileRetry, setProfileRetry] = useState(0);
   const [currentScreen, setCurrentScreen] = useState<ProtectedScreen>('dashboard');
   const [navigationStack, setNavigationStack] = useState<string[]>(['dashboard']);
-  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
-  const [analyzingTransactions, setAnalyzingTransactions] = useState(false);
   const [bankConnected, setBankConnected] = useState(false);
-  const [isEducationModalOpen, setIsEducationModalOpen] = useState(false);
-  const [isMobileQuickActionsVisible, setIsMobileQuickActionsVisible] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
   const navigateScreen = (rawScreen: string) => {
@@ -162,34 +149,26 @@ export default function ProtectedPage() {
     }).catch((err) => console.warn('[Protected] Sync on visit failed:', err));
   }, [bankConnected, user?.id]);
 
-  // Force re-renders when transactions are updated
-  useEffect(() => {
-    // This will trigger a re-render whenever transactions are updated
-    console.log('🔄 Transactions updated, forcing re-render');
-  }, [transactions]);
-
   // Transaction state is now managed by useTransactionState hook
 
   // Check bank connection and fetch transactions
   const checkBankConnectionAndFetchTransactions = async (currentUser: any) => {
     try {
       // Check the server-managed bank connection status
-      const { data: profile, error } = await getUserProfile(currentUser.id);
+      const { data: profile } = await getUserProfile(currentUser.id);
+      const connected = await readActiveBankConnection(profile?.bankConnected === true);
+      setBankConnected(connected);
+      setUserProfile((previous: any) => previous ? { ...previous, bankConnected: connected } : profile ? { ...profile, bankConnected: connected } : previous);
 
-      if (profile?.bankConnected) {
-        setBankConnected(true);
+      if (connected) {
         // Only sync transactions if explicitly requested, not on every page load
         // This prevents the massive slowdown on home screen
-        console.log('✅ Bank connected - transactions will be synced on demand');
-
-        // Transactions are now automatically managed by useTransactionState
-      } else {
-        setBankConnected(false);
         // Transactions are now automatically managed by useTransactionState
       }
     } catch (error) {
       console.error('Error checking bank connection:', error);
       setBankConnected(false);
+      setUserProfile((previous: any) => previous ? { ...previous, bankConnected: false } : previous);
       // Transactions are now automatically managed by useTransactionState
     }
   };
@@ -217,8 +196,9 @@ export default function ProtectedPage() {
           return;
         }
         setHasProfile(state === 'existing');
-        setUserProfile(profile);
-        setBankConnected(Boolean(profile?.bankConnected));
+        const connected = await readActiveBankConnection(profile?.bankConnected === true);
+        setUserProfile(profile ? { ...profile, bankConnected: connected } : profile);
+        setBankConnected(connected);
       } catch {
         if (current) setProfileLoadError(true);
       } finally {
@@ -264,7 +244,6 @@ export default function ProtectedPage() {
   }, [searchParams, transactions]);
 
   const handleProfileComplete = async (profile: UserProfile, redirectTo?: string) => {
-    console.log('Profile setup completed:', profile);
     setHasProfile(true);
 
     // Fetch the complete profile from database to ensure we have all fields
@@ -276,7 +255,6 @@ export default function ProtectedPage() {
         if (profileError) {
           console.error('Error fetching user profile after completion:', profileError);
         } else {
-          console.log('✅ User profile loaded after completion:', userProfile);
           setUserProfile(userProfile);
         }
 
@@ -285,7 +263,6 @@ export default function ProtectedPage() {
 
         // Redirect to specified screen if provided
         if (redirectTo) {
-          console.log(`🔄 Redirecting to ${redirectTo} after profile completion`);
           navigateScreen(redirectTo);
         }
       } catch (error) {
@@ -295,20 +272,22 @@ export default function ProtectedPage() {
   };
 
   // Handle Plaid connection success
-  const handlePlaidConnectionSuccess = async () => {
+  const handlePlaidConnectionSuccess = async (destination: 'review-transactions' | 'banks-detail' = 'review-transactions') => {
     if (user) {
       try {
         // Refresh the safe server-managed bank connection status
         const { data: userProfile, error: profileError } = await getUserProfile(user.id);
 
+        let connected = false;
         if (!profileError && userProfile) {
-          setUserProfile(userProfile);
-          setBankConnected(userProfile.bankConnected === true);
+          connected = await readActiveBankConnection(userProfile.bankConnected === true);
+          setUserProfile({ ...userProfile, bankConnected: connected });
+          setBankConnected(connected);
           notifyProfileUpdated(user.id);
 
           // If this is the first Plaid connection and Plaid guide hasn't been shown,
           // trigger the Plaid guide tutorial
-          if (userProfile.bankConnected && !userProfile.onboardingPlaidGuideCompleted) {
+          if (connected && !userProfile.onboardingPlaidGuideCompleted) {
             // Small delay to ensure the profile update is processed
             setTimeout(() => {
               const plaidGuideButton = document.getElementById('open-plaid-guide');
@@ -319,12 +298,7 @@ export default function ProtectedPage() {
           }
         }
 
-        // Update bank connection status
-        setBankConnected(true);
-        // Transactions are now automatically managed by useTransactionState
-
-        // Navigate to review transactions screen to show the newly synced transactions
-        navigateScreen('review-transactions');
+        navigateScreen(connected ? destination : 'banks-detail');
       } catch (error) {
         console.error('Error handling Plaid connection success:', error);
       }
@@ -349,12 +323,7 @@ export default function ProtectedPage() {
   };
 
   const handleNavigate = (rawScreen: string) => {
-    if (rawScreen === 'mobile-actions') {
-      setIsMobileQuickActionsVisible(visible => !visible);
-      return;
-    }
     const screen = protectedScreen(rawScreen);
-    if (screen === 'add-expense') setEditingTransaction(null);
     if (screen !== currentScreen) setNavigationStack(previous => [...previous, currentScreen]);
     navigateScreen(rawScreen);
   };
@@ -369,8 +338,6 @@ export default function ProtectedPage() {
   const handleViewTransaction = (transaction: Transaction & { _source?: string }, initialSection?: 'details') => {
     // Use the source information if available, otherwise use current screen
     const sourceScreen = transaction._source || currentScreen;
-    console.log('Viewing transaction from source:', sourceScreen);
-
     // Add source screen to navigation stack before viewing transaction
     setNavigationStack(prev => [...prev, sourceScreen]);
     setViewingTransaction(transaction);
@@ -388,8 +355,6 @@ export default function ProtectedPage() {
 
   // Handle viewing transaction details from external pages (like /protected/transactions)
   const handleViewTransactionFromExternal = (transaction: Transaction, fromPage: string) => {
-    console.log('Viewing transaction from external page:', fromPage);
-
     // Add the external page to navigation stack
     setNavigationStack(prev => [...prev, fromPage]);
     setViewingTransaction(transaction);
@@ -424,16 +389,8 @@ export default function ProtectedPage() {
     setViewingTransaction(prev => prev && prev.id === transaction.id ? transaction : prev);
   };
 
-  // Handle editing a transaction
-  const handleEditTransaction = (transaction: Transaction) => {
-    setEditingTransaction(transaction);
-    navigateScreen('add-expense');
-  };
-
   // Handle transaction update (for review screen) - now handled by real-time updates
   const handleTransactionUpdate = (updatedTransaction: Transaction) => {
-    console.log('🔄 [UI RERENDER] Parent handleTransactionUpdate called for:', updatedTransaction.trans_id || updatedTransaction.id, 'is_deductible:', updatedTransaction.is_deductible);
-
     // Real-time updates are handled automatically by the useTransactions hook
     // Just update the viewing transaction if it's the same one
     setViewingTransaction(prev => {
@@ -519,18 +476,6 @@ export default function ProtectedPage() {
       );
     }
 
-    if (currentScreen === 'add-expense') {
-      const safeUser = { ...user, email: user.email ?? undefined };
-      return (
-        <AddExpenseScreen
-          user={safeUser}
-          onBack={handleGoBack}
-          onSave={handleSaveTransaction}
-          editingExpense={editingTransaction}
-        />
-      );
-    }
-
     if (currentScreen === 'receipt-upload') {
       const safeUser = { ...user, email: user.email ?? undefined };
       return (
@@ -538,16 +483,6 @@ export default function ProtectedPage() {
           user={safeUser}
           onBack={handleGoBack}
           onUploadComplete={handleReceiptUploadComplete}
-        />
-      );
-    }
-
-    if (currentScreen === 'tax-calendar') {
-      const safeUser = { ...user, email: user.email ?? undefined };
-      return (
-        <TaxCalendarScreen
-          user={safeUser}
-          onBack={handleGoBack}
         />
       );
     }
@@ -564,23 +499,18 @@ export default function ProtectedPage() {
 
     if (currentScreen === 'quarterly-taxes') {
       return (
-        <div className="min-h-screen bg-gray-50">
-          <div className="max-w-4xl mx-auto p-6">
-            <div className="mb-6">
-              <button
-                onClick={handleGoBack}
-                className="flex items-center gap-2 text-teal-600 hover:text-teal-700 mb-4"
-              >
-                ← Back
-              </button>
-              <h1 className="text-2xl font-bold text-gray-900">Quarterly Tax Calculator</h1>
-            </div>
-            <QuarterlyTaxCalculator
-              userProfile={userProfile}
-              transactions={transactions}
-            />
-          </div>
-        </div>
+        <AppScreenShell>
+          <AppPageHeader
+            title="Quarterly tax planner"
+            description="Review an estimated-payment plan, then record actual payments in one connected workflow."
+            onBack={handleGoBack}
+            actions={<Button variant="outline" className="min-h-11" onClick={() => handleNavigate('quarterly-payments')}>Recorded payments</Button>}
+          />
+          <QuarterlyTaxCalculator
+            userProfile={userProfile}
+            transactions={transactions}
+          />
+        </AppScreenShell>
       );
     }
 
@@ -618,28 +548,6 @@ export default function ProtectedPage() {
       );
     }
 
-    if (currentScreen === 'deductions-detail') {
-      const safeUser = { ...user, email: user.email ?? undefined };
-      return (
-        <DeductionsDetailScreen
-          user={safeUser}
-          onBack={handleGoBack}
-          transactions={transactions}
-        />
-      );
-    }
-
-    if (currentScreen === 'expenses-detail') {
-      const safeUser = { ...user, email: user.email ?? undefined };
-      return (
-        <ExpensesDetailScreen
-          user={safeUser}
-          onBack={handleGoBack}
-          transactions={transactions}
-        />
-      );
-    }
-
     if (currentScreen === 'banks-detail') {
       const safeUser = { ...user, email: user.email ?? undefined };
       return (
@@ -647,17 +555,8 @@ export default function ProtectedPage() {
           user={safeUser}
           onBack={handleGoBack}
           onConnectBank={(itemId) => {
-            router.push(`/protected?screen=plaid-link&from=settings${itemId ? `&itemId=${encodeURIComponent(itemId)}` : ''}`);
+            router.push(`/protected?screen=plaid-link&from=banks-detail${itemId ? `&itemId=${encodeURIComponent(itemId)}` : ''}`);
           }}
-        />
-      );
-    }
-
-    if (currentScreen === 'profit-loss-detail') {
-      return (
-        <ProfitLossDetailScreen
-          onNavigate={handleNavigate}
-          transactions={transactions}
         />
       );
     }
@@ -669,6 +568,7 @@ export default function ProtectedPage() {
           user={safeUser}
           onBack={handleGoBack}
           transactions={transactions}
+          profile={userProfile}
           onTransactionClick={(transaction) => {
             // Ensure transaction has trans_id and add source
             const transactionWithSource = {
@@ -684,26 +584,16 @@ export default function ProtectedPage() {
 
     if (currentScreen === 'plaid-link') {
       const safeUser = { ...user, email: user.email ?? undefined };
-      // Check if this is from settings by checking the search params
-      const isFromSettings = searchParams?.get('from') === 'settings';
+      const source = searchParams?.get('from');
+      const isFromBankManagement = source === 'settings' || source === 'banks-detail';
       return (
         <PlaidLinkScreen
           user={safeUser}
-          onSuccess={handlePlaidConnectionSuccess}
+          onSuccess={() => void handlePlaidConnectionSuccess(isFromBankManagement ? 'banks-detail' : 'review-transactions')}
           onBack={handleGoBack}
-          fromSettings={isFromSettings || false}
+          onSkip={() => navigateScreen(isFromBankManagement ? 'banks-detail' : 'dashboard')}
+          fromSettings={isFromBankManagement}
           updateItemId={searchParams.get('itemId') || undefined}
-        />
-      );
-    }
-
-    if (currentScreen === 'plaid') {
-      const safeUser = { ...user, email: user.email ?? undefined };
-      return (
-        <PlaidScreen
-          user={safeUser}
-          onBack={handleGoBack}
-          onConnect={() => handleNavigate('plaid-link')}
         />
       );
     }
@@ -740,40 +630,11 @@ export default function ProtectedPage() {
       );
     }
 
-    if (currentScreen === 'tax-form-wizard') {
-      return (
-        <TaxFormWizardScreen
-          user={{ id: user.id, email: user.email ?? undefined }}
-          userProfile={userProfile}
-          onBack={handleGoBack}
-        />
-      );
-    }
-
-    if (currentScreen === 'state-tax-calculator') {
-      return (
-        <StateTaxCalculatorScreen
-          user={{ id: user.id, email: user.email ?? undefined }}
-          userProfile={userProfile}
-          onBack={handleGoBack}
-        />
-      );
-    }
-
     if (currentScreen === 'tax-assistant') {
       return (
         <TaxAssistantScreen
           user={{ id: user.id, email: user.email ?? undefined }}
           userProfile={userProfile}
-          onBack={handleGoBack}
-        />
-      );
-    }
-
-    if (currentScreen === 'profit-loss-report') {
-      return (
-        <ProfitLossReportScreen
-          user={{ id: user.id, email: user.email ?? undefined }}
           onBack={handleGoBack}
         />
       );
@@ -796,6 +657,7 @@ export default function ProtectedPage() {
         <QuarterlyPaymentTrackingScreen
           user={{ id: user.id, email: user.email ?? undefined }}
           onBack={handleGoBack}
+          onNavigate={handleNavigate}
         />
       );
     }
@@ -886,49 +748,13 @@ export default function ProtectedPage() {
     }
 
     return (
-      <>
-        <DashboardScreen
-          profile={userProfile}
-          transactions={transactions}
-          onNavigate={handleNavigate}
-          onTransactionClick={(transaction) => handleViewTransaction(transaction)}
-          analyzingTransactions={analyzingTransactions}
-          onSignOut={handleSignOut}
-        />
-
-        {/* Tax Education Modal */}
-        <TaxEducationModal
-          isOpen={isEducationModalOpen}
-          onClose={() => setIsEducationModalOpen(false)}
-          transaction={viewingTransaction ? {
-            merchant_name: viewingTransaction.merchant_name,
-            amount: viewingTransaction.amount,
-            category: viewingTransaction.category,
-            is_deductible: viewingTransaction.is_deductible ?? false,
-            deductible_reason: viewingTransaction.deductible_reason,
-            ai: viewingTransaction.ai ? {
-              reasoning: viewingTransaction.ai.reasoning ?? undefined,
-              irs: viewingTransaction.ai.irs ? {
-                publication: viewingTransaction.ai.irs.publication ?? undefined,
-                section: viewingTransaction.ai.irs.section ?? undefined
-              } : undefined
-            } : undefined
-          } : undefined}
-          userProfile={userProfile ? {
-            profession: Array.isArray(userProfile.profession) ? userProfile.profession[0] || '' : userProfile.profession || '',
-            business_entity_type: userProfile.businessEntityType || '',
-            state: userProfile.state || ''
-          } : undefined}
-        />
-
-        {/* Mobile Quick Actions */}
-        <MobileQuickActions
-          isVisible={isMobileQuickActionsVisible}
-          onNavigate={handleNavigate}
-          onAddExpense={() => handleNavigate('add-expense')}
-          onTakePhoto={() => handleNavigate('receipt-upload')}
-        />
-      </>
+      <DashboardScreen
+        profile={userProfile}
+        transactions={transactions}
+        onNavigate={handleNavigate}
+        onTransactionClick={(transaction) => handleViewTransaction(transaction)}
+        onSignOut={handleSignOut}
+      />
     );
   }
 

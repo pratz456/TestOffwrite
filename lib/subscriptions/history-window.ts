@@ -1,8 +1,11 @@
 import { adminDb } from '@/lib/firebase/admin';
 import { evaluateEntitlements } from './entitlements';
+import { PRODUCT_ACCESS } from './product-config';
 
 export function transactionHistoryWindow(profile: Record<string, unknown>, now = new Date()) {
-  const days = evaluateEntitlements(profile, now).features.extended_history ? 730 : 90;
+  const days = evaluateEntitlements(profile, now).features.extended_history
+    ? PRODUCT_ACCESS.extendedHistoryDays
+    : PRODUCT_ACCESS.freeHistoryDays;
   const endDate = now.toISOString().slice(0, 10);
   const start = new Date(`${endDate}T00:00:00.000Z`);
   start.setUTCDate(start.getUTCDate() - days);

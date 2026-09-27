@@ -42,10 +42,10 @@ describe('platform input smoke regressions', () => {
     expect(state.write).toHaveBeenCalledWith(expect.objectContaining({ amount: -125.25, userId: 'smoke-owner', type: 'income' }));
     expect(state.analyze).not.toHaveBeenCalled();
   });
-  it('manual expenses persist review choices and provenance without starting post-response model work', async () => {
+  it('manual expenses stay unreviewed until the server review flow confirms a tax decision', async () => {
     expect((await manual(request({ ...manualBase, type: 'expense', is_deductible: true, iso_currency_code: 'USD' }))).status).toBe(201);
     expect(state.write).toHaveBeenCalledWith(expect.objectContaining({ amount: 125.25, userId: 'smoke-owner', type: 'expense',
-      source: 'manual', is_deductible: true, analyzed: false, analysis_status: 'pending' }));
+      source: 'manual', is_deductible: null, analyzed: false, analysis_status: 'pending' }));
     expect(state.analyze).not.toHaveBeenCalled();
   });
   it('persists explicitly declared USD for new manual records and rejects another currency', async () => {
@@ -64,7 +64,8 @@ describe('platform input smoke regressions', () => {
     expect(state.add).not.toHaveBeenCalled();
   });
   it('a zero wage W-2 with withholding is retained and explicit state zeros are not discarded', async () => {
-    expect((await w2(request({ employer: 'Synthetic employer', wages: 0, federalWithheld: 50, stateWages: 0, stateWithheld: 0, taxYear: 2026 }))).status).toBe(201);
+    expect((await w2(request({ employer: 'Synthetic employer', wages: 0, federalWithheld: 50,
+      socialSecurityWages: 0, medicareWages: 0, stateWages: 0, stateWithheld: 0, taxYear: 2026 }))).status).toBe(201);
     expect(state.add).toHaveBeenCalledWith(expect.objectContaining({ userId: 'smoke-owner', wages: 0, federalWithheld: 50, stateWages: 0, stateWithheld: 0 }));
   });
   it.each([{ miles: -1 }, { miles: 'Infinity' }, { miles: null }, { miles: true }, { date: '2026-02-30' }, { roundTrip: 'false' }, { startLocation: [] }])('mileage invalid input %s is rejected before a write', async fields => {

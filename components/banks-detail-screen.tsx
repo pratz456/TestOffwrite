@@ -38,7 +38,6 @@ interface BanksDetailScreenProps {
   user: { id: string; email?: string; user_metadata?: { name?: string } };
   onBack: () => void;
   onConnectBank: (itemId?: string) => void;
-  bankConnected?: boolean;
 }
 
 function accountKey(account: BankAccount) { return account.account_id || account.id || ''; }

@@ -26,9 +26,22 @@ function fill(component: () => any, id: string, value: string) {
 beforeEach(() => { state.slots = []; state.cursor = 0; });
 
 describe('public tax calculator review boundaries', () => {
+  it('asks for W-2 Boxes 3 and 5 instead of reusing Box 1 wages', () => {
+    fill(TaxCalculator1099Client, 'gross-income', '75000');
+    fill(TaxCalculator1099Client, 'w2-wages', '40000');
+    const alert = walk(render(TaxCalculator1099Client)).find(node => node.props?.role === 'alert');
+    expect(text(alert)).toContain('Box 3 and Box 5');
+  });
+
   it.each([['1099', TaxCalculator1099Client, 'gross-income'], ['SE', SETaxCalculatorClient, 'net-profit']] as const)
-  ('withholds totals until joint wage ownership is established in %s', (_name, component, incomeId) => {
+  ('withholds totals until joint wage ownership is established in %s', (name, component, incomeId) => {
     fill(component, incomeId, '75000'); fill(component, 'filing-status', 'married_filing_jointly'); fill(component, 'w2-wages', '40000');
+    if (name === '1099') {
+      fill(component, 'w2-social-security-wages', '40000');
+      fill(component, 'w2-medicare-wages', '40000');
+    } else {
+      fill(component, 'w2-medicare-wages', '40000');
+    }
     const tree = render(component), alert = walk(tree).find(node => node.props?.role === 'alert');
     expect(text(alert)).toContain('spouse who earned them');
     expect(text(alert)).toContain('separate Social Security wage base');

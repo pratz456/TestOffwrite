@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { TaxCalculationNotice } from '@/components/tax-calculation-notice';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import type { MissingFact, QuarterlyPlan, QuarterlyPlannerResponse } from '@/lib/tax-provider/quarterly-planner';
+import { LATEST_PUBLISHED_TAX_YEAR } from '@/lib/tax-rules/federal-year-rules';
 
 interface QuarterlyTaxCalculatorProps { userProfile?: Record<string, unknown>; transactions?: unknown[] }
 interface Summary {
@@ -46,7 +47,7 @@ function interestIllustration(plan: QuarterlyPlan) {
   const illustration = plan.underpaymentInterestIllustration;
   return <Card><CardHeader><CardTitle>Underpayment interest illustration (not a penalty determination)</CardTitle></CardHeader><CardContent className="space-y-3 text-sm">
     <p className="text-muted-foreground">{illustration.label}. Figured as of {illustration.asOf} through {illustration.penaltyPeriodEnd} at most.</p>
-    <p>Illustrated interest so far: <span className="font-semibold">{illustration.total === null ? 'not available yet' : money(illustration.total)}</span>{illustration.total === null && ` — the IRS has not published the §6621 rate for ${illustration.unpublishedRatePeriods.join(', ')}.`}</p>
+    <p>Illustrated interest so far: <span className="font-semibold">{illustration.total === null ? 'not available yet' : money(illustration.total)}</span>{illustration.total === null && `. The IRS has not published the §6621 rate for ${illustration.unpublishedRatePeriods.join(', ')}.`}</p>
     <ul className="space-y-1">
       {illustration.byInstallment.map(item => <li key={item.quarter} className="flex flex-wrap justify-between gap-2 border-b py-1">
         <span>Q{item.quarter} · due {item.dueDate}</span>
@@ -59,7 +60,7 @@ function interestIllustration(plan: QuarterlyPlan) {
 }
 
 export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyTaxCalculatorProps) {
-  const year = new Date().getFullYear();
+  const year = LATEST_PUBLISHED_TAX_YEAR;
   const [retry, setRetry] = useState(0);
   const key = JSON.stringify({ year, userProfile, transactions, retry });
   const [result, setResult] = useState<{ key: string; data?: Summary; error?: string } | null>(null);
@@ -105,7 +106,7 @@ export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyT
       </> : <>
         <div role="note" className="rounded-lg border p-3"><h2 className="font-semibold">Payment amount needs review</h2><p className="mt-1 text-sm">{data.paymentReview.message}</p>
           {missingFacts.length > 0 && <div className="mt-2 text-sm"><p className="font-medium">Save these facts to see planning figures:</p>
-            <ul className="mt-1 list-disc space-y-1 pl-5">{missingFacts.map(fact => <li key={fact.key}><span className="font-medium">{fact.label}</span> — {fact.detail} <span className="whitespace-nowrap">Enter it in {fact.enterAt.map((item, index) => <React.Fragment key={item.href}>{index > 0 && ' or '}<a className="underline" href={item.href}>{item.label}</a></React.Fragment>)}.</span></li>)}</ul>
+            <ul className="mt-1 list-disc space-y-1 pl-5">{missingFacts.map(fact => <li key={fact.key}><span className="font-medium">{fact.label}:</span> {fact.detail} <span className="whitespace-nowrap">Enter it in {fact.enterAt.map((item, index) => <React.Fragment key={item.href}>{index > 0 && ' or '}<a className="underline" href={item.href}>{item.label}</a></React.Fragment>)}.</span></li>)}</ul>
           </div>}
           {reviewNotes.map(note => <p key={note} className="mt-2 text-sm text-muted-foreground">{note}</p>)}
         </div>

@@ -55,11 +55,11 @@ const tutorialSteps = [
         <div className="space-y-3 text-left">
           <div className="flex items-start space-x-3">
             <div className="w-2 h-2 bg-green-500 rounded-full mt-2 flex-shrink-0"></div>
-            <p className="text-gray-600">AI automatically categorizes transactions</p>
+            <p className="text-gray-600">AI suggests categories for your review</p>
           </div>
           <div className="flex items-start space-x-3">
             <div className="w-2 h-2 bg-green-500 rounded-full mt-2 flex-shrink-0"></div>
-            <p className="text-gray-600">Color-coded deductible indicators</p>
+            <p className="text-gray-600">Clear states show what is confirmed or still needs review</p>
           </div>
           <div className="flex items-start space-x-3">
             <div className="w-2 h-2 bg-green-500 rounded-full mt-2 flex-shrink-0"></div>

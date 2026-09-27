@@ -230,6 +230,7 @@ export async function POST(request: NextRequest) {
       if (!account.exists) {
         transaction.create(accountRef, {
           userId: user.uid,
+          user_id: user.uid,
           name: 'Manual Entries',
           type: 'manual',
           usageType: 'business',
@@ -238,7 +239,7 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    const newTransId = `receipt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const newTransId = `receipt_${uuidv4()}`;
 
     const storedReceipt = await storeReceipt(user.uid, newTransId, bytes, mimeType, originalName, setStep);
     const { receiptUrl } = storedReceipt;

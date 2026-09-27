@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describeUnsupportedTaxYear, getFederalTaxRules, LATEST_PUBLISHED_TAX_YEAR, nearestPublishedTaxYear, SUPPORTED_TAX_YEARS, TAX_YEAR_2027_STATUS, UnsupportedTaxYearError } from '../lib/tax-rules/federal-year-rules';
+import { describeUnsupportedTaxYear, getFederalTaxRules, LATEST_PUBLISHED_TAX_YEAR, SUPPORTED_TAX_YEARS, TAX_YEAR_2027_STATUS, UnsupportedTaxYearError } from '../lib/tax-rules/federal-year-rules';
 import { calculateEffectiveTaxRate, calculateFederalIncomeTax, getMarginalTaxRate, getUserTaxRate, getUserTaxRateDisplay, TaxRateReviewRequiredError } from '../lib/tax-rules/federal-brackets';
 import { calcCombinedSERate } from '../lib/tax-rules/kpi-calculations';
 
@@ -33,8 +33,6 @@ describe('published parameter registry versus primary sources (Rev. Proc. 2024-4
   });
 
   it('preserves published-year calculations and the latest published default', () => {
-    expect(nearestPublishedTaxYear(2027)).toBe(2026);
-    expect(nearestPublishedTaxYear(2023)).toBe(2024);
     expect(calculateFederalIncomeTax(12400, 'single')).toBe(1240);
     expect(calculateFederalIncomeTax(12400, 'single', 2025)).toBe(1192.5 + (12400 - 11925) * 0.12);
     const profile = { income: 100000, filing_status: 'Single' };

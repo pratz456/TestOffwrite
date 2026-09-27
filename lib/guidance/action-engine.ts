@@ -102,7 +102,7 @@ export function generateActionItems(
         'You can keep entering records manually, or connect a supported account to request transaction sync.',
       priority: 'low',
       category: 'setup',
-      screen: 'plaid-link',
+      screen: 'banks-detail',
       icon: 'Landmark',
     });
   }

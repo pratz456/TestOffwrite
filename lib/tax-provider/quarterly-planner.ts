@@ -516,7 +516,7 @@ export function illustrateUnderpaymentInterest(input: {
   if (compareIso(input.asOf, end) > 0) notes.push(`Interest is illustrated only through ${end}, the return due date used by Form 2210. Later interest on an unpaid balance follows different rules.`);
   notes.push('Illustration only. It applies recorded payments to the earliest unpaid installment, treats withholding as paid evenly on the due dates unless dated withholding was supplied, and ignores waivers, annualized income and IRS posting dates. The IRS figures any penalty when the return is filed.');
   notes.push('Payments made by a deadline that moved to the next business day are timely; a later payment accrues from the statutory due date (April 15, June 15, September 15, January 15), which is how the Form 2210 Penalty Worksheet counts days.');
-  return { label: 'Underpayment interest illustration (Form 2210 regular method) — not a penalty determination', asOf: input.asOf, penaltyPeriodEnd: end, ratePeriods, byInstallment, total, unpublishedRatePeriods: unpublished, notes };
+  return { label: 'Underpayment interest illustration (Form 2210 regular method). This is not a penalty determination.', asOf: input.asOf, penaltyPeriodEnd: end, ratePeriods, byInstallment, total, unpublishedRatePeriods: unpublished, notes };
 }
 
 // ── Next due date and amount ────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
-import { calculateEffectiveTaxRate, calculateFederalIncomeTax, getMarginalTaxRate, getUserTaxRate, getUserTaxRateDisplay } from '../lib/tax-rules/federal-brackets';
+import { calculateEffectiveTaxRate, calculateFederalIncomeTax, getMarginalTaxRate, getUserTaxRate, getUserTaxRateDisplay, TaxRateReviewRequiredError } from '../lib/tax-rules/federal-brackets';
 import { calcCombinedSERate } from '../lib/tax-rules/kpi-calculations';
 import { FilingStatusReviewRequiredError } from '../lib/tax-rules/filing-status';
 
@@ -38,6 +38,13 @@ describe('shared dashboard rate normalization', () => {
     expect(getUserTaxRate({ income: 100000, filing_status: 'Married Filing Jointly' })).toBeLessThan(getUserTaxRate({ income: 100000, filing_status: 'Single' }));
     expect(getMarginalTaxRate({ income: 90000, filing_status: 'Married Filing Jointly' })).toBe(12);
     expect(getMarginalTaxRate({ income: 90000, filing_status: 'Single' })).toBe(22);
+  });
+  it('withholds savings instead of applying a static rate when income is missing', () => {
+    expect(() => getUserTaxRate(null)).toThrow(TaxRateReviewRequiredError);
+    expect(getUserTaxRateDisplay(null)).toMatchObject({
+      rate: null,
+      reviewMessage: expect.stringContaining('Update income'),
+    });
   });
   it.each(['Qualifying Widower', 'not-a-status'])('withholds the display rate for %s, even without income', status => {
     for (const income of [100000, 0, undefined]) {

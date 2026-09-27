@@ -34,7 +34,7 @@ const tutorialSteps = [
   {
     id: 'connect-bank',
     title: 'Connect Your Bank',
-    description: 'Securely connect your bank account to automatically import transactions.',
+    description: 'Connect a supported bank through Plaid to import posted transactions.',
     icon: CreditCard,
     content: (
       <div className="space-y-4">
@@ -49,11 +49,11 @@ const tutorialSteps = [
           </div>
           <div className="flex items-start space-x-3">
             <div className="w-2 h-2 bg-green-500 rounded-full mt-2 flex-shrink-0"></div>
-            <p className="text-gray-600">Automatically sync your transactions</p>
+            <p className="text-gray-600">Sync posted transactions from supported accounts</p>
           </div>
           <div className="flex items-start space-x-3">
             <div className="w-2 h-2 bg-green-500 rounded-full mt-2 flex-shrink-0"></div>
-            <p className="text-gray-600">No manual data entry required</p>
+            <p className="text-gray-600">Review imported details or enter records manually</p>
           </div>
         </div>
       </div>
@@ -62,7 +62,7 @@ const tutorialSteps = [
   {
     id: 'auto-analyze',
     title: 'Auto-Analyze & Review',
-    description: 'Our AI automatically categorizes transactions and identifies deductions.',
+    description: 'AI suggests categories and possible tax treatment for your review.',
     icon: Brain,
     content: (
       <div className="space-y-4">
@@ -73,15 +73,15 @@ const tutorialSteps = [
         <div className="space-y-3 text-left">
           <div className="flex items-start space-x-3">
             <div className="w-2 h-2 bg-purple-500 rounded-full mt-2 flex-shrink-0"></div>
-            <p className="text-gray-600">AI automatically categorizes your transactions</p>
+            <p className="text-gray-600">AI suggests a category using the saved transaction facts</p>
           </div>
           <div className="flex items-start space-x-3">
             <div className="w-2 h-2 bg-purple-500 rounded-full mt-2 flex-shrink-0"></div>
-            <p className="text-gray-600">Identifies potential tax deductions</p>
+            <p className="text-gray-600">Flags possible deductions and missing tax details</p>
           </div>
           <div className="flex items-start space-x-3">
             <div className="w-2 h-2 bg-purple-500 rounded-full mt-2 flex-shrink-0"></div>
-            <p className="text-gray-600">Review and edit categories as needed</p>
+            <p className="text-gray-600">You confirm or correct every decision before it counts</p>
           </div>
         </div>
       </div>

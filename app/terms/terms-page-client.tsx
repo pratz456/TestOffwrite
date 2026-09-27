@@ -8,6 +8,7 @@ import Link from 'next/link';
 import writeOffLogo from '@/public/writeofflogo.png';
 import Image from 'next/image';
 import { CONSENT_TERMS_VERSION } from '@/lib/onboarding/consents';
+import { PRODUCT_ACCESS } from '@/lib/subscriptions/product-config';
 
 /**
  * Terms of Service. Written to describe what the product does today (records organization,
@@ -90,7 +91,7 @@ export default function TermsPageClient() {
             <div>
               <h3>4. Plans, trials and billing</h3>
               <ul>
-                <li>New accounts may receive a free trial (currently 30 days) with access to the full feature set. A trial can be used once per account and does not renew.</li>
+                <li>New accounts may receive a free trial (currently {PRODUCT_ACCESS.trialDays} days) with access to the full feature set. A trial can be used once per account and does not renew.</li>
                 <li>Paid plans are billed in advance by Stripe on a monthly or yearly basis at the price shown at checkout, plus applicable taxes. Prices for new subscriptions may change; we will notify you before a change affects your renewal.</li>
                 <li>You may cancel at any time from Settings. Cancellation takes effect at the end of the current billing period; you keep paid features until then. Fees already paid are not refunded except where required by law or stated in writing by us.</li>
                 <li>If a payment fails, paid features may be limited until payment succeeds. Your saved records remain accessible to you.</li>

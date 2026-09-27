@@ -228,11 +228,11 @@ export function IncomeTrackingScreen({ user, onBack, initialTab, initialYear }: 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <p className="text-xs text-muted-foreground">Direct income · {receipts.length}</p>
-              <p className="text-lg font-semibold tabular-nums">{receiptsLoading || receiptsLoadError ? "—" : `$${fmt(totalReceipts)}`}</p>
+              <p className="text-lg font-semibold tabular-nums">{receiptsLoading || receiptsLoadError ? "Not available" : `$${fmt(totalReceipts)}`}</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">1099 forms · {forms.length}</p>
-              <p className="text-lg font-semibold tabular-nums">{formsLoading || formsLoadError ? "—" : `$${fmt(total1099)}`}</p>
+              <p className="text-lg font-semibold tabular-nums">{formsLoading || formsLoadError ? "Not available" : `$${fmt(total1099)}`}</p>
             </div>
           </div>
           <div className="mt-2 flex items-start justify-between gap-2 border-t border-border pt-2">

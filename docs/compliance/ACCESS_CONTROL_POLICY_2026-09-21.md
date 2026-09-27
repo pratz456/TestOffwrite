@@ -1,6 +1,6 @@
 # WriteOff Access Control Policy
 
-Date: 2026-09-21. Version: 1.0. Owner: Qualified Individual (WISP §2). Review: at least annually and after any material change; next review 2027-09-21. Companion to `docs/compliance/WISP_2026-09-17.md`. This policy describes controls that exist in the repository at commit 1405212 and in Firebase project `writeoff-23910` unless a paragraph is marked as a gap.
+Date: 2026-09-24. Version: 1.1. Owner: Qualified Individual (WISP §2). Review: at least annually and after any material change; next review 2027-09-24. Companion to `docs/compliance/WISP_2026-09-17.md`. This policy describes live controls from production release `a219cbe` plus candidate controls explicitly identified as such.
 
 ## 1. Purpose
 
@@ -26,7 +26,7 @@ Authorization is role-based.
 
 - Consumers are scoped by `request.auth.uid` in `firestore.rules` and `storage.rules`. A transaction update from the client may change only the user-editable fields listed in the rules.
 - `plaid_connections`, `account_deletions`, `rate_limits`, and `support_audit` deny all client reads and writes. The Admin SDK is the only writer.
-- Receipt objects live at `receipts/{uid}/…`. Storage rules allow that uid only, and only jpeg, png, gif, webp, or pdf files up to 10 MB. Every other Storage path is denied.
+- Receipt objects live at `receipts/{uid}/…`. Candidate Storage rules deny direct client access; authenticated APIs require verified email, transaction ownership, supported byte signatures and files at most 10 MB.
 - Every API route resolves the caller with `getAuthenticatedUser`, which checks a Firebase ID token or the `__session` cookie with revocation (`checkRevoked = true`). Email/password accounts must have a verified email before API access.
 - Sign-in is email and password, or Google sign-in. The session cookie lasts 14 days, is httpOnly, Secure, and SameSite=Lax. Logout clears it.
 - Support access is a separate role from project IAM. A project Editor cannot use the support tool unless they are also allowlisted and carry `admin: true`.
@@ -41,7 +41,7 @@ A production operator is added or removed by the project Owner in Google Cloud I
 
 Deploy access is the ability to run the manual production workflow and to read the production environment secret. It is not granted by merging a pull request.
 
-Revocation that the application performs itself: logout, revocation checks on each API call, and account deletion (`adminAuth.deleteUser` after bank and billing access are removed).
+Revocation that the application performs itself: web/mobile logout requests server refresh-token revocation before local sign-out, each API call checks revocation, and account deletion removes the Auth user only after bank and billing access are removed.
 
 ## 5. What this policy does not include
 

@@ -160,11 +160,10 @@ export function TaxEducationModal({ isOpen, onClose, transaction, userProfile }:
         </Card>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="explanation">Explanation</TabsTrigger>
             <TabsTrigger value="irs-content">IRS Guide</TabsTrigger>
             <TabsTrigger value="examples">Examples</TabsTrigger>
-            <TabsTrigger value="quiz">Quick Quiz</TabsTrigger>
           </TabsList>
 
           <TabsContent value="explanation" className="space-y-4">
@@ -322,25 +321,6 @@ export function TaxEducationModal({ isOpen, onClose, transaction, userProfile }:
                 </CardContent>
               </Card>
             )}
-          </TabsContent>
-
-          <TabsContent value="quiz" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Quick Knowledge Check</CardTitle>
-                <CardDescription>
-                  Test your understanding of this tax topic
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="text-center py-8">
-                  <Target className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                  <p className="text-muted-foreground">
-                    Interactive quiz coming soon! Complete the lesson first to unlock quiz questions.
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
           </TabsContent>
         </Tabs>
       </DialogContent>

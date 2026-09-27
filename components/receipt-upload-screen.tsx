@@ -232,7 +232,7 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
           <div className="flex items-center gap-4">
             <div>
               <h1 className="text-xl font-semibold text-slate-900">Upload Receipt</h1>
-              <p className="text-sm text-slate-600">Scan and automatically extract expense data</p>
+              <p className="text-sm text-slate-600">Extract merchant, date, and amount for your review</p>
             </div>
           </div>
         </div>

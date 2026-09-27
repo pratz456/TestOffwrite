@@ -37,7 +37,7 @@ describe('source-backed AI explanation', () => {
   it.each([['income', 'Business income'], ['transfer', 'Transfer / card payment'], ['personal', 'Personal purchase']] as const)('shows the known %s flow instead of the generic expense category', (kind, label) => {
     const html = renderToStaticMarkup(<AiTaxExplanation suggestion={{ ...suggestion, transactionKind: kind, category: 'other' }} />);
     expect(html).toContain(label);
-    expect(html).not.toContain('Other — tax treatment');
+    expect(html).not.toContain('Other: tax treatment');
   });
   it.each(['javascript:alert(1)', 'http://irs.gov/a', 'https://irs.gov.attacker.example/a', 'https://user:password@irs.gov/a', '/publications/p463'])('rejects unsafe/non-authoritative source URL %s', url => {
     expect(trustedTaxSourceUrl(url)).toBe(false);

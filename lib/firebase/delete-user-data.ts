@@ -19,6 +19,7 @@ const OWNED_COLLECTIONS: Record<string, string[]> = {
   transactions: ['userId', 'user_id'], receipts: ['userId', 'user_id'], plaid_connections: ['uid'], processed_webhooks: ['user_id'],
   gross_receipts: ['userId', 'user_id'], income_1099: ['userId', 'user_id'], income_reconciliations: ['userId'], w2_income: ['userId', 'user_id'],
   tax_deductions: ['userId', 'user_id'], tax_organizers: ['userId', 'user_id'], user_corrections: ['userId'],
+  cpa_questions: ['userId'],
 };
 
 /** Revoke bank access first; retain the login and recovery metadata whenever cleanup fails. */
@@ -72,14 +73,14 @@ export async function deleteUserData(uid: string): Promise<{ error?: AccountDele
       throw new AccountDeletionError('Bank cleanup is incomplete. Your account has not been deleted. Please retry.', 'BANK_REVOCATION_FAILED', true);
     }
 
-    const billing = await cancelUserStripeSubscriptions(uid);
-    if (!billing.success) throw new AccountDeletionError(
-      'Billing could not be closed. Your account has not been deleted. Please retry.', 'BILLING_CLEANUP_FAILED', true);
-
     try { await deletePreparerHandoffsForUser(uid); }
     catch {
       throw new AccountDeletionError('Shared package cleanup could not finish. Your account has not been deleted. Please retry.', 'HANDOFF_CLEANUP_FAILED', true);
     }
+
+    const billing = await cancelUserStripeSubscriptions(uid);
+    if (!billing.success) throw new AccountDeletionError(
+      'Billing could not be closed. Your account has not been deleted. Please retry.', 'BILLING_CLEANUP_FAILED', true);
 
     try {
       // Trailing slash prevents deleting another user's similarly prefixed UID.

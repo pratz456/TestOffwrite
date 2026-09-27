@@ -4,11 +4,13 @@ import Link from "next/link";
 
 const LINKS = [
   { label: "How it works", href: "/#how-it-works" },
+  { label: "Pricing", href: "/#availability" },
   { label: "Free tools", href: "/tools" },
   { label: "Blog", href: "/blog" },
   { label: "About", href: "/about" },
   { label: "Help & support", href: "/help" },
   { label: "Privacy & security", href: "/privacy" },
+  { label: "Terms", href: "/terms" },
   { label: "Contact", href: "mailto:writeoffapp@gmail.com" },
 ];
 

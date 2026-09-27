@@ -12,6 +12,7 @@ vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: vi.fn() 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 import { HistoricalAccessNotification } from '@/components/historical-access-notification';
 import { TrialCountdown } from '@/components/trial-countdown';
+import { PRODUCT_ACCESS } from '@/lib/subscriptions/product-config';
 
 const expired = { hasAccess: false, isTrial: false, isPaid: false, subscriptionStatus: 'expired', trialEnd: '2020-01-01T00:00:00Z' };
 beforeEach(() => { state.cursor = 0; state.values = [false, false, expired]; });
@@ -22,7 +23,7 @@ describe('trial-ended bank history notice', () => {
     expect(html).toContain('Free Trial Ended');
     expect(html).toContain('Free accounts can import the last 90 days');
     expect(html).toContain('your saved records remain accessible');
-    expect(html).toContain('up to 2 years of bank history, depending on bank availability');
+    expect(html).toContain(PRODUCT_ACCESS.extendedHistoryLabel);
     expect(html).toContain('Upgrade Now');
     expect(html).not.toMatch(/now seeing 3 months|restore 1-year|1-year access/);
   });
@@ -48,7 +49,7 @@ describe('trial countdown history policy copy', () => {
     expect(html).toContain(heading);
     expect(html).toContain('Free accounts can import the last 90 days');
     expect(html).toContain('saved records remain accessible');
-    expect(html).toContain('up to 2 years of bank history, depending on bank availability');
+    expect(html).toContain(PRODUCT_ACCESS.extendedHistoryLabel);
     expect(html).not.toMatch(/3 months|1-year access|restore.*access/);
     if (!isTrial) expect(html).not.toMatch(/free trial/i);
   });

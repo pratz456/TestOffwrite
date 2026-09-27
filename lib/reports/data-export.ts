@@ -10,7 +10,7 @@ const TOP_LEVEL = ['gross_receipts', 'income_1099', 'income_reconciliations', 'w
 const PROFILE_CHILDREN = ['assets', 'settings', 'mileage_trips', 'quarterly_payments'] as const;
 const excludedKey = (key: string) => {
   const normalized = key.replace(/[^a-z0-9]/gi, '').toLowerCase();
-  return /token|secret|password|privatekey|plaid|stripe|signature|ssn|itin|socialsecuritynumber|pin$|bankaccount|bankrouting|routingnumber|accountnumber|^ein$|identifiersencryptedat/.test(normalized)
+  return /token|secret|password|privatekey|plaid|stripe|signature|ssn|itin|socialsecuritynumber|pin$|bankaccount|bankrouting|routingnumber|accountnumber|^ein(?:encrypted|last4)?$|identifiersencryptedat/.test(normalized)
     || ['efin', 'clientid', 'itemid', 'recordpath', 'storagepath', 'image', 'imagebase64', 'base64', 'dataurl', 'receiptdata', 'receiptbase64'].includes(normalized);
 };
 /** Free-text records that may still hold identifier digits from before server-side redaction. */

@@ -122,20 +122,28 @@ beforeEach(() => {
 });
 
 describe('getTransactionsServer strategy chain', () => {
-  it('short-circuits after the canonical userId collection-group query returns rows', async () => {
+  it('queries both owner spellings and returns canonical userId rows', async () => {
     seed(5);
     const { data, error, nextCursor } = await getTransactionsServer(uid);
     expect(error).toBeNull();
     expect(nextCursor).toBeNull();
     expect(data.map(row => row.trans_id)).toEqual(['tx-05', 'tx-04', 'tx-03', 'tx-02', 'tx-01']);
-    expect(gets()).toHaveLength(1);
+    expect(gets()).toHaveLength(2);
     expect(gets()[0].description).toBe('collectionGroup(transactions)');
   });
 
-  it('falls back to the legacy user_id field only when the canonical query is empty', async () => {
+  it('returns legacy user_id rows', async () => {
     seed(3, { user_id: uid });
     const { data } = await getTransactionsServer(uid);
     expect(data).toHaveLength(3);
+    expect(gets()).toHaveLength(2);
+  });
+
+  it('unions canonical and legacy owner fields without dropping either record', async () => {
+    fake.docs.set(`${account}/transactions/canonical`, { trans_id: 'canonical', account_id: 'checking', userId: uid, amount: 10, date: '2026-08-02' });
+    fake.docs.set(`${account}/transactions/legacy`, { trans_id: 'legacy', account_id: 'checking', user_id: uid, amount: 20, date: '2026-08-01' });
+    const { data } = await getTransactionsServer(uid);
+    expect(data.map(row => row.trans_id)).toEqual(['canonical', 'legacy']);
     expect(gets()).toHaveLength(2);
   });
 
@@ -156,7 +164,7 @@ describe('getTransactionsServer strategy chain', () => {
 });
 
 describe('getTransactionsServer cursor paging', () => {
-  it('pages newest-first with one query per page and a null cursor on the last page', async () => {
+  it('pages newest-first across both owner fields and returns a null cursor on the last page', async () => {
     seed(5);
     const first = await getTransactionsServer(uid, { limit: 2 });
     expect(first.data.map(row => row.trans_id)).toEqual(['tx-05', 'tx-04']);
@@ -169,7 +177,7 @@ describe('getTransactionsServer cursor paging', () => {
     const third = await getTransactionsServer(uid, { limit: 2, cursor: second.nextCursor });
     expect(third.data.map(row => row.trans_id)).toEqual(['tx-01']);
     expect(third.nextCursor).toBeNull();
-    expect(gets()).toHaveLength(3);
+    expect(gets()).toHaveLength(6);
   });
 
   it('treats a malformed cursor as the first page and clamps oversized limits', async () => {

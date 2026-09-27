@@ -24,11 +24,11 @@ describe('curated transaction tax grounding', () => {
       status: 'ok', category: 'supplies_small_tools', deductible_percent: 100, tax_year: 2026,
       jurisdiction: 'US-federal', policy_version: 'federal-transactions-2026-09-23.2',
       sources: [
-        { id: 'business-162', title: '26 USC 162 — Trade or business expenses', url: expect.stringContaining('https://uscode.house.gov/'), reviewed_at: '2026-09-16' },
+        { id: 'business-162', title: '26 USC 162: Trade or business expenses', url: expect.stringContaining('https://uscode.house.gov/'), reviewed_at: '2026-09-16' },
         // The category-specific rule is attached by the server so the user sees the applicable test.
         { id: 'supplies-263a', title: expect.stringContaining('§1.263(a)-1(f)'), url: expect.stringContaining('https://www.ecfr.gov/'), reviewed_at: '2026-09-23' },
       ],
-      irs_refs: ['26 USC 162 — Trade or business expenses', 'Treas. Reg. §1.263(a)-1(f) — Supplies and the de minimis safe harbor'],
+      irs_refs: ['26 USC 162: Trade or business expenses', 'Treas. Reg. §1.263(a)-1(f): Supplies and the de minimis safe harbor'],
       provenance: { provider: 'openai', model: 'synthetic-model', kind: 'model_with_curated_tax_policy' },
     });
     expect(TRANSACTION_TAX_POLICY_VERSION).toBe('federal-transactions-2026-09-23.2');
@@ -84,6 +84,21 @@ describe('curated transaction tax grounding', () => {
     expect(mismatched?.evidence_ids).not.toContain('mileage-rates');
     expect(analyze({ category: 'contract_labor', evidence_ids: ['information-returns-6041'] })).toMatchObject({ status: 'ok', evidence_ids: ['information-returns-6041', 'contract-labor-334'] });
     expect(analyze({ category: 'vehicle_expense', evidence_ids: ['mileage-rates'] })).toMatchObject({ status: 'needs_more_info', missing_fields: ['vehicle_method'], evidence_ids: ['mileage-rates', 'travel-463'] });
+  });
+  it('deterministically excludes education recorded as qualifying the user for a new profession', () => {
+    const result = analyze(
+      { category: 'education_training', evidence_ids: ['education-reg-1.162-5'] },
+      { business_purpose: 'Degree program for a career change so I can become a nurse.' },
+    );
+    expect(result).toMatchObject({
+      status: 'ok',
+      transaction_kind: 'personal',
+      expense_type: 'personal',
+      is_deductible: false,
+      deductible_percent: 0,
+    });
+    expect(result?.evidence_ids).toContain('education-reg-1.162-5');
+    expect(result?.customized_reason).toContain('new career, profession or trade');
   });
   it.each([[], ['invented-179'], ['business-162', 'business-162'], ['__proto__'], ['https://evil.invalid']].map(ids => [ids]))('rejects invalid evidence IDs %j', evidence_ids => {
     expect(analyze({ evidence_ids })).toBeNull();

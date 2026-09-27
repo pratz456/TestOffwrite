@@ -1,4 +1,4 @@
-import { getStorage, connectStorageEmulator, ref, uploadBytes, getDownloadURL, deleteObject, getMetadata } from 'firebase/storage';
+import { getStorage, connectStorageEmulator } from 'firebase/storage';
 import { app, localEmulatorConfig } from './client';
 import { connectLocalEmulatorOnce } from './local-emulator-config';
 
@@ -18,48 +18,11 @@ export const storage = (() => {
  * @returns Promise with download URL and file path
  */
 export async function uploadReceiptToStorage(
-  file: File, 
-  userId: string, 
-  transactionId: string
+  _file: File,
+  _userId: string,
+  _transactionId: string,
 ): Promise<{ downloadURL: string; filePath: string }> {
-  try {
-    // Create storage path: receipts/{userId}/{transactionId}/{filename}
-    const fileExtension = file.name.split('.').pop() || 'bin';
-    const timestamp = Date.now();
-    const fileName = `${timestamp}_${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
-    const filePath = `receipts/${userId}/${transactionId}/${fileName}`;
-    
-    // Create storage reference
-    const storageRef = ref(storage, filePath);
-    
-    // Convert file to buffer for upload
-    const bytes = await file.arrayBuffer();
-    const buffer = new Uint8Array(bytes);
-    
-    // Upload file to Firebase Storage
-    const uploadResult = await uploadBytes(storageRef, buffer, {
-      contentType: file.type,
-      customMetadata: {
-        originalName: file.name,
-        uploadedAt: new Date().toISOString(),
-        userId,
-        transactionId
-      }
-    });
-    
-    // Get download URL
-    const downloadURL = await getDownloadURL(uploadResult.ref);
-    
-    console.log(`✅ [Storage] Successfully uploaded receipt: ${filePath}`);
-    
-    return {
-      downloadURL,
-      filePath
-    };
-  } catch (error) {
-    console.error('❌ [Storage] Failed to upload receipt:', error);
-    throw new Error(`Failed to upload receipt: ${error instanceof Error ? error.message : 'Unknown error'}`);
-  }
+  throw new Error('Direct receipt Storage access is disabled. Use the authenticated receipt API.');
 }
 
 /**
@@ -67,30 +30,16 @@ export async function uploadReceiptToStorage(
  * @param filePath - The storage path of the file
  * @returns Promise with download URL
  */
-export async function getReceiptDownloadUrl(filePath: string): Promise<string> {
-  try {
-    const storageRef = ref(storage, filePath);
-    const downloadURL = await getDownloadURL(storageRef);
-    return downloadURL;
-  } catch (error) {
-    console.error('❌ [Storage] Failed to get download URL:', error);
-    throw new Error(`Failed to get download URL: ${error instanceof Error ? error.message : 'Unknown error'}`);
-  }
+export async function getReceiptDownloadUrl(_filePath: string): Promise<string> {
+  throw new Error('Direct receipt Storage access is disabled. Use the authenticated receipt API.');
 }
 
 /**
  * Delete a receipt file from Firebase Storage
  * @param filePath - The storage path of the file to delete
  */
-export async function deleteReceiptFromStorage(filePath: string): Promise<void> {
-  try {
-    const storageRef = ref(storage, filePath);
-    await deleteObject(storageRef);
-    console.log(`✅ [Storage] Successfully deleted receipt: ${filePath}`);
-  } catch (error) {
-    console.error('❌ [Storage] Failed to delete receipt:', error);
-    throw new Error(`Failed to delete receipt: ${error instanceof Error ? error.message : 'Unknown error'}`);
-  }
+export async function deleteReceiptFromStorage(_filePath: string): Promise<void> {
+  throw new Error('Direct receipt Storage access is disabled. Use the authenticated receipt API.');
 }
 
 /**
@@ -98,15 +47,8 @@ export async function deleteReceiptFromStorage(filePath: string): Promise<void> 
  * @param filePath - The storage path of the file
  * @returns Promise with file metadata
  */
-export async function getReceiptMetadata(filePath: string): Promise<any> {
-  try {
-    const storageRef = ref(storage, filePath);
-    const metadata = await getMetadata(storageRef);
-    return metadata;
-  } catch (error) {
-    console.error('❌ [Storage] Failed to get file metadata:', error);
-    throw new Error(`Failed to get file metadata: ${error instanceof Error ? error.message : 'Unknown error'}`);
-  }
+export async function getReceiptMetadata(_filePath: string): Promise<never> {
+  throw new Error('Direct receipt Storage access is disabled. Use the authenticated receipt API.');
 }
 
 /**
@@ -114,8 +56,6 @@ export async function getReceiptMetadata(filePath: string): Promise<any> {
  * Note: This requires Firebase Admin SDK on the server side
  * For client-side usage, use getDownloadURL instead
  */
-export async function generateSignedUrl(filePath: string, expiresIn: number = 3600): Promise<string> {
-  // This would typically be implemented on the server side
-  // For now, we'll use the regular download URL
-  return getReceiptDownloadUrl(filePath);
+export async function generateSignedUrl(_filePath: string, _expiresIn: number = 3600): Promise<string> {
+  throw new Error('Client-side signed receipt URLs are disabled. Use the authenticated receipt API.');
 }

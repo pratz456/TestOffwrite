@@ -6,6 +6,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getOpenAIClientOrThrow, getOpenAIModel, hasOpenAIAPIKey } from '@/lib/openai/client';
 import { invalidJsonResponse, readJsonObject } from '@/app/api/_lib/body';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
+import { redactIdentifierStrings, redactIdentifierText } from '@/lib/security/identifier-redaction';
+import { z } from 'zod';
 
 interface VoiceCommand {
   type: 'add_expense' | 'add_mileage' | 'question' | 'unknown';
@@ -20,6 +22,19 @@ interface VoiceCommand {
   confidence: number;
 }
 
+const VoiceCommandSchema = z.object({
+  type: z.enum(['add_expense', 'add_mileage', 'question', 'unknown']),
+  data: z.object({
+    amount: z.number().finite().positive().max(100_000_000).optional(),
+    merchant: z.string().trim().max(200).optional(),
+    category: z.string().trim().max(80).optional(),
+    purpose: z.string().trim().max(500).optional(),
+    miles: z.number().finite().positive().max(1_000_000).optional(),
+    question: z.string().trim().max(1_000).optional(),
+  }).strict(),
+  confidence: z.number().finite().min(0).max(1),
+}).strict();
+
 export async function POST(request: NextRequest) {
   const { user, error: authError } = await getAuthenticatedUser(request);
   if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -27,8 +42,8 @@ export async function POST(request: NextRequest) {
   try {
     if (!hasOpenAIAPIKey()) {
       return NextResponse.json(
-        { error: 'OpenAI is not configured (missing OPENAI_API_KEY)' },
-        { status: 500 }
+        { error: 'Voice parsing is currently unavailable. Enter the transaction manually.' },
+        { status: 503 }
       );
     }
 
@@ -42,6 +57,7 @@ export async function POST(request: NextRequest) {
     const limit = await enforceRateLimit({ ...RATE_LIMITS.aiVoiceCommand, key: user.uid });
     if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many voice commands. Please wait a few minutes and try again.' });
     const openai = getOpenAIClientOrThrow();
+    const redactedText = redactIdentifierText(text).text;
 
     const systemPrompt = `You are a voice command parser for a tax expense tracking app. Parse the user's spoken text into structured commands.
 
@@ -88,7 +104,7 @@ Examples:
       model: getOpenAIModel('voice'),
       messages: [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: text }
+        { role: 'user', content: redactedText }
       ],
       temperature: 0.1,
       max_completion_tokens: 200,
@@ -103,18 +119,12 @@ Examples:
 
     let command: VoiceCommand;
     try {
-      command = JSON.parse(responseText);
+      const parsed = VoiceCommandSchema.safeParse(JSON.parse(responseText));
+      command = parsed.success
+        ? redactIdentifierStrings(parsed.data)
+        : { type: 'unknown', data: {}, confidence: 0.1 };
     } catch {
       // Fallback parsing
-      command = {
-        type: 'unknown',
-        data: {},
-        confidence: 0.1
-      };
-    }
-
-    // Validate command structure
-    if (!command.type || !command.data || typeof command.confidence !== 'number') {
       command = {
         type: 'unknown',
         data: {},

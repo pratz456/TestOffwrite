@@ -16,6 +16,7 @@ import {
 } from '@/lib/onboarding/consents';
 import { CONSENT_SAVE_ERROR, persistConsentRecord } from '@/lib/onboarding/consents-client';
 import { ConsentCheckboxes, NoticeAtCollection } from '@/components/onboarding/consent-checkboxes';
+import { INCOME_RANGES } from '@/lib/profile/income-ranges';
 
 import { missingProfileFields, profileDetailsError, profileWriteData, PROFILE_COMPLETE_SCREEN, type ProfileSetupData as UserProfile } from '@/lib/onboarding/profile';
 
@@ -31,11 +32,6 @@ const professions = [
   'Software Developer', 'Freelance Writer', 'Graphic Designer', 'Consultant', 'Marketing Specialist',
   'Real Estate Agent', 'Photographer', 'Web Designer', 'Content Creator', 'Business Coach',
   'Virtual Assistant', 'Social Media Manager', 'Online Tutor', 'E-commerce Store Owner', 'Other'
-];
-
-const incomeRanges = [
-  'Under $11,600', '$11,600 - $47,150', '$47,150 - $100,525', '$100,525 - $191,950',
-  '$191,950 - $243,725', '$243,725 - $609,350', 'Over $609,350'
 ];
 
 const usStates = [
@@ -276,6 +272,7 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
         user={user}
         onConnectBank={() => setCurrentStep('plaid')}
         onSkipToApp={() => onComplete(formData, PROFILE_COMPLETE_SCREEN)}
+        onNavigateToApp={(screen) => onComplete(formData, screen)}
         onBack={() => setCurrentStep('profile')}
       />
     );
@@ -286,6 +283,7 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
       <PlaidLinkScreen
         user={user}
         onSuccess={handlePlaidSuccess}
+        onSkip={() => onComplete(formData, PROFILE_COMPLETE_SCREEN)}
         onBack={() => setCurrentStep('data-source')}
       />
     );
@@ -451,15 +449,16 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
                     </div>
                     <div>
                       <label htmlFor="profile-income" className="block text-xs font-semibold text-foreground mb-1">
-                        Income Range <span className="text-red-500">*</span>
+                        Approximate Annual Income <span className="text-red-500">*</span>
                       </label>
                       <select id="profile-income" value={formData.income} onChange={event => { const value = event.target.value; setFormData(prev => ({ ...prev, income: value })); }} className="h-11 w-full min-w-0 rounded-xl border border-border bg-background px-3 text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                           <option value="" disabled>Annual income</option>
-                          {incomeRanges.map((range) => (
+                          {INCOME_RANGES.map((range) => (
                             <option key={range} value={range}>{range}</option>
                           ))}
 
                       </select>
+                      <p className="mt-1 text-xs text-muted-foreground">Used for onboarding context only; tax estimates use the detailed income records you review.</p>
                     </div>
                   </div>
 

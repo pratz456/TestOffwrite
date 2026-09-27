@@ -32,6 +32,9 @@ export const ACCOUNT_NAVIGATION: AppNavigationItem[] = [
 
 export function navigationItemActive(href: string, pathname: string, screen: string | null): boolean {
   if (href === '/protected') return pathname === '/protected' && (!screen || screen === 'dashboard');
+  if (href === '/protected?screen=quarterly-taxes') {
+    return pathname === '/protected' && (screen === 'quarterly-taxes' || screen === 'quarterly-payments');
+  }
   const [path, query] = href.split('?');
   if (query) return pathname === path && screen === new URLSearchParams(query).get('screen');
   return pathname === path || pathname.startsWith(`${path}/`);
@@ -41,6 +44,6 @@ export function navigationItemActive(href: string, pathname: string, screen: str
 export function primaryNavigationActive(href: string, pathname: string, screen: string | null): boolean {
   if (navigationItemActive(href, pathname, screen)) return true;
   if (href === '/protected/transactions') return pathname === '/protected' && ['transactions', 'transaction-detail', 'review-transactions', 'add-manual-transaction', 'receipt-upload'].includes(screen || '');
-  if (href === '/protected?screen=tax-preview') return pathname.startsWith('/protected/form') || pathname === '/protected' && ['tax-preview', 'tax-filing-hub', 'tax-organizer', 'quarterly-taxes', 'w2-income', 'deductions-entry', 'form-8879'].includes(screen || '');
+  if (href === '/protected?screen=tax-preview') return pathname.startsWith('/protected/form') || pathname === '/protected' && ['tax-preview', 'tax-filing-hub', 'tax-organizer', 'quarterly-taxes', 'quarterly-payments', 'w2-income', 'deductions-entry', 'form-8879'].includes(screen || '');
   return false;
 }

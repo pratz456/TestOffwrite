@@ -7,8 +7,6 @@ import {
   FolderOpen, 
   Receipt, 
   TrendingUp, 
-  Plus,
-  Upload,
   Search
 } from 'lucide-react';
 
@@ -37,25 +35,25 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   className = ''
 }) => {
   return (
-    <div className={`flex flex-col items-center justify-center py-12 px-4 text-center ${className}`}>
-      <div className="mb-4 text-gray-400">
+    <div className={`flex flex-col items-center justify-center rounded-xl border border-dashed border-border/80 bg-muted/20 px-4 py-8 text-center ${className}`}>
+      <div className="mb-3 text-muted-foreground">
         {icon}
       </div>
       
-      <h3 className="text-lg font-semibold text-gray-900 mb-2">
+      <h3 className="mb-1.5 text-base font-semibold text-foreground">
         {title}
       </h3>
       
-      <p className="text-gray-600 mb-6 max-w-md">
+      <p className="mb-4 max-w-md text-sm leading-5 text-muted-foreground">
         {description}
       </p>
       
-      <div className="flex flex-col sm:flex-row gap-3">
+      <div className="flex w-full max-w-sm flex-col gap-2 sm:w-auto sm:flex-row">
         {action && (
           <Button
             onClick={action.onClick}
             variant={action.variant || 'default'}
-            className="flex items-center gap-2"
+            className="min-h-11 flex-1 items-center gap-2"
           >
             {action.label}
           </Button>
@@ -65,7 +63,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
           <Button
             onClick={secondaryAction.onClick}
             variant="outline"
-            className="flex items-center gap-2"
+            className="min-h-11 flex-1 items-center gap-2"
           >
             {secondaryAction.label}
           </Button>
@@ -83,7 +81,7 @@ export const EmptyTransactionsState: React.FC<{
   <EmptyState
     icon={<CreditCard className="w-12 h-12" />}
     title="No transactions yet"
-    description="Connect your bank account to automatically import transactions, or add expenses manually to get started with tax deductions."
+    description="Connect a bank to import activity, or add an expense manually. Review the business purpose and tax treatment before anything counts."
     action={onConnectBank ? {
       label: 'Connect Bank Account',
       onClick: onConnectBank,
@@ -102,7 +100,7 @@ export const EmptyCategoriesState: React.FC<{
   <EmptyState
     icon={<FolderOpen className="w-12 h-12" />}
     title="No expense categories"
-    description="Categorize your transactions to track tax deductions by category and see where your money is going."
+    description="Review transaction categories to organize spending and identify records that may need a tax decision."
     action={onAddExpense ? {
       label: 'Add First Expense',
       onClick: onAddExpense,
@@ -117,7 +115,7 @@ export const EmptyReceiptsState: React.FC<{
   <EmptyState
     icon={<Receipt className="w-12 h-12" />}
     title="No receipts uploaded"
-    description="Upload receipts to support your tax deductions and keep organized records for tax season."
+    description="Upload receipts to support reviewed business expenses and keep organized records for tax time."
     action={onUploadReceipt ? {
       label: 'Upload Receipt',
       onClick: onUploadReceipt,
@@ -132,7 +130,7 @@ export const EmptyReportsState: React.FC<{
   <EmptyState
     icon={<TrendingUp className="w-12 h-12" />}
     title="No reports available"
-    description="Connect your bank account and categorize transactions to generate tax reports and see your deduction savings."
+    description="Add and review transactions to build supported tax summaries and planning reports."
     action={onConnectBank ? {
       label: 'Connect Bank Account',
       onClick: onConnectBank,

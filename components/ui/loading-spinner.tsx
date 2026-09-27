@@ -21,11 +21,12 @@ export const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({
   text 
 }) => {
   return (
-    <div className={`flex items-center justify-center gap-2 ${className}`}>
-      <Loader2 className={`${sizeClasses[size]} animate-spin text-primary`} />
+    <div role="status" aria-live="polite" className={`flex items-center justify-center gap-2 ${className}`}>
+      <Loader2 aria-hidden="true" className={`${sizeClasses[size]} animate-spin text-primary`} />
       {text && (
-        <span className="text-sm text-foreground">{text}</span>
+        <span className="text-sm text-muted-foreground">{text}</span>
       )}
+      {!text && <span className="sr-only">Loading</span>}
     </div>
   );
 };

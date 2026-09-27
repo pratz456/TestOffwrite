@@ -1,5 +1,6 @@
 import { ArrowRight, Sparkles } from "lucide-react";
 import { CtaButton } from "./cta-button";
+import { PRODUCT_ACCESS } from "@/lib/subscriptions/product-config";
 
 export function HeroSection() {
   return (
@@ -10,7 +11,7 @@ export function HeroSection() {
           Less tax admin.<br />More clarity.
         </h1>
         <p className="mt-4 max-w-md text-base leading-6 text-slate-600">
-          AI organizes your expenses. You review the details. Know where you stand on taxes.
+          AI suggests categories and tax details. You review every decision. Know where supported estimates stand.
         </p>
         <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2">
           <CtaButton label="Get started" size="lg" />
@@ -18,7 +19,7 @@ export function HeroSection() {
             See how it works <ArrowRight className="h-4 w-4" aria-hidden="true" />
           </a>
         </div>
-        <p className="mt-2 text-xs text-slate-500">30 days free · No credit card required</p>
+        <p className="mt-2 text-xs text-slate-500">{PRODUCT_ACCESS.trialDays} days free · No credit card required</p>
       </div>
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5" aria-label="Example transaction review">
         <div className="flex items-center justify-between gap-3 text-xs">

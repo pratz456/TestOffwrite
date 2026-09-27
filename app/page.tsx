@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { LandingPage } from "@/components/landing/landing-page";
+import { PREMIUM_MONTHLY_PRICE } from "@/lib/subscriptions/product-config";
 
 export const metadata: Metadata = {
   title: "WriteOff - Expense and Receipt Tracking for Freelancers",
@@ -26,7 +27,7 @@ export default function Home() {
               process.env.NEXT_PUBLIC_SITE_URL || "https://writeoffapp.com",
             offers: {
               "@type": "Offer",
-              price: "14.99",
+              price: PREMIUM_MONTHLY_PRICE,
               priceCurrency: "USD",
             },
           }),

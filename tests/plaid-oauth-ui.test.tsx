@@ -113,6 +113,16 @@ describe('Plaid OAuth client resume', () => {
     expect(h.open).toHaveBeenCalledOnce();
     expect(JSON.parse(storage.getItem(PLAID_OAUTH_STORAGE_KEY)!)).toMatchObject({ uid: 'owner', token: 'link-sandbox-new', fromSettings: true });
   });
+  it('skips onboarding without reporting a successful bank connection', async () => {
+    window.location.href = `${origin}/protected?screen=plaid-link`; window.location.search = '?screen=plaid-link';
+    const connected = vi.fn(), skipped = vi.fn();
+    const component = () => PlaidLinkScreen({ user: { id: 'owner' }, onSuccess: connected, onSkip: skipped, onBack() {} });
+    render(component); await flush(); const tree = render(component);
+    walk(tree).find(node => node.props?.onClick && content(node) === 'Skip for now').props.onClick();
+    expect(skipped).toHaveBeenCalledOnce();
+    expect(connected).not.toHaveBeenCalled();
+    expect(h.open).not.toHaveBeenCalled();
+  });
   it('does not expose a previous account Link token while the next account token request is pending', async () => {
     window.location.href = `${origin}/protected?screen=plaid-link`; window.location.search = '?screen=plaid-link';
     let uid = 'owner';

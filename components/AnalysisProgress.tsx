@@ -18,11 +18,11 @@ export default function AnalysisProgress({ jobId }: { jobId: string }) {
   useEffect(() => {
     if (!jobId) return;
 
-    console.log(`📊 [AnalysisProgress] Subscribing to job ${jobId}`);
+    console.log(`[AnalysisProgress] Subscribing to job ${jobId}`);
 
     const unsub = onSnapshot(doc(db, 'analysis_status', jobId), (snap) => {
       const d = snap.data() as Job | undefined;
-      console.log(`📊 [AnalysisProgress] Job update:`, d);
+      console.log('[AnalysisProgress] Job update:', d);
 
       setJob({
         status: d?.status ?? 'running',
@@ -32,11 +32,11 @@ export default function AnalysisProgress({ jobId }: { jobId: string }) {
         error: d?.error,
       });
     }, (error) => {
-      console.error('📊 [AnalysisProgress] Subscription error:', error);
+      console.error('[AnalysisProgress] Subscription error:', error);
 
       // Handle permission errors gracefully
       if (error.code === 'permission-denied') {
-        console.warn('📊 [AnalysisProgress] Permission denied - job may not belong to current user or may not exist');
+        console.warn('[AnalysisProgress] Permission denied; the job may be unavailable');
         setJob({
           status: 'failed',
           total: 0,
@@ -45,7 +45,7 @@ export default function AnalysisProgress({ jobId }: { jobId: string }) {
           error: 'Analysis job not accessible. This may be due to authentication or job ownership issues.',
         });
       } else if (error.code === 'unavailable') {
-        console.warn('📊 [AnalysisProgress] Service unavailable');
+        console.warn('[AnalysisProgress] Service unavailable');
         setJob({
           status: 'failed',
           total: 0,
@@ -54,7 +54,7 @@ export default function AnalysisProgress({ jobId }: { jobId: string }) {
           error: 'Analysis service temporarily unavailable. Please try again later.',
         });
       } else {
-        console.error('📊 [AnalysisProgress] Unexpected error:', error);
+        console.error('[AnalysisProgress] Unexpected error:', error);
         setJob({
           status: 'failed',
           total: 0,

@@ -8,6 +8,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { randomUUID } from 'node:crypto';
 import { adminDb } from '@/lib/firebase/admin';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 
@@ -30,7 +31,7 @@ export async function POST(request: NextRequest) {
 
   const parsed = manualInput.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: 'Provide a merchant, positive finite amount, valid date (YYYY-MM-DD), and valid transaction fields.' }, { status: 400 });
-  const { merchant_name, amount, date, category, notes, type, is_deductible, business_purpose, iso_currency_code } = parsed.data;
+  const { merchant_name, amount, date, category, notes, type, business_purpose, iso_currency_code } = parsed.data;
 
   const numAmount = Math.abs(Number(amount));
   const txType: 'income' | 'expense' = type === 'income' ? 'income' : 'expense';
@@ -39,13 +40,14 @@ export async function POST(request: NextRequest) {
   const accountRef = adminDb.collection('user_profiles').doc(user.uid).collection('accounts').doc(MANUAL_ACCOUNT_ID);
   const accountDoc = await accountRef.get();
   if (!accountDoc.exists) {
-    await accountRef.set({ userId: user.uid, name: 'Manual Entries', type: 'manual', usageType: 'business', createdAt: new Date() });
+    await accountRef.set({ userId: user.uid, user_id: user.uid, name: 'Manual Entries', type: 'manual', usageType: 'business', createdAt: new Date() });
   }
 
-  const transId = `manual_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const transId = `manual_${randomUUID()}`;
   const txData: Record<string, any> = {
     trans_id: transId,
     userId: user.uid,
+    user_id: user.uid,
     account_id: MANUAL_ACCOUNT_ID,
     merchant_name: merchant_name.trim(),
     amount: storedAmount,
@@ -55,7 +57,8 @@ export async function POST(request: NextRequest) {
     notes: notes?.trim() || '',
     business_purpose: business_purpose?.trim() || '',
     type: txType,
-    is_deductible: is_deductible !== undefined ? is_deductible : null,
+    // Creation records facts only. A tax decision is server-stamped later by the review API.
+    is_deductible: null,
     analyzed: false,
     analysis_status: 'pending',
     analysisStatus: 'pending',

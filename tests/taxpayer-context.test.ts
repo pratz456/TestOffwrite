@@ -34,6 +34,15 @@ describe('confirmed merchant priors', () => {
     expect(detectRecurrence(['2026-05-01'])).toEqual({ isRecurring: false, cadence: null, occurrences: 1 });
   });
 
+  it('keeps merchant priors inside the transaction tax year', () => {
+    const records = [
+      { merchant_name: 'Adobe', category: 'software_subscriptions', is_deductible: false, review_status: 'confirmed', date: '2025-12-15' },
+      { merchant_name: 'Adobe', category: 'software_subscriptions', is_deductible: true, review_status: 'confirmed', date: '2026-01-15' },
+    ];
+    expect(summarizeConfirmedMerchants(records, 40, 2025)[0]).toMatchObject({ decision: 'personal', confirmations: 1 });
+    expect(summarizeConfirmedMerchants(records, 40, 2026)[0]).toMatchObject({ decision: 'business', confirmations: 1 });
+  });
+
   it('builds hints and open questions without asserting eligibility', () => {
     const context = buildTaxpayerContext({
       profile, homeOffice: { officeSqFt: 160, totalHomeSqFt: 1600 }, merchant: 'Adobe Creative Cloud', transactionDate: '2026-08-01',
@@ -42,7 +51,13 @@ describe('confirmed merchant priors', () => {
         { merchant_name: 'Adobe Creative Cloud', category: 'software_subscriptions', is_deductible: true, review_status: 'confirmed', date: '2026-07-01' },
       ]),
     });
-    expect(context.identity).toMatchObject({ professions: ['Photographer'], entity: 'sole_proprietor', hasW2Income: true, hasBusinessIncome: true });
+    expect(context.identity).toMatchObject({
+      professions: ['Photographer'],
+      entity: 'sole_proprietor',
+      hasW2Income: true,
+      hasBusinessIncome: true,
+      professionalLicenseCount: 0,
+    });
     expect(context.methods.homeOffice).toEqual({ method: null, officeSqFt: 160, totalHomeSqFt: 1600, exclusiveUseConfirmed: false });
     expect(context.methods.vehicle).toEqual({ method: null, businessUsePercent: 60 });
     expect(context.gaps).toEqual(['home_office_method', 'home_office_exclusive_use', 'vehicle_deduction_method', 'work_related_travel']);

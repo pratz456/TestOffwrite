@@ -6,6 +6,7 @@ import { Card } from '@/components/ui/card';
 import { Search, ChevronDown, ChevronUp, Building, Settings, Info, Home, TrendingUp } from 'lucide-react';
 import { formatCategory, consolidateCategory } from '@/lib/utils';
 import { summarizeConfirmedDeductions } from '@/lib/tax/display-deductions';
+import { getUserTaxRateDisplay, type UserProfile } from '@/lib/tax-rules/federal-brackets';
 
 const writeOffLogo = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAzMiAzMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iOCIgZmlsbD0iIzMzNjZDQyIvPgo8dGV4dCB4PSIxNiIgeT0iMjIiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxOCIgZm9udC13ZWlnaHQ9ImJvbGQiIGZpbGw9IndoaXRlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5XPC90ZXh0Pgo8L3N2Zz4K';
 
@@ -33,6 +34,7 @@ interface CategoriesScreenProps {
   };
   onBack: () => void;
   transactions: Transaction[] | null | undefined;
+  profile?: Partial<UserProfile> | null;
   onTransactionClick?: (transaction: Transaction) => void;
 }
 
@@ -115,12 +117,15 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
   user, 
   onBack, 
   transactions,
+  profile,
   onTransactionClick 
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
   const [showDeductionsTooltip, setShowDeductionsTooltip] = useState(false);
   const [showSavingsTooltip, setShowSavingsTooltip] = useState(false);
+  const taxRateDisplay = getUserTaxRateDisplay(profile);
+  const taxRate = taxRateDisplay.rate;
 
   if (transactions == null) {
     return <CategoriesSkeleton />;

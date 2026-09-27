@@ -32,6 +32,22 @@ export function businessMileageRateForDate(date: string | Date | undefined | nul
   return BUSINESS_STANDARD_MILEAGE_RATES.find(period => day >= period.from && day <= period.to) ?? null;
 }
 
+export function formatMileageRate(ratePerMile: number): string {
+  const cents = Math.round(ratePerMile * 1000) / 10;
+  return `${Number.isInteger(cents) ? cents.toFixed(0) : cents.toFixed(1)} cents per mile`;
+}
+
+export function describeBusinessMileageRatesForYear(year: number): string {
+  const periods = BUSINESS_STANDARD_MILEAGE_RATES.filter(period => Number(period.from.slice(0, 4)) === year);
+  if (!periods.length) return `The IRS standard mileage rate for ${year} has not been verified as published in WriteOff's dated rate table.`;
+  if (periods.length === 1) return `The ${year} business standard mileage rate is ${formatMileageRate(periods[0].ratePerMile)}.`;
+  return periods.map(period => {
+    const from = new Date(`${period.from}T12:00:00Z`).toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' });
+    const to = new Date(`${period.to}T12:00:00Z`).toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' });
+    return `${from} through ${to}: ${formatMileageRate(period.ratePerMile)}`;
+  }).join('. ') + '.';
+}
+
 export interface MileageDeductionSummary {
   deduction: number;
   ratedMiles: number;

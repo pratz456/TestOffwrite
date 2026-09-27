@@ -4,12 +4,12 @@ export const REVIEW_CATEGORIES = [
   { value: 'supplies_small_tools', label: 'Supplies and small tools', recordedCategory: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES' },
   { value: 'software_subscriptions', label: 'Software and subscriptions', recordedCategory: 'SERVICE_SUBSCRIPTION' },
   { value: 'contract_labor', label: 'Contract labor', recordedCategory: 'SERVICE_FREELANCE_SERVICES' },
-  { value: 'equipment', label: 'Equipment — tax treatment needs review', recordedCategory: 'EQUIPMENT_REVIEW_REQUIRED' },
-  { value: 'vehicle_expense', label: 'Vehicle — method needs review', recordedCategory: 'VEHICLE_REVIEW_REQUIRED' },
+  { value: 'equipment', label: 'Equipment: tax treatment needs review', recordedCategory: 'EQUIPMENT_REVIEW_REQUIRED' },
+  { value: 'vehicle_expense', label: 'Vehicle: method needs review', recordedCategory: 'VEHICLE_REVIEW_REQUIRED' },
   { value: 'parking_tolls', label: 'Parking and tolls', recordedCategory: 'TRANSPORTATION_PARKING_AND_TOLLS' },
   { value: 'travel', label: 'Business travel', recordedCategory: 'TRAVEL_OTHER_TRAVEL' },
   { value: 'meals_50', label: 'Business meals (50% limit)', recordedCategory: 'FOOD_AND_DRINK_RESTAURANT' },
-  { value: 'home_office', label: 'Home office — eligibility needs review', recordedCategory: 'HOME_OFFICE_REVIEW_REQUIRED' },
+  { value: 'home_office', label: 'Home office: eligibility needs review', recordedCategory: 'HOME_OFFICE_REVIEW_REQUIRED' },
   { value: 'utilities_phone_internet', label: 'Utilities, phone and internet', recordedCategory: 'SERVICE_UTILITIES' },
   { value: 'education_training', label: 'Education and training', recordedCategory: 'SERVICE_EDUCATION' },
   { value: 'dues_and_memberships', label: 'Professional dues', recordedCategory: 'SERVICE_PROFESSIONAL_DUES' },
@@ -19,7 +19,7 @@ export const REVIEW_CATEGORIES = [
   { value: 'legal_professional', label: 'Legal and professional services', recordedCategory: 'SERVICE_LEGAL_AND_PROFESSIONAL' },
   { value: 'taxes_licenses', label: 'Taxes and licenses', recordedCategory: 'GOVERNMENT_TAXES_AND_LICENSES' },
   { value: 'repairs_maintenance', label: 'Repairs and maintenance', recordedCategory: 'SERVICE_REPAIRS_AND_MAINTENANCE' },
-  { value: 'other', label: 'Other — tax treatment needs review', recordedCategory: 'OTHER_REVIEW_REQUIRED' },
+  { value: 'other', label: 'Other: tax treatment needs review', recordedCategory: 'OTHER_REVIEW_REQUIRED' },
 ] as const;
 
 export type ReviewCategory = typeof REVIEW_CATEGORIES[number]['value'];

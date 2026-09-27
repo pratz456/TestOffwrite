@@ -13,6 +13,7 @@ import { OBBBADeductionFields } from "@/components/obbba-deduction-fields";
 import { NON_ITEMIZER_CHARITY_FIRST_YEAR, SCHEDULE_1A_FIRST_YEAR, SCHEDULE_1A_LAST_YEAR } from "@/lib/tax-rules/obbba-deductions";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 import { AdjustmentEligibilityFields } from "@/components/adjustment-eligibility-fields";
+import { LATEST_PUBLISHED_TAX_YEAR, SUPPORTED_TAX_YEARS } from "@/lib/tax-rules/federal-year-rules";
 
 interface Props { user: { id: string; email?: string }; onBack: () => void; onNavigate?: (screen: string) => void; }
 
@@ -122,7 +123,7 @@ const readOrganizerYear = async (targetYear: number): Promise<OrgAnswers> => {
 const STEPS = ["Personal facts", "Income", "Deductions", "Life events", "Prior year"];
 
 export function TaxOrganizerScreen({ user }: Props) {
-  const [year, setYear] = useState(Math.min(2026, Math.max(2024, new Date().getFullYear())));
+  const [year, setYear] = useState<number>(LATEST_PUBLISHED_TAX_YEAR);
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState<OrgAnswers>(EMPTY);
   const [loading, setLoading] = useState(true);
@@ -192,7 +193,7 @@ export function TaxOrganizerScreen({ user }: Props) {
     } finally { savePending.current = false; setSaving(false); }
   };
   const changeYear = async (nextYear: number) => {
-    if (![2024, 2025, 2026].includes(nextYear) || nextYear === year || switchPending.current || savePending.current) return;
+    if (!SUPPORTED_TAX_YEARS.some(value => value === nextYear) || nextYear === year || switchPending.current || savePending.current) return;
     switchPending.current = true; setSwitchingYear(true); setError(null);
     const operation = revision.current;
     try {
@@ -266,7 +267,7 @@ export function TaxOrganizerScreen({ user }: Props) {
           <select aria-label="Organizer tax year" value={year} disabled={saving || switchingYear}
             onChange={event => void changeYear(Number(event.target.value))}
             className="min-h-[44px] rounded-lg border bg-background px-2 text-base">
-            {[2026, 2025, 2024].map(value => <option key={value} value={value}>{value}</option>)}
+            {SUPPORTED_TAX_YEARS.map(value => <option key={value} value={value}>{value}</option>)}
           </select>
           <Button onClick={save} disabled={saving || switchingYear} variant="outline" size="sm" className="min-h-[44px] gap-1.5">
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <CheckCircle2 className="h-4 w-4 text-green-500" /> : <Save className="h-4 w-4" />}
@@ -411,7 +412,7 @@ export function TaxOrganizerScreen({ user }: Props) {
                       className="pl-7 bg-background"
                     />
                   </div>
-                  <p className="text-xs text-muted-foreground">Use the actual adjusted gross income from your prior-year return (line 11 on 2024; line 11a on 2025). Do not replace it with zero because that was your first return. If you did not file, ask your preparer how to complete their filing verification.</p>
+                  <p className="text-xs text-muted-foreground">Use the actual adjusted gross income from your prior-year Form 1040. Line labels can change by form year. Do not replace it with zero because that was your first return; if you did not file, ask your preparer how to complete filing verification.</p>
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-sm font-medium">IRS Identity Protection PIN (IP PIN)</Label>
@@ -508,20 +509,20 @@ export function TaxOrganizerScreen({ user }: Props) {
                 </div>
               )}
 
-              {yesno("hasCapGains", "Capital gains or losses — stocks, crypto, or property sold (1099-B)")}
+              {yesno("hasCapGains", "Capital gains or losses from stocks, crypto, or property sold (1099-B)")}
               {(answers.hasCapGains === "yes" || legacyCapitalGainOnly) && (
                 <div className="ml-4 border-l-2 border-primary/30 pl-4 space-y-3">
                   {legacyCapitalGainOnly && (
                     <p role="alert" className="text-sm">{`A combined total of $${answers.amountCapGains} was saved earlier. Enter the short-term and long-term amounts separately; the estimate no longer assumes a combined total is long-term.`}</p>
                   )}
                   <div className="space-y-1.5">
-                    <Label htmlFor="organizer-short-term-gains" className="text-sm font-medium">Net short-term capital gain or (loss) — Schedule D line 7</Label>
+                    <Label htmlFor="organizer-short-term-gains" className="text-sm font-medium">Net short-term capital gain or (loss), Schedule D line 7</Label>
                     <div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
                       <Input id="organizer-short-term-gains" type="number" step="0.01" value={answers.amountShortTermCapGains} onChange={e => setCapitalGain("amountShortTermCapGains", e.target.value)} placeholder="0.00 (negative if net loss; enter 0 when none)" className="pl-7 bg-background" /></div>
                     <p className="text-xs text-muted-foreground">Assets held one year or less. Taxed as ordinary income.</p>
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="organizer-long-term-gains" className="text-sm font-medium">Net long-term capital gain or (loss) — Schedule D line 15</Label>
+                    <Label htmlFor="organizer-long-term-gains" className="text-sm font-medium">Net long-term capital gain or (loss), Schedule D line 15</Label>
                     <div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
                       <Input id="organizer-long-term-gains" type="number" step="0.01" value={answers.amountLongTermCapGains} onChange={e => setCapitalGain("amountLongTermCapGains", e.target.value)} placeholder="0.00 (negative if net loss; enter 0 when none)" className="pl-7 bg-background" /></div>
                     <p className="text-xs text-muted-foreground">Assets held more than one year; net gains use the 0%/15%/20% rates. Blank is unanswered, not 0.</p>

@@ -70,7 +70,7 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ user, userProfile }) => 
           <img src="/writeofflogo.png" alt="WriteOff" className="w-6 h-6 rounded-md" />
           <div>
             <h1 className="text-sm font-semibold text-foreground">WriteOff</h1>
-            <p className="text-xs text-muted-foreground leading-none">Effortless Tax</p>
+            <p className="text-xs text-muted-foreground leading-none">Records and tax planning</p>
           </div>
         </div>
       </div>

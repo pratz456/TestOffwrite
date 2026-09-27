@@ -132,7 +132,7 @@ export function validateProductionConfiguration(env, { project, hosting, firebas
   if (env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID !== '930596534802') errors.push('NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID must identify the production project');
   for (const name of ['NEXT_PUBLIC_SITE_URL', 'ANALYSIS_WORKER_ORIGIN']) if (env[name] !== PRODUCTION_ORIGIN) errors.push(`${name} must select the exact production origin`);
   if (env.PLAID_ENV !== 'production') errors.push('PLAID_ENV must explicitly select production');
-  for (const name of ['PLAID_CLIENT_ID', 'PLAID_SECRET', 'OPENAI_API_KEY']) requireValue(name);
+  for (const name of ['PLAID_CLIENT_ID', 'PLAID_SECRET', 'OPENAI_API_KEY', 'RESEND_API_KEY']) requireValue(name);
   if (env.PLAID_CLIENT_ID !== EXPECTED_PRODUCTION_PLAID_CLIENT_ID) errors.push('PLAID_CLIENT_ID must identify the reviewed replacement provider account');
   if (env.PLAID_REDIRECT_URI !== `${PRODUCTION_ORIGIN}/plaid/oauth`) errors.push('PLAID_REDIRECT_URI must select the registered production callback');
   if (env.PLAID_WEBHOOK_URL && env.PLAID_WEBHOOK_URL !== `${PRODUCTION_ORIGIN}/api/plaid/webhook`) errors.push('PLAID_WEBHOOK_URL must select the production webhook');
@@ -141,6 +141,7 @@ export function validateProductionConfiguration(env, { project, hosting, firebas
   }
   if (env.PLAID_TOKEN_ENCRYPTION_KEY && env.PLAID_TOKEN_ENCRYPTION_KEY === env.SSN_ENCRYPTION_KEY) errors.push('Plaid tokens and taxpayer identifiers must use separate encryption keys');
   for (const name of ['ANALYSIS_WORKER_SECRET', 'CLOUD_FUNCTION_SECRET']) if ((env[name]?.trim().length || 0) < 32) errors.push(`${name} must contain at least 32 characters`);
+  if ((env.RATE_LIMIT_HASH_SECRET?.trim().length || 0) < 32) errors.push('RATE_LIMIT_HASH_SECRET must contain at least 32 characters');
   // Optional analysis fan-out ceiling (functions-analysis params); product = model calls in flight.
   for (const [name, max] of Object.entries(ANALYSIS_FANOUT_LIMITS)) {
     if (env[name] !== undefined && !(/^\d+$/.test(env[name].trim()) && Number(env[name]) >= 1 && Number(env[name]) <= max)) errors.push(`${name} must be an integer from 1 to ${max}`);

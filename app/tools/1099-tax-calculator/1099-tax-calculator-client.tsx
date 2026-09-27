@@ -38,21 +38,38 @@ export function TaxCalculator1099Client() {
   const [netProfit, setNetProfit] = useState("");
   const [filingStatus, setFilingStatus] = useState("single");
   const [w2Wages, setW2Wages] = useState("");
+  const [w2SocialSecurityWages, setW2SocialSecurityWages] = useState("");
+  const [w2MedicareWages, setW2MedicareWages] = useState("");
   const [expenses, setExpenses] = useState("");
 
   const parsedProfit = Number(netProfit.replace(/[,$\s]/g, ""));
   const parsedW2 = Number(w2Wages.replace(/[,$\s]/g, ""));
+  const parsedW2SocialSecurity = Number(w2SocialSecurityWages.replace(/[,$\s]/g, ""));
+  const parsedW2Medicare = Number(w2MedicareWages.replace(/[,$\s]/g, ""));
   const parsedExpenses = Number(expenses.replace(/[,$\s]/g, ""));
 
   const outcome = useMemo(() => {
     try {
       if (![parsedProfit, parsedW2, parsedExpenses].every(value => Number.isFinite(value) && value >= 0)) throw new Error('Enter valid nonnegative income, wages and expenses.');
       if (parsedProfit === 0) return { value: null, error: null };
-      return { value: estimate1099FederalTax({ grossIncome: parsedProfit, expenses: parsedExpenses, w2Wages: parsedW2, filingStatus, taxYear }), error: null };
+      if (parsedW2 > 0 && (w2SocialSecurityWages.trim() === '' || w2MedicareWages.trim() === '')) {
+        throw new Error('Enter W-2 Box 3 and Box 5 exactly as printed, including zero.');
+      }
+      return { value: estimate1099FederalTax({
+        grossIncome: parsedProfit,
+        expenses: parsedExpenses,
+        w2Wages: parsedW2,
+        ...(parsedW2 > 0 ? {
+          w2SocialSecurityWages: parsedW2SocialSecurity,
+          w2MedicareWages: parsedW2Medicare,
+        } : {}),
+        filingStatus,
+        taxYear,
+      }), error: null };
     } catch (error) {
       return { value: null, error: error instanceof Error ? error.message : 'This calculation requires review.' };
     }
-  }, [parsedProfit, filingStatus, parsedW2, parsedExpenses, taxYear]);
+  }, [parsedProfit, filingStatus, parsedW2, parsedW2SocialSecurity, parsedW2Medicare, parsedExpenses, taxYear, w2SocialSecurityWages, w2MedicareWages]);
   const calc = outcome.value;
 
   const dueDates = useMemo(() => estimatedTaxDueDates(taxYear), [taxYear]);
@@ -189,6 +206,28 @@ export function TaxCalculator1099Client() {
                 </div>
                 <p className="mt-1 text-xs text-gray-500">If you also have a W-2 job, enter those wages</p>
               </div>
+              {parsedW2 > 0 && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label htmlFor="w2-social-security-wages" className="block text-sm font-medium text-gray-700 mb-1.5">
+                      W-2 Box 3
+                    </label>
+                    <input id="w2-social-security-wages" type="text" inputMode="decimal"
+                      placeholder="Enter 0 when Box 3 is zero" value={w2SocialSecurityWages}
+                      onChange={(event) => setW2SocialSecurityWages(event.target.value)}
+                      className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-gray-900" />
+                  </div>
+                  <div>
+                    <label htmlFor="w2-medicare-wages" className="block text-sm font-medium text-gray-700 mb-1.5">
+                      W-2 Box 5
+                    </label>
+                    <input id="w2-medicare-wages" type="text" inputMode="decimal"
+                      placeholder="Enter 0 when Box 5 is zero" value={w2MedicareWages}
+                      onChange={(event) => setW2MedicareWages(event.target.value)}
+                      className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-gray-900" />
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 

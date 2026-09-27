@@ -16,7 +16,15 @@ export interface InstallPromptStorage {
   setItem(key: string, value: string): void;
 }
 
-const QUIET_ROUTES = [/^\/auth(?:\/|$)/, /^\/onboarding(?:\/|$)/, /^\/stripe(?:\/|$)/, /^\/protected\/onboarding(?:\/|$)/];
+const QUIET_ROUTES = [
+  /^\/$/,
+  /^\/welcome(?:\/|$)/,
+  /^\/tools(?:\/|$)/,
+  /^\/auth(?:\/|$)/,
+  /^\/onboarding(?:\/|$)/,
+  /^\/stripe(?:\/|$)/,
+  /^\/protected\/onboarding(?:\/|$)/,
+];
 
 export function isQuietInstallRoute(pathname: string | null | undefined): boolean {
   return !!pathname && QUIET_ROUTES.some(route => route.test(pathname));

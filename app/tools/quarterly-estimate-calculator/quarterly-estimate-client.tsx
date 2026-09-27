@@ -5,6 +5,7 @@ import { LandingHeader } from '@/components/landing/landing-header';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { calculateRegularEstimatedPayments } from '@/lib/tax-provider/regular-estimated-payments';
+import { LATEST_PUBLISHED_TAX_YEAR, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
 
 const money = (value: number) => value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 const moneyInput = (value: string, label: string) => {
@@ -14,7 +15,7 @@ const moneyInput = (value: string, label: string) => {
 };
 type Result = ReturnType<typeof calculateRegularEstimatedPayments>;
 export function QuarterlyEstimateClient() {
-  const [form, setForm] = useState({ taxYear: '2026', filingStatus: 'single', expectedTax: '', withholding: '', priorAvailability: '', priorAGI: '', priorTax: '', reviewed: false, regular: false, priorEligible: false, priorExceptionReviewed: false });
+  const [form, setForm] = useState({ taxYear: String(LATEST_PUBLISHED_TAX_YEAR), filingStatus: 'single', expectedTax: '', withholding: '', priorAvailability: '', priorAGI: '', priorTax: '', reviewed: false, regular: false, priorEligible: false, priorExceptionReviewed: false });
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState<string | null>(null);
   const change = (key: keyof typeof form, value: string | boolean) => { setForm(previous => ({ ...previous, [key]: value })); setResult(null); setError(null); };
@@ -39,7 +40,7 @@ export function QuarterlyEstimateClient() {
     <header><h1 className="text-3xl font-bold">Quarterly Payment Planning</h1><p className="mt-3 text-muted-foreground">Compare ordinary federal estimated-payment methods using a reviewed annual tax forecast. This is a planning estimate: it does not calculate your income tax return or decide what you should pay today.</p></header>
     <div className="grid gap-6 lg:grid-cols-2"><Card><CardHeader><CardTitle>Review your inputs</CardTitle></CardHeader><CardContent>
       <form onSubmit={calculate} className="space-y-4">
-        <label className="block">Tax year<select aria-label="Tax year" className="mt-1 w-full rounded border bg-background p-2" value={form.taxYear} onChange={e => change('taxYear', e.target.value)}>{[2026, 2025, 2024].map(year => <option key={year}>{year}</option>)}</select></label>
+        <label className="block">Tax year<select aria-label="Tax year" className="mt-1 w-full rounded border bg-background p-2" value={form.taxYear} onChange={e => change('taxYear', e.target.value)}>{[...SUPPORTED_TAX_YEARS].sort((a, b) => b - a).map(year => <option key={year}>{year}</option>)}</select></label>
         <label className="block">Filing status<select aria-label="Filing status" className="mt-1 w-full rounded border bg-background p-2" value={form.filingStatus} onChange={e => change('filingStatus', e.target.value)}>{[['single', 'Single'], ['married_filing_jointly', 'Married Filing Jointly'], ['married_filing_separately', 'Married Filing Separately'], ['head_of_household', 'Head of Household']].map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
         <label className="block">Expected annual federal tax after refundable credits<input aria-label="Expected annual federal tax" inputMode="decimal" value={form.expectedTax} onChange={e => change('expectedTax', e.target.value)} className="mt-1 w-full rounded border bg-background p-2" /></label>
         <p className="text-xs text-muted-foreground">Use the selected year’s 1040-ES worksheet line 11c. A partial-year dashboard total is not automatically a full-year forecast.</p>

@@ -57,11 +57,11 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
   const scheduleCNetProfit = scheduleC.profitBeforeAssets;
   const { depreciationDeduction, deMinimisExpense, homeOfficeDeduction } = scheduleC;
   const scheduleCLine31NetProfit = scheduleC.netProfit;
-  if (filingStatus === 'married_filing_jointly' && scheduleCLine31NetProfit > 0 && input.w2Entries.some(entry => entry.box3SocialSecurityWages == null && entry.socialSecurityWages == null)) {
-    throw new TaxCalculationScopeReviewRequiredError('Complete each spouse’s W-2 Social Security wages (Box 3, including explicit zero) before assigning the separate spouse wage bases');
+  if (scheduleCLine31NetProfit > 0 && input.w2Entries.some(entry => entry.box3SocialSecurityWages == null && entry.socialSecurityWages == null)) {
+    throw new TaxCalculationScopeReviewRequiredError('Complete every W-2 Social Security wages amount (Box 3, including explicit zero) before calculating self-employment tax against the remaining wage base');
   }
-  if (filingStatus === 'married_filing_jointly' && scheduleCLine31NetProfit > 0 && (w2.wages > 0 || w2.socialSecurityWages > 0 || w2.medicareWagesForSE > 0) && w2.medicareWages === undefined) {
-    throw new TaxCalculationScopeReviewRequiredError('Complete every spouse’s W-2 Box 5 Medicare wages, including explicit zero, before calculating the joint return');
+  if (scheduleCLine31NetProfit > 0 && input.w2Entries.some(entry => entry.box5MedicareWages == null && entry.medicareWages == null)) {
+    throw new TaxCalculationScopeReviewRequiredError('Complete every W-2 Box 5 Medicare wages amount, including explicit zero, before coordinating self-employment and Additional Medicare tax');
   }
   const ownerSocialSecurityWages = assertWageOwnershipScope(filingStatus, scheduleCLine31NetProfit, w2.wages, {
     socialSecurityWages: w2.socialSecurityWages, medicareWages: w2.medicareWages,

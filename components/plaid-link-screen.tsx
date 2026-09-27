@@ -15,6 +15,7 @@ import { useJobProgress } from '@/lib/hooks/useJobProgress';
 import { analysisJobView, parseAnalysisJob, parseAnalysisQueue, type AnalysisJob } from '@/lib/ai/client-job-progress';
 import { debugLog } from '@/lib/utils/debug';
 import { clearPlaidOAuthSession, readPlaidOAuthResume, savePlaidOAuthSession, type PlaidOAuthResume } from '@/lib/plaid/oauth-session';
+import { PRODUCT_ACCESS } from '@/lib/subscriptions/product-config';
 
 // Global flag to prevent duplicate Plaid script loading
 let plaidScriptLoaded = false;
@@ -23,14 +24,16 @@ interface PlaidLinkScreenProps {
   user: any;
   onSuccess: () => void;
   onBack: () => void;
+  onSkip?: () => void;
   fromSettings?: boolean; // If true, hide subscription options and connect directly
   updateItemId?: string;
   reconnectSessionId?: string;
   oauthResume?: PlaidOAuthResume;
 }
 
-export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess, onBack, fromSettings = false, updateItemId, reconnectSessionId, oauthResume }) => {
+export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess, onBack, onSkip, fromSettings = false, updateItemId, reconnectSessionId, oauthResume }) => {
   const router = useRouter();
+  const isOnboarding = !fromSettings && !updateItemId && !reconnectSessionId;
   // Capture the app origin from the top-level page. Some Plaid callbacks can run
   // in a different browsing context (e.g. iframe), where relative URLs might
   // resolve against the wrong origin (like plaid.com). Using this captured
@@ -149,7 +152,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
   // Fallback: If real-time subscription fails, start polling after a delay
   useEffect(() => {
     if (accountId && jobProgressError && !jobProgress) {
-      console.warn('📊 [PlaidLink] Real-time subscription failed, starting fallback polling');
+      console.warn('[PlaidLink] Real-time progress unavailable; using bounded polling');
       // Start polling after 5 seconds if real-time subscription fails
       const fallbackTimer = setTimeout(() => {
         if (accountId) {
@@ -180,7 +183,6 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
     const analyzingParam = urlParams.get('analyzing');
 
     if (accountIdParam && analyzingParam === 'true') {
-      console.log('🔄 [PlaidLink] Redirected from account usage page, starting analysis monitoring');
       setAccountId(accountIdParam);
       setIsConnected(true);
       setAnalysisStatus('queued');
@@ -191,9 +193,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
     // Cleanup function to clear any intervals when component unmounts
     return () => {
       ++requests.current;
-      console.log('🧹 [PlaidLink] Component unmounting, cleaning up...');
       if (pollingIntervalRef.current) {
-        console.log('🧹 [PlaidLink] Clearing polling interval');
         clearInterval(pollingIntervalRef.current);
         pollingIntervalRef.current = null;
       }
@@ -243,8 +243,6 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
         }
 
         const token = await currentUser.getIdToken(true); // Force refresh the token
-        console.log('🔑 Got Firebase token for Plaid link token creation');
-
         const response = await fetch('/api/plaid/create-link-token', {
           method: 'POST',
           headers: {
@@ -269,7 +267,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
             // ignore
           }
 
-          console.error('❌ Failed to create link token:', {
+          console.error('[PlaidLink] Failed to create link token:', {
             status: response.status,
             contentType,
             errorData,
@@ -337,13 +335,9 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
       }
 
       const token = await currentUser.getIdToken(true); // Force refresh the token
-      console.log('🔑 Got Firebase token for Plaid API call');
-
       // Compute the API URL at click-time. Some Plaid callback contexts can
       // resolve relative fetch paths against unexpected origins.
       const exchangeUrl = `${window.location.origin}/api/plaid/exchange-public-token`;
-      console.log('🔄 [Plaid] Exchanging public token at:', exchangeUrl);
-
       const response = await fetch(exchangeUrl, {
         method: 'POST',
         headers: {
@@ -398,18 +392,14 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
         onSuccess();
         return;
       }
-      console.log('Bank account connected successfully:', data);
-      console.log(`📊 [Plaid Success] Imported ${data.imported} transactions`);
       setIsConnected(true);
 
       // Redirect to account classification page
       if (data.accountId) {
-        console.log('🔄 [Plaid Success] Redirecting to account classification for account:', data.accountId);
         router.push(`/protected/account-usage/${data.accountId}?imported=${data.imported}`);
       } else {
         // Fallback: proceed after delay if no account ID
         setTimeout(() => {
-          console.log('✅ Bank connection successful, calling onSuccess callback');
           onSuccess();
         }, 2000);
       }
@@ -439,7 +429,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
       // Check if Plaid script is already in the DOM (indicates potential duplicate loading)
       const existingScript = document.querySelector('script[src*="plaid.com/link/v2/stable/link-initialize.js"]');
       if (existingScript && !plaidScriptLoaded) {
-        console.warn('⚠️ [Plaid] Script may be loaded multiple times. This can happen in development with React Strict Mode.');
+        console.warn('[PlaidLink] Plaid script may already be loaded in development');
         plaidScriptLoaded = true;
       }
     }
@@ -477,7 +467,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
 
   const handleSkip = () => {
     clearPlaidOAuthSession(window.sessionStorage);
-    onSuccess(); // Continue to next step without connecting bank
+    (onSkip ?? onBack)();
   };
 
   if (historyReviewRequired) return (
@@ -713,7 +703,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
                     </p>
                     <button
                       onClick={() => {
-                        debugLog('🔄 [User Action] Skipping analysis, proceeding to review transactions');
+                        debugLog('[PlaidLink] User chose manual transaction review');
                         onSuccess();
                       }}
                       className="px-3 py-1 bg-amber-600 hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-600 text-white font-semibold rounded-md transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 text-xs"
@@ -756,8 +746,8 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="bg-card border-b border-border sticky top-0 z-50 shadow-sm">
+    <div className="min-h-full bg-background">
+      <div className="border-b border-border bg-card shadow-sm">
         <div className="flex items-center justify-between p-4 max-w-4xl mx-auto">
           <button
             onClick={() => { clearPlaidOAuthSession(window.sessionStorage); onBack(); }}
@@ -769,15 +759,19 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
             <div className="h-6 w-20 bg-primary rounded-lg flex items-center justify-center mx-auto mb-1">
               <span className="text-primary-foreground font-medium text-xs">WriteOff</span>
             </div>
-            <h1 className="text-lg font-medium text-foreground">Connect Your <span className="text-primary font-medium">Bank</span></h1>
-            <p className="text-xs text-muted-foreground">Securely link your accounts for <span className="font-medium text-primary">expense tracking</span></p>
+            <h1 className="text-lg font-medium text-foreground">
+              {reconnectSessionId ? 'Continue history review' : updateItemId ? 'Repair bank connection' : 'Connect your bank'}
+            </h1>
+            <p className="text-xs text-muted-foreground">
+              {reconnectSessionId || updateItemId ? 'Restore updates without changing your saved records' : 'Import bank activity into your review queue'}
+            </p>
           </div>
           <div className="w-10"></div>
         </div>
       </div>
 
       <div className="p-4 pb-20 max-w-4xl mx-auto">
-        <div className="mb-6">
+        {isOnboarding && <div className="mb-6">
           <div className="flex items-center justify-center gap-2 mb-3">
             <div className="w-6 h-6 bg-primary rounded-lg flex items-center justify-center text-primary-foreground font-medium text-xs">✓</div>
             <div className="w-12 h-1 bg-primary rounded-full"></div>
@@ -788,7 +782,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
           <p className="text-center text-muted-foreground text-sm">
             <span className="font-medium text-primary">Step 2 of 3:</span> Bank Connection
           </p>
-        </div>
+        </div>}
 
         {error && (
           <div className="mb-6 p-4 bg-destructive/10 border border-destructive/20 rounded-lg">
@@ -808,7 +802,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
               </div>
               <div>
                 <h3 className="text-lg font-medium text-foreground">Connect Your <span className="text-primary font-medium">Bank Account</span></h3>
-                <p className="text-xs text-muted-foreground">Automatically track business expenses and transactions</p>
+                <p className="text-xs text-muted-foreground">Import posted bank activity into your review queue</p>
               </div>
             </div>
 
@@ -817,15 +811,15 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
                 <Shield className="w-4 h-4 text-primary" />
                 <div>
                   <p className="font-medium text-foreground text-xs">Read-only, encrypted connection</p>
-                  <p className="text-xs text-muted-foreground">256-bit encryption</p>
+                  <p className="text-xs text-muted-foreground">Credentials stay with your bank and Plaid</p>
                 </div>
               </div>
 
               <div className="flex items-center gap-2 p-3 bg-muted/30 rounded-lg">
                 <CreditCard className="w-4 h-4 text-primary" />
                 <div>
-                  <p className="font-medium text-foreground text-xs">Auto categorization</p>
-                  <p className="text-xs text-muted-foreground">AI-powered sorting</p>
+                  <p className="font-medium text-foreground text-xs">AI suggestions</p>
+                  <p className="text-xs text-muted-foreground">You review every category</p>
                 </div>
               </div>
 
@@ -838,7 +832,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
               </div>
             </div>
 
-            {!fromSettings && (
+            {isOnboarding && (
               <div className="space-y-3">
                 {/* Free Trial Info */}
                 <div className="p-4 bg-primary/5 dark:bg-primary/10 border border-primary/20 rounded-lg">
@@ -850,7 +844,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
                         <Badge variant="success" className="text-xs">Free</Badge>
                       </div>
                       <p className="text-sm text-muted-foreground mb-2">
-                        Get full access to premium features - completely free for 30 days. No credit card required.
+                        Get full access to premium features for {PRODUCT_ACCESS.trialDays} days. No credit card required.
                       </p>
                       <p className="text-xs text-muted-foreground">
                         After your trial, continue with a paid plan to keep premium access, or use the free tier with limited features.
@@ -889,7 +883,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
                 ) : (
                   <>
                     <Building2 className="w-4 h-4" />
-                    <span>{reconnectSessionId ? 'Connect bank for history review' : updateItemId ? 'Repair bank connection' : fromSettings ? 'Connect Bank Account' : 'Connect Bank Account (Start Free Trial)'}</span>
+                    <span>{reconnectSessionId ? 'Connect bank for history review' : updateItemId ? 'Repair bank connection' : isOnboarding ? 'Connect bank and continue' : 'Connect bank account'}</span>
                   </>
                 )}
               </Button>
@@ -899,7 +893,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
                 variant="outline"
                 className="w-full h-10 border-2 border-border bg-card hover:bg-muted text-foreground rounded-xl transition-all duration-200 text-sm font-medium"
               >
-                {reconnectSessionId ? 'Return to history review' : 'Skip for now (connect later)'}
+                {reconnectSessionId ? 'Return to history review' : updateItemId || fromSettings ? 'Return to bank accounts' : 'Skip for now'}
               </Button>
           </Card>
 

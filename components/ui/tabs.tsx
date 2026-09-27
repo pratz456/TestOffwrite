@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 const TabsContext = React.createContext<{
   value: string;
   onValueChange: (value: string) => void;
+  baseId: string;
 } | null>(null);
 
 function useTabsContext() {
@@ -25,8 +26,9 @@ interface TabsProps {
 }
 
 const Tabs: React.FC<TabsProps> = ({ value, onValueChange, children, className }) => {
+  const baseId = React.useId();
   return (
-    <TabsContext.Provider value={{ value, onValueChange }}>
+    <TabsContext.Provider value={{ value, onValueChange, baseId }}>
       <div className={cn("w-full", className)}>
         {children}
       </div>
@@ -40,8 +42,21 @@ interface TabsListProps {
 }
 
 const TabsList: React.FC<TabsListProps> = ({ children, className }) => {
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]:not(:disabled)'));
+    if (!tabs.length) return;
+    const current = tabs.indexOf(document.activeElement as HTMLButtonElement);
+    const next = event.key === 'Home' ? 0
+      : event.key === 'End' ? tabs.length - 1
+      : event.key === 'ArrowRight' ? (Math.max(current, -1) + 1) % tabs.length
+      : (current <= 0 ? tabs.length : current) - 1;
+    event.preventDefault();
+    tabs[next].focus();
+    tabs[next].click();
+  };
   return (
-    <div className={cn("flex w-full", className)}>
+    <div role="tablist" onKeyDown={handleKeyDown} className={cn("flex w-full", className)}>
       {children}
     </div>
   );
@@ -54,13 +69,15 @@ interface TabsTriggerProps {
 }
 
 const TabsTrigger: React.FC<TabsTriggerProps> = ({ value, children, className, ...props }) => {
-  const { value: activeValue, onValueChange } = useTabsContext();
+  const { value: activeValue, onValueChange, baseId } = useTabsContext();
   const isActive = activeValue === value;
 
   return (
     <button
       type="button"
       role="tab"
+      id={`${baseId}-tab-${value}`}
+      aria-controls={`${baseId}-panel-${value}`}
       aria-selected={isActive}
       data-active={isActive}
       className={cn(
@@ -85,14 +102,19 @@ interface TabsContentProps {
 }
 
 const TabsContent: React.FC<TabsContentProps> = ({ value, children, className }) => {
-  const { value: activeValue } = useTabsContext();
+  const { value: activeValue, baseId } = useTabsContext();
 
   if (activeValue !== value) {
     return null;
   }
 
   return (
-    <div role="tabpanel" className={cn("mt-2", className)}>
+    <div
+      role="tabpanel"
+      id={`${baseId}-panel-${value}`}
+      aria-labelledby={`${baseId}-tab-${value}`}
+      className={cn("mt-2", className)}
+    >
       {children}
     </div>
   );

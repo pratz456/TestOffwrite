@@ -139,6 +139,9 @@ export async function updatePlaidConnection(uid: string, itemId: string,
     if (data?.uid !== uid || data.leaseId !== leaseId || data.status === 'disconnected') throw new Error('Bank connection changed');
     tx.update(ref, { ...patch, ...(patch.reauthenticationRequired === false ? { reauthenticationRequired: FieldValue.delete() } : {}),
       updatedAt: new Date(), leaseExpiresAt: Date.now() + 20 * 60_000 });
+    if (patch.reauthenticationRequired === false && data.status === 'active') {
+      tx.set(adminDb.doc(`user_profiles/${uid}`), { bankConnected: true }, { merge: true });
+    }
   });
 }
 
@@ -148,7 +151,10 @@ export async function markPlaidConnectionLoginRequired(itemId: string): Promise<
   return adminDb.runTransaction(async tx => {
     const data = (await tx.get(ref)).data();
     if (!data || !['active', 'pending_history_review'].includes(data.status) || !isCurrent(data)) return false;
+    const siblings = await tx.get(collection().where('uid', '==', data.uid));
     tx.update(ref, { reauthenticationRequired: true, updatedAt: new Date() });
+    tx.set(adminDb.doc(`user_profiles/${data.uid}`), { bankConnected: siblings.docs.some(doc =>
+      doc.id !== itemId && doc.data().status === 'active' && isCurrent(doc.data()) && doc.data().reauthenticationRequired !== true) }, { merge: true });
     return true;
   });
 }
@@ -162,6 +168,7 @@ export async function removePlaidConnection(uid: string, itemId: string, leaseId
     const review = reviewRef ? await tx.get(reviewRef) : null;
     if (review?.exists && review.data()?.uid === uid && review.data()?.itemId === itemId) tx.update(reviewRef!, { phase: 'cancelled' });
     tx.update(ref, { status: 'disconnected', encryptedAccessToken: FieldValue.delete(), cursor: FieldValue.delete(), updatedAt: new Date() });
-    tx.set(adminDb.doc(`user_profiles/${uid}`), { bankConnected: others.docs.some(doc => doc.id !== itemId && doc.data().status === 'active' && isCurrent(doc.data())) }, { merge: true });
+    tx.set(adminDb.doc(`user_profiles/${uid}`), { bankConnected: others.docs.some(doc =>
+      doc.id !== itemId && doc.data().status === 'active' && isCurrent(doc.data()) && doc.data().reauthenticationRequired !== true) }, { merge: true });
   });
 }

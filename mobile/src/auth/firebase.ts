@@ -5,6 +5,7 @@ import { getAuth, initializeAuth, signInWithEmailAndPassword, signOut, type Auth
 // @ts-ignore -- resolved by Metro through firebase/auth's react-native export map.
 import { getReactNativePersistence } from 'firebase/auth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { API_BASE_URL } from '../config';
 
 /**
  * Public Firebase web configuration. These identify the project; they are not secrets.
@@ -44,7 +45,23 @@ export async function signInWithEmail(email: string, password: string): Promise<
 }
 
 export async function signOutMobile(): Promise<void> {
-  await signOut(mobileAuth());
+  const auth = mobileAuth();
+  const user = auth.currentUser;
+  let revocationError: Error | null = null;
+  if (user) {
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch(`${API_BASE_URL}/api/auth/logout`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) revocationError = new Error('Server sign-out could not be confirmed. Please retry.');
+    } catch {
+      revocationError = new Error('Server sign-out could not be confirmed. Please retry.');
+    }
+  }
+  await signOut(auth);
+  if (revocationError) throw revocationError;
 }
 
 export async function currentIdToken(): Promise<string> {

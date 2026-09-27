@@ -1,35 +1,13 @@
 "use client";
 
-import dynamic from 'next/dynamic';
+import { useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useAuth } from '@/lib/firebase/auth-context';
-
-const PlaidLinkScreen = dynamic(() => import('@/components/plaid-link-screen').then(mod => mod.PlaidLinkScreen), { ssr: false });
+import { protectedScreenUrl } from '@/lib/navigation/protected-screens';
 
 export default function PlaidLinkPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user } = useAuth();
-  const fromSettings = searchParams.get('from') === 'settings';
-
-  if (!user) {
-    return (
-      <div className="p-6 bg-gray-50 min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">Please sign in</h1>
-          <p className="text-gray-600">You need to be signed in to connect your bank account.</p>
-        </div>
-      </div>
-    );
-  }
-
-  const handleBack = () => {
-    router.back();
-  };
-
-  const handleSuccess = () => {
-    router.push('/protected/plaid');
-  };
-
-  return <PlaidLinkScreen user={user} onSuccess={handleSuccess} onBack={handleBack} fromSettings={fromSettings} />;
+  const destination = protectedScreenUrl(`plaid-link?${searchParams.toString()}`);
+  useEffect(() => { router.replace(destination); }, [destination, router]);
+  return <p role="status" className="p-6 text-center text-sm text-muted-foreground">Opening secure bank connection…</p>;
 }

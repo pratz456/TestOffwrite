@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { ArrowLeft, User, Mail, Phone, MapPin, Briefcase, DollarSign } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/simple-select';
+import { INCOME_RANGES } from '@/lib/profile/income-ranges';
 
 interface SignInScreenProps {
   user: any;
@@ -17,11 +18,6 @@ const professions = [
   'Software Developer', 'Freelance Writer', 'Graphic Designer', 'Consultant', 'Marketing Specialist',
   'Real Estate Agent', 'Photographer', 'Web Designer', 'Content Creator', 'Business Coach',
   'Virtual Assistant', 'Social Media Manager', 'Online Tutor', 'E-commerce Store Owner', 'Other'
-];
-
-const incomeRanges = [
-  'Under $25,000', '$25,000 - $50,000', '$50,000 - $75,000', '$75,000 - $100,000',
-  '$100,000 - $150,000', '$150,000 - $200,000', '$200,000 - $300,000', 'Over $300,000'
 ];
 
 const usStates = [
@@ -211,7 +207,7 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ user, onBack, onSave
                   <SelectValue placeholder="Select income range" />
                 </SelectTrigger>
                 <SelectContent>
-                  {incomeRanges.map((range) => (
+                  {INCOME_RANGES.map((range) => (
                     <SelectItem key={range} value={range}>
                       {range}
                     </SelectItem>

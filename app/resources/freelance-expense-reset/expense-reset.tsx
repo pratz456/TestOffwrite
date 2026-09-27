@@ -25,7 +25,7 @@ export default function ExpenseReset() {
       <section className={styles.intro}>
         <div className={styles.eyebrow}>Less searching. Fewer loose ends.</div>
         <h1>The freelance<br />expense reset.</h1>
-        <p className={styles.lead}>Start with one month. Put the records together while you still remember the work—then take clear questions to your accountant.</p>
+        <p className={styles.lead}>Start with one month. Put the records together while you still remember the work, then take clear questions to your accountant.</p>
       </section>
       <div className={styles.progress} aria-live="polite">
         <progress value={complete} max={steps.length} aria-label="Checklist progress" />
@@ -46,7 +46,7 @@ export default function ExpenseReset() {
         <h2>“$86 at a store” leaves a lot unanswered.</h2>
         <p>The itemized receipt shows $60 of client-shoot props and $26 of personal groceries. Keep the receipt, add the project name, and flag the personal portion. This example organizes the facts; it does not determine a deduction.</p>
       </section>
-      <p className={styles.details}>Also have a salaried job? Keep that paperwork distinct from your freelance records. Having a receipt—or a work-related purchase—does not by itself establish deductibility.</p>
+      <p className={styles.details}>Also have a salaried job? Keep that paperwork distinct from your freelance records. A receipt or work-related purchase does not by itself establish deductibility.</p>
       <section className={styles.cta}>
         <div><h2>Make the next tax season less of a scramble.</h2><p>Explore WriteOff or talk with Pratham about where your expense records get stuck.</p></div>
         <div className={styles.actions}>

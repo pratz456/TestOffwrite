@@ -97,10 +97,7 @@ interface KnownGap { anonymous?: number[]; mutating?: number[]; throws?: true; l
 const KNOWN_GAPS: Record<string, KnownGap> = {};
 
 /** Findings in files owned by another branch: reported in docs/API_SECURITY_AUDIT_2026-09-17.md, not asserted here. */
-const REPORTED_OUT_OF_SCOPE: Record<string, string> = {
-  'GET /api/monthly-deductions': 'details field echoes the database error (app/api/monthly-deductions is edited on another branch).',
-  'GET /api/tax-savings': 'error field echoes the exception message (app/api/tax-savings is edited on another branch).',
-};
+const REPORTED_OUT_OF_SCOPE: Record<string, string> = {};
 
 /** Operations that cannot be exercised in-process. Every entry is an audit finding. */
 const SKIPPED: Record<string, string> = {};

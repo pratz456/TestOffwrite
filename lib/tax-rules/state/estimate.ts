@@ -99,6 +99,28 @@ export function estimateStateTax(input: StateTaxEstimateInput): StateTaxEstimate
       sources: rules.sources.map(source => source.url),
     };
   }
+  const unsupportedAmount = [
+    input.federalAGI,
+    input.scheduleCNetProfit,
+    input.w2Wages,
+    input.otherIncome,
+    input.hsaContribution,
+    input.taxableSocialSecurityBenefits,
+    input.dependents,
+  ].some(value => value !== undefined && (typeof value !== 'number' || !Number.isFinite(value)));
+  if (unsupportedAmount || (input.federalAGI ?? 0) < 0 || (input.scheduleCNetProfit ?? 0) < 0
+      || [input.w2Wages, input.otherIncome, input.hsaContribution, input.taxableSocialSecurityBenefits, input.dependents]
+        .some(value => typeof value === 'number' && value < 0)) {
+    return {
+      supported: false,
+      label: STATE_PLANNING_ESTIMATE_LABEL,
+      stateCode: rules.stateCode,
+      stateName: name,
+      taxYear: input.taxYear,
+      reason: 'This state calculator does not model negative AGI, business losses, negative income fields or nonfinite amounts. Review the state return with a qualified preparer.',
+      sources: rules.sources.map(source => source.url),
+    };
+  }
 
   const facts: Facts = {
     filingStatus: input.filingStatus,
@@ -113,9 +135,6 @@ export function estimateStateTax(input: StateTaxEstimateInput): StateTaxEstimate
   };
   const computation = compute(rules, facts);
   const warnings = [...rules.unmodeled, ...computation.warnings];
-  if (typeof input.scheduleCNetProfit === 'number' && input.scheduleCNetProfit < 0) {
-    warnings.push('A Schedule C loss is treated as zero business income in this state estimate; state loss rules differ from federal and require review.');
-  }
   const estimate = round2(Math.max(0,
     computation.taxBeforeCredits - sum(computation.credits) + sum(computation.additionalTaxes),
   ));

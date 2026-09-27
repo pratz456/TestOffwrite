@@ -163,7 +163,7 @@ export const MobileNav: React.FC<MobileNavProps> = ({ user, userProfile }) => {
                 <img src="/writeofflogo.png" alt="WriteOff" className="w-7 h-7 rounded-lg" />
                 <div>
                   <h1 className="text-base font-bold text-foreground">WriteOff</h1>
-                  <p className="text-xs text-muted-foreground">Effortless Tax</p>
+                  <p className="text-xs text-muted-foreground">Records and tax planning</p>
                 </div>
               </div>
               <button

@@ -1,8 +1,9 @@
 import { ImageResponse } from "next/og";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { PREMIUM_MONTHLY_PRICE, PREMIUM_YEARLY_PRICE, PRODUCT_ACCESS } from "@/lib/subscriptions/product-config";
 
-export const alt = "WriteOff - AI Tax Deduction Tracker for Freelancers";
+export const alt = "WriteOff - Expense and Receipt Tracking for Freelancers";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 export const dynamic = "force-dynamic";
@@ -303,13 +304,13 @@ export default async function Image() {
                   fontWeight: 700,
                 }}
               >
-                Start your <span style={{ color: "#34D399" }}>30-day free trial</span>
+                Start your <span style={{ color: "#34D399" }}>{PRODUCT_ACCESS.trialDays}-day free trial</span>
                 <span style={{ color: "rgba(255,255,255,0.70)", fontWeight: 600 }}>
                   - no card
                 </span>
               </div>
               <div style={{ fontSize: 14, color: "rgba(255,255,255,0.58)" }}>
-                Then $14.99/mo or $149.99/yr • Cancel anytime
+                Then ${PREMIUM_MONTHLY_PRICE}/mo or ${PREMIUM_YEARLY_PRICE}/yr • Cancel anytime
               </div>
             </div>
 

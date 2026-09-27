@@ -117,15 +117,15 @@ All routes under `app/protected/` use `ProtectedLayoutClient`, which:
 
 | Route | Auth | Bank typical | Key components | Data | States |
 |-------|------|--------------|----------------|------|--------|
-| `/protected` | Yes | Optional | `DashboardScreen`, `ReviewTransactionsScreen`, `SettingsScreen`, etc. (screen state + query `screen`) | `useTransactions(uid)`, `getUserProfile`, sync on visit if bank connected | Loading, profile setup, dashboard, empty transactions |
-| `/protected/plaid` | Yes | No | `PlaidScreen` | User profile (Plaid token), accounts from Firestore | Empty (connect CTA), list of connected accounts |
-| `/protected/plaid-link` | Yes | No | `PlaidLinkScreen` | Link token from `/api/plaid/create-link-token` | Loading token, Plaid Link, success → redirect account-usage |
+| `/protected` | Yes | Optional | `DashboardScreen`, `ReviewTransactionsScreen`, `BanksDetailScreen`, `SettingsScreen`, etc. (screen state + query `screen`) | `useTransactions(uid)`, `getUserProfile`, server bank summaries; sync on visit if an active bank exists | Loading, profile setup, dashboard, empty transactions |
+| `/protected/plaid` | Yes | No | Redirects to canonical `?screen=banks-detail` hub | None | Redirect |
+| `/protected/plaid-link` | Yes | No | Redirects to canonical `?screen=plaid-link`; `PlaidLinkScreen` renders there | Link token from `/api/plaid/create-link-token` | Loading token, Plaid Link, success → account usage or bank hub |
 | `/protected/account-usage/[accountId]` | Yes | Yes (just connected) | Account usage form | Account id from URL, `?imported=` from query | Form (business/personal/mixed), save → auto-analyze or redirect |
 | `/protected/transactions` | Yes | Optional | Transactions list page | Transactions (API or hook) | Loading, list, empty |
 | `/protected/settings` | Yes | No | `SettingsScreen` | User profile | Loading, form, error |
 | `/protected/subscriptions` | Yes | No | Subscriptions / Stripe | Profile, Stripe APIs | Loading, plan selection, portal |
 | `/protected/reports` | Yes | Optional | Reports page | Transactions, report config | Loading, PDF/export, paywall |
-| `/protected/schedule-c` | Yes | Optional | Schedule C | Transactions, tax data | Loading, form, export |
+| `/protected/schedule-c` | Yes | Optional | Redirects to canonical `?screen=schedule-c-export` | None | Redirect |
 | `/protected/scheduleSE`, `form8829`, `form4562`, `tax-forms-setup` | Yes | Optional | Tax forms | Profile, transactions | Loading, form |
 | `/protected/profile-setup` | Yes | No | Profile setup | Profile API | Loading, steps, submit |
 | `/protected/about`, `help`, `privacy` | Yes | No | Static-style content | None | Static |

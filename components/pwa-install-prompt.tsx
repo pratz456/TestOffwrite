@@ -70,7 +70,7 @@ export function PwaInstallPrompt() {
         <button
           type="button"
           onClick={handleDismiss}
-          className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+          className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
           aria-label="Dismiss"
         >
           <X className="h-4 w-4" />

@@ -19,13 +19,14 @@ import { canConfirmAiSuggestion } from '@/lib/transactions/ai-review-contract';
 import { transactionNeedsCategoryReview, transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 import { aggregateScheduleC } from '@/lib/schedule-c/aggregate';
 import { reconcileBusinessIncome } from '@/lib/tax-rules/business-income';
+import { TRANSACTION_TAX_POLICY_VERSION } from '@/lib/ai/transaction-tax-policy';
 
 const account = 'user_profiles/owner/accounts/bank';
 const path = `${account}/transactions/tx`;
 const result = { status: 'ok' as const, transaction_kind: 'expense' as const, category: 'supplies_small_tools' as const,
   is_deductible: true, expense_type: 'business' as const, deductible_percent: 100, confidence: .92,
   customized_reason: 'Supplies used only to complete the saved client project.', irs_refs: ['26 USC 162'],
-  tax_year: 2026, policy_version: 'test-policy', sources: [{ id: '162', title: 'Trade or business expenses', url: 'https://www.irs.gov/businesses/small-businesses-self-employed/deducting-business-expenses', edition: 'current', reviewed_at: '2026-09-16' }] };
+  tax_year: 2026, policy_version: TRANSACTION_TAX_POLICY_VERSION, sources: [{ id: '162', title: 'Trade or business expenses', url: 'https://www.irs.gov/businesses/small-businesses-self-employed/deducting-business-expenses', edition: 'current', reviewed_at: '2026-09-16' }] };
 
 function record() { return mocks.docs.get(path)!; }
 function change(values: Record<string, any>) { mocks.docs.set(path, { ...record(), ...values }); }
@@ -79,7 +80,7 @@ describe('saved AI categorization confirmation', () => {
     const { transaction } = await response.json();
     expect(transaction).toMatchObject({ category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', is_deductible: true,
       transaction_kind: 'expense', review_status: 'confirmed', review_source: 'ai_confirmed', tax_review_required: false });
-    expect(transaction.ai_suggestion).toMatchObject({ taxYear: 2026, policyVersion: 'test-policy', sources: result.sources });
+    expect(transaction.ai_suggestion).toMatchObject({ taxYear: 2026, policyVersion: TRANSACTION_TAX_POLICY_VERSION, sources: result.sources });
     expect(transaction).not.toHaveProperty('analysisLeaseToken');
     expect(aggregateScheduleC([transaction], '2026', undefined, { mode: 'confirmed-only' }).totalDeductible).toBe(100);
   });
@@ -92,6 +93,31 @@ describe('saved AI categorization confirmation', () => {
   it('rejects stale analysis ids and edits made after analysis', async () => {
     expect((await send({ ...confirm(), suggestionId: 'stale' })).status).toBe(409);
     change({ notes: 'Actually partly personal' }); expect((await send(confirm())).status).toBe(409);
+    expect(record().is_deductible).toBeNull();
+  });
+  it('upgrades a matching legacy manual choice into a server-stamped review', async () => {
+    change({ is_deductible: true, expense_type: 'business', review_status: undefined });
+    const response = await send(confirm());
+    expect(response.status).toBe(200);
+    expect(record()).toMatchObject({
+      is_deductible: true,
+      review_status: 'confirmed',
+      review_source: 'ai_confirmed',
+      tax_review_required: false,
+    });
+  });
+  it('does not overwrite a conflicting legacy manual choice', async () => {
+    change({ is_deductible: false, expense_type: 'personal', review_status: undefined });
+    const response = await send(confirm());
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: 'CLASSIFICATION_EXISTS' });
+    expect(record().is_deductible).toBe(false);
+  });
+  it('requires reanalysis when the server tax policy changed after the suggestion', async () => {
+    change({ ai_suggestion: { ...record().ai_suggestion, policyVersion: 'federal-transactions-old' } });
+    const response = await send(confirm());
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: 'AI_POLICY_CHANGED' });
     expect(record().is_deductible).toBeNull();
   });
   it.each([{ business_entity_type: 's_corporation' }, { profession: 'Employee' }, { state: 'NY' }])('rejects a tax-profile change after the suggestion %j', async changed => {

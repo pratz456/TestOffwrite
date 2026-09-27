@@ -21,7 +21,7 @@ import { useSubscription } from '@/lib/hooks/use-subscription';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { APP_NAVIGATION_EVENT } from '@/lib/navigation/navigation-guard';
 import { useBeforeUnload } from '@/lib/hooks/use-before-unload';
-import { CreditCard, Calendar, Sparkles, ExternalLink, XCircle, AlertTriangle, Home, Car, Receipt, Info, Building2, Landmark, Download, Trash2, Link2, ChevronDown, X } from 'lucide-react';
+import { CreditCard, Calendar, Sparkles, ExternalLink, XCircle, AlertTriangle, Home, Car, Receipt, Info, Building2, Landmark, Download, Trash2, ChevronDown, X } from 'lucide-react';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import { TrialCountdown } from '@/components/trial-countdown';
 import { DocumentImageConsentSettings } from '@/components/document-image-consent-settings';
@@ -32,6 +32,8 @@ import { canUseSubscriptionFeature } from '@/lib/subscriptions/client-status';
 import { homeOfficeReviewReasons, SIMPLIFIED_MAX_SQFT, SIMPLIFIED_RATE_PER_SQFT, type HomeOfficeSettings } from '@/lib/reports/calc8829';
 import { DE_MINIMIS_SAFE_HARBOR_LIMIT } from '@/lib/reports/calc4562';
 import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
+import { incomeRangeOptions } from '@/lib/profile/income-ranges';
+import { PRODUCT_ACCESS } from '@/lib/subscriptions/product-config';
 
 // Payment Settings Tab Component
 export const PaymentSettingsTab: React.FC<{ beforeNavigate: (action: () => void) => void }> = ({ beforeNavigate }) => {
@@ -108,7 +110,7 @@ export const PaymentSettingsTab: React.FC<{ beforeNavigate: (action: () => void)
     setConfirmDialog({
       open: true,
       title: 'Cancel Subscription',
-      description: 'Are you sure you want to cancel your subscription? You will lose access to up to 24 months of historical transactions (depending on your bank) after the current period ends.',
+      description: `Are you sure you want to cancel your subscription? You will lose access to ${PRODUCT_ACCESS.extendedHistoryLabel} after the current period ends.`,
       confirmLabel: 'Cancel Subscription',
       variant: 'destructive',
       onConfirm: doCancelSubscription,
@@ -262,7 +264,7 @@ export const PaymentSettingsTab: React.FC<{ beforeNavigate: (action: () => void)
         ) : planError ? null : (
           <div className="p-4 bg-muted/30 border border-border rounded-lg space-y-4">
             <p className="text-sm text-muted-foreground">
-              {planError ? 'Your plan status is currently unavailable.' : "You don't have an active subscription."} Upgrade to access up to 24 months (depending on your bank).
+              {planError ? 'Your plan status is currently unavailable.' : "You don't have an active subscription."} Upgrade to access {PRODUCT_ACCESS.extendedHistoryLabel}.
             </p>
             <div className="flex flex-wrap gap-3">
               <Button
@@ -811,15 +813,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     { value: 'Other', label: 'Other' }
   ];
 
-  const incomeOptions = [
-    { value: 'Under $11,600', label: 'Under $11,600' },
-    { value: '$11,600 - $47,150', label: '$11,600 - $47,150' },
-    { value: '$47,150 - $100,525', label: '$47,150 - $100,525' },
-    { value: '$100,525 - $191,950', label: '$100,525 - $191,950' },
-    { value: '$191,950 - $243,725', label: '$191,950 - $243,725' },
-    { value: '$243,725 - $609,350', label: '$243,725 - $609,350' },
-    { value: 'Over $609,350', label: 'Over $609,350' }
-  ];
+  const incomeOptions = incomeRangeOptions(profile.income);
 
   const stateOptions = [
     { value: 'Alabama', label: 'Alabama' },
@@ -1294,7 +1288,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     options={stateOptions}
                   />
                 </SettingsField>
-                <SettingsField label="Annual Income Range">
+              <SettingsField label="Approximate Annual Income" hint="Onboarding context only; tax estimates use reviewed income records.">
                   <SimpleSelectWrapper
                     value={profile.income}
                     onValueChange={(value) => handleProfileChange({ income: value })}
@@ -1640,31 +1634,18 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 </div>
                 <h3 className="text-sm font-semibold text-foreground">Bank Connections</h3>
               </div>
-              <div className="grid grid-cols-1 min-[360px]:grid-cols-2 gap-3">
-                <Button
-                  type="button"
-                  onClick={() => beforeNavigate(() => {
-                    if (inAppNavigation) {
-                      onNavigate('plaid-link?from=settings');
-                    } else {
-                      router.push('/protected/plaid-link?from=settings');
-                    }
-                  })}
-                  className="h-11 bg-primary hover:bg-primary/90 text-white rounded-lg flex items-center justify-center gap-2"
-                >
-                  <Link2 className="w-4 h-4" />
-                  <span className="text-sm">Connect Bank</span>
-                </Button>
-                <Button
-                  type="button"
-                  onClick={() => beforeNavigate(() => onNavigate('plaid'))}
-                  variant="outline"
-                  className="h-11 text-base rounded-lg flex items-center justify-center gap-2"
-                >
-                  <DollarSign className="w-4 h-4" />
-                  <span className="text-sm">Accounts</span>
-                </Button>
-              </div>
+              <p className="text-xs leading-5 text-muted-foreground">View connection status, add or repair a bank, sync activity, review history, or disconnect in one place.</p>
+              <Button
+                type="button"
+                onClick={() => beforeNavigate(() => {
+                  if (inAppNavigation) onNavigate('banks-detail');
+                  else router.push('/protected?screen=banks-detail');
+                })}
+                className="h-11 w-full rounded-lg bg-primary text-white hover:bg-primary/90"
+              >
+                <Landmark className="w-4 h-4" />
+                <span className="text-sm">Manage bank accounts</span>
+              </Button>
             </section>
 
             {/* Subscription */}
@@ -1773,7 +1754,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 >
                   <a href="https://my.plaid.com/" target="_blank" rel="noopener noreferrer">
                     <Shield className="w-4 h-4" />
-                    Revoke Plaid Access
+                    Open Plaid privacy portal
                     <ExternalLink className="w-3.5 h-3.5 ml-1" />
                   </a>
                 </Button>

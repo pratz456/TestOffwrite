@@ -25,7 +25,7 @@ export function calcScheduleCNetProfit(
   homeOfficeDeduction = 0,
 ): number {
   // Line 7 (gross income) - Line 28 (total expenses) - Line 30 (home office) = Line 31
-  return Math.max(0, grossReceipts - totalConfirmedExpenses - homeOfficeDeduction);
+  return grossReceipts - totalConfirmedExpenses - homeOfficeDeduction;
 }
 
 // ── Combined Self-Employment Tax Rate ─────────────────────────────────────────
@@ -223,6 +223,6 @@ export function calcProjectedAnnual(
   const reliable = monthsOfData >= 3;
   const caveat = reliable
     ? `Based on ${monthsOfData} months of data`
-    : `Only ${monthsOfData} month${monthsOfData === 1 ? '' : 's'} of data — estimate may be inaccurate`;
+    : `Only ${monthsOfData} month${monthsOfData === 1 ? '' : 's'} of data. The estimate may be incomplete.`;
   return { projected: Math.round(projected), reliable, caveat };
 }

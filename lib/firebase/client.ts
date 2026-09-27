@@ -30,15 +30,38 @@ if (process.env.NEXT_PUBLIC_APP_ENV === 'staging' && (
   throw new Error('Staging Firebase configuration is incomplete or points outside the testing project.');
 }
 
-const firebaseConfig = localEmulatorConfig ? LOCAL_FIREBASE_OPTIONS : {
-  apiKey:            process.env.NEXT_PUBLIC_FIREBASE_API_KEY            || "AIzaSyCVvpY-M571W0I3Faz-i8mAyofLobqm5ZE",
-  authDomain:        process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN        || "writeoff-23910.firebaseapp.com",
-  projectId:         process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID         || "writeoff-23910",
-  storageBucket:     process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET     || "writeoff-23910.firebasestorage.app",
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "930596534802",
-  appId:             process.env.NEXT_PUBLIC_FIREBASE_APP_ID             || "1:930596534802:web:e4c7c12ead77a9d92336cb",
-  measurementId:     process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID     || "G-LE26KP7E9N",
+const configuredFirebase = {
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+  measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
 };
+const missingFirebaseClientConfig = !localEmulatorConfig && [
+  configuredFirebase.apiKey,
+  configuredFirebase.authDomain,
+  configuredFirebase.projectId,
+  configuredFirebase.storageBucket,
+  configuredFirebase.messagingSenderId,
+  configuredFirebase.appId,
+].some(value => !value);
+if (missingFirebaseClientConfig && process.env.NODE_ENV !== 'test' && typeof window !== 'undefined') {
+  throw new Error('Firebase client configuration is incomplete. Refusing to fall back to a production project.');
+}
+// Unit tests receive a non-routable, non-production project. Staging and production never do.
+const unitTestFirebaseConfig = {
+  apiKey: 'unit-test-not-live',
+  authDomain: 'writeoff-unit-test.invalid',
+  projectId: 'writeoff-unit-test',
+  storageBucket: 'writeoff-unit-test.invalid',
+  messagingSenderId: '0',
+  appId: '1:0:web:unit-test',
+};
+const firebaseConfig = localEmulatorConfig
+  ? LOCAL_FIREBASE_OPTIONS
+  : missingFirebaseClientConfig && process.env.NODE_ENV === 'test' ? unitTestFirebaseConfig : configuredFirebase;
 
 export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 assertLocalEmulatorApp(app.options, localEmulatorConfig);

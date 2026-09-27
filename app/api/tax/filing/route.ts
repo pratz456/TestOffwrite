@@ -8,12 +8,13 @@ import { getAuthenticatedUser, type AuthenticatedUser } from '@/lib/firebase/api
 import { requireFeatureAccess } from '@/lib/subscriptions/feature-access';
 import { filingSandboxConfig, isFilingSandboxIdentity } from '@/lib/tax-filing/config';
 import { initializeColumnFiling, getColumnTaxReturn, validateColumnMetadata } from '@/lib/tax-filing/column-client';
+import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
 const headers = { 'Cache-Control': 'private, no-store' };
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers });
 const identifier = (uid: string) => createHash('sha256').update(`writeoff-production-testing:column:sandbox:${uid}`).digest('hex');
 function yearValue(value: unknown): number | null {
   const raw = String(value ?? '');
-  return /^20\d{2}$/.test(raw) && [2024, 2025, 2026].includes(Number(raw)) ? Number(raw) : null;
+  return /^20\d{2}$/.test(raw) && SUPPORTED_TAX_YEARS.some(year => year === Number(raw)) ? Number(raw) : null;
 }
 async function metadataFor(user: AuthenticatedUser) {
   if (!Number.isSafeInteger(user.authTime)) return null;

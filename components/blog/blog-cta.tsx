@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { Button } from "@/components/ui/button";
 import { Sparkles } from "lucide-react";
+import { PRODUCT_ACCESS } from "@/lib/subscriptions/product-config";
 
 export function BlogCTA({ variant = "inline" }: { variant?: "inline" | "full" }) {
   const { user, loading } = useAuth();
@@ -20,7 +21,7 @@ export function BlogCTA({ variant = "inline" }: { variant?: "inline" | "full" })
               Keep your expense records together.
             </p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Enter expenses, upload receipts, and review the details in WriteOff. Try free for 30 days, with no bank connection required.
+              Enter expenses, upload receipts, and review the details in WriteOff. Try free for {PRODUCT_ACCESS.trialDays} days, with no bank connection required.
             </p>
           </div>
           <Link href={href}>
@@ -52,7 +53,7 @@ export function BlogCTA({ variant = "inline" }: { variant?: "inline" | "full" })
         Ready to organize your business expenses?
       </h3>
       <p className="mx-auto mt-3 max-w-lg text-muted-foreground">
-        Save expenses and receipts as you go. Review their business purpose and prepare records for your accountant. In-app filing and AI analysis are not available in this preview.
+        Save expenses and receipts as you go. Review AI suggestions and business-purpose details, then prepare records for your accountant. In-app filing is not available.
       </p>
       <div className="mt-6 flex flex-col items-center gap-3">
         <Link href={href}>
@@ -71,7 +72,7 @@ export function BlogCTA({ variant = "inline" }: { variant?: "inline" | "full" })
           </Button>
         </Link>
         <p className="text-xs text-muted-foreground">
-          30-day free trial &middot; No credit card required &middot; Cancel anytime
+          {PRODUCT_ACCESS.trialDays}-day free trial &middot; No credit card required &middot; Cancel anytime
         </p>
       </div>
     </section>

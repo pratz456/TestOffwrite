@@ -208,7 +208,7 @@ describe('compact organizer sections', () => {
 
   it('collects short-term and long-term capital gains separately and keeps the legacy total consistent', async () => {
     sectionSelect(await load()).props.onChange({ target: { value: '1' } });
-    choose(render(), 'Capital gains or losses — stocks, crypto, or property sold (1099-B)', 'yes');
+    choose(render(), 'Capital gains or losses from stocks, crypto, or property sold (1099-B)', 'yes');
     const input = (tree: Element, id: string) => walk(tree).find(node => node.props.id === id)!;
     input(render(), 'organizer-short-term-gains').props.onChange({ target: { value: '-5000' } });
     let tree = render();
