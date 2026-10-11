@@ -279,7 +279,7 @@ export function generateActionItems(
       id: 'add-1099-forms',
       title: 'Add your 1099 income forms',
       description:
-        'Track your 1099-NEC, 1099-K, and other income forms so your tax return has complete income reporting.',
+        'Add 1099-NEC, 1099-K, and other income forms, then reconcile them with deposits and direct income records.',
       priority: 'medium',
       category: 'filing',
       screen: 'income-tracking',
@@ -292,7 +292,7 @@ export function generateActionItems(
       id: 'track-quarterly-payments',
       title: 'Track your quarterly tax payments',
       description:
-        'Record any estimated tax payments you\'ve made to avoid underpayment penalties.',
+        'Record payment dates and amounts. WriteOff does not determine whether a payment prevents a penalty.',
       priority: 'medium',
       category: 'filing',
       screen: 'quarterly-payments',

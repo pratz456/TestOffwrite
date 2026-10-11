@@ -110,12 +110,11 @@ export default function SubscriptionsPage() {
           </h2>
           <div className="grid sm:grid-cols-2 gap-3 sm:gap-4 max-w-2xl mx-auto">
             {[
-              'Export Schedule C reports as PDF',
-              'Export transaction data as CSV',
+              'Schedule C summary PDF exports',
+              'Transaction CSV exports',
+              'Audit-support record summaries',
               `Access ${PRODUCT_ACCESS.extendedHistoryLabel}`,
-              'Automatic transaction syncing',
-              'Priority support',
-              'Cancel anytime, no questions asked',
+              'Cancel renewal from Billing',
             ].map((item, index) => (
               <div key={index} className="flex items-center gap-3 p-3 rounded-lg bg-card border border-border">
                 <div className="w-5 h-5 rounded-full bg-green-500/20 flex items-center justify-center flex-shrink-0">
@@ -130,7 +129,7 @@ export default function SubscriptionsPage() {
         {/* Trust Badge */}
         <div className="text-center">
           <p className="text-sm text-muted-foreground">
-            Secure payment powered by Stripe. Your payment information is never stored on our servers.
+            Checkout is hosted by Stripe. WriteOff stores billing customer, subscription, and status identifiers, but does not receive your full card number.
           </p>
         </div>
       </div>

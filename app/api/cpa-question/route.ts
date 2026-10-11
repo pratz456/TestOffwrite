@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
     // Send email notification to WriteOff team
     try {
       const emailBody = [
-        `New CPA Question (ID: ${docRef.id})`,
+        `New tax-record question (ID: ${docRef.id})`,
         ``,
         `From: Unknown (${user.email || userId})`,
         `Date: ${new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })}`,
@@ -92,7 +92,7 @@ export async function POST(request: NextRequest) {
           body: JSON.stringify({
             from: 'WriteOff Notifications <notifications@writeoffapp.com>',
             to: ['writeoffapp@gmail.com'],
-            subject: `CPA Question: ${merchantName} ($${amountValue.toFixed(2)}) - ${user.email || 'User'}`,
+            subject: `Tax-record question: ${merchantName} ($${amountValue.toFixed(2)}) - ${user.email || 'User'}`,
             text: emailBody,
           }),
         });
@@ -100,7 +100,7 @@ export async function POST(request: NextRequest) {
         if (!resendRes.ok) console.error(`Failed to send CPA email notification for ${docRef.id}: HTTP ${resendRes.status}`);
       } else {
         // The question, the asker's email and the amounts stay in Firestore, not in logs.
-        console.warn(`[CPA Question] RESEND_API_KEY not set; question ${docRef.id} awaits manual review in Firestore`);
+        console.warn(`[Tax-record question] RESEND_API_KEY not set; question ${docRef.id} awaits manual support review in Firestore`);
       }
     } catch {
       // Don't fail the request if email fails

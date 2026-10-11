@@ -409,7 +409,7 @@ export class NotificationEngine {
             title: 'Mileage log update',
             message: `You've confirmed $${totalDeductions.toFixed(0)} in business expenses this month. At your planning rate of ${Math.round(rate * 100)}%, that is roughly $${(totalDeductions * rate).toFixed(0)} in potential federal tax impact, subject to your full-year review.`,
             priority: 'low',
-            actionUrl: '/protected?screen=ai-insights',
+            actionUrl: '/protected?screen=tax-assistant',
             actionText: 'View Insights',
             data: { totalDeductions }
           });

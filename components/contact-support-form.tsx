@@ -88,7 +88,7 @@ export function ContactSupportForm() {
             <CheckCircle className="w-16 h-16 text-green-600 dark:text-green-500 mx-auto" />
             <h3 className="text-xl font-semibold text-foreground">Thank you!</h3>
             <p className="text-muted-foreground">
-              Your support request has been submitted. We&apos;ll get back to you within 24 hours on business days.
+              Your support request has been submitted. Response times vary with request volume.
             </p>
             <Button onClick={handleReset} variant="outline" className="border-border text-foreground hover:bg-muted">
               Submit another request
@@ -184,7 +184,7 @@ export function ContactSupportForm() {
 
           <div className="flex items-center justify-between pt-4">
             <p className="text-sm text-foreground/90">
-              We typically respond within 24 hours during business days.
+              Response times vary with request volume. Do not send passwords, full taxpayer identifiers, or bank credentials.
             </p>
             <Button
               type="submit"
@@ -218,7 +218,7 @@ export function ContactSupportForm() {
             </div>
             <div>
               <h4 className="font-medium text-foreground mb-1">Response Time</h4>
-              <p className="text-sm text-foreground/90">Within 24 hours</p>
+              <p className="text-sm text-foreground/90">Response time varies</p>
             </div>
             <div>
               <h4 className="font-medium text-foreground mb-1">Business Hours</h4>

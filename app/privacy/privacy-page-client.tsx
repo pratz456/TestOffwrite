@@ -37,7 +37,7 @@ export default function PrivacyPolicyPageClient() {
               Privacy Policy
             </CardTitle>
             <CardDescription className="text-sm text-muted-foreground mb-8 font-tabular-nums">
-              Effective date: September 18, 2026 (version {CONSENT_TERMS_VERSION})
+              Effective date: October 11, 2026 (version {CONSENT_TERMS_VERSION})
             </CardDescription>
           </CardHeader>
           <CardContent className="p-8 md:p-10 pt-4 space-y-6 [&>div:not(:first-child)]:mt-10 [&>div:not(:first-child)]:border-t [&>div:not(:first-child)]:border-border [&>div:not(:first-child)]:pt-8 [&_p]:text-base [&_p]:leading-[1.75] [&_p]:text-muted-foreground [&_p]:mb-4 [&_h3]:text-lg md:[&_h3]:text-xl [&_h3]:font-bold [&_h3]:text-foreground [&_h3]:mb-3 [&_ul]:list-disc [&_ul]:list-inside [&_ul]:ml-5 md:[&_ul]:ml-6 [&_ul]:mt-2 [&_ul]:mb-4 [&_ul]:space-y-2 [&_ul]:text-muted-foreground [&_ul]:[&_li]:marker:text-muted-foreground">
@@ -50,16 +50,15 @@ export default function PrivacyPolicyPageClient() {
             <div>
               <h3>Categories of Data We Collect</h3>
               <ul>
-                <li><strong>Personal Information:</strong> name, email address, state, profession, filing status, income</li>
-                <li><strong>Financial Data:</strong> bank account and transaction data via Plaid integration</li>
-                <li><strong>Receipt Data:</strong> receipt images and OCR-extracted transaction details</li>
+                <li><strong>Account and Profile Information:</strong> name, email address, password credentials handled by Firebase Authentication, state, profession, filing status, business details, and income information</li>
+                <li><strong>Financial Records:</strong> bank account metadata and transactions received through Plaid, manual income and expenses, balances, mileage, assets, deductions, quarterly payments, and reconciliation decisions</li>
+                <li><strong>Taxpayer and Household Information:</strong> encrypted Social Security numbers, ITINs, EINs, identity-protection PINs, spouse and dependent details, addresses, and tax-organizer answers you choose to provide</li>
+                <li><strong>Refund Payment Instructions:</strong> encrypted routing and account numbers you choose to save for tax-organizer records</li>
+                <li><strong>Documents and Receipts:</strong> uploaded receipts, W-2s, 1099s, platform summaries, bank or card statements, document images, OCR text, and extracted fields</li>
                 <li><strong>User Corrections:</strong> corrections to AI suggestions, kept in your account to personalize future suggestions for you; they are not used to train AI models</li>
-                <li><strong>Tax Data:</strong> quarterly tax calculation data, payment tracking, and tax bracket information</li>
-                <li><strong>Mobile Data:</strong> device information for PWA functionality and mobile optimization</li>
                 <li><strong>Preferences:</strong> notification settings, user preferences, and customization data</li>
-                <li><strong>Voice Data:</strong> if you use voice entry, your browser&apos;s speech recognition converts your speech to text and the text is sent to our AI provider to identify the expense; we do not store audio</li>
-                <li><strong>Usage Analytics:</strong> app usage patterns, feature interactions, and performance data</li>
-                <li><strong>Inferences:</strong> tax deduction analysis, personalized insights, and optimization recommendations</li>
+                <li><strong>Support and Operational Data:</strong> support requests, security and access audit records, rate-limit records, webhook replay markers, device or browser information, and operational logs</li>
+                <li><strong>Analysis Outputs:</strong> suggested categories, possible tax treatments, explanations, missing-fact prompts, and analysis job status</li>
               </ul>
             </div>
 
@@ -67,19 +66,16 @@ export default function PrivacyPolicyPageClient() {
               <h3>Purposes of Collection</h3>
               <ul>
                 <li>To provide AI-assisted transaction review and supported reports</li>
-                <li>To automatically process receipts and extract transaction details using OCR</li>
+                <li>To process documents and receipts and extract fields for your review</li>
                 <li>To calculate federal planning estimates using the published tax brackets for the selected tax year</li>
-                <li>To provide personalized AI insights and tax optimization recommendations</li>
-                <li>To learn from your corrections and improve AI accuracy over time</li>
+                <li>To use your corrections within your account when preparing later suggestions</li>
                 <li>To build Schedule C and Form 8829 summaries from your confirmed records</li>
-                <li>To process voice input for hands-free expense tracking</li>
                 <li>To provide mobile-responsive experience with PWA functionality</li>
-                <li>To integrate with bank accounts via Plaid for automatic transaction import</li>
+                <li>To import posted bank activity through Plaid when you connect a supported account</li>
                 <li>To personalize tax education content that cites IRS publications</li>
-                <li>To send smart notifications for quarterly tax deadlines and important updates</li>
+                <li>To send configured account, review, and deadline notifications</li>
                 <li>To show planning estimates of tax effects based on your selected filing status and tax year</li>
-                <li>To manage your account and provide comprehensive customer support</li>
-                <li>To improve our services, user experience, and AI capabilities</li>
+                <li>To manage your account, subscription, support requests, security, and service reliability</li>
                 <li>To comply with legal obligations and maintain security standards</li>
               </ul>
             </div>
@@ -90,7 +86,10 @@ export default function PrivacyPolicyPageClient() {
                 We retain your data as long as your account is active or as needed to provide services, comply with legal obligations, or resolve disputes. You can delete your account at any time from Settings, or ask us to.
               </p>
               <p className="mb-3">
-                Deleting your account removes your records from the live database right away. Copies can remain in point-in-time recovery for up to 7 days and in scheduled backups for up to 14 weeks, and Google&apos;s infrastructure may hold backup copies for up to about six months before they expire. Backups are used only to recover the service from an outage; after any restore, deletions requested before it are carried out again. We keep a minimal record that a deletion was requested and completed.
+                A successful deletion removes the Firebase Auth user, live profile, owned tax and transaction records, bank tokens, receipts, and active Stripe customer after required provider cleanup succeeds. We retain the account-deletion marker and may retain support-access audits, rate-limit counters, webhook replay markers without a user id, operational logs, and support-mailbox copies according to our operational retention policy. Stripe, Plaid, Google, OpenAI, and other providers may retain records under their own legal and operational obligations.
+              </p>
+              <p className="mb-3">
+                Deleted records can remain recoverable in point-in-time recovery for up to 7 days, scheduled backups for up to 14 weeks, and Google infrastructure backups for up to about six months before expiry. Cloud Logging entries can remain for about 30 days and required Google audit logs can remain longer. Backups are used for service recovery; deletion markers are used to reapply deletion after a restore.
               </p>
             </div>
 
@@ -101,7 +100,7 @@ export default function PrivacyPolicyPageClient() {
                 <li>Google Firebase and Google Cloud (for authentication, database, file storage, and hosting)</li>
                 <li>OpenAI (for AI analysis of your transactions and of tax documents, bank statements, or receipts you choose to upload for extraction; a W-2, 1099 or platform summary is first read on our own server and sent as text with Social Security, ITIN and employer identification numbers removed, and its full image is sent only with your signed consent; prompts are sent with storage disabled and are not used to train OpenAI models)</li>
                 <li>Stripe (for subscription payments; your card details are entered on Stripe&apos;s payment page and never reach our servers)</li>
-                <li>Resend (for delivering email when you send a question to a tax professional through the app)</li>
+                <li>Resend (for delivering account, support, and product email)</li>
                 <li>Google Analytics (only when enabled for a release, for site usage measurement)</li>
                 <li>Receipt text recognition for individual receipts runs on our own servers and is not sent to a third party</li>
               </ul>
@@ -112,7 +111,7 @@ export default function PrivacyPolicyPageClient() {
               <ul>
                 <li>Encryption in transit and at rest, and read-only bank connections</li>
                 <li>Owner-scoped access controls enforced by database security rules, automated security tests on every release, and a written information security program</li>
-                <li>Partnerships with audited and compliant service providers</li>
+                <li>Vendor access and processing limited to the services described in this policy and our subprocessor records</li>
                 <li>Secure processing of receipt images and OCR data</li>
                 <li>Your corrections stay within your account and are not used to train AI models</li>
               </ul>
@@ -125,7 +124,7 @@ export default function PrivacyPolicyPageClient() {
             <div>
               <h3>GLBA Privacy Rule</h3>
               <p className="mb-3">
-                We do not share your nonpublic personal information with non-affiliated third parties except as permitted by law. You have the right to opt out of any such sharing, but we do not engage in it.
+                We do not sell nonpublic personal information. We disclose information to the service providers listed above and when otherwise permitted or required by law to operate and protect the service.
               </p>
             </div>
 

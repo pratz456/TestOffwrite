@@ -6,7 +6,7 @@
  */
 import { DOCUMENT_IMPORT_CONSENT_VERSION } from './document-import-consent';
 
-export const CONSENT_TERMS_VERSION = '2026-09-18';
+export const CONSENT_TERMS_VERSION = '2026-10-11';
 
 export const REQUIRED_CONSENTS = ['terms', 'bank_data', 'ai_review'] as const;
 /**

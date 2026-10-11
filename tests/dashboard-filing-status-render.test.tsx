@@ -42,7 +42,6 @@ vi.mock('@/components/ui/toast', () => ({ ToastContainer: 'ToastContainer', useT
 vi.mock('@/components/historical-access-upgrade-card', () => ({ HistoricalAccessUpgradeCard: 'HistoricalAccessUpgradeCard' }));
 vi.mock('@/components/dashboard/index', () => Object.fromEntries(['DashboardHeader', 'KpiGrid', 'AnalyticsPanel', 'OptimizationCard', 'TopCategoriesCard', 'RecentActivityCard', 'AiAdvisoryCard', 'QuickActionsBar', 'ActionItemsBanner'].map(name => [name, name])));
 import DashboardScreen from '../components/dashboard-screen';
-import { AIInsightsPage } from '../components/ai-insights-page';
 import ReportsPage from '../app/protected/reports/page';
 
 type Element = ReactElement<Record<string, any>>;
@@ -88,15 +87,6 @@ describe('dashboard filing-status review display', () => {
     expect(kpi.props.state).toEqual({ status: 'loading' });
     expect(kpi.props).not.toHaveProperty('estimatedTaxRate');
     expect(kpi.props).not.toHaveProperty('quarterlyTaxes');
-  });
-  it('keeps record-only insights usable without inventing a filing-status tax rate', async () => {
-    const component = () => AIInsightsPage({ user: { id: 'synthetic' }, onBack() {} }) as Element;
-    render(component); await flush();
-    const content = text(render(component));
-    expect(content).toContain('Spending to Review (not tax savings)');
-    expect(content).toContain('Confirmed Transaction Deductions');
-    expect(content).not.toContain('Estimated Tax Effect of Unreviewed Items');
-    expect(content).not.toContain('NaN');
   });
   it('reports remain usable and display the actionable status problem', async () => {
     const component = () => ReportsPage() as Element;

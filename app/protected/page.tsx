@@ -17,7 +17,6 @@ import { ReviewTransactionsScreen } from "@/components/review-transactions-scree
 import { BanksDetailScreen } from "@/components/banks-detail-screen";
 import { CategoriesScreen } from "@/components/categories-screen";
 import { PlaidLinkScreen } from "@/components/plaid-link-screen";
-import { AIInsightsPage } from "@/components/ai-insights-page";
 import { QuarterlyPaymentTrackingScreen } from "@/components/quarterly-payment-tracking-screen";
 import { ActionItemsScreen } from "@/components/action-items-screen";
 
@@ -483,16 +482,6 @@ export default function ProtectedPage() {
           user={safeUser}
           onBack={handleGoBack}
           onUploadComplete={handleReceiptUploadComplete}
-        />
-      );
-    }
-
-    if (currentScreen === 'ai-insights') {
-      const safeUser = { ...user, email: user.email ?? undefined };
-      return (
-        <AIInsightsPage
-          user={safeUser}
-          onBack={handleGoBack}
         />
       );
     }

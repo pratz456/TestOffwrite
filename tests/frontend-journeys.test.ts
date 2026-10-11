@@ -140,6 +140,7 @@ describe('protected browser journey destinations', () => {
     ['add-expense', '/protected?screen=add-manual-transaction'],
     ['edit-expense', '/protected/transactions'],
     ['plaid', '/protected?screen=banks-detail'],
+    ['ai-insights', '/protected?screen=tax-assistant'],
     ['tax-calendar', '/protected?screen=quarterly-taxes'],
     ['deductions-detail', '/protected?screen=deductions-entry'],
     ['expenses-detail', '/protected/transactions'],

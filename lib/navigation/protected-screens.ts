@@ -2,7 +2,7 @@ const screens = [
   'dashboard', 'settings', 'receipt-upload', 'transactions',
   'review-transactions', 'schedule-c-export',
   'banks-detail', 'categories', 'plaid-link',
-  'transaction-detail', 'reports', 'ai-insights', 'quarterly-taxes',
+  'transaction-detail', 'reports', 'quarterly-taxes',
   'mileage-tracker', 'income-tracking',
   'tax-assistant', 'quarterly-payments', 'action-items',
   'add-manual-transaction', 'tax-filing-hub', 'tax-organizer', 'w2-income', 'tax-preview',
@@ -16,6 +16,7 @@ export function protectedScreen(raw: string | null | undefined): ProtectedScreen
   if (name === 'categorize' || name === 'add-expense') return 'add-manual-transaction';
   if (name === 'edit-expense') return 'transactions';
   if (name === 'plaid') return 'banks-detail';
+  if (name === 'ai-insights') return 'tax-assistant';
   if (name === 'tax-calendar') return 'quarterly-taxes';
   if (name === 'deductions-detail') return 'deductions-entry';
   if (name === 'expenses-detail') return 'transactions';

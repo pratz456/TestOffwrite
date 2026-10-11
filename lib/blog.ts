@@ -8,6 +8,31 @@ import remarkGfm from "remark-gfm";
 
 const BLOG_DIR = path.join(process.cwd(), "content", "blog");
 
+/** Hidden until each article receives a new tax/legal accuracy review. */
+export const UNPUBLISHED_BLOG_SLUGS = new Set([
+  "1099-forms-explained",
+  "depreciation-recapture-selling-business-assets",
+  "freelancer-tax-mistakes-cost-money",
+  "gig-economy-tax-guide",
+  "hire-your-kids-tax-strategy",
+  "home-office-deduction-guide",
+  "how-to-track-business-expenses",
+  "irs-audit-guide-freelancers",
+  "mileage-deduction-guide-2026",
+  "multiple-income-streams-tax-strategy",
+  "net-operating-loss-freelancers",
+  "qbi-deduction-freelancers-section-199a",
+  "quarterly-estimated-tax-penalty-avoid",
+  "quarterly-estimated-taxes-guide",
+  "reasonable-salary-s-corp-irs",
+  "retirement-accounts-self-employed",
+  "section-179-equipment-deduction-guide",
+  "self-employed-health-insurance-deduction-complete",
+  "standard-deduction-vs-itemizing-freelancers",
+  "tax-deductions-content-creators-influencers",
+  "year-end-tax-planning-freelancers",
+]);
+
 const matterOptions: any = {
   engines: {
     yaml: {
@@ -78,7 +103,7 @@ export function getAllPosts(): BlogPostMeta[] {
 
   return fs
     .readdirSync(BLOG_DIR)
-    .filter((f) => f.endsWith(".mdx"))
+    .filter((f) => f.endsWith(".mdx") && !UNPUBLISHED_BLOG_SLUGS.has(f.replace(/\.mdx$/, "")))
     .map((filename) => {
       const raw = fs.readFileSync(path.join(BLOG_DIR, filename), "utf-8");
       const { data, content } = matter(raw, matterOptions);
@@ -99,6 +124,7 @@ export function getAllPosts(): BlogPostMeta[] {
 const CTA_PLACEHOLDER = "<!--BLOG_CTA-->";
 
 export async function getPostBySlug(slug: string): Promise<BlogPost | null> {
+  if (UNPUBLISHED_BLOG_SLUGS.has(slug)) return null;
   const filePath = path.join(BLOG_DIR, `${slug}.mdx`);
   if (!fs.existsSync(filePath)) return null;
 

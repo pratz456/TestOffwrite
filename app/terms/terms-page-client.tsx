@@ -45,7 +45,7 @@ export default function TermsPageClient() {
               Terms of Service
             </CardTitle>
             <CardDescription className="text-sm text-muted-foreground mb-8 font-tabular-nums">
-              Effective date: September 18, 2026 (version {CONSENT_TERMS_VERSION})
+              Effective date: October 11, 2026 (version {CONSENT_TERMS_VERSION})
             </CardDescription>
           </CardHeader>
           <CardContent className="p-8 md:p-10 pt-4 space-y-6 [&>div:not(:first-child)]:mt-10 [&>div:not(:first-child)]:border-t [&>div:not(:first-child)]:border-border [&>div:not(:first-child)]:pt-8 [&_h3]:text-lg [&_h3]:font-semibold [&_h3]:mb-3 [&_p]:text-sm [&_p]:leading-relaxed [&_li]:text-sm [&_li]:leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:space-y-1">

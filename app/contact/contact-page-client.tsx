@@ -33,7 +33,7 @@ export default function ContactSupportPageClient() {
           <MessageCircle className="w-12 h-12 text-primary mx-auto mb-3" aria-hidden />
           <h2 className="text-2xl font-semibold text-foreground">Get in touch</h2>
           <p className="mt-2 text-foreground/90">
-            Send us a message and we&apos;ll respond within 24 hours on business days.
+            Send us a message for account or product support. Response times vary with request volume.
           </p>
         </div>
 

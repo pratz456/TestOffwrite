@@ -15,7 +15,7 @@ export function QuickActionsBar({ onNavigate, needsReviewCount, needsAnalysisCou
     { label: `Review (${needsReviewCount})`, screen: 'review-transactions', icon: ClipboardList, show: needsReviewCount > 0 || needsAnalysisCount > 0 },
     { label: 'Transactions', screen: 'transactions', icon: FileText, show: true },
     { label: 'Export records', screen: 'schedule-c-export', icon: FileText, show: true },
-    { label: 'AI insights', screen: 'ai-insights', icon: Lightbulb, show: true },
+    { label: 'Tax assistant', screen: 'tax-assistant', icon: Lightbulb, show: true },
     { label: 'Quarterly taxes', screen: 'quarterly-taxes', icon: Calculator, show: true },
   ];
   return <div className="grid grid-cols-[1fr_1fr_auto] gap-2" aria-label="Quick actions">

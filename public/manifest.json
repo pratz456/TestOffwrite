@@ -1,7 +1,7 @@
 {
-  "name": "WriteOff - AI Tax Assistant",
+  "name": "WriteOff Expense Records",
   "short_name": "WriteOff",
-  "description": "AI-powered tax deduction tracking and optimization for freelancers and small businesses",
+  "description": "Expense records, receipt review, and supported federal tax planning for freelancers and small businesses",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
@@ -29,7 +29,7 @@
       "name": "Add Expense",
       "short_name": "Add Expense",
       "description": "Quickly add a new expense",
-      "url": "/protected?screen=add-expense",
+      "url": "/protected?screen=add-manual-transaction",
       "icons": [
         {
           "src": "/writeofflogo.png",
@@ -50,10 +50,10 @@
       ]
     },
     {
-      "name": "AI Insights",
-      "short_name": "Insights",
-      "description": "Get personalized tax insights",
-      "url": "/protected?screen=ai-insights",
+      "name": "Tax Assistant",
+      "short_name": "Tax Assistant",
+      "description": "Ask a supported federal tax question",
+      "url": "/protected?screen=tax-assistant",
       "icons": [
         {
           "src": "/writeofflogo.png",

@@ -15,27 +15,27 @@ interface PlaidGuideTutorialProps {
 const tutorialSteps = [
   {
     id: 'progress-banner',
-    title: 'Transaction Progress Banner',
-    description: 'Track your deduction progress in real-time.',
+    title: 'Review status',
+    description: 'See which imported records still need your review.',
     icon: TrendingUp,
     content: (
       <div className="space-y-4">
         <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto">
           <TrendingUp className="w-8 h-8 text-blue-600" />
         </div>
-        <h3 className="text-xl font-semibold text-gray-900 text-center">Track Your Progress</h3>
+        <h3 className="text-xl font-semibold text-gray-900 text-center">Review Imported Records</h3>
         <div className="space-y-3 text-left">
           <div className="flex items-start space-x-3">
             <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 flex-shrink-0"></div>
-            <p className="text-gray-600">See your deduction progress at a glance</p>
+            <p className="text-gray-600">See posted records that still need a decision</p>
           </div>
           <div className="flex items-start space-x-3">
             <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 flex-shrink-0"></div>
-            <p className="text-gray-600">Monthly and yearly deduction totals</p>
+            <p className="text-gray-600">See confirmed transaction deduction basis by period</p>
           </div>
           <div className="flex items-start space-x-3">
             <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 flex-shrink-0"></div>
-            <p className="text-gray-600">Tax savings projections</p>
+            <p className="text-gray-600">Open supported planning estimates only after required facts are reviewed</p>
           </div>
         </div>
       </div>
@@ -51,7 +51,7 @@ const tutorialSteps = [
         <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto">
           <Tag className="w-8 h-8 text-green-600" />
         </div>
-        <h3 className="text-xl font-semibold text-gray-900 text-center">Smart Categorization</h3>
+        <h3 className="text-xl font-semibold text-gray-900 text-center">Category Review</h3>
         <div className="space-y-3 text-left">
           <div className="flex items-start space-x-3">
             <div className="w-2 h-2 bg-green-500 rounded-full mt-2 flex-shrink-0"></div>

@@ -8,7 +8,7 @@ const policyLink = 'underline text-primary no-tap-highlight';
 export function NoticeAtCollection({ className = '' }: { className?: string }) {
   return (
     <div className={`p-3 sm:p-4 bg-primary/10 dark:bg-primary/15 border border-primary/20 rounded-lg text-xs text-foreground ${className}`.trim()}>
-      <strong>Notice at Collection:</strong> We collect your name, email, password, and, after signup, your bank transactions, employer/workstyle answers, and state. This information is used to provide tax deduction analysis, generate reports, and personalize your experience. See our <a href="/privacy" className={policyLink} target="_blank" rel="noopener noreferrer">Privacy Policy</a> for details.
+      <strong>Notice at Collection:</strong> We collect account and profile information and, when you choose to provide it, bank transactions, receipts, tax forms, taxpayer identifiers, spouse or dependent details, and refund payment instructions. We use this information to organize records, provide supported planning estimates, run transaction review, produce exports, operate billing and support, and protect the service. See our <a href="/privacy" className={policyLink} target="_blank" rel="noopener noreferrer">Privacy Policy</a> for retention, vendors, and deletion details.
     </div>
   );
 }

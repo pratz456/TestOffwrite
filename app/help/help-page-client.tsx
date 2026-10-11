@@ -194,27 +194,27 @@ function HelpPageContent() {
                 </CardContent>
               </Card>
 
-              {/* AI Insights */}
+              {/* Tax assistant */}
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <TrendingUp className="w-5 h-5 text-rose-600" />
-                    AI Insights
+                    Tax Assistant
                   </CardTitle>
                   <CardDescription>
-                    Deduction suggestions for your review
+                    Reviewed federal tax guidance
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <p className="text-sm text-muted-foreground">
-                    Review suggested deductions and recordkeeping reminders based on your recorded expenses. Nothing counts until you confirm it.
+                    Ask a federal tax question and see the facts and official sources needed for the supported guidance.
                   </p>
                   <Button 
                     className="w-full" 
                     size="sm"
-                    onClick={() => router.push('/protected?screen=ai-insights')}
+                    onClick={() => router.push('/protected?screen=tax-assistant')}
                   >
-                    View AI Insights
+                    Open Tax Assistant
                   </Button>
                 </CardContent>
               </Card>
@@ -454,7 +454,6 @@ function HelpPageContent() {
                     <li>Show federal planning estimates using published parameters for the selected supported tax year</li>
                     <li>Suggest recordkeeping steps based on your recorded expenses</li>
                     <li>Build Schedule C and Form 8829 summaries your preparer can use</li>
-                    <li>Voice input for hands-free expense tracking</li>
                     <li>Mobile-responsive design with PWA support</li>
                     <li>Import posted bank transactions through Plaid where bank connections are enabled</li>
                     <li>Tax education that cites IRS publications and notices</li>

@@ -1764,7 +1764,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     setConfirmDialog({
                       open: true,
                       title: 'Delete Account',
-                      description: 'Are you sure you want to delete your account and all associated data? This includes all Plaid connections, accounts, transactions, and receipts. This action cannot be undone.',
+                      description: 'This starts provider cleanup, removes your live WriteOff account records, receipts, bank tokens, and Firebase sign-in if every cleanup step succeeds. Deletion markers, security and support records, vendor records, logs, and backup copies can remain for the periods described in the Privacy Policy. Export anything you need first.',
                       confirmLabel: 'Delete Account',
                       variant: 'destructive',
                       onConfirm: async () => {

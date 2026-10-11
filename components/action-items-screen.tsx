@@ -67,14 +67,14 @@ const CATEGORY_META: Record<ActionCategory, { label: string; icon: React.Element
     description: 'Review and confirm AI-classified transactions',
   },
   tax_optimization: {
-    label: 'Tax Optimization',
+    label: 'Tax Record Review',
     icon: TrendingUp,
-    description: 'Records and facts that may support additional deductions',
+    description: 'Records and facts that may need a deduction decision',
   },
   filing: {
-    label: 'Filing Readiness',
+    label: 'Filing Records',
     icon: FolderCheck,
-    description: 'Get everything ready for tax filing',
+    description: 'Review records and exports before working with your preparer',
   },
   compliance: {
     label: 'Compliance & Deadlines',
@@ -211,7 +211,7 @@ export function ActionItemsScreen({
             <h1 className="text-base font-semibold text-foreground">Action Items</h1>
             <p className="text-xs text-muted-foreground">
               {activeItems.length === 0
-                ? 'All caught up!'
+                ? 'No current prompts'
                 : `${activeItems.length} item${activeItems.length === 1 ? '' : 's'} need your attention`}
             </p>
           </div>
@@ -222,7 +222,7 @@ export function ActionItemsScreen({
         {/* Progress */}
         <div className="rounded-xl border border-border bg-card p-4">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium text-foreground">Your progress</span>
+            <span className="text-sm font-medium text-foreground">Checklist status</span>
             <span className="text-sm font-semibold text-foreground">{completionPct}%</span>
           </div>
           <Progress value={completionPct} className="mb-2" />
@@ -242,9 +242,9 @@ export function ActionItemsScreen({
             <div className="w-14 h-14 mx-auto rounded-full bg-green-500/10 flex items-center justify-center">
               <CheckCircle2 className="h-7 w-7 text-green-500" />
             </div>
-            <h2 className="text-lg font-semibold text-foreground">You're all set!</h2>
+            <h2 className="text-lg font-semibold text-foreground">No current action items</h2>
             <p className="text-sm text-muted-foreground max-w-xs mx-auto">
-              No action items right now. We'll notify you when something needs your attention.
+              This checklist does not determine filing completeness. New prompts appear when saved records need review.
             </p>
           </div>
         )}

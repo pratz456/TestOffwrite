@@ -191,7 +191,7 @@ export default async function Image() {
                     letterSpacing: "0.01em",
                   }}
                 >
-                  AI deductions • Auto-categorization • Export-ready
+                  Expense records, receipt review, and planning exports
                 </span>
               </div>
             </div>
@@ -211,7 +211,7 @@ export default async function Image() {
                 letterSpacing: "-0.03em",
               }}
             >
-              Know your write-offs.
+              Review business records.
               <span style={{ paddingLeft: 12 }}>
                 <span
                   style={{
@@ -224,7 +224,7 @@ export default async function Image() {
                   WriteOff
                 </span>
               </span>{" "}
-              tracks your deductions.
+              keeps the workflow organized.
             </div>
 
             <div
@@ -236,13 +236,13 @@ export default async function Image() {
                 maxWidth: 860,
               }}
             >
-              Connect your accounts and let AI detect deductible expenses, categorize transactions,
-              and generate clean, exportable reports for tax time.
+              Add records manually or import supported bank activity. Review categories and business purpose,
+              then export supported summaries for your preparer.
             </div>
 
             {/* Feature chips */}
             <div style={{ display: "flex", gap: 10, marginTop: 4, flexWrap: "wrap" }}>
-              {["Auto-categorize", "Deduction detection", "CPA-ready exports"].map((t) => (
+              {["Manual or bank records", "User-confirmed review", "Preparer exports"].map((t) => (
                 <div
                   key={t}
                   style={{
