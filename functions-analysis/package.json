@@ -13,7 +13,7 @@
     "firebase-functions": "7.4.0"
   },
   "devDependencies": {
-    "typescript": "5.9.2"
+    "typescript": "7.0.2"
   },
   "overrides": {
     "proxy-addr": "2.0.8",
