@@ -191,7 +191,7 @@ export default async function Image() {
                     letterSpacing: "0.01em",
                   }}
                 >
-                  Expense records • Receipt review • Preparer exports
+                  Expense records, receipt review, and preparer exports
                 </span>
               </div>
             </div>
@@ -306,11 +306,11 @@ export default async function Image() {
               >
                 Start your <span style={{ color: "#34D399" }}>{PRODUCT_ACCESS.trialDays}-day free trial</span>
                 <span style={{ color: "rgba(255,255,255,0.70)", fontWeight: 600 }}>
-                  - no card
+                  No card required
                 </span>
               </div>
-              <div style={{ fontSize: 14, color: "rgba(255,255,255,0.58)" }}>
-                Then ${PREMIUM_MONTHLY_PRICE}/mo or ${PREMIUM_YEARLY_PRICE}/yr • Cancel anytime
+              <div style={{ display: "flex", fontSize: 14, color: "rgba(255,255,255,0.58)" }}>
+                Premium is ${PREMIUM_MONTHLY_PRICE}/month or ${PREMIUM_YEARLY_PRICE}/year. Cancel renewal anytime.
               </div>
             </div>
 
