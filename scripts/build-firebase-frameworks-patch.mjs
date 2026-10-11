@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export const UPSTREAM_VERSION = '0.11.8';
-export const PATCHED_VERSION = '0.11.8-writeoff.1';
+export const PATCHED_VERSION = '0.11.8-writeoff.2';
 export const UPSTREAM_INTEGRITY = 'sha512-6S5APGhQGbGs3zfdh0gqTYE6tycRYS8Gz2vdENIZ+rz7+yPuqGU1d7Ue5IUFR5MKLktfHUdzm/+frlkHT0AZtw==';
 export const UPSTREAM_SOURCE_HASH = 'd6669094bc3d3faf067e150bd4f4ff622e3220ed1c98496ca22f747727b25e67';
 export const PATCHED_SOURCE_HASH = 'd9c2c2720a540fe74644503e1907269b74ed1fc1fa097cbdaf17e37e70be96de';
@@ -39,6 +39,9 @@ export function buildPatchedFrameworks({ upstreamTarball, output = path.join(roo
     assertSource(patched, PATCHED_VERSION, PATCHED_VERSION, PATCHED_SOURCE_HASH);
     fs.writeFileSync(sourcePath, patched);
     manifest.version = PATCHED_VERSION;
+    manifest.peerDependencies.firebase = '^9.9.0 || ^10.0.0 || ^11.0.0 || ^12.0.0 || ^13.0.0';
+    manifest.peerDependencies['firebase-admin'] = '^11.0.1 || ^12.0.0 || ^13.0.0 || ^14.0.0';
+    manifest.peerDependencies.sharp = '^0.32 || ^0.33 || ^0.34 || ^0.35';
     fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
     fs.copyFileSync(path.join(root, 'vendor/firebase-frameworks/LICENSE'), path.join(packageRoot, 'LICENSE'));
     const packed = JSON.parse(execFileSync('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', temporary], { cwd: packageRoot, encoding: 'utf8' }))[0];

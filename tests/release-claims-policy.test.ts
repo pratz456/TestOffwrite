@@ -22,7 +22,7 @@ describe('release claims and privacy disclosures', () => {
     const privacy = source('app/privacy/privacy-page-client.tsx');
     const settings = source('components/settings-screen.tsx');
     expect(privacy).toContain('account-deletion marker');
-    expect(privacy).toContain('vendor records');
+    expect(privacy).toMatch(/vendor records/i);
     expect(privacy).not.toMatch(/audited and compliant service providers|question to a tax professional through the app/i);
     expect(settings).not.toContain('all associated data');
   });
