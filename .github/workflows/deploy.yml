@@ -28,7 +28,7 @@ jobs:
       url: https://writeoffapp.com
     steps:
       - name: Check out the exact reviewed commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ inputs.release_commit }}
           fetch-depth: 0
