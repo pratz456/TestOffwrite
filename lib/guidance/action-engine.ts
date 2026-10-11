@@ -321,9 +321,9 @@ export function generateActionItems(
     if (daysUntil <= 14 && daysUntil > 0) {
       items.push({
         id: 'quarterly-deadline-soon',
-        title: `Q${nextDeadline.q} estimated tax payment due in ${daysUntil} days`,
+        title: `Q${nextDeadline.q} standard federal installment date is in ${daysUntil} days`,
         description:
-          `Your federal quarterly estimated tax payment is due ${nextDeadline.date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' })}. Paying on time helps avoid an underpayment penalty; state due dates can differ.`,
+          `The standard Form 1040-ES date is ${nextDeadline.date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' })}. Whether a payment is required, its amount, and any penalty depend on your reviewed tax facts and dated payments. State dates can differ.`,
         priority: daysUntil <= 3 ? 'critical' : 'high',
         category: 'compliance',
         screen: 'quarterly-payments',
