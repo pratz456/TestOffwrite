@@ -2,13 +2,14 @@ import {setGlobalOptions} from 'firebase-functions/v2/options';
 import {defineSecret, defineString} from 'firebase-functions/params';
 import {onSchedule} from 'firebase-functions/v2/scheduler';
 import * as logger from 'firebase-functions/logger';
-import * as admin from 'firebase-admin';
+import {getApps, initializeApp} from 'firebase-admin/app';
+import {FieldValue, getFirestore} from 'firebase-admin/firestore';
 import {assertScheduledBankConfig, currentBankUsers, PER_USER_TIMEOUT_MS, RUN_TIME_BUDGET_MS, SYNC_CONCURRENCY,
   SYNC_FETCH_TIMEOUT_MS, SYNC_FUNCTION_TIMEOUT_SECONDS, SYNC_STATE_DOC, type ScheduledBankConfig} from './sync-config';
 import {createTimeBudget, nextCursor, orderFromCursor, runWithConcurrency, withTimeout} from './scheduler';
 
-if (!admin.apps.length) admin.initializeApp();
-const db = admin.firestore();
+if (!getApps().length) initializeApp();
+const db = getFirestore();
 // No production URL or provider-account fallback. These parameters must be set
 // deliberately for the project when this separate codebase is deployed.
 const siteUrl = defineString('SITE_URL', {default: ''});
@@ -20,7 +21,7 @@ setGlobalOptions({maxInstances: 10});
 async function syncUser(uid: string, config: ScheduledBankConfig): Promise<number> {
   const profile = db.doc(`user_profiles/${uid}`);
   try {
-    await profile.update({last_scheduled_sync: admin.firestore.FieldValue.serverTimestamp(), last_scheduled_sync_status: 'in_progress'});
+    await profile.update({last_scheduled_sync: FieldValue.serverTimestamp(), last_scheduled_sync_status: 'in_progress'});
     const response = await fetch(`${new URL(config.origin).origin}/api/plaid/sync-transactions-internal`, {
       method: 'POST', headers: {'Content-Type': 'application/json', 'X-Cloud-Function-Secret': config.secret},
       body: JSON.stringify({userId: uid}), redirect: 'error', signal: AbortSignal.timeout(SYNC_FETCH_TIMEOUT_MS),
@@ -70,7 +71,7 @@ export const syncAllUsersTransactions = onSchedule({
   const cursor = nextCursor(started, run.skipped, previousCursor);
 
   await db.doc(SYNC_STATE_DOC).set({
-    cursor, updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    cursor, updatedAt: FieldValue.serverTimestamp(),
     lastRun: {users: users.length, started: run.started, skipped: run.skipped, succeeded, failed, complete: run.skipped === 0, elapsedMs: budget.elapsed()},
   }, {merge: true});
   logger.info('Scheduled bank synchronization completed', {users: users.length, started: run.started, skipped: run.skipped, succeeded, failed, elapsedMs: budget.elapsed(), cursor});
