@@ -9,6 +9,7 @@ import { requireFeatureAccess } from '@/lib/subscriptions/feature-access';
 import { filingSandboxConfig, isFilingSandboxIdentity } from '@/lib/tax-filing/config';
 import { initializeColumnFiling, getColumnTaxReturn, validateColumnMetadata } from '@/lib/tax-filing/column-client';
 import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
+import { unreleasedScreensEnabled } from '@/lib/features/unreleased-screens';
 const headers = { 'Cache-Control': 'private, no-store' };
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers });
 const identifier = (uid: string) => createHash('sha256').update(`writeoff-production-testing:column:sandbox:${uid}`).digest('hex');
@@ -32,6 +33,7 @@ async function metadataFor(user: AuthenticatedUser) {
 export async function GET(request: NextRequest) {
   const { user, error } = await getAuthenticatedUser(request);
   if (error || !user) return json({ error: 'Unauthorized' }, 401);
+  if (!unreleasedScreensEnabled()) return json({ error: 'Not found' }, 404);
   const year = yearValue(request.nextUrl.searchParams.get('year'));
   if (!year) return json({ error: 'Choose a supported tax year.' }, 400);
   const config = filingSandboxConfig();
@@ -53,6 +55,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const { user, error } = await getAuthenticatedUser(request);
   if (error || !user) return json({ error: 'Unauthorized' }, 401);
+  if (!unreleasedScreensEnabled()) return json({ error: 'Not found' }, 404);
   const denied = await requireFeatureAccess(user.uid, 'exports'); if (denied) return denied;
   let body: Record<string, unknown>;
   try { body = await request.json(); } catch { return json({ error: 'Invalid request.' }, 400); }

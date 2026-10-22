@@ -7,30 +7,32 @@ import { premiumFeatureForLocation } from '@/lib/subscriptions/client-status';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { ChevronDown, ChevronUp } from 'lucide-react';
-import { PRIMARY_NAVIGATION, RECORD_NAVIGATION, TAX_TOOL_NAVIGATION, ACCOUNT_NAVIGATION, navigationItemActive, type AppNavigationItem } from '@/lib/navigation/app-navigation';
+import { PRIMARY_NAVIGATION, RECORD_NAVIGATION, TAX_TOOL_NAVIGATION, ACCOUNT_NAVIGATION, navigationItemActive, visibleNavItems, type AppNavigationItem } from '@/lib/navigation/app-navigation';
 import { requestAppNavigation } from '@/lib/navigation/navigation-guard';
 interface SidebarNavProps {
   user: { id: string; email?: string; user_metadata?: { name?: string } };
   userProfile?: { name?: string; email?: string };
+  showUnreleasedScreens?: boolean;
 }
 
-export const SidebarNav: React.FC<SidebarNavProps> = ({ user, userProfile }) => {
+export const SidebarNav: React.FC<SidebarNavProps> = ({ user, userProfile, showUnreleasedScreens = false }) => {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { canAccess, isLoading: planLoading, error: planError } = useSubscription();
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const mainItems = PRIMARY_NAVIGATION;
-  const advancedItems = TAX_TOOL_NAVIGATION;
+  const recordItems = visibleNavItems(RECORD_NAVIGATION, showUnreleasedScreens);
+  const advancedItems = visibleNavItems(TAX_TOOL_NAVIGATION, showUnreleasedScreens);
   const isActive = (href: string) => navigationItemActive(href, pathname, searchParams.get('screen'));
 
   // Auto-open advanced section if any advanced item is active
   useEffect(() => {
-    const anyAdvancedActive = TAX_TOOL_NAVIGATION.some((item) => navigationItemActive(item.href, pathname, searchParams.get('screen')));
+    const anyAdvancedActive = visibleNavItems(TAX_TOOL_NAVIGATION, showUnreleasedScreens).some((item) => navigationItemActive(item.href, pathname, searchParams.get('screen')));
     if (anyAdvancedActive) {
       setAdvancedOpen(true);
     }
-  }, [pathname, searchParams]);
+  }, [pathname, searchParams, showUnreleasedScreens]);
 
   const renderNavItem = (item: AppNavigationItem) => {
     const Icon = item.icon;
@@ -82,7 +84,7 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ user, userProfile }) => 
 
         <div className="mt-3 border-t border-border/60 pt-3">
           <p className="px-3 pb-1 text-xs font-medium text-muted-foreground">Your records</p>
-          {RECORD_NAVIGATION.map(item => renderNavItem(item))}
+          {recordItems.map(item => renderNavItem(item))}
         </div>
 
         {/* Additional tax tools */}
