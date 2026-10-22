@@ -29,6 +29,8 @@ vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collection: (name: string) =
 
 import { GET, POST } from '../app/api/tax/organizer/route';
 import { decryptSensitive, encryptSensitive, isEncrypted } from '../lib/security/utils';
+import { errorLogger } from '../lib/error-logger';
+import { identifierFormatPatch } from '../lib/tax-organizer/organizer-server';
 import {
   encryptOrganizerIdentifiers, MASKED_NUMBER_EDIT_ERROR, maskOrganizerIdentifier,
   organizerIdentifierKind, readOrganizerIdentifiers, SSN_NOT_ACCEPTED_ERROR,
@@ -289,6 +291,114 @@ describe('organizer route stores ciphertext and returns plaintext only to the ow
     expect(record.spouseName).toBe('Ada');
     expect(record.dependentDetails).toBe('note');
     expect(record.filingStatus).toBe('single');
+  });
+  it('a second read and a second save leave every stored value byte-identical', async () => {
+    const fields = {
+      taxpayerSSN: '412-55-0198', spouseSSN: '523 66 1209', dependentSSN: '634772310', dependent2ITIN: '945-88-3421',
+      bankAccount: '110022334455', bankRouting: '021000021', ipPin: '834219', ein: '13-2645870', dependent3SSN: '12345678',
+    };
+    const digits = {
+      taxpayerSSN: '412550198', spouseSSN: '523661209', dependentSSN: '634772310', dependent2ITIN: '945883421',
+      bankAccount: '110022334455', bankRouting: '021000021', ipPin: '834219', ein: '132645870', dependent3SSN: '12345678',
+    };
+    const seed = (id: string) => state.docs.set(id, {
+      userId: 'owner', taxYear: 2026, filingStatus: 'single', dependentDetails: 'Emma Shah, Daughter', ...fields,
+    });
+    const opened = (value: unknown) => {
+      const storedValue = String(value);
+      expect(isEncrypted(storedValue)).toBe(true);
+      const once = decryptSensitive(storedValue);
+      expect(isEncrypted(once)).toBe(false);
+      return once;
+    };
+    seed('repeat-read');
+    const body = await (await get()).json();
+    expect(body.organizer).toMatchObject({
+      taxpayerSSN: '***-**-0198', spouseSSN: '***-**-1209', dependentSSN: '***-**-2310', dependent2ITIN: '***-**-3421',
+      bankAccount: '****4455', bankRouting: '*****0021', ipPin: 'Provided to preparer separately', ein: '**-***5870',
+      dependent3SSN: '***-**-5678',
+    });
+    const afterRead = structuredClone(state.docs.get('repeat-read'));
+    expect(Object.keys(state.sets[0]).sort()).toEqual([...Object.keys(fields), 'identifiersEncryptedAt'].sort());
+    for (const [field, value] of Object.entries(digits)) expect(opened(afterRead[field]), field).toBe(value);
+    expect(afterRead.dependentDetails).toBe('Emma Shah, Daughter');
+    await get();
+    expect(state.docs.get('repeat-read')).toEqual(afterRead);
+    expect(state.setCalls).toBe(1);
+    const malformed = String(afterRead.dependent3SSN);
+    const employer = String(afterRead.ein);
+    expect(identifierFormatPatch({
+      organizer: { dependent3SSN: malformed, ein: employer },
+      legacyPlaintextFields: ['dependent3SSN', 'ein'],
+    })).toEqual({});
+    expect(decryptSensitive(malformed)).toBe('12345678');
+
+    state.docs.delete('repeat-read');
+    state.sets.length = 0;
+    state.setCalls = 0;
+    seed('repeat-save');
+    expect((await post({ taxYear: 2026, spouseName: 'Ada' })).status).toBe(200);
+    const afterSave = structuredClone(state.docs.get('repeat-save'));
+    for (const [field, value] of Object.entries(digits)) expect(opened(afterSave[field]), field).toBe(value);
+    expect(afterSave.spouseName).toBe('Ada');
+    expect(afterSave.dependentDetails).toBe('Emma Shah, Daughter');
+    expect(afterSave.filingStatus).toBe('single');
+    expect((await post({ taxYear: 2026 })).status).toBe(200);
+    expect(state.docs.get('repeat-save')).toEqual(afterSave);
+    expect(state.setCalls).toBe(1);
+  });
+  it('conversion logs field names and counts only', async () => {
+    const fields = {
+      taxpayerSSN: '412550198', spouseSSN: '523661209', dependentSSN: '634772310', dependent2ITIN: '945883421',
+      bankAccount: '110022334455', bankRouting: '021000021', ipPin: '834219', ein: '132645870', dependent3SSN: '12345678',
+    };
+    const fieldNames = new Set(Object.keys(fields));
+    const secrets = [
+      ...Object.values(fields),
+      ...Object.values(fields).map(value => value.slice(-4)),
+    ];
+    const calls: unknown[][] = [];
+    const take = (...args: unknown[]) => { calls.push(args); };
+    const consoleSpies = (['log', 'info', 'warn', 'error', 'debug'] as const).map(method => vi.spyOn(console, method).mockImplementation(take));
+    const loggerSpy = vi.spyOn(errorLogger, 'log').mockImplementation(entry => { calls.push([entry]); });
+    const allowed = (value: string) => fieldNames.has(value) || /^\d{1,2}$/.test(value);
+    const visit = (value: unknown, path: string) => {
+      if (value == null || typeof value === 'boolean' || value instanceof Date) return;
+      if (typeof value === 'number') {
+        expect(Number.isInteger(value) && value >= 0 && value < 100, path).toBe(true);
+        return;
+      }
+      if (typeof value === 'string') {
+        expect(allowed(value), path).toBe(true);
+        return;
+      }
+      if (Array.isArray(value)) {
+        value.forEach((item, index) => visit(item, `${path}[${index}]`));
+        return;
+      }
+      if (typeof value === 'object') {
+        for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+          expect(allowed(key), path).toBe(true);
+          visit(item, `${path}.${key}`);
+        }
+      }
+    };
+    try {
+      state.docs.set('logged', {
+        userId: 'owner', taxYear: 2026, filingStatus: 'single', dependentDetails: 'Emma Shah, Daughter', ...fields,
+      });
+      expect((await post({ taxYear: 2026, spouseName: 'Ada' })).status).toBe(200);
+      const body = await (await get()).json();
+      expect(body.organizer.taxpayerSSN).toBe('***-**-0198');
+      expect((await post({ taxYear: 2026 })).status).toBe(200);
+      const storedValues = Object.keys(fields).map(field => String(state.docs.get('logged')![field]));
+      const serialized = JSON.stringify(calls);
+      for (const secret of [...secrets, ...storedValues]) expect(serialized).not.toContain(secret);
+      calls.forEach((args, index) => args.forEach((arg, argIndex) => visit(arg, `log ${index}.${argIndex}`)));
+    } finally {
+      consoleSpies.forEach(spy => spy.mockRestore());
+      loggerSpy.mockRestore();
+    }
   });
   it('leaves a phone, a ZIP+4 and a longer reference number unchanged on read', async () => {
     const details = 'Call 555-123-4567 or 5551234567, ZIP 12345-6789, ref 123456789012, note 123-456789';

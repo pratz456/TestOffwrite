@@ -1,4 +1,4 @@
-import { encryptSensitive } from '@/lib/security/utils';
+import { encryptSensitive, isEncrypted } from '@/lib/security/utils';
 import {
   normalizeOrganizerIdentifier, organizerIdentifierKind,
   readOrganizerIdentifiers, type OrganizerIdentifierRead,
@@ -15,7 +15,8 @@ export function identifierFormatPatch(read: OrganizerIdentifierRead): Record<str
     const value = read.organizer[field];
     if (!kind || typeof value !== 'string') continue;
     const trimmed = value.trim();
-    if (!trimmed) continue;
+    // The current-format envelope decides. A shape mismatch still stores the trimmed value.
+    if (!trimmed || isEncrypted(trimmed)) continue;
     const normalized = normalizeOrganizerIdentifier(kind, trimmed);
     patch[field] = encryptSensitive('error' in normalized ? trimmed : normalized.digits);
   }
