@@ -16,6 +16,7 @@ import {
   GUIDE_HINT_APP, GUIDE_HINT_BANK, GUIDE_HINT_NOT_SURE, GUIDE_QUESTION, LEGACY_RECONFIRM_BODY, LEGACY_RECONFIRM_CHANGE, LEGACY_RECONFIRM_TITLE,
   LEGACY_RECONFIRM_YES, LINE_1_COUNTED, LINE_2_AMOUNT, LIVE_SUM_DIFFER, LIVE_SUM_LINE, LIVE_SUM_MATCH, NO_CHOICE_YET, NO_FORM_NO_INCOME,
   OUTSIDE_SC_AMOUNT, PANEL_FORMS_NOTE, PANEL_SUMMARY_COUNTED, REASON_PERSONAL, REASON_PERSONAL_HELP, REASON_REFUNDS, REASON_REFUNDS_HELP,
+  SAME_DISABLED_NEC,
   fillIncomeCopy,
 } from "@/lib/tax-rules/income-reconciliation-copy";
 import type { IncomeReconciliationSummary, SavedDecisionView } from "@/lib/tax-rules/income-reconciliation-response";
@@ -373,6 +374,7 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
                         <span>
                           <span className="block font-medium text-foreground">{optionLabel(type)}</span>
                           <span className="block leading-relaxed text-muted-foreground">{DECISION_HELP[type]}</span>
+                          {disallowed ? <span className="block leading-relaxed text-muted-foreground">{SAME_DISABLED_NEC}</span> : null}
                         </span>
                       </label>
                     );

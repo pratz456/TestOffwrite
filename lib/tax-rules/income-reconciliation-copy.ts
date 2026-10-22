@@ -46,8 +46,34 @@ export const LEGACY_RECONFIRM_YES = 'Yes, same payments';
 export const LEGACY_RECONFIRM_CHANGE = 'No, change my answer';
 export const HONEST_CLAIM = 'Your Schedule C worksheet, built from your records.';
 
-/** Tax Watch/Coach ruling, spec update pending. Two 1099-NEC forms are not the same payments. */
-export const SAME_PAYMENTS_NEEDS_K = 'Same payments needs a 1099-K when every selected form is a 1099-NEC. Those forms are separate income. A corrected 1099-NEC replaces the original.';
+export const SEPARATE_MULTI_PREVIEW = 'Each of these {n} records counts as its own income. Total counted: {total}.';
+export const CONFIRM_SAME_TITLE = 'Count these forms once?';
+export const CONFIRM_SAME_BODY = 'Your forms report {reported}. We\'ll count {counted} on line 1.';
+export const CONFIRM_SAME_DETAIL = 'Only continue if these forms report the same payments. If a form is for different work, go back and choose separate income.';
+export const CONFIRM_SAME_YES = 'Yes, count {counted}';
+export const CONFIRM_SAME_BACK = 'Go back';
+export const CONFIRM_FORMS_REQUIRED = 'Confirm the form totals before saving. Refresh the page and try again.';
+export const COMPARE_TITLE = 'Compare the two forms';
+export const COMPARE_ROW_FORM = 'Form';
+export const COMPARE_ROW_PAYER = 'Payer';
+export const COMPARE_ROW_AMOUNT = 'Amount';
+export const COMPARE_DIFF = 'These forms differ by {diff}.';
+export const COMPARE_SAME_AMOUNT = 'These forms show the same amount. That alone doesn\'t mean they report the same payments.';
+export const ERR_SAME_NEEDS_K = 'Two 1099-NECs can\'t report the same payments. Mark each one as separate income, or record a corrected form.';
+export const SAME_DISABLED_NEC = 'Not available for 1099-NECs only. Each 1099-NEC reports different payments.';
+export const LEGACY_NEC_WARNING = 'Two 1099-NECs are separate income. Review this match.';
+export const LEGACY_NEC_REOPEN_REASON = 'Two 1099-NECs are separate income, so both count.';
+export const LEGACY_NEC_CHANGE_NOTICE = 'We used to count these two 1099-NECs once. Two 1099-NECs are separate income, so both now count, and your total and quarterly estimate may go up.';
+export const LEGACY_NEC_PRIOR_YEAR_NOTE = 'If this was on a return you already filed, the IRS explains how to correct it at irs.gov/form1040x.';
+export const DECISION_LABEL_CORRECTED = 'Count a corrected 1099-NEC in place of the original';
+export const DECISION_HELP_CORRECTED = 'Use this when a client sent you a corrected 1099-NEC. We count the corrected form and keep the original in your records without counting it.';
+export const CORRECTED_PICK_QUESTION = 'Which form is the corrected one?';
+export const CORRECTED_PREVIEW = 'We\'ll count the corrected form, {corrected}. The original, {original}, stays in your records and is not counted.';
+export const CORRECTED_ORIGINAL_BADGE = 'Original. The corrected form is counted in its place. Kept, not counted.';
+export const ERR_CORRECTED_NEEDS_TWO_NEC = 'Select exactly two 1099-NECs, the original and the corrected form, plus any deposits or direct income they report.';
+export const ERR_CORRECTED_SAME_PAYER = 'A corrected form comes from the same payer, but these forms name {payerA} and {payerB}. If the payer name was typed differently, fix it on the form first.';
+export const ERR_CORRECTED_PICK = 'Choose which form is the corrected one.';
+export const ERR_CORRECTED_SUM = 'The {kind} you selected totals {selected}, but the corrected form reports {corrected}. They must match to the cent.';
 
 /** Mockup live sum. PENDING PRATHAM OK. */
 export const LIVE_SUM_LINE = '1099-K gross {gross}, minus refunds or credits {refunds}, minus personal {personal}, minus fees {fee}, equals the business part {business}.';

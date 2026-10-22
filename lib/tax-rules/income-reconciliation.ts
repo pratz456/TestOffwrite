@@ -15,7 +15,7 @@
  */
 import {
   DECISION_LABEL_NOT_BUSINESS, ERR_NOT_BUSINESS_NEEDS_ONE_K, ERR_PARTS_EXCEED_GROSS, ERR_REASON_REQUIRED,
-  ERR_SELECT_BUSINESS_RECORDS, ERR_SUM_MISMATCH, SAME_PAYMENTS_NEEDS_K, fillIncomeCopy,
+  ERR_SAME_NEEDS_K, ERR_SELECT_BUSINESS_RECORDS, ERR_SUM_MISMATCH, fillIncomeCopy,
 } from './income-reconciliation-copy';
 
 export const INCOME_SOURCE_KINDS = ['form_1099', 'gross_receipt', 'transaction'] as const;
@@ -83,8 +83,8 @@ const publicRef = (candidate: IncomeSourceCandidate) => ({ kind: candidate.kind,
 
 /**
  * Same payments may join a 1099-K to other records, or one 1099-NEC to the deposits
- * or direct income that report it. Two or more 1099-NEC forms are separate income:
- * a corrected NEC replaces the original rather than being matched to it.
+ * or direct income that report it. Two or more 1099-NEC forms are separate income.
+ * A corrected 1099-NEC is counted in place of the original rather than matched to it.
  */
 export function samePaymentsAllowed(sources: ReadonlyArray<{ kind: IncomeSourceKind; formType?: string }>): boolean {
   const forms = sources.filter(source => source.kind === 'form_1099');
@@ -189,7 +189,7 @@ export function validateReconciliationDecision(
     // Two 1099s can report one payment stream. Duplicate receipts or deposits of one kind are
     // summed by the base rule, so they cannot be declared duplicates here.
     if (kinds.size < 2 && forms.length !== resolved.length) return { ok: false, reason: 'Select records of at least two kinds (a 1099, direct income or bank income) that describe the same payments.' };
-    if (!samePaymentsAllowed(resolved)) return { ok: false, reason: SAME_PAYMENTS_NEEDS_K };
+    if (!samePaymentsAllowed(resolved)) return { ok: false, reason: ERR_SAME_NEEDS_K };
     if (feeCents) return { ok: false, reason: 'Record platform fees with the “1099-K includes fees” decision.' };
     // An information return reports the whole payment stream; receipts and deposits may be split.
     const totals = [...forms.map(form => toCents(form.amount)), ...(receipts.length ? [sum(receipts)] : []), ...(transactions.length ? [sum(transactions)] : [])];

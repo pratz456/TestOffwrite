@@ -48,7 +48,7 @@ vi.mock('@/lib/firebase/admin', () => {
 import { DELETE, GET, PATCH, POST } from '../app/api/income/reconciliation/route';
 import { ExportReviewRequiredError } from '../lib/reports/transaction-export';
 import { ExportDataUnavailableError } from '../lib/reports/export-records';
-import { SAME_PAYMENTS_NEEDS_K, STALE_APP_REFRESH } from '../lib/tax-rules/income-reconciliation-copy';
+import { ERR_SAME_NEEDS_K, STALE_APP_REFRESH } from '../lib/tax-rules/income-reconciliation-copy';
 
 type Body = Record<string, unknown>;
 function request(method: string, { body, query = '', headers = {} }: { body?: unknown; query?: string; headers?: Record<string, string> } = {}) {
@@ -285,7 +285,7 @@ describe('explicit choice and Tax Watch save rules', () => {
     seed('income_1099', 'n2', { userId: 'owner-a', taxYear: 2026, amount: 12000, formType: '1099-NEC', payerName: 'Client B' });
     const rejected = await json(await POST(request('POST', { body: samePayments([ref('form_1099', 'n1', 12000), ref('form_1099', 'n2', 12000)]) })));
     expect(rejected.status).toBe(400);
-    expect(rejected.body.error).toBe(SAME_PAYMENTS_NEEDS_K);
+    expect(rejected.body.error).toBe(ERR_SAME_NEEDS_K);
     expect(state.writes).toEqual([]);
     const saved = await json(await POST(request('POST', { body: { taxYear: 2026, decision: 'separate_income', explicitChoice: true, sources: [ref('form_1099', 'n1', 12000), ref('form_1099', 'n2', 12000)] } })));
     expect(saved.status).toBe(201);

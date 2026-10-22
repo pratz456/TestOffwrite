@@ -10,7 +10,7 @@ import {
 } from '../lib/tax-rules/income-reconciliation';
 import {
   ERR_NOT_BUSINESS_NEEDS_ONE_K, ERR_PARTS_EXCEED_GROSS, ERR_REASON_REQUIRED, ERR_SELECT_BUSINESS_RECORDS, NO_FORM_NO_INCOME, OUTSIDE_SC_NOTE,
-  PANEL_FORMS_NOTE, SAME_PAYMENTS_NEEDS_K, fillIncomeCopy,
+  ERR_SAME_NEEDS_K, PANEL_FORMS_NOTE, fillIncomeCopy,
 } from '../lib/tax-rules/income-reconciliation-copy';
 import * as incomeCopy from '../lib/tax-rules/income-reconciliation-copy';
 import { summarizeIncomeReconciliation } from '../lib/tax-rules/income-reconciliation-response';
@@ -371,7 +371,7 @@ describe('Tax Watch same-payments and separate-income rulings', () => {
     const { candidates } = listIncomeSourceCandidates(2026, [], [], forms);
     const byKey = new Map(candidates.map(candidate => [sourceKey(candidate), candidate]));
     const rejected = validateReconciliationDecision(decision('d1', 'same_payments', sources), byKey);
-    expect(rejected).toEqual({ ok: false, reason: SAME_PAYMENTS_NEEDS_K });
+    expect(rejected).toEqual({ ok: false, reason: ERR_SAME_NEEDS_K });
     expect(() => reconcileBusinessIncome(2026, [], [], forms, [decision('d1', 'same_payments', sources)])).toThrow(IncomeReconciliationRequiredError);
     const counted = reconcileBusinessIncome(2026, [], [], forms, [decision('d1', 'separate_income', sources)]);
     expect(counted.grossReceipts).toBe(24000);

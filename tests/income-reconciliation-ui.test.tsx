@@ -33,15 +33,19 @@ vi.mock('react', async importOriginal => {
   };
   return { ...actual, ...hooks, default: { ...actual.default, ...hooks } };
 });
+import { IncomeReconciliationExportCard } from '../components/income-reconciliation-export-card';
 import { IncomeReconciliationPanel } from '../components/income-reconciliation-panel';
 import { TaxPreviewScreen } from '../components/tax-preview-screen';
 import { incomeScreenTab, incomeScreenYear } from '../components/income-tracking-screen';
 import { protectedScreenUrl } from '../lib/navigation/protected-screens';
 import { prepareReconciliationDecision, summarizeIncomeReconciliation, type IncomeSourceRecords } from '../lib/tax-rules/income-reconciliation-response';
 import {
+  CORRECTED_ORIGINAL_BADGE, CORRECTED_PICK_QUESTION, CORRECTED_PREVIEW, DECISION_HELP_CORRECTED, DECISION_LABEL_CORRECTED,
   DECISION_LABEL_NOT_BUSINESS, ERR_REASON_AMOUNT, GUIDE_ANSWER_APP, GUIDE_ANSWER_BANK, GUIDE_HINT_APP, GUIDE_HINT_BANK,
   GUIDE_QUESTION, LEGACY_RECONFIRM_BODY, LEGACY_RECONFIRM_CHANGE, LEGACY_RECONFIRM_YES, NO_CHOICE_YET, NO_FORM_NO_INCOME, PANEL_FORMS_NOTE,
+  SAME_DISABLED_NEC,
 } from '../lib/tax-rules/income-reconciliation-copy';
+import * as incomeCopy from '../lib/tax-rules/income-reconciliation-copy';
 import type { IncomeRecord } from '../lib/tax-rules/business-income';
 
 type Element = ReactElement<Record<string, any>>;
@@ -424,6 +428,7 @@ describe('reconciliation choice, guide question and Tax Watch rulings', () => {
     check(render(panel), '1099-NEC · Client B $12,000.00');
     const blocked = render(panel);
     expect(radios(blocked).find(node => node.props.value === 'same_payments')!.props.disabled).toBe(true);
+    expect(text(blocked)).toContain(SAME_DISABLED_NEC);
     radio(blocked, 'separate_income');
     await submit(render(panel));
     const posts = harness.request.mock.calls.filter(([, init]) => init?.method === 'POST');
@@ -432,4 +437,52 @@ describe('reconciliation choice, guide question and Tax Watch rulings', () => {
     expect(text(render(panel))).toContain('$24,000.00');
     expect(text(render(panel))).not.toContain('on hold');
   });
+
+  it('R-77 copy_never_says_replace', async () => {
+    const table = [
+      DECISION_LABEL_CORRECTED, DECISION_HELP_CORRECTED, CORRECTED_PREVIEW, CORRECTED_PICK_QUESTION, CORRECTED_ORIGINAL_BADGE,
+      ...Object.values(incomeCopy).filter((value): value is string => typeof value === 'string'),
+    ];
+    expect(DECISION_LABEL_CORRECTED).toBe('Count a corrected 1099-NEC in place of the original');
+    expect(CORRECTED_ORIGINAL_BADGE).toBe('Original. The corrected form is counted in its place. Kept, not counted.');
+    for (const value of table) {
+      expect(value).not.toMatch(/replace/i);
+      expect(value).not.toContain('corrected_form_replaces');
+      if (/schedule 1/i.test(value)) {
+        expect(value).toContain('2026 draft');
+        expect(value).toContain('final 2025');
+        expect(value).not.toMatch(/line \d|box \d/i);
+      }
+    }
+    const surfaces: unknown[] = [];
+    render(panel); await flush();
+    surfaces.push(render(panel));
+    records.receipts = [];
+    records.forms = [form('n1', 12000, '1099-NEC', 'Client A'), form('n2', 12000, '1099-NEC', 'Client B')];
+    harness.slots = [];
+    render(panel); await flush();
+    check(render(panel), '1099-NEC · Client A $12,000.00');
+    check(render(panel), '1099-NEC · Client B $12,000.00');
+    surfaces.push(render(panel));
+    surfaces.push(IncomeReconciliationExportCard({
+      conflicts: [{ message: 'This tax year has more than one 1099 and at least one has no reconciliation decision.', sources: [{ label: '1099-NEC · Client A', amount: 12000 }, { label: '1099-NEC · Client B', amount: 12000 }] }],
+      onReconcile() {},
+      onRetry() {},
+    }));
+    const rendered = surfaces.flatMap(visibleCopy);
+    expect(rendered.some(value => /replace/i.test(value))).toBe(false);
+    expect(rendered.some(value => value.includes('corrected_form_replaces'))).toBe(false);
+    expect(rendered.join('\n')).toContain(SAME_DISABLED_NEC);
+    expect(rendered.join('\n')).toContain(DECISION_LABEL_NOT_BUSINESS);
+  });
 });
+
+function visibleCopy(node: unknown): string[] {
+  if (Array.isArray(node)) return node.flatMap(visibleCopy);
+  if (node && typeof node === 'object') {
+    const props = (node as { props?: Record<string, unknown> }).props ?? {};
+    const own = Object.values(props).filter((value): value is string => typeof value === 'string');
+    return [...own, ...visibleCopy(props.children)];
+  }
+  return typeof node === 'string' ? [node] : [];
+}
