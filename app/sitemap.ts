@@ -1,45 +1,14 @@
 import type { MetadataRoute } from "next";
-import { getListedPosts } from "@/lib/blog";
-import { isNoindexBlogSlug } from "@/lib/blog-hotfix";
+import { getAllPosts } from "@/lib/blog";
+import { buildPublicSitemap } from "@/lib/public-sitemap";
 
-export const dynamic = 'force-dynamic';
+// Build the URL list while content/blog is on disk. Firebase's server bundle
+// does not include that directory for a request-time read, which dropped every
+// post from the live sitemap. outputFileTracingIncludes still ships the files
+// if this route is executed again on the server.
+export const dynamic = "force-static";
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const baseUrl =
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    "http://localhost:3000";
-  const now = new Date();
-
-  // Keep sitemap focused on indexable marketing/content URLs for better crawl efficiency.
-  const staticPages: MetadataRoute.Sitemap = [
-    { url: baseUrl, lastModified: now, changeFrequency: "weekly", priority: 1 },
-    { url: `${baseUrl}/welcome`, lastModified: now, changeFrequency: "weekly", priority: 0.9 },
-    { url: `${baseUrl}/blog`, lastModified: now, changeFrequency: "weekly", priority: 0.9 },
-    { url: `${baseUrl}/resources/freelance-expense-reset`, lastModified: now, changeFrequency: "monthly", priority: 0.75 },
-    { url: `${baseUrl}/contact`, lastModified: now, changeFrequency: "monthly", priority: 0.7 },
-    { url: `${baseUrl}/help`, lastModified: now, changeFrequency: "monthly", priority: 0.7 },
-    { url: `${baseUrl}/help-support`, lastModified: now, changeFrequency: "monthly", priority: 0.6 },
-    { url: `${baseUrl}/about`, lastModified: now, changeFrequency: "monthly", priority: 0.6 },
-    { url: `${baseUrl}/privacy`, lastModified: now, changeFrequency: "yearly", priority: 0.4 },
-    { url: `${baseUrl}/terms`, lastModified: now, changeFrequency: "yearly", priority: 0.4 },
-    { url: `${baseUrl}/tools`, lastModified: now, changeFrequency: "weekly", priority: 0.85 },
-    { url: `${baseUrl}/tools/se-tax-calculator`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
-    { url: `${baseUrl}/tools/1099-tax-calculator`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
-    { url: `${baseUrl}/tools/quarterly-estimate-calculator`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
-  ];
-
-  const blogPosts: MetadataRoute.Sitemap = getListedPosts()
-    .filter((post) => !isNoindexBlogSlug(post.slug))
-    .map((post) => {
-      const parsedDate = post.date ? new Date(post.date) : now;
-      const lastModified = Number.isNaN(parsedDate.getTime()) ? now : parsedDate;
-      return {
-        url: `${baseUrl}/blog/${post.slug}`,
-        lastModified,
-        changeFrequency: "monthly",
-        priority: 0.75,
-      };
-    });
-
-  return [...staticPages, ...blogPosts];
+  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+  return buildPublicSitemap(getAllPosts(), baseUrl);
 }

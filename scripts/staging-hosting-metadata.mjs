@@ -3,8 +3,8 @@ import { readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 // Firebase Functions intercepts /robots.txt before Next handles the request.
-// Generate a Hosting asset after the framework build, without adding a public
-// file that conflicts with app/robots.ts during Next's build.
+// Production serves public/robots.txt. This hook replaces that copied file in
+// the staging Hosting output so the testing site stays disallowed.
 const configIndex = process.argv.indexOf('--config');
 assert.ok(configIndex >= 0 && process.argv[configIndex + 1], 'Pass the staging Firebase config');
 const configPath = path.resolve(process.argv[configIndex + 1]);
