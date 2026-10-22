@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
       const ref = await adminDb.collection('tax_organizers').add(data);
       return NextResponse.json({ success: true, id: ref.id }, { status: 201, headers: privateHeaders });
     }
-    // A save stores an older collected identifier in the current format. Retired fields and notes are not part of that patch.
+    // A save stores every older identifier in the current format. Notes and other answers are not part of that patch.
     const formatPatch = identifierFormatPatch(readOrganizerIdentifiers(previous));
     const nextAnswers = { ...formatPatch, ...encrypted.answers };
     // Unchanged masked read: do not merge a new timestamp over the stored bytes.

@@ -1,23 +1,23 @@
 import { encryptSensitive } from '@/lib/security/utils';
 import {
-  isRetiredOrganizerIdentifier, normalizeOrganizerIdentifier, organizerIdentifierKind,
+  normalizeOrganizerIdentifier, organizerIdentifierKind,
   readOrganizerIdentifiers, type OrganizerIdentifierRead,
 } from './identifiers';
 
 interface OrganizerDocumentRef { set(data: Record<string, unknown>, options: { merge: boolean }): Promise<unknown> }
 interface OrganizerDocument { data(): Record<string, unknown>; ref?: OrganizerDocumentRef }
 
-/** Identifier fields still collected, rewritten into the current format. Retired fields, notes and other answers stay as stored. */
+/** Every identifier field, including ones the screen no longer asks for. Notes and other answers stay as stored. */
 export function identifierFormatPatch(read: OrganizerIdentifierRead): Record<string, string> {
   const patch: Record<string, string> = {};
   for (const field of read.legacyPlaintextFields) {
-    if (isRetiredOrganizerIdentifier(field)) continue;
     const kind = organizerIdentifierKind(field);
     const value = read.organizer[field];
-    if (!kind || typeof value !== 'string' || !value) continue;
-    const normalized = normalizeOrganizerIdentifier(kind, value);
-    if ('error' in normalized) continue;
-    patch[field] = encryptSensitive(normalized.digits);
+    if (!kind || typeof value !== 'string') continue;
+    const trimmed = value.trim();
+    if (!trimmed) continue;
+    const normalized = normalizeOrganizerIdentifier(kind, trimmed);
+    patch[field] = encryptSensitive('error' in normalized ? trimmed : normalized.digits);
   }
   return patch;
 }
