@@ -3,12 +3,13 @@ import { NextRequest } from 'next/server';
 import { eligibilityOrganizer, hsaFacts } from './fixtures/eligibility';
 
 // In-memory tax_organizers collection: the real route handlers run against it.
-const state = vi.hoisted(() => ({ docs: new Map<string, Record<string, unknown>>(), sets: [] as Record<string, unknown>[], merges: [] as boolean[], failSet: false }));
+const state = vi.hoisted(() => ({ docs: new Map<string, Record<string, unknown>>(), sets: [] as Record<string, unknown>[], merges: [] as boolean[], failSet: false, setCalls: 0 }));
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({ user: { uid: 'owner' }, error: null }) }));
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collection: (name: string) => {
   if (name !== 'tax_organizers') throw new Error(`unexpected collection ${name}`);
   const filters: [string, unknown][] = [];
-  const doc = (id: string) => ({ id, data: () => ({ ...state.docs.get(id)! }), ref: { set: async (patch: Record<string, unknown>, options: { merge: boolean }) => {
+  const doc = (id: string) => ({ id, data: () => ({ ...state.docs.get(id)! }),     ref: { set: async (patch: Record<string, unknown>, options: { merge: boolean }) => {
+    state.setCalls += 1;
     if (state.failSet) throw new Error('private write failure');
     state.sets.push(patch);
     state.merges.push(options?.merge === true);
@@ -38,7 +39,7 @@ const post = (body: unknown) => POST(new NextRequest('http://localhost/api/tax/o
 const get = (year = 2026) => GET(new NextRequest(`http://localhost/api/tax/organizer?year=${year}`));
 const stored = () => [...state.docs.values()].find(doc => doc.taxYear === 2026 && doc.userId === 'owner')!;
 
-beforeEach(() => { state.docs.clear(); state.sets.length = 0; state.merges.length = 0; state.failSet = false; });
+beforeEach(() => { state.docs.clear(); state.sets.length = 0; state.merges.length = 0; state.failSet = false; state.setCalls = 0; });
 
 describe('organizer identifier set', () => {
   it('covers every identifier answer and explicit dependent identifiers, but not yes/no eligibility answers', () => {
@@ -136,7 +137,7 @@ describe('organizer route stores ciphertext and returns plaintext only to the ow
     expect(record.filingStatus).toBe('head_of_household');
     expect(state.merges).toEqual([true]);
   });
-  it('masks a legacy record on read and does not write', async () => {
+  it('masks a legacy record on read and leaves notes and retired fields unchanged', async () => {
     const before = { userId: 'owner', taxYear: 2026, ...IDENTIFIERS, dependentDetails: 'Emma Shah, 123-45-6789, 2018-03-15, Daughter' };
     state.docs.set('legacy', { ...before });
     const body = await (await get()).json();
@@ -146,8 +147,84 @@ describe('organizer route stores ciphertext and returns plaintext only to the ow
     });
     expect(body.organizer.dependentDetails).toBe('Emma Shah, ***-**-6789, 2018-03-15, Daughter');
     expect(JSON.stringify(body)).not.toMatch(SSN_SHAPED);
+    expect(Object.keys(state.sets[0]).sort()).toEqual(['ein', 'identifiersEncryptedAt']);
+    const record = state.docs.get('legacy')!;
+    expect(record.ein).not.toBe(before.ein);
+    expect(isEncrypted(String(record.ein))).toBe(true);
+    for (const field of RETIRED) expect(record[field], field).toBe(before[field]);
+    expect(record.dependentDetails).toBe(before.dependentDetails);
+  });
+  it('reading stores only the identifier in the current format', async () => {
+    const raw = '123456789';
+    state.docs.set('legacy', {
+      userId: 'owner', taxYear: 2026, ein: raw, filingStatus: 'single', spouseName: 'Pat',
+      taxpayerSSN: '900000001', dependentDetails: 'Emma Shah, 123-45-6789, Daughter',
+    });
+    const body = await (await get()).json();
+    expect(body.organizer.ein).toBe('**-***6789');
+    expect(state.merges).toEqual([true]);
+    expect(Object.keys(state.sets[0]).sort()).toEqual(['ein', 'identifiersEncryptedAt']);
+    const record = state.docs.get('legacy')!;
+    expect(record.ein).not.toBe(raw);
+    expect(isEncrypted(String(record.ein))).toBe(true);
+    expect(decryptSensitive(String(record.ein))).toBe(raw);
+    expect(record.identifiersEncryptedAt).toBeInstanceOf(Date);
+  });
+  it('a read patch omits other answers and notes', async () => {
+    const note = 'Emma Shah, 123-45-6789, Daughter';
+    state.docs.set('legacy', {
+      userId: 'owner', taxYear: 2026, ein: '123456789', filingStatus: 'single', spouseName: 'Pat',
+      taxpayerSSN: '900000001', ipPin: '123456', dependentDetails: note,
+    });
+    await get();
+    const patch = state.sets[0];
+    for (const field of ['filingStatus', 'spouseName', 'taxpayerSSN', 'ipPin', 'dependentDetails']) {
+      expect(patch, field).not.toHaveProperty(field);
+    }
+    const record = state.docs.get('legacy')!;
+    expect(record.filingStatus).toBe('single');
+    expect(record.spouseName).toBe('Pat');
+    expect(record.taxpayerSSN).toBe('900000001');
+    expect(record.ipPin).toBe('123456');
+    expect(record.dependentDetails).toBe(note);
+  });
+  it('a failed format write still returns the masked read', async () => {
+    state.docs.set('legacy', { userId: 'owner', taxYear: 2026, ein: '123456789', filingStatus: 'single', dependentDetails: 'note' });
+    state.failSet = true;
+    const response = await get();
+    expect(response.status).toBe(200);
+    expect((await response.json()).organizer.ein).toBe('**-***6789');
+    expect(state.docs.get('legacy')!.ein).toBe('123456789');
     expect(state.sets).toEqual([]);
-    expect(state.docs.get('legacy')).toEqual(before);
+    expect(state.setCalls).toBe(1);
+  });
+  it('a save stores an older identifier in the current format', async () => {
+    const note = 'Emma Shah, 123-45-6789, Daughter';
+    state.docs.set('legacy', {
+      userId: 'owner', taxYear: 2026, ein: '123456789', taxpayerSSN: '900000001', dependentDetails: note, filingStatus: 'single',
+    });
+    expect((await post({ taxYear: 2026, spouseName: 'Ada' })).status).toBe(200);
+    const record = state.docs.get('legacy')!;
+    expect(record.ein).not.toBe('123456789');
+    expect(isEncrypted(String(record.ein))).toBe(true);
+    expect(decryptSensitive(String(record.ein))).toBe('123456789');
+    expect(record.taxpayerSSN).toBe('900000001');
+    expect(record.dependentDetails).toBe(note);
+    expect(record.spouseName).toBe('Ada');
+    expect(state.merges).toEqual([true]);
+  });
+  it('an identifier already in the current format causes zero writes', async () => {
+    const ein = encryptSensitive('123456789');
+    const before = {
+      userId: 'owner', taxYear: 2026, ein, identifiersEncryptedAt: new Date('2026-01-01T00:00:00.000Z'),
+      taxpayerSSN: '900000001', dependentDetails: 'note 123-45-6789', filingStatus: 'single',
+    };
+    state.docs.set('ready', { ...before });
+    const body = await (await get()).json();
+    expect(body.organizer.ein).toBe('**-***6789');
+    expect(state.sets).toEqual([]);
+    expect(state.setCalls).toBe(0);
+    expect(state.docs.get('ready')).toEqual(before);
   });
   it('leaves a phone, a ZIP+4 and a longer reference number unchanged on read', async () => {
     const details = 'Call 555-123-4567 or 5551234567, ZIP 12345-6789, ref 123456789012, note 123-456789';

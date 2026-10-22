@@ -4,8 +4,8 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase/admin';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
-import { encryptOrganizerIdentifiers, restoreOrganizerFreeText, toOrganizerClientView, withoutRetiredOrganizerIdentifiers, withoutUneditedMaskedText } from '@/lib/tax-organizer/identifiers';
-import { readOrganizerDocument } from '@/lib/tax-organizer/organizer-server';
+import { encryptOrganizerIdentifiers, readOrganizerIdentifiers, restoreOrganizerFreeText, toOrganizerClientView, withoutRetiredOrganizerIdentifiers, withoutUneditedMaskedText } from '@/lib/tax-organizer/identifiers';
+import { identifierFormatPatch, readOrganizerDocument } from '@/lib/tax-organizer/organizer-server';
 import { readEligibilityFacts } from '@/lib/tax-rules/eligibility';
 
 const privateHeaders = { 'Cache-Control': 'private, no-store' };
@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
     const snap = await adminDb.collection('tax_organizers').where('userId', '==', user.uid).where('taxYear', '==', year).limit(1).get();
     if (snap.empty) return NextResponse.json({ organizer: null, taxYear: year }, { headers: privateHeaders });
     const doc = snap.docs[0];
-    // Return the owner's editable values. This read does not write.
+    // Return the owner's editable values. Identifier fields still collected are stored in the current format.
     const organizer = toOrganizerClientView(await readOrganizerDocument(doc));
     return NextResponse.json({ organizer: { ...organizer, id: doc.id }, taxYear: year }, { headers: privateHeaders });
   } catch {
@@ -70,11 +70,20 @@ export async function POST(request: NextRequest) {
       const ref = await adminDb.collection('tax_organizers').add(data);
       return NextResponse.json({ success: true, id: ref.id }, { status: 201, headers: privateHeaders });
     }
+    // A save stores an older collected identifier in the current format. Retired fields and notes are not part of that patch.
+    const formatPatch = identifierFormatPatch(readOrganizerIdentifiers(previous));
+    const nextAnswers = { ...formatPatch, ...encrypted.answers };
     // Unchanged masked read: do not merge a new timestamp over the stored bytes.
-    if (Object.keys(encrypted.answers).length === 0) {
+    if (Object.keys(nextAnswers).length === 0) {
       return NextResponse.json({ success: true, id: snap.docs[0].id }, { headers: privateHeaders });
     }
-    const data = { ...encrypted.answers, userId: user.uid, taxYear: year, updatedAt: new Date() };
+    const data = {
+      ...nextAnswers,
+      userId: user.uid,
+      taxYear: year,
+      updatedAt: new Date(),
+      ...(Object.keys(formatPatch).length > 0 ? { identifiersEncryptedAt: new Date() } : {}),
+    };
     await snap.docs[0].ref.set(data, { merge: true });
     return NextResponse.json({ success: true, id: snap.docs[0].id }, { headers: privateHeaders });
   } catch {
