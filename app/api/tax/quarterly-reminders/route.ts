@@ -22,6 +22,7 @@ import {
   type QuarterlyPlannerResponse, type RecordedEstimatedPayment,
 } from '@/lib/tax-provider/quarterly-planner';
 import { QUARTERLY_REVIEW_MESSAGE, QuarterlyReviewRequiredError } from '@/lib/tax-provider/regular-estimated-payments';
+import { INSTALLMENT_SHARE } from '@/lib/tax-rules/estimated-tax-safe-harbor';
 
 const REVIEW_QUARTER = { recommended: null, status: 'review_required' } as const;
 
@@ -66,7 +67,10 @@ export async function GET(request: NextRequest) {
       try {
         planner = buildQuarterlyPlan({
           ...resolution.facts, payments: recorded, asOf,
-          assumptions: recorded.length ? ['Each quarter\'s recorded total is treated as paid on the most recent payment date saved for that quarter.'] : [],
+          assumptions: [
+            ...resolution.facts.assumptions,
+            ...(recorded.length ? ['Each quarter\'s recorded total is treated as paid on the most recent payment date saved for that quarter.'] : []),
+          ],
         });
       } catch (plannerError) {
         if (!(plannerError instanceof QuarterlyReviewRequiredError)) throw plannerError;
@@ -110,7 +114,7 @@ export async function GET(request: NextRequest) {
       perQuarterRecommended: ready?.nextDue?.installmentOnly ?? null,
       remainingTarget: ready ? ready.totals.remainingEstimatedPayments : null,
       safeHarborTotal: ready ? ready.requiredAnnualPayment.requiredAnnualPayment : null,
-      safeHarborPerQuarter: ready ? Math.round(ready.requiredAnnualPayment.requiredAnnualPayment * 25) / 100 : null,
+      safeHarborPerQuarter: ready ? Math.round(ready.requiredAnnualPayment.requiredAnnualPayment * 100 * INSTALLMENT_SHARE) / 100 : null,
       safeHarborBasis: ready ? ready.requiredAnnualPayment.basis : null,
       usingPriorYearSafeHarbor: ready ? ready.requiredAnnualPayment.basis !== 'current_year_90' : false,
       // Timing sufficiency and penalties are never asserted; see planner.underpaymentInterestIllustration.

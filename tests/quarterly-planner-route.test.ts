@@ -37,8 +37,6 @@ beforeEach(() => {
 describe('quarterly summary keeps the review response until every planner fact is saved', () => {
   it.each([
     ['no prior-year facts', {}, ['prior_return_twelve_months', 'prior_year_total_tax', 'prior_year_agi']],
-    ['12-month answer only', { priorReturnCoveredTwelveMonths: 'yes' }, ['prior_year_total_tax', 'prior_year_agi']],
-    ['prior tax without AGI', { priorReturnCoveredTwelveMonths: 'yes', priorYearTax: '10000' }, ['prior_year_agi']],
     ['prior tax and AGI without the 12-month answer', { priorYearTax: '10000', priorYearAGI: '100000' }, ['prior_return_twelve_months']],
   ])('lists the missing facts when the organizer has %s', async (_label, facts, missing) => {
     state.records.tax_organizers = [organizer(facts)];
@@ -56,10 +54,25 @@ describe('quarterly summary keeps the review response until every planner fact i
     const result = await (await quarterly(req())).json();
     expect(result.planner.status).toBe('review_required'); expect(result.paymentReview.missingFacts.map((fact: { key: string }) => fact.key)).toEqual(['prior_return_twelve_months']);
   });
-  it('requires saved current-year income before comparing against the 90% target', async () => {
+  it('plans from a complete prior-year path when no current-year income is saved', async () => {
     state.tx = [];
     const result = await (await quarterly(req())).json();
-    expect(result.planner.status).toBe('review_required'); expect(result.paymentReview.missingFacts.map((fact: { key: string }) => fact.key)).toEqual(['current_year_estimate']);
+    expect(result.planner.status).toBe('ready');
+    expect(result.planner.requiredAnnualPayment).toMatchObject({
+      basis: 'prior_year_100', currentYearTax: null, ninetyPercentOfCurrentYear: null, currentYearCompared: false,
+      deMinimis: { applies: false, evaluated: false, taxLessWithholding: null },
+    });
+    expect(result.planner.requiredAnnualPayment.requiredAnnualPayment).toBe(10000);
+    expect(result.safeHarborBasis).toBe('prior_year_100');
+  });
+  it('uses 90% when the 12-month answer is yes, a prior fact is missing, and income exists', async () => {
+    state.records.tax_organizers = [organizer({ priorReturnCoveredTwelveMonths: 'yes', priorYearTax: '10000' })];
+    const result = await (await quarterly(req())).json();
+    expect(result.planner.status).toBe('ready');
+    expect(result.planner.requiredAnnualPayment.basis).toBe('current_year_90');
+    expect(result.planner.requiredAnnualPayment.priorYear).toBeNull();
+    expect(result.planner.assumptions.join(' ')).toContain('Prior-year facts are incomplete');
+    expect(result.planner.assumptions.join(' ')).toContain('adjusted gross income');
   });
 });
 

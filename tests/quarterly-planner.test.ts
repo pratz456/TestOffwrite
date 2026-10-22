@@ -122,7 +122,7 @@ describe('required annual payment (Form 2210 Part I / Pub 505 Worksheet 2-1)', (
   });
   it('applies the $1,000 de minimis rule strictly below $1,000 of tax less withholding', () => {
     const under = calculateRequiredAnnualPayment({ ...base, currentYearTax: 5999.99, withholding: 5000, priorYear: noPrior });
-    expect(under.deMinimis).toEqual({ threshold: 1000, taxLessWithholding: 999.99, applies: true }); expect(under.estimatedPaymentsRequired).toBe(0);
+    expect(under.deMinimis).toEqual({ threshold: 1000, taxLessWithholding: 999.99, applies: true, evaluated: true }); expect(under.estimatedPaymentsRequired).toBe(0);
     const at = calculateRequiredAnnualPayment({ ...base, currentYearTax: 6000, withholding: 5000, priorYear: noPrior });
     expect(at.deMinimis.applies).toBe(false); expect(at.estimatedPaymentsRequired).toBe(400);
   });
@@ -363,7 +363,7 @@ describe('fact resolution from saved records', () => {
     const result = resolveQuarterlyPlannerFacts({ taxYear: 2026, annual: { ...annual, totalIncome: 0 }, profile: {}, organizer: {}, deductions: null });
     expect(result.status).toBe('review_required');
     if (result.status !== 'review_required') throw new Error('expected review');
-    expect(result.missingFacts.map(fact => fact.key)).toEqual(['filing_status', 'current_year_estimate', 'prior_return_twelve_months', 'prior_year_total_tax', 'prior_year_agi']);
+    expect(result.missingFacts.map(fact => fact.key)).toEqual(['filing_status', 'prior_return_twelve_months', 'prior_year_total_tax', 'prior_year_agi', 'current_year_estimate']);
     expect(result.missingFacts.find(fact => fact.key === 'prior_year_agi')?.enterAt.map(item => item.href)).toEqual(['/protected?screen=tax-organizer', '/protected?screen=deductions-entry']);
     expect(result.notes.join(' ')).toContain('Saved transactions alone do not establish an amount due');
   });
@@ -381,8 +381,10 @@ describe('fact resolution from saved records', () => {
   });
   it('treats the Deductions API default of 0 as not entered while honoring an explicit organizer 0', () => {
     const blank = resolveQuarterlyPlannerFacts({ taxYear: 2026, annual, profile: { filing_status: 'Single' }, organizer: { priorReturnCoveredTwelveMonths: 'yes' }, deductions: { priorYearTotalTax: 0, priorYearAGI: 0 } });
-    expect(blank.status).toBe('review_required'); if (blank.status !== 'review_required') throw new Error('expected review');
-    expect(blank.missingFacts.map(fact => fact.key)).toEqual(['prior_year_total_tax', 'prior_year_agi']);
+    expect(blank.status).toBe('ready'); if (blank.status !== 'ready') throw new Error('expected ready');
+    expect(blank.facts.priorYear).toEqual({ available: false, reason: 'prior_year_facts_missing' });
+    expect(blank.facts.currentYearTax).toBe(20000);
+    expect(blank.facts.assumptions.join(' ')).toContain('2025 total tax');
     const explicit = resolveQuarterlyPlannerFacts({ taxYear: 2026, annual, profile: { filing_status: 'Single' }, organizer: { priorReturnCoveredTwelveMonths: 'yes', priorYearTax: '0', priorYearAGI: '0' }, deductions: { priorYearTotalTax: 0, priorYearAGI: 0 } });
     expect(explicit.status).toBe('ready'); if (explicit.status !== 'ready') throw new Error('expected ready');
     expect(explicit.facts.priorYear).toEqual({ available: true, totalTax: 0, agi: 0, coveredTwelveMonths: true });
@@ -397,10 +399,16 @@ describe('fact resolution from saved records', () => {
     expect(result.status).toBe('ready'); if (result.status !== 'ready') throw new Error('expected ready');
     expect(result.facts.priorYear).toEqual({ available: false, reason: 'short_year_or_no_return' }); expect(result.facts.assumptions.join(' ')).toContain('did not cover 12 months');
   });
-  it('still requires prior-year tax and AGI when only the 12-month answer is saved', () => {
+  it('uses the 90% path when the 12-month answer is yes, prior facts are missing, and income exists', () => {
     const result = resolveQuarterlyPlannerFacts({ taxYear: 2026, annual, profile: { filing_status: 'Single' }, organizer: { priorReturnCoveredTwelveMonths: 'yes' }, deductions: {} });
+    expect(result.status).toBe('ready'); if (result.status !== 'ready') throw new Error('expected ready');
+    expect(result.facts.priorYear).toEqual({ available: false, reason: 'prior_year_facts_missing' });
+    expect(result.facts.assumptions.join(' ')).toContain('Prior-year facts are incomplete');
+  });
+  it('still lists prior-year tax, AGI, and the current-year estimate when income is missing', () => {
+    const result = resolveQuarterlyPlannerFacts({ taxYear: 2026, annual: { ...annual, totalIncome: 0 }, profile: { filing_status: 'Single' }, organizer: { priorReturnCoveredTwelveMonths: 'yes' }, deductions: {} });
     expect(result.status).toBe('review_required'); if (result.status !== 'review_required') throw new Error('expected review');
-    expect(result.missingFacts.map(fact => fact.key)).toEqual(['prior_year_total_tax', 'prior_year_agi']);
+    expect(result.missingFacts.map(fact => fact.key)).toEqual(['prior_year_total_tax', 'prior_year_agi', 'current_year_estimate']);
   });
   it('flags a filing-status mismatch between Profile and Tax Organizer as an assumption', () => {
     const result = resolveQuarterlyPlannerFacts({ taxYear: 2026, annual, profile: { filing_status: 'Single' }, organizer: { ...organizer, filingStatus: 'married_filing_jointly' }, deductions: {} });

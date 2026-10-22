@@ -45,6 +45,17 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllEnvs());
 
+describe('first-run planner card marker', () => {
+  it('saves dismissed or completed and rejects any other value', async () => {
+    expect((await POST(request({ firstRunPlannerCard: 'dismissed' }))).status).toBe(200);
+    expect(model.stored.firstRunPlannerCard).toBe('dismissed');
+    expect((await POST(request({ firstRunPlannerCard: 'completed' }))).status).toBe(200);
+    expect(model.stored.firstRunPlannerCard).toBe('completed');
+    expect((await POST(request({ firstRunPlannerCard: 'yes' }))).status).toBe(400);
+    expect(model.stored.firstRunPlannerCard).toBe('completed');
+  });
+});
+
 describe('legacy profile EIN migration', () => {
   it.each(['', '   ', null, false, 123, { invalid: true }])('clears legacy %j so owner profile reads are no longer denied by the EIN field guard', async legacy => {
     model.stored.ein = legacy;

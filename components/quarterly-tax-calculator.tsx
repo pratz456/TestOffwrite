@@ -21,7 +21,11 @@ const recordedLabel = (amountPaid: number) => amountPaid > 0 ? `Payment recorded
 
 function basisSummary(plan: QuarterlyPlan): string {
   const required = plan.requiredAnnualPayment;
-  if (required.basis === 'current_year_90') return `90% of the ${plan.taxYear} federal estimate (${money(required.ninetyPercentOfCurrentYear)})`;
+  if (required.basis === 'current_year_90') {
+    return required.ninetyPercentOfCurrentYear == null
+      ? `90% of the ${plan.taxYear} federal estimate`
+      : `90% of the ${plan.taxYear} federal estimate (${money(required.ninetyPercentOfCurrentYear)})`;
+  }
   return `${required.basis === 'prior_year_110' ? '110%' : '100%'} of ${plan.taxYear - 1} tax (${money(required.priorYear?.target ?? 0)})`;
 }
 
@@ -99,8 +103,10 @@ export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyT
         {nextDueSection(plan)}
         <div className="rounded-lg border p-3 text-sm">
           <h3 className="font-semibold">Safe-harbor basis used: {basisSummary(plan)}</h3>
-          <p className="mt-1">Required annual payment {money(required.requiredAnnualPayment)} = lesser of 90% of the {year} estimate ({money(required.ninetyPercentOfCurrentYear)}) and {required.priorYear ? `${required.priorYear.multiplier === 1.1 ? '110%' : '100%'} of ${year - 1} tax (${money(required.priorYear.target)}; ${year - 1} AGI ${money(required.priorYear.agi)} vs. ${money(required.priorYear.agiThreshold)} threshold)` : `the prior-year target (unavailable: the ${year - 1} return did not cover 12 months)`}.</p>
-          <p className="mt-1">Withholding credited {money(required.withholding)} · estimated payments planned for the year {money(required.estimatedPaymentsRequired)}{required.deMinimis.applies && ` · tax less withholding ${money(required.deMinimis.taxLessWithholding)} is under $1,000, so no estimated payments are required by the regular method`}.</p>
+          <p className="mt-1">{required.ninetyPercentOfCurrentYear == null
+            ? `Required annual payment ${money(required.requiredAnnualPayment)} uses the prior-year safe harbor because this year's estimate is not available to compare${required.priorYear ? ` (${required.priorYear.multiplier === 1.1 ? '110%' : '100%'} of ${year - 1} tax ${money(required.priorYear.target)}; ${year - 1} AGI ${money(required.priorYear.agi)} vs. ${money(required.priorYear.agiThreshold)} threshold)` : ''}.`
+            : `Required annual payment ${money(required.requiredAnnualPayment)} = lesser of 90% of the ${year} estimate (${money(required.ninetyPercentOfCurrentYear)}) and ${required.priorYear ? `${required.priorYear.multiplier === 1.1 ? '110%' : '100%'} of ${year - 1} tax (${money(required.priorYear.target)}; ${year - 1} AGI ${money(required.priorYear.agi)} vs. ${money(required.priorYear.agiThreshold)} threshold)` : `the prior-year target (unavailable: the ${year - 1} return did not cover 12 months)`}.`}</p>
+          <p className="mt-1">Withholding credited {money(required.withholding)} · estimated payments planned for the year {money(required.estimatedPaymentsRequired)}{required.deMinimis.applies && required.deMinimis.taxLessWithholding != null && ` · tax less withholding ${money(required.deMinimis.taxLessWithholding)} is under $1,000, so no estimated payments are required by the regular method`}.</p>
         </div>
       </> : <>
         <div role="note" className="rounded-lg border p-3"><h2 className="font-semibold">Payment amount needs review</h2><p className="mt-1 text-sm">{data.paymentReview.message}</p>
