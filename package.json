@@ -82,7 +82,7 @@
     "js-yaml": "4.3.2",
     "lucide-react": "^0.511.0",
     "mailparser": "3.9.28",
-    "next": "^15.1.4",
+    "next": "15.5.28",
     "next-themes": "^0.4.6",
     "node-fetch": "^3.3.2",
     "openai": "^5.11.0",
@@ -117,7 +117,7 @@
     "archiver": "^6.0.1",
     "autoprefixer": "^10.4.20",
     "eslint": "^9",
-    "eslint-config-next": "^15.1.4",
+    "eslint-config-next": "15.5.28",
     "firebase-tools": "^14.15.1",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
@@ -133,10 +133,13 @@
     "cookie": ">=0.7.0",
     "js-yaml": "$js-yaml",
     "next": {
-      "postcss": "8.5.28"
+      "postcss": "8.5.28",
+      "sharp": ">=0.35.5"
     },
     "@rollup/plugin-terser": {
       "serialize-javascript": "7.0.7"
-    }
+    },
+    "proxy-addr": "2.0.8",
+    "sharp": ">=0.35.5"
   }
 }
