@@ -12,7 +12,9 @@
  * Apply also requires `--confirm` equal to that same project id. Before each
  * organizer write, the current field values are saved in
  * `tax_organizer_identifier_backups` with the existing helpers. The organizer
- * update merges the fields from `legacyIdentifierPatch` and `identifiersEncryptedAt`.
+ * update merges the fields from `legacyIdentifierPatch` and `identifiersEncryptedAt`
+ * in the same transaction as the backup. A record that changed after it was
+ * read is left as-is and counted for a later run.
  * The report and each backup document store a short fingerprint of the
  * application key. The key itself is not printed or stored.
  *
@@ -47,7 +49,13 @@ const USAGE = 'Use --project <firebase-project-id> [--apply --confirm <firebase-
 
 export interface MigrationDocSnapshot {
   exists: boolean;
+  updateTime?: unknown;
   data(): Record<string, unknown> | undefined;
+}
+
+export interface MigrationTransaction {
+  get(ref: MigrationDocRef): Promise<MigrationDocSnapshot>;
+  set(ref: MigrationDocRef, data: Record<string, unknown>, options: { merge: boolean }): void;
 }
 
 export interface MigrationDocRef {
@@ -61,6 +69,7 @@ export interface MigrationDocRef {
 export interface MigrationDoc {
   id: string;
   ref: MigrationDocRef;
+  updateTime?: unknown;
   data(): Record<string, unknown> | undefined;
 }
 
@@ -73,6 +82,7 @@ export interface MigrationQuery {
 
 export interface MigrationDb {
   collection(name: string): MigrationQuery & { doc(id: string): MigrationDocRef };
+  runTransaction<T>(work: (transaction: MigrationTransaction) => Promise<T>): Promise<T>;
 }
 
 export type MigrationMode = 'dry_run' | 'apply' | 'purge_dry_run' | 'purge' | 'mark_verified';
@@ -85,6 +95,7 @@ export interface MigrationReport {
   fieldsByType: Record<string, number>;
   notesFieldsMatched: number;
   docsUpdated: number;
+  skippedChanged: number;
   docsUnreadable: number;
   writesPerformed: boolean;
   encryptionKeyFingerprint: string;
@@ -161,6 +172,7 @@ export function formatMigrationReport(report: MigrationReport): string {
     fieldsByType,
     notesFieldsMatched: report.notesFieldsMatched,
     docsUpdated: report.docsUpdated,
+    skippedChanged: report.skippedChanged,
     docsUnreadable: report.docsUnreadable,
     writesPerformed: report.writesPerformed,
     encryptionKeyFingerprint: report.encryptionKeyFingerprint,
@@ -314,8 +326,23 @@ function storedFieldMatches(field: string, original: string, stored: Record<stri
 function emptyReport(mode: MigrationMode, projectId: string, encryptionKeyFingerprint: string): MigrationReport {
   return {
     mode, projectId, docsScanned: 0, docsNeedingUpdate: 0, fieldsByType: {}, notesFieldsMatched: 0,
-    docsUpdated: 0, docsUnreadable: 0, writesPerformed: false, encryptionKeyFingerprint,
+    docsUpdated: 0, skippedChanged: 0, docsUnreadable: 0, writesPerformed: false, encryptionKeyFingerprint,
   };
+}
+
+function timeMillis(value: unknown): number | null {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.getTime();
+  if (value && typeof value === 'object' && typeof (value as { toMillis?: unknown }).toMillis === 'function') {
+    const millis = (value as { toMillis: () => number }).toMillis();
+    return typeof millis === 'number' && !Number.isNaN(millis) ? millis : null;
+  }
+  return null;
+}
+
+function sameUpdateTime(left: unknown, right: unknown): boolean {
+  const first = timeMillis(left);
+  const second = timeMillis(right);
+  return first !== null && first === second;
 }
 
 export async function connectMigrationFirestore(projectId: string, env: NodeJS.ProcessEnv = process.env): Promise<{ db: MigrationDb; close: () => Promise<void> }> {
@@ -423,7 +450,7 @@ function backupFields(data: Record<string, unknown>): Record<string, string> | n
 }
 
 function backupMatches(data: Record<string, unknown>, organizer: Record<string, unknown>, fingerprint: string): boolean {
-  if (typeof data.encryptionKeyFingerprint === 'string' && data.encryptionKeyFingerprint !== fingerprint) return false;
+  if (typeof data.encryptionKeyFingerprint !== 'string' || data.encryptionKeyFingerprint !== fingerprint) return false;
   const fields = backupFields(data);
   if (!fields) return false;
   for (const [field, ciphertext] of Object.entries(fields)) {
@@ -507,29 +534,47 @@ export async function runMigration(options: MigrationRunOptions): Promise<Migrat
         for (const field of fields) report.fieldsByType[fieldType(field)] = (report.fieldsByType[fieldType(field)] ?? 0) + 1;
         if (!apply) continue;
         if (rateLimitMs > 0) await sleep(rateLimitMs);
-        let owner: { userId?: string };
-        let encryptedFields: Record<string, string>;
+        const docRefHash = hashDocRef(doc.ref?.path || `${ORGANIZER_COLLECTION}/${doc.id}`);
         try {
-          owner = backupOwner(data);
-          encryptedFields = encryptOriginals(data, fields);
-        } catch (error) {
-          if (error instanceof Error && error.message === 'Backup refused a document with conflicting owner fields') {
-            report.docsUnreadable += 1;
-            continue;
-          }
-          throw new Error(`Migration stopped (${hashDocRef(doc.ref?.path || `${ORGANIZER_COLLECTION}/${doc.id}`)}): Backup encryption failed. Rerun the same command; documents already migrated are skipped.`);
-        }
-        try {
-          runId ??= randomUUID();
-          await opened.db.collection(ORGANIZER_IDENTIFIER_BACKUP_COLLECTION).doc(doc.id).set({
-            encryptedFields, ...owner, backedUpAt: now(), runId, verified: false, encryptionKeyFingerprint,
-          }, { merge: true });
-          await doc.ref.set(organizerPatch(read, now()), { merge: true });
+          const outcome = await opened.db.runTransaction(async tx => {
+            const fresh = await tx.get(doc.ref);
+            if (!fresh.exists || !sameUpdateTime(fresh.updateTime, doc.updateTime)) return 'skipped' as const;
+            const freshData = fresh.data() ?? {};
+            let freshRead: OrganizerIdentifierRead;
+            try {
+              freshRead = readOrganizerIdentifiers(freshData);
+            } catch {
+              return 'unreadable' as const;
+            }
+            const freshFields = legacyFields(freshRead);
+            if (!freshFields.length) return 'skipped' as const;
+            let owner: { userId?: string };
+            let encryptedFields: Record<string, string>;
+            try {
+              owner = backupOwner(freshData);
+              encryptedFields = encryptOriginals(freshData, freshFields);
+            } catch (error) {
+              if (error instanceof Error && error.message === 'Backup refused a document with conflicting owner fields') return 'unreadable' as const;
+              throw error;
+            }
+            const id = runId ?? randomUUID();
+            tx.set(opened.db.collection(ORGANIZER_IDENTIFIER_BACKUP_COLLECTION).doc(doc.id), {
+              encryptedFields, ...owner, backedUpAt: now(), runId: id, verified: false, encryptionKeyFingerprint,
+            }, { merge: true });
+            tx.set(doc.ref, organizerPatch(freshRead, now()), { merge: true });
+            runId = id;
+            return 'updated' as const;
+          });
+          if (outcome === 'skipped') { report.skippedChanged += 1; continue; }
+          if (outcome === 'unreadable') { report.docsUnreadable += 1; continue; }
           report.docsUpdated += 1;
         } catch (error) {
           const message = error instanceof Error ? error.message : '';
+          if (message === 'Backup encryption failed') {
+            throw new Error(`Migration stopped (${docRefHash}): Backup encryption failed. Rerun the same command; documents already migrated are skipped.`);
+          }
           const safe = message.startsWith('Refusing to write') ? message : 'write failed';
-          throw new Error(`Migration stopped (${hashDocRef(doc.ref?.path || `${ORGANIZER_COLLECTION}/${doc.id}`)}): ${safe}. Rerun the same command; documents already migrated are skipped.`);
+          throw new Error(`Migration stopped (${docRefHash}): ${safe}. Rerun the same command; documents already migrated are skipped.`);
         }
       }
       if (snapshot.docs.length < pageSize) break;

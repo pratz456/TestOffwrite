@@ -21,13 +21,33 @@ function fakeDb(
   organizers: Record<string, Record<string, unknown>>,
   failOrganizerIds = new Set<string>(),
   backups: Record<string, Record<string, unknown>> = {},
+  hooks: { afterOrganizerPage?: () => void } = {},
 ) {
   const collections = new Map<string, Map<string, Record<string, unknown>>>([
     [ORGANIZER_COLLECTION, new Map(Object.entries(organizers).map(([id, data]) => [id, { ...data }]))],
     [ORGANIZER_IDENTIFIER_BACKUP_COLLECTION, new Map(Object.entries(backups).map(([id, data]) => [id, { ...data }]))],
   ]);
+  const updateTimes = new Map<string, Map<string, Date>>([
+    [ORGANIZER_COLLECTION, new Map()],
+    [ORGANIZER_IDENTIFIER_BACKUP_COLLECTION, new Map()],
+  ]);
+  let tick = Date.parse('2024-01-01T00:00:00.000Z');
+  function bump(name: string, id: string): Date {
+    tick += 1;
+    const next = new Date(tick);
+    updateTimes.get(name)!.set(id, next);
+    return next;
+  }
+  for (const [name, rows] of collections) for (const id of rows.keys()) bump(name, id);
   const writes: Write[] = [];
   const reads: string[] = [];
+  let sawOrganizerPage = false;
+  function snapshotCollections() {
+    return new Map([...collections].map(([name, rows]) => [name, new Map([...rows].map(([id, data]) => [id, { ...data }]))]));
+  }
+  function snapshotTimes() {
+    return new Map([...updateTimes].map(([name, rows]) => [name, new Map(rows)]));
+  }
   function docRef(name: string, id: string): MigrationDocRef {
     return {
       id,
@@ -38,43 +58,82 @@ function fakeDb(
         writes.push({ collection: name, id, data, merge: setOptions.merge });
         const store = collections.get(name)!;
         store.set(id, { ...(store.get(id) ?? {}), ...data });
+        bump(name, id);
       },
       async get() {
         const stored = collections.get(name)!.get(id);
-        return { exists: stored !== undefined, data: () => (stored === undefined ? undefined : { ...stored }) };
+        return {
+          exists: stored !== undefined,
+          updateTime: updateTimes.get(name)?.get(id),
+          data: () => (stored === undefined ? undefined : { ...stored }),
+        };
       },
       async delete() {
         writes.push({ collection: name, id, data: {}, merge: false });
         collections.get(name)!.delete(id);
+        updateTimes.get(name)!.delete(id);
       },
     };
   }
-  const db: MigrationDb = { collection(name: string) {
-    reads.push(name);
-    if (!collections.has(name)) throw new Error(`unexpected collection ${name}`);
-    let limitCount = Number.POSITIVE_INFINITY;
-    let afterId: string | undefined;
-    const query = {
-      orderBy() { return query; },
-      limit(count: number) { limitCount = count; return query; },
-      startAfter(cursor: unknown) {
-        afterId = typeof cursor === 'string' ? cursor : String((cursor as { id?: string }).id ?? '');
-        return query;
-      },
-      async get() {
-        const ids = [...collections.get(name)!.keys()].filter(id => afterId === undefined || id > afterId).sort();
-        const page = ids.slice(0, limitCount);
-        return {
-          empty: page.length === 0,
-          size: page.length,
-          docs: page.map(id => ({ id, ref: docRef(name, id), data: () => ({ ...collections.get(name)!.get(id)! }) })),
-        };
-      },
-      doc: (id: string) => docRef(name, id),
-    };
-    return query;
-  } };
-  return { db, writes, collections, reads };
+  const db: MigrationDb = {
+    collection(name: string) {
+      reads.push(name);
+      if (!collections.has(name)) throw new Error(`unexpected collection ${name}`);
+      let limitCount = Number.POSITIVE_INFINITY;
+      let afterId: string | undefined;
+      const query = {
+        orderBy() { return query; },
+        limit(count: number) { limitCount = count; return query; },
+        startAfter(cursor: unknown) {
+          afterId = typeof cursor === 'string' ? cursor : String((cursor as { id?: string }).id ?? '');
+          return query;
+        },
+        async get() {
+          const ids = [...collections.get(name)!.keys()].filter(id => afterId === undefined || id > afterId).sort();
+          const page = ids.slice(0, limitCount);
+          const docs = page.map(id => {
+            const frozen = { ...collections.get(name)!.get(id)! };
+            const updateTime = updateTimes.get(name)!.get(id);
+            return { id, updateTime, ref: docRef(name, id), data: () => ({ ...frozen }) };
+          });
+          if (name === ORGANIZER_COLLECTION && !sawOrganizerPage && docs.length > 0) {
+            sawOrganizerPage = true;
+            hooks.afterOrganizerPage?.();
+          }
+          return { empty: docs.length === 0, size: docs.length, docs };
+        },
+        doc: (id: string) => docRef(name, id),
+      };
+      return query;
+    },
+    async runTransaction(work) {
+      const ops: { ref: MigrationDocRef; data: Record<string, unknown>; merge: boolean }[] = [];
+      const result = await work({
+        get: ref => ref.get(),
+        set(ref, data, setOptions) { ops.push({ ref, data, merge: setOptions.merge }); },
+      });
+      const savedWrites = writes.length;
+      const savedRows = snapshotCollections();
+      const savedTimes = snapshotTimes();
+      try {
+        for (const op of ops) await op.ref.set(op.data, { merge: op.merge });
+      } catch (error) {
+        writes.splice(savedWrites);
+        collections.clear();
+        for (const [name, rows] of savedRows) collections.set(name, rows);
+        updateTimes.clear();
+        for (const [name, rows] of savedTimes) updateTimes.set(name, rows);
+        throw error;
+      }
+      return result;
+    },
+  };
+  function revise(name: string, id: string, fields: Record<string, unknown>) {
+    const store = collections.get(name)!;
+    store.set(id, { ...(store.get(id) ?? {}), ...fields });
+    bump(name, id);
+  }
+  return { db, writes, collections, reads, revise };
 }
 
 function legacyOrganizer() {
@@ -126,7 +185,7 @@ describe('organizer record maintenance', () => {
     expect(report).toEqual({
       mode: 'dry_run', projectId: PROJECT, docsScanned: 2, docsNeedingUpdate: 1,
       fieldsByType: { ssn: 2, ein: 1, redactedText: 1 }, notesFieldsMatched: 1,
-      docsUpdated: 0, docsUnreadable: 0, writesPerformed: false, encryptionKeyFingerprint: keyFingerprint(KEY),
+      docsUpdated: 0, skippedChanged: 0, docsUnreadable: 0, writesPerformed: false, encryptionKeyFingerprint: keyFingerprint(KEY),
     });
     expect(writes).toEqual([]);
     expect(collections.get(ORGANIZER_COLLECTION)!.get('legacy')).toEqual(before);
@@ -224,12 +283,11 @@ describe('organizer record maintenance', () => {
     expect(lines.join('\n')).not.toContain('owner-a');
     expect(lines.join('\n')).toContain(hashDocRef(`${ORGANIZER_COLLECTION}/legacy`));
     expect(collections.get(ORGANIZER_COLLECTION)!.get('legacy')!.taxpayerSSN).toBe(FIXTURE_ID);
-    expect(JSON.stringify(collections.get(ORGANIZER_IDENTIFIER_BACKUP_COLLECTION)!.get('legacy'))).not.toContain(FIXTURE_ID);
+    expect(collections.get(ORGANIZER_IDENTIFIER_BACKUP_COLLECTION)!.has('legacy')).toBe(false);
     failing.clear();
-    const before = writes.length;
     const report = await runMigration({ projectId: PROJECT, apply: true, confirm: PROJECT, db, ...quiet });
     expect(report.docsUpdated).toBe(1);
-    expect(writes.length).toBe(before + 2);
+    expect(writes).toHaveLength(2);
     expect(decryptSensitive(String(collections.get(ORGANIZER_COLLECTION)!.get('legacy')!.taxpayerSSN))).toBe(FIXTURE_ID);
     expect(formatMigrationReport(report)).not.toContain(FIXTURE_ID);
   });
@@ -478,5 +536,54 @@ describe('organizer record maintenance', () => {
     expect(collections.get(ORGANIZER_IDENTIFIER_BACKUP_COLLECTION)!.has('legacy')).toBe(false);
     expect(collections.get(ORGANIZER_IDENTIFIER_BACKUP_COLLECTION)!.has('other')).toBe(true);
     expect(writes.filter(write => write.collection === ORGANIZER_COLLECTION).map(write => write.id).sort()).toEqual(['legacy', 'other']);
+  });
+
+  it('leaves a live save in place when the record changes before the write', async () => {
+    const original = '900-00-0001';
+    const saved = '900-00-0099';
+    const store = fakeDb({ row: { userId: 'owner-live', taxpayerSSN: original } }, new Set(), {}, {
+      afterOrganizerPage: () => store.revise(ORGANIZER_COLLECTION, 'row', { taxpayerSSN: saved }),
+    });
+    const report = await runMigration({ projectId: PROJECT, apply: true, confirm: PROJECT, db: store.db, ...quiet });
+    const row = store.collections.get(ORGANIZER_COLLECTION)!.get('row')!;
+    expect(row.taxpayerSSN).toBe(saved);
+    expect(store.collections.get(ORGANIZER_IDENTIFIER_BACKUP_COLLECTION)!.has('row')).toBe(false);
+    expect(report.skippedChanged).toBe(1);
+    expect(report.docsUpdated).toBe(0);
+    expect(formatMigrationReport(report)).not.toContain(saved);
+    expect(formatMigrationReport(report)).not.toContain(original);
+    const again = await runMigration({ projectId: PROJECT, apply: true, confirm: PROJECT, db: store.db, ...quiet });
+    expect(again.docsUpdated).toBe(1);
+    expect(again.skippedChanged).toBe(0);
+    const converted = store.collections.get(ORGANIZER_COLLECTION)!.get('row')!;
+    const backup = store.collections.get(ORGANIZER_IDENTIFIER_BACKUP_COLLECTION)!.get('row')!;
+    expect(decryptSensitive(String(converted.taxpayerSSN))).toBe(saved);
+    expect(decryptSensitive(String((backup.encryptedFields as Record<string, string>).taxpayerSSN))).toBe(saved);
+    expect(backup.encryptionKeyFingerprint).toBe(again.encryptionKeyFingerprint);
+  });
+
+  it('fails verification when a backup has no fingerprint or a different one', async () => {
+    const original = '900-00-0007';
+    const stored = encryptSensitive(original);
+    const backedUp = encryptSensitive(original);
+    const missing = fakeDb(
+      { row: { taxpayerSSN: stored } },
+      new Set(),
+      { row: { runId: 'run-missing', verified: false, encryptedFields: { taxpayerSSN: backedUp } } },
+    );
+    const missingReport = await runMigration({ projectId: PROJECT, markVerified: 'run-missing', confirm: PROJECT, db: missing.db, ...quiet });
+    expect(missingReport).toMatchObject({ backupsChecked: 1, backupsVerified: 0, backupsFailed: 1, writesPerformed: false });
+    expect(missing.collections.get(ORGANIZER_IDENTIFIER_BACKUP_COLLECTION)!.get('row')!.verified).toBe(false);
+    const other = encryptSensitive(original);
+    const different = fakeDb(
+      { row: { taxpayerSSN: stored } },
+      new Set(),
+      { row: { runId: 'run-other', verified: false, encryptionKeyFingerprint: 'ffffffffffffffff', encryptedFields: { taxpayerSSN: other } } },
+    );
+    const differentReport = await runMigration({ projectId: PROJECT, markVerified: 'run-other', confirm: PROJECT, db: different.db, ...quiet });
+    expect(differentReport).toMatchObject({ backupsChecked: 1, backupsVerified: 0, backupsFailed: 1, writesPerformed: false });
+    expect(different.collections.get(ORGANIZER_IDENTIFIER_BACKUP_COLLECTION)!.get('row')!.verified).toBe(false);
+    expect(formatMigrationReport(missingReport)).not.toContain(original);
+    expect(formatMigrationReport(differentReport)).not.toContain(original);
   });
 });
