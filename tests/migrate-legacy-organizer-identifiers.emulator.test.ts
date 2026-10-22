@@ -109,7 +109,7 @@ async function waitForEmulator(child: ChildProcess): Promise<void> {
       },
     }));
     emulator = spawn('npx', ['--no-install', 'firebase', 'emulators:start', '--only', 'firestore', '--project', PROJECT, '--config', configPath], {
-      cwd: '/workspace',
+      cwd: process.cwd(),
       detached: true,
       env: { ...process.env, CI: '1' },
       stdio: ['ignore', 'pipe', 'pipe'],
