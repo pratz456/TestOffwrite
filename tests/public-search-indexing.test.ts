@@ -24,6 +24,7 @@ const HELD_UNTIL_TAX_CORRECTIONS = [
   'mileage-deduction-guide-2026',
   'uber-doordash-instacart-tax-guide',
   'freelancer-tax-mistakes-cost-money',
+  'irs-audit-guide-freelancers',
 ];
 
 describe('public sitemap', () => {
@@ -43,7 +44,8 @@ describe('public sitemap', () => {
       expect(entry?.lastModified).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       expect(String(entry?.lastModified)).not.toContain('2030-01-01');
     }
-    expect(published.length).toBeGreaterThan(0);
+    expect(published).toHaveLength(21);
+    expect(urls).not.toContain(`${baseUrl}/blog/irs-audit-guide-freelancers`);
   });
 
   it('omits hotfix noindex and redirect slugs, posts held for tax corrections, /welcome, and /pricing', () => {

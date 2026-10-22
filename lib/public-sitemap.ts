@@ -32,6 +32,7 @@ export const SITEMAP_EXCLUDED_BLOG_SLUGS: readonly string[] = [
   "mileage-deduction-guide-2026",
   "uber-doordash-instacart-tax-guide",
   "freelancer-tax-mistakes-cost-money",
+  "irs-audit-guide-freelancers",
 ];
 
 const STATIC_PAGES: Array<{ path: string; changeFrequency: MetadataRoute.Sitemap[number]["changeFrequency"]; priority: number }> = [
