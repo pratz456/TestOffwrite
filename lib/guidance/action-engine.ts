@@ -89,7 +89,7 @@ export function generateActionItems(
   if (transactions.length === 0) {
     items.push({
       id: 'add-first-transaction', title: 'Add your first expense',
-      description: 'Start with a manual expense and its business purpose. You can also add income from the dashboard.',
+      description: 'Start with a manual expense and its business purpose. You can also add income from the dashboard; no bank connection is required.',
       priority: 'high', category: 'setup', screen: 'add-manual-transaction', icon: 'Receipt',
     });
   }

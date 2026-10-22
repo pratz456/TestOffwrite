@@ -7,7 +7,6 @@ const files = [
   "app/opengraph-image.tsx",
   "components/landing/restored/hero-section.tsx",
   "lib/content/faq.ts",
-  "lib/guidance/action-engine.ts",
 ];
 
 describe("site-wide bank wording", () => {
