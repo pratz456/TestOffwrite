@@ -78,6 +78,16 @@ async function zip(entries: Array<{ name: string; bytes: Buffer }>) {
   });
 }
 
+/** Copy for preparer records.json. Box 12 is unreviewed, so that file drops it. The account export object is left as it is. */
+function preparerRecords(data: Awaited<ReturnType<typeof generateUserDataExport>>) {
+  const w2Income = data.taxRecords?.w2_income;
+  if (!Array.isArray(w2Income)) return data;
+  return { ...data, taxRecords: { ...data.taxRecords, w2_income: w2Income.map(record => {
+    const copy = { ...record };
+    delete copy.box12Codes;
+    return copy;
+  }) } };
+}
 /** A fixed selected-year records snapshot. It never follows receipt URLs or changes source records. */
 export async function buildPreparerPackage(uid: string, taxYear: number) {
   const [data, audit, originals] = await Promise.all([generateUserDataExport(uid, taxYear), readAuditSupportPacket(uid, taxYear), readOwnedTransactions(uid, { includeSuperseded: true })]);
@@ -117,6 +127,7 @@ export async function buildPreparerPackage(uid: string, taxYear: number) {
   const limitations = [
     'Records for preparer review, not a filed tax return, e-file submission or certification of deductibility.',
     'Only saved records are included. W-2/1099 source documents, basis, carryovers, credits and other missing facts must be supplied separately.',
+    'W-2 box 12 codes are not included because they have not been reviewed in the app; use the W-2 itself.',
     'AI recommendations are advisory. Confirmed decisions remain the user\'s saved decisions. Resolve unresolved questions before filing.',
     'Profile, assets and settings describe the current saved state; dated transaction and tax records follow the selected year.',
     'Original receipts can contain sensitive personal information. Only selected-year transaction-linked Storage originals are attached. Legacy embedded receipts and external URLs are listed as unavailable.',
@@ -128,7 +139,7 @@ export async function buildPreparerPackage(uid: string, taxYear: number) {
     completeReceiptCoverage: receipts.every(receipt => receipt.status === 'included'), unresolvedQuestions: questions.length, receipts, limitations, files: [] };
   const json = (value: unknown) => Buffer.from(JSON.stringify(sanitizeExportValue(value), null, 2));
   // Audit-support's legacy receipt links remain references; manifest maps original bytes included here.
-  entries.push({ name: 'records.json', bytes: json(data) }, { name: 'transactions.csv', bytes: Buffer.from(convertTransactionsToCSV(data.transactions)) },
+  entries.push({ name: 'records.json', bytes: json(preparerRecords(data)) }, { name: 'transactions.csv', bytes: Buffer.from(convertTransactionsToCSV(data.transactions)) },
     { name: 'audit-support.json', bytes: json(audit) }, { name: 'audit-support.csv', bytes: Buffer.from(auditSupportPacketCSV(audit)) },
     { name: 'unresolved-questions.json', bytes: json(questions) }, { name: 'receipt-status.json', bytes: json(receipts) },
     { name: 'README.txt', bytes: Buffer.from(`WRITEOFF PREPARER PACKAGE: ${taxYear}\nGenerated ${manifest.generatedAt}\n\n${manifest.receiptFiles} original receipt files included; ${manifest.receiptIssues} receipt issues; ${manifest.unresolvedQuestions} transactions with unresolved questions.\n\nRead manifest.json, receipt-status.json and unresolved-questions.json before using these records. Audit-support files describe confirmed deductions and may contain private original links; use the receipt manifest for files actually attached to this ZIP.\n\n${limitations.map(value => `- ${value}`).join('\n')}\n`) });
