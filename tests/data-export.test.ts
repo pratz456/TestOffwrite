@@ -111,6 +111,28 @@ describe('owner export source completeness and privacy', () => {
     await expect(generateUserDataExport('owner', 2026)).rejects.toBeInstanceOf(ExportReviewRequiredError);
     expect((await generateUserDataExport('owner')).transactions).toHaveLength(4);
   });
+  it('keeps W-2 box 12 codes in the account export and leaves every other field unchanged', async () => {
+    const box12Codes = [{ code: 'D', amount: 5000 }, { code: 'DD', amount: 1200 }];
+    const w2 = {
+      userId: 'owner', taxYear: 2026, employer: 'Northwind Studio', employerEIN: '12-3456789',
+      wages: 65000, federalWithheld: 8100, box1Wages: 65000, box2FederalWithheld: 8100,
+      socialSecurityWages: 65000, box3SocialSecurityWages: 65000, box4SocialSecurityWithheld: 4030,
+      medicareWages: 65000, box5MedicareWages: 65000, box6MedicareWithheld: 942.5,
+      state: 'TX', stateWages: 65000, box16StateWages: 65000, stateWithheld: 0, box17StateWithheld: 0,
+      source: 'document_import', box12Codes,
+    };
+    const form1099 = { userId: 'owner', taxYear: 2026, payerName: 'Acme Clients', nonemployeeCompensation: 4200, notes: 'January retainer', value: 5, box12Codes: [{ code: 'KEEP', amount: 9 }] };
+    state.rows.set('w2_income/current', w2);
+    state.rows.set('income_1099/current', form1099);
+    const data = await generateUserDataExport('owner', 2026);
+    const exported = data.taxRecords.w2_income[0];
+    expect(data.taxRecords.w2_income).toHaveLength(1);
+    expect(exported.box12Codes).toEqual(box12Codes);
+    expect(exported).toMatchObject(w2);
+    expect(generateDataPackage(data).json.taxRecords.w2_income[0].box12Codes).toEqual(box12Codes);
+    expect(data.taxRecords.income_1099[0]).toMatchObject(form1099);
+    expect(state.rows.get('w2_income/current')).toMatchObject({ box12Codes });
+  });
 });
 
  it('reports private unresolved bank history metadata without adding staged amounts to exported transactions', async () => {
