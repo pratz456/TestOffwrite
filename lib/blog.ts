@@ -43,6 +43,31 @@ export interface BlogPostMeta {
   readingTime: number;
   reviewedAt: string | null;
   reviewedFor: string | null;
+  /** False when frontmatter marks the post unpublished, draft, or noindex. */
+  indexable: boolean;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Unpublished, draft, and noindex posts stay renderable but are omitted from the sitemap. */
+export function blogPostIndexable(data: Record<string, unknown>): boolean {
+  if (data.published === false || data.draft === true || data.noindex === true) return false;
+  if (data.status === "draft" || data.status === "unpublished") return false;
+  if (typeof data.robots === "string" && /\bnoindex\b/i.test(data.robots)) return false;
+  if (isRecord(data.robots) && data.robots.index === false) return false;
+  return true;
+}
+
+/** Post date for sitemap lastmod. Missing or invalid dates are omitted rather than stamped with request time. */
+export function blogLastModified(date: unknown): string | undefined {
+  if (date instanceof Date && !Number.isNaN(date.getTime())) return date.toISOString().slice(0, 10);
+  if (typeof date === "string") {
+    const match = /^(\d{4}-\d{2}-\d{2})/.exec(date.trim());
+    if (match) return match[1];
+  }
+  return undefined;
 }
 
 function estimateReadingTime(text: string): number {
@@ -91,6 +116,7 @@ export function getAllPosts(): BlogPostMeta[] {
         tags: data.tags ?? [],
         readingTime: estimateReadingTime(content),
         ...readReviewFields(data),
+        indexable: blogPostIndexable(data),
       };
     })
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
