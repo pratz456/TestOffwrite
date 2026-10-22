@@ -388,10 +388,12 @@ describe('organizer screen round-trip and export boxes', () => {
 
     const afterRead = { ...stored() };
     expect(afterRead.dependentSSN).toBe(dependentSSN);
-    expect(afterRead.idKind).toEqual({ dependentSSN: 'ssn' });
+    expect(afterRead.idKind).toEqual({ dependentSSN: 'none' });
+    expect(afterRead.idKindNeedsReview).toEqual({ dependentSSN: true });
     expect(afterRead.identifiersEncryptedAt).toBeInstanceOf(Date);
     expect(JSON.stringify(afterRead.idKind)).not.toMatch(/900000003|0003/);
-    expect(Object.keys(afterRead).sort()).toEqual([...Object.keys(before), 'idKind', 'identifiersEncryptedAt'].sort());
+    expect(JSON.stringify(afterRead.idKindNeedsReview)).not.toMatch(/900000003|0003/);
+    expect(Object.keys(afterRead).sort()).toEqual([...Object.keys(before), 'idKind', 'idKindNeedsReview', 'identifiersEncryptedAt'].sort());
     for (const key of Object.keys(before)) expect(afterRead[key], key).toBe(before[key]);
 
     const unchanged = await saveOrganizer(new NextRequest('http://localhost/api/tax/organizer', { method: 'POST', body: JSON.stringify(payload) }));

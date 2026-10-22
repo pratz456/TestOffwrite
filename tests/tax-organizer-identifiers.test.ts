@@ -51,7 +51,7 @@ import { decryptSensitive, encryptSensitive, isEncrypted } from '../lib/security
 import { errorLogger } from '../lib/error-logger';
 import { identifierFormatPatch } from '../lib/tax-organizer/organizer-server';
 import {
-  encryptOrganizerIdentifiers, MASKED_NUMBER_EDIT_ERROR, maskOrganizerIdentifier,
+  dependentIdKind, encryptOrganizerIdentifiers, MASKED_NUMBER_EDIT_ERROR, maskOrganizerIdentifier,
   organizerIdentifierKind, readOrganizerIdentifiers, SSN_NOT_ACCEPTED_ERROR,
 } from '../lib/tax-organizer/identifiers';
 
@@ -268,8 +268,9 @@ describe('organizer route stores ciphertext and returns plaintext only to the ow
     });
     expect(body.organizer.dependentDetails).toBe('Emma Shah, Daughter');
     const patch = state.sets[0];
-    expect(Object.keys(patch).sort()).toEqual([...Object.keys(fields), 'idKind', 'identifiersEncryptedAt'].sort());
-    expect(patch.idKind).toEqual({ dependentSSN: 'ssn', dependent2ITIN: 'itin' });
+    expect(Object.keys(patch).sort()).toEqual([...Object.keys(fields), 'idKind', 'idKindNeedsReview', 'identifiersEncryptedAt'].sort());
+    expect(patch.idKind).toEqual({ dependentSSN: 'none', dependent2ITIN: 'itin' });
+    expect(patch.idKindNeedsReview).toEqual({ dependentSSN: true });
     for (const [field, value] of Object.entries(fields)) {
       expect(isEncrypted(String(patch[field])), field).toBe(true);
       expect(decryptSensitive(String(patch[field])), field).toBe(value);
@@ -451,7 +452,8 @@ describe('organizer route stores ciphertext and returns plaintext only to the ow
     });
     const body = await (await get()).json();
     const record = state.docs.get('pattern')!;
-    expect(record.idKind).toEqual({ dependentNumber: 'atin', dependent2Number: 'itin', dependent3Number: 'ssn', dependent4Number: 'ssn' });
+    expect(record.idKind).toEqual({ dependentNumber: 'atin', dependent2Number: 'itin', dependent3Number: 'none', dependent4Number: 'ssn' });
+    expect(record.idKindNeedsReview).toEqual({ dependent3Number: true });
     expect(decryptSensitive(String(record.dependentNumber))).toBe('900930001');
     expect(decryptSensitive(String(record.dependent2Number))).toBe('900700001');
     expect(decryptSensitive(String(record.dependent3Number))).toBe('900400001');
@@ -459,6 +461,7 @@ describe('organizer route stores ciphertext and returns plaintext only to the ow
     expect(JSON.stringify(record.idKind)).not.toMatch(/900930001|900700001|900400001|412550198/);
     expect(body.organizer.dependentNumber).toBe('***-**-0001');
     expect(body.organizer.idKind).toBeUndefined();
+    expect(body.organizer.idKindNeedsReview).toBeUndefined();
     expect(record.filingStatus).toBe('single');
   });
   it('a dependentSSN value starting with 9 and group 7 is labeled itin', async () => {
@@ -590,6 +593,95 @@ describe('organizer route stores ciphertext and returns plaintext only to the ow
     expect(record.idKind).toEqual({ dependentSSN: 'itin' });
     expect(record.idKindNeedsReview).toBeUndefined();
     expect(decryptSensitive(String(record.dependentSSN))).toBe('134220008');
+  });
+  it('an ssn field holding a 9xx value outside the ranges is labeled none and marked for review', async () => {
+    state.docs.set('ssn-none', { userId: 'owner', taxYear: 2026, filingStatus: 'single', dependentSSN: '912-40-0004' });
+    const body = await (await get()).json();
+    const record = state.docs.get('ssn-none')!;
+    expect(record.idKind).toEqual({ dependentSSN: 'none' });
+    expect(record.idKindNeedsReview).toEqual({ dependentSSN: true });
+    expect(decryptSensitive(String(record.dependentSSN))).toBe('912400004');
+    expect(JSON.stringify(record.idKind)).not.toMatch(/912400004|0004/);
+    expect(JSON.stringify(record.idKindNeedsReview)).not.toMatch(/912400004|0004/);
+    expect(body.organizer.dependentSSN).toBe('***-**-0004');
+    expect(body.organizer.idKind).toBeUndefined();
+    expect(body.organizer.idKindNeedsReview).toBeUndefined();
+    const storedOnce = structuredClone(record);
+    await get();
+    expect(state.docs.get('ssn-none')).toEqual(storedOnce);
+  });
+  it('a stored ssn label on a 9xx-7x value is reclassified to itin and marked for review', async () => {
+    const ciphertext = encryptSensitive('912750001');
+    state.docs.set('stored-7', {
+      userId: 'owner', taxYear: 2026, filingStatus: 'single',
+      dependentSSN: ciphertext, idKind: { dependentSSN: 'ssn' },
+    });
+    await get();
+    const record = state.docs.get('stored-7')!;
+    expect(record.dependentSSN).toBe(ciphertext);
+    expect(record.idKind).toEqual({ dependentSSN: 'itin' });
+    expect(record.idKindNeedsReview).toEqual({ dependentSSN: true });
+    expect(JSON.stringify(record.idKind)).not.toMatch(/912750001|0001/);
+    expect(JSON.stringify(record.idKindNeedsReview)).not.toMatch(/912750001|0001/);
+    const storedOnce = structuredClone(record);
+    await get();
+    expect(state.docs.get('stored-7')).toEqual(storedOnce);
+  });
+  it('a stored ssn label on a 9xx-4x value is reclassified to none and marked for review', async () => {
+    const ciphertext = encryptSensitive('912400004');
+    state.docs.set('stored-4', {
+      userId: 'owner', taxYear: 2026, filingStatus: 'single',
+      dependentSSN: ciphertext, idKind: { dependentSSN: 'ssn' },
+    });
+    await get();
+    const record = state.docs.get('stored-4')!;
+    expect(record.dependentSSN).toBe(ciphertext);
+    expect(record.idKind).toEqual({ dependentSSN: 'none' });
+    expect(record.idKindNeedsReview).toEqual({ dependentSSN: true });
+    expect(JSON.stringify(record.idKind)).not.toMatch(/912400004|0004/);
+    expect(JSON.stringify(record.idKindNeedsReview)).not.toMatch(/912400004|0004/);
+    const storedOnce = structuredClone(record);
+    await get();
+    expect(state.docs.get('stored-4')).toEqual(storedOnce);
+  });
+  it('a value starting with 9 is never labeled ssn', () => {
+    const fields = ['dependentSSN', 'dependent2SSN', 'dependentITIN', 'dependent2ITIN', 'dependentATIN', 'dependentNumber', 'dependent2Identifier', 'ssn', 'itin', 'atin'];
+    const values = ['912-40-0004', '912-75-0001', '901-93-0002', '900000003', '900-66-0007', '900-89-0008', '900-50-0001', '900-65-0001', '900-70-0001', '900-88-0001', '900-90-0001', '900-92-0001', '900-94-0001', '900-99-0001', '9124', '9'];
+    const choices = ['ssn', 'itin', 'atin', 'none'] as const;
+    for (const field of fields) {
+      for (const value of values) {
+        const stem = field.replace(/(?:SSN|ITIN|ATIN|Number|Identifier)$/i, '');
+        const cases: Record<string, unknown>[] = [
+          {},
+          ...choices.map(choice => ({ idKind: choice })),
+          ...choices.map(choice => ({ idKind: { [field]: choice } })),
+          ...choices.map(choice => ({ [`${stem}IdKind`]: choice })),
+          ...choices.map(choice => ({ [`${field}IdKind`]: choice })),
+        ];
+        for (const data of cases) {
+          const kind = dependentIdKind(field, value, data);
+          expect(kind, `${field} ${value} ${JSON.stringify(data)}`).not.toBe('ssn');
+        }
+      }
+    }
+  });
+  it('a second read after reclassification is byte-identical', async () => {
+    state.docs.set('reclass', {
+      userId: 'owner', taxYear: 2026, filingStatus: 'single',
+      dependentSSN: '912-75-0001', idKind: { dependentSSN: 'ssn' },
+    });
+    await get();
+    const afterRead = structuredClone(state.docs.get('reclass'));
+    expect(afterRead.idKind).toEqual({ dependentSSN: 'itin' });
+    expect(afterRead.idKindNeedsReview).toEqual({ dependentSSN: true });
+    expect(decryptSensitive(String(afterRead.dependentSSN))).toBe('912750001');
+    expect(JSON.stringify(afterRead.idKind)).not.toMatch(/912750001|0001/);
+    expect(JSON.stringify(afterRead.idKindNeedsReview)).not.toMatch(/912750001|0001/);
+    await get();
+    expect(state.docs.get('reclass')).toEqual(afterRead);
+    expect(state.setCalls).toBe(1);
+    expect((await post({ taxYear: 2026 })).status).toBe(200);
+    expect(state.docs.get('reclass')).toEqual(afterRead);
   });
   it('a second conversion leaves the kind and the stored value byte-identical', async () => {
     const seed = (id: string) => state.docs.set(id, { userId: 'owner', taxYear: 2026, filingStatus: 'single', dependent2ITIN: '900-70-0001' });
