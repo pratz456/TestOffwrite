@@ -42,7 +42,9 @@ export interface Form1040Input {
   otherIncome?: number;             // Interest, dividends, capital gains, etc.
 
   // Payments already made
-  w2FederalWithheld: number;        // Total W-2 Box 2 withheld
+  w2FederalWithheld: number;        // Total W-2 Box 2 withheld (Form 1040 line 25a)
+  /** Total W-2 Box 6. Omitted or zero is Form 8959 line 19 of zero. Kept off line 25a. */
+  w2MedicareWithheld?: number;
   socialSecurityFederalWithheld?: number; // SSA-1099 Box6 / RRB-1099 Box10 (Line25b)
   estimatedPayments: number;        // Quarterly payments made (Form 1040-ES)
 
@@ -131,7 +133,9 @@ export interface Form1040Result {
 
   // Payments
   socialSecurityFederalWithheld: number; // Line25b from SSA/RRB forms
-  w2FederalWithheld: number;       // Line 25a
+  w2FederalWithheld: number;       // Line 25a (W-2 Box 2 only)
+  /** Form 8959 lines 22 and 24. Form 1040 line 25c. Not included in line 25a. */
+  additionalMedicareWithheld: number;
   estimatedPayments: number;       // Line 26
   totalPayments: number;           // Line 33
 
@@ -410,6 +414,22 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
   if (input.w2MedicareWages === undefined && w2Wages > 0) {
     calculationWarnings.push('Additional Medicare Tax uses W-2 Box 1 as an approximation because Box 5 Medicare wages were not provided.');
   }
+  // Form 8959 Part V (https://www.irs.gov/instructions/i8959).
+  // Line 19 is total Box 6, line 20 is total Box 5, and line 22 is the withholding above 1.45% of line 20.
+  // Line 23 (RRTA) is not collected, so line 24 equals line 22 and is Form 1040 line 25c.
+  // Line 20 uses recorded Box 5. Without Box 5, line 22 stays zero.
+  const medicareWithheld = input.w2MedicareWithheld ?? 0;
+  let additionalMedicareWithheld = 0;
+  if (input.w2MedicareWages === undefined) {
+    if (medicareWithheld !== 0) {
+      if (!Number.isFinite(medicareWithheld) || medicareWithheld < 0) {
+        throw new RangeError('W-2 Box 6 Medicare tax withheld must be a finite nonnegative amount.');
+      }
+      calculationWarnings.push('Form 8959 line 22 was not calculated because W-2 Box 5 Medicare wages were not provided.');
+    }
+  } else {
+    additionalMedicareWithheld = additionalMedicareWithholding(medicareWithheld, input.w2MedicareWages);
+  }
 
   // ── Step 9: Credits and preferential capital gains tax ──
   const creditsInput = {
@@ -445,7 +465,7 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
   // ── Step 10: Payments and refundable credits (Lines 25-28, 33) ──
   // Refundable credits (EITC + Additional CTC) are added to payments
   // because they can create a refund even if tax owed is $0
-  const totalPayments = w2FederalWithheld + socialSecurityFederalWithheld + estimatedPayments
+  const totalPayments = w2FederalWithheld + socialSecurityFederalWithheld + additionalMedicareWithheld + estimatedPayments
     + credits.eitc           // Line 27 - EITC is refundable
     + credits.additionalCTC; // Line 28 - Additional CTC is refundable
 
@@ -530,6 +550,7 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
     sepIRAMaxContribution: round2(sepIRAMax),
     // Payments
     w2FederalWithheld: round2(w2FederalWithheld),
+    additionalMedicareWithheld: round2(additionalMedicareWithheld),
     socialSecurityFederalWithheld: round2(socialSecurityFederalWithheld),
     estimatedPayments: round2(estimatedPayments),
     totalPayments: round2(totalPayments),
@@ -548,4 +569,15 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+/** Form 8959 lines 22 and 24. Line 23 (RRTA compensation withholding) is zero. */
+export function additionalMedicareWithholding(medicareWithheld: number, medicareWages: number): number {
+  if (!Number.isFinite(medicareWithheld) || !Number.isFinite(medicareWages) || medicareWithheld < 0 || medicareWages < 0) {
+    throw new RangeError('W-2 Box 5 and Box 6 amounts must be finite and nonnegative.');
+  }
+  const line19Cents = Math.round(medicareWithheld * 100);
+  const line20Cents = Math.round(medicareWages * 100);
+  const line21Cents = Math.round(line20Cents * 145 / 10000);
+  return Math.max(0, line19Cents - line21Cents) / 100;
 }

@@ -48,6 +48,7 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
   const reconciliation = reconcileBusinessIncome(taxYear, transactions, input.grossReceipts, input.forms1099, input.reconciliationDecisions ?? []);
   const w2 = summarizeW2Income(input.w2Entries);
   const w2FederalWithheld = input.w2Entries.length ? w2.federalWithheld : amount(profile.w2_federal_withheld);
+  // Saved profile withholding is Box 2 only. Box 6 exists on W-2 rows, including document imports.
   const { totalDeductible } = aggregateScheduleC([...transactions] as Parameters<typeof aggregateScheduleC>[0], String(taxYear), CATEGORY_MAP, { mode: 'confirmed-only' });
   // Schedule C ordering shared with the SE loader: line 13 assets, line 29, line 30 home office, line 31.
   const scheduleC = computeScheduleCProfit({
@@ -140,6 +141,7 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
   const result = compute1040({
     taxYear, filingStatus, personalDeductionOrganizer: org, scheduleCNetProfit, w2Wages: w2.wages,
     w2SocialSecurityWages: w2.socialSecurityWages, w2MedicareWages: w2.medicareWages,
+    w2MedicareWithheld: w2.medicareWithheld,
     w2FederalWithheld, socialSecurityFederalWithheld, estimatedPayments: input.estimatedPayments,
     selfEmploymentTax: seCalc.totalSETax, halfSEDeduction: seCalc.halfSEDeduction,
     otherIncome, numDependents: 0, numEITCChildren: 0,
@@ -171,6 +173,12 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
     },
     w2: { wages: w2.wages, withheld: w2FederalWithheld, count: input.w2Entries.length, stateWithheld: w2.stateWithheld },
     deductions: { healthInsurancePremiums, sepIraContribution, solo401kContribution, simpleIraContribution, hsaContribution, studentLoanInterest },
-    payments: { estimatedPayments: input.estimatedPayments, w2FederalWithheld, socialSecurityFederalWithheld, totalFederalWithheld: w2FederalWithheld + socialSecurityFederalWithheld },
+    payments: {
+      estimatedPayments: input.estimatedPayments,
+      w2FederalWithheld,
+      additionalMedicareWithheld: result.additionalMedicareWithheld,
+      socialSecurityFederalWithheld,
+      totalFederalWithheld: w2FederalWithheld + socialSecurityFederalWithheld + result.additionalMedicareWithheld,
+    },
   };
 }

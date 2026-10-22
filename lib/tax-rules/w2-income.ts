@@ -21,10 +21,12 @@ export function summarizeW2Income(entries: ReadonlyArray<Record<string, unknown>
       // line 8a is the total of boxes 3 and 7, so reported tips count toward the wage base when a record carries them.
       socialSecurityWages: (amount(entry, 'box3SocialSecurityWages', 'socialSecurityWages') ?? wages) + (amount(entry, 'box7SocialSecurityTips', 'socialSecurityTips') ?? 0),
       medicareWages: amount(entry, 'box5MedicareWages', 'medicareWages'),
+      // Box 6 is Form 8959 line 19. A missing amount is zero withholding, not a review stop.
+      medicareWithheld: amount(entry, 'box6MedicareWithheld', 'medicareWithheld') ?? 0,
       stateWithheld: amount(entry, 'stateWithheld') ?? 0,
     };
   });
-  const sum = (field: 'wages' | 'federalWithheld' | 'socialSecurityWages' | 'stateWithheld') =>
+  const sum = (field: 'wages' | 'federalWithheld' | 'socialSecurityWages' | 'medicareWithheld' | 'stateWithheld') =>
     normalized.reduce((total, entry) => total + entry[field], 0);
   const hasMedicareWages = normalized.every(entry => entry.medicareWages !== undefined);
   return {
@@ -34,6 +36,7 @@ export function summarizeW2Income(entries: ReadonlyArray<Record<string, unknown>
     // Keep the existing missing-Box-5 warning in the 1040 engine for legacy records.
     medicareWages: hasMedicareWages ? normalized.reduce((total, entry) => total + entry.medicareWages!, 0) : undefined,
     medicareWagesForSE: normalized.reduce((total, entry) => total + (entry.medicareWages ?? entry.wages), 0),
+    medicareWithheld: sum('medicareWithheld'),
     stateWithheld: sum('stateWithheld'),
   };
 }

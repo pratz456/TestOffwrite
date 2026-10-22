@@ -298,7 +298,9 @@ async function page2(doc: PDFDocument, f: PDFFont, bf: PDFFont, d: Record<string
   y = banner(p, 'Payments', y, f, bf);
   y = row(p, '25a', 'W-2 federal income tax withheld (Box 2  -  all employers)', y, d.w2FederalWithheld, f, bf, false);
   y = row(p, '25b', 'SSA/RRB federal income tax withheld', y, d.socialSecurityFederalWithheld || 0, f, bf, false);
-  y = row(p, '25d', 'Recorded withholding only (W-2 and SSA/RRB)', y, d.w2FederalWithheld + (d.socialSecurityFederalWithheld || 0), f, bf, true, true);
+  const additionalMedicareWithheld = d.additionalMedicareWithheld || 0;
+  y = row(p, '25c', 'Additional Medicare Tax withholding (Form 8959 line 24)', y, additionalMedicareWithheld, f, bf, false);
+  y = row(p, '25d', 'Add lines 25a through 25c', y, d.w2FederalWithheld + (d.socialSecurityFederalWithheld || 0) + additionalMedicareWithheld, f, bf, true, true);
   y = row(p, '26', `${yr} recorded estimated tax payments`, y, d.estimatedPayments, f, bf, false);
   const eicLine = Number(yr) >= 2025 ? '27a' : '27';
   y = row(p, eicLine, 'Earned income credit (EIC)', y, d.eitcCredit, f, bf, true);
