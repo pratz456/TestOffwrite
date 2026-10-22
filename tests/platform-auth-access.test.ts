@@ -154,10 +154,24 @@ describe('server profile API boundaries', () => {
       mock.get.mockResolvedValue({ exists: false });
       const response = await profilePost(request({ authorization: 'Bearer id' }, 'POST', { consents }));
       expect(response.status).toBe(200);
+      const { bank_data: _bank, ...signUpConsents } = consents;
       expect(mock.set).toHaveBeenCalledExactlyOnceWith(expect.anything(), {
-        consents: { ...consents, accepted_at: '2026-09-17T12:00:00.000Z', document_import: false },
+        consents: { ...signUpConsents, accepted_at: '2026-09-17T12:00:00.000Z', document_import: false },
         consents_recorded_at: 'server-time', updated_at: 'server-time', created_at: 'server-time',
       }, { merge: true });
+    });
+    it('keeps an older stored bank_data acknowledgment and does not add one from the request', async () => {
+      mock.get.mockResolvedValue({ exists: true, data: () => ({ consents }) });
+      const { bank_data: _bank, ...withoutBank } = consents;
+      expect((await profilePost(request({ authorization: 'Bearer id' }, 'POST', { consents: withoutBank }))).status).toBe(200);
+      expect(mock.set).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({
+        consents: { ...consents, accepted_at: '2026-09-17T12:00:00.000Z', document_import: false },
+      }), { merge: true });
+      mock.get.mockResolvedValue({ exists: false });
+      expect((await profilePost(request({ authorization: 'Bearer id' }, 'POST', { consents }))).status).toBe(200);
+      expect(mock.set).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({
+        consents: { ...withoutBank, accepted_at: '2026-09-17T12:00:00.000Z', document_import: false },
+      }), { merge: true });
     });
     it('stores a signed §7216 document consent and removes the signature again on withdrawal', async () => {
       const signature = { version: DOCUMENT_IMPORT_CONSENT_VERSION, signed_name: 'Synthetic Signer', signed_at: '2026-09-18T09:00:00.000Z' };
@@ -197,7 +211,7 @@ describe('server profile API boundaries', () => {
     });
     it.each([
       ['a missing required acknowledgment', { ...consents, ai_review: undefined }],
-      ['a declined required acknowledgment', { ...consents, bank_data: false }],
+      ['a declined required acknowledgment', { ...consents, ai_review: false }],
       ['an unknown nested field', { ...consents, marketing_partner: true }],
       ['a stale terms version', { ...consents, version: '2025-01-01' }],
       ['a non-object value', 'agreed'],

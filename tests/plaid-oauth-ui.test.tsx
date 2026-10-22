@@ -118,9 +118,25 @@ describe('Plaid OAuth client resume', () => {
     const connected = vi.fn(), skipped = vi.fn();
     const component = () => PlaidLinkScreen({ user: { id: 'owner' }, onSuccess: connected, onSkip: skipped, onBack() {} });
     render(component); await flush(); const tree = render(component);
-    walk(tree).find(node => node.props?.onClick && content(node) === 'Skip for now').props.onClick();
+    walk(tree).find(node => node.props?.onClick && content(node) === 'Not now').props.onClick();
     expect(skipped).toHaveBeenCalledOnce();
     expect(connected).not.toHaveBeenCalled();
+    expect(h.open).not.toHaveBeenCalled();
+    expect(h.request).not.toHaveBeenCalled();
+  });
+  it('offers a manual expense and a receipt upload when Link exits', async () => {
+    window.location.href = `${origin}/protected?screen=plaid-link`; window.location.search = '?screen=plaid-link';
+    const component = () => PlaidLinkScreen({ user: { id: 'owner' }, onSuccess() {}, onBack() {} });
+    render(component); await flush(); render(component);
+    h.link.onExit(null);
+    const tree = render(component);
+    expect(content(tree)).toContain('Bank connection was not finished.');
+    expect(content(tree)).toContain('Try again');
+    expect(content(tree)).toContain('Add an expense by hand');
+    expect(content(tree)).toContain('Upload a receipt');
+    const hrefs = walk(tree).map(node => node.props?.href).filter(Boolean);
+    expect(hrefs).toContain('/protected?screen=add-manual-transaction');
+    expect(hrefs).toContain('/protected?screen=receipt-upload');
     expect(h.open).not.toHaveBeenCalled();
   });
   it('does not expose a previous account Link token while the next account token request is pending', async () => {

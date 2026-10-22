@@ -16,6 +16,22 @@ import { analysisJobView, parseAnalysisJob, parseAnalysisQueue, type AnalysisJob
 import { debugLog } from '@/lib/utils/debug';
 import { clearPlaidOAuthSession, readPlaidOAuthResume, savePlaidOAuthSession, type PlaidOAuthResume } from '@/lib/plaid/oauth-session';
 import { PRODUCT_ACCESS } from '@/lib/subscriptions/product-config';
+import { BANK_CONSENT_TEXT, BANK_CONSENT_VERSION } from '@/lib/onboarding/bank-consent-copy';
+import { protectedScreenUrl } from '@/lib/navigation/protected-screens';
+
+function bankLinkAlternatives(onTryAgain: () => void) {
+  return (
+    <div className="flex flex-col gap-2 sm:flex-row">
+      <Button type="button" variant="outline" className="flex-1" onClick={onTryAgain}>Try again</Button>
+      <Button asChild variant="outline" className="flex-1">
+        <Link href={protectedScreenUrl('add-manual-transaction')}>Add an expense by hand</Link>
+      </Button>
+      <Button asChild variant="outline" className="flex-1">
+        <Link href={protectedScreenUrl('receipt-upload')}>Upload a receipt</Link>
+      </Button>
+    </div>
+  );
+}
 
 // Global flag to prevent duplicate Plaid script loading
 let plaidScriptLoaded = false;
@@ -41,6 +57,8 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
   const appOriginRef = useRef<string | null>(null);
   // Consent for Plaid data access
   const [bankConsent, setBankConsent] = useState(false);
+  const consentSaved = useRef(false);
+  const [showLinkFallback, setShowLinkFallback] = useState(false);
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const [linkOwner, setLinkOwner] = useState<string | null>(null);
   const [redirectUri, setRedirectUri] = useState<string | undefined>();
@@ -206,6 +224,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
     if (typeof window !== 'undefined') {
       appOriginRef.current = window.location.origin;
     }
+    consentSaved.current = false;
 
     if (oauthResume) {
       const resumed = readPlaidOAuthResume(window.sessionStorage, user.id, window.location.href);
@@ -405,6 +424,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
       }
     } catch (err: any) {
       console.error('Error connecting bank account:', err);
+      setShowLinkFallback(true);
       setError(err.message || 'Failed to connect bank account. Please try again.');
     } finally {
       setLoading(false);
@@ -413,14 +433,13 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
 
   const onPlaidExit = useCallback((err: any) => {
     clearPlaidOAuthSession(window.sessionStorage);
+    setShowLinkFallback(true);
     if (oauthResume) {
       setError('Bank sign-in was not completed. Return to your banks and try again.');
       return;
     }
-    if (err) {
-      console.error('Plaid Link exit error:', err);
-      setError('Bank connection was cancelled or failed. Please try again.');
-    }
+    if (err) console.error('Plaid Link exit error:', err);
+    setError(err ? 'Bank connection was cancelled or failed. Please try again.' : 'Bank connection was not finished.');
   }, [oauthResume]);
 
   // Check for duplicate script loading and warn if detected
@@ -449,20 +468,46 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
   }, [oauthResume, ready, linkToken, open, linkOwner, user.id]);
 
   const handleConnectBank = async () => {
-    if (!bankConsent) return;
-
-    // Free trial is automatically started when creating link token
-    // Just connect the bank - no subscription selection needed
-    if (ready) {
-      try {
-        if (!linkToken || linkOwner !== user.id || auth.currentUser?.uid !== user.id) throw new Error('Sign in again before connecting your bank.');
-        if (redirectUri) savePlaidOAuthSession(window.sessionStorage, { version: 1, uid: user.id, token: linkToken,
-          redirectUri, createdAt: Date.now(), fromSettings, ...(updateItemId ? { itemId: updateItemId } : {}),
-          ...(reconnectSessionId ? { reconnectSessionId } : {}) }, window.location.origin);
-        else clearPlaidOAuthSession(window.sessionStorage);
-        open();
-      } catch (err) { setError(err instanceof Error ? err.message : 'Bank sign-in could not start. Please retry.'); }
+    if (!bankConsent || loading) return;
+    setShowLinkFallback(false);
+    setLoading(true);
+    setError(null);
+    try {
+      if (!consentSaved.current) {
+        const response = await makeAuthenticatedRequest('/api/onboarding/bank-consent', {
+          method: 'POST',
+          body: JSON.stringify({ version: BANK_CONSENT_VERSION, accepted_at: new Date().toISOString() }),
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => null);
+          throw new Error(body?.error || 'We could not save your bank acknowledgment. Please try again.');
+        }
+        consentSaved.current = true;
+      }
+      if (!ready || !linkToken || linkOwner !== user.id || auth.currentUser?.uid !== user.id) {
+        throw new Error('Sign in again before connecting your bank.');
+      }
+      if (redirectUri) savePlaidOAuthSession(window.sessionStorage, { version: 1, uid: user.id, token: linkToken,
+        redirectUri, createdAt: Date.now(), fromSettings, ...(updateItemId ? { itemId: updateItemId } : {}),
+        ...(reconnectSessionId ? { reconnectSessionId } : {}) }, window.location.origin);
+      else clearPlaidOAuthSession(window.sessionStorage);
+      open();
+    } catch (err) {
+      setShowLinkFallback(true);
+      setError(err instanceof Error ? err.message : 'We could not save your bank acknowledgment. Please try again.');
+    } finally {
+      setLoading(false);
     }
+  };
+
+  const retryBankLink = () => {
+    setError(null);
+    setShowLinkFallback(false);
+    if (oauthResume) {
+      if (ready) open();
+      return;
+    }
+    void handleConnectBank();
   };
 
   const handleSkip = () => {
@@ -488,6 +533,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
         <h1 className="text-xl font-semibold">{error ? 'Bank sign-in needs another try' : 'Finishing bank sign-in'}</h1>
         {error ? <p role="alert" className="text-sm text-muted-foreground">{error}</p>
           : <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Returning securely to your bank connection…</p>}
+        {showLinkFallback && bankLinkAlternatives(retryBankLink)}
         <Button variant="outline" onClick={() => { clearPlaidOAuthSession(window.sessionStorage); onBack(); }}>Return to banks</Button>
       </Card>
     </main>
@@ -785,8 +831,9 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
         </div>}
 
         {error && (
-          <div className="mb-6 p-4 bg-destructive/10 border border-destructive/20 rounded-lg">
+          <div className="mb-6 space-y-3 p-4 bg-destructive/10 border border-destructive/20 rounded-lg">
             <p className="text-destructive text-sm">{error}</p>
+            {showLinkFallback && bankLinkAlternatives(retryBankLink)}
           </div>
         )}
 
@@ -866,7 +913,8 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
                   required
                 />
                 <label htmlFor="bankConsent" className="text-xs text-foreground">
-                  I authorize WriteOff to access and use my account and transaction data via Plaid to analyze potential tax deductions and generate reports, including Schedule C. I understand I can revoke access anytime. (<a href="/privacy" className="underline text-primary" target="_blank" rel="noopener noreferrer">Privacy Policy</a> | <a href="https://plaid.com/legal/#end-user-privacy-policy" className="underline text-primary" target="_blank" rel="noopener noreferrer">Plaid Privacy Policy</a>)
+                  {BANK_CONSENT_TEXT}{' '}
+                  (<a href="/privacy" className="underline text-primary" target="_blank" rel="noopener noreferrer">Privacy Policy</a>)
                   <span className="text-destructive ml-0.5">*</span>
                 </label>
               </div>
@@ -893,7 +941,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSucces
                 variant="outline"
                 className="w-full h-10 border-2 border-border bg-card hover:bg-muted text-foreground rounded-xl transition-all duration-200 text-sm font-medium"
               >
-                {reconnectSessionId ? 'Return to history review' : updateItemId || fromSettings ? 'Return to bank accounts' : 'Skip for now'}
+                {reconnectSessionId ? 'Return to history review' : updateItemId || fromSettings ? 'Return to bank accounts' : 'Not now'}
               </Button>
           </Card>
 
