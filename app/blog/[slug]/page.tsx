@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Calendar, Clock, ArrowLeft, ChevronLeft, ChevronRight, User, ShieldCheck } from "lucide-react";
-import { getAllPosts, getPostBySlug, getAdjacentPosts, formatReviewMonth } from "@/lib/blog";
+import { getAllPosts, getPostBySlug, getAdjacentPosts, formatReviewMonth, blogPostLastModified } from "@/lib/blog";
 import { BlogCTA } from "@/components/blog/blog-cta";
 import { RelatedPosts } from "@/components/blog/related-posts";
 
@@ -83,7 +83,7 @@ export default async function BlogPostPage({
     headline: post.title,
     description: post.description,
     datePublished: post.date,
-    dateModified: post.reviewedAt ?? post.date,
+    dateModified: blogPostLastModified(post) ?? post.date,
     author: { "@type": "Person", name: post.author },
     publisher: {
       "@type": "Organization",
