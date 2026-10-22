@@ -4,8 +4,8 @@
  * Every identifier answer is stored as AES-256-GCM ciphertext (`SSN_ENCRYPTION_KEY`)
  * and decrypted only inside server routes. Legacy plaintext values are read as-is.
  * Reads do not rewrite stored records. A separated 3-2-4 number whose digits are
- * not already in that free-text field is rejected on save. A standalone 9-digit
- * run is kept. Masking happens only on the owner response.
+ * not already in that free-text field is rejected on save, and the message names
+ * the field. A standalone 9-digit run is kept. Masking happens only on the owner response.
  */
 import { decryptSensitive, encryptSensitive, isEncrypted, maskSSN } from '@/lib/security/utils';
 
@@ -130,46 +130,79 @@ export function separatedSsnExpression(): RegExp {
 
 const MASKED_FREE_TEXT_TOKEN = /\*\*\*-\*\*-(\d{4})/g;
 export const MASKED_NUMBER_EDIT_ERROR = "Please don't edit the hidden number in this field";
+export const SSN_NOT_ACCEPTED_ERROR = "Please don't enter Social Security numbers here. We don't need them.";
+
+/** Short names for free-text answers. Any other field uses the generic note label. */
+const ORGANIZER_FIELD_LABELS: Readonly<Record<string, string>> = {
+  dependentDetails: 'Dependent details',
+  spouseName: 'Spouse name',
+  streetAddress: 'Street address',
+  city: 'City',
+  stateAddr: 'State',
+  zipCode: 'ZIP',
+};
+
+export function organizerFieldLabel(field: string): string {
+  return ORGANIZER_FIELD_LABELS[field] ?? 'This note';
+}
 
 const numberDigits = (value: string) => value.replace(/\D/g, '');
 
 /**
  * Puts each masked token back to the stored text at that position.
  * The same digits in different punctuation count as one number, so each token
- * keeps the original characters at its own position. Two different digit strings
- * that share a last 4 are rejected.
+ * keeps the original characters at its own position. An extra copy of that
+ * token repeats the stored number. Two different digit strings that share a
+ * last 4 are rejected. Moving a different number to an earlier spot is rejected.
  */
 export function restoreMaskedFreeText(incoming: string, stored: string): { text: string } | { error: string } {
   const tokens = [...incoming.matchAll(new RegExp(MASKED_FREE_TEXT_TOKEN.source, 'g'))];
   if (tokens.length === 0) return { text: incoming };
   const storedMatches = [...stored.matchAll(ssnShapedExpression())];
-  if (tokens.length > storedMatches.length) return { error: MASKED_NUMBER_EDIT_ERROR };
   const digitsByLast4 = new Map<string, Set<string>>();
+  const storedCountByLast4 = new Map<string, number>();
   for (const match of storedMatches) {
     const digits = numberDigits(match[0]);
-    const seen = digitsByLast4.get(digits.slice(-4)) ?? new Set<string>();
+    const last4 = digits.slice(-4);
+    const seen = digitsByLast4.get(last4) ?? new Set<string>();
     seen.add(digits);
-    digitsByLast4.set(digits.slice(-4), seen);
+    digitsByLast4.set(last4, seen);
+    storedCountByLast4.set(last4, (storedCountByLast4.get(last4) ?? 0) + 1);
   }
+  const tokenCountByLast4 = new Map<string, number>();
   for (const token of tokens) {
+    tokenCountByLast4.set(token[1], (tokenCountByLast4.get(token[1]) ?? 0) + 1);
     const seen = digitsByLast4.get(token[1]);
     if (!seen || seen.size !== 1) return { error: MASKED_NUMBER_EDIT_ERROR };
   }
   let cursor = 0;
+  const usedByLast4 = new Map<string, number>();
   let missing = false;
   const text = incoming.replace(new RegExp(MASKED_FREE_TEXT_TOKEN.source, 'g'), (_match, last4: string) => {
     while (cursor < storedMatches.length && numberDigits(storedMatches[cursor][0]).slice(-4) !== last4) cursor += 1;
-    if (cursor >= storedMatches.length) { missing = true; return _match; }
-    return storedMatches[cursor++][0];
+    if (cursor < storedMatches.length) {
+      usedByLast4.set(last4, (usedByLast4.get(last4) ?? 0) + 1);
+      return storedMatches[cursor++][0];
+    }
+    // A copied token repeats the one stored number. Moving a different number earlier still fails below.
+    const storedCount = storedCountByLast4.get(last4) ?? 0;
+    const tokenCount = tokenCountByLast4.get(last4) ?? 0;
+    const used = usedByLast4.get(last4) ?? 0;
+    if (tokenCount > storedCount && used >= storedCount) {
+      const original = storedMatches.find(match => numberDigits(match[0]).slice(-4) === last4);
+      if (original) return original[0];
+    }
+    missing = true;
+    return _match;
   });
   return missing ? { error: MASKED_NUMBER_EDIT_ERROR } : { text };
 }
 
 /** A separated 3-2-4 number is new when its digits are not already in an SSN-shaped value in the stored field. */
-export function newSeparatedNumberError(text: string, stored: string): { error: string } | null {
+export function newSeparatedNumberError(field: string, text: string, stored: string): { error: string } | null {
   const storedDigits = new Set([...stored.matchAll(ssnShapedExpression())].map(match => numberDigits(match[0])));
   for (const match of text.matchAll(separatedSsnExpression())) {
-    if (!storedDigits.has(numberDigits(match[0]))) return { error: SSN_NOT_ACCEPTED_ERROR };
+    if (!storedDigits.has(numberDigits(match[0]))) return { error: `${organizerFieldLabel(field)}: ${SSN_NOT_ACCEPTED_ERROR}` };
   }
   return null;
 }
@@ -183,7 +216,7 @@ export function restoreOrganizerFreeText(
     const stored = typeof previous[field] === 'string' ? previous[field] : '';
     const restored = restoreMaskedFreeText(value, stored);
     if ('error' in restored) return restored;
-    const rejected = newSeparatedNumberError(restored.text, stored);
+    const rejected = newSeparatedNumberError(field, restored.text, stored);
     if (rejected) return rejected;
     next[field] = restored.text;
   }
@@ -210,7 +243,6 @@ export function withoutUneditedMaskedText(answers: Record<string, string>, previ
 }
 
 export const IDENTIFIER_PROVIDED_SEPARATELY = 'Provided to preparer separately';
-export const SSN_NOT_ACCEPTED_ERROR = "Please don't enter Social Security numbers here. We don't need them.";
 
 /** True when a save is echoing a masked read, the last four digits, or the same full number. */
 export function echoesStoredIdentifier(kind: OrganizerIdentifierKind, incoming: string, storedPlain: string): boolean {

@@ -211,7 +211,7 @@ describe('organizer route stores ciphertext and returns plaintext only to the ow
       state.docs.clear(); state.sets.length = 0;
       const response = await post({ taxYear: 2026, dependentDetails: note, filingStatus: 'single', spouseName: 'Pat' });
       expect(response.status).toBe(400);
-      expect(await response.json()).toEqual({ error: SSN_NOT_ACCEPTED_ERROR });
+      expect(await response.json()).toEqual({ error: `Dependent details: ${SSN_NOT_ACCEPTED_ERROR}` });
       expect(state.docs.size).toBe(0);
       expect(state.sets).toEqual([]);
     }
@@ -225,7 +225,7 @@ describe('organizer route stores ciphertext and returns plaintext only to the ow
     const edited = `${String(viewed.organizer.dependentDetails).replace('child', 'student')} Added 222-33-4444 today.`;
     const saved = await post({ taxYear: 2026, dependentDetails: edited, filingStatus: 'single', spouseName: 'Pat' });
     expect(saved.status).toBe(400);
-    expect(await saved.json()).toEqual({ error: SSN_NOT_ACCEPTED_ERROR });
+    expect(await saved.json()).toEqual({ error: `Dependent details: ${SSN_NOT_ACCEPTED_ERROR}` });
     expect(state.sets).toEqual([]);
     expect(Object.keys(stored()).sort()).toEqual(Object.keys(before).sort());
     for (const key of Object.keys(before)) expect(stored()[key], key).toBe(before[key]);
@@ -239,6 +239,58 @@ describe('organizer route stores ciphertext and returns plaintext only to the ow
     expect(stored().dependentDetails).toBe('The student lives here. SSN 900-00-1111.');
     expect(stored().filingStatus).toBe('single');
     expect(stored().spouseName).toBe('Pat');
+  });
+  it.each([
+    ['dependentDetails', 'Dependent details'],
+    ['spouseName', 'Spouse name'],
+    ['streetAddress', 'Street address'],
+    ['city', 'City'],
+    ['stateAddr', 'State'],
+    ['zipCode', 'ZIP'],
+  ])('names %s when refusing a new separated number', async (field, label) => {
+    state.docs.clear(); state.sets.length = 0;
+    const response = await post({ taxYear: 2026, [field]: 'Pat 123-45-6789', filingStatus: 'single' });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: `${label}: ${SSN_NOT_ACCEPTED_ERROR}` });
+    expect(state.docs.size).toBe(0);
+    expect(state.sets).toEqual([]);
+  });
+  it('names an unlabeled field when refusing a new separated number', async () => {
+    const response = await post({ taxYear: 2026, preparerNote: 'Ref 123-45-6789', filingStatus: 'single' });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: `This note: ${SSN_NOT_ACCEPTED_ERROR}` });
+    expect(state.docs.size).toBe(0);
+    expect(state.sets).toEqual([]);
+  });
+  it('refuses a save that moves a hidden number earlier in the note and writes nothing', async () => {
+    const original = 'A 900-00-1111 then B 900-00-2222';
+    state.docs.set('order', { userId: 'owner', taxYear: 2026, dependentDetails: original, filingStatus: 'single' });
+    const before = { ...stored() };
+    const viewed = await (await get()).json();
+    const masked = String(viewed.organizer.dependentDetails);
+    expect(masked).toBe('A ***-**-1111 then B ***-**-2222');
+    const [first, second] = masked.match(/\*\*\*-\*\*-\d{4}/g)!;
+    const swapped = masked.replace(first, '___').replace(second, first).replace('___', second);
+    expect(swapped).toBe('A ***-**-2222 then B ***-**-1111');
+    const saved = await post({ taxYear: 2026, dependentDetails: swapped });
+    const body = await saved.json();
+    expect(saved.status).toBe(400);
+    expect(body).toEqual({ error: MASKED_NUMBER_EDIT_ERROR });
+    expect(state.sets).toEqual([]);
+    expect(Object.keys(stored()).sort()).toEqual(Object.keys(before).sort());
+    for (const key of Object.keys(before)) expect(stored()[key], key).toBe(before[key]);
+  });
+  it('restores a copied masked token to the stored number and saves', async () => {
+    const original = 'Emma, SSN 123-45-6789';
+    state.docs.set('copy', { userId: 'owner', taxYear: 2026, dependentDetails: original, filingStatus: 'single' });
+    const viewed = await (await get()).json();
+    const masked = String(viewed.organizer.dependentDetails);
+    expect(masked).toBe('Emma, SSN ***-**-6789');
+    const token = masked.match(/\*\*\*-\*\*-\d{4}/)![0];
+    const copied = `${masked} and copy ${token}`;
+    expect((await post({ taxYear: 2026, dependentDetails: copied, filingStatus: 'single' })).status).toBe(200);
+    expect(stored().dependentDetails).toBe('Emma, SSN 123-45-6789 and copy 123-45-6789');
+    expect(stored().filingStatus).toBe('single');
   });
   it('stores a newly typed bare 9-digit run unchanged', async () => {
     const created = await post({ taxYear: 2026, dependentDetails: 'Order 555000222', filingStatus: 'single' });

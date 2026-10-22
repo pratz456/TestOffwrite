@@ -29,6 +29,7 @@ vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collection: (name: string) =
   };
 } } }));
 
+import { resetRateLimitStore } from './fixtures/rate-limit-store';
 import { POST as importDocument } from '../app/api/tax/import-document/route';
 import { encryptSensitive } from '../lib/security/utils';
 import { DOCUMENT_IMAGE_CONSENT_REQUIRED, DOCUMENT_IMPORT_CONSENT_VERSION } from '../lib/onboarding/document-import-consent';
@@ -64,6 +65,7 @@ const sentText = (call: number) => JSON.stringify(mocks.create.mock.calls[call][
 const contentParts = (call: number) => mocks.create.mock.calls[call][0].messages[0].content as { type: string; image_url?: { url: string } }[];
 
 beforeEach(() => {
+  resetRateLimitStore();
   mocks.create.mockReset(); mocks.recognize.mockReset();
   state.records = { tax_organizers: [{ userId: 'import-owner', taxYear: 2025, taxpayerSSN: encryptSensitive('123456789') }] };
   state.profile = { name: 'Jordan Demo', consents: consents(false) };
@@ -154,6 +156,30 @@ describe('redact-first W-2/1099 import: text path', () => {
     expect(state.records.w2_income[0].employerEIN).toBe(employerEIN);
     expect(state.records.w2_income[0].employeeSSN).toBeUndefined();
     expect(JSON.stringify(body)).not.toContain('123-45-6789');
+  });
+
+  it('keeps the undashed payer TIN when a recipient identification number is labeled first', async () => {
+    mocks.recognize.mockResolvedValue({ text: "RECIPIENT'S identification number 111111111\nPayer TIN 987654321\n1 Nonemployee compensation 1200.00", confidence: 0.95 });
+    modelReplies({ docType: '1099', formVariant: 'NEC', payerName: 'Synthetic Payer', payerEIN: null, recipientTIN: '111111111', box1Amount: 1200, taxYear: 2025, confidence: 0.95 });
+    const body = await (await importDocument(request({ docType: '1099' }))).json();
+    expect(body.extracted.payerEIN).toBe('987654321');
+    expect(body.extracted.recipientTIN).toBeUndefined();
+    expect(state.records.income_1099[0].payerEIN).toBe('987654321');
+    expect(state.records.income_1099[0].recipientTIN).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain('111111111');
+    expect(JSON.stringify(state.records.income_1099)).not.toContain('111111111');
+  });
+
+  it('keeps the employer number when box a is labeled as an identification number', async () => {
+    mocks.recognize.mockResolvedValue({ text: "a Employee's identification number 111111111\nb Employer identification number (EIN) 121212121\n1 Wages 1000.00", confidence: 0.95 });
+    modelReplies({ ...W2_JSON, employerEIN: null, employeeSSN: '111111111', box1Wages: 1000 });
+    const body = await (await importDocument(request())).json();
+    expect(body.extracted.employerEIN).toBe('121212121');
+    expect(body.extracted.employeeSSN).toBeUndefined();
+    expect(state.records.w2_income[0].employerEIN).toBe('121212121');
+    expect(state.records.w2_income[0].employeeSSN).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain('111111111');
+    expect(JSON.stringify(state.records.w2_income)).not.toContain('111111111');
   });
 
   it.each(['98-7654321', '131313131'])('keeps 1099 payer TIN %s from the text path and drops the recipient TIN', async (payerEIN) => {
@@ -276,6 +302,33 @@ describe('redact-first W-2/1099 import: image fallback needs the signed §7216 c
     expect(state.records.w2_income[0].employerEIN).toBe(employerEIN);
     expect(state.records.w2_income[0].employeeSSN).toBeUndefined();
     expect(JSON.stringify(body)).not.toContain('123-45-6789');
+  });
+
+  it.each([
+    ['w2', 'employerEIN', '123-45-6789', null],
+    ['w2', 'employerEIN', '12-3456789', '12-3456789'],
+    ['w2', 'employerEIN', '123456789', '123456789'],
+    ['1099', 'payerEIN', '123-45-6789', null],
+    ['1099', 'payerEIN', '12-3456789', '12-3456789'],
+    ['1099', 'payerEIN', '123456789', '123456789'],
+  ] as const)('image path keeps only a 2-7 %s %s (%s)', async (docType, field, incoming, expected) => {
+    state.profile = { consents: consents(true) };
+    mocks.recognize.mockResolvedValue(null);
+    const extracted = docType === 'w2'
+      ? { ...W2_JSON, employerEIN: incoming, employeeSSN: '123-45-6789' }
+      : { docType: '1099', formVariant: 'NEC', payerName: 'Synthetic Payer', payerEIN: incoming, recipientTIN: '123-45-6789', box1Amount: 1200, taxYear: 2025, confidence: 0.95 };
+    modelReplies(extracted);
+    const body = await (await importDocument(request({ docType, documentImageConsent: 'true' }))).json();
+    expect(body.disclosure).toBe('image');
+    expect(body.extracted[field]).toBe(expected);
+    expect(body.extracted.employeeSSN).toBeUndefined();
+    expect(body.extracted.recipientTIN).toBeUndefined();
+    const storedRecord = docType === 'w2' ? state.records.w2_income[0] : state.records.income_1099[0];
+    expect(storedRecord[field]).toBe(expected ?? '');
+    expect(storedRecord.employeeSSN).toBeUndefined();
+    expect(storedRecord.recipientTIN).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain('123-45-6789');
+    expect(JSON.stringify(storedRecord)).not.toContain('123-45-6789');
   });
 
   it.each(['98-7654321', '131313131'])('keeps 1099 payer TIN %s from the image path and drops the recipient TIN', async (payerEIN) => {

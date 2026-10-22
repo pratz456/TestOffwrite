@@ -119,9 +119,38 @@ describe('organizer personal facts and safe tax-year changes', () => {
   });
   it('shows the save rejection on the page', async () => {
     await load();
-    harness.request.mockResolvedValueOnce(response({ error: "Please don't enter Social Security numbers here. We don't need them." }, 400));
+    const message = "Dependent details: Please don't enter Social Security numbers here. We don't need them.";
+    harness.request.mockResolvedValueOnce(response({ error: message }, 400));
     await button(render(), 'Save').props.onClick();
-    expect(text(render())).toContain("Please don't enter Social Security numbers here. We don't need them.");
+    expect(text(render())).toContain(message);
+  });
+  it('keeps typed answers after a rejected save and blocks a year switch', async () => {
+    const note = 'Child 123-45-6789 lives here';
+    const message = "Dependent details: Please don't enter Social Security numbers here. We don't need them.";
+    const select = (tree: Element, id: string) => walk(tree).find(node => node.props.id === id)!;
+    select(await load(), 'organizer-dependents').props.onChange({ target: { value: '1' } });
+    walk(render()).find(node => node.props.id === 'organizer-dependent-details')!.props.onChange({ target: { value: note } });
+    walk(render()).find(node => node.props.placeholder === 'Street address and apt/unit')!.props.onChange({ target: { value: '9 Oak Lane' } });
+    const current = yearSelect(render()).props.value;
+    harness.request.mockImplementation(async (url: string, init?: RequestInit) => init?.method === 'POST'
+      ? response({ error: message }, 400)
+      : response({ taxYear: Number(new URL(url, 'http://local').searchParams.get('year')), organizer: null }));
+    await button(render(), 'Save').props.onClick();
+    let tree = render();
+    expect(text(tree)).toContain(message);
+    expect(walk(tree).find(node => node.props.id === 'organizer-dependent-details')!.props.value).toBe(note);
+    expect(walk(tree).find(node => node.props.placeholder === 'Street address and apt/unit')!.props.value).toBe('9 Oak Lane');
+    expect(button(tree, 'Save')).toBeDefined();
+    expect(walk(tree).some(node => text(node).trim() === 'Saved')).toBe(false);
+    yearSelect(tree).props.onChange({ target: { value: '2024' } });
+    await tick();
+    tree = render();
+    expect(yearSelect(tree).props.value).toBe(current);
+    expect(walk(tree).find(node => node.props.id === 'organizer-dependent-details')!.props.value).toBe(note);
+    expect(walk(tree).find(node => node.props.placeholder === 'Street address and apt/unit')!.props.value).toBe('9 Oak Lane');
+    expect(walk(tree).some(node => text(node).trim() === 'Saved')).toBe(false);
+    expect(text(tree)).toContain(message);
+    expect(harness.request.mock.calls.filter(call => String(call[0]).includes('?year=2024'))).toHaveLength(0);
   });
   it('does not advance Next when saving fails', async () => {
     await load(); harness.request.mockResolvedValueOnce(response({ error: 'Could not save' }, 503));

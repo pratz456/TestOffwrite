@@ -305,10 +305,31 @@ async function extractDocument(source: DocumentSource, docType: string, payload:
   return parseModelJson(rawText);
 }
 
-/** A labeled employer or payer number, with or without a dash. Bare runs that are not labeled stay out. */
-function labeledPayerNumbers(text: string): string[] {
-  const pattern = /(?:\bEIN\b|identification number|payer(?:'s)? TIN)[^\d]{0,40}(\d{2}-\d{7}|\d{9})(?!\d)/gi;
-  return [...text.matchAll(pattern)].map(match => match[1]);
+/** Employer and payer numbers only: two digits, an optional dash, then seven. A 3-2-4 value is not one. */
+const PAYER_NUMBER_SHAPE = /^\d{2}-?\d{7}$/;
+const BLOCKED_PAYER_LABEL = /recipient|employee|payee/i;
+
+function payerNumberOrBlank(value: unknown): string | null {
+  return typeof value === 'string' && PAYER_NUMBER_SHAPE.test(value) ? value : null;
+}
+
+/**
+ * A labeled employer or payer number on its own line, with or without a dash.
+ * Labels containing recipient, employee, or payee are not employer or payer numbers.
+ * Bare runs that are not labeled stay out.
+ */
+function labeledPayerNumbers(text: string): { kept: string[]; blockedDigits: Set<string> } {
+  const pattern = /(^|\n)([^\n]*?)(\bEIN\b|identification number|payer(?:'s)? TIN)([^\n\d]{0,60})(\d{2}-?\d{7})(?!\d)/gi;
+  const kept: string[] = [];
+  const blockedDigits = new Set<string>();
+  for (const match of text.matchAll(pattern)) {
+    const number = match[5];
+    if (!PAYER_NUMBER_SHAPE.test(number)) continue;
+    const label = `${match[2]} ${match[3]} ${match[4]}`;
+    if (BLOCKED_PAYER_LABEL.test(label)) blockedDigits.add(number.replace(/\D/g, ''));
+    else kept.push(number);
+  }
+  return { kept, blockedDigits };
 }
 
 /** Formats a locally captured EIN as XX-XXXXXXX; the model never sees it. */
@@ -401,7 +422,8 @@ function publicDocument(data: Record<string, unknown>): Record<string, unknown> 
       out[field] = value.filter((item): item is string => typeof item === 'string').map(scrubImportText);
       continue;
     }
-    if (typeof value === 'string') { out[field] = PAYER_NUMBER_FIELDS.has(field) ? value : scrubImportText(value); continue; }
+    if (PAYER_NUMBER_FIELDS.has(field)) { out[field] = payerNumberOrBlank(value); continue; }
+    if (typeof value === 'string') { out[field] = scrubImportText(value); continue; }
     if (typeof value === 'number' || value === null || typeof value === 'boolean') out[field] = value;
   }
   return out;
@@ -417,7 +439,7 @@ function dropDocumentIdentifiers<T>(value: T): T {
     const cleaned: Record<string, unknown> = {};
     for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
       if (DOCUMENT_IDENTIFIER_KEYS.has(key.toLowerCase().replace(/[^a-z0-9]/g, ''))) continue;
-      if (PAYER_NUMBER_FIELDS.has(key) && typeof entry === 'string') { cleaned[key] = entry; continue; }
+      if (PAYER_NUMBER_FIELDS.has(key)) { cleaned[key] = payerNumberOrBlank(entry); continue; }
       cleaned[key] = dropDocumentIdentifiers(entry);
     }
     return cleaned as T;
@@ -498,8 +520,12 @@ export async function POST(request: NextRequest) {
     if (fallbackReason === null) {
       const redaction = redactIdentifierText(ocr!.text, { keepPrimarySSNLast4: true });
       ssnLast4 = redaction.ssnLast4;
-      localEINs = redaction.eins.map(formatEIN);
-      for (const value of labeledPayerNumbers(ocr!.text)) {
+      const labeled = labeledPayerNumbers(ocr!.text);
+      localEINs = redaction.eins.map(formatEIN).filter(value => {
+        const digits = value.replace(/\D/g, '');
+        return PAYER_NUMBER_SHAPE.test(value) && !labeled.blockedDigits.has(digits);
+      });
+      for (const value of labeled.kept) {
         const digits = value.replace(/\D/g, '');
         if (!localEINs.some(existing => existing.replace(/\D/g, '') === digits)) localEINs.push(value);
       }
@@ -535,7 +561,7 @@ export async function POST(request: NextRequest) {
     if (disclosure === 'text') {
       const einField = extracted.docType === 'w2' || docType === 'w2' ? 'employerEIN' : extracted.docType === '1099' || docType === '1099' ? 'payerEIN' : null;
       if (einField) {
-        extracted[einField] = localEINs[0] ?? null;
+        extracted[einField] = payerNumberOrBlank(localEINs[0]);
         if (localEINs.length > 1) einNotes.push(`Verify ${einField}. More than one EIN-shaped number was read from the document.`);
       }
     }

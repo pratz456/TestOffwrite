@@ -86,11 +86,14 @@ describe('owner export source completeness and privacy', () => {
     await expect(readOwnedTransactions('owner')).rejects.toBeInstanceOf(ExportDataUnavailableError);
   });
   it('keeps an archive note without a separated number and drops stored identity keys', () => {
-    const exported = sanitizeExportValue({ id: 'org', taxYear: 2026, spouseSSN: 'SECRET_CIPHERTEXT', dependentDetails: 'Emma Shah, 123-45-6789, Daughter', filingStatus: 'single' }) as Record<string, unknown>;
-    expect(exported.dependentDetails).toBe('Emma Shah, [redacted-id], Daughter');
-    expect(exported.spouseSSN).toBeUndefined();
-    expect(JSON.stringify(exported)).not.toContain('123-45-6789');
-    expect(JSON.stringify(exported)).not.toContain('SECRET_CIPHERTEXT');
+    const exported = sanitizeExportValue({
+      id: 'org', taxYear: 2026, taxpayerSSN: 'SECRET_CIPHERTEXT', spouseSSN: 'SECRET_CIPHERTEXT', bankAccount: '000123456789',
+      bankRouting: '071000013', ipPin: '123456', ein: '123456789', identifiersEncryptedAt: new Date('2026-01-01T00:00:00.000Z'),
+      dependentDetails: 'Emma Shah, 123-45-6789, 2018-03-15, Daughter', employerEIN: '12-3456789', filingStatus: 'single',
+    }) as Record<string, unknown>;
+    expect(Object.keys(exported).sort()).toEqual(['dependentDetails', 'employerEIN', 'filingStatus', 'id', 'taxYear']);
+    expect(exported.employerEIN).toBe('12-3456789');
+    expect(exported.dependentDetails).toBe('Emma Shah, [redacted-id], 2018-03-15, Daughter');
   });
   it('exports all saved tax datasets with counts and preserves false/zero, never credential or receipt bytes', async () => {
     const data = await generateUserDataExport('owner'); const pack = generateDataPackage(data);
