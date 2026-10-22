@@ -3,8 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import matter from 'gray-matter';
 import yaml from 'js-yaml';
+import { NextRequest } from 'next/server';
 import sitemap from '../app/sitemap';
 import robots from '../app/robots';
+import { GET as preparerPage } from '../app/preparer/[id]/route';
 import { blogPostLastModified, getAllPosts, isWithheldBlogFrontMatter, UNPUBLISHED_BLOG_SLUGS } from '../lib/blog';
 import { CANONICAL_SITE_URL, DISALLOWED_CRAWL_PATHS } from '../lib/seo/crawl-policy';
 
@@ -140,9 +142,21 @@ describe('robots.txt', () => {
     expect(rule.userAgent).toBe('*');
     expect(rule.allow).toBe('/');
     expect(disallow).toContain('/api/');
+    expect(disallow).toEqual(['/api/', '/protected/', '/auth/', '/login', '/plaid/', '/stripe/']);
+    expect(disallow).not.toContain('/preparer/');
     expect(disallow).toEqual([...DISALLOWED_CRAWL_PATHS]);
     expect(result.sitemap).toBe(`${CANONICAL_SITE_URL}/sitemap.xml`);
     expect(`Sitemap: ${result.sitemap}`).toBe('Sitemap: https://writeoffapp.com/sitemap.xml');
+  });
+
+  it('leaves /preparer/ crawlable so the noindex header is fetched', async () => {
+    const id = 'd30b6416-5a69-4559-91bb-80e6904f0c75';
+    const valid = await preparerPage(new NextRequest(`${CANONICAL_SITE_URL}/preparer/${id}`), { params: Promise.resolve({ id }) });
+    expect(valid.status).toBe(200);
+    expect(valid.headers.get('x-robots-tag')).toContain('noindex');
+    const missing = await preparerPage(new NextRequest(`${CANONICAL_SITE_URL}/preparer/not-a-uuid`), { params: Promise.resolve({ id: 'not-a-uuid' }) });
+    expect(missing.status).toBe(404);
+    expect(missing.headers.get('x-robots-tag')).toContain('noindex');
   });
 
   it('keeps the staging host disallowed', () => {

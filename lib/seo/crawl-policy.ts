@@ -11,7 +11,6 @@
  * - `/login` — alias that redirects to `/auth/login` (`app/login`)
  * - `/plaid/` — bank OAuth and reconnect (`app/plaid`, sign-in required)
  * - `/stripe/` — checkout return pages (`app/stripe`, noindex layout)
- * - `/preparer/` — private preparer handoff (`app/preparer/[id]`)
  */
 export const CANONICAL_SITE_URL = "https://writeoffapp.com";
 
@@ -22,7 +21,6 @@ export const DISALLOWED_CRAWL_PATHS = [
   "/login",
   "/plaid/",
   "/stripe/",
-  "/preparer/",
 ] as const;
 
 export function publicSiteUrl(env: NodeJS.ProcessEnv = process.env): string {
