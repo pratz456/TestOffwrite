@@ -1,3 +1,5 @@
+import os from 'node:os';
+import path from 'node:path';
 import Tesseract from 'tesseract.js';
 
 export interface ReceiptData {
@@ -50,6 +52,10 @@ export class ReceiptProcessor {
   async initialize(): Promise<void> {
     if (!this.worker) {
       this.worker = await Tesseract.createWorker('eng', 1, {
+        langPath: path.join(process.cwd(), 'tessdata'),
+        gzip: false,
+        cachePath: os.tmpdir(),
+        cacheMethod: 'none',
         logger: (m) => {
           if (m.status === 'recognizing text') {
             console.log(`OCR Progress: ${Math.round(m.progress * 100)}%`);

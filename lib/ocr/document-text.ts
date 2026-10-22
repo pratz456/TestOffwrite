@@ -1,3 +1,5 @@
+import os from 'node:os';
+import path from 'node:path';
 import Tesseract from 'tesseract.js';
 
 /**
@@ -5,9 +7,9 @@ import Tesseract from 'tesseract.js';
  * redact-first import pipeline: the text it returns has identifiers removed by
  * lib/security/identifier-redaction before anything reaches a model. It uses
  * the same native Tesseract worker call as the receipts flow
- * (lib/ocr/receipt-processor.ts); next.config.ts traces the worker files for
- * the import route. Recognized text is returned to the caller only and never
- * logged.
+ * (lib/ocr/receipt-processor.ts). next.config.ts traces the worker and
+ * tessdata/eng.traineddata for the import route. Recognized text is returned
+ * to the caller only and never logged.
  */
 export interface DocumentOcr {
   text: string;
@@ -25,7 +27,14 @@ const OCR_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/
 let workerPromise: Promise<Tesseract.Worker> | null = null;
 
 function ocrWorker(): Promise<Tesseract.Worker> {
-  workerPromise ??= Tesseract.createWorker('eng', 1, { errorHandler: () => undefined, logger: () => undefined });
+  workerPromise ??= Tesseract.createWorker('eng', 1, {
+    langPath: path.join(process.cwd(), 'tessdata'),
+    gzip: false,
+    cachePath: os.tmpdir(),
+    cacheMethod: 'none',
+    errorHandler: () => undefined,
+    logger: () => undefined,
+  });
   return workerPromise;
 }
 
