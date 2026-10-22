@@ -293,6 +293,40 @@ describe('redact-first W-2/1099 import: text path', () => {
     for (const [collection, records] of Object.entries(state.records)) expect(JSON.stringify(records), collection).not.toContain('12-3456789');
   });
 
+  it.each([
+    ['w2', "PAYER'S TIN 123456789"],
+    ['w2', 'Payer EIN 123456789'],
+  ] as const)('blanks a bare payer number when the model says %s and the text is %s', async (docType, line) => {
+    mocks.recognize.mockResolvedValue({ text: `${line}\nPaid for services rendered this year`, confidence: 0.95 });
+    modelReplies({ ...W2_JSON, docType, employerEIN: '123456789', box1Wages: 1000 });
+    const body = await (await importDocument(request({ docType: 'w2' }))).json();
+    expect(body.extracted.employerEIN).toBeNull();
+    expect(state.records.w2_income[0].employerEIN).toBe('');
+    expect(body.verificationRequired).toContain('Check the employer/payer ID');
+    expect(JSON.stringify(body)).not.toContain('123456789');
+    for (const [collection, records] of Object.entries(state.records)) expect(JSON.stringify(records), collection).not.toContain('123456789');
+  });
+
+  it('blanks a bare payer number when the model gives no type, the request says w2, and the text is a payer TIN', async () => {
+    mocks.recognize.mockResolvedValue({ text: "PAYER'S TIN 123456789\nPaid for services rendered this year", confidence: 0.95 });
+    modelReplies({ ...W2_JSON, docType: undefined, employerEIN: '123456789', box1Wages: 1000 });
+    const body = await (await importDocument(request({ docType: 'w2' }))).json();
+    expect(body.extracted.employerEIN).toBeNull();
+    expect(state.records.w2_income[0].employerEIN).toBe('');
+    expect(body.verificationRequired).toContain('Check the employer/payer ID');
+    expect(JSON.stringify(body)).not.toContain('123456789');
+    for (const [collection, records] of Object.entries(state.records)) expect(JSON.stringify(records), collection).not.toContain('123456789');
+  });
+
+  it("keeps a dashed payer TIN on a W-2 when the model says w2", async () => {
+    mocks.recognize.mockResolvedValue({ text: "PAYER'S TIN 98-7654321\nPaid for services rendered this year", confidence: 0.95 });
+    modelReplies({ ...W2_JSON, employerEIN: null, box1Wages: 1000 });
+    const body = await (await importDocument(request({ docType: 'w2' }))).json();
+    expect(body.extracted.employerEIN).toBe('98-7654321');
+    expect(state.records.w2_income[0].employerEIN).toBe('98-7654321');
+    expect(body.verificationRequired).not.toContain('Check the employer/payer ID');
+  });
+
   it('does not keep a bare number under a generic identification number label', async () => {
     mocks.recognize.mockResolvedValue({ text: 'Identification number 987654321\n1 Wages 1000.00', confidence: 0.95 });
     modelReplies({ ...W2_JSON, employerEIN: '987654321', box1Wages: 1000 });

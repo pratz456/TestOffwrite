@@ -317,10 +317,11 @@ async function extractDocument(source: DocumentSource, docType: string, payload:
 
 /** Dashed employer/payer form. A bare 9-digit run is not this shape. */
 const DASHED_PAYER_NUMBER = /^\d{2}-\d{7}$/;
-/** Nine digits with no separator. A W-2 employer line may keep one. A 1099 payer number may not. */
+/** Nine digits with no separator. Kept only from an employer or EIN line that does not say payer. */
 const BARE_PAYER_NUMBER = /^\d{9}$/;
 const BLOCKED_PAYER_LABEL = /recipient|employee|payee/i;
-const NAMED_PAYER_LABEL = /employer|payer|\bEIN\b/i;
+const EMPLOYER_OR_EIN_LABEL = /employer|\bEIN\b/i;
+const PAYER_WORD = /payer/i;
 const PAYER_ID_CHECK = 'Check the employer/payer ID';
 
 function payerNumberOrBlank(value: unknown): string | null {
@@ -330,7 +331,7 @@ function payerNumberOrBlank(value: unknown): string | null {
 /**
  * A labeled number on its own line. A dashed NN-NNNNNNN stays when the label is not
  * recipient, employee, or payee. A bare 9-digit run stays only when that same line
- * names the employer or payer. A 1099 keeps only the dashed form. A 3-2-4 value is never kept.
+ * names the employer or EIN and does not say payer. A 3-2-4 value is never kept.
  */
 function labeledPayerNumbers(text: string): { kept: string[] } {
   const pattern = /(^|\n)([^\n]*?)(\bEIN\b|identification number|payer(?:'s)? TIN)([^\n\d]{0,60})(\d{2}-\d{7}|\d{9})(?!\d)/gi;
@@ -339,8 +340,15 @@ function labeledPayerNumbers(text: string): { kept: string[] } {
     const number = match[5];
     const label = `${match[2]} ${match[3]} ${match[4]}`;
     if (BLOCKED_PAYER_LABEL.test(label)) continue;
-    const named = NAMED_PAYER_LABEL.test(label);
-    if (DASHED_PAYER_NUMBER.test(number) || (BARE_PAYER_NUMBER.test(number) && named)) kept.push(number);
+    if (DASHED_PAYER_NUMBER.test(number)) {
+      kept.push(number);
+      continue;
+    }
+    const at = (match.index ?? 0) + match[0].lastIndexOf(number);
+    const lineStart = text.lastIndexOf('\n', at) + 1;
+    const lineBreak = text.indexOf('\n', at);
+    const line = text.slice(lineStart, lineBreak === -1 ? text.length : lineBreak);
+    if (BARE_PAYER_NUMBER.test(number) && EMPLOYER_OR_EIN_LABEL.test(line) && !PAYER_WORD.test(line)) kept.push(number);
   }
   return { kept };
 }
@@ -627,7 +635,7 @@ export async function POST(request: NextRequest) {
       const savedType = savedDocumentType(extracted, docType);
       const einField = savedType === 'w2' ? 'employerEIN' : savedType === '1099' ? 'payerEIN' : null;
       if (einField) {
-        // A sole proprietor can print an SSN in the 1099 payer box. Keep only a dashed NN-NNNNNNN on a 1099 record.
+        // A payer line never contributes a bare number. A 1099 record also keeps only a dashed NN-NNNNNNN.
         const accepted = savedType === '1099' ? localEINs.filter(value => DASHED_PAYER_NUMBER.test(value)) : localEINs;
         extracted[einField] = accepted.length ? payerNumberOrBlank(accepted[0]) : null;
         if (!extracted[einField]) addPayerIdCheck(extracted);
