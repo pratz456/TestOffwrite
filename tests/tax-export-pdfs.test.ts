@@ -31,11 +31,15 @@ vi.mock('@/lib/firebase/settings-server', () => ({
 }));
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collection: (name: string) => {
   state.queries.push(name); const filters: [string, unknown][] = [];
-  return { where(field: string, _op: string, value: unknown) { filters.push([field, value]); return this; }, limit() { return this; }, get: async () => {
+  const query = { where(field: string, _op: string, value: unknown) { filters.push([field, value]); return query; }, limit() { return query; }, get: async () => {
     if (state.fail === name) throw new Error('private Firestore failure');
     const records = (state.records[name] || []).filter(row => filters.every(([key, value]) => row[key] === value));
-    return { empty: !records.length, docs: records.map((row, index) => ({ id: `record-${index}`, data: () => row })) };
-  } };
+    return { empty: !records.length, docs: records.map((row, index) => ({ id: `record-${index}`, data: () => row, ref: { set: async (patch: Record<string, unknown>, options?: { merge?: boolean }) => {
+      if (!options?.merge) { for (const key of Object.keys(row)) delete row[key]; }
+      Object.assign(row, patch);
+    } } })) };
+  }, add: async (data: Record<string, unknown>) => { (state.records[name] ??= []).push(data); return { id: `record-${state.records[name].length}` }; } };
+  return query;
 } } }));
 import { POST as scheduleC } from '../app/api/tax/schedule-c/export/route';
 import { GET as calculateC } from '../app/api/tax/schedule-c/calculate/route';
@@ -46,6 +50,9 @@ import { generateForm4562PDF } from '../lib/reports/form4562';
 import { generateForm8829PDF } from '../lib/reports/form8829';
 import { scheduleCExportLine } from '../lib/schedule-c/export-lines';
 import { POST as form1040 } from '../app/api/tax/form-1040/route';
+import { GET as getOrganizer, POST as saveOrganizer } from '../app/api/tax/organizer/route';
+import { POST as exportReport } from '../app/api/reports/export/route';
+import { EMPTY_ORGANIZER_ANSWERS } from '../components/tax-organizer-screen';
 const profile = { name: 'Synthetic Taxpayer', filing_status: 'single' } as UserProfile;
 const request = (body: unknown) => new NextRequest('http://localhost/api/tax/schedule-c/export', { method: 'POST', body: JSON.stringify(body) });
 const record = (fields: Record<string, unknown>, taxYear = 2026) => ({ userId: 'export-owner', taxYear, ...fields });
@@ -86,14 +93,35 @@ describe('Schedule C real PDF and request integrity', () => {
     expect(view.text()).toContain('Not determined'); expect(view.text()).toContain('27b'); expect(view.text()).toContain('NOT FOR FILING');
     expect(response.headers.get('cache-control')).toContain('no-store'); view.checkBounds(); saveArtifact('schedule-c-2026', bytes);
   });
-  it('prints the organizer SSN masked to its last four digits and never the decrypted value', async () => {
+  it('still renders when organizer identifier fields are absent', async () => {
+    state.records.tax_organizers = [record({ filingStatus: 'single' })];
+    const view = inspectText();
+    const response = await scheduleC(request({ year: 2026, includeAppendix: false }));
+    expect(response.status).toBe(200);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    expect(bytes[0]).toBe(0x25);
+    const drawn = view.spy.mock.calls.map(call => call[0]);
+    expect(drawn[drawn.indexOf('SSN (last 4)') + 1]).toBe('');
+    expect(drawn[drawn.indexOf('EIN (last 4)') + 1]).toBe('');
+    for (const label of ['SSN (last 4)', 'EIN (last 4)']) expect(drawn[drawn.indexOf(label) + 1]).not.toMatch(/[\d*]/);
+    expect(view.text()).not.toContain('___-__-____');
+    expect(view.text()).not.toContain('000-00-0000');
+    expect(view.text()).not.toContain('***-**-');
+    expect(view.text()).not.toContain('**-***');
+  });
+  it('leaves the SSN and line D boxes blank even when organizer values are stored', async () => {
     const { encryptSensitive } = await import('../lib/security/utils');
-    state.records.tax_organizers = [record({ taxpayerSSN: encryptSensitive('900000001') })];
+    state.records.tax_organizers = [record({ taxpayerSSN: encryptSensitive('900000001'), ein: encryptSensitive('123456789') })];
     const view = inspectText(); expect((await scheduleC(request({ year: 2026, includeAppendix: false }))).status).toBe(200);
-    expect(view.text()).toContain('***-**-0001'); expect(view.text()).not.toMatch(/900000001|900-00-0001/);
+    const drawn = view.spy.mock.calls.map(call => call[0]);
+    expect(drawn[drawn.indexOf('SSN (last 4)') + 1]).toBe('');
+    expect(drawn[drawn.indexOf('EIN (last 4)') + 1]).toBe('');
+    expect(view.text()).not.toMatch(/900000001|900-00-0001|123456789|\*\*\*-\*\*-|\*\*-\*\*\*/);
     state.records.tax_organizers = [record({ taxpayerSSN: '900000001' })];
     const legacy = inspectText(); expect((await scheduleC(request({ year: 2026, includeAppendix: false }))).status).toBe(200);
-    expect(legacy.text()).toContain('***-**-0001'); expect(legacy.text()).not.toMatch(/900000001|900-00-0001/);
+    const legacyDrawn = legacy.spy.mock.calls.map(call => call[0]);
+    expect(legacyDrawn[legacyDrawn.indexOf('SSN (last 4)') + 1]).toBe('');
+    expect(legacy.text()).not.toMatch(/900000001|900-00-0001|\*\*\*-\*\*-/);
   });
   it('honors a summary-only request without silently including transaction details', async () => {
     state.transactions = [{ merchant_name: 'PRIVATE-DETAIL-MARKER', amount: 100, date: '2026-03-01', iso_currency_code: 'USD', category: 'unknown', is_deductible: true }];
@@ -114,6 +142,10 @@ describe('selected-year SE source and worksheet', () => {
     expect(body.calculation).toMatchObject({ socialSecurityTax: 558, medicareTax: 2678.15, totalSETax: 3236.15, halfSEDeduction: 1618.08 });
     const data = await loadScheduleSEData('export-owner', 2026); const view = inspectText(); const bytes = await generateScheduleSEPDF(data);
     expect(view.text()).toContain('$184,500.00'); expect(view.text()).toContain('$3,236.15'); expect(view.text()).toContain('$1,618.08');
+    const drawn = view.spy.mock.calls.map(call => call[0]);
+    expect(drawn[drawn.indexOf('Social security number') + 1]).toBe('');
+    expect(drawn[drawn.indexOf('Social security number') + 1]).not.toMatch(/[\d*]/);
+    expect(view.text()).not.toContain('___-__-____'); expect(view.text()).not.toContain('000-00-0000'); expect(view.text()).not.toContain('***-**-');
     expect(view.text()).not.toContain('2024 Tax Rates'); expect(state.queries).not.toContain('tax_summary'); view.checkBounds(); saveArtifact('schedule-se-2026', bytes);
   });
   it('includes supported depreciation before SE, matching the shared annual input ordering', async () => {
@@ -180,7 +212,7 @@ describe('Form 1040 planning PDF prints its review notes', () => {
     // compute1040 planning note + unreviewed Schedule 1-A note + reconciliation inflow warning + SSN + address completeness notes.
     expect(text).toContain('Review notes (5)');
     expect(text).toContain('1 posted inflow(s) are excluded from business receipts until classified as income/revenue.');
-    expect(text.match(/SSN not filled in - enter SSN in Tax Organizer/g)).toHaveLength(2); // page 2 block + appendix
+    expect(text.match(/SSN not filled in on this summary/g)).toHaveLength(2); // page 2 block + appendix
     expect(text.match(/Mailing address incomplete - update in Tax Organizer/g)).toHaveLength(2);
     expect(text).toContain('5 calculation or completeness note(s) qualify the figures on pages 1-2:');
     expect(text).not.toContain('Full list continues');
@@ -201,21 +233,49 @@ describe('Form 1040 planning PDF prints its review notes', () => {
     checkFormBounds(view.spy);
   });
 
-  it('prints only masked identifiers, decrypting stored ciphertext and tolerating legacy plaintext, and never the full values', async () => {
+  it('leaves SSN and bank boxes blank even when those values are stored', async () => {
     const { encryptSensitive } = await import('../lib/security/utils');
-    state.records.tax_organizers = [record({ ...reviewedPersonalDeductionOrganizer(), spouseName: 'Synthetic Spouse',
+    state.records.tax_organizers = [record({ ...reviewedPersonalDeductionOrganizer(), filingStatus: 'married_filing_jointly', spouseName: 'Synthetic Spouse',
       taxpayerSSN: encryptSensitive('900000001'), spouseSSN: '900000002', bankAccount: encryptSensitive('000123456789'), bankRouting: '071000013',
       bankAccountType: 'savings', ipPin: encryptSensitive('123456'), dependentDetails: 'Emma Shah, 900-00-0003, 2018-03-15, Daughter' })];
     const view = inspectText(); const response = await form1040(request1040());
     expect(response.status).toBe(200);
     const text = view.text();
-    expect(text).toContain('***-**-0001'); expect(text).toContain('***-**-0002');
-    expect(text).toContain('*****0013 / ****6789 (savings)');
+    const drawn = view.spy.mock.calls.map(call => call[0]);
+    expect(drawn[drawn.indexOf('Social security number (last 4 only)') + 1]).toBe('');
+    expect(drawn[drawn.indexOf('SSN (last 4)') + 1]).toBe('');
+    expect(drawn[drawn.indexOf('Spouse SSN (last 4)') + 1]).toBe('');
+    expect(drawn[drawn.indexOf('Optional refund routing / account (last 4)') + 1]).toBe('');
+    for (const label of ['Social security number (last 4 only)', 'SSN (last 4)', 'Spouse SSN (last 4)', 'Optional refund routing / account (last 4)']) {
+      expect(drawn[drawn.indexOf(label) + 1], label).toBe('');
+      expect(drawn[drawn.indexOf(label) + 1], label).not.toMatch(/[\d*]/);
+    }
     expect(text).toContain('Provided to preparer separately');
     expect(text).not.toContain('Emma Shah');
-    expect(text).not.toMatch(/900000001|900-00-0001|900000002|900-00-0002|000123456789|071000013|123456|900-00-0003/);
-    expect(text).not.toContain('SSN not filled in');
+    expect(text).not.toMatch(/900000001|900-00-0001|900000002|900-00-0002|000123456789|071000013|123456|900-00-0003|\*\*\*-\*\*-|\*\*\*\*\*0013|\*\*\*\*6789/);
+    expect(text).toContain('SSN not filled in');
     checkFormBounds(view.spy); saveArtifact('form-1040-2026-masked-identifiers', new Uint8Array(await response.arrayBuffer()));
+  });
+
+  it('still renders when organizer identifier fields are absent', async () => {
+    state.records.tax_organizers = [record(reviewedPersonalDeductionOrganizer())];
+    const view = inspectText();
+    const response = await form1040(request1040());
+    expect(response.status).toBe(200);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    expect(bytes[0]).toBe(0x25);
+    const drawn = view.spy.mock.calls.map(call => call[0]);
+    expect(drawn[drawn.indexOf('Social security number (last 4 only)') + 1]).toBe('');
+    expect(drawn[drawn.indexOf('SSN (last 4)') + 1]).toBe('');
+    expect(drawn[drawn.indexOf('Spouse SSN (last 4)') + 1]).toBe('');
+    expect(drawn[drawn.indexOf('Optional refund routing / account (last 4)') + 1]).toBe('');
+    for (const label of ['Social security number (last 4 only)', 'SSN (last 4)', 'Spouse SSN (last 4)', 'Optional refund routing / account (last 4)']) {
+      expect(drawn[drawn.indexOf(label) + 1], label).not.toMatch(/[\d*]/);
+    }
+    expect(view.text()).not.toContain('___-__-____');
+    expect(view.text()).not.toContain('000-00-0000');
+    expect(view.text()).not.toContain('***-**-');
+    expect(drawn).not.toContain('___-__-____');
   });
 
   it('never prints a refund/balance page without its review notes block', async () => {
@@ -269,4 +329,118 @@ it('does not apply a second percentage to a fully-business meal or block unconfi
     { id: 'pending', date: '2026-01-01', iso_currency_code: 'USD', amount: 500, is_deductible: true, pending: true, business_percent: 50 }];
   const response = await scheduleC(request({ year: 2026, format: 'csv' }));
   expect(response.status).toBe(200); expect(await response.text()).toContain(',24b,100,50,');
+});
+
+describe('organizer screen round-trip and export boxes', () => {
+  const RETIRED = new Set(['taxpayerSSN', 'spouseSSN', 'bankRouting', 'bankAccount', 'ipPin']);
+  // Same load-then-save shape as tax-organizer-screen.tsx readOrganizerYear + organizerSaveBody.
+  const screenSaveBody = (organizer: Record<string, unknown>, taxYear: number) => {
+    const next: Record<string, unknown> = { ...EMPTY_ORGANIZER_ANSWERS, ...organizer };
+    next.taxpayerSSN = '';
+    next.spouseSSN = '';
+    next.bankRouting = '';
+    next.bankAccount = '';
+    next.ipPin = '';
+    const body: Record<string, unknown> = { taxYear };
+    for (const [key, value] of Object.entries(next)) {
+      if (RETIRED.has(key) || /^dependent\d*(SSN|ITIN)$/.test(key)) continue;
+      body[key] = value;
+    }
+    return body;
+  };
+  const cellAfter = (drawn: string[], label: string) => {
+    const index = drawn.indexOf(label);
+    expect(index, label).toBeGreaterThanOrEqual(0);
+    return drawn[index + 1];
+  };
+
+  it('keeps a loaded organizer byte-identical, then one edited word, and exports blank SSN, bank and line D boxes', async () => {
+    const { encryptSensitive } = await import('../lib/security/utils');
+    const ein = encryptSensitive('123456789');
+    const taxpayerSSN = encryptSensitive('900000001');
+    const spouseSSN = encryptSensitive('900000002');
+    const dependentSSN = encryptSensitive('900000003');
+    const ipPin = encryptSensitive('123456');
+    const bankRouting = encryptSensitive('071000013');
+    const bankAccount = encryptSensitive('000123456789');
+    const details = 'The child lives here. SSN 900-00-1111. Order 555000222.';
+    const defaults = Object.fromEntries(Object.entries(EMPTY_ORGANIZER_ANSWERS).filter(([, value]) => value !== ''));
+    state.records.tax_organizers = [record({
+      ...reviewedPersonalDeductionOrganizer(),
+      ...defaults,
+      filingStatus: 'single', spouseName: 'Synthetic Spouse', dependentDetails: details,
+      streetAddress: '1 Main St', city: 'Austin', stateAddr: 'TX', zipCode: '78701', priorYearAGI: '50000',
+      ein, taxpayerSSN, spouseSSN, dependentSSN, ipPin, bankRouting, bankAccount,
+    })];
+    const stored = () => state.records.tax_organizers![0];
+    const before = { ...stored() };
+
+    const loaded = await (await getOrganizer(new NextRequest('http://localhost/api/tax/organizer?year=2026'))).json();
+    expect(loaded.organizer.ein).toBe('**-***6789');
+    expect(loaded.organizer.taxpayerSSN).toBe('***-**-0001');
+    expect(loaded.organizer.dependentDetails).toBe('The child lives here. SSN ***-**-1111. Order ***-**-0222.');
+    expect(loaded.organizer.dependentDetails).not.toContain('900-00-1111');
+    expect(loaded.organizer.dependentDetails).not.toContain('555000222');
+    const payload = screenSaveBody(loaded.organizer, loaded.taxYear);
+    expect(payload.ein).toBe('**-***6789');
+    expect(payload.dependentDetails).toBe(loaded.organizer.dependentDetails);
+    expect(payload).not.toHaveProperty('taxpayerSSN');
+
+    const afterRead = { ...stored() };
+    expect(afterRead.dependentSSN).toBe(dependentSSN);
+    expect(afterRead.idKind).toEqual({ dependentSSN: 'none' });
+    expect(afterRead.idKindNeedsReview).toEqual({ dependentSSN: true });
+    expect(afterRead.identifiersEncryptedAt).toBeInstanceOf(Date);
+    expect(JSON.stringify(afterRead.idKind)).not.toMatch(/900000003|0003/);
+    expect(JSON.stringify(afterRead.idKindNeedsReview)).not.toMatch(/900000003|0003/);
+    expect(Object.keys(afterRead).sort()).toEqual([...Object.keys(before), 'idKind', 'idKindNeedsReview', 'identifiersEncryptedAt'].sort());
+    for (const key of Object.keys(before)) expect(afterRead[key], key).toBe(before[key]);
+
+    const unchanged = await saveOrganizer(new NextRequest('http://localhost/api/tax/organizer', { method: 'POST', body: JSON.stringify(payload) }));
+    expect(unchanged.status).toBe(200);
+    expect(stored()).toEqual(afterRead);
+
+    const edited = screenSaveBody({ ...loaded.organizer, dependentDetails: String(loaded.organizer.dependentDetails).replace('child', 'student') }, loaded.taxYear);
+    const saved = await saveOrganizer(new NextRequest('http://localhost/api/tax/organizer', { method: 'POST', body: JSON.stringify(edited) }));
+    expect(saved.status).toBe(200);
+    const afterEdit = stored();
+    expect(afterEdit.dependentDetails).toBe('The student lives here. SSN 900-00-1111. Order 555000222.');
+    expect(Object.keys(afterEdit).sort()).toEqual([...Object.keys(afterRead), 'updatedAt'].sort());
+    for (const key of Object.keys(afterRead)) {
+      if (key === 'dependentDetails') continue;
+      expect(afterEdit[key], key).toBe(afterRead[key]);
+    }
+    expect(afterEdit.updatedAt).toBeInstanceOf(Date);
+
+    const view = inspectText();
+    const scheduleCResponse = await scheduleC(request({ year: 2026, includeAppendix: false }));
+    expect(scheduleCResponse.status).toBe(200);
+    expect(Buffer.from(await scheduleCResponse.arrayBuffer()).subarray(0, 5).toString()).toBe('%PDF-');
+    const scheduleCDrawn = view.spy.mock.calls.map(call => call[0]);
+    expect(cellAfter(scheduleCDrawn, 'SSN (last 4)')).toBe('');
+    expect(cellAfter(scheduleCDrawn, 'EIN (last 4)')).toBe('');
+    expect(scheduleCDrawn.join('\n')).not.toMatch(/900-00-1111|900000001|555000222|123456789|071000013|000123456789|\*\*\*-\*\*-|\*\*-\*\*\*/);
+
+    view.spy.mockClear();
+    const formResponse = await form1040(new NextRequest('http://localhost/api/tax/form-1040', { method: 'POST', body: JSON.stringify({ year: 2026 }) }));
+    expect(formResponse.status).toBe(200);
+    expect(Buffer.from(await formResponse.arrayBuffer()).subarray(0, 5).toString()).toBe('%PDF-');
+    const formDrawn = view.spy.mock.calls.map(call => call[0]);
+    expect(cellAfter(formDrawn, 'Social security number (last 4 only)')).toBe('');
+    expect(cellAfter(formDrawn, 'SSN (last 4)')).toBe('');
+    expect(cellAfter(formDrawn, 'Spouse SSN (last 4)')).toBe('');
+    expect(cellAfter(formDrawn, 'Optional refund routing / account (last 4)')).toBe('');
+    expect(formDrawn.join('\n')).not.toMatch(/900-00-1111|900000001|900000002|900000003|555000222|123456789|071000013|000123456789|\*\*\*-\*\*-|\*\*\*\*6789|\*\*\*\*\*0013/);
+
+    view.spy.mockClear();
+    const seResponse = await exportReport(new NextRequest('http://localhost/api/reports/export', { method: 'POST', body: JSON.stringify({ type: 'scheduleSE', year: 2026 }) }));
+    expect(seResponse.status).toBe(200);
+    expect(Buffer.from(await seResponse.arrayBuffer()).subarray(0, 5).toString()).toBe('%PDF-');
+    const seText = view.spy.mock.calls.map(call => call[0]).join('\n');
+    expect(seText).not.toMatch(/900-00-1111|900000001|555000222|123456789|071000013|000123456789|\*\*\*-\*\*-|\*\*-\*\*\*|000-00-0000|___-__-____/);
+    expect(cellAfter(view.spy.mock.calls.map(call => call[0]), 'Social security number')).toBe('');
+    expect(seText).not.toContain('SSN (last 4)');
+    expect(seText).not.toContain('EIN (last 4)');
+    expect(seText).not.toContain('Optional refund routing / account (last 4)');
+  });
 });

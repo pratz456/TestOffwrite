@@ -109,6 +109,16 @@ export const EMPTY_ORGANIZER_ANSWERS: OrgAnswers = {
 };
 
 const EMPTY = EMPTY_ORGANIZER_ANSWERS;
+const RETIRED_ORGANIZER_FIELDS = new Set(["taxpayerSSN", "spouseSSN", "bankRouting", "bankAccount", "ipPin"]);
+
+function organizerSaveBody(answers: OrgAnswers, taxYear: number): Record<string, unknown> {
+  const body: Record<string, unknown> = { taxYear };
+  for (const [key, value] of Object.entries(answers)) {
+    if (RETIRED_ORGANIZER_FIELDS.has(key) || /^(?:dependent\d*)?(?:SSN|ITIN|ATIN)$/i.test(key) || /^dependent\d*(?:Number|Identifier)$/.test(key) || key === 'idKind' || key === 'idKindNeedsReview' || /IdKind$/.test(key)) continue;
+    body[key] = value;
+  }
+  return body;
+}
 
 const readOrganizerYear = async (targetYear: number): Promise<OrgAnswers> => {
     const res = await makeAuthenticatedRequest(`/api/tax/organizer?year=${targetYear}`, { cache: 'no-store' });
@@ -117,7 +127,13 @@ const readOrganizerYear = async (targetYear: number): Promise<OrgAnswers> => {
     if (data.taxYear !== targetYear || (data.organizer !== null && (!data.organizer || typeof data.organizer !== 'object' || Array.isArray(data.organizer)))) {
       throw new Error('The organizer response did not match the selected year. Please retry.');
     }
-    return { ...EMPTY, ...(data.organizer || {}) };
+    const next = { ...EMPTY, ...(data.organizer || {}) };
+    next.taxpayerSSN = "";
+    next.spouseSSN = "";
+    next.bankRouting = "";
+    next.bankAccount = "";
+    next.ipPin = "";
+    return next;
   };
 
 const STEPS = ["Personal facts", "Income", "Deductions", "Life events", "Prior year"];
@@ -132,7 +148,6 @@ export function TaxOrganizerScreen({ user }: Props) {
   const [switchingYear, setSwitchingYear] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const revision = useRef(0);
   const loadedKey = useRef<string | null>(null);
   const baseline = useRef('');
@@ -171,22 +186,14 @@ export function TaxOrganizerScreen({ user }: Props) {
 
   const save = async (): Promise<boolean> => {
     if (savePending.current || loading || loadFailed || loadedKey.current !== `${user.id}:${year}`) return false;
-    savePending.current = true; setSaving(true); setError(null); setNotice(null);
+    savePending.current = true; setSaving(true); setError(null);
     const operation = revision.current;
-    let savedAnswers = answers;
     try {
-      const res = await makeAuthenticatedRequest('/api/tax/organizer', { method: 'POST', body: JSON.stringify({ ...answers, taxYear: year }) });
+      const res = await makeAuthenticatedRequest('/api/tax/organizer', { method: 'POST', body: JSON.stringify(organizerSaveBody(answers, year)) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Could not save the organizer. Your edits remain on this page.');
       if (revision.current !== operation || currentOwner.current !== user.id) return false;
-      // The server removes identifier digits from free text; keep the saved (redacted) copy so they are not resent.
-      if (data.redacted && typeof data.redacted === 'object') {
-        const redacted = Object.fromEntries(Object.entries(data.redacted).filter(([key, value]) => key in EMPTY && typeof value === 'string'));
-        savedAnswers = { ...answers, ...redacted };
-        setAnswers(p => ({ ...p, ...redacted }));
-        if (typeof data.warning === 'string') setNotice(data.warning);
-      }
-      baseline.current = JSON.stringify(savedAnswers); setSaved(true); return true;
+      baseline.current = JSON.stringify(answers); setSaved(true); return true;
     } catch (err) {
       if (revision.current === operation) setError(err instanceof Error ? err.message : 'Could not save the organizer. Your edits remain on this page.');
       return false;
@@ -278,7 +285,6 @@ export function TaxOrganizerScreen({ user }: Props) {
 
       <div className="mx-auto max-w-2xl space-y-3 px-4 py-3 sm:px-6">
         {error && <div role="alert" className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div>}
-        {notice && <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">{notice}</div>}
         <div className="flex items-center gap-3">
           <select aria-label="Organizer section" value={step} disabled={saving || switchingYear}
             onChange={event => setStep(Number(event.target.value))}
@@ -315,51 +321,21 @@ export function TaxOrganizerScreen({ user }: Props) {
                 <PersonalDeductionFields taxYear={year} filingStatus={answers.filingStatus} answers={answers} onChange={set} />
               </div>
             ))}
-            {disclosure("Accountant handoff", "Optional · identity, address & refund records", (
+            {disclosure("Accountant handoff", "Optional · household, address and prior-year records", (
               <>
-                <p className="text-xs text-muted-foreground">WriteOff does not submit tax returns or arrange refunds. Identification and account numbers are stored encrypted; exports print only their last digits. Review before sharing.</p>
+                <p className="text-xs text-muted-foreground">WriteOff does not submit tax returns or arrange refunds. Share identification and account numbers with your preparer directly.</p>
+                {(answers.filingStatus === "married_filing_jointly" || parseInt(answers.dependents) > 0) && (
                 <Card className="border-border bg-card">
-                  <CardHeader className="pb-3"><CardTitle className="text-sm font-semibold">Identity records</CardTitle></CardHeader>
+                  <CardHeader className="pb-3"><CardTitle className="text-sm font-semibold">Household</CardTitle></CardHeader>
                   <CardContent className="space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-
-                  <div className="space-y-1.5">
-                    <Label className="text-sm font-medium">Your Social Security Number (optional)</Label>
-                    <Input
-                      type="password"
-                      value={answers.taxpayerSSN}
-                      onChange={e => set("taxpayerSSN", e.target.value.replace(/\D/g, "").slice(0, 9))}
-                      placeholder="9 digits, no dashes"
-                      className="bg-background font-mono"
-                      maxLength={9}
-                    />
-                    <p className="text-xs text-muted-foreground">Optional for the planning estimate. Stored encrypted; exports show only the last 4 digits.</p>
-                  </div>
-                </div>
-
                 {answers.filingStatus === "married_filing_jointly" && (
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 border-t border-border">
-                    <div className="space-y-1.5">
-                      <Label className="text-sm font-medium">Spouse Full Name (optional)</Label>
-                      <Input value={answers.spouseName} onChange={e => set("spouseName", e.target.value)} placeholder="Legal name" className="bg-background" />
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <Label className="text-sm font-medium">Spouse SSN (optional)</Label>
-                      <Input
-                        type="password"
-                        value={answers.spouseSSN}
-                        onChange={e => set("spouseSSN", e.target.value.replace(/\D/g, "").slice(0, 9))}
-                        placeholder="9 digits"
-                        className="bg-background font-mono"
-                        maxLength={9}
-                      />
-                    </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-sm font-medium">Spouse Full Name (optional)</Label>
+                    <Input value={answers.spouseName} onChange={e => set("spouseName", e.target.value)} placeholder="Legal name" className="bg-background" />
                   </div>
                 )}
-
                   {parseInt(answers.dependents) > 0 && (
-                    <div className="mt-2 space-y-1.5">
+                    <div className="space-y-1.5">
                       <Label htmlFor="organizer-dependent-details" className="text-sm font-medium">Dependent names, dates of birth and relationships</Label>
                       <textarea
                         id="organizer-dependent-details"
@@ -368,11 +344,12 @@ export function TaxOrganizerScreen({ user }: Props) {
                         placeholder={"List each dependent on a new line:\nFirst Last, Date of Birth, Relationship\nExample: Emma Shah, 2018-03-15, Daughter"}
                         className="w-full min-h-[96px] text-base rounded-lg border border-border bg-background px-3 py-2 font-mono resize-none focus:outline-none focus:ring-1 focus:ring-primary"
                       />
-                      <p className="text-xs text-muted-foreground">Do not enter Social Security or taxpayer identification numbers here: any identifier typed into this box is removed before saving, and exports print &quot;Provided to preparer separately&quot; for dependents. Give dependent SSNs to your preparer directly. A dependent count or this text does not establish credit eligibility; dependent credits require review before WriteOff can show an annual total or refund.</p>
+                      <p className="text-xs text-muted-foreground">Names, dates of birth and relationships only. A dependent count or this text does not establish credit eligibility; dependent credits require review before WriteOff can show an annual total or refund.</p>
                     </div>
                   )}
                   </CardContent>
                 </Card>
+                )}
             <Card className="bg-card border-border">
               <CardHeader className="pb-3"><CardTitle className="text-sm font-semibold">Mailing Address</CardTitle></CardHeader>
               <CardContent className="space-y-4">
@@ -414,59 +391,25 @@ export function TaxOrganizerScreen({ user }: Props) {
                   </div>
                   <p className="text-xs text-muted-foreground">Use the actual adjusted gross income from your prior-year Form 1040. Line labels can change by form year. Do not replace it with zero because that was your first return; if you did not file, ask your preparer how to complete filing verification.</p>
                 </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-medium">IRS Identity Protection PIN (IP PIN)</Label>
-                  <Input
-                    value={answers.ipPin}
-                    onChange={e => set("ipPin", e.target.value.replace(/\D/g, "").slice(0,6))}
-                    placeholder="6-digit PIN (if assigned by IRS)"
-                    className="bg-background font-mono"
-                    maxLength={6}
-                  />
-                  <p className="text-xs text-muted-foreground">If the IRS assigned you an IP PIN, confirm the current PIN with your tax preparer. Stored encrypted and never printed on exports. This optional record does not authorize WriteOff to file a return.</p>
-                </div>
               </CardContent>
             </Card>
 
             <Card className="bg-card border-border">
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold">Refund account record</CardTitle>
-                <p className="text-xs text-muted-foreground">Optional information to review with your tax preparer.</p>
+                <CardTitle className="text-sm font-semibold">Account type</CardTitle>
+                <p className="text-xs text-muted-foreground">Optional note for your preparer. WriteOff does not arrange refunds.</p>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div className="space-y-1.5">
-                    <Label className="text-sm font-medium">Routing Number</Label>
-                    <Input
-                      value={answers.bankRouting}
-                      onChange={e => set("bankRouting", e.target.value.replace(/\D/g, "").slice(0,9))}
-                      placeholder="9 digits"
-                      className="bg-background font-mono"
-                      maxLength={9}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-sm font-medium">Account Number</Label>
-                    <Input
-                      type="password"
-                      value={answers.bankAccount}
-                      onChange={e => set("bankAccount", e.target.value.replace(/\D/g, ""))}
-                      placeholder="Account number"
-                      className="bg-background font-mono"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-sm font-medium">Account Type</Label>
-                    <Select value={answers.bankAccountType} onValueChange={v => set("bankAccountType", v)}>
-                      <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="checking">Checking</SelectItem>
-                        <SelectItem value="savings">Savings</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+              <CardContent>
+                <div className="max-w-xs space-y-1.5">
+                  <Label className="text-sm font-medium">Account Type</Label>
+                  <Select value={answers.bankAccountType} onValueChange={v => set("bankAccountType", v)}>
+                    <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="checking">Checking</SelectItem>
+                      <SelectItem value="savings">Savings</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
-                <p className="text-xs text-muted-foreground">Stored encrypted; your PDF export shows only the last 4 digits of each number. Verify them with your preparer; WriteOff does not submit refund instructions or predict IRS refund timing.</p>
               </CardContent>
             </Card>
               </>

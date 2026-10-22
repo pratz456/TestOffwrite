@@ -117,6 +117,41 @@ describe('organizer personal facts and safe tax-year changes', () => {
     button(failed, 'Retry organizer').props.onClick(); await tick();
     expect(personal(render())).toBeDefined();
   });
+  it('shows the save rejection on the page', async () => {
+    await load();
+    const message = "Dependent details: Please don't enter Social Security numbers here. We don't need them.";
+    harness.request.mockResolvedValueOnce(response({ error: message }, 400));
+    await button(render(), 'Save').props.onClick();
+    expect(text(render())).toContain(message);
+  });
+  it('keeps typed answers after a rejected save and blocks a year switch', async () => {
+    const note = 'Child 123-45-6789 lives here';
+    const message = "Dependent details: Please don't enter Social Security numbers here. We don't need them.";
+    const select = (tree: Element, id: string) => walk(tree).find(node => node.props.id === id)!;
+    select(await load(), 'organizer-dependents').props.onChange({ target: { value: '1' } });
+    walk(render()).find(node => node.props.id === 'organizer-dependent-details')!.props.onChange({ target: { value: note } });
+    walk(render()).find(node => node.props.placeholder === 'Street address and apt/unit')!.props.onChange({ target: { value: '9 Oak Lane' } });
+    const current = yearSelect(render()).props.value;
+    harness.request.mockImplementation(async (url: string, init?: RequestInit) => init?.method === 'POST'
+      ? response({ error: message }, 400)
+      : response({ taxYear: Number(new URL(url, 'http://local').searchParams.get('year')), organizer: null }));
+    await button(render(), 'Save').props.onClick();
+    let tree = render();
+    expect(text(tree)).toContain(message);
+    expect(walk(tree).find(node => node.props.id === 'organizer-dependent-details')!.props.value).toBe(note);
+    expect(walk(tree).find(node => node.props.placeholder === 'Street address and apt/unit')!.props.value).toBe('9 Oak Lane');
+    expect(button(tree, 'Save')).toBeDefined();
+    expect(walk(tree).some(node => text(node).trim() === 'Saved')).toBe(false);
+    yearSelect(tree).props.onChange({ target: { value: '2024' } });
+    await tick();
+    tree = render();
+    expect(yearSelect(tree).props.value).toBe(current);
+    expect(walk(tree).find(node => node.props.id === 'organizer-dependent-details')!.props.value).toBe(note);
+    expect(walk(tree).find(node => node.props.placeholder === 'Street address and apt/unit')!.props.value).toBe('9 Oak Lane');
+    expect(walk(tree).some(node => text(node).trim() === 'Saved')).toBe(false);
+    expect(text(tree)).toContain(message);
+    expect(harness.request.mock.calls.filter(call => String(call[0]).includes('?year=2024'))).toHaveLength(0);
+  });
   it('does not advance Next when saving fails', async () => {
     await load(); harness.request.mockResolvedValueOnce(response({ error: 'Could not save' }, 503));
     await button(render(), 'Next').props.onClick();
@@ -135,6 +170,25 @@ describe('organizer personal facts and safe tax-year changes', () => {
     expect(copy).toContain('WriteOff does not submit tax returns');
     expect(copy).toContain('actual adjusted gross income');
     expect(copy).not.toContain('10-21'); expect(copy).not.toContain('enter $0'); expect(copy).not.toContain('Form 8879');
+    for (const retired of ['Your Social Security Number', 'Spouse SSN', 'Routing Number', 'Account Number', 'Identity Protection PIN', '9 digits, no dashes', '9 digits', '6-digit PIN (if assigned by IRS)', 'Account number', 'SSA-1099']) {
+      expect(copy, retired).not.toContain(retired);
+    }
+  });
+  it('keeps household name fields and leaves retired identifier inputs off the save', async () => {
+    const select = (tree: Element, id: string) => walk(tree).find(node => node.props.id === id)!;
+    select(await load(), 'organizer-filing-status').props.onChange({ target: { value: 'married_filing_jointly' } });
+    select(render(), 'organizer-dependents').props.onChange({ target: { value: '1' } });
+    const tree = render();
+    const copy = text(tree);
+    expect(copy).toContain('Spouse Full Name (optional)');
+    expect(copy).toContain('Dependent names, dates of birth and relationships');
+    expect(walk(tree).some(node => node.props.placeholder === 'Legal name')).toBe(true);
+    expect(walk(tree).find(node => node.props.id === 'organizer-dependent-details')).toBeDefined();
+    expect(walk(tree).some(node => node.props.placeholder === '9 digits, no dashes' || node.props.placeholder === '9 digits' || node.props.placeholder === 'Account number')).toBe(false);
+    await button(tree, 'Save').props.onClick();
+    const saved = JSON.parse(harness.request.mock.calls.find(call => call[1]?.method === 'POST')![1].body);
+    for (const field of ['taxpayerSSN', 'spouseSSN', 'bankRouting', 'bankAccount', 'ipPin', 'dependentSSN']) expect(saved, field).not.toHaveProperty(field);
+    expect(saved).toMatchObject({ filingStatus: 'married_filing_jointly', dependents: '1' });
   });
 });
 
@@ -159,7 +213,10 @@ describe('compact organizer sections', () => {
     expect(personal(tree).props.answers.startedBusiness).toBe('yes');
     await button(tree, 'Save').props.onClick();
     const saved = JSON.parse(harness.request.mock.calls.find(call => call[1]?.method === 'POST')![1].body);
-    expect(saved).toMatchObject({ bankRouting: '123456789', bankAccount: '987654321', taxpayerSSN: '123456789', startedBusiness: 'yes' });
+    expect(saved).toMatchObject({ startedBusiness: 'yes' });
+    expect(saved).not.toHaveProperty('bankRouting');
+    expect(saved).not.toHaveProperty('bankAccount');
+    expect(saved).not.toHaveProperty('taxpayerSSN');
   });
 
   it('keeps unanswered income distinct from No and updates the collapsed group summary', async () => {

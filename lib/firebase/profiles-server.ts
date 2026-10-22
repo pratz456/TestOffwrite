@@ -1,4 +1,22 @@
+import { decryptSensitive, isEncrypted } from "@/lib/security/utils";
 import { adminDb } from "./admin";
+import { maskedEinValue } from "./profile-fields";
+
+function profileEin(data: Record<string, unknown> | undefined): string | undefined {
+  if (!data) return undefined;
+  const masked = maskedEinValue(data.ein, data.ein_last4);
+  if (masked) return masked;
+  const cipher = typeof data.ein_encrypted === 'string' && data.ein_encrypted
+    ? data.ein_encrypted
+    : typeof data.ein === 'string' && isEncrypted(data.ein) ? data.ein : '';
+  if (!cipher) return undefined;
+  try {
+    const digits = decryptSensitive(cipher).replace(/\D/g, '');
+    return digits.length >= 4 ? `**-***${digits.slice(-4)}` : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export interface UserProfile {
   id: string;
@@ -155,7 +173,7 @@ export async function getUserProfileServer(userId: string): Promise<{ data: User
           vehicle_deduction_method: data.vehicle_deduction_method,
           naics_code: data.naics_code,
           business_purpose: data.business_purpose,
-          ein: typeof data.ein_last4 === 'string' ? `**-***${data.ein_last4}` : data.ein,
+          ein: profileEin(data),
           w2_income: data.w2_income,
           w2_social_security_wages: data.w2_social_security_wages,
           w2_medicare_wages: data.w2_medicare_wages,
@@ -292,7 +310,7 @@ export async function upsertUserProfileServer(
           // Phase 2: Medium Impact Fields
           naics_code: data.naics_code,
           business_purpose: data.business_purpose,
-          ein: typeof data.ein_last4 === 'string' ? `**-***${data.ein_last4}` : data.ein,
+          ein: profileEin(data),
           w2_income: data.w2_income,
           w2_social_security_wages: data.w2_social_security_wages,
           w2_medicare_wages: data.w2_medicare_wages,

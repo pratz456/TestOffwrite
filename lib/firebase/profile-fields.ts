@@ -20,12 +20,22 @@ export const EDITABLE_PROFILE_FIELDS = new Set([
 /** Server-stamped metadata returned with the profile but never accepted from a client. */
 const READ_ONLY_PROFILE_FIELDS = ['created_at', 'updated_at', 'bankConnected', 'consents_recorded_at'];
 
+function looksEncrypted(value: string): boolean {
+  const parts = value.split(':');
+  return parts.length === 3 && parts.every(part => part.length > 0 && /^[A-Za-z0-9+/=]+$/.test(part));
+}
+
+/** Last four digits only. Ciphertext is left for the server to unwrap before this runs. */
+export function maskedEinValue(ein: unknown, einLast4: unknown): string | undefined {
+  if (typeof einLast4 === 'string' && /^\d{4}$/.test(einLast4)) return `**-***${einLast4}`;
+  if (typeof ein !== 'string' || !ein.trim() || looksEncrypted(ein)) return undefined;
+  const digits = ein.replace(/\D/g, '');
+  return digits.length >= 4 ? `**-***${digits.slice(-4)}` : undefined;
+}
+
 export function publicProfile(data: Record<string, unknown>, uid: string) {
   const visible = Object.fromEntries(Object.entries(data).filter(([key]) =>
     key !== 'ein' && (EDITABLE_PROFILE_FIELDS.has(key) || READ_ONLY_PROFILE_FIELDS.includes(key))));
-  const legacyDigits = typeof data.ein === 'string' ? data.ein.replace(/\D/g, '') : '';
-  const last4 = typeof data.ein_last4 === 'string' && /^\d{4}$/.test(data.ein_last4)
-    ? data.ein_last4
-    : legacyDigits.length >= 4 ? legacyDigits.slice(-4) : null;
-  return { ...visible, ...(last4 ? { ein: `**-***${last4}` } : {}), id: uid };
+  const ein = maskedEinValue(data.ein, data.ein_last4);
+  return { ...visible, ...(ein ? { ein } : {}), id: uid };
 }

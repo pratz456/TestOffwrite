@@ -53,8 +53,8 @@ import { POST as saveOrganizer, GET as getOrganizer } from '../app/api/tax/organ
 import { GET as getQuarterlySummary } from '../app/api/tax/quarterly-reminders/route';
 import { GET as getEstimate } from '../app/api/tax/compute-1040/route';
 import { POST as exportPdf } from '../app/api/tax/form-1040/route';
-import { assertSocialSecurityBenefitsSupported, SocialSecurityReviewRequiredError } from '../lib/tax-rules/social-security';
 import { decryptSensitive, isEncrypted } from '../lib/security/utils';
+import { assertSocialSecurityBenefitsSupported, SocialSecurityReviewRequiredError } from '../lib/tax-rules/social-security';
 import { EMPTY_ORGANIZER_ANSWERS } from '../components/tax-organizer-screen';
 import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductions';
 import { eligibilityOrganizer, hsaFacts } from './fixtures/eligibility';
@@ -193,7 +193,12 @@ describe('complete Social Security facts reach real JSON and PDF', () => {
     expect(Object.keys(answers).length).toBeLessThanOrEqual(80);
     await save(answers);
     const response = await getOrganizer(new NextRequest('http://localhost/api/tax/organizer?year=2026'));
-    expect(response.status).toBe(200); expect((await response.json()).organizer).toMatchObject(answers);
+    const retired = ['taxpayerSSN', 'spouseSSN', 'bankRouting', 'bankAccount', 'ipPin'];
+    const visible = Object.fromEntries(Object.entries(answers).filter(([key]) => !retired.includes(key)));
+    expect(response.status).toBe(200);
+    const organizer = (await response.json()).organizer;
+    expect(organizer).toMatchObject(visible);
+    for (const field of retired) expect(organizer).not.toHaveProperty(field);
   });
 
   it.each([2024, 2025, 2026])('persists the IRS Example1 facts and matches JSON/PDF in%s', async year => {
@@ -327,17 +332,23 @@ describe('Form1040 preparer export completeness disclosures', () => {
   it('prints saved taxpayer/spouse identities with masked identifiers and missing-record warnings without filing authorization', async () => {
     state.profile = { filing_status: 'married_filing_jointly', name: 'Synthetic Maria Long Family Name 漢' };
     await save({ filingStatus: 'married_filing_jointly', spouseName: 'Synthetic Spouse Full Name' });
-    // Legacy plaintext spouse SSN: read as-is, printed masked, re-encrypted by the read.
+    // An older spouse identifier is stored in the current format when the return is read. The box stays empty.
     state.records.tax_organizers[0].spouseSSN = '111223333';
     const draw = vi.spyOn(PDFPage.prototype, 'drawText');
     const response = await exportPdf(pdfRequest()); expect(response.status).toBe(200);
     const bytes = new Uint8Array(await response.arrayBuffer());
     expect((await PDFDocument.load(bytes)).getPageCount()).toBeGreaterThan(2);
     const text = draw.mock.calls.map(call => call[0]).join(' ');
-    expect(text).toContain('Synthetic Spouse Full Name'); expect(text).toContain('***-**-3333');
+    expect(text).toContain('Synthetic Spouse Full Name');
+    const drawn = draw.mock.calls.map(call => call[0]);
+    expect(drawn[drawn.indexOf('Spouse SSN (last 4 only)') + 1]).toBe('');
+    expect(drawn[drawn.indexOf('Social security number (last 4 only)') + 1]).toBe('');
+    expect(text).not.toContain('***-**-3333');
     expect(text).not.toContain('111-22-3333'); expect(text).not.toContain('111223333');
-    const stored = state.records.tax_organizers[0].spouseSSN as string;
-    expect(isEncrypted(stored)).toBe(true); expect(decryptSensitive(stored)).toBe('111223333');
+    const storedSpouse = String(state.records.tax_organizers[0].spouseSSN);
+    expect(isEncrypted(storedSpouse)).toBe(true);
+    expect(decryptSensitive(storedSpouse)).toBe('111223333');
+    expect(isEncrypted(decryptSensitive(storedSpouse))).toBe(false);
     expect(text).toContain('Synthetic Maria Long Family Name [U+6F22]');
     expect(text).toContain('SSN not filled in'); expect(text).toContain('Mailing address incomplete');
     expect(text).toContain('Do not file this export with the IRS'); expect(text).not.toContain('Under penalties of perjury'); expect(text).not.toContain('Sign Here');

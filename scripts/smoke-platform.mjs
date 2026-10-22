@@ -354,16 +354,14 @@ if (mode !== 'public') {
     const ownView = await request('/api/tax/organizer?year=2026', { token: owner.token }); status(ownView, 200);
     assert.equal(ownView.data.organizer?.userId, owner.uid);
   });
-  await check('organizer encrypts synthetic SSN/bank data at rest and decrypts it only for the owner', async () => {
-    const answers = { taxYear: 2026, taxpayerSSN: '900000001', spouseSSN: '900000002', bankAccount: '000123456789', dependentDetails: 'Synthetic encryption fixture' };
+  await check('organizer save does not store or return retired identifier fields', async () => {
+    const answers = { taxYear: 2026, filingStatus: 'single', taxpayerSSN: '900000001', spouseSSN: '900000002', bankAccount: '000123456789', dependentDetails: 'Synthetic fixture' };
     const saved = await request('/api/tax/organizer', { method: 'POST', token: owner.token, body: answers }); status(saved, [200, 201]); assert.ok(saved.data.id);
     const storedResponse = await fetch(`${dbBase}/tax_organizers/${saved.data.id}`, { headers: { authorization: 'Bearer owner' }, signal: AbortSignal.timeout(10000) });
     assert.equal(storedResponse.status, 200); const stored = await storedResponse.json();
-    for (const field of ['taxpayerSSN', 'spouseSSN', 'bankAccount']) {
-      const ciphertext = stored.fields[field].stringValue; assert.notEqual(ciphertext, answers[field]); assert.equal(ciphertext.split(':').length, 3);
-    }
+    for (const field of ['taxpayerSSN', 'spouseSSN', 'bankAccount']) assert.equal(stored.fields[field], undefined);
     const ownerView = await request('/api/tax/organizer?year=2026', { token: owner.token }); status(ownerView, 200);
-    for (const field of ['taxpayerSSN', 'spouseSSN', 'bankAccount']) assert.equal(ownerView.data.organizer[field], answers[field]);
+    assert.equal(/900000001|900000002|000123456789/.test(JSON.stringify(ownerView.data)), false);
     assert.match(ownerView.response.headers.get('cache-control'), /no-store/);
     const otherView = await request('/api/tax/organizer?year=2026', { token: other.token }); status(otherView, 200); assert.equal(otherView.data.organizer, null);
     status(await request('/api/tax/organizer?year=2026'), 401);

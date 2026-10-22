@@ -57,4 +57,11 @@ describe('server profile hydration', () => {
     });
     expect(JSON.stringify(result.data)).not.toContain('private-ciphertext');
   });
+
+  it('masks a plaintext EIN when no last-four is stored', async () => {
+    state.profile = { name: 'Owner', ein: '123456789' };
+    const result = await getUserProfileServer('owner');
+    expect(result.data?.ein).toBe('**-***6789');
+    expect(JSON.stringify(result.data)).not.toContain('123456789');
+  });
 });

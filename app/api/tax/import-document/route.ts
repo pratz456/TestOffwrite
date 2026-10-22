@@ -39,6 +39,7 @@ import { redactIdentifierText, redactPersonalDetails } from '@/lib/security/iden
 import { DOCUMENT_IMAGE_CONSENT_REQUIRED } from '@/lib/onboarding/document-import-consent';
 import { documentImportConsentOnFile } from '@/lib/onboarding/document-import-consent-server';
 import { readOrganizerDocument } from '@/lib/tax-organizer/organizer-server';
+import { ssnShapedExpression } from '@/lib/tax-organizer/identifiers';
 
 // ── Extraction prompts per document type ─────────────────────────────────────
 
@@ -160,6 +161,16 @@ Return ONLY valid JSON:
   "confidence": number,
   "notes": "string — any important caveats"
 }`;
+
+/** The record that will be saved: the model's type, otherwise the request, otherwise the boxes that decide it. */
+function savedDocumentType(data: Record<string, unknown>, requested: string): 'w2' | '1099' | 'platform_summary' | null {
+  const detected = (typeof data.docType === 'string' && data.docType) || requested;
+  if (detected === 'w2' || detected === '1099' || detected === 'platform_summary') return detected;
+  if (data.formVariant || data.form1099KAmount) return '1099';
+  if (data.box1Wages !== undefined) return 'w2';
+  if (data.grossEarnings !== undefined) return 'platform_summary';
+  return null;
+}
 
 // ── Save extracted data to Firestore ─────────────────────────────────────────
 
@@ -301,7 +312,100 @@ async function extractDocument(source: DocumentSource, docType: string, payload:
     messages: [{ role: 'user', content }],
   });
   const rawText = response.choices[0]?.message?.content || '{}';
-  return { rawText, extracted: parseModelJson(rawText) };
+  return parseModelJson(rawText);
+}
+
+/** Dashed employer/payer form. A bare 9-digit run is not this shape. */
+const DASHED_PAYER_NUMBER = /^\d{2}-\d{7}$/;
+/** Nine digits with no separator. Kept only from an employer or EIN line that does not say payer. */
+const BARE_PAYER_NUMBER = /^\d{9}$/;
+const BLOCKED_PAYER_LABEL = /recipient|employee|payee/i;
+const EMPLOYER_OR_EIN_LABEL = /employer|\bEIN\b/i;
+const PAYER_WORD = /payer/i;
+const PAYER_ID_CHECK = 'Check the employer/payer ID';
+
+function payerNumberOrBlank(value: unknown): string | null {
+  return typeof value === 'string' && (DASHED_PAYER_NUMBER.test(value) || BARE_PAYER_NUMBER.test(value)) ? value : null;
+}
+
+/**
+ * A labeled number on its own line. A dashed NN-NNNNNNN stays when the label is not
+ * recipient, employee, or payee. A bare 9-digit run stays only when that same line
+ * names the employer or EIN and does not say payer. A 3-2-4 value is never kept.
+ */
+function labeledPayerNumbers(text: string): { kept: string[] } {
+  const pattern = /(^|\n)([^\n]*?)(\bEIN\b|identification number|payer(?:'s)? TIN)([^\n\d]{0,60})(\d{2}-\d{7}|\d{9})(?!\d)/gi;
+  const kept: string[] = [];
+  for (const match of text.matchAll(pattern)) {
+    const number = match[5];
+    const label = `${match[2]} ${match[3]} ${match[4]}`;
+    if (BLOCKED_PAYER_LABEL.test(label)) continue;
+    if (DASHED_PAYER_NUMBER.test(number)) {
+      kept.push(number);
+      continue;
+    }
+    const at = (match.index ?? 0) + match[0].lastIndexOf(number);
+    const lineStart = text.lastIndexOf('\n', at) + 1;
+    const lineBreak = text.indexOf('\n', at);
+    const line = text.slice(lineStart, lineBreak === -1 ? text.length : lineBreak);
+    if (BARE_PAYER_NUMBER.test(number) && EMPLOYER_OR_EIN_LABEL.test(line) && !PAYER_WORD.test(line)) kept.push(number);
+  }
+  return { kept };
+}
+
+/**
+ * Every number on a recipient, employee, or payee line, in any format.
+ * The line does not also have to say EIN, identification number, or TIN.
+ */
+function blockedLineDigits(text: string): Set<string> {
+  const blocked = new Set<string>();
+  const numberPattern = /\d{2}[-\u2010-\u2015. ]\d{7}|\d{3}[- ]\d{2}[- ]\d{4}|\d{9}/g;
+  for (const line of text.split('\n')) {
+    if (!BLOCKED_PAYER_LABEL.test(line)) continue;
+    for (const match of line.matchAll(numberPattern)) blocked.add(match[0].replace(/\D/g, ''));
+  }
+  return blocked;
+}
+
+function addPayerIdCheck(data: Record<string, unknown>): void {
+  const current = Array.isArray(data.verificationWarnings) ? data.verificationWarnings : [];
+  const warnings = current.filter((item): item is string => typeof item === 'string');
+  if (!warnings.includes(PAYER_ID_CHECK)) warnings.push(PAYER_ID_CHECK);
+  data.verificationWarnings = warnings;
+}
+
+/** Drop the payer check, then put it back only when the saved ID is empty. The saved document and the response share this. */
+function syncPayerIdCheck(data: Record<string, unknown>, idEmpty: boolean): void {
+  if (!Array.isArray(data.verificationWarnings)) return;
+  const warnings = data.verificationWarnings.filter((item: unknown) => item !== PAYER_ID_CHECK);
+  if (idEmpty) warnings.push(PAYER_ID_CHECK);
+  data.verificationWarnings = warnings;
+}
+
+/** A typed employer or payer value is kept only as NN-NNNNNNN. Anything else is cleared, and a non-empty edit asks the user to check it. */
+function applyPayerNumberEdits(data: Record<string, unknown>, overrides: Record<string, string | number | boolean | null>): void {
+  let rejected = false;
+  for (const field of PAYER_NUMBER_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(overrides, field)) continue;
+    const edited = overrides[field];
+    const kept = typeof edited === 'string' && DASHED_PAYER_NUMBER.test(edited) ? edited : null;
+    data[field] = kept;
+    if (!kept && edited !== null && edited !== undefined && edited !== '') rejected = true;
+  }
+  if (rejected) addPayerIdCheck(data);
+}
+
+/** Photos keep a dashed NN-NNNNNNN only. Any other employer or payer value is cleared and the user is asked to check it. */
+function rejectUndashedImagePayerNumbers(data: Record<string, unknown>): void {
+  let rejected = false;
+  for (const field of PAYER_NUMBER_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(data, field)) continue;
+    const value = data[field];
+    if (typeof value === 'string' && DASHED_PAYER_NUMBER.test(value)) continue;
+    if (value !== null && value !== undefined && value !== '') rejected = true;
+    data[field] = null;
+  }
+  if (rejected) addPayerIdCheck(data);
 }
 
 /** Formats a locally captured EIN as XX-XXXXXXX; the model never sees it. */
@@ -341,6 +445,83 @@ async function accountHolderNames(uid: string): Promise<string[]> {
   } catch {
     return [];
   }
+}
+
+const DOCUMENT_IDENTIFIER_KEYS = new Set([
+  'employeessn', 'employeesocialsecuritynumber', 'ssn', 'socialsecuritynumber', 'boxa',
+  'recipienttin', 'recipientssn', 'recipientsocialsecuritynumber', 'tin', 'payeetin', 'payeessn', 'employeetin', 'ssnortin',
+]);
+const W2_PUBLIC_FIELDS = ['docType', 'employerName', 'employerEIN', 'box1Wages', 'box2FederalWithheld', 'box3SocialSecurityWages', 'box4SocialSecurityWithheld', 'box5MedicareWages', 'box6MedicareWithheld', 'box12Codes', 'box16StateWages', 'box17StateWithheld', 'state', 'taxYear', 'confidence', 'fieldConfidence', 'imageQualityIssues', 'verificationWarnings'] as const;
+const FORM_1099_PUBLIC_FIELDS = ['docType', 'formVariant', 'payerName', 'payerEIN', 'recipientName', 'box1Amount', 'box2FederalWithheld', 'box4FederalWithheld', 'grossAmount', 'taxYear', 'platform', 'confidence', 'imageQualityIssues', 'verificationWarnings'] as const;
+const PLATFORM_PUBLIC_FIELDS = ['docType', 'platform', 'taxYear', 'grossEarnings', 'platformFees', 'netEarnings', 'milesDriven', 'onlineHours', 'trips', 'form1099KAmount', 'form1099NECAmount', 'federalWithheld', 'breakdown', 'confidence', 'imageQualityIssues', 'verificationWarnings'] as const;
+const AUTO_PUBLIC_FIELDS = ['docType', 'formVariant', 'platform', 'taxYear', 'primaryAmount', 'federalWithheld', 'employerOrPayerName', 'confidence'] as const;
+const BREAKDOWN_FIELDS = ['baseEarnings', 'tips', 'bonuses', 'promotions', 'otherIncome'] as const;
+const FIELD_CONFIDENCE_FIELDS = ['box1Wages', 'box2FederalWithheld', 'box3SocialSecurityWages', 'box5MedicareWages'] as const;
+
+const PAYER_NUMBER_FIELDS = new Set(['employerEIN', 'payerEIN']);
+
+function scrubImportText(value: string): string {
+  return value.replace(ssnShapedExpression(), '');
+}
+
+/** Known document fields only. The set follows the record that will be saved, so an untyped 1099 keeps its payer fields and an untyped W-2 keeps its employer fields. */
+function publicDocument(data: Record<string, unknown>, requested = ''): Record<string, unknown> {
+  const savedType = savedDocumentType(data, requested);
+  const fields = savedType === '1099' ? FORM_1099_PUBLIC_FIELDS
+    : savedType === 'platform_summary' ? PLATFORM_PUBLIC_FIELDS
+    : savedType === 'w2' ? W2_PUBLIC_FIELDS
+    : AUTO_PUBLIC_FIELDS;
+  const out: Record<string, unknown> = {};
+  for (const field of fields) {
+    if (!Object.prototype.hasOwnProperty.call(data, field)) continue;
+    const value = data[field];
+    if (field === 'box12Codes' && Array.isArray(value)) {
+      out[field] = value.filter(item => item !== null && typeof item === 'object').map(item => {
+        const row = item as Record<string, unknown>;
+        const next: Record<string, unknown> = {};
+        if (typeof row.code === 'string') next.code = scrubImportText(row.code);
+        if (typeof row.amount === 'number') next.amount = row.amount;
+        return next;
+      });
+      continue;
+    }
+    if (field === 'breakdown' && value !== null && typeof value === 'object' && !Array.isArray(value)) {
+      const row = value as Record<string, unknown>;
+      out[field] = Object.fromEntries(BREAKDOWN_FIELDS.filter(key => typeof row[key] === 'number').map(key => [key, row[key]]));
+      continue;
+    }
+    if (field === 'fieldConfidence' && value !== null && typeof value === 'object' && !Array.isArray(value)) {
+      const row = value as Record<string, unknown>;
+      out[field] = Object.fromEntries(FIELD_CONFIDENCE_FIELDS.filter(key => typeof row[key] === 'number').map(key => [key, row[key]]));
+      continue;
+    }
+    if ((field === 'imageQualityIssues' || field === 'verificationWarnings') && Array.isArray(value)) {
+      out[field] = value.filter((item): item is string => typeof item === 'string').map(scrubImportText);
+      continue;
+    }
+    if (PAYER_NUMBER_FIELDS.has(field)) { out[field] = payerNumberOrBlank(value); continue; }
+    if (typeof value === 'string') { out[field] = scrubImportText(value); continue; }
+    if (typeof value === 'number' || value === null || typeof value === 'boolean') out[field] = value;
+  }
+  return out;
+}
+
+/** Removes employee/recipient identification values before a document result is stored or returned. Employer and payer EINs stay. */
+function dropDocumentIdentifiers<T>(value: T): T {
+  if (typeof value === 'string') return scrubImportText(value) as T;
+  if (Array.isArray(value)) return value.map(item => dropDocumentIdentifiers(item)) as T;
+  if (value !== null && typeof value === 'object') {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return value;
+    const cleaned: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      if (DOCUMENT_IDENTIFIER_KEYS.has(key.toLowerCase().replace(/[^a-z0-9]/g, ''))) continue;
+      if (PAYER_NUMBER_FIELDS.has(key)) { cleaned[key] = payerNumberOrBlank(entry); continue; }
+      cleaned[key] = dropDocumentIdentifiers(entry);
+    }
+    return cleaned as T;
+  }
+  return value;
 }
 
 function consentRequired(reason: ImageFallbackReason, consentOnFile: boolean) {
@@ -410,19 +591,28 @@ export async function POST(request: NextRequest) {
     let fallbackReason: ImageFallbackReason | null = ocr === null ? 'ocr_unavailable' : documentOcrUsable(ocr) ? null : 'ocr_low_confidence';
     let disclosure: DocumentSource = 'text';
     let extracted: Record<string, any> | null = null;
-    let rawText = '';
     let ssnLast4: string | null = null;
     let localEINs: string[] = [];
     let identifiersRedacted = 0;
     if (fallbackReason === null) {
       const redaction = redactIdentifierText(ocr!.text, { keepPrimarySSNLast4: true });
       ssnLast4 = redaction.ssnLast4;
-      localEINs = redaction.eins.map(formatEIN);
+      const blockedDigits = blockedLineDigits(ocr!.text);
+      const labeled = labeledPayerNumbers(ocr!.text);
+      localEINs = redaction.eins.map(formatEIN).filter(value => {
+        const digits = value.replace(/\D/g, '');
+        return DASHED_PAYER_NUMBER.test(value) && !blockedDigits.has(digits);
+      });
+      for (const value of labeled.kept) {
+        const digits = value.replace(/\D/g, '');
+        if (blockedDigits.has(digits)) continue;
+        if (!localEINs.some(existing => existing.replace(/\D/g, '') === digits)) localEINs.push(value);
+      }
       // The no-consent path also keeps the account holder's name and postal addresses on this server;
       // the boxes the model extracts are numeric and the employer name stays for labeling.
       const personal = redactPersonalDetails(redaction.text, await accountHolderNames(user.uid));
       identifiersRedacted = redaction.count + personal.count;
-      ({ rawText, extracted } = await extractDocument('text', docType, { text: personal.text }));
+      extracted = await extractDocument('text', docType, { text: personal.text });
       if (extracted?.needs_image === true) { fallbackReason = 'model_requested_image'; extracted = null; }
     }
 
@@ -431,13 +621,12 @@ export async function POST(request: NextRequest) {
       const consentOnFile = await documentImportConsentOnFile(user.uid);
       if (!documentImageConsent || !consentOnFile) return consentRequired(fallbackReason, consentOnFile);
       disclosure = 'image';
-      ({ rawText, extracted } = await extractDocument('image', docType, { dataUrl: `data:${mediaType};base64,${bytes.toString('base64')}` }));
+      extracted = await extractDocument('image', docType, { dataUrl: `data:${mediaType};base64,${bytes.toString('base64')}` });
     }
 
     if (!extracted || extracted.needs_image === true) {
       return NextResponse.json({
         error: 'Failed to parse the document. The image may be unclear or use an unsupported format.',
-        rawResponse: rawText.slice(0, 500),
         disclosure,
       }, { status: 422 });
     }
@@ -449,16 +638,25 @@ export async function POST(request: NextRequest) {
     // employer/payer EIN comes from the local OCR read and the SSN is matched, not stored.
     const einNotes: string[] = [];
     if (disclosure === 'text') {
-      const einField = extracted.docType === 'w2' || docType === 'w2' ? 'employerEIN' : extracted.docType === '1099' || docType === '1099' ? 'payerEIN' : null;
+      // The model saw redacted text. Drop both numbers before the local read fills the field that will be saved.
+      extracted.employerEIN = null;
+      extracted.payerEIN = null;
+      const savedType = savedDocumentType(extracted, docType);
+      const einField = savedType === 'w2' ? 'employerEIN' : savedType === '1099' ? 'payerEIN' : null;
       if (einField) {
-        extracted[einField] = localEINs[0] ?? null;
-        if (localEINs.length > 1) einNotes.push(`Verify ${einField}. More than one EIN-shaped number was read from the document.`);
+        // A payer line never contributes a bare number. A 1099 record also keeps only a dashed NN-NNNNNNN.
+        const accepted = savedType === '1099' ? localEINs.filter(value => DASHED_PAYER_NUMBER.test(value)) : localEINs;
+        extracted[einField] = accepted.length ? payerNumberOrBlank(accepted[0]) : null;
+        if (!extracted[einField]) addPayerIdCheck(extracted);
+        else if (accepted.length > 1) einNotes.push(`Verify ${einField}. More than one EIN-shaped number was read from the document.`);
       }
     }
+    if (disclosure === 'image') rejectUndashedImagePayerNumbers(extracted);
     const documentOwner = await matchDocumentOwner(user.uid, extracted.taxYear || taxYear || new Date().getFullYear() - 1, ssnLast4);
     if (documentOwner === 'unmatched') {
-      einNotes.push(`The Social Security number on this document (***-**-${ssnLast4}) does not match the taxpayer or spouse SSN saved in your Tax Organizer. Confirm this document is yours before saving.`);
+      einNotes.push('The identification number on this document does not match the taxpayer or spouse record saved in your Tax Organizer. Confirm this document is yours before saving.');
     }
+    extracted = publicDocument(dropDocumentIdentifiers(extracted), docType);
 
     // Low confidence warning
     // Check for quality issues
@@ -480,7 +678,7 @@ export async function POST(request: NextRequest) {
           'Avoid shadows and glare',
           'Make sure all 4 corners are visible',
         ],
-        extracted,
+        extracted: publicDocument(extracted, docType),
         imageIssues,
         committed: false,
         disclosure,
@@ -495,28 +693,37 @@ export async function POST(request: NextRequest) {
       ...einNotes,
     ];
 
-    // Merge user edits into extracted data before saving
-    const finalData = { ...extracted, ...overrideFields };
+    // Merge user edits into extracted data before saving. Identifier keys are already removed from extracted.
+    const finalData = publicDocument(dropDocumentIdentifiers({ ...extracted, ...overrideFields }), docType);
+    if (disclosure === 'image') rejectUndashedImagePayerNumbers(finalData);
+    // A typed value that is not NN-NNNNNNN is saved blank. payerNumberOrBlank would already have dropped a 3-2-4, so check the raw edit.
+    applyPayerNumberEdits(finalData, overrideFields);
+    const savedType = savedDocumentType(finalData, docType);
+    const savedIdField = savedType === 'w2' ? 'employerEIN' : savedType === '1099' ? 'payerEIN' : null;
+    const responseExtracted: Record<string, unknown> = { ...extracted };
+    for (const field of PAYER_NUMBER_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(overrideFields, field)) responseExtracted[field] = finalData[field];
+    }
+    // The scan can add the check before a typed value replaces it. For a saved W-2 or 1099 the prompt matches the saved ID only.
+    if (savedIdField) {
+      const empty = !finalData[savedIdField];
+      for (let i = verificationRequired.length - 1; i >= 0; i -= 1) {
+        if (verificationRequired[i] === PAYER_ID_CHECK) verificationRequired.splice(i, 1);
+      }
+      if (empty) verificationRequired.push(PAYER_ID_CHECK);
+      syncPayerIdCheck(finalData, empty);
+      syncPayerIdCheck(responseExtracted, empty);
+    }
 
     // Save to Firestore if commit=true
     let saveResult: Record<string, any> = {};
     if (commit) {
-      const detectedType = finalData.docType || docType;
-      if (detectedType === 'w2') {
+      if (savedType === 'w2') {
         saveResult = await saveW2(user.uid, finalData);
-      } else if (detectedType === '1099') {
+      } else if (savedType === '1099') {
         saveResult = await save1099(user.uid, finalData);
-      } else if (detectedType === 'platform_summary') {
+      } else if (savedType === 'platform_summary') {
         saveResult = await savePlatformSummary(user.uid, finalData);
-      } else {
-        // Auto-route based on extracted docType
-        if (finalData.formVariant || finalData.form1099KAmount) {
-          saveResult = await save1099(user.uid, finalData);
-        } else if (finalData.box1Wages !== undefined) {
-          saveResult = await saveW2(user.uid, finalData);
-        } else if (finalData.grossEarnings !== undefined) {
-          saveResult = await savePlatformSummary(user.uid, finalData);
-        }
       }
     }
 
@@ -527,7 +734,7 @@ export async function POST(request: NextRequest) {
       imageIssues,
       lowConfidenceFields: lowConfFields,
       taxYear: extracted.taxYear,
-      extracted,
+      extracted: publicDocument(responseExtracted, docType),
       committed: commit,
       saveResult,
       summary: buildSummary(extracted),
