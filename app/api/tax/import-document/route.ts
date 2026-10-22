@@ -162,6 +162,16 @@ Return ONLY valid JSON:
   "notes": "string — any important caveats"
 }`;
 
+/** The record that will be saved: the model's type, otherwise the request, otherwise the boxes that decide it. */
+function savedDocumentType(data: Record<string, unknown>, requested: string): 'w2' | '1099' | 'platform_summary' | null {
+  const detected = (typeof data.docType === 'string' && data.docType) || requested;
+  if (detected === 'w2' || detected === '1099' || detected === 'platform_summary') return detected;
+  if (data.formVariant || data.form1099KAmount) return '1099';
+  if (data.box1Wages !== undefined) return 'w2';
+  if (data.grossEarnings !== undefined) return 'platform_summary';
+  return null;
+}
+
 // ── Save extracted data to Firestore ─────────────────────────────────────────
 
 async function saveW2(uid: string, data: Record<string, any>) {
@@ -611,11 +621,14 @@ export async function POST(request: NextRequest) {
     // employer/payer EIN comes from the local OCR read and the SSN is matched, not stored.
     const einNotes: string[] = [];
     if (disclosure === 'text') {
-      const einField = extracted.docType === 'w2' || docType === 'w2' ? 'employerEIN' : extracted.docType === '1099' || docType === '1099' ? 'payerEIN' : null;
+      // The model saw redacted text. Drop both numbers before the local read fills the field that will be saved.
+      extracted.employerEIN = null;
+      extracted.payerEIN = null;
+      const savedType = savedDocumentType(extracted, docType);
+      const einField = savedType === 'w2' ? 'employerEIN' : savedType === '1099' ? 'payerEIN' : null;
       if (einField) {
-        // A sole proprietor can print an SSN in the 1099 payer box. Keep only a dashed NN-NNNNNNN there.
-        // The model saw redacted text. With no labeled local number, do not keep the number it returned.
-        const accepted = einField === 'payerEIN' ? localEINs.filter(value => DASHED_PAYER_NUMBER.test(value)) : localEINs;
+        // A sole proprietor can print an SSN in the 1099 payer box. Keep only a dashed NN-NNNNNNN on a 1099 record.
+        const accepted = savedType === '1099' ? localEINs.filter(value => DASHED_PAYER_NUMBER.test(value)) : localEINs;
         extracted[einField] = accepted.length ? payerNumberOrBlank(accepted[0]) : null;
         if (!extracted[einField]) addPayerIdCheck(extracted);
         else if (accepted.length > 1) einNotes.push(`Verify ${einField}. More than one EIN-shaped number was read from the document.`);
@@ -679,22 +692,13 @@ export async function POST(request: NextRequest) {
     // Save to Firestore if commit=true
     let saveResult: Record<string, any> = {};
     if (commit) {
-      const detectedType = finalData.docType || docType;
+      const detectedType = savedDocumentType(finalData, docType);
       if (detectedType === 'w2') {
         saveResult = await saveW2(user.uid, finalData);
       } else if (detectedType === '1099') {
         saveResult = await save1099(user.uid, finalData);
       } else if (detectedType === 'platform_summary') {
         saveResult = await savePlatformSummary(user.uid, finalData);
-      } else {
-        // Auto-route based on extracted docType
-        if (finalData.formVariant || finalData.form1099KAmount) {
-          saveResult = await save1099(user.uid, finalData);
-        } else if (finalData.box1Wages !== undefined) {
-          saveResult = await saveW2(user.uid, finalData);
-        } else if (finalData.grossEarnings !== undefined) {
-          saveResult = await savePlatformSummary(user.uid, finalData);
-        }
       }
     }
 

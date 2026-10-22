@@ -260,6 +260,39 @@ describe('redact-first W-2/1099 import: text path', () => {
     expect(JSON.stringify(state.records.income_1099)).not.toContain(payerEIN);
   });
 
+  it.each(['98-7654321', '123456789'])('blanks payer number %s when the request says w2, the model says 1099, and the text has no payer number', async (payerEIN) => {
+    mocks.recognize.mockResolvedValue({ text: 'Form 1099-NEC statement prepared for the tax year 2025', confidence: 0.95 });
+    modelReplies({ docType: '1099', formVariant: 'NEC', payerName: 'Synthetic Payer', payerEIN, box1Amount: 1000, taxYear: 2025, confidence: 0.95, verificationWarnings: [] });
+    const body = await (await importDocument(request({ docType: 'w2' }))).json();
+    expect(body.extracted.payerEIN).toBeNull();
+    expect(state.records.income_1099[0].payerEIN).toBe('');
+    expect(body.verificationRequired).toContain('Check the employer/payer ID');
+    expect(JSON.stringify(body)).not.toContain(payerEIN);
+    for (const [collection, records] of Object.entries(state.records)) expect(JSON.stringify(records), collection).not.toContain(payerEIN);
+  });
+
+  it('blanks a bare payer number when the request says w2, the model says 1099, and the text is a payer TIN', async () => {
+    mocks.recognize.mockResolvedValue({ text: "PAYER'S TIN 123456789\nPaid for services rendered this year", confidence: 0.95 });
+    modelReplies({ docType: '1099', formVariant: 'NEC', payerName: 'Synthetic Payer', payerEIN: '123456789', box1Amount: 1000, taxYear: 2025, confidence: 0.95, verificationWarnings: [] });
+    const body = await (await importDocument(request({ docType: 'w2' }))).json();
+    expect(body.extracted.payerEIN).toBeNull();
+    expect(state.records.income_1099[0].payerEIN).toBe('');
+    expect(body.verificationRequired).toContain('Check the employer/payer ID');
+    expect(JSON.stringify(body)).not.toContain('123456789');
+    for (const [collection, records] of Object.entries(state.records)) expect(JSON.stringify(records), collection).not.toContain('123456789');
+  });
+
+  it('blanks an employer number when the request says 1099 and the model says w2 with no employer number in the text', async () => {
+    mocks.recognize.mockResolvedValue({ text: 'Form W-2 Wage and Tax Statement prepared for the tax year 2025', confidence: 0.95 });
+    modelReplies({ ...W2_JSON, employerEIN: '12-3456789', box1Wages: 1000 });
+    const body = await (await importDocument(request({ docType: '1099' }))).json();
+    expect(body.extracted.employerEIN).toBeNull();
+    expect(state.records.w2_income[0].employerEIN).toBe('');
+    expect(body.verificationRequired).toContain('Check the employer/payer ID');
+    expect(JSON.stringify(body)).not.toContain('12-3456789');
+    for (const [collection, records] of Object.entries(state.records)) expect(JSON.stringify(records), collection).not.toContain('12-3456789');
+  });
+
   it('does not keep a bare number under a generic identification number label', async () => {
     mocks.recognize.mockResolvedValue({ text: 'Identification number 987654321\n1 Wages 1000.00', confidence: 0.95 });
     modelReplies({ ...W2_JSON, employerEIN: '987654321', box1Wages: 1000 });
