@@ -1,3 +1,4 @@
+import { getSocialSecurityWageBase } from '../tax-rules/federal-year-rules';
 import { ACA_2027_PARAMETERS, HSA_2027_LIMITS, TAX_YEAR_2027_REVIEWED_AT } from '../tax-rules/tax-year-2027';
 import { describeBusinessMileageRatesForYear } from '../tax-rules/mileage-rates';
 
@@ -66,7 +67,8 @@ const dollars = (amount: number) => `$${amount.toLocaleString('en-US')}`;
  * Social Security wage base) come from docs/research/self-employed-rules-2025-2027.md and
  * docs/research/business-deductions-2026-2027.md, each traced there to its revenue procedure or notice.
  * Published 2027 HSA/health-plan amounts come from Rev. Proc. 2026-24 and ACA percentages
- * from Rev. Proc. 2026-26. Other annual values remain pending verification, never copied from 2026.
+ * from Rev. Proc. 2026-26. The 2027 Social Security wage base comes from getSocialSecurityWageBase.
+ * Other annual values remain pending verification, never copied from 2026.
  * Unchanged packets retain their earlier review date; revised packets carry the new review date.
  */
 
@@ -741,7 +743,7 @@ export const GUIDANCE_SOURCES: readonly GuidanceSource[] = [
     reviewedAt: TAX_YEAR_2027_REVIEWED_AT, supportedTaxYears,
     summary: 'A side business alongside a W-2 job: Schedule C reporting, the $400 Schedule SE net-earnings threshold, Social Security wage base, Medicare taxes and payment planning. Employee-expense exceptions require separate review.',
     requiredFacts: ['How much net profit do you expect from the side business this year?', 'Roughly what are your W-2 wages, and can you adjust your withholding?'],
-    answer: (taxYear) => `Income from a side business is reported on Schedule C alongside W-2 wages. Its ordinary and necessary business expenses reduce that business income. Self-employment tax generally applies when Schedule SE net earnings reach $400; under the regular method, net earnings are usually 92.35% of net profit, not gross receipts. The regular tax combines 12.4% Social Security, limited by the annual wage base${taxYear >= 2027 ? ' (the 2027 wage base remains pending verification in this release)' : ' ($184,500 for 2026)'}, and 2.9% Medicare without that cap. Your W-2 Social Security wages count toward the same wage base. A separate 0.9% Additional Medicare Tax may apply based on combined wages and self-employment income and filing status. Half of regular self-employment tax is deductible on Schedule 1; the Additional Medicare Tax is not included in that deduction. Plan for estimated payments or additional W-2 withholding; withholding is generally treated as paid evenly through the year. Ordinary W-2 job expenses do not become Schedule C expenses of a separate side business. Most unreimbursed employee expenses are nondeductible, but limited employee exceptions require separate review. Keep business records separate.`,
+    answer: (taxYear) => `Income from a side business is reported on Schedule C alongside W-2 wages. Its ordinary and necessary business expenses reduce that business income. Self-employment tax generally applies when Schedule SE net earnings reach $400; under the regular method, net earnings are usually 92.35% of net profit, not gross receipts. The regular tax combines 12.4% Social Security, limited by the annual wage base (${dollars(getSocialSecurityWageBase(taxYear))} for ${taxYear}), and 2.9% Medicare without that cap. Your W-2 Social Security wages count toward the same wage base. A separate 0.9% Additional Medicare Tax may apply based on combined wages and self-employment income and filing status. Half of regular self-employment tax is deductible on Schedule 1; the Additional Medicare Tax is not included in that deduction. Plan for estimated payments or additional W-2 withholding; withholding is generally treated as paid evenly through the year. Ordinary W-2 job expenses do not become Schedule C expenses of a separate side business. Most unreimbursed employee expenses are nondeductible, but limited employee exceptions require separate review. Keep business records separate.`,
     placement: 'Schedule C and Schedule SE; half of regular self-employment tax on Schedule 1 line 15',
     records: ['a separate account for the side business', 'income records including any Forms 1099', 'your Forms W-2'],
     citations: ['estimated-taxes', 'employee-expense-exceptions'],
@@ -828,6 +830,6 @@ export function guidanceSource(id: string): GuidanceSource | undefined {
 
 export function yearNotice(year: number): string | null {
   return year === 2027
-    ? `Tax year 2027 covers income and expenses in 2027, generally reported on a return filed in 2028; a return filed in 2027 generally concerns tax year 2026. Published 2027 HSA limits and Marketplace health-insurance percentages are included. Other annual amounts, including brackets, standard deductions, Social Security wage base, mileage and retirement limits, remain pending verification in this release as of ${reviewDate2027}. Guidance uses published amounts and applicable enacted rules; it does not substitute 2026 limits or calculate a deduction amount. Full-return calculations remain unavailable.`
+    ? `Tax year 2027 covers income and expenses in 2027, generally reported on a return filed in 2028; a return filed in 2027 generally concerns tax year 2026. Published 2027 HSA limits, Marketplace health-insurance percentages, and the Social Security wage base (${dollars(getSocialSecurityWageBase(2027))}) are included. Other annual amounts, including brackets, standard deductions, mileage and retirement limits, remain pending verification in this release as of ${reviewDate2027}. Guidance uses published amounts and applicable enacted rules; it does not substitute 2026 limits or calculate a deduction amount. Full-return calculations remain unavailable.`
     : null;
 }

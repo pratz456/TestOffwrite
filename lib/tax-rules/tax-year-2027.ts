@@ -127,7 +127,8 @@ export const TAX_YEAR_2027_STATUS = Object.freeze({
     { item: 'EITC table and investment income limit', expected: 'IRS annual revenue procedure, typically autumn 2026' },
     { item: 'QBI thresholds and indexed minimum-deduction / active-income figures', expected: 'IRS annual revenue procedure, typically autumn 2026' },
     { item: 'Form 1099-NEC/MISC indexed reporting threshold', expected: 'IRS annual revenue procedure, typically autumn 2026' },
-    { item: 'Social Security wage base and quarter of coverage', expected: 'SSA annual announcement, typically autumn 2026' },
+    // The wage base itself is published in SOCIAL_SECURITY_WAGE_BASE_BY_YEAR. Quarter of coverage is separate.
+    { item: 'Social Security quarter of coverage', expected: 'SSA annual announcement, typically autumn 2026' },
     { item: 'Section 179, heavy-SUV and retirement contribution limits', expected: 'IRS revenue procedure and notices, typically autumn 2026' },
     { item: 'Standard mileage rates', expected: 'IRS notice, typically late 2026' },
     { item: 'Underpayment interest rates for 2027 quarters', expected: 'Quarterly IRS announcements; later quarters cannot be filled from Q1' },

@@ -74,11 +74,12 @@ describe('assistant topic catalogue', () => {
   it('never states a 2026 annual amount as the 2027 figure', () => {
     const yearDependent = SELECTABLE_TOPICS.filter(topic => typeof packet(topic).answer === 'function');
     const newlyEffectiveTopics = new Set(['savers-match', 'scholarship-contribution-credit']);
+    const publishedWageBaseTopics = new Set(['side-hustle-w2']);
     expect(yearDependent.length).toBeGreaterThanOrEqual(7);
     for (const topic of yearDependent) {
       const later = answerFor(topic, 2027);
       expect(later).not.toBe(answerFor(topic, 2026));
-      if (!newlyEffectiveTopics.has(topic)) expect(later, topic).toMatch(/pending verification|not been verified as published|will be published|2027 the limits are|published employer-coverage affordability percentage/);
+      if (!newlyEffectiveTopics.has(topic) && !publishedWageBaseTopics.has(topic)) expect(later, topic).toMatch(/pending verification|not been verified as published|will be published|2027 the limits are|published employer-coverage affordability percentage/);
       expect(later, topic).not.toMatch(/for 2026\b|made in 2026 in the course/);
     }
     expect(answerFor('hsa', 2027)).toContain('$4,500');
@@ -89,6 +90,9 @@ describe('assistant topic catalogue', () => {
     expect(answerFor('retirement-plans', 2027)).toContain('The 2027 dollar limits have not been verified as published');
     expect(answerFor('business-losses', 2027)).not.toContain('$256,000');
     expect(answerFor('car-mileage-vs-actual', 2027)).not.toContain('72.5');
+    expect(answerFor('side-hustle-w2', 2027)).toContain('$192,300');
+    expect(answerFor('side-hustle-w2', 2027)).not.toContain('$184,500');
+    expect(answerFor('side-hustle-w2', 2026)).toContain('$184,500');
   });
 
   it('keeps the disallowed items honest: solo meals, grooming, gym and owner draws say no', () => {

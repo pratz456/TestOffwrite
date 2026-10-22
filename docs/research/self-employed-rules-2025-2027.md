@@ -1,6 +1,6 @@
 # U.S. Self-Employed / 1099 / Schedule C Tax Rules — Tax Years 2025, 2026, 2027 (status)
 
-Research date: 2026-09-17. Scope: sole proprietors, independent contractors, gig workers filing Schedule C / Schedule SE.
+Research date: 2026-09-17. The 2027 Social Security wage base in §7 was updated on 2026-10-22 from the SSA contribution and benefit base table. Scope: sole proprietors, independent contractors, gig workers filing Schedule C / Schedule SE.
 
 Conventions used in this file:
 - **VERIFIED** = figure/rule confirmed against a primary source (IRS/Treasury/SSA/GSA/statute/Federal Register) whose URL is given.
@@ -17,7 +17,7 @@ Conventions used in this file:
 |---|---|---|---|---|---|
 | CY 2025 | **70** | **33** | 21 | 14 | Notice 2025-5, https://www.irs.gov/pub/irs-drop/n-25-05.pdf ; IR-2024-312 — VERIFIED |
 | 1/1/2026–6/30/2026 | **72.5** | **35** | 20.5 | 14 | Notice 2026-10, https://www.irs.gov/pub/irs-drop/n-26-10.pdf ; IR-2025-128 — VERIFIED |
-| 7/1/2026–12/31/2026 | **76** | 35 (see note) | 23.5 | 14 | Announcement 2026-11, IRB 2026-29, https://www.irs.gov/irb/2026-29_irb ; IR-2026-29; IRS rate table https://www.irs.gov/tax-professionals/standard-mileage-rates — VERIFIED |
+| 7/1/2026–12/31/2026 | **76** | 35 (see note) | 23.5 | 14 | IRS Announcement 2026-11 (IRB 2026-29), https://www.irs.gov/irb/2026-29_irb ; IRS rate table https://www.irs.gov/tax-professionals/standard-mileage-rates — VERIFIED |
 | CY 2027 | not announced | not announced | not announced | 14 (statutory, §170(i)) | **UNVERIFIED** — IRS normally publishes the notice in mid/late December; expect Notice 2027-xx in Dec 2026 |
 
 Notes (VERIFIED unless marked):
@@ -254,8 +254,8 @@ Computation:
 
 | Item | 2025 | 2026 | 2027 |
 |---|---|---|---|
-| Social Security wage base | **$176,100** | **$184,500** | **UNVERIFIED** — SSA announces with the COLA (~Oct 14, 2026; statutory deadline Nov 1). Third-party projections ~$188,100–$194,400. |
-| Max OASDI on SE income (12.4%) | $21,836.40 | $22,878.00 | UNVERIFIED |
+| Social Security wage base | **$176,100** | **$184,500** | **$192,300** — SSA contribution and benefit base, announced October 14, 2026. https://www.ssa.gov/oact/cola/cbb.html — VERIFIED |
+| Max OASDI on SE income (12.4%) | $21,836.40 | $22,878.00 | $23,845.20 (12.4% × $192,300) |
 | Medicare 2.9% | no cap | no cap | no cap |
 | Quarter of coverage | $1,810 | $1,890 | UNVERIFIED |
 
@@ -384,8 +384,7 @@ Sources: 2026 Form 1040-ES "What's New" (above); IRS Tax Topic 506 (referenced b
 | 2027 §179 limit, QBI thresholds, standard deduction, LTC caps, 1099 threshold indexing, §199A(i) $400/$1,000 indexing | Rev. Proc. 2026-xx (annual inflation adjustments) | Oct–Nov 2026 |
 | 2027 §280F auto caps & lease inclusion | Rev. Proc. 2027-xx | Feb–Mar 2027 |
 | 2027 retirement plan / IRA limits | IRS Notice 2026-xx | late Oct–Nov 2026 |
-| 2027 Social Security wage base | SSA COLA release | ~Oct 14, 2026 (by Nov 1) |
 | 2027 estimated-tax due dates | 2027 Form 1040-ES | Jan 2027 (rule-based dates computed above) |
 | 2026 Q3/Q4 and 2027 underpayment interest rates | Rev. Rul. (quarterly) | quarterly |
 
-Items **already published** for 2027: HSA/HDHP limits (Rev. Proc. 2026-24); GSA FY2027 CONUS per diem (standard lodging $113, M&IE $68); tips/car-loan/senior deductions remain in force through 2028 by statute; QBI, §179, bonus, standard deduction changes are permanent.
+Items **already published** for 2027: HSA/HDHP limits (Rev. Proc. 2026-24); Social Security wage base $192,300 (SSA contribution and benefit base, https://www.ssa.gov/oact/cola/cbb.html, announced October 14, 2026); GSA FY2027 CONUS per diem (standard lodging $113, M&IE $68); tips/car-loan/senior deductions remain in force through 2028 by statute; QBI, §179, bonus, standard deduction changes are permanent.
