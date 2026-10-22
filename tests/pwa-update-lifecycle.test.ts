@@ -108,6 +108,14 @@ describe('PWA updates preserve in-progress work', () => {
 
 // Read actual Next configuration and run the installed next-pwa browser entry so
 // the plugin's default online reload cannot silently undo the component fix.
+function loadBlogHotfix() {
+  const hotfixModule = { exports: {} as { blogHotfixRedirects: () => unknown[] } };
+  const source = ts.transpileModule(fs.readFileSync('lib/blog-hotfix.ts', 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS },
+  }).outputText;
+  vm.runInNewContext(source, { module: hotfixModule, exports: hotfixModule.exports });
+  return hotfixModule.exports;
+}
 function configuredPwaOptions() {
   let options: any;
   const compiled = ts.transpileModule(fs.readFileSync('next.config.ts', 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
@@ -115,6 +123,7 @@ function configuredPwaOptions() {
   vm.runInNewContext(compiled, { module: loadedModule, exports: loadedModule.exports, process: { env: { NODE_ENV: 'production' } }, require: (name: string) => {
     if (name === '@ducanh2912/next-pwa') return { default: (value: any) => { options = value; return (config: any) => config; } };
     if (name === './lib/pwa/cache-policy') return { privacyRuntimeCaching };
+    if (name === './lib/blog-hotfix') return loadBlogHotfix();
     throw new Error(`Unexpected config dependency ${name}`);
   } });
   return options;
