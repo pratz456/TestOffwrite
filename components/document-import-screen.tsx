@@ -513,7 +513,7 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
         if (res.status === 403 && data.code === DOCUMENT_IMAGE_CONSENT_REQUIRED) { setConsentPrompt({ reason: data.reason, action }); return; }
         const choiceError = action === "commit" ? importChoiceFromCommitError(data) : null;
         if (choiceError) {
-          setResult((prev: any) => ({ ...(prev || {}), needsTypeConfirmation: true, needs1099Variant: choiceError.needs1099Variant || prev?.needs1099Variant, needsMiscBox: choiceError.needsMiscBox || prev?.needsMiscBox }));
+          setResult((prev: { needs1099Variant?: boolean; needsMiscBox?: boolean } | null) => ({ ...(prev || {}), needsTypeConfirmation: true, needs1099Variant: choiceError.needs1099Variant || prev?.needs1099Variant, needsMiscBox: choiceError.needsMiscBox || prev?.needsMiscBox }));
           if (choiceError.confirmedDocType) setConfirmedDocType(choiceError.confirmedDocType);
           if (choiceError.confirmed1099Variant) setConfirmed1099Variant(choiceError.confirmed1099Variant);
           return;
