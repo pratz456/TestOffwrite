@@ -5,15 +5,19 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { TaxCalculationNotice } from '@/components/tax-calculation-notice';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
-import type { MissingFact, QuarterlyPlan, QuarterlyPlannerResponse } from '@/lib/tax-provider/quarterly-planner';
+import { BEFORE_WITHHOLDING_LABEL_PENDING_APPROVAL, PRIOR_YEAR_BASE_OVERSTATE_LABEL_PENDING_APPROVAL, PRIOR_YEAR_ONLY_HEADING_PENDING_APPROVAL, PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL, ZERO_PRIOR_TAX_LABEL_PENDING_APPROVAL, type MissingFact, type QuarterlyPlan, type QuarterlyPlannerResponse } from '@/lib/tax-provider/quarterly-planner';
 import { LATEST_PUBLISHED_TAX_YEAR } from '@/lib/tax-rules/federal-year-rules';
 
 interface QuarterlyTaxCalculatorProps { userProfile?: Record<string, unknown>; transactions?: unknown[] }
 interface Summary {
-  taxYear: number; totalEstimatedTax: number; recordedEstimatedPayments: number; w2Withheld: number; totalFederalWithheld?: number;
-  calculationWarnings: string[]; paymentReview: { code?: string; message: string; missingFacts?: MissingFact[]; notes?: string[] };
-  quarters: { quarter: number; dueDate: string; amountPaid: number }[];
+  taxYear: number; totalEstimatedTax?: number; recordedEstimatedPayments?: number; w2Withheld?: number; totalFederalWithheld?: number;
+  calculationWarnings?: string[]; paymentReview: { code?: string; message: string; missingFacts?: MissingFact[]; notes?: string[] };
+  quarters?: { quarter: number; dueDate: string; amountPaid: number }[];
   planner?: QuarterlyPlannerResponse | null;
+  priorYearOnly?: boolean;
+  withholdingApplied?: boolean;
+  zeroPriorTaxReview?: boolean;
+  priorYearBaseMayOverstate?: boolean;
 }
 const money = (value: number) => value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 const percent = (rate: number) => `${Math.round(rate * 10000) / 100}%`;
@@ -22,7 +26,7 @@ const recordedLabel = (amountPaid: number) => amountPaid > 0 ? `Payment recorded
 
 function basisSummary(plan: QuarterlyPlan): string {
   const required = plan.requiredAnnualPayment;
-  if (required.basis === 'current_year_90') return `90% of the ${plan.taxYear} federal estimate (${money(required.ninetyPercentOfCurrentYear)})`;
+  if (required.basis === 'current_year_90' && required.ninetyPercentOfCurrentYear != null) return `90% of the ${plan.taxYear} federal estimate (${money(required.ninetyPercentOfCurrentYear)})`;
   return `${required.basis === 'prior_year_110' ? '110%' : '100%'} of ${plan.taxYear - 1} tax (${money(required.priorYear?.target ?? 0)})`;
 }
 
@@ -76,9 +80,18 @@ export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyT
         const response = await makeAuthenticatedRequest(`/api/tax/quarterly-reminders?year=${year}&asOf=${asOf}`, { signal: controller.signal, cache: 'no-store' });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'Could not load your quarterly planning records. Please retry.');
-        if (data.taxYear !== year || ![data.totalEstimatedTax, data.recordedEstimatedPayments, data.w2Withheld].every(value => typeof value === 'number' && Number.isFinite(value)) || (data.totalFederalWithheld !== undefined && (typeof data.totalFederalWithheld !== 'number' || !Number.isFinite(data.totalFederalWithheld))) || !Array.isArray(data.quarters) || !data.paymentReview?.message) throw new Error('The quarterly summary is incomplete. Please retry.');
-        if (data.planner != null && data.planner.status !== 'ready' && data.planner.status !== 'review_required') throw new Error('The quarterly summary is incomplete. Please retry.');
-        if (data.planner?.status === 'ready' && (!Array.isArray(data.planner.installments) || !data.planner.requiredAnnualPayment || !data.planner.underpaymentInterestIllustration)) throw new Error('The quarterly summary is incomplete. Please retry.');
+        const finiteNumber = (value: unknown) => typeof value === 'number' && Number.isFinite(value);
+        if (data.priorYearOnly === true && data.zeroPriorTaxReview === true) {
+          if (data.taxYear !== year || !data.paymentReview?.message) throw new Error('The quarterly summary is incomplete. Please retry.');
+        } else if (data.priorYearOnly === true) {
+          const withholdingKnown = data.withholdingApplied !== false;
+          if (data.taxYear !== year || !finiteNumber(data.recordedEstimatedPayments) || (withholdingKnown && !finiteNumber(data.w2Withheld)) || (data.totalFederalWithheld !== undefined && !finiteNumber(data.totalFederalWithheld)) || !Array.isArray(data.quarters) || !data.paymentReview?.message) throw new Error('The quarterly summary is incomplete. Please retry.');
+          if (data.planner?.status !== 'ready' || !Array.isArray(data.planner.installments) || !data.planner.requiredAnnualPayment || !data.planner.underpaymentInterestIllustration) throw new Error('The quarterly summary is incomplete. Please retry.');
+        } else {
+          if (data.taxYear !== year || ![data.totalEstimatedTax, data.recordedEstimatedPayments, data.w2Withheld].every(finiteNumber) || (data.totalFederalWithheld !== undefined && !finiteNumber(data.totalFederalWithheld)) || !Array.isArray(data.quarters) || !data.paymentReview?.message) throw new Error('The quarterly summary is incomplete. Please retry.');
+          if (data.planner != null && data.planner.status !== 'ready' && data.planner.status !== 'review_required') throw new Error('The quarterly summary is incomplete. Please retry.');
+          if (data.planner?.status === 'ready' && (!Array.isArray(data.planner.installments) || !data.planner.requiredAnnualPayment || !data.planner.underpaymentInterestIllustration)) throw new Error('The quarterly summary is incomplete. Please retry.');
+        }
         if (current) setResult({ key, data });
       } catch (error) {
         if (current) setResult({ key, error: error instanceof Error ? error.message : 'Could not load your quarterly planning records.' });
@@ -96,15 +109,15 @@ export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyT
   return <div className="space-y-4">
     <Card><CardHeader><CardTitle>{year} Quarterly Payment Planning</CardTitle></CardHeader><CardContent className="space-y-3">
       {plan && required ? <>
-        <div role="note" className="rounded-lg border p-3"><h2 className="font-semibold">Planning estimate from reviewed facts</h2><p className="mt-1 text-sm">{data.paymentReview.message}</p></div>
+        <div role="note" className="rounded-lg border p-3"><h2 className="font-semibold">{data.priorYearOnly ? PRIOR_YEAR_ONLY_HEADING_PENDING_APPROVAL : 'Planning estimate from reviewed facts'}</h2><p className="mt-1 text-sm">{data.priorYearOnly ? (data.withholdingApplied === false ? BEFORE_WITHHOLDING_LABEL_PENDING_APPROVAL : PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL) : data.paymentReview.message}</p>{data.priorYearBaseMayOverstate === true && <p className="mt-1 text-sm">{PRIOR_YEAR_BASE_OVERSTATE_LABEL_PENDING_APPROVAL}</p>}</div>
         {nextDueSection(plan)}
         <div className="rounded-lg border p-3 text-sm">
           <h3 className="font-semibold">Safe-harbor basis used: {basisSummary(plan)}</h3>
-          <p className="mt-1">Required annual payment {money(required.requiredAnnualPayment)} = lesser of 90% of the {year} estimate ({money(required.ninetyPercentOfCurrentYear)}) and {required.priorYear ? `${required.priorYear.multiplier === 1.1 ? '110%' : '100%'} of ${year - 1} tax (${money(required.priorYear.target)}; ${year - 1} AGI ${money(required.priorYear.agi)} vs. ${money(required.priorYear.agiThreshold)} threshold)` : `the prior-year target (unavailable: the ${year - 1} return did not cover 12 months)`}.</p>
-          <p className="mt-1">Withholding credited {money(required.withholding)} · estimated payments planned for the year {money(required.estimatedPaymentsRequired)}{required.deMinimis.applies && ` · tax less withholding ${money(required.deMinimis.taxLessWithholding)} is under $1,000, so no estimated payments are required by the regular method`}.</p>
+          {required.ninetyPercentOfCurrentYear != null && <p className="mt-1">Required annual payment {money(required.requiredAnnualPayment)} = lesser of 90% of the {year} estimate ({money(required.ninetyPercentOfCurrentYear)}) and {required.priorYear ? `${required.priorYear.multiplier === 1.1 ? '110%' : '100%'} of ${year - 1} tax (${money(required.priorYear.target)}; ${year - 1} AGI ${money(required.priorYear.agi)} vs. ${money(required.priorYear.agiThreshold)} threshold)` : `the prior-year target (unavailable: the ${year - 1} return did not cover 12 months)`}.</p>}
+          <p className="mt-1">Withholding credited {money(required.withholding)} · estimated payments planned for the year {money(required.estimatedPaymentsRequired)}{required.deMinimis.applies && required.deMinimis.taxLessWithholding != null && ` · tax less withholding ${money(required.deMinimis.taxLessWithholding)} is under $1,000, so no estimated payments are required by the regular method`}.</p>
         </div>
       </> : <>
-        <div role="note" className="rounded-lg border p-3"><h2 className="font-semibold">Payment amount needs review</h2><p className="mt-1 text-sm">{data.paymentReview.message}</p>
+        <div role="note" className="rounded-lg border p-3"><h2 className="font-semibold">Payment amount needs review</h2><p className="mt-1 text-sm">{data.zeroPriorTaxReview ? ZERO_PRIOR_TAX_LABEL_PENDING_APPROVAL : data.paymentReview.message}</p>
           {missingFacts.length > 0 && <div className="mt-2 text-sm"><p className="font-medium">Save these facts to see planning figures:</p>
             <ul className="mt-1 list-disc space-y-1 pl-5">{missingFacts.map(fact => <li key={fact.key}><span className="font-medium">{fact.label}:</span> {fact.detail} <span className="whitespace-nowrap">Enter it in {fact.enterAt.map((item, index) => <React.Fragment key={item.href}>{index > 0 && ' or '}<a className="underline" href={item.href}>{item.label}</a></React.Fragment>)}.</span></li>)}</ul>
           </div>}
@@ -112,29 +125,29 @@ export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyT
         </div>
       </>}
       <dl className="grid gap-3 sm:grid-cols-3">
-        <div><dt>Federal estimate from saved annual records</dt><dd className="font-semibold">{money(data.totalEstimatedTax)}</dd></div>
-        <div><dt>Recorded estimated payments</dt><dd className="font-semibold">{money(data.recordedEstimatedPayments)}</dd></div>
-        <div><dt>Recorded federal withholding</dt><dd className="font-semibold">{money(data.totalFederalWithheld ?? data.w2Withheld)}</dd></div>
+        {typeof data.totalEstimatedTax === 'number' && <div><dt>Federal estimate from saved annual records</dt><dd className="font-semibold">{money(data.totalEstimatedTax)}</dd></div>}
+        {data.zeroPriorTaxReview !== true && <div><dt>Recorded estimated payments</dt><dd className="font-semibold">{money(data.recordedEstimatedPayments ?? 0)}</dd></div>}
+        {data.zeroPriorTaxReview !== true && data.withholdingApplied !== false && <div><dt>Recorded federal withholding</dt><dd className="font-semibold">{money(data.totalFederalWithheld ?? data.w2Withheld ?? 0)}</dd></div>}
       </dl>
-      <p className="text-sm text-muted-foreground">{plan
+      {!(plan && data.priorYearOnly) && <p className="text-sm text-muted-foreground">{plan
         ? `Planning estimate only. The ${year} estimate treats your saved records as the full-year forecast; if they cover only part of the year the 90% target is understated. The IRS figures any balance or penalty on the filed return.`
-        : 'Saved records may cover only part of the year. These figures are not a full-year forecast or an installment amount due.'}</p>
+        : 'Saved records may cover only part of the year. These figures are not a full-year forecast or an installment amount due.'}</p>}
       <div className="flex flex-wrap gap-3 text-sm underline"><a href="/tools/quarterly-estimate-calculator">Open payment-planning tool</a><a href="https://www.irs.gov/pub/irs-pdf/f1040es.pdf" target="_blank" rel="noopener noreferrer">Official IRS 1040-ES worksheet and vouchers</a><a href="https://www.irs.gov/payments" target="_blank" rel="noopener noreferrer">IRS payment options</a></div>
     </CardContent></Card>
-    <Card><CardHeader><CardTitle>{plan ? 'Regular-method installments and recorded payments' : 'Standard payment calendar and recorded payments'}</CardTitle></CardHeader><CardContent>
+    {data.zeroPriorTaxReview !== true && <Card><CardHeader><CardTitle>{plan ? 'Regular-method installments and recorded payments' : 'Standard payment calendar and recorded payments'}</CardTitle></CardHeader><CardContent>
       {plan ? plan.installments.map(installment => {
-        const recorded = data.quarters.find(quarter => quarter.quarter === installment.quarter)?.amountPaid ?? 0;
+        const recorded = data.quarters?.find(quarter => quarter.quarter === installment.quarter)?.amountPaid ?? 0;
         return <div key={installment.quarter} className="grid gap-1 border-b py-3 text-sm sm:grid-cols-[auto_1fr] sm:gap-x-6">
           <span className="font-medium">Q{installment.quarter} · {installment.dueDate}</span>
           <span>{STATUS_LABEL[installment.status]}{installment.status !== 'upcoming' && ` · ${recordedLabel(installment.paymentsMatchedTotal)} for this period`}</span>
           <span className="text-muted-foreground">Installment (25%) {money(installment.requiredInstallment)} · withholding credited {money(installment.withholdingCredited)} · planned payment {money(installment.plannedEstimatedPayment)}</span>
           <span className="text-muted-foreground">{recordedLabel(recorded)} under Q{installment.quarter}{installment.paymentsMatchedTotal !== recorded && ` · ${money(installment.paymentsMatchedTotal)} matched to this period by payment date`}{installment.underpayment > 0 && installment.status !== 'upcoming' && ` · ${money(installment.underpayment)} of the cumulative installments not covered by recorded payments`}</span>
         </div>;
-      }) : data.quarters.map(quarter => <div key={quarter.quarter} className="flex flex-wrap justify-between gap-2 border-b py-3"><span>Q{quarter.quarter} · {quarter.dueDate}</span><span>{recordedLabel(quarter.amountPaid)}</span></div>)}
+      }) : (data.quarters ?? []).map(quarter => <div key={quarter.quarter} className="flex flex-wrap justify-between gap-2 border-b py-3"><span>Q{quarter.quarter} · {quarter.dueDate}</span><span>{recordedLabel(quarter.amountPaid)}</span></div>)}
       <p className="mt-3 text-sm text-muted-foreground">{plan
         ? `Installments follow the Pub 505 regular method; recorded payments are matched to periods by payment date. ${plan.annualizedIncomeMethod.note}`
         : 'Dates do not establish whether a payment is required, timely or sufficient. Special relief and annualized-income calculations require separate review.'}</p>
-    </CardContent></Card>
+    </CardContent></Card>}
     {plan && interestIllustration(plan)}
     {plan && <Card><CardHeader><CardTitle>Assumptions behind this planning estimate</CardTitle></CardHeader><CardContent className="space-y-2 text-sm">
       <ul className="list-disc space-y-1 pl-5">{plan.assumptions.map(assumption => <li key={assumption}>{assumption}</li>)}</ul>

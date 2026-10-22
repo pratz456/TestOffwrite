@@ -27,6 +27,7 @@ import { getUserProfileServer } from '@/lib/firebase/profiles-server';
 import { adminDb } from '@/lib/firebase/admin';
 import { getScheduleCSettings } from '@/lib/firebase/settings-server';
 import { describeUnsupportedTaxYear, getFederalTaxRules, SUPPORTED_TAX_YEARS, TAX_YEAR_2027_STATUS } from '@/lib/tax-rules/federal-year-rules';
+import { resolveRequestedTaxYear } from '@/lib/tax-rules/requested-tax-year';
 import { getRecordedQuarterlyPayments, totalRecordedPayments } from '@/lib/firebase/quarterly-payments-server';
 import { readIncomeReconciliationDecisions } from '@/lib/firebase/income-reconciliations-server';
 import { incomeReconciliationReviewBody } from '@/lib/tax-rules/income-reconciliation-response';
@@ -36,8 +37,7 @@ export async function GET(request: NextRequest) {
   const { user, error } = await getAuthenticatedUser(request);
   if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const yearParam = request.nextUrl.searchParams.get('year');
-  const year = yearParam === null ? new Date().getFullYear() : /^\d{4}$/.test(yearParam) ? Number(yearParam) : NaN;
+  const year = resolveRequestedTaxYear(request.nextUrl.searchParams.get('year'));
   try { getFederalTaxRules(year); } catch {
     return NextResponse.json({
       error: Number.isFinite(year) ? describeUnsupportedTaxYear(year) : `Supported tax years: ${SUPPORTED_TAX_YEARS.join(', ')}`,

@@ -37,3 +37,49 @@ export function summarizeW2Income(entries: ReadonlyArray<Record<string, unknown>
     stateWithheld: sum('stateWithheld'),
   };
 }
+
+export type W2FederalWithholdingRead =
+  | { status: 'ready'; federalWithheld: number }
+  | { status: 'unreadable' };
+
+/**
+ * W-2 federal income tax withheld from the same fields `summarizeW2Income` reads
+ * (`box2FederalWithheld`, then `federalWithheld`) and the same profile fallback
+ * `buildFederalTaxSnapshot` uses when no W-2 rows are saved. A saved W-2 with no
+ * numeric Box 2 is unreadable so callers do not substitute zero.
+ */
+export function readW2FederalWithholding(
+  entries: ReadonlyArray<Record<string, unknown>>,
+  profile?: Record<string, unknown> | null,
+): W2FederalWithholdingRead {
+  if (entries.length === 0) {
+    const fromProfile = profileFederalWithholding(profile?.w2_federal_withheld);
+    return fromProfile === null ? { status: 'unreadable' } : { status: 'ready', federalWithheld: fromProfile };
+  }
+  let total = 0;
+  for (const entry of entries) {
+    const withheld = entryFederalWithholding(entry);
+    if (withheld === null) return { status: 'unreadable' };
+    total += withheld;
+  }
+  return { status: 'ready', federalWithheld: total };
+}
+
+function entryFederalWithholding(entry: Record<string, unknown>): number | null {
+  for (const field of ['box2FederalWithheld', 'federalWithheld'] as const) {
+    if (!Object.prototype.hasOwnProperty.call(entry, field)) continue;
+    const value = entry[field];
+    if (value === undefined || value === null) continue;
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null;
+    return value;
+  }
+  return null;
+}
+
+/** Blank profile withholding matches buildFederalTaxSnapshot's amount() helper (blank → 0). A negative or non-numeric value is unreadable. */
+function profileFederalWithholding(value: unknown): number | null {
+  if (value === undefined || value === null || value === '') return 0;
+  const parsed = typeof value === 'string' ? Number(value) : value;
+  if (typeof parsed !== 'number' || !Number.isFinite(parsed) || parsed < 0) return null;
+  return parsed;
+}
