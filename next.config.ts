@@ -46,11 +46,13 @@ const nextConfig: NextConfig = {
     '/api/receipts/process': [
       './node_modules/tesseract.js/src/**/*',
       './node_modules/tesseract.js-core/*',
+      './tessdata/**',
     ],
     // Tax-document import runs the same local OCR before anything reaches a model.
     '/api/tax/import-document': [
       './node_modules/tesseract.js/src/**/*',
       './node_modules/tesseract.js-core/*',
+      './tessdata/**',
     ],
   },
 
