@@ -283,6 +283,10 @@ function taxInputValue(value: unknown): OrganizerTaxInputScalar {
   return canonicalJson(cloneJson(value));
 }
 
+const REVIEW_FLAG_FIELD = /^(?:dependent\d*)?(?:ssn|itin|atin)$/i;
+const REVIEW_FLAG_NUMBER = /^dependent\d*(?:Number|Identifier)$/;
+
+/** True flags on dependent identifier fields. Anything else is left out, including digits. */
 function idKindNeedsReviewMap(value: unknown): Record<string, true> | null {
   if (typeof value === 'string') {
     const trimmed = value.trim();
@@ -296,7 +300,7 @@ function idKindNeedsReviewMap(value: unknown): Record<string, true> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const kept: Record<string, true> = {};
   for (const [field, flag] of Object.entries(value as Record<string, unknown>)) {
-    if (flag === true && field.trim()) kept[field] = true;
+    if (flag === true && (REVIEW_FLAG_FIELD.test(field) || REVIEW_FLAG_NUMBER.test(field))) kept[field] = true;
   }
   return Object.keys(kept).length ? kept : null;
 }

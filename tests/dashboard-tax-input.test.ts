@@ -119,7 +119,7 @@ describe('dashboard tax input key', () => {
     expect(JSON.stringify(set)).not.toContain('111223333');
     const read = organizerTaxInputResponse({
       dependents: [{ dependentSSN: '111223333' }],
-      idKindNeedsReview: { dependentSSN: true, other: false },
+      idKindNeedsReview: { dependentSSN: true, other: false, notes: true },
     });
     expect(read.idKindNeedsReview).toEqual({ dependentSSN: true });
     expect(JSON.stringify(read)).not.toContain('111223333');
