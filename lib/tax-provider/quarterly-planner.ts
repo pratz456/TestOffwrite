@@ -41,8 +41,17 @@ export const ANNUALIZED_INCOME_METHOD_NOTE = 'The annualized income installment 
 
 export const QUARTERLY_PLANNER_READY_MESSAGE = 'Planning estimate from your reviewed prior-year facts and saved records using the Pub 505 regular method. It is not a balance due and not a penalty determination; the IRS figures both when the return is filed.';
 
-/** Awaiting owner approval. Placeholder for the prior-year-only planner message shown on the quarterly screen. */
+/**
+ * Awaiting owner approval. Placeholder for the prior-year-only planner message shown on the quarterly screen.
+ * The approved label must convey that the amount may be more than this year needs, because the current-year 90% option is not available.
+ */
 export const PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL = 'PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL';
+
+/**
+ * Awaiting owner approval. Placeholder when prior-year installments are shown before federal withholding is applied.
+ * The approved label must convey that the amount may be more than this year needs.
+ */
+export const BEFORE_WITHHOLDING_LABEL_PENDING_APPROVAL = 'BEFORE_WITHHOLDING_LABEL_PENDING_APPROVAL';
 
 const QUARTERS: readonly Quarter[] = [1, 2, 3, 4];
 const DAY_MS = 86_400_000;

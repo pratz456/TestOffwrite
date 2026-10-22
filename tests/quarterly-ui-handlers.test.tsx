@@ -13,7 +13,7 @@ vi.mock('@/components/landing/landing-header', () => ({ LandingHeader: 'LandingH
 vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: h.request }));
 import { QuarterlyEstimateClient } from '../app/tools/quarterly-estimate-calculator/quarterly-estimate-client';
 import { QuarterlyTaxCalculator } from '../components/quarterly-tax-calculator';
-import { buildPriorYearOnlyQuarterlyPlan, buildQuarterlyPlan, PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL, QUARTERLY_PLANNER_READY_MESSAGE, type MissingFact } from '../lib/tax-provider/quarterly-planner';
+import { BEFORE_WITHHOLDING_LABEL_PENDING_APPROVAL, buildPriorYearOnlyQuarterlyPlan, buildQuarterlyPlan, PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL, QUARTERLY_PLANNER_READY_MESSAGE, type MissingFact } from '../lib/tax-provider/quarterly-planner';
 const walk = (n: any): any[] => Array.isArray(n) ? n.flatMap(walk) : n && typeof n === 'object' ? [n, ...walk(n.props?.children)] : [];
 const text = (n: any): string => Array.isArray(n) ? n.map(text).join('') : n && typeof n === 'object' ? text(n.props?.children) : typeof n === 'string' || typeof n === 'number' ? String(n) : '';
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
@@ -143,6 +143,28 @@ describe('authenticated quarterly summary renders planner figures or the specifi
     expect(content).toContain('$2,000.00');
     expect(content).not.toContain('lesser of 90%');
     expect(content).not.toContain('Federal estimate from saved annual records');
+    expect(content).toContain('Recorded federal withholding');
+  });
+  it('shows the before-withholding placeholder when withholding was not applied', async () => {
+    const planner = buildPriorYearOnlyQuarterlyPlan({
+      taxYear: 2026, filingStatus: 'single', withholding: 0,
+      priorYear: { available: true, totalTax: 10000, agi: 100000, coveredTwelveMonths: true },
+      payments: [{ amount: 750, paidDate: '2026-07-01', recordedQuarter: 3 }],
+      asOf: '2026-09-01', annualStatusMessage: 'Review dependent credit eligibility in Tax Organizer.',
+    });
+    h.request.mockImplementation(() => Response.json({
+      taxYear: currentYear, recordedEstimatedPayments: 750, calculationWarnings: [], priorYearOnly: true, withholdingApplied: false,
+      paymentReview: { code: 'PRIOR_YEAR_ONLY', message: 'not the approved label' }, planner,
+      quarters: planner.installments.map(item => ({ quarter: item.quarter, dueDate: item.dueDate, amountPaid: item.quarter === 3 ? 750 : 0, recommended: item.plannedEstimatedPayment })),
+    }));
+    render(component); await flush();
+    const content = text(render(component));
+    expect(content).toContain(BEFORE_WITHHOLDING_LABEL_PENDING_APPROVAL);
+    expect(content).not.toContain(PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL);
+    expect(content).not.toContain('not the approved label');
+    expect(content).toContain('$2,500.00');
+    expect(content).not.toContain('Recorded federal withholding');
+    expect(content).not.toContain('lesser of 90%');
   });
   it('rejects a malformed planner payload instead of rendering partial figures', async () => {
     h.request.mockImplementation(() => Response.json({ taxYear: currentYear, totalEstimatedTax: 20000, recordedEstimatedPayments: 0, w2Withheld: 0, calculationWarnings: [], quarters: [], paymentReview: { message: 'x' }, planner: { status: 'ready' } }));

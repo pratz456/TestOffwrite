@@ -1,9 +1,12 @@
 import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductions';
+import { resetRateLimitStore } from './fixtures/rate-limit-store';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
-import { PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL } from '../lib/tax-provider/quarterly-planner';
+import { PDFDocument } from 'pdf-lib';
+import { BEFORE_WITHHOLDING_LABEL_PENDING_APPROVAL, PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL } from '../lib/tax-provider/quarterly-planner';
 
 const PLACEHOLDER = PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL;
+const BEFORE_WITHHOLDING = BEFORE_WITHHOLDING_LABEL_PENDING_APPROVAL;
 
 const state = vi.hoisted(() => ({
   uid: 'planner-owner' as string | null,
@@ -16,6 +19,7 @@ const state = vi.hoisted(() => ({
 
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({ user: state.uid ? { uid: state.uid } : null }) }));
 vi.mock('@/lib/subscriptions/feature-access', () => ({ requireFeatureAccess: async () => null }));
+vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
 vi.mock('@/lib/reports/export-records', async importOriginal => ({
   ...await importOriginal<typeof import('@/lib/reports/export-records')>(),
   readOwnedTransactions: async () => { if (state.error) throw new Error(state.error); return state.tx; },
@@ -35,6 +39,7 @@ vi.mock('@/lib/firebase/admin', () => ({
 }));
 
 import { GET as annual } from '../app/api/tax/compute-1040/route';
+import { POST as annualPdf } from '../app/api/tax/form-1040/route';
 import { GET as quarterly } from '../app/api/tax/quarterly-reminders/route';
 import { POST as legacy } from '../app/api/tax/quarterly-estimates/route';
 
@@ -45,6 +50,7 @@ const post = (body: unknown) => new NextRequest('http://localhost/api/tax/quarte
 const organizer = (facts: Record<string, unknown> = {}) => reviewedPersonalDeductionOrganizer(2026, {}, facts);
 
 beforeEach(() => {
+  resetRateLimitStore();
   state.uid = 'planner-owner';
   state.error = null;
   state.profile = { filing_status: 'Single' };
@@ -67,6 +73,7 @@ describe('prior-year-only quarterly plan when dependent credit review blocks the
     expect(response.status).toBe(200);
     const result = await response.json();
     expect(result.priorYearOnly).toBe(true);
+    expect(result.withholdingApplied).toBe(true);
     expect(result.annualStatus).toBe('review_required');
     expect(result.annualStatusMessage).toBe(annualBody.error);
     expect(result.paymentReview.message).toBe(PLACEHOLDER);
@@ -98,7 +105,7 @@ describe('prior-year-only quarterly plan when dependent credit review blocks the
     expect(result).not.toHaveProperty('totalEstimatedTax');
   });
 
-  it('uses 110% above the shared AGI threshold, 100% at $150,000, and 110% for MFS above $75,000', async () => {
+  it('uses 110% above the shared AGI threshold, 100% at $150,000, and 100% at MFS $75,000 versus 110% at $75,001', async () => {
     state.records.tax_organizers = [organizer({ ...PRIOR_YEAR_FACTS, priorYearAGI: '150001', dependents: '1' })];
     let result = await (await quarterly(req())).json();
     expect(result.safeHarborBasis).toBe('prior_year_110');
@@ -113,10 +120,19 @@ describe('prior-year-only quarterly plan when dependent credit review blocks the
     expect(result.quarters.map((quarter: { recommended: number }) => quarter.recommended)).toEqual([2000, 2000, 2000, 2000]);
 
     state.profile = { filing_status: 'married_filing_separately' };
+    state.records.tax_organizers = [organizer({ ...PRIOR_YEAR_FACTS, priorYearAGI: '75000', dependents: '1' })];
+    result = await (await quarterly(req())).json();
+    expect(result.safeHarborBasis).toBe('prior_year_100');
+    expect(result.planner.requiredAnnualPayment.requiredAnnualPayment).toBe(10000);
+    expect(result.planner.requiredAnnualPayment.basis).toBe('prior_year_100');
+    expect(result.planner.requiredAnnualPayment.priorYear.agiThreshold).toBe(75000);
+    expect(result.quarters.map((quarter: { recommended: number }) => quarter.recommended)).toEqual([2000, 2000, 2000, 2000]);
+
     state.records.tax_organizers = [organizer({ ...PRIOR_YEAR_FACTS, priorYearAGI: '75001', dependents: '1' })];
     result = await (await quarterly(req())).json();
     expect(result.safeHarborBasis).toBe('prior_year_110');
     expect(result.planner.requiredAnnualPayment.requiredAnnualPayment).toBe(11000);
+    expect(result.planner.requiredAnnualPayment.basis).toBe('prior_year_110');
     expect(result.planner.requiredAnnualPayment.priorYear.agiThreshold).toBe(75000);
     expect(result.quarters.map((quarter: { recommended: number }) => quarter.recommended)).toEqual([2250, 2250, 2250, 2250]);
   });
@@ -155,20 +171,35 @@ describe('prior-year-only quarterly plan when dependent credit review blocks the
     expect(await legacyResponse.json()).toEqual(annualBody);
   });
 
-  it('returns review-required with no amounts when W-2 federal withholding cannot be read', async () => {
+  it('returns gross prior-year installments when W-2 federal withholding cannot be read', async () => {
     state.records.w2_income = [{ wages: 80000 }];
     const annualBody = await (await annual(req())).json();
     expect(annualBody.code).toBe('DEPENDENT_CREDIT_REVIEW_REQUIRED');
     const response = await quarterly(req());
-    expect(response.status).toBe(422);
+    expect(response.status).toBe(200);
     const body = await response.json();
-    expect(body.code).toBe('QUARTERLY_REVIEW_REQUIRED');
+    expect(body.withholdingApplied).toBe(false);
+    expect(body.priorYearOnly).toBe(true);
     expect(body.annualStatus).toBe('review_required');
     expect(body.annualStatusMessage).toBe(annualBody.error);
-    expect(body.planner).toEqual({ status: 'review_required', missingFacts: [], notes: [] });
-    for (const key of ['quarters', 'safeHarborTotal', 'safeHarborPerQuarter', 'safeHarborBasis', 'perQuarterRecommended', 'remainingTarget', 'totalEstimatedTax', 'w2Withheld', 'recordedEstimatedPayments', 'priorYearOnly']) {
-      expect(body).not.toHaveProperty(key);
-    }
+    expect(body.paymentReview).toEqual({ code: 'PRIOR_YEAR_ONLY', message: BEFORE_WITHHOLDING });
+    expect(body.safeHarborBasis).toBe('prior_year_100');
+    expect(body.safeHarborTotal).toBe(10000);
+    expect(body.recordedEstimatedPayments).toBe(750);
+    expect(body.remainingTarget).toBe(9250);
+    expect(body.quarters.map((quarter: { recommended: number }) => quarter.recommended)).toEqual([2500, 2500, 2500, 2500]);
+    expect(body.quarters.map((quarter: { withholdingCredited: number }) => quarter.withholdingCredited)).toEqual([0, 0, 0, 0]);
+    expect(body.planner.requiredAnnualPayment).toMatchObject({
+      basis: 'prior_year_100',
+      requiredAnnualPayment: 10000,
+      withholding: 0,
+      estimatedPaymentsRequired: 10000,
+    });
+    expect(body).not.toHaveProperty('code');
+    expect(body).not.toHaveProperty('w2Withheld');
+    expect(body).not.toHaveProperty('totalFederalWithheld');
+    expect(body).not.toHaveProperty('totalPaid');
+    expect(body).not.toHaveProperty('totalEstimatedTax');
   });
 
   it('keeps today\'s response when compute-1040 succeeds', async () => {
@@ -215,5 +246,27 @@ describe('prior-year-only quarterly plan when dependent credit review blocks the
     expect(fromPost.safeHarborTotal).toBe(10000);
     expect(fromPost.quarters.map((quarter: { recommended: number }) => quarter.recommended)).toEqual([2000, 2000, 2000, 2000]);
     expect(fromPost.paymentReview.message).toBe(PLACEHOLDER);
+    expect(fromPost.withholdingApplied).toBe(true);
+  });
+
+  it('leaves compute-1040 and the 1040 summary PDF on the dependent-credit 422', async () => {
+    const createPdf = vi.spyOn(PDFDocument, 'create');
+    try {
+      const annualResponse = await annual(req());
+      const pdfResponse = await annualPdf(new NextRequest('http://localhost/api/tax/form-1040', { method: 'POST', body: JSON.stringify({ year: 2026 }) }));
+      expect(annualResponse.status).toBe(422);
+      expect(pdfResponse.status).toBe(422);
+      const annualBody = await annualResponse.json();
+      const pdfBody = await pdfResponse.json();
+      expect(pdfBody).toEqual(annualBody);
+      expect(annualBody.code).toBe('DEPENDENT_CREDIT_REVIEW_REQUIRED');
+      expect(annualBody).not.toHaveProperty('form1040');
+      expect(pdfBody).not.toHaveProperty('form1040');
+      expect(annualResponse.headers.get('content-type')).toContain('application/json');
+      expect(pdfResponse.headers.get('content-type')).toContain('application/json');
+      expect(createPdf).not.toHaveBeenCalled();
+    } finally {
+      createPdf.mockRestore();
+    }
   });
 });
