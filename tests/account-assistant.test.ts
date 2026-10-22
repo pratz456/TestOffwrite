@@ -76,6 +76,14 @@ describe('account assistant read boundary', () => {
     h.create.mockResolvedValue(completion({ intent: 'prepare_handoff' })); const shown = await (await POST(req())).json();
     expect(shown.account.actions[0].href).toBe('/protected?screen=tax-filing-hub');
   });
+  it('omits the unreleased handoff hint unless that flag is on', async () => {
+    h.create.mockResolvedValue(completion({ intent: 'prepare_handoff' })); const hidden = await (await POST(req())).json();
+    expect(hidden.account.scope).toBe('Review the package before sharing.');
+    expect(hidden.account.scope).not.toMatch(/Select \d{4} in Filing Hub/);
+    vi.stubEnv('FEATURE_UNRELEASED_SCREENS', 'true');
+    h.create.mockResolvedValue(completion({ intent: 'prepare_handoff' })); const shown = await (await POST(req())).json();
+    expect(shown.account.scope).toBe('Select 2026 in Filing Hub and review the package before sharing.');
+  });
 });
 
 describe('account facts, scope and comparisons', () => {

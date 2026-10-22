@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
       response = transactionAccountResult({ intent, rows: records, uid: user.uid, taxYear: input.taxYear, now });
     } else if (intent === 'prepare_handoff') {
       response = { reply: 'Build a preparer package with your records, original receipts and an unresolved-items checklist. You choose whether to download it or create a temporary sharing link.', account: {
-        title: 'Your accountant handoff', asOf: now.toISOString(), scope: `Select ${input.taxYear} in Filing Hub and review the package before sharing.`, metrics: [], items: [],
+        title: 'Your accountant handoff', asOf: now.toISOString(), scope: unreleasedScreensEnabled() ? `Select ${input.taxYear} in Filing Hub and review the package before sharing.` : 'Review the package before sharing.', metrics: [], items: [],
         actions: unreleasedScreensEnabled() ? [{ label: 'Prepare accountant package', href: '/protected?screen=tax-filing-hub' }] : [],
         notes: ['Packages and new sharing links require Premium or an active trial. Basic retains extended history. Creating a package does not file a return or send anything to your accountant.'],
       } };
