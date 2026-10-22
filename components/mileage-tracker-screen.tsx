@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 import { businessMileageRateForDate, summarizeBusinessMileage } from "@/lib/tax-rules/mileage-rates";
+import { calendarDayYear, formatCalendarDay, localCalendarDay, localCalendarYear } from "@/lib/dates/calendar-day";
 
 interface MileageTrip {
   id: string;
@@ -52,9 +53,7 @@ export function MileageTrackerScreen({ user, onBack }: MileageTrackerScreenProps
   const [error, setError] = useState<string | null>(null);
 
   // Add trip form state
-  const [date, setDate] = useState(() =>
-    new Date().toISOString().split("T")[0]
-  );
+  const [date, setDate] = useState(() => localCalendarDay());
   const [startLocation, setStartLocation] = useState("");
   const [endLocation, setEndLocation] = useState("");
   const [miles, setMiles] = useState("");
@@ -126,7 +125,7 @@ export function MileageTrackerScreen({ user, onBack }: MileageTrackerScreenProps
       setMiles("");
       setBusinessPurpose("");
       setRoundTrip(false);
-      setDate(new Date().toISOString().split("T")[0]);
+      setDate(localCalendarDay());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to add trip");
     } finally {
@@ -146,11 +145,8 @@ export function MileageTrackerScreen({ user, onBack }: MileageTrackerScreenProps
     }
   };
 
-  const currentYear = new Date().getFullYear();
-  const yearTrips = trips.filter((t) => {
-    const d = new Date(t.date);
-    return !isNaN(d.getTime()) && d.getFullYear() === currentYear;
-  });
+  const currentYear = localCalendarYear();
+  const yearTrips = trips.filter((t) => calendarDayYear(t.date) === currentYear);
   const totalMiles = yearTrips.reduce((sum, t) => sum + getEffectiveMiles(t), 0);
   const mileageSummary = summarizeBusinessMileage(yearTrips.map(t => ({ date: t.date, miles: getEffectiveMiles(t) })));
   const totalDeduction = mileageSummary.deduction;
@@ -276,7 +272,7 @@ export function MileageTrackerScreen({ user, onBack }: MileageTrackerScreenProps
                             <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
                               <span className="flex items-center gap-1">
                                 <Calendar className="w-3 h-3" />
-                                {new Date(trip.date).toLocaleDateString()}
+                                {formatCalendarDay(trip.date)}
                               </span>
                               <span>{effectiveMiles} mi</span>
                               {trip.businessPurpose && (

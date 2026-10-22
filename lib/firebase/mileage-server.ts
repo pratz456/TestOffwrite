@@ -1,3 +1,4 @@
+import { calendarDayYear, localCalendarYear } from '../dates/calendar-day';
 import { adminDb } from './admin';
 
 export interface MileageTrip {
@@ -31,7 +32,7 @@ export async function getMileageTrips(
   year?: number
 ): Promise<{ data: MileageTrip[]; error: any }> {
   try {
-    const targetYear = year ?? new Date().getFullYear();
+    const targetYear = year ?? localCalendarYear();
     const collectionRef = adminDb
       .collection('user_profiles')
       .doc(userId)
@@ -42,8 +43,8 @@ export async function getMileageTrips(
     const trips: MileageTrip[] = [];
     querySnapshot.forEach((doc) => {
       const data = doc.data();
-      const tripDate = data.date ? new Date(data.date) : null;
-      if (tripDate && tripDate.getFullYear() === targetYear) {
+      const tripYear = typeof data.date === 'string' ? calendarDayYear(data.date) : null;
+      if (tripYear === targetYear) {
         trips.push({
           id: doc.id,
           userId: data.userId || userId,
@@ -60,7 +61,7 @@ export async function getMileageTrips(
     });
 
     // Sort by date descending (newest first)
-    trips.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    trips.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
 
     return { data: trips, error: null };
   } catch (error) {
