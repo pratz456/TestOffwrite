@@ -68,6 +68,8 @@ export type DependentIdentifierKind = 'ssn' | 'itin' | 'atin' | 'none';
 const DEPENDENT_SSN_FIELD = /^(?:dependent\d*)?ssn$/i;
 const DEPENDENT_ATIN_FIELD = /^(?:dependent\d*)?atin$/i;
 const DEPENDENT_ITIN_FIELD = /^(?:dependent\d*)?itin$/i;
+const REVIEW_FLAG_FIELD = /^(?:dependent\d*)?(?:ssn|itin|atin)$/i;
+const REVIEW_FLAG_NUMBER = /^dependent\d*(?:Number|Identifier)$/;
 const EXPLICIT_KIND_FIELDS = ['identifierKind', 'identifierType', 'idType', 'identificationType', 'type'] as const;
 /** Credit facts kept for each dependent. Same fields the federal snapshot reads. */
 export const DEPENDENT_CREDIT_FIELDS = SNAPSHOT_DEPENDENT_FIELDS;
@@ -178,9 +180,41 @@ function explicitKind(record: Record<string, unknown>): DependentIdentifierKind 
   return null;
 }
 
+/** Kinds stored beside identifier fields. A label on the record still wins over this map. */
+function storedKindMap(value: unknown): Record<string, DependentIdentifierKind> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const kinds: Record<string, DependentIdentifierKind> = {};
+  for (const [field, raw] of Object.entries(value as Record<string, unknown>)) {
+    const kind = statedKind(raw);
+    if (kind && (REVIEW_FLAG_FIELD.test(field) || REVIEW_FLAG_NUMBER.test(field))) kinds[field] = kind;
+  }
+  return kinds;
+}
+
+/** A stored label for a filled identifier field. Several fields resolve ssn, then atin, then itin. */
+function storedKindFromMap(record: Record<string, unknown>, kinds: Record<string, DependentIdentifierKind>): DependentIdentifierKind | null {
+  let atin = false;
+  let itin = false;
+  let none = false;
+  for (const [key, value] of Object.entries(record)) {
+    if (!filled(value)) continue;
+    if (!(REVIEW_FLAG_FIELD.test(key) || REVIEW_FLAG_NUMBER.test(key))) continue;
+    const kind = kinds[key];
+    if (!kind) continue;
+    if (kind === 'ssn') return 'ssn';
+    if (kind === 'atin') atin = true;
+    else if (kind === 'itin') itin = true;
+    else none = true;
+  }
+  if (atin) return 'atin';
+  if (itin) return 'itin';
+  if (none) return 'none';
+  return null;
+}
+
 /** A stored idKind wins, then an explicit type, then the field name. Several filled fields resolve ssn, then atin, then itin. */
-function dependentIdentifierKind(record: Record<string, unknown>): DependentIdentifierKind {
-  const stored = statedKind(record.idKind);
+function dependentIdentifierKind(record: Record<string, unknown>, storedKinds: Record<string, DependentIdentifierKind>): DependentIdentifierKind {
+  const stored = statedKind(record.idKind) ?? storedKindFromMap(record, storedKinds);
   if (stored) return stored;
   const stated = explicitKind(record);
   if (stated) return stated;
@@ -197,7 +231,7 @@ function dependentIdentifierKind(record: Record<string, unknown>): DependentIden
   return 'none';
 }
 
-function presentDependentRecord(record: Record<string, unknown>): Record<string, unknown> {
+function presentDependentRecord(record: Record<string, unknown>, storedKinds: Record<string, DependentIdentifierKind>): Record<string, unknown> {
   const copy: Record<string, unknown> = {};
   for (const field of DEPENDENT_CREDIT_FIELDS) {
     if (!Object.prototype.hasOwnProperty.call(record, field)) continue;
@@ -217,13 +251,13 @@ function presentDependentRecord(record: Record<string, unknown>): Record<string,
     } else if (typeof value === 'number' && Number.isFinite(value)) copy[field] = value;
     else if (typeof value === 'boolean') copy[field] = value;
   }
-  copy.identifierKind = dependentIdentifierKind(record);
+  copy.identifierKind = dependentIdentifierKind(record, storedKinds);
   return copy;
 }
 
-function presentDependents(value: unknown): unknown {
-  if (Array.isArray(value)) return value.filter(plainRecord).map(item => presentDependentRecord(item));
-  if (plainRecord(value)) return presentDependentRecord(value);
+function presentDependents(value: unknown, storedKinds: Record<string, DependentIdentifierKind>): unknown {
+  if (Array.isArray(value)) return value.filter(plainRecord).map(item => presentDependentRecord(item, storedKinds));
+  if (plainRecord(value)) return presentDependentRecord(value, storedKinds);
   return value;
 }
 
@@ -270,11 +304,11 @@ function dependentSource(value: unknown): unknown {
   return null;
 }
 
-function dependentResponseValue(value: unknown): OrganizerTaxInputResponse['dependents'] {
+function dependentResponseValue(value: unknown, storedKinds: Record<string, DependentIdentifierKind>): OrganizerTaxInputResponse['dependents'] {
   const source = dependentSource(value);
   const scalar = scalarTaxInputValue(source);
   if (scalar !== undefined) return scalar;
-  return presentDependents(source) as Record<string, unknown> | unknown[];
+  return presentDependents(source, storedKinds) as Record<string, unknown> | unknown[];
 }
 
 function taxInputValue(value: unknown): OrganizerTaxInputScalar {
@@ -282,9 +316,6 @@ function taxInputValue(value: unknown): OrganizerTaxInputScalar {
   if (scalar !== undefined) return scalar;
   return canonicalJson(cloneJson(value));
 }
-
-const REVIEW_FLAG_FIELD = /^(?:dependent\d*)?(?:ssn|itin|atin)$/i;
-const REVIEW_FLAG_NUMBER = /^dependent\d*(?:Number|Identifier)$/;
 
 /** True flags on dependent identifier fields. Anything else is left out, including digits. */
 function idKindNeedsReviewMap(value: unknown): Record<string, true> | null {
@@ -308,16 +339,17 @@ function idKindNeedsReviewMap(value: unknown): Record<string, true> | null {
 /** One stable value per snapshot field. Objects sort their keys. Missing answers are null. */
 export function organizerTaxInputValues(data?: Record<string, unknown> | null): OrganizerTaxInputValues {
   const values = {} as OrganizerTaxInputValues;
+  const storedKinds = storedKindMap(data?.idKind);
   for (const field of ORGANIZER_TAX_INPUT_FIELDS) {
-    values[field] = field === 'dependents' ? dependentKeyValue(data?.[field]) : taxInputValue(data?.[field]);
+    values[field] = field === 'dependents' ? dependentKeyValue(data?.[field], storedKinds) : taxInputValue(data?.[field]);
   }
   const review = idKindNeedsReviewMap(data?.idKindNeedsReview);
   values.idKindNeedsReview = review ? canonicalJson(review) : null;
   return values;
 }
 
-function dependentKeyValue(value: unknown): OrganizerTaxInputScalar {
-  const presented = dependentResponseValue(value);
+function dependentKeyValue(value: unknown, storedKinds: Record<string, DependentIdentifierKind>): OrganizerTaxInputScalar {
+  const presented = dependentResponseValue(value, storedKinds);
   if (presented === null || typeof presented === 'string' || typeof presented === 'number' || typeof presented === 'boolean') return presented;
   return canonicalJson(presented);
 }
@@ -325,9 +357,10 @@ function dependentKeyValue(value: unknown): OrganizerTaxInputScalar {
 /** Objects for the tax-input read. Dependents keep credit facts only. */
 export function organizerTaxInputResponse(data?: Record<string, unknown> | null): OrganizerTaxInputResponse {
   const values = {} as OrganizerTaxInputResponse;
+  const storedKinds = storedKindMap(data?.idKind);
   for (const field of ORGANIZER_TAX_INPUT_FIELDS) {
     if (field === 'dependents') {
-      values.dependents = dependentResponseValue(data?.[field]);
+      values.dependents = dependentResponseValue(data?.[field], storedKinds);
       continue;
     }
     const scalar = scalarTaxInputValue(data?.[field]);

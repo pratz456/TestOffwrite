@@ -105,6 +105,38 @@ describe('dashboard tax input key', () => {
     expect(JSON.stringify(ssn)).not.toContain('333445555');
   });
 
+  it('changes the key when a stored ssn label on 912-40-0004 is reclassified to none with the review flag', () => {
+    const stored = encryptSensitive('912400004');
+    const child = { relationship: 'daughter', dateOfBirth: '2018-03-15', monthsLived: 12, dependentSSN: stored };
+    const labeled = dashboardTaxFactsFromReads(
+      { dependents: [child], dependentSSN: stored, idKind: { dependentSSN: 'ssn' }, filingStatus: 'single' },
+      { payments: quarters },
+    );
+    const reclassified = dashboardTaxFactsFromReads(
+      {
+        dependents: [child], dependentSSN: stored, filingStatus: 'single',
+        idKind: { dependentSSN: 'none' }, idKindNeedsReview: { dependentSSN: true },
+      },
+      { payments: quarters },
+    );
+    expect(String(labeled.dependents)).toContain('"identifierKind":"ssn"');
+    expect(labeled.idKindNeedsReview).toBeNull();
+    expect(String(reclassified.dependents)).toContain('"identifierKind":"none"');
+    expect(reclassified.idKindNeedsReview).toBe('{"dependentSSN":true}');
+    expect(taxFactsEqual(labeled, reclassified)).toBe(false);
+    const read = organizerTaxInputResponse({
+      dependents: [child],
+      idKind: { dependentSSN: 'none' },
+      idKindNeedsReview: { dependentSSN: true },
+    });
+    expect(read.dependents).toEqual([expect.objectContaining({ identifierKind: 'none' })]);
+    expect(read.idKindNeedsReview).toEqual({ dependentSSN: true });
+    const packed = JSON.stringify({ labeled, reclassified, read });
+    expect(packed).not.toContain(stored);
+    expect(packed).not.toContain('912400004');
+    expect(packed).not.toContain('912-40-0004');
+  });
+
   it('changes the key when idKindNeedsReview is set or cleared', () => {
     const base = facts({ dependents: [{ dependentSSN: '111223333', relationship: 'daughter' }] });
     const set = facts({ dependents: [{ dependentSSN: '111223333', relationship: 'daughter' }], idKindNeedsReview: { dependent2ITIN: true, dependentSSN: true } });
