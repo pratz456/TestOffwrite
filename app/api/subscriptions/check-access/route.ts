@@ -13,7 +13,9 @@ export async function GET(req: Request) {
   try {
     const ref = adminDb.doc(`user_profiles/${uid}`);
     const snapshot = await ref.get();
-    if (!snapshot.exists) return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
+    if (!snapshot.exists) {
+      return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
+    }
     const profile = snapshot.data() ?? {};
     if (isLocalAccountPreview()) {
       const entitlements = evaluateEntitlements(profile);

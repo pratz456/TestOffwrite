@@ -8,6 +8,7 @@ import { PwaRegisterSw } from "@/components/pwa-register-sw";
 import { Toaster } from "@/ui/sonner";
 import { gaMeasurementId } from "@/lib/analytics/ga-measurement-id";
 import { GoogleTag } from "@/components/analytics/google-tag";
+import { AcquisitionCapture } from "@/components/analytics/acquisition-capture";
 import "./globals.css";
 
 const defaultUrl = process.env.NEXT_PUBLIC_SITE_URL
@@ -106,6 +107,7 @@ export default function RootLayout({
           dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
         />
         {measurementId && <GoogleTag measurementId={measurementId} />}
+        <AcquisitionCapture />
         <ThemeProvider attribute="class" defaultTheme="light" forcedTheme="light" disableTransitionOnChange>
           <ReactQueryProvider>
             <AuthProvider>

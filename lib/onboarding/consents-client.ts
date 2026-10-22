@@ -1,6 +1,7 @@
 'use client';
 
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
+import { acquisitionForProfileWrite } from '@/lib/analytics/acquisition';
 import type { ConsentRecord } from './consents';
 
 export const CONSENT_SAVE_ERROR = 'We could not save your acknowledgments. Check your connection and try again.';
@@ -9,7 +10,10 @@ export const CONSENT_SAVE_ERROR = 'We could not save your acknowledgments. Check
 export async function persistConsentRecord(record: ConsentRecord): Promise<void> {
   let response: Response;
   try {
-    response = await makeAuthenticatedRequest('/api/database/profiles', { method: 'POST', body: JSON.stringify({ consents: record }) });
+    response = await makeAuthenticatedRequest('/api/database/profiles', {
+      method: 'POST',
+      body: JSON.stringify({ consents: record, ...acquisitionForProfileWrite() }),
+    });
   } catch {
     throw new Error(CONSENT_SAVE_ERROR);
   }

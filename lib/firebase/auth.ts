@@ -18,6 +18,7 @@ import { establishVerifiedSession } from "@/lib/onboarding/verification";
 import { app } from "./client";
 import { ensureBrowserSession, clearPendingBrowserSession } from "./browser-session";
 import { createAuthError, logAuthError } from "./auth-errors";
+import { attributeSignup } from "@/lib/analytics/sign-up";
 
 export interface AuthUser {
   id: string;
@@ -70,6 +71,12 @@ export async function signUpUser(email: string, password: string): Promise<{ dat
   try {
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
+
+    try {
+      await attributeSignup("email", user);
+    } catch {
+      // Attribution must not block account creation.
+    }
 
     // Send email verification
     await sendEmailVerification(user);

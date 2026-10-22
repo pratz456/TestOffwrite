@@ -6,6 +6,7 @@ import { EDITABLE_PROFILE_FIELDS, publicProfile } from '@/lib/firebase/profile-f
 import { parseConsentRecord, storedDocumentImportSignature } from '@/lib/onboarding/consents';
 import { encryptSensitive } from '@/lib/security/utils';
 import { isLocalAccountPreview } from '@/lib/firebase/local-account-preview';
+import { acquisitionFromUnknown } from '@/lib/analytics/acquisition';
 
 class ProfileInputError extends Error {}
 
@@ -82,10 +83,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'A profile object is required' }, { status: 400 });
   }
   const body: Record<string, any> = { ...parsedBody };
+  const rawAcquisition = body.acquisition;
+  delete body.acquisition;
   if (Object.keys(body).some(key => !EDITABLE_PROFILE_FIELDS.has(key))) {
     return NextResponse.json({ error: 'Profile contains fields that cannot be edited' }, { status: 400 });
   }
-  if (JSON.stringify(body).length > 32_768) return NextResponse.json({ error: 'Profile is too large' }, { status: 413 });
+  if (JSON.stringify(parsedBody).length > 32_768) return NextResponse.json({ error: 'Profile is too large' }, { status: 413 });
   const stamps: Record<string, unknown> = {};
   if ('consents' in body) {
     const consents = parseConsentRecord(body.consents);
@@ -113,10 +116,14 @@ export async function POST(request: NextRequest) {
       // A merge keeps nested fields, so a withdrawn §7216 signature is removed explicitly.
       const withdrawn = consents && !consents.document_import_signature
         && stored && typeof stored === 'object' && 'document_import_signature' in stored;
+      // The signup source is written only while this transaction creates the profile.
+      // An existing profile is never backfilled, and a later save cannot replace it.
+      const acquisition = !snapshot.exists ? acquisitionFromUnknown(rawAcquisition) : null;
       transaction.set(ref, { ...profileFields, ...(ein?.fields ?? {}),
         ...(consents ? { consents: withdrawn ? { ...consents, document_import_signature: FieldValue.delete() } : consents } : {}),
         ...stamps, updated_at: FieldValue.serverTimestamp(),
-        ...(!snapshot.exists ? { created_at: FieldValue.serverTimestamp() } : {}) }, { merge: true });
+        ...(!snapshot.exists ? { created_at: FieldValue.serverTimestamp() } : {}),
+        ...(acquisition ? { acquisition } : {}) }, { merge: true });
     });
     return NextResponse.json({ success: true });
   } catch (error) {
