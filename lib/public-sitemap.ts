@@ -24,7 +24,6 @@ export const SITEMAP_EXCLUDED_BLOG_SLUGS: readonly string[] = [
   "gig-economy-tax-guide",
   "cpa-vs-tax-software-self-employed",
   "how-irs-knows-your-income-1099k",
-  "home-office-deduction-guide",
   "hobby-vs-business-irs-section-183",
   "cohan-rule-lost-receipts",
   "worker-misclassification-1099-employee",
@@ -32,7 +31,6 @@ export const SITEMAP_EXCLUDED_BLOG_SLUGS: readonly string[] = [
   "mileage-deduction-guide-2026",
   "uber-doordash-instacart-tax-guide",
   "freelancer-tax-mistakes-cost-money",
-  "irs-audit-guide-freelancers",
 ];
 
 const STATIC_PAGES: Array<{ path: string; changeFrequency: MetadataRoute.Sitemap[number]["changeFrequency"]; priority: number }> = [

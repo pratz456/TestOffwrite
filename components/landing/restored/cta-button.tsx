@@ -29,7 +29,7 @@ export function CtaButton({ className, size = "default", label, variant = "defau
 
   // Server HTML is the loading state. A real anchor has to be in that markup;
   // a disabled button is not a crawlable or pre-hydration link.
-  const signUpLabel = loading ? (label ?? "Get started") : (label ?? "Get Started Free");
+  const signUpLabel = label ?? "Get Started Free";
   return (
     <>
       <Button asChild variant={variant} size={size} className={classes}>

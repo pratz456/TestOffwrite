@@ -16,7 +16,6 @@ const HELD_UNTIL_TAX_CORRECTIONS = [
   'gig-economy-tax-guide',
   'cpa-vs-tax-software-self-employed',
   'how-irs-knows-your-income-1099k',
-  'home-office-deduction-guide',
   'hobby-vs-business-irs-section-183',
   'cohan-rule-lost-receipts',
   'worker-misclassification-1099-employee',
@@ -24,7 +23,6 @@ const HELD_UNTIL_TAX_CORRECTIONS = [
   'mileage-deduction-guide-2026',
   'uber-doordash-instacart-tax-guide',
   'freelancer-tax-mistakes-cost-money',
-  'irs-audit-guide-freelancers',
 ];
 
 describe('public sitemap', () => {
@@ -44,8 +42,10 @@ describe('public sitemap', () => {
       expect(entry?.lastModified).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       expect(String(entry?.lastModified)).not.toContain('2030-01-01');
     }
+    for (const slug of [...HELD_UNTIL_TAX_CORRECTIONS, ...NOINDEX_BLOG_SLUGS]) {
+      expect(urls, slug).not.toContain(`${baseUrl}/blog/${slug}`);
+    }
     expect(published).toHaveLength(21);
-    expect(urls).not.toContain(`${baseUrl}/blog/irs-audit-guide-freelancers`);
   });
 
   it('omits hotfix noindex and redirect slugs, posts held for tax corrections, /welcome, and /pricing', () => {
