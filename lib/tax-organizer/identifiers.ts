@@ -2,8 +2,9 @@
  * Tax organizer identifier handling (server only).
  *
  * Every identifier answer is stored as AES-256-GCM ciphertext (`SSN_ENCRYPTION_KEY`)
- * and decrypted only inside server routes. Legacy plaintext values are read as-is.
- * Reads do not rewrite stored records. A separated 3-2-4 number whose digits are
+ * and decrypted only inside server routes. Older identifier values are read as-is
+ * until a read or the next save stores collected fields in the current format.
+ * A separated 3-2-4 number whose digits are
  * not already in that free-text field is rejected on save, and the message names
  * the field. A standalone 9-digit run is kept. Masking happens only on the owner response.
  */
@@ -56,13 +57,13 @@ export function normalizeOrganizerIdentifier(kind: OrganizerIdentifierKind, valu
 }
 
 export interface OrganizerIdentifierRead {
-  /** Decrypted (or legacy plaintext) identifier values merged over the record; server use only. */
+  /** Identifier values for server routes only. Older values are included as stored. */
   organizer: Record<string, unknown>;
-  /** Identifier answers still stored without ciphertext. This read does not rewrite them. */
+  /** Identifier answers still stored in an older format. */
   legacyPlaintextFields: string[];
 }
 
-/** Decrypts identifier answers for a server route. Legacy plaintext is passed through and reported. */
+/** Decrypts identifier answers for a server route. Older values are passed through and reported. */
 export function readOrganizerIdentifiers(data: Record<string, unknown>): OrganizerIdentifierRead {
   const organizer: Record<string, unknown> = { ...data };
   const legacyPlaintextFields: string[] = [];
