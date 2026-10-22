@@ -61,6 +61,7 @@ import { RecentActivityCard } from '../components/dashboard/RecentActivityCard';
 import { summarizeDashboardRecords } from '../lib/dashboard/record-summary';
 import { GET } from '../app/api/tax/compute-1040/route';
 import { loadDashboardTaxSnapshot } from '../lib/tax/dashboard-snapshot';
+import { notifyDashboardTaxInputsUpdated } from '../lib/tax/dashboard-tax-input';
 
 type Element = ReactElement<Record<string, any>>;
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
@@ -301,6 +302,78 @@ describe('dashboard tax cards share the federal server calculation', () => {
     await flush();
     expect(taxCalls()).toBe(before + 2);
     h.taxFacts = { ...h.taxFacts, payments: payments.map(row => row.quarter === 2 ? { ...row, paidAmount: 400 } : row) };
+    expect(render().state.status).toBe('loading');
+    await flush();
+    expect(taxCalls()).toBe(before + 3);
+  });
+  it('reloads the production tax-input reads on focus, and a note does not recompute', async () => {
+    vi.stubGlobal('window', new EventTarget());
+    const source = {
+      organizer: { amountOtherIncome: null as string | null, dependents: null as string | null, notes: 'first' },
+      payments: [1, 2, 3, 4].map(quarter => ({ quarter, paidAmount: 0, notes: 'blank' })),
+    };
+    h.request.mockImplementation(async (url: string) => {
+      const path = String(url);
+      if (path.includes('view=tax-input')) return Response.json(source.organizer);
+      if (path.includes('/api/tax/quarterly-payments')) return Response.json({ payments: source.payments });
+      return transport(path);
+    });
+    render(); await flush();
+    expect(render().state.status).toBe('ready');
+    const taxCalls = () => h.request.mock.calls.filter(([url]) => String(url).includes('/api/tax/compute-1040')).length;
+    const before = taxCalls();
+    expect(before).toBe(1);
+    source.organizer = { ...source.organizer, amountOtherIncome: '1500' };
+    window.dispatchEvent(new Event('focus'));
+    expect(render().state.status).toBe('ready');
+    await flush();
+    expect(render().state.status).toBe('loading');
+    await flush();
+    expect(taxCalls()).toBe(before + 1);
+    expect(render().state.status).toBe('ready');
+    source.organizer = { ...source.organizer, notes: 'only a note' };
+    const afterIncome = taxCalls();
+    window.dispatchEvent(new Event('focus'));
+    render(); await flush();
+    expect(render().state.status).toBe('ready');
+    expect(taxCalls()).toBe(afterIncome);
+  });
+  it('recomputes once when an organizer or quarterly save reports new other income, dependents, or a payment, and ignores a note', async () => {
+    vi.stubGlobal('window', new EventTarget());
+    const source = {
+      organizer: { amountOtherIncome: null as string | null, dependents: null as string | null, notes: 'first' },
+      payments: [1, 2, 3, 4].map(quarter => ({ quarter, paidAmount: 0, notes: 'blank' })),
+    };
+    h.request.mockImplementation(async (url: string) => {
+      const path = String(url);
+      if (path.includes('view=tax-input')) return Response.json(source.organizer);
+      if (path.includes('/api/tax/quarterly-payments')) return Response.json({ payments: source.payments });
+      return transport(path);
+    });
+    render(); await flush();
+    expect(render().state.status).toBe('ready');
+    const taxCalls = () => h.request.mock.calls.filter(([url]) => String(url).includes('/api/tax/compute-1040')).length;
+    const before = taxCalls();
+    source.organizer = { ...source.organizer, notes: 'saved note only' };
+    notifyDashboardTaxInputsUpdated();
+    render(); await flush();
+    expect(render().state.status).toBe('ready');
+    expect(taxCalls()).toBe(before);
+    source.organizer = { ...source.organizer, amountOtherIncome: '1500' };
+    notifyDashboardTaxInputsUpdated();
+    render(); await flush();
+    expect(render().state.status).toBe('loading');
+    await flush();
+    expect(taxCalls()).toBe(before + 1);
+    source.organizer = { ...source.organizer, dependents: '1' };
+    notifyDashboardTaxInputsUpdated();
+    render(); await flush();
+    expect(render().state.status).toBe('loading');
+    await flush();
+    expect(taxCalls()).toBe(before + 2);
+    source.payments = source.payments.map(row => row.quarter === 2 ? { ...row, paidAmount: 400 } : row);
+    notifyDashboardTaxInputsUpdated();
+    render(); await flush();
     expect(render().state.status).toBe('loading');
     await flush();
     expect(taxCalls()).toBe(before + 3);

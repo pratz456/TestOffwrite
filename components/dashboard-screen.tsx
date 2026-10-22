@@ -18,6 +18,7 @@ import { AnalysisStatusNotice } from '@/components/analysis-status-notice';
 import { toast } from 'sonner';
 import { loadDashboardTaxSnapshot, type DashboardTaxState } from '@/lib/tax/dashboard-snapshot';
 import {
+  DASHBOARD_TAX_INPUTS_UPDATED,
   EMPTY_DASHBOARD_TAX_FACTS,
   loadDashboardTaxFacts,
   normalizeDashboardTaxFacts,
@@ -115,6 +116,7 @@ export default function DashboardScreen({
   // and those saves do not bump profile.updated_at, so they are part of this key.
   const taxYear = new Date().getFullYear();
   const [taxRetry, setTaxRetry] = useState(0);
+  const [factsRetry, setFactsRetry] = useState(0);
   const [loadedTaxFacts, setLoadedTaxFacts] = useState<DashboardTaxFacts>(EMPTY_DASHBOARD_TAX_FACTS);
   const taxFacts = normalizeDashboardTaxFacts(taxFactsProp ?? loadedTaxFacts);
   const taxInputKey = JSON.stringify({
@@ -189,13 +191,17 @@ export default function DashboardScreen({
       setLoadedTaxFacts(previous => taxFactsEqual(previous, next) ? previous : next);
     });
     return () => { current = false; controller.abort(); };
-  }, [taxFactsProp, userId, taxYear, taxRetry]);
+  }, [taxFactsProp, userId, taxYear, taxRetry, factsRetry]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const refresh = () => setTaxRetry(value => value + 1);
-    window.addEventListener('focus', refresh);
-    return () => window.removeEventListener('focus', refresh);
+    const refreshFacts = () => setFactsRetry(value => value + 1);
+    window.addEventListener('focus', refreshFacts);
+    window.addEventListener(DASHBOARD_TAX_INPUTS_UPDATED, refreshFacts);
+    return () => {
+      window.removeEventListener('focus', refreshFacts);
+      window.removeEventListener(DASHBOARD_TAX_INPUTS_UPDATED, refreshFacts);
+    };
   }, []);
 
   // --- Early return for no data ---

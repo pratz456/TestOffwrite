@@ -1,5 +1,14 @@
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 
+/** Fired after a successful organizer or quarterly-payment save. */
+export const DASHBOARD_TAX_INPUTS_UPDATED = 'writeoff:tax-inputs-updated';
+
+/** Ask a mounted dashboard to reread other income, dependents, and quarterly payments. */
+export function notifyDashboardTaxInputsUpdated(target?: EventTarget) {
+  const host = target ?? (typeof window === 'undefined' ? null : window);
+  host?.dispatchEvent(new Event(DASHBOARD_TAX_INPUTS_UPDATED));
+}
+
 /** Organizer and quarterly-payment facts that change the federal estimate. */
 export interface DashboardTaxFacts {
   amountOtherIncome: string | number | null;

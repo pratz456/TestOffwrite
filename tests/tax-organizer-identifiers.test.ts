@@ -361,6 +361,26 @@ describe('organizer route stores ciphertext and returns plaintext only to the ow
     expect(decryptSensitive(String(stored().ein))).toBe('987654321');
     expect(stored().ein).not.toBe(original);
   });
+  it('masks a legacy plaintext SSN on the normal GET without rewriting it, and the tax-input view returns no identifier fields', async () => {
+    const before = {
+      userId: 'owner', taxYear: 2026, taxpayerSSN: '900000001', ein: '123456789',
+      amountOtherIncome: '1500', dependents: '2', notes: 'unrelated',
+    };
+    state.docs.set('legacy-tax-input', { ...before });
+    const viewed = await (await get(2026)).json();
+    expect(viewed.organizer.taxpayerSSN).toBe('***-**-0001');
+    expect(viewed.organizer.ein).toBe('**-***6789');
+    expect(state.sets).toEqual([]);
+    expect(state.docs.get('legacy-tax-input')).toEqual(before);
+    const input = await (await GET(new NextRequest('http://localhost/api/tax/organizer?year=2026&view=tax-input'))).json();
+    expect(input).toEqual({ amountOtherIncome: '1500', dependents: '2' });
+    expect(input).not.toHaveProperty('taxpayerSSN');
+    expect(input).not.toHaveProperty('ein');
+    expect(JSON.stringify(input)).not.toContain('900000001');
+    expect(JSON.stringify(input)).not.toContain('123456789');
+    expect(state.sets).toEqual([]);
+    expect(state.docs.get('legacy-tax-input')).toEqual(before);
+  });
   it('returns other income and dependents for the dashboard key without the rest of the organizer', async () => {
     state.docs.set('tax-input-row', {
       userId: 'owner', taxYear: 2026, amountOtherIncome: '1500', dependents: '2',
