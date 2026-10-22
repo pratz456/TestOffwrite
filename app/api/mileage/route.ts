@@ -24,9 +24,12 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('userId') || user.uid;
     const yearParam = searchParams.get('year');
-    const year = yearParam === null ? undefined : Number(yearParam);
-    if (year !== undefined && (!Number.isInteger(year) || year < 2000 || year > 2100)) {
-      return NextResponse.json({ error: 'Provide a valid tax year.' }, { status: 400 });
+    let year: number | undefined;
+    if (yearParam !== null) {
+      year = Number(yearParam);
+      if (!/^\d{4}$/.test(yearParam) || !Number.isInteger(year) || year < 2000 || year > 2100) {
+        return NextResponse.json({ error: 'Provide a valid tax year.' }, { status: 400 });
+      }
     }
 
     // Ensure user can only fetch their own trips
