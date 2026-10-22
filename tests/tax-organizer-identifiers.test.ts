@@ -50,7 +50,7 @@ import { decryptSensitive, encryptSensitive, isEncrypted } from '../lib/security
 import { errorLogger } from '../lib/error-logger';
 import { identifierFormatPatch } from '../lib/tax-organizer/organizer-server';
 import {
-  dependentIdKind, encryptOrganizerIdentifiers, MASKED_NUMBER_EDIT_ERROR, maskOrganizerIdentifier,
+  dependentIdKind, dependentIdReview, dependentKindFromDigits, encryptOrganizerIdentifiers, MASKED_NUMBER_EDIT_ERROR, maskOrganizerIdentifier,
   organizerIdentifierKind, readOrganizerIdentifiers, SSN_NOT_ACCEPTED_ERROR,
 } from '../lib/tax-organizer/identifiers';
 
@@ -438,6 +438,7 @@ describe('organizer route stores ciphertext and returns plaintext only to the ow
     expect((await post({ taxYear: 2026, spouseName: 'Ada', idKind: 'atin' })).status).toBe(200);
     const record = state.docs.get('picked')!;
     expect(record.idKind).toEqual({ dependent2ITIN: 'atin' });
+    expect(record.idKindNeedsReview).toEqual({ dependent2ITIN: true });
     expect(isEncrypted(String(record.dependent2ITIN))).toBe(true);
     expect(decryptSensitive(String(record.dependent2ITIN))).toBe('412550198');
     expect(JSON.stringify(record.idKind)).not.toMatch(/412550198|0198/);
@@ -590,7 +591,7 @@ describe('organizer route stores ciphertext and returns plaintext only to the ow
     expect((await post({ taxYear: 2026, idKind: 'itin' })).status).toBe(200);
     const record = state.docs.get('picked-itin')!;
     expect(record.idKind).toEqual({ dependentSSN: 'itin' });
-    expect(record.idKindNeedsReview).toBeUndefined();
+    expect(record.idKindNeedsReview).toEqual({ dependentSSN: true });
     expect(decryptSensitive(String(record.dependentSSN))).toBe('134220008');
   });
   it('an ssn field holding a 9xx value outside the ranges is labeled none and marked for review', async () => {
@@ -661,8 +662,75 @@ describe('organizer route stores ciphertext and returns plaintext only to the ow
           const kind = dependentIdKind(field, value, data);
           expect(kind, `${field} ${value} ${JSON.stringify(data)}`).not.toBe('ssn');
         }
+        const pattern = dependentKindFromDigits(value);
+        for (const choice of ['itin', 'atin'] as const) {
+          const freshCases = [{ idKind: choice }, { [`${stem}IdKind`]: choice }, { [`${field}IdKind`]: choice }];
+          for (const data of freshCases) {
+            const label = `${field} ${value} ${JSON.stringify(data)}`;
+            expect(dependentIdKind(field, value, data), label).toBe(choice);
+            expect(dependentIdReview(field, value, data), label).toBe(choice === pattern ? 'clear' : 'set');
+          }
+        }
       }
     }
+  });
+  it('a 9xx-4x value picked as itin stays itin and is marked for review', async () => {
+    state.docs.set('pick-itin-40', { userId: 'owner', taxYear: 2026, filingStatus: 'single', dependentSSN: '912-40-0004' });
+    expect((await post({ taxYear: 2026, idKind: 'itin' })).status).toBe(200);
+    const record = state.docs.get('pick-itin-40')!;
+    expect(record.idKind).toEqual({ dependentSSN: 'itin' });
+    expect(record.idKindNeedsReview).toEqual({ dependentSSN: true });
+    expect(decryptSensitive(String(record.dependentSSN))).toBe('912400004');
+    expect(JSON.stringify(record.idKind)).not.toMatch(/912400004|0004/);
+    expect(JSON.stringify(record.idKindNeedsReview)).not.toMatch(/912400004|0004/);
+    const storedOnce = structuredClone(record);
+    const body = await (await get()).json();
+    expect(state.docs.get('pick-itin-40')).toEqual(storedOnce);
+    expect(body.organizer.idKind).toBeUndefined();
+    expect(body.organizer.idKindNeedsReview).toBeUndefined();
+  });
+  it('a 9xx-7x value picked as atin stays atin and is marked for review', async () => {
+    state.docs.set('pick-atin-75', { userId: 'owner', taxYear: 2026, filingStatus: 'single', dependentSSN: '912-75-0001' });
+    expect((await post({ taxYear: 2026, idKind: 'atin' })).status).toBe(200);
+    const record = state.docs.get('pick-atin-75')!;
+    expect(record.idKind).toEqual({ dependentSSN: 'atin' });
+    expect(record.idKindNeedsReview).toEqual({ dependentSSN: true });
+    expect(decryptSensitive(String(record.dependentSSN))).toBe('912750001');
+    expect(JSON.stringify(record.idKind)).not.toMatch(/912750001|0001/);
+    expect(JSON.stringify(record.idKindNeedsReview)).not.toMatch(/912750001|0001/);
+    const storedOnce = structuredClone(record);
+    await get();
+    expect(state.docs.get('pick-atin-75')).toEqual(storedOnce);
+  });
+  it('a 9xx-93 value picked as atin clears the review flag', async () => {
+    state.docs.set('match-atin', {
+      userId: 'owner', taxYear: 2026, filingStatus: 'single',
+      dependentSSN: '912-93-0001', idKindNeedsReview: { dependentSSN: true },
+    });
+    expect((await post({ taxYear: 2026, idKind: 'atin' })).status).toBe(200);
+    const record = state.docs.get('match-atin')!;
+    expect(record.idKind).toEqual({ dependentSSN: 'atin' });
+    expect(record.idKindNeedsReview).toEqual({});
+    expect(decryptSensitive(String(record.dependentSSN))).toBe('912930001');
+    expect(JSON.stringify(record.idKind)).not.toMatch(/912930001|0001/);
+    const storedOnce = structuredClone(record);
+    await get();
+    expect(state.docs.get('match-atin')).toEqual(storedOnce);
+  });
+  it('a 9xx-7x value picked as itin clears the review flag', async () => {
+    state.docs.set('match-itin', {
+      userId: 'owner', taxYear: 2026, filingStatus: 'single',
+      dependentSSN: '912-75-0001', idKindNeedsReview: { dependentSSN: true },
+    });
+    expect((await post({ taxYear: 2026, idKind: 'itin' })).status).toBe(200);
+    const record = state.docs.get('match-itin')!;
+    expect(record.idKind).toEqual({ dependentSSN: 'itin' });
+    expect(record.idKindNeedsReview).toEqual({});
+    expect(decryptSensitive(String(record.dependentSSN))).toBe('912750001');
+    expect(JSON.stringify(record.idKind)).not.toMatch(/912750001|0001/);
+    const storedOnce = structuredClone(record);
+    await get();
+    expect(state.docs.get('match-itin')).toEqual(storedOnce);
   });
   it('a second read after reclassification is byte-identical', async () => {
     state.docs.set('reclass', {
