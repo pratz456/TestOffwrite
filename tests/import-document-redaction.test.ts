@@ -318,6 +318,32 @@ describe('redact-first W-2/1099 import: text path', () => {
     for (const [collection, records] of Object.entries(state.records)) expect(JSON.stringify(records), collection).not.toContain('123456789');
   });
 
+  it.each([
+    ['unknown', '98-7654321', "PAYER'S TIN 98-7654321\nPaid for services rendered this year"],
+    ['unknown', null, 'Form 1099-NEC statement prepared for the tax year 2025'],
+    [undefined, '98-7654321', "PAYER'S TIN 98-7654321\nPaid for services rendered this year"],
+    [undefined, null, 'Form 1099-NEC statement prepared for the tax year 2025'],
+  ] as const)('auto request with model type %s resolves payerEIN to %s', async (modelType, payerEIN, text) => {
+    mocks.recognize.mockResolvedValue({ text, confidence: 0.95 });
+    const reply: Record<string, unknown> = { formVariant: 'NEC', payerName: 'Synthetic Payer', payerEIN: null, box1Amount: 1200, taxYear: 2025, confidence: 0.95, verificationWarnings: [] };
+    if (modelType) reply.docType = modelType;
+    modelReplies(reply);
+    const body = await (await importDocument(request({ docType: 'auto' }))).json();
+    expect(body.extracted.payerEIN).toBe(payerEIN);
+    expect(state.records.income_1099[0].payerEIN).toBe(payerEIN ?? '');
+    if (payerEIN === null) expect(body.verificationRequired).toContain('Check the employer/payer ID');
+    else expect(body.verificationRequired).not.toContain('Check the employer/payer ID');
+  });
+
+  it('asks to check the employer number when an auto request saves an untyped W-2 with no employer number', async () => {
+    mocks.recognize.mockResolvedValue({ text: 'Form W-2 Wage and Tax Statement prepared for the tax year 2025', confidence: 0.95 });
+    modelReplies({ docType: 'unknown', employerName: 'Synthetic Employer LLC', employerEIN: null, box1Wages: 1000, taxYear: 2025, confidence: 0.95, verificationWarnings: [] });
+    const body = await (await importDocument(request({ docType: 'auto' }))).json();
+    expect(body.extracted.employerEIN).toBeNull();
+    expect(state.records.w2_income[0].employerEIN).toBe('');
+    expect(body.verificationRequired).toContain('Check the employer/payer ID');
+  });
+
   it("keeps a dashed payer TIN on a W-2 when the model says w2", async () => {
     mocks.recognize.mockResolvedValue({ text: "PAYER'S TIN 98-7654321\nPaid for services rendered this year", confidence: 0.95 });
     modelReplies({ ...W2_JSON, employerEIN: null, box1Wages: 1000 });

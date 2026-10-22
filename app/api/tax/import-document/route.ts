@@ -456,11 +456,12 @@ function scrubImportText(value: string): string {
   return value.replace(ssnShapedExpression(), '');
 }
 
-/** Known document fields only. Model text and employee or recipient identification numbers are omitted. */
-function publicDocument(data: Record<string, unknown>): Record<string, unknown> {
-  const fields = data.docType === '1099' ? FORM_1099_PUBLIC_FIELDS
-    : data.docType === 'platform_summary' ? PLATFORM_PUBLIC_FIELDS
-    : data.docType === 'w2' || 'box1Wages' in data || 'employerName' in data ? W2_PUBLIC_FIELDS
+/** Known document fields only. The set follows the record that will be saved, so an untyped 1099 keeps its payer fields and an untyped W-2 keeps its employer fields. */
+function publicDocument(data: Record<string, unknown>, requested = ''): Record<string, unknown> {
+  const savedType = savedDocumentType(data, requested);
+  const fields = savedType === '1099' ? FORM_1099_PUBLIC_FIELDS
+    : savedType === 'platform_summary' ? PLATFORM_PUBLIC_FIELDS
+    : savedType === 'w2' ? W2_PUBLIC_FIELDS
     : AUTO_PUBLIC_FIELDS;
   const out: Record<string, unknown> = {};
   for (const field of fields) {
@@ -647,7 +648,7 @@ export async function POST(request: NextRequest) {
     if (documentOwner === 'unmatched') {
       einNotes.push('The identification number on this document does not match the taxpayer or spouse record saved in your Tax Organizer. Confirm this document is yours before saving.');
     }
-    extracted = publicDocument(dropDocumentIdentifiers(extracted));
+    extracted = publicDocument(dropDocumentIdentifiers(extracted), docType);
 
     // Low confidence warning
     // Check for quality issues
@@ -669,7 +670,7 @@ export async function POST(request: NextRequest) {
           'Avoid shadows and glare',
           'Make sure all 4 corners are visible',
         ],
-        extracted: publicDocument(extracted),
+        extracted: publicDocument(extracted, docType),
         imageIssues,
         committed: false,
         disclosure,
@@ -685,13 +686,16 @@ export async function POST(request: NextRequest) {
     ];
 
     // Merge user edits into extracted data before saving. Identifier keys are already removed from extracted.
-    const finalData = publicDocument(dropDocumentIdentifiers({ ...extracted, ...overrideFields }));
+    const finalData = publicDocument(dropDocumentIdentifiers({ ...extracted, ...overrideFields }), docType);
     if (disclosure === 'image') rejectUndashedImagePayerNumbers(finalData);
     // A typed value that is not NN-NNNNNNN is saved blank. payerNumberOrBlank would already have dropped a 3-2-4, so check the raw edit.
     applyPayerNumberEdits(finalData, overrideFields);
     if (Array.isArray(finalData.verificationWarnings) && finalData.verificationWarnings.includes(PAYER_ID_CHECK) && !verificationRequired.includes(PAYER_ID_CHECK)) {
       verificationRequired.push(PAYER_ID_CHECK);
     }
+    const savedType = savedDocumentType(finalData, docType);
+    const savedId = savedType === 'w2' ? finalData.employerEIN : savedType === '1099' ? finalData.payerEIN : 'present';
+    if (!savedId && !verificationRequired.includes(PAYER_ID_CHECK)) verificationRequired.push(PAYER_ID_CHECK);
     const responseExtracted: Record<string, unknown> = { ...extracted };
     for (const field of PAYER_NUMBER_FIELDS) {
       if (Object.prototype.hasOwnProperty.call(overrideFields, field)) responseExtracted[field] = finalData[field];
@@ -700,12 +704,11 @@ export async function POST(request: NextRequest) {
     // Save to Firestore if commit=true
     let saveResult: Record<string, any> = {};
     if (commit) {
-      const detectedType = savedDocumentType(finalData, docType);
-      if (detectedType === 'w2') {
+      if (savedType === 'w2') {
         saveResult = await saveW2(user.uid, finalData);
-      } else if (detectedType === '1099') {
+      } else if (savedType === '1099') {
         saveResult = await save1099(user.uid, finalData);
-      } else if (detectedType === 'platform_summary') {
+      } else if (savedType === 'platform_summary') {
         saveResult = await savePlatformSummary(user.uid, finalData);
       }
     }
@@ -717,7 +720,7 @@ export async function POST(request: NextRequest) {
       imageIssues,
       lowConfidenceFields: lowConfFields,
       taxYear: extracted.taxYear,
-      extracted: publicDocument(responseExtracted),
+      extracted: publicDocument(responseExtracted, docType),
       committed: commit,
       saveResult,
       summary: buildSummary(extracted),
