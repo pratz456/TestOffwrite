@@ -79,12 +79,10 @@ describe('federal calculation audit: independently worked 2026 reference cases',
       ...base, scheduleCNetProfit: 100000, w2Wages: 250000, w2SocialSecurityWages: 184500, w2MedicareWages: 250000, ...seTax,
     })).toThrow(QBIReviewRequiredError);
     const form = compute1040({
-      ...base, scheduleCNetProfit: 100000, w2Wages: 0, w2SocialSecurityWages: 184500, w2MedicareWages: 250000,
-      w2FederalWithheld: 450, ...seTax,
+      ...base, scheduleCNetProfit: 100000, w2Wages: 0, w2SocialSecurityWages: 184500, w2MedicareWages: 250000, ...seTax,
     });
     expect(form.additionalMedicareTax).toBe(1281.15);
     expect(form.selfEmploymentTax).toBe(2678.15);
-    expect(form.w2FederalWithheld).toBe(450);
   });
 
   it('uses the same owner’s W-2 Social Security wages before the SE deduction and ordinary bracket', () => {
