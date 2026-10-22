@@ -25,7 +25,7 @@ const IDENTIFIER_RULES: Record<OrganizerIdentifierKind, { pattern: RegExp; label
   ein: { pattern: /^\d{9}$/, label: 'employer identification number' },
 };
 
-export type DependentIdKind = 'ssn' | 'itin' | 'atin' | 'none' | 'needs_review';
+export type DependentIdKind = 'ssn' | 'itin' | 'atin' | 'none';
 
 const DEPENDENT_KIND_SUFFIX = /^(?:dependent\d*)?(SSN|ITIN|ATIN)$/i;
 const UNNAMED_DEPENDENT_NUMBER = /^dependent\d*(?:Number|Identifier)$/;
@@ -48,7 +48,7 @@ export function organizerIdentifierKind(field: string): OrganizerIdentifierKind 
 function explicitDependentKind(value: unknown): DependentIdKind | null {
   if (typeof value !== 'string') return null;
   const kind = value.trim().toLowerCase();
-  if (kind === 'ssn' || kind === 'itin' || kind === 'atin' || kind === 'none' || kind === 'needs_review') return kind;
+  if (kind === 'ssn' || kind === 'itin' || kind === 'atin' || kind === 'none') return kind;
   return null;
 }
 
@@ -351,7 +351,7 @@ export function maskSsnShapedFreeText(value: string): string {
 export function toOrganizerClientView(organizer: Record<string, unknown>): Record<string, unknown> {
   const view: Record<string, unknown> = {};
   for (const [field, value] of Object.entries(organizer)) {
-    if (field === 'idKind') continue;
+    if (field === 'idKind' || field === 'idKindNeedsReview') continue;
     if (typeof value === 'string') {
       if (organizerIdentifierKind(field)) {
         if (!value) continue;

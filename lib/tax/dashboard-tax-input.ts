@@ -35,6 +35,7 @@ function record(value: unknown): Record<string, unknown> | null {
  */
 export function normalizeDashboardTaxFacts(input?: {
   payments?: unknown;
+  idKindNeedsReview?: unknown;
 } & Partial<Record<OrganizerTaxInputField, unknown>> | null): DashboardTaxFacts {
   const rows = Array.isArray(input?.payments) ? input.payments : [];
   return {
@@ -61,6 +62,7 @@ export function dashboardTaxFactsFromReads(organizerBody: unknown, paymentsBody:
   for (const field of ORGANIZER_TAX_INPUT_FIELDS) picked[field] = organizer?.[field];
   return normalizeDashboardTaxFacts({
     ...picked,
+    idKindNeedsReview: organizer?.idKindNeedsReview,
     payments: Array.isArray(listed?.payments) ? listed.payments : [],
   });
 }

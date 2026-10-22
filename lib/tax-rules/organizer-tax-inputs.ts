@@ -52,14 +52,18 @@ export type OrganizerTaxInputField = (typeof ORGANIZER_TAX_INPUT_FIELDS)[number]
 
 export type OrganizerTaxInputScalar = string | number | boolean | null;
 
-export type OrganizerTaxInputValues = { [K in OrganizerTaxInputField]: OrganizerTaxInputScalar };
+export type OrganizerTaxInputValues = { [K in OrganizerTaxInputField]: OrganizerTaxInputScalar } & {
+  idKindNeedsReview: string | null;
+};
 
 /** Tax-input read: objects and arrays stay objects. Dependents carry no identifier values. */
 export type OrganizerTaxInputResponse = {
   [K in OrganizerTaxInputField]: OrganizerTaxInputScalar | Record<string, unknown> | unknown[];
+} & {
+  idKindNeedsReview: Record<string, true> | null;
 };
 
-export type DependentIdentifierKind = 'ssn' | 'itin' | 'atin' | 'none' | 'needs_review';
+export type DependentIdentifierKind = 'ssn' | 'itin' | 'atin' | 'none';
 
 const DEPENDENT_SSN_FIELD = /^(?:dependent\d*)?ssn$/i;
 const DEPENDENT_ATIN_FIELD = /^(?:dependent\d*)?atin$/i;
@@ -162,7 +166,7 @@ function filled(value: unknown): boolean {
 function statedKind(value: unknown): DependentIdentifierKind | null {
   if (typeof value !== 'string') return null;
   const kind = value.trim().toLowerCase();
-  if (kind === 'ssn' || kind === 'itin' || kind === 'atin' || kind === 'none' || kind === 'needs_review') return kind;
+  if (kind === 'ssn' || kind === 'itin' || kind === 'atin' || kind === 'none') return kind;
   return null;
 }
 
@@ -174,7 +178,7 @@ function explicitKind(record: Record<string, unknown>): DependentIdentifierKind 
   return null;
 }
 
-/** A stored idKind wins, including needs_review, then an explicit type, then the field name. Several filled fields resolve ssn, then atin, then itin. */
+/** A stored idKind wins, then an explicit type, then the field name. Several filled fields resolve ssn, then atin, then itin. */
 function dependentIdentifierKind(record: Record<string, unknown>): DependentIdentifierKind {
   const stored = statedKind(record.idKind);
   if (stored) return stored;
@@ -279,12 +283,32 @@ function taxInputValue(value: unknown): OrganizerTaxInputScalar {
   return canonicalJson(cloneJson(value));
 }
 
+function idKindNeedsReviewMap(value: unknown): Record<string, true> | null {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed.startsWith('{')) return null;
+    try {
+      return idKindNeedsReviewMap(JSON.parse(trimmed) as unknown);
+    } catch {
+      return null;
+    }
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const kept: Record<string, true> = {};
+  for (const [field, flag] of Object.entries(value as Record<string, unknown>)) {
+    if (flag === true && field.trim()) kept[field] = true;
+  }
+  return Object.keys(kept).length ? kept : null;
+}
+
 /** One stable value per snapshot field. Objects sort their keys. Missing answers are null. */
 export function organizerTaxInputValues(data?: Record<string, unknown> | null): OrganizerTaxInputValues {
   const values = {} as OrganizerTaxInputValues;
   for (const field of ORGANIZER_TAX_INPUT_FIELDS) {
     values[field] = field === 'dependents' ? dependentKeyValue(data?.[field]) : taxInputValue(data?.[field]);
   }
+  const review = idKindNeedsReviewMap(data?.idKindNeedsReview);
+  values.idKindNeedsReview = review ? canonicalJson(review) : null;
   return values;
 }
 
@@ -305,5 +329,6 @@ export function organizerTaxInputResponse(data?: Record<string, unknown> | null)
     const scalar = scalarTaxInputValue(data?.[field]);
     values[field] = scalar !== undefined ? scalar : cloneJson(data?.[field]);
   }
+  values.idKindNeedsReview = idKindNeedsReviewMap(data?.idKindNeedsReview);
   return values;
 }

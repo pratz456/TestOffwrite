@@ -5,9 +5,9 @@ import { encryptSensitive } from '../lib/security/utils';
 
 const quarters = [1, 2, 3, 4].map(quarter => ({ quarter, paidAmount: 0, notes: 'blank', updatedAt: 'stamp' }));
 
-function facts(overrides: { amountOtherIncome?: unknown; dependents?: unknown; paidAmount?: number; notes?: string } = {}) {
+function facts(overrides: { amountOtherIncome?: unknown; dependents?: unknown; idKindNeedsReview?: unknown; paidAmount?: number; notes?: string } = {}) {
   return dashboardTaxFactsFromReads(
-    { amountOtherIncome: overrides.amountOtherIncome ?? null, dependents: overrides.dependents ?? null, notes: overrides.notes ?? 'a', hasW2: 'yes', updatedAt: 'stamp' },
+    { amountOtherIncome: overrides.amountOtherIncome ?? null, dependents: overrides.dependents ?? null, idKindNeedsReview: overrides.idKindNeedsReview, notes: overrides.notes ?? 'a', hasW2: 'yes', updatedAt: 'stamp' },
     { payments: quarters.map(row => row.quarter === 1 && overrides.paidAmount ? { ...row, paidAmount: overrides.paidAmount, notes: 'paid' } : row) },
   );
 }
@@ -105,22 +105,24 @@ describe('dashboard tax input key', () => {
     expect(JSON.stringify(ssn)).not.toContain('333445555');
   });
 
-  it('changes the key when a stored idKind goes from ssn to needs_review and from needs_review to itin', () => {
-    const child = { dependentSSN: '111223333', relationship: 'daughter' };
-    const ssn = facts({ dependents: [{ ...child, idKind: 'ssn' }] });
-    const review = facts({ dependents: [{ ...child, idKind: 'needs_review' }] });
-    const itin = facts({ dependents: [{ ...child, idKind: 'itin' }] });
-    expect(String(ssn.dependents)).toContain('"identifierKind":"ssn"');
-    expect(String(review.dependents)).toContain('"identifierKind":"needs_review"');
-    expect(String(itin.dependents)).toContain('"identifierKind":"itin"');
-    expect(String(review.dependents)).not.toContain('"identifierKind":"none"');
-    expect(String(review.dependents)).not.toContain('"identifierKind":"ssn"');
-    expect(taxFactsEqual(ssn, review)).toBe(false);
-    expect(taxFactsEqual(review, itin)).toBe(false);
-    expect(JSON.stringify(review)).not.toContain('111223333');
-    const bare = facts({ dependents: [{ idKind: 'needs_review' }] });
-    expect(String(bare.dependents)).toContain('"identifierKind":"needs_review"');
-    expect(String(bare.dependents)).not.toContain('"identifierKind":"none"');
+  it('changes the key when idKindNeedsReview is set or cleared', () => {
+    const base = facts({ dependents: [{ dependentSSN: '111223333', relationship: 'daughter' }] });
+    const set = facts({ dependents: [{ dependentSSN: '111223333', relationship: 'daughter' }], idKindNeedsReview: { dependent2ITIN: true, dependentSSN: true } });
+    const reordered = facts({ dependents: [{ dependentSSN: '111223333', relationship: 'daughter' }], idKindNeedsReview: { dependentSSN: true, dependent2ITIN: true } });
+    const cleared = facts({ dependents: [{ dependentSSN: '111223333', relationship: 'daughter' }], idKindNeedsReview: { dependentSSN: false } });
+    expect(base.idKindNeedsReview).toBeNull();
+    expect(set.idKindNeedsReview).toBe('{"dependent2ITIN":true,"dependentSSN":true}');
+    expect(taxFactsEqual(base, set)).toBe(false);
+    expect(taxFactsEqual(set, cleared)).toBe(false);
+    expect(taxFactsEqual(base, cleared)).toBe(true);
+    expect(taxFactsEqual(set, reordered)).toBe(true);
+    expect(JSON.stringify(set)).not.toContain('111223333');
+    const read = organizerTaxInputResponse({
+      dependents: [{ dependentSSN: '111223333' }],
+      idKindNeedsReview: { dependentSSN: true, other: false },
+    });
+    expect(read.idKindNeedsReview).toEqual({ dependentSSN: true });
+    expect(JSON.stringify(read)).not.toContain('111223333');
   });
 
   it('prefers a stored idKind over the field name and an explicit type', () => {

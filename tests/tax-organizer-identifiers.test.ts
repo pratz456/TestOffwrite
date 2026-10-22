@@ -403,20 +403,6 @@ describe('organizer route stores ciphertext and returns plaintext only to the ow
       loggerSpy.mockRestore();
     }
   });
-  it('keeps a stored needs_review kind when the identifier is stored in the current format', async () => {
-    state.docs.set('needs-review-kind', {
-      userId: 'owner', taxYear: 2026, filingStatus: 'single',
-      dependentSSN: '111223333', idKind: { dependentSSN: 'needs_review' },
-    });
-    const body = await (await get()).json();
-    const record = state.docs.get('needs-review-kind')!;
-    expect(record.idKind).toEqual({ dependentSSN: 'needs_review' });
-    expect(isEncrypted(String(record.dependentSSN))).toBe(true);
-    expect(decryptSensitive(String(record.dependentSSN))).toBe('111223333');
-    expect(JSON.stringify(record.idKind)).not.toMatch(/111223333/);
-    expect(body.organizer.idKind).toBeUndefined();
-    expect(body.organizer.dependentSSN).toBe('***-**-3333');
-  });
   it('a read stores the kind beside a converted dependent value', async () => {
     state.docs.set('itin', { userId: 'owner', taxYear: 2026, filingStatus: 'single', dependent2ITIN: '900-70-0001' });
     const body = await (await get()).json();
