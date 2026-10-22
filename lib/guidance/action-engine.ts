@@ -228,7 +228,7 @@ export function generateActionItems(
       id: 'track-mileage',
       title: 'Start tracking your mileage',
       description:
-        'You have vehicle expenses but no mileage log. A contemporaneous log is required for either the IRS standard mileage rate or actual vehicle expenses; the rate changes each year.',
+        'You have vehicle expenses but no mileage log. Both the standard mileage rate and actual vehicle expenses need a record of each business trip (date, miles, destination, business purpose) and total miles for the year. Logs made at or near the time of each trip carry the most weight with the IRS. The rate changes each year.',
       priority: 'high',
       category: 'tax_optimization',
       screen: 'mileage-tracker',
