@@ -95,6 +95,7 @@ const ProtectedLayoutContent: React.FC<ProtectedLayoutClientProps> = ({ children
   }
 
   // Accounts from before the current terms version confirm the acknowledgments before the app renders.
+  // A stored record is enough whether or not it includes the older bank_data field.
   // Profile setup collects them itself; a failed profile read never traps the account here; billing and
   // data & privacy controls stay reachable without agreeing.
   const reacknowledge = !isProfileSetup && !currentProfile?.error && !!userProfile && consentGateApplies(pathname, userProfile);
