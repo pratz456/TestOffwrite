@@ -690,15 +690,24 @@ export async function POST(request: NextRequest) {
     if (disclosure === 'image') rejectUndashedImagePayerNumbers(finalData);
     // A typed value that is not NN-NNNNNNN is saved blank. payerNumberOrBlank would already have dropped a 3-2-4, so check the raw edit.
     applyPayerNumberEdits(finalData, overrideFields);
-    if (Array.isArray(finalData.verificationWarnings) && finalData.verificationWarnings.includes(PAYER_ID_CHECK) && !verificationRequired.includes(PAYER_ID_CHECK)) {
-      verificationRequired.push(PAYER_ID_CHECK);
-    }
     const savedType = savedDocumentType(finalData, docType);
-    const savedId = savedType === 'w2' ? finalData.employerEIN : savedType === '1099' ? finalData.payerEIN : 'present';
-    if (!savedId && !verificationRequired.includes(PAYER_ID_CHECK)) verificationRequired.push(PAYER_ID_CHECK);
+    const savedIdField = savedType === 'w2' ? 'employerEIN' : savedType === '1099' ? 'payerEIN' : null;
+    // The scan can add the check before a typed value replaces it. For a saved W-2 or 1099 the prompt matches the saved ID only.
+    if (savedIdField) {
+      const empty = !finalData[savedIdField];
+      for (let i = verificationRequired.length - 1; i >= 0; i -= 1) {
+        if (verificationRequired[i] === PAYER_ID_CHECK) verificationRequired.splice(i, 1);
+      }
+      if (empty) verificationRequired.push(PAYER_ID_CHECK);
+    }
     const responseExtracted: Record<string, unknown> = { ...extracted };
     for (const field of PAYER_NUMBER_FIELDS) {
       if (Object.prototype.hasOwnProperty.call(overrideFields, field)) responseExtracted[field] = finalData[field];
+    }
+    if (savedIdField && Array.isArray(responseExtracted.verificationWarnings)) {
+      const warnings = responseExtracted.verificationWarnings.filter((item: unknown) => item !== PAYER_ID_CHECK);
+      if (!finalData[savedIdField]) warnings.push(PAYER_ID_CHECK);
+      responseExtracted.verificationWarnings = warnings;
     }
 
     // Save to Firestore if commit=true
