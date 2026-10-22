@@ -37,6 +37,7 @@ export function calcScheduleCNetProfit(
  * wages, and the $400 net-earnings threshold. W-2 Medicare wages reduce the Form 8959
  * threshold (not below zero), matching the wage and self-employment portions in compute-1040.
  * Additional Medicare is separate and does not contribute to the half-SE deduction.
+ * Income tax here is on business profit only and excludes W-2 wages.
  * QBI and credits are outside this helper.
  *
  * Source: IRS Topic 554, Schedule SE instructions, Form 8959
@@ -73,7 +74,8 @@ export function calcCombinedSERate(
   const seTax = se.totalSETax;
   const halfSE = se.halfSEDeduction;
 
-  // Income tax
+  // Income tax on business profit after the half-SE deduction and other above-the-line
+  // deductions. W-2 wages are excluded from this income-tax figure.
   const stdDed = rules.standardDeductions[status];
   const agi = Math.max(0, scheduleCNetProfit - halfSE - aboveLineDeductions);
   const taxableIncome = Math.max(0, agi - stdDed);

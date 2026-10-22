@@ -38,6 +38,25 @@ describe('federal calculation audit: independently worked 2026 reference cases',
     expect(calcCombinedSERate(100000, 'single', 0, 2026, 150000, 0).additionalMedicareTaxDollars).toBe(0);
   });
 
+  it('clamps Box 3 at the wage base and adds both Additional Medicare portions for Box 5 of $250,000', () => {
+    // 2026 wage base $184,500. Box 3 is capped at that base. Box 5 is $250,000.
+    // SE base $92,350. Remaining Social Security base $0, so Social Security tax is $0.
+    // Regular Medicare $92,350 × 2.9% = $2,678.15. Regular SE tax is that amount.
+    // The SE Additional Medicare threshold clamps at $0, so $92,350 × 0.9% = $831.15.
+    // Wage Additional Medicare ($250,000 − $200,000) × 0.9% = $450.
+    const schedule = calcScheduleSE({ scheduleCNetProfit: 100000, taxYear: 2026 }, 'single', 184500, 250000);
+    expect(schedule.seBase).toBe(92350);
+    expect(schedule.socialSecurityTax).toBe(0);
+    expect(schedule.medicareTax).toBe(2678.15);
+    expect(schedule.totalSETax).toBe(2678.15);
+    expect(schedule.additionalMedicareTax).toBe(831.15);
+
+    const helper = calcCombinedSERate(100000, 'single', 0, 2026, 184500, 250000);
+    expect(helper.seTaxDollars).toBe(2678.15);
+    expect(helper.additionalMedicareTaxDollars).toBe(1281.15);
+    expect(helper.totalTaxDollars).toBeCloseTo(helper.seTaxDollars + helper.incomeTaxDollars + 1281.15, 2);
+  });
+
   it('does not charge regular SE below $400 net earnings or fabricate income tax below the standard deduction', () => {
     expect(calcCombinedSERate(400, 'single', 0, 2026)).toMatchObject({ seTaxDollars: 0, totalTaxDollars: 0, combinedMarginalRate: 0 });
     expect(calcCombinedSERate(500, 'single', 0, 2026)).toMatchObject({ seTaxDollars: 70.65, totalTaxDollars: 70.65, combinedMarginalRate: 14.1 });
