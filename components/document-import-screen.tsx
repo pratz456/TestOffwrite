@@ -307,6 +307,68 @@ const DOC_TYPES: { value: DocType; label: string; icon: React.ElementType }[] = 
   { value: "platform_summary", label: "Platform Summary", icon: DollarSign },
 ];
 
+/** Verify-before-saving panel. Order: ID prompt, form question, fields, Save. */
+export function DocumentImportSavePanel({
+  notes,
+  needsTypeConfirmation,
+  choice,
+  onChoice,
+  saveDisabled,
+  saving,
+  saveLabel,
+  onSave,
+  children,
+}: {
+  notes: string[];
+  needsTypeConfirmation: boolean;
+  choice: "w2" | "1099" | null;
+  onChoice: (choice: "w2" | "1099") => void;
+  saveDisabled: boolean;
+  saving: boolean;
+  saveLabel: string;
+  onSave: () => void;
+  children: React.ReactNode;
+}) {
+  const awaitingChoice = needsTypeConfirmation && choice === null;
+  return (
+    <>
+      {(notes.length > 0 || needsTypeConfirmation) && (
+        <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20 p-3 space-y-3">
+          <div>
+            <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 mb-1">Verify before saving</p>
+            {notes.length > 0 && (
+              <ul className="space-y-0.5">
+                {notes.map((note, i) => (
+                  <li key={i} className="text-xs text-amber-700 dark:text-amber-400">• {note}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+          {needsTypeConfirmation && (
+            <div className="space-y-2">
+              <p className="text-sm text-foreground">This looks like it could be a 1099. Which form is it?</p>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Button type="button" variant="secondary" className="w-full sm:flex-1" aria-pressed={choice === "w2"} onClick={() => onChoice("w2")}>W-2</Button>
+                <Button type="button" variant="secondary" className="w-full sm:flex-1" aria-pressed={choice === "1099"} onClick={() => onChoice("1099")}>1099</Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+      {children}
+      <Button
+        type="button"
+        onClick={onSave}
+        disabled={saving || saveDisabled || awaitingChoice}
+        className="w-full min-h-[48px] gap-2 text-base font-semibold"
+      >
+        {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle2 className="w-5 h-5" />}
+        {saving ? "Saving…" : saveLabel}
+      </Button>
+    </>
+  );
+}
+
 export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
   const currentYear = new Date().getFullYear();
   const [year, setYear] = useState(String(currentYear - 1));
@@ -319,6 +381,7 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
   const [editedFields, setEditedFields] = useState<Record<string, any>>({});
   const [committing, setCommitting] = useState(false);
   const [committed, setCommitted] = useState(false);
+  const [confirmedDocType, setConfirmedDocType] = useState<"w2" | "1099" | null>(null);
   const [dragging, setDragging] = useState(false);
   // §7216 consent: the account's stored record, and whether the person authorized
   // the image fallback for the current document (reset with every new file).
@@ -337,7 +400,7 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
 
   const handleFile = (f: File) => {
     setFile(f); setResult(null); setError(null);
-    setCommitted(false); setEditedFields({});
+    setCommitted(false); setEditedFields({}); setConfirmedDocType(null);
     setImageConsentGranted(false); setConsentPrompt(null);
     setPreview(f.type.startsWith("image/") ? URL.createObjectURL(f) : null);
   };
@@ -359,6 +422,7 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
       fd.append("taxYear", action === "commit" ? String(result?.taxYear || year) : year);
       fd.append("commit", action === "commit" ? "true" : "false");
       if (action === "commit") fd.append("overrideFields", JSON.stringify(editedFields));
+      if (action === "commit" && confirmedDocType) fd.append("confirmedDocType", confirmedDocType);
       if (imageConsent) fd.append("documentImageConsent", "true");
       const res = await makeAuthenticatedRequest("/api/tax/import-document", { method: "POST", body: fd });
       const data = await res.json();
@@ -371,6 +435,7 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
       if (action === "commit") { setCommitted(true); return; }
       setResult(data);
       setEditedFields(data.extracted || {});
+      setConfirmedDocType(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : action === "commit" ? "Failed to save" : "Failed to extract document");
     } finally { if (action === "extract") setLoading(false); else setCommitting(false); }
@@ -523,7 +588,7 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
                 </p>
               </div>
               <Button variant="ghost" size="sm" className="text-xs gap-1"
-                onClick={() => { setResult(null); setFile(null); setPreview(null); setImageConsentGranted(false); }}>
+                onClick={() => { setResult(null); setFile(null); setPreview(null); setImageConsentGranted(false); setConfirmedDocType(null); }}>
                 Try different file
               </Button>
             </div>
@@ -543,60 +608,46 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
               <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Low confidence; verify</span>
             </div>
 
-            {/* Field rows */}
-            <div className="space-y-2">
-              {getFieldDefs().map(def => (
-                <FieldRow
-                  key={def.key}
-                  def={def}
-                  value={editedFields[def.key]}
-                  fieldConf={fieldConf[def.key]}
-                  onEdit={handleFieldEdit}
-                  crossCheckWarning={getCrossCheckWarning(def)}
-                />
-              ))}
-            </div>
-
-            {/* Server-side verification notes (model warnings, locally read EIN, organizer SSN match) */}
-            {result.verificationRequired?.length > 0 && (
-              <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20 p-3">
-                <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 mb-1">Verify before saving</p>
-                <ul className="space-y-0.5">
-                  {result.verificationRequired.map((note: string, i: number) => (
-                    <li key={i} className="text-xs text-amber-700 dark:text-amber-400">• {note}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {/* Image quality issues */}
-            {result.imageIssues?.length > 0 && (
-              <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20 p-3">
-                <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 mb-1">Image quality issues detected</p>
-                <ul className="space-y-0.5">
-                  {result.imageIssues.map((issue: string, i: number) => (
-                    <li key={i} className="text-xs text-amber-700 dark:text-amber-400">• {issue}</li>
-                  ))}
-                </ul>
-                <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">For best accuracy: lay document flat on white surface, use rear camera in natural light, ensure all 4 corners are visible.</p>
-              </div>
-            )}
-
-            {/* Disclaimer */}
-            <div className="text-xs text-center text-muted-foreground px-2 leading-relaxed">
-              Automated extraction can be wrong. The original document remains the source of truth for every value.
-              Edit any field using the Edit button before saving. Tax-critical fields are labeled.
-            </div>
-
-            {/* Save button */}
-            <Button
-              onClick={handleCommit}
-              disabled={committing || criticalFieldsMissing > 0}
-              className="w-full min-h-[48px] gap-2 text-base font-semibold"
+            <DocumentImportSavePanel
+              notes={result.verificationRequired || []}
+              needsTypeConfirmation={Boolean(result.needsTypeConfirmation)}
+              choice={confirmedDocType}
+              onChoice={setConfirmedDocType}
+              saveDisabled={criticalFieldsMissing > 0}
+              saving={committing}
+              saveLabel={criticalFieldsMissing > 0 ? `${criticalFieldsMissing} required field${criticalFieldsMissing > 1 ? "s" : ""} missing` : "Save Verified Data to WriteOff"}
+              onSave={handleCommit}
             >
-              {committing ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle2 className="w-5 h-5" />}
-              {committing ? "Saving…" : criticalFieldsMissing > 0 ? `${criticalFieldsMissing} required field${criticalFieldsMissing > 1 ? "s" : ""} missing` : "Save Verified Data to WriteOff"}
-            </Button>
+              <div className="space-y-2">
+                {getFieldDefs().map(def => (
+                  <FieldRow
+                    key={def.key}
+                    def={def}
+                    value={editedFields[def.key]}
+                    fieldConf={fieldConf[def.key]}
+                    onEdit={handleFieldEdit}
+                    crossCheckWarning={getCrossCheckWarning(def)}
+                  />
+                ))}
+              </div>
+
+              {result.imageIssues?.length > 0 && (
+                <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20 p-3">
+                  <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 mb-1">Image quality issues detected</p>
+                  <ul className="space-y-0.5">
+                    {result.imageIssues.map((issue: string, i: number) => (
+                      <li key={i} className="text-xs text-amber-700 dark:text-amber-400">• {issue}</li>
+                    ))}
+                  </ul>
+                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">For best accuracy: lay document flat on white surface, use rear camera in natural light, ensure all 4 corners are visible.</p>
+                </div>
+              )}
+
+              <div className="text-xs text-center text-muted-foreground px-2 leading-relaxed">
+                Automated extraction can be wrong. The original document remains the source of truth for every value.
+                Edit any field using the Edit button before saving. Tax-critical fields are labeled.
+              </div>
+            </DocumentImportSavePanel>
           </>
         )}
 
@@ -605,12 +656,12 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
             <CheckCircle2 className="w-10 h-10 text-green-600 dark:text-green-400" />
             <p className="text-base font-semibold">Saved to WriteOff</p>
             <p className="text-sm text-muted-foreground text-center">
-              {result?.docType === "w2" ? "W-2 wages and withholding added to your return" :
-               result?.docType === "1099" ? "1099 income added to your return" :
+              {(confirmedDocType || result?.docType) === "w2" ? "W-2 wages and withholding added to your return" :
+               (confirmedDocType || result?.docType) === "1099" ? "1099 income added to your return" :
                "Earnings added as self-employment income"}
             </p>
             <div className="flex gap-3">
-              <Button variant="outline" onClick={() => { setResult(null); setFile(null); setPreview(null); setCommitted(false); setEditedFields({}); }}>
+              <Button variant="outline" onClick={() => { setResult(null); setFile(null); setPreview(null); setCommitted(false); setEditedFields({}); setConfirmedDocType(null); }}>
                 Import Another
               </Button>
               {onNavigate && <Button onClick={() => onNavigate("tax-preview")}>View Tax Preview</Button>}

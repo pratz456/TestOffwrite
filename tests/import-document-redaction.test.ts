@@ -299,7 +299,7 @@ describe('redact-first W-2/1099 import: text path', () => {
   ] as const)('blanks a bare payer number when the model says %s and the text is %s', async (docType, line) => {
     mocks.recognize.mockResolvedValue({ text: `${line}\nPaid for services rendered this year`, confidence: 0.95 });
     modelReplies({ ...W2_JSON, docType, employerEIN: '123456789', box1Wages: 1000 });
-    const body = await (await importDocument(request({ docType: 'w2' }))).json();
+    const body = await (await importDocument(request({ docType: 'w2', confirmedDocType: 'w2' }))).json();
     expect(body.extracted.employerEIN).toBeNull();
     expect(state.records.w2_income[0].employerEIN).toBe('');
     expect(body.verificationRequired).toContain('Check the employer/payer ID');
@@ -310,7 +310,7 @@ describe('redact-first W-2/1099 import: text path', () => {
   it('blanks a bare payer number when the model gives no type, the request says w2, and the text is a payer TIN', async () => {
     mocks.recognize.mockResolvedValue({ text: "PAYER'S TIN 123456789\nPaid for services rendered this year", confidence: 0.95 });
     modelReplies({ ...W2_JSON, docType: undefined, employerEIN: '123456789', box1Wages: 1000 });
-    const body = await (await importDocument(request({ docType: 'w2' }))).json();
+    const body = await (await importDocument(request({ docType: 'w2', confirmedDocType: 'w2' }))).json();
     expect(body.extracted.employerEIN).toBeNull();
     expect(state.records.w2_income[0].employerEIN).toBe('');
     expect(body.verificationRequired).toContain('Check the employer/payer ID');
@@ -385,7 +385,7 @@ describe('redact-first W-2/1099 import: text path', () => {
   it("keeps a dashed payer TIN on a W-2 when the model says w2", async () => {
     mocks.recognize.mockResolvedValue({ text: "PAYER'S TIN 98-7654321\nPaid for services rendered this year", confidence: 0.95 });
     modelReplies({ ...W2_JSON, employerEIN: null, box1Wages: 1000 });
-    const body = await (await importDocument(request({ docType: 'w2' }))).json();
+    const body = await (await importDocument(request({ docType: 'w2', confirmedDocType: 'w2' }))).json();
     expect(body.extracted.employerEIN).toBe('98-7654321');
     expect(state.records.w2_income[0].employerEIN).toBe('98-7654321');
     expect(body.verificationRequired).not.toContain('Check the employer/payer ID');
@@ -706,5 +706,225 @@ describe('redact-first W-2/1099 import: image fallback needs the signed §7216 c
     expect(contentParts(0).map(part => part.type)).toEqual(['text']);
     expect(contentParts(1).map(part => part.type)).toEqual(['text', 'image_url']);
     expect(await response.json()).toMatchObject({ disclosure: 'image' });
+  });
+});
+
+describe('W-2 save that looks like a 1099 asks which form it is', () => {
+  const captureLogs = () => {
+    const logs: string[] = [];
+    const spies = (['log', 'info', 'warn', 'error', 'debug'] as const).map(method => vi.spyOn(console, method).mockImplementation((...args: unknown[]) => {
+      logs.push(args.map(arg => { try { return typeof arg === 'string' ? arg : JSON.stringify(arg); } catch { return String(arg); } }).join(' '));
+    }));
+    return { logs, restore: () => spies.forEach(spy => spy.mockRestore()) };
+  };
+  const stable = (record: Record<string, unknown>) => {
+    const { importedAt, updatedAt, createdAt, ...rest } = record;
+    return rest;
+  };
+  const freshRecords = () => { state.records = { tax_organizers: state.records.tax_organizers }; };
+
+  it('asks when a W-2 save has a payer label', async () => {
+    const seen = captureLogs();
+    try {
+      for (const line of ["PAYER'S", 'Payer TIN', 'Payer EIN']) {
+        mocks.create.mockReset();
+        mocks.recognize.mockResolvedValue({ text: `${line} 98-7654321\n1 Wages, tips, other compensation 1000.00`, confidence: 0.95 });
+        modelReplies(W2_JSON, W2_JSON);
+        const preview = await importDocument(request({ docType: 'w2', commit: 'false' }));
+        expect(preview.status, line).toBe(200);
+        const body = await preview.json();
+        expect(body.needsTypeConfirmation, line).toBe(true);
+        expect(JSON.stringify(body.needsTypeConfirmation), line).not.toContain('98-7654321');
+        freshRecords();
+        const saved = await importDocument(request({ docType: 'w2', commit: 'true' }));
+        expect(saved.status, line).toBe(400);
+        expect(state.records.w2_income, line).toBeUndefined();
+        expect(state.records.income_1099, line).toBeUndefined();
+      }
+      expect(seen.logs.join('\n')).not.toContain('98-7654321');
+    } finally { seen.restore(); }
+  });
+
+  it('asks when a W-2 save has a recipient label', async () => {
+    for (const line of ["RECIPIENT'S", 'Recipient TIN']) {
+      mocks.create.mockReset();
+      mocks.recognize.mockResolvedValue({ text: `${line}\n1 Wages, tips, other compensation 1000.00\nb Employer identification number (EIN) 98-7654321`, confidence: 0.95 });
+      modelReplies(W2_JSON);
+      const body = await (await importDocument(request({ docType: 'w2', commit: 'false' }))).json();
+      expect(body.needsTypeConfirmation, line).toBe(true);
+    }
+  });
+
+  it('asks when a W-2 save contains 1099 box text', async () => {
+    for (const phrase of ['Nonemployee compensation', 'Form 1099', '1099-NEC', '1099-MISC', '1099-K', 'Payment card and third party network transactions']) {
+      mocks.create.mockReset();
+      mocks.recognize.mockResolvedValue({ text: `${phrase}\n1 Wages, tips, other compensation 1000.00\nb Employer identification number (EIN) 98-7654321`, confidence: 0.95 });
+      modelReplies(W2_JSON);
+      const body = await (await importDocument(request({ docType: 'w2', commit: 'false' }))).json();
+      expect(body.needsTypeConfirmation, phrase).toBe(true);
+    }
+  });
+
+  it('asks when a photo of a W-2 includes a 1099-only field', async () => {
+    state.profile = { consents: consents(true) };
+    mocks.recognize.mockResolvedValue(null);
+    modelReplies({ ...W2_JSON, formVariant: 'NEC' }, { ...W2_JSON, formVariant: 'NEC' });
+    const preview = await importDocument(request({ docType: 'w2', commit: 'false', documentImageConsent: 'true' }));
+    expect(preview.status).toBe(200);
+    const body = await preview.json();
+    expect(body.disclosure).toBe('image');
+    expect(body.needsTypeConfirmation).toBe(true);
+    expect(body.extracted.formVariant).toBeUndefined();
+    expect(JSON.stringify(body.needsTypeConfirmation)).not.toContain('98-7654321');
+    freshRecords();
+    const saved = await importDocument(request({ docType: 'w2', commit: 'true', documentImageConsent: 'true' }));
+    expect(saved.status).toBe(400);
+    expect(state.records.w2_income).toBeUndefined();
+    expect(state.records.income_1099).toBeUndefined();
+  });
+
+  it('returns 400 and writes nothing when a triggered W-2 is saved without a choice', async () => {
+    const seen = captureLogs();
+    try {
+      mocks.recognize.mockResolvedValue({ text: "PAYER'S TIN 98-7654321\n1 Wages, tips, other compensation 1000.00", confidence: 0.95 });
+      modelReplies(W2_JSON);
+      const response = await importDocument(request({ docType: 'w2', commit: 'true' }));
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body).toEqual({ error: 'Choose W-2 or 1099 before saving this document.' });
+      expect(JSON.stringify(body)).not.toContain('98-7654321');
+      expect(state.records.w2_income).toBeUndefined();
+      expect(state.records.income_1099).toBeUndefined();
+      expect(Object.keys(state.records)).toEqual(['tax_organizers']);
+      expect(seen.logs.join('\n')).not.toContain('98-7654321');
+    } finally { seen.restore(); }
+  });
+
+  it('saves a confirmed 1099 through the same path as a native 1099 import', async () => {
+    const run = async (docType: string, confirmed: string | null, model: Record<string, unknown>, text: string, overrides?: Record<string, unknown>) => {
+      freshRecords();
+      mocks.create.mockReset();
+      mocks.recognize.mockResolvedValue({ text, confidence: 0.95 });
+      modelReplies(model);
+      const fields: Record<string, string> = { docType, commit: 'true' };
+      if (confirmed) fields.confirmedDocType = confirmed;
+      if (overrides) fields.overrideFields = JSON.stringify(overrides);
+      const response = await importDocument(request(fields));
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      return { body, record: state.records.income_1099[0] as Record<string, unknown> };
+    };
+    const dashed = "PAYER'S TIN 98-7654321\n1 Nonemployee compensation 1200.00";
+    const nativeModel = { docType: '1099', formVariant: 'NEC', payerName: 'Synthetic Payer', payerEIN: null, box1Amount: 1200, taxYear: 2025, confidence: 0.95, verificationWarnings: [] };
+    const w2Model = { docType: 'w2', employerName: 'Synthetic Payer', employerEIN: null, box1Wages: 1200, taxYear: 2025, confidence: 0.95, verificationWarnings: [] };
+    const native = await run('1099', null, nativeModel, dashed);
+    const confirmed = await run('w2', '1099', w2Model, dashed);
+    expect(stable(confirmed.record)).toEqual(stable(native.record));
+    expect(confirmed.body.verificationRequired).toEqual(native.body.verificationRequired);
+    expect(confirmed.record.payerEIN).toBe('98-7654321');
+    expect(confirmed.record.formType).toBe('1099-NEC');
+    expect(state.records.w2_income).toBeUndefined();
+
+    const bare = "PAYER'S TIN 123456789\n1 Nonemployee compensation 800.00";
+    const nativeBare = await run('1099', null, { ...nativeModel, box1Amount: 800 }, bare);
+    const confirmedBare = await run('w2', '1099', { ...w2Model, box1Wages: 800 }, bare);
+    expect(stable(confirmedBare.record)).toEqual(stable(nativeBare.record));
+    expect(confirmedBare.record.payerEIN).toBe('');
+    expect(confirmedBare.body.verificationRequired).toContain('Check the employer/payer ID');
+    expect(JSON.stringify(confirmedBare.body)).not.toContain('123456789');
+    expect(JSON.stringify(confirmedBare.record)).not.toContain('123456789');
+
+    const edited = await run('w2', '1099', w2Model, dashed, { docType: 'w2', employerName: 'Synthetic Payer', employerEIN: '12-3456789', box1Wages: 900 });
+    const nativeEdited = await run('1099', null, nativeModel, dashed, { payerName: 'Synthetic Payer', payerEIN: '12-3456789', box1Amount: 900 });
+    expect(stable(edited.record)).toEqual(stable(nativeEdited.record));
+    expect(edited.record.payerEIN).toBe('12-3456789');
+    expect(edited.record.amount).toBe(900);
+  });
+
+  it('saves a confirmed W-2 with typeConfirmedByUser set', async () => {
+    mocks.recognize.mockResolvedValue({ text: "PAYER'S TIN 98-7654321\n1 Wages, tips, other compensation 1000.00", confidence: 0.95 });
+    modelReplies({ ...W2_JSON, employerEIN: null, box1Wages: 1000 });
+    const response = await importDocument(request({ docType: 'w2', commit: 'true', confirmedDocType: 'w2' }));
+    expect(response.status).toBe(200);
+    expect(state.records.w2_income).toHaveLength(1);
+    expect(state.records.w2_income[0].typeConfirmedByUser).toBe(true);
+    expect(state.records.w2_income[0].employerEIN).toBe('98-7654321');
+    expect(state.records.income_1099).toBeUndefined();
+    expect(JSON.stringify(state.records.w2_income)).not.toMatch(/123-45-6789|123456789/);
+  });
+
+  it('does not ask for a W-2 Copy B and Copy C that includes the employee notice', async () => {
+    // Wording is from the 2026 Form W-2 (https://www.irs.gov/pub/irs-pdf/fw2.pdf): Copy B, Copy C, and the Notice to Employee.
+    // That notice names Form W-2, Form 1040, Form W-2c, and Form 843. It does not name a 1099 or a payer.
+    const text = [
+      "a Employee's social security number 123-45-6789",
+      'b Employer identification number (EIN) 98-7654321',
+      "c Employer's name, address, and ZIP code Synthetic Employer LLC",
+      'd Control number',
+      "e Employee's first name and initial Last name Suff.",
+      "f Employee's address and ZIP code",
+      '1 Wages, tips, other compensation 65000.00',
+      '2 Federal income tax withheld 7250.10',
+      '3 Social security wages 65000.00',
+      '4 Social security tax withheld 4030.00',
+      '5 Medicare wages and tips 65000.00',
+      '6 Medicare tax withheld 942.50',
+      '7 Social security tips',
+      '8 Allocated tips',
+      '9',
+      '10 Dependent care benefits',
+      '11 Nonqualified plans',
+      '12a See instructions for box 12',
+      '13 Statutory employee Retirement plan Third-party sick pay',
+      '14a Other',
+      '14b Treasury Tipped Occupation Code(s)',
+      "15 State Employer's state ID number",
+      '16 State wages, tips, etc.',
+      '17 State income tax',
+      '18 Local wages, tips, etc.',
+      '19 Local income tax',
+      '20 Locality name',
+      'Form W-2 Wage and Tax Statement 2026',
+      "Copy B—To Be Filed With Employee's FEDERAL Tax Return.",
+      'This information is being furnished to the Internal Revenue Service.',
+      "Copy C—For EMPLOYEE'S RECORDS (See Notice to Employee on the back of Copy B.)",
+      'This information is being furnished to the Internal Revenue Service. If you are required to file a tax return, a negligence penalty or other sanction may be imposed on you if this income is taxable and you fail to report it.',
+      'Future developments. For the latest information about developments related to Form W-2, such as legislation enacted after it was published, go to www.irs.gov/FormW2.',
+      'Notice to Employee',
+      "Do you have to file? Refer to the Form 1040 instructions to determine if you are required to file a tax return. Even if you don't have to file a tax return, you may be eligible for a refund if box 2 shows an amount or if you are eligible for any credit.",
+      "Earned income tax credit (EITC). You may be able to take the EITC for 2026 if your adjusted gross income (AGI) is less than a certain amount. The amount of the credit is based on income and family size. Workers without children could qualify for a smaller credit. You and any qualifying children must have valid social security numbers (SSNs). You can't take the EITC if your investment income is more than the specified amount for 2026 or if income is earned for services provided while you were an inmate at a penal institution. For 2026 income limits and more information, visit www.irs.gov/EITC. See also Pub. 596. Any EITC that is more than your tax liability is refunded to you, but only if you file a tax return.",
+      "Employee's social security number (SSN). For your protection, this form may show only the last four digits of your SSN. However, your employer has reported your complete SSN to the IRS and the Social Security Administration (SSA).",
+      "Clergy and religious workers. If you aren't subject to social security and Medicare taxes, see Pub. 517.",
+      "Corrections. If your name, SSN, or address is incorrect, correct Copies B, C, and 2 and ask your employer to correct your employment record. Be sure to ask the employer to file Form W-2c, Corrected Wage and Tax Statement, with the SSA to correct any name, SSN, or money amount error reported to the SSA on Form W-2. Be sure to get your copies of Form W-2c from your employer for all corrections made so you may file them with your tax return. If your name and SSN are correct but aren't the same as shown on your social security card, you should ask for a new card that displays your correct name at any SSA office or by calling 800-772-1213. You may also visit the SSA website at www.SSA.gov.",
+      'Cost of employer-sponsored health coverage (if such cost is provided by the employer). The reporting in box 12, using code DD, of the cost of employer-sponsored health coverage is for your information only. The amount reported with code DD is not taxable.',
+      'Credit for excess taxes. If you had more than one employer in 2026 and more than $11,439.00 in social security and/or Tier 1 railroad retirement (RRTA) taxes were withheld, you may be able to claim a credit for the excess against your federal income tax. See the Form 1040 instructions. If you had more than one railroad employer and more than $6,717.90 in Tier 2 RRTA tax was withheld, you may be able to claim a refund on Form 843. See the Instructions for Form 843.',
+      '(See also Instructions for Employee on the back of Copy C.)',
+    ].join('\n');
+    mocks.recognize.mockResolvedValue({ text, confidence: 0.95 });
+    modelReplies(W2_JSON);
+    const response = await importDocument(request({ docType: 'w2', commit: 'true' }));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.needsTypeConfirmation).toBeUndefined();
+    expect(body.verificationRequired).not.toContain('Check the employer/payer ID');
+    expect(state.records.w2_income[0].employerEIN).toBe('98-7654321');
+    expect(state.records.w2_income[0].typeConfirmedByUser).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain('123-45-6789');
+  });
+
+  it('does not treat the word taxpayer as a payer label', async () => {
+    const text = [
+      'b Employer identification number (EIN) 98-7654321',
+      '1 Wages, tips, other compensation 1000.00',
+      'Do not accept an IRS individual taxpayer identification number (ITIN) in place of an SSN for employee identification or for Form W-2 reporting.',
+    ].join('\n');
+    expect(text).toMatch(/\btaxpayer\b/);
+    expect(text).not.toMatch(/\bpayer\b/);
+    mocks.recognize.mockResolvedValue({ text, confidence: 0.95 });
+    modelReplies({ ...W2_JSON, box1Wages: 1000 });
+    const body = await (await importDocument(request({ docType: 'w2', commit: 'true' }))).json();
+    expect(body.needsTypeConfirmation).toBeUndefined();
+    expect(state.records.w2_income).toHaveLength(1);
+    expect(state.records.w2_income[0].typeConfirmedByUser).toBeUndefined();
   });
 });

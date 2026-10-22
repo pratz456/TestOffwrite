@@ -24,6 +24,7 @@
  *   taxYear: number (optional, defaults to last year)
  *   commit: 'true' | 'false' (whether to save to Firestore)
  *   documentImageConsent: 'true' when the person authorized the image fallback for this document
+ *   confirmedDocType: 'w2' | '1099' when the user picked which form a W-2 save is
  */
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -172,9 +173,60 @@ function savedDocumentType(data: Record<string, unknown>, requested: string): 'w
   return null;
 }
 
+/** Fields a 1099 carries and a W-2 does not. A photo counts when the model sent one of these. */
+const FORM_1099_ONLY_FIELDS = ['formVariant', 'payerName', 'payerEIN', 'recipientName', 'recipientTIN', 'box1Amount', 'box4FederalWithheld', 'grossAmount'] as const;
+const TYPE_CHOICE_REQUIRED = 'Choose W-2 or 1099 before saving this document.';
+
+function confirmedDocumentChoice(value: FormDataEntryValue | null): 'w2' | '1099' | null {
+  return value === 'w2' || value === '1099' ? value : null;
+}
+
+/** A line names a payer, a recipient, or a 1099 box. "taxpayer" does not count as payer. */
+function textSuggests1099(text: string): boolean {
+  return text.split(/\r?\n/).some(line => (
+    /\bpayer\b/i.test(line)
+    || /\brecipient(?:['\u2019]s)\b/i.test(line)
+    || /\brecipient\s+tin\b/i.test(line)
+    || /nonemployee compensation|form 1099|1099-nec|1099-misc|1099-k|payment card and third party network transactions/i.test(line)
+  ));
+}
+
+function modelReturned1099OnlyField(data: Record<string, unknown>): boolean {
+  return FORM_1099_ONLY_FIELDS.some(field => {
+    if (!Object.prototype.hasOwnProperty.call(data, field)) return false;
+    const value = data[field];
+    return value !== null && value !== undefined && value !== '';
+  });
+}
+
+/** Point a confirmed 1099 at the same fields a native 1099 import saves. */
+function applyConfirmed1099(data: Record<string, any>): void {
+  if (!data.payerName && data.employerName) data.payerName = data.employerName;
+  if (!data.payerEIN && data.employerEIN) data.payerEIN = data.employerEIN;
+  if ((data.box1Amount === null || data.box1Amount === undefined) && data.box1Wages != null) data.box1Amount = data.box1Wages;
+  if ((data.grossAmount === null || data.grossAmount === undefined) && data.box1Amount != null) data.grossAmount = data.box1Amount;
+  if ((data.box4FederalWithheld === null || data.box4FederalWithheld === undefined) && data.box2FederalWithheld != null) data.box4FederalWithheld = data.box2FederalWithheld;
+  if (!data.formVariant) data.formVariant = 'NEC';
+  data.docType = '1099';
+}
+
+/** A W-2 preview's edits, mapped onto the 1099 fields a native import would receive. */
+function overridesForConfirmed1099(overrides: Record<string, string | number | boolean | null>): Record<string, string | number | boolean | null> {
+  const next = { ...overrides };
+  const copy = (from: string, to: string) => {
+    if (Object.prototype.hasOwnProperty.call(next, from) && !Object.prototype.hasOwnProperty.call(next, to)) next[to] = next[from];
+  };
+  copy('employerName', 'payerName');
+  copy('employerEIN', 'payerEIN');
+  copy('box1Wages', 'box1Amount');
+  copy('box2FederalWithheld', 'box4FederalWithheld');
+  delete next.docType;
+  return next;
+}
+
 // ── Save extracted data to Firestore ─────────────────────────────────────────
 
-async function saveW2(uid: string, data: Record<string, any>) {
+async function saveW2(uid: string, data: Record<string, any>, options?: { typeConfirmedByUser?: boolean }) {
   const taxYear = data.taxYear || new Date().getFullYear() - 1;
   const existing = await adminDb
     .collection('w2_income')
@@ -202,6 +254,7 @@ async function saveW2(uid: string, data: Record<string, any>) {
     box17StateWithheld: data.box17StateWithheld || 0,
     state: data.state || '',
     source: 'document_import',
+    ...(options?.typeConfirmedByUser ? { typeConfirmedByUser: true } : {}),
     importedAt: new Date(),
     updatedAt: new Date(),
   };
@@ -626,6 +679,14 @@ export async function POST(request: NextRequest) {
     // Override taxYear if provided
     if (taxYear) extracted.taxYear = taxYear;
 
+    // A W-2 that still reads like a 1099 is not saved until the user picks the form.
+    const confirmedDocType = confirmedDocumentChoice(formData.get('confirmedDocType'));
+    const needsTypeConfirmation = savedDocumentType(extracted, docType) === 'w2' && (
+      textSuggests1099(ocr?.text ?? '') || (disclosure === 'image' && modelReturned1099OnlyField(extracted))
+    );
+    const typeConfirmedByUser = needsTypeConfirmation && confirmedDocType === 'w2';
+    if (needsTypeConfirmation && confirmedDocType === '1099') applyConfirmed1099(extracted);
+
     // Text path: identifiers were removed before the model saw the document, so the
     // employer/payer EIN comes from the local OCR read and the SSN is matched, not stored.
     const einNotes: string[] = [];
@@ -686,10 +747,12 @@ export async function POST(request: NextRequest) {
     ];
 
     // Merge user edits into extracted data before saving. Identifier keys are already removed from extracted.
-    const finalData = publicDocument(dropDocumentIdentifiers({ ...extracted, ...overrideFields }), docType);
+    // A confirmed 1099 uses the same edit fields a native 1099 import would, even when the preview was a W-2.
+    const fieldEdits = needsTypeConfirmation && confirmedDocType === '1099' ? overridesForConfirmed1099(overrideFields) : overrideFields;
+    const finalData = publicDocument(dropDocumentIdentifiers({ ...extracted, ...fieldEdits }), docType);
     if (disclosure === 'image') rejectUndashedImagePayerNumbers(finalData);
     // A typed value that is not NN-NNNNNNN is saved blank. payerNumberOrBlank would already have dropped a 3-2-4, so check the raw edit.
-    applyPayerNumberEdits(finalData, overrideFields);
+    applyPayerNumberEdits(finalData, fieldEdits);
     const savedType = savedDocumentType(finalData, docType);
     const savedIdField = savedType === 'w2' ? 'employerEIN' : savedType === '1099' ? 'payerEIN' : null;
     // The scan can add the check before a typed value replaces it. For a saved W-2 or 1099 the prompt matches the saved ID only.
@@ -702,7 +765,7 @@ export async function POST(request: NextRequest) {
     }
     const responseExtracted: Record<string, unknown> = { ...extracted };
     for (const field of PAYER_NUMBER_FIELDS) {
-      if (Object.prototype.hasOwnProperty.call(overrideFields, field)) responseExtracted[field] = finalData[field];
+      if (Object.prototype.hasOwnProperty.call(fieldEdits, field)) responseExtracted[field] = finalData[field];
     }
     if (savedIdField && Array.isArray(responseExtracted.verificationWarnings)) {
       const warnings = responseExtracted.verificationWarnings.filter((item: unknown) => item !== PAYER_ID_CHECK);
@@ -710,11 +773,14 @@ export async function POST(request: NextRequest) {
       responseExtracted.verificationWarnings = warnings;
     }
 
-    // Save to Firestore if commit=true
+    // Save to Firestore if commit=true. A triggered W-2 writes nothing until the user picks.
+    if (commit && needsTypeConfirmation && !confirmedDocType) {
+      return NextResponse.json({ error: TYPE_CHOICE_REQUIRED }, { status: 400 });
+    }
     let saveResult: Record<string, any> = {};
     if (commit) {
       if (savedType === 'w2') {
-        saveResult = await saveW2(user.uid, finalData);
+        saveResult = await saveW2(user.uid, finalData, { typeConfirmedByUser });
       } else if (savedType === '1099') {
         saveResult = await save1099(user.uid, finalData);
       } else if (savedType === 'platform_summary') {
@@ -737,6 +803,7 @@ export async function POST(request: NextRequest) {
       disclosure,
       identifiersRedacted,
       documentOwner,
+      ...(needsTypeConfirmation ? { needsTypeConfirmation: true } : {}),
     });
   } catch (error) {
     if (error instanceof ReceiptRequestError) return NextResponse.json({ error: error.message }, { status: error.status });
