@@ -65,7 +65,9 @@ describe('account deletion boundaries', () => {
       ['receipts/mine', { userId: 'owner' }], ['receipts/legacy', { user_id: 'owner' }], ['tax_organizers/mine', { userId: 'owner' }],
       ['analysis_tasks/mine', { userId: 'owner' }], ['w2_income/mine', { user_id: 'owner' }],
       ['cpa_questions/mine', { userId: 'owner' }],
+      ['tax_organizer_identifier_backups/mine', { userId: 'owner', encryptedFields: { taxpayerSSN: 'ciphertext' } }],
       ['receipts/other', { userId: 'owner-other' }], ['user_profiles/owner-other', { name: 'Other' }],
+      ['tax_organizer_identifier_backups/other', { userId: 'owner-other', encryptedFields: { taxpayerSSN: 'ciphertext' } }],
     ] as const) h.records.set(path, data);
     h.files.add('receipts/owner/tx/file'); h.files.add('receipts/owner-other/tx/file');
     expect(await deleteUserData('owner')).toEqual({});
@@ -74,7 +76,9 @@ describe('account deletion boundaries', () => {
     expect(h.events.indexOf('handoff')).toBeLessThan(h.events.indexOf('billing'));
     expect(h.storage).toHaveBeenCalledExactlyOnceWith({ prefix: 'receipts/owner/' });
     expect(h.files).toEqual(new Set(['receipts/owner-other/tx/file']));
-    expect([...h.records.keys()].filter(key => !key.startsWith('account_deletions/'))).toEqual(['plaid_connections/foreign', 'receipts/other', 'user_profiles/owner-other']);
+    expect([...h.records.keys()].filter(key => !key.startsWith('account_deletions/'))).toEqual([
+      'plaid_connections/foreign', 'receipts/other', 'user_profiles/owner-other', 'tax_organizer_identifier_backups/other',
+    ]);
     expect(h.events.at(-1)).toBe('auth');
     expect(h.records.get('account_deletions/owner')).toEqual({ deletionRequested: true });
   });

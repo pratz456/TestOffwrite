@@ -157,6 +157,9 @@ service cloud.firestore {
     match /tax_organizers/{recordId} {
       allow read, write: if false;
     }
+    match /tax_organizer_identifier_backups/{recordId} {
+      allow read, write: if false;
+    }
 
     // ── User Profiles ──────────────────────────────────────────────────────
     // User profile can only be read by the owner, written via Admin/API only

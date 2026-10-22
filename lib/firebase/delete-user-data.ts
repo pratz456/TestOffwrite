@@ -6,6 +6,7 @@ import { deleteQueryBatch } from './delete-helpers';
 import { receiptBucket } from './receipt-security';
 import { cancelUserStripeSubscriptions } from '@/lib/stripe/cancel-subscription';
 import { deletePreparerHandoffsForUser } from '@/lib/preparer/handoffs';
+import { ORGANIZER_IDENTIFIER_BACKUP_COLLECTION } from '@/lib/tax-organizer/identifiers';
 
 export class AccountDeletionError extends Error {
   constructor(message: string, public readonly code: string, public readonly retryable: boolean, public readonly status = 503) {
@@ -18,7 +19,8 @@ const OWNED_COLLECTIONS: Record<string, string[]> = {
   profile_analysis_refresh: ['userId'], analysis_jobs: ['userId', 'user_id'], analysis_tasks: ['userId'], analysis_status: ['userId', 'user_id'],
   transactions: ['userId', 'user_id'], receipts: ['userId', 'user_id'], plaid_connections: ['uid'], processed_webhooks: ['user_id'],
   gross_receipts: ['userId', 'user_id'], income_1099: ['userId', 'user_id'], income_reconciliations: ['userId'], w2_income: ['userId', 'user_id'],
-  tax_deductions: ['userId', 'user_id'], tax_organizers: ['userId', 'user_id'], user_corrections: ['userId'],
+  tax_deductions: ['userId', 'user_id'], tax_organizers: ['userId', 'user_id'],
+  [ORGANIZER_IDENTIFIER_BACKUP_COLLECTION]: ['userId', 'user_id'], user_corrections: ['userId'],
   cpa_questions: ['userId'],
 };
 
