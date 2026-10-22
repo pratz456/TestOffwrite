@@ -57,7 +57,7 @@ export const BEFORE_WITHHOLDING_LABEL_PENDING_APPROVAL = 'BEFORE_WITHHOLDING_LAB
 
 /**
  * Awaiting owner approval. Placeholder when a 12-month prior return shows zero total tax.
- * Full-year U.S. citizenship or residency is not collected, so that zero is not turned into installments.
+ * Under §6654(d)(1)(B) the required payment is $0 and no installments are due. No residency test applies.
  */
 export const ZERO_PRIOR_TAX_LABEL_PENDING_APPROVAL = 'ZERO_PRIOR_TAX_LABEL_PENDING_APPROVAL';
 

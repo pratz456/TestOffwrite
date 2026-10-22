@@ -179,7 +179,9 @@ function priorYearOnlyBody(input: {
     calculationWarnings: [] as string[],
     paymentReview: {
       code: 'PRIOR_YEAR_ONLY',
-      message: withholdingApplied ? PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL : BEFORE_WITHHOLDING_LABEL_PENDING_APPROVAL,
+      message: planner.requiredAnnualPayment.priorYear?.totalTax === 0
+        ? ZERO_PRIOR_TAX_LABEL_PENDING_APPROVAL
+        : withholdingApplied ? PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL : BEFORE_WITHHOLDING_LABEL_PENDING_APPROVAL,
     },
     planner,
     perQuarterRecommended: planner.nextDue?.installmentOnly ?? null,
@@ -238,19 +240,6 @@ async function priorYearOnlyWhenDependentReview(request: NextRequest, uid: strin
     || typeof priorYear.totalTax !== 'number' || !Number.isFinite(priorYear.totalTax)
     || typeof priorYear.agi !== 'number' || !Number.isFinite(priorYear.agi)) {
     return null;
-  }
-  if (priorYear.totalTax === 0) {
-    return NextResponse.json({
-      taxYear,
-      priorYearOnly: true,
-      zeroPriorTaxReview: true,
-      annualStatus: 'review_required' as const,
-      annualStatusMessage,
-      calculationWarnings: [] as string[],
-      paymentReview: { code: 'ZERO_PRIOR_TAX', message: ZERO_PRIOR_TAX_LABEL_PENDING_APPROVAL },
-    }, {
-      headers: { 'Cache-Control': 'private, no-store' },
-    });
   }
 
   let withholdingApplied = false;

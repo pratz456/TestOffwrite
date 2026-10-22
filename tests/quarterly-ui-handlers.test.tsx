@@ -166,19 +166,28 @@ describe('authenticated quarterly summary renders planner figures or the specifi
     expect(content).not.toContain('Recorded federal withholding');
     expect(content).not.toContain('lesser of 90%');
   });
-  it('shows the zero-prior-tax placeholder and no installment amounts', async () => {
+  it('shows the zero-prior-tax placeholder when the required payment is $0', async () => {
+    const planner = buildPriorYearOnlyQuarterlyPlan({
+      taxYear: 2026, filingStatus: 'single', withholding: 2000,
+      priorYear: { available: true, totalTax: 0, agi: 100000, coveredTwelveMonths: true },
+      payments: [{ amount: 750, paidDate: '2026-07-01', recordedQuarter: 3 }],
+      asOf: '2026-09-01', annualStatusMessage: 'Review dependent credit eligibility in Tax Organizer.',
+    });
     h.request.mockImplementation(() => Response.json({
-      taxYear: currentYear, priorYearOnly: true, zeroPriorTaxReview: true, calculationWarnings: [],
-      paymentReview: { code: 'ZERO_PRIOR_TAX', message: 'not the approved label' },
+      taxYear: currentYear, recordedEstimatedPayments: 750, w2Withheld: 2000, calculationWarnings: [], priorYearOnly: true, withholdingApplied: true,
+      paymentReview: { code: 'PRIOR_YEAR_ONLY', message: 'not the approved label' }, planner,
+      quarters: planner.installments.map(item => ({ quarter: item.quarter, dueDate: item.dueDate, amountPaid: item.quarter === 3 ? 750 : 0, recommended: item.plannedEstimatedPayment })),
     }));
     render(component); await flush();
     const content = text(render(component));
+    expect(planner.requiredAnnualPayment.requiredAnnualPayment).toBe(0);
+    expect(planner.installments.every(item => item.requiredInstallment === 0 && item.plannedEstimatedPayment === 0)).toBe(true);
     expect(content).toContain(ZERO_PRIOR_TAX_LABEL_PENDING_APPROVAL);
+    expect(content).not.toContain(PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL);
     expect(content).not.toContain('not the approved label');
-    expect(content).not.toContain('Recorded estimated payments');
-    expect(content).not.toContain('Recorded federal withholding');
-    expect(content).not.toContain('Installment (25%)');
-    expect(content).not.toContain('$0.00');
+    expect(content).toContain('Installment (25%) $0.00');
+    expect(content).toContain('planned payment $0.00');
+    expect(content).toContain('Prior-year total tax is $0 with a 12-month return');
   });
   it('rejects a malformed planner payload instead of rendering partial figures', async () => {
     h.request.mockImplementation(() => Response.json({ taxYear: currentYear, totalEstimatedTax: 20000, recordedEstimatedPayments: 0, w2Withheld: 0, calculationWarnings: [], quarters: [], paymentReview: { message: 'x' }, planner: { status: 'ready' } }));
