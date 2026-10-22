@@ -1,4 +1,4 @@
-import { getFederalTaxRules, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
+import { getSocialSecurityWageBase, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
 import { normalizeFilingStatus } from '@/lib/tax-rules/filing-status';
 
 export interface TaxSummarySettings {
@@ -48,7 +48,7 @@ export function calcScheduleSE(
   w2SocialSecurityWages: number = 0,
   w2MedicareWages: number = 0
 ): ScheduleSECalculation {
-  const rules = getFederalTaxRules(taxSummary.taxYear);
+  const socialSecurityWageBase = getSocialSecurityWageBase(taxSummary.taxYear);
   const { scheduleCNetProfit, adjustments = 0 } = taxSummary;
   if (![scheduleCNetProfit, adjustments, w2SocialSecurityWages, w2MedicareWages].every(Number.isFinite)
     || w2SocialSecurityWages < 0 || w2MedicareWages < 0) {
@@ -57,7 +57,7 @@ export function calcScheduleSE(
   const netEarnings = scheduleCNetProfit + adjustments;
   const seBase = Math.max(0, netEarnings) * SE_ADJUSTMENT_FACTOR;
   const liable = seBase >= 400;
-  const remainingSSWageBase = Math.max(0, rules.socialSecurityWageBase - w2SocialSecurityWages);
+  const remainingSSWageBase = Math.max(0, socialSecurityWageBase - w2SocialSecurityWages);
   const socialSecurityTax = liable ? Math.min(seBase, remainingSSWageBase) * SOCIAL_SECURITY_RATE : 0;
   const medicareTax = liable ? seBase * MEDICARE_RATE : 0;
   const remainingMedicareThreshold = Math.max(0, additionalMedicareThreshold(filingStatus) - w2MedicareWages);
@@ -96,13 +96,12 @@ export function validateTaxSummarySettings(settings: Partial<TaxSummarySettings>
 }
 
 export function getTaxRatesAndLimits(year: number) {
-  const rules = getFederalTaxRules(year);
   return {
     socialSecurityRate: SOCIAL_SECURITY_RATE,
     medicareRate: MEDICARE_RATE,
     additionalMedicareRate: ADDITIONAL_MEDICARE_RATE,
     seAdjustmentFactor: SE_ADJUSTMENT_FACTOR,
-    socialSecurityWageBase: rules.socialSecurityWageBase,
+    socialSecurityWageBase: getSocialSecurityWageBase(year),
     additionalMedicareThresholdSingle: 200000,
     additionalMedicareThresholdMarried: 250000,
     additionalMedicareThresholdMarriedSeparate: 125000,
