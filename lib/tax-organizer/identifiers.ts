@@ -25,7 +25,7 @@ const IDENTIFIER_RULES: Record<OrganizerIdentifierKind, { pattern: RegExp; label
   ein: { pattern: /^\d{9}$/, label: 'employer identification number' },
 };
 
-export type DependentIdKind = 'ssn' | 'itin' | 'atin' | 'none' | 'unknown';
+export type DependentIdKind = 'ssn' | 'itin' | 'atin' | 'none' | 'needs_review';
 
 const DEPENDENT_KIND_SUFFIX = /^(?:dependent\d*)?(SSN|ITIN|ATIN)$/i;
 const UNNAMED_DEPENDENT_NUMBER = /^dependent\d*(?:Number|Identifier)$/;
@@ -48,7 +48,7 @@ export function organizerIdentifierKind(field: string): OrganizerIdentifierKind 
 function explicitDependentKind(value: unknown): DependentIdKind | null {
   if (typeof value !== 'string') return null;
   const kind = value.trim().toLowerCase();
-  if (kind === 'ssn' || kind === 'itin' || kind === 'atin' || kind === 'none' || kind === 'unknown') return kind;
+  if (kind === 'ssn' || kind === 'itin' || kind === 'atin' || kind === 'none' || kind === 'needs_review') return kind;
   return null;
 }
 

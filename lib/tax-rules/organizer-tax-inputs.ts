@@ -59,7 +59,7 @@ export type OrganizerTaxInputResponse = {
   [K in OrganizerTaxInputField]: OrganizerTaxInputScalar | Record<string, unknown> | unknown[];
 };
 
-export type DependentIdentifierKind = 'ssn' | 'itin' | 'atin' | 'none' | 'unknown';
+export type DependentIdentifierKind = 'ssn' | 'itin' | 'atin' | 'none' | 'needs_review';
 
 const DEPENDENT_SSN_FIELD = /^(?:dependent\d*)?ssn$/i;
 const DEPENDENT_ATIN_FIELD = /^(?:dependent\d*)?atin$/i;
@@ -162,7 +162,7 @@ function filled(value: unknown): boolean {
 function statedKind(value: unknown): DependentIdentifierKind | null {
   if (typeof value !== 'string') return null;
   const kind = value.trim().toLowerCase();
-  if (kind === 'ssn' || kind === 'itin' || kind === 'atin' || kind === 'none' || kind === 'unknown') return kind;
+  if (kind === 'ssn' || kind === 'itin' || kind === 'atin' || kind === 'none' || kind === 'needs_review') return kind;
   return null;
 }
 
@@ -174,7 +174,7 @@ function explicitKind(record: Record<string, unknown>): DependentIdentifierKind 
   return null;
 }
 
-/** A stored idKind wins, including unknown, then an explicit type, then the field name. Several filled fields resolve ssn, then atin, then itin. */
+/** A stored idKind wins, including needs_review, then an explicit type, then the field name. Several filled fields resolve ssn, then atin, then itin. */
 function dependentIdentifierKind(record: Record<string, unknown>): DependentIdentifierKind {
   const stored = statedKind(record.idKind);
   if (stored) return stored;

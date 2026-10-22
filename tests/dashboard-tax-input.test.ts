@@ -105,21 +105,21 @@ describe('dashboard tax input key', () => {
     expect(JSON.stringify(ssn)).not.toContain('333445555');
   });
 
-  it('changes the key when a stored idKind goes from ssn to unknown and from unknown to itin', () => {
+  it('changes the key when a stored idKind goes from ssn to needs_review and from needs_review to itin', () => {
     const child = { dependentSSN: '111223333', relationship: 'daughter' };
     const ssn = facts({ dependents: [{ ...child, idKind: 'ssn' }] });
-    const unknown = facts({ dependents: [{ ...child, idKind: 'unknown' }] });
+    const review = facts({ dependents: [{ ...child, idKind: 'needs_review' }] });
     const itin = facts({ dependents: [{ ...child, idKind: 'itin' }] });
     expect(String(ssn.dependents)).toContain('"identifierKind":"ssn"');
-    expect(String(unknown.dependents)).toContain('"identifierKind":"unknown"');
+    expect(String(review.dependents)).toContain('"identifierKind":"needs_review"');
     expect(String(itin.dependents)).toContain('"identifierKind":"itin"');
-    expect(String(unknown.dependents)).not.toContain('"identifierKind":"none"');
-    expect(String(unknown.dependents)).not.toContain('"identifierKind":"ssn"');
-    expect(taxFactsEqual(ssn, unknown)).toBe(false);
-    expect(taxFactsEqual(unknown, itin)).toBe(false);
-    expect(JSON.stringify(unknown)).not.toContain('111223333');
-    const bare = facts({ dependents: [{ idKind: 'unknown' }] });
-    expect(String(bare.dependents)).toContain('"identifierKind":"unknown"');
+    expect(String(review.dependents)).not.toContain('"identifierKind":"none"');
+    expect(String(review.dependents)).not.toContain('"identifierKind":"ssn"');
+    expect(taxFactsEqual(ssn, review)).toBe(false);
+    expect(taxFactsEqual(review, itin)).toBe(false);
+    expect(JSON.stringify(review)).not.toContain('111223333');
+    const bare = facts({ dependents: [{ idKind: 'needs_review' }] });
+    expect(String(bare.dependents)).toContain('"identifierKind":"needs_review"');
     expect(String(bare.dependents)).not.toContain('"identifierKind":"none"');
   });
 
