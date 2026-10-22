@@ -99,13 +99,8 @@ export function dependentKindFromDigits(value: string): DependentIdKind {
   return 'ssn';
 }
 
-/**
- * A fresh ssn choice on a leading 9 follows the digit pattern and is stored as itin, atin, or none.
- * Otherwise an entered choice, then a stored label, then the field name, then the digit pattern.
- * A leading 9 on an ssn field name follows the digit pattern when nothing was chosen.
- * The kind is a label only, and no digits are ever copied into it.
- */
-export function dependentIdKind(field: string, value: string, data: Record<string, unknown>): DependentIdKind | null {
+/** Choice, stored label, field name, then the digit pattern. A leading 9 can still come back as ssn from this step. */
+function dependentIdKindUnguarded(field: string, value: string, data: Record<string, unknown>): DependentIdKind | null {
   if (!isDependentIdentifierField(field)) return null;
   const digits = value.replace(/\D/g, '');
   const leadingNine = digits[0] === '9';
@@ -123,12 +118,30 @@ export function dependentIdKind(field: string, value: string, data: Record<strin
   return named ?? dependentKindFromDigits(value);
 }
 
-/** Set when a fresh ssn choice sits on a leading 9. A fresh itin or atin choice clears it. */
+function reclassifiedLeadingNine(value: string, kind: DependentIdKind | null): DependentIdKind | null {
+  if (kind !== 'ssn' || value.replace(/\D/g, '')[0] !== '9') return kind;
+  const fromDigits = dependentKindFromDigits(value);
+  return fromDigits === 'ssn' ? 'none' : fromDigits;
+}
+
+/**
+ * A fresh ssn choice on a leading 9 follows the digit pattern and is stored as itin, atin, or none.
+ * Otherwise an entered choice, then a stored label, then the field name, then the digit pattern.
+ * A leading 9 is never stored as ssn: the digit pattern wins, or the label is none.
+ * The kind is a label only, and no digits are ever copied into it.
+ */
+export function dependentIdKind(field: string, value: string, data: Record<string, unknown>): DependentIdKind | null {
+  return reclassifiedLeadingNine(value, dependentIdKindUnguarded(field, value, data));
+}
+
+/** Set when a leading 9 would have been labeled ssn. A fresh itin or atin choice clears it. */
 export function dependentIdReview(field: string, value: string, data: Record<string, unknown>): 'set' | 'clear' | null {
   if (!isDependentIdentifierField(field)) return null;
   const fresh = freshDependentKind(field, data);
-  if (fresh === 'ssn' && value.replace(/\D/g, '')[0] === '9') return 'set';
   if (fresh === 'itin' || fresh === 'atin') return 'clear';
+  const digits = value.replace(/\D/g, '');
+  if (fresh === 'ssn' && digits[0] === '9') return 'set';
+  if (dependentIdKindUnguarded(field, value, data) === 'ssn' && digits[0] === '9') return 'set';
   return null;
 }
 
