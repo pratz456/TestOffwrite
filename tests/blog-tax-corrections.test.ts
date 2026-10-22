@@ -26,7 +26,7 @@ const CORRECTIONS: { id: number; file: string; removed: string; added: string }[
     id: 2,
     file: "retirement-accounts-self-employed.mdx",
     removed: "If you made $80,000 as a freelancer and contributed $20,000 to a SEP-IRA, you'd only pay income tax on $60,000. At a 22% marginal rate, that's $4,400 back in your pocket this year",
-    added: "On $80,000 of net profit, the maximum SEP-IRA contribution is about $14,870 (20% of $80,000 minus the $5,652 deduction for half of SE tax). At a 22% marginal rate that cuts income tax by about $3,270. A $20,000 SEP contribution is not allowed at this profit level.",
+    added: "On $80,000 of net profit, the maximum SEP-IRA contribution is about $14,870 (20% of $80,000 minus the $5,652 deduction for half of SE tax). At a 22% marginal rate that cuts income tax by about $3,270, less if part of it falls in a lower bracket. A $20,000 SEP contribution is not allowed at this profit level.",
   },
   {
     id: 4,
@@ -92,7 +92,7 @@ const CORRECTIONS: { id: number; file: string; removed: string; added: string }[
     id: 14,
     file: "cohan-rule-lost-receipts.mdx",
     removed: "**4. Listed property.** Passenger automobiles, computers, cell phones, and other items with high personal-use potential.",
-    added: "**Listed property.** Passenger automobiles and other property used for transportation, and property generally used for entertainment, recreation, or amusement.",
+    added: "**4. Listed property.** Passenger automobiles and other property used for transportation, and property generally used for entertainment, recreation, or amusement.",
   },
   {
     id: 15,
@@ -141,6 +141,33 @@ describe("2026-10-22 blog tax corrections", () => {
 
   it.each(CORRECTIONS)("#$id corrected wording is in $file", ({ file, added }) => {
     expect(readPost(file)).toContain(added);
+  });
+
+  it("applies the Tax Watch follow-up wording", () => {
+    const cohan = readPost("cohan-rule-lost-receipts.mdx");
+    expect(cohan).toContain("**1. Travel expenses.**");
+    expect(cohan).toContain("Meals fall under travel and entertainment, not their own category.");
+    expect(cohan).toContain("**3. Gifts.**");
+    expect(cohan).toContain("**4. Listed property.**");
+    expect(cohan).not.toContain("**2. Business meals.**");
+    expect(cohan).toContain("(travel, entertainment, gifts, listed property)");
+    expect(cohan).not.toContain("(travel, meals, entertainment, listed property)");
+
+    const underreporting = readPost("how-irs-knows-your-income-1099k.mdx");
+    expect(underreporting).toContain("five years later");
+    expect(underreporting).toContain("This is only possible under the 6-year statute of limitations for leaving out more than 25% of gross income (IRC §6501(e)(1)(A)), and the normal limit is 3 years.");
+
+    const gig = readPost("gig-economy-tax-guide.mdx");
+    const gigFootnote = gig.split("\n").find((line) => line.startsWith("*2025 standard mileage rate:"));
+    expect(gigFootnote).toContain("72.5 cents/mile Jan to Jun (IRS Notice 2026-10) and 76 cents/mile Jul to Dec (IRS Announcement 2026-11).");
+    expect(gigFootnote).not.toContain("[IRC Section 274(d)](");
+    expect(gigFootnote).not.toContain("Jan–Jun");
+    expect(gigFootnote).not.toContain("Jul–Dec");
+
+    const mileage = readPost("mileage-deduction-guide-2026.mdx");
+    expect(mileage).toContain("## What a Good Mileage Log Includes");
+    expect(mileage).toContain("A simple log that covers each of these is the strongest evidence:");
+    expect(mileage).not.toContain("## The IRS-Required Mileage Log");
   });
 
   it("applies finding 3 from tax review v2", () => {

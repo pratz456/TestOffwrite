@@ -24,16 +24,19 @@ function submit() { walk(render()).find(n => n.type === 'form').props.onSubmit({
 beforeEach(() => { h.slots = []; h.cursor = 0; h.effects = []; h.request.mockReset(); });
 afterEach(() => { h.slots.forEach(slot => slot?.cleanup?.()); });
 
+const WITHHOLDING_LABEL = 'Expected full-year federal income tax withholding (W-2 box 2 and 1099 backup withholding, including Additional Medicare Tax withholding; not Social Security or regular Medicare tax)';
+
 describe('public quarterly estimate calculator copy', () => {
   it('shows the general-information line and labels federal income tax withholding', () => {
     const tree = render();
     const content = text(tree);
     expect(content).toContain('General information, not tax advice.');
-    expect(content).toContain('Expected full-year federal income tax withholding');
+    expect(content).toContain(WITHHOLDING_LABEL);
     expect(content).not.toContain('Expected full-year federal withholding');
-    const withholdingInput = walk(tree).find(n => n.props?.['aria-label'] === 'Expected full-year federal income tax withholding');
+    const withholdingInput = walk(tree).find(n => n.props?.['aria-label'] === WITHHOLDING_LABEL);
     expect(withholdingInput).toBeTruthy();
     expect(walk(tree).some(n => n.props?.['aria-label'] === 'Expected annual withholding')).toBe(false);
+    expect(walk(tree).some(n => n.props?.['aria-label'] === 'Expected full-year federal income tax withholding')).toBe(false);
   });
 });
 
@@ -42,14 +45,14 @@ describe('public regular-method tool uses complete reviewed inputs', () => {
     submit(); const content = text(render()); expect(content).toContain('Choose whether'); expect(content).not.toContain('$0.00'); expect(content).not.toContain('Regular-method illustration');
   });
   it('uses the prior-year AGI and withholding inputs, shows original dates, and clears results on edit', () => {
-    field('Expected annual federal tax', '20000'); field('Expected full-year federal income tax withholding', '2000'); field('Prior-year return', 'eligible'); field('Prior-year AGI', '200000'); field('Prior-year tax', '10000');
+    field('Expected annual federal tax', '20000'); field(WITHHOLDING_LABEL, '2000'); field('Prior-year return', 'eligible'); field('Prior-year AGI', '200000'); field('Prior-year tax', '10000');
     walk(render()).filter(n => n.props?.type === 'checkbox').forEach(n => n.props.onChange({ target: { checked: true } }));
     submit(); let content = text(render()); expect(content).toContain('$9,000.00'); expect(content).toContain('$2,250.00'); expect(content).toContain('2026-04-15'); expect(content).toContain('2027-01-15'); expect(content).toContain('not a current balance');
     field('Prior-year AGI', ''); content = text(render()); expect(content).not.toContain('$2,250.00');
     submit(); expect(text(render())).toContain('Enter prior-year AGI');
   });
   it('requires exemption review when no prior return was filed before showing current-year installments', () => {
-    field('Expected annual federal tax', '20000'); field('Expected full-year federal income tax withholding', '0'); field('Prior-year return', 'unavailable');
+    field('Expected annual federal tax', '20000'); field(WITHHOLDING_LABEL, '0'); field('Prior-year return', 'unavailable');
     walk(render()).filter(n => n.type === 'label' && !text(n).includes('no-prior-tax exception'))
       .flatMap(walk).filter(n => n.props?.type === 'checkbox').forEach(n => n.props.onChange({ target: { checked: true } }));
     submit(); let content = text(render());
