@@ -217,6 +217,10 @@ describe('redact-first W-2/1099 import: text path', () => {
     ['w2', 'employerEIN', 'EIN', '123 45 6789', 'w2_income'],
     ['1099', 'payerEIN', 'Payer', '123-45-6789', 'income_1099'],
     ['1099', 'payerEIN', 'Payer', '123 45 6789', 'income_1099'],
+    ['w2', 'employerEIN', 'b Employer identification number (EIN)', '123-45-6789', 'w2_income'],
+    ['w2', 'employerEIN', 'b Employer identification number (EIN)', '123 45 6789', 'w2_income'],
+    ['1099', 'payerEIN', "PAYER'S TIN", '123-45-6789', 'income_1099'],
+    ['1099', 'payerEIN', 'Payer EIN', '123 45 6789', 'income_1099'],
   ] as const)('leaves %s %s blank when %s is followed by %s', async (docType, field, label, formatted, collection) => {
     mocks.recognize.mockResolvedValue({ text: `${label} ${formatted}\nPaid for services rendered this year`, confidence: 0.95 });
     modelReplies(docType === 'w2'
@@ -243,6 +247,17 @@ describe('redact-first W-2/1099 import: text path', () => {
     expect(body.verificationRequired).toContain('Check the employer/payer ID');
     expect(JSON.stringify(body)).not.toContain(employerEIN);
     expect(JSON.stringify(state.records.w2_income)).not.toContain(employerEIN);
+  });
+
+  it.each(['12-3456789', '123456789'])('blanks payer number %s when the model returns it and the text has no payer number', async (payerEIN) => {
+    mocks.recognize.mockResolvedValue({ text: 'Form 1099-NEC statement prepared for the tax year 2025', confidence: 0.95 });
+    modelReplies({ docType: '1099', formVariant: 'NEC', payerName: 'Synthetic Payer', payerEIN, box1Amount: 1000, taxYear: 2025, confidence: 0.95, verificationWarnings: [] });
+    const body = await (await importDocument(request({ docType: '1099' }))).json();
+    expect(body.extracted.payerEIN).toBeNull();
+    expect(state.records.income_1099[0].payerEIN).toBe('');
+    expect(body.verificationRequired).toContain('Check the employer/payer ID');
+    expect(JSON.stringify(body)).not.toContain(payerEIN);
+    expect(JSON.stringify(state.records.income_1099)).not.toContain(payerEIN);
   });
 
   it('does not keep a bare number under a generic identification number label', async () => {
@@ -299,6 +314,19 @@ describe('redact-first W-2/1099 import: text path', () => {
     expect(JSON.stringify(body)).not.toContain('98-7654321');
     expect(JSON.stringify(state.records.w2_income)).not.toContain('123-45-6789');
     expect(JSON.stringify(state.records.w2_income)).not.toContain('98-7654321');
+  });
+
+  it('blanks a typed payer number that is not NN-NNNNNNN and returns the saved blank', async () => {
+    mocks.recognize.mockResolvedValue({ text: "PAYER'S TIN 98-7654321\n1 Nonemployee compensation 1200.00", confidence: 0.95 });
+    modelReplies({ docType: '1099', formVariant: 'NEC', payerName: 'Synthetic Payer', payerEIN: null, box1Amount: 1200, taxYear: 2025, confidence: 0.95, verificationWarnings: [] });
+    const body = await (await importDocument(request({ docType: '1099', overrideFields: JSON.stringify({ payerEIN: '123-45-6789' }) }))).json();
+    expect(body.extracted.payerEIN).toBeNull();
+    expect(state.records.income_1099[0].payerEIN).toBe('');
+    expect(body.verificationRequired).toContain('Check the employer/payer ID');
+    expect(JSON.stringify(body)).not.toContain('123-45-6789');
+    expect(JSON.stringify(body)).not.toContain('98-7654321');
+    expect(JSON.stringify(state.records.income_1099)).not.toContain('123-45-6789');
+    expect(JSON.stringify(state.records.income_1099)).not.toContain('98-7654321');
   });
 
   it("blanks a bare payer TIN on a 1099 and asks to check the ID", async () => {
