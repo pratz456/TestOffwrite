@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { TaxCalculationNotice } from '@/components/tax-calculation-notice';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
-import { BEFORE_WITHHOLDING_LABEL_PENDING_APPROVAL, PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL, ZERO_PRIOR_TAX_LABEL_PENDING_APPROVAL, type MissingFact, type QuarterlyPlan, type QuarterlyPlannerResponse } from '@/lib/tax-provider/quarterly-planner';
+import { BEFORE_WITHHOLDING_LABEL_PENDING_APPROVAL, PRIOR_YEAR_BASE_OVERSTATE_LABEL_PENDING_APPROVAL, PRIOR_YEAR_ONLY_HEADING_PENDING_APPROVAL, PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL, ZERO_PRIOR_TAX_LABEL_PENDING_APPROVAL, type MissingFact, type QuarterlyPlan, type QuarterlyPlannerResponse } from '@/lib/tax-provider/quarterly-planner';
 import { LATEST_PUBLISHED_TAX_YEAR } from '@/lib/tax-rules/federal-year-rules';
 
 interface QuarterlyTaxCalculatorProps { userProfile?: Record<string, unknown>; transactions?: unknown[] }
@@ -17,6 +17,7 @@ interface Summary {
   priorYearOnly?: boolean;
   withholdingApplied?: boolean;
   zeroPriorTaxReview?: boolean;
+  priorYearBaseMayOverstate?: boolean;
 }
 const money = (value: number) => value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 const percent = (rate: number) => `${Math.round(rate * 10000) / 100}%`;
@@ -108,7 +109,7 @@ export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyT
   return <div className="space-y-4">
     <Card><CardHeader><CardTitle>{year} Quarterly Payment Planning</CardTitle></CardHeader><CardContent className="space-y-3">
       {plan && required ? <>
-        <div role="note" className="rounded-lg border p-3"><h2 className="font-semibold">Planning estimate from reviewed facts</h2><p className="mt-1 text-sm">{data.priorYearOnly ? (data.withholdingApplied === false ? BEFORE_WITHHOLDING_LABEL_PENDING_APPROVAL : PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL) : data.paymentReview.message}</p></div>
+        <div role="note" className="rounded-lg border p-3"><h2 className="font-semibold">{data.priorYearOnly ? PRIOR_YEAR_ONLY_HEADING_PENDING_APPROVAL : 'Planning estimate from reviewed facts'}</h2><p className="mt-1 text-sm">{data.priorYearOnly ? (data.withholdingApplied === false ? BEFORE_WITHHOLDING_LABEL_PENDING_APPROVAL : PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL) : data.paymentReview.message}</p>{data.priorYearBaseMayOverstate === true && <p className="mt-1 text-sm">{PRIOR_YEAR_BASE_OVERSTATE_LABEL_PENDING_APPROVAL}</p>}</div>
         {nextDueSection(plan)}
         <div className="rounded-lg border p-3 text-sm">
           <h3 className="font-semibold">Safe-harbor basis used: {basisSummary(plan)}</h3>

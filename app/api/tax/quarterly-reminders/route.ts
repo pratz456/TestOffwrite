@@ -25,6 +25,7 @@ import {
 } from '@/lib/tax-provider/quarterly-planner';
 import { QUARTERLY_REVIEW_MESSAGE, QuarterlyReviewRequiredError } from '@/lib/tax-provider/regular-estimated-payments';
 import { getFederalTaxRules } from '@/lib/tax-rules/federal-year-rules';
+import { resolveRequestedTaxYear } from '@/lib/tax-rules/requested-tax-year';
 import { FilingStatusReviewRequiredError } from '@/lib/tax-rules/filing-status';
 import { readW2FederalWithholding } from '@/lib/tax-rules/w2-income';
 
@@ -130,8 +131,7 @@ export async function GET(request: NextRequest) {
 }
 
 function requestedSupportedTaxYear(request: NextRequest): number | null {
-  const yearParam = request.nextUrl.searchParams.get('year');
-  const year = yearParam === null ? new Date().getFullYear() : /^\d{4}$/.test(yearParam) ? Number(yearParam) : NaN;
+  const year = resolveRequestedTaxYear(request.nextUrl.searchParams.get('year'));
   try {
     getFederalTaxRules(year);
     return year;

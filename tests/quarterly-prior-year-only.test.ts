@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { PDFDocument } from 'pdf-lib';
 import { BEFORE_WITHHOLDING_LABEL_PENDING_APPROVAL, PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL, ZERO_PRIOR_TAX_LABEL_PENDING_APPROVAL } from '../lib/tax-provider/quarterly-planner';
+import { resolveRequestedTaxYear } from '../lib/tax-rules/requested-tax-year';
 
 const PLACEHOLDER = PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL;
 const BEFORE_WITHHOLDING = BEFORE_WITHHOLDING_LABEL_PENDING_APPROVAL;
@@ -340,6 +341,32 @@ describe('prior-year-only quarterly plan when dependent credit review blocks the
     expect(gross.withholdingApplied).toBe(false);
     expect(gross.priorYearBaseMayOverstate).toBe(true);
     expect(gross.safeHarborTotal).toBe(10000);
+  });
+
+  it('keeps the prior-year-only placeholder to last year\'s tax', () => {
+    expect(PLACEHOLDER).toBe("Amounts are based on last year's tax.");
+    expect(PLACEHOLDER).not.toMatch(/penalty|protect/i);
+  });
+
+  it('uses one calendar year for the annual call and the quarterly fallback at Dec 31, 2026, 4:30 PM Pacific', async () => {
+    // 4:30 PM Pacific on Dec 31, 2026 is Jan 1, 2027 in UTC. Both routes share Date#getFullYear.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2027-01-01T00:30:00.000Z'));
+    try {
+      const year = resolveRequestedTaxYear(null);
+      const annualResponse = await annual(new NextRequest('http://localhost/api/tax/compute-1040'));
+      const quarterlyResponse = await quarterly(new NextRequest('http://localhost/api/tax/quarterly-reminders'));
+      expect(annualResponse.status).toBe(quarterlyResponse.status);
+      const annualBody = await annualResponse.json();
+      const quarterlyBody = await quarterlyResponse.json();
+      expect(quarterlyBody).toEqual(annualBody);
+      expect(annualBody.code).toBe('TAX_YEAR_UNAVAILABLE');
+      expect(annualBody.yearStatus.taxYear).toBe(year);
+      expect(quarterlyBody.yearStatus.taxYear).toBe(year);
+      expect(year).toBe(2027);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('leaves compute-1040 and the 1040 summary PDF on the dependent-credit 422', async () => {

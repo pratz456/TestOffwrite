@@ -42,11 +42,22 @@ export const ANNUALIZED_INCOME_METHOD_NOTE = 'The annualized income installment 
 export const QUARTERLY_PLANNER_READY_MESSAGE = 'Planning estimate from your reviewed prior-year facts and saved records using the Pub 505 regular method. It is not a balance due and not a penalty determination; the IRS figures both when the return is filed.';
 
 /**
- * Awaiting owner approval. Placeholder for the prior-year-only planner message shown on the quarterly screen.
- * The approved label must convey that the amount may be more than this year needs, because the current-year 90% option is not available.
- * The approved label must also say the prior-year figure is Form 1040 line 24 total tax, which does not subtract refundable credits, so that figure may overstate the 1040-ES prior-year base.
+ * Awaiting owner approval.
+ * Default text says only that the amounts are based on last year's tax.
+ * Penalty-protection wording waits until the organizer asks about a filed return.
  */
-export const PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL = 'PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL';
+export const PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL = "Amounts are based on last year's tax.";
+
+/**
+ * Awaiting owner approval. Heading shown on the quarterly screen in prior-year-only mode.
+ */
+export const PRIOR_YEAR_ONLY_HEADING_PENDING_APPROVAL = 'PRIOR_YEAR_ONLY_HEADING_PENDING_APPROVAL';
+
+/**
+ * Awaiting owner approval. Shown when the prior-year figure may overstate the base.
+ * That figure is Form 1040 line 24 total tax, which does not subtract refundable credits.
+ */
+export const PRIOR_YEAR_BASE_OVERSTATE_LABEL_PENDING_APPROVAL = 'PRIOR_YEAR_BASE_OVERSTATE_LABEL_PENDING_APPROVAL';
 
 /**
  * Awaiting owner approval. Placeholder when prior-year installments are shown before federal withholding is applied.
