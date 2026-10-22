@@ -206,6 +206,27 @@ describe('redact-first W-2/1099 import: text path', () => {
     expect(JSON.stringify(state.records.income_1099)).not.toContain('123456789');
   });
 
+  it.each([
+    ['w2', 'employerEIN', 'b Employer identification number (EIN) 123-45-6789', '123-45-6789', 'w2_income'],
+    ['w2', 'employerEIN', 'b Employer identification number (EIN) 123 45 6789', '123 45 6789', 'w2_income'],
+    ['1099', 'payerEIN', "PAYER'S TIN 123-45-6789", '123-45-6789', 'income_1099'],
+    ['1099', 'payerEIN', 'Payer EIN 123 45 6789', '123 45 6789', 'income_1099'],
+  ] as const)('leaves %s %s blank when the only number is %s', async (docType, field, line, formatted, collection) => {
+    mocks.recognize.mockResolvedValue({ text: `${line}\nPaid for services rendered this year`, confidence: 0.95 });
+    modelReplies(docType === 'w2'
+      ? { ...W2_JSON, employerEIN: formatted, box1Wages: 1000 }
+      : { docType: '1099', formVariant: 'NEC', payerName: 'Synthetic Payer', payerEIN: formatted, box1Amount: 1000, taxYear: 2025, confidence: 0.95, verificationWarnings: [] });
+    const body = await (await importDocument(request({ docType }))).json();
+    const stored = state.records[collection][0];
+    expect(body.extracted[field]).toBeNull();
+    expect(stored[field]).toBe('');
+    expect(body.verificationRequired).toContain('Check the employer/payer ID');
+    for (const visible of [formatted, '123456789']) {
+      expect(JSON.stringify(body)).not.toContain(visible);
+      expect(JSON.stringify(stored)).not.toContain(visible);
+    }
+  });
+
   it('does not keep a bare number under a generic identification number label', async () => {
     mocks.recognize.mockResolvedValue({ text: 'Identification number 987654321\n1 Wages 1000.00', confidence: 0.95 });
     modelReplies({ ...W2_JSON, employerEIN: '987654321', box1Wages: 1000 });
