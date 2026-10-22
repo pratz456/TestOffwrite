@@ -94,6 +94,51 @@ describe('first-touch campaign capture', () => {
     expect(raw).not.toContain('creator/42');
   });
 
+  it('stores ref as a flat creatorRef and falls back to utm_source for creator or affiliate links', () => {
+    const explicit = memoryStorage();
+    const captured = captureFirstTouch(explicit, NOW, {
+      search: '?ref=Jane_Partner&utm_source=other&utm_medium=creator&email=person@example.com',
+      referrer: '', pathname: '/', hostname: 'writeoffapp.com',
+    });
+    expect(captured).toMatchObject({
+      creatorRef: 'jane_partner', utm_source: 'other', utm_medium: 'creator',
+    });
+    expect(typeof captured?.creatorRef).toBe('string');
+    expect(captured).not.toHaveProperty('ref');
+    expect(explicit.snapshot()[ACQUISITION_STORAGE_KEY]).not.toContain('@');
+    expect(explicit.snapshot()[ACQUISITION_STORAGE_KEY]).not.toContain('http');
+
+    const affiliate = memoryStorage();
+    expect(captureFirstTouch(affiliate, NOW, {
+      search: '?utm_source=Studio_One&utm_medium=Affiliate',
+      referrer: '', pathname: '/welcome', hostname: 'writeoffapp.com',
+    })).toMatchObject({ creatorRef: 'studio_one', utm_source: 'studio_one', utm_medium: 'affiliate' });
+
+    const emailOnly = memoryStorage();
+    expect(captureFirstTouch(emailOnly, NOW, SOURCE)?.creatorRef).toBeUndefined();
+
+    const rejected = memoryStorage();
+    const dropped = captureFirstTouch(rejected, NOW, {
+      search: `?ref=${'person@example.com'}&utm_source=ok&utm_campaign=https://evil.test/a`,
+      referrer: '', pathname: '/', hostname: 'writeoffapp.com',
+    });
+    expect(dropped).toMatchObject({ utm_source: 'ok' });
+    expect(dropped?.creatorRef).toBeUndefined();
+    expect(rejected.snapshot()[ACQUISITION_STORAGE_KEY]).not.toContain('creatorRef');
+    expect(rejected.snapshot()[ACQUISITION_STORAGE_KEY]).not.toContain('@');
+
+    const refOnly = memoryStorage();
+    expect(captureFirstTouch(refOnly, NOW, {
+      search: '?ref=partner_9', referrer: '', pathname: '/start', hostname: 'writeoffapp.com',
+    })).toMatchObject({ creatorRef: 'partner_9', landingPath: '/start' });
+
+    const fallback = memoryStorage();
+    expect(captureFirstTouch(fallback, NOW, {
+      search: '?ref=https://evil.test/a&utm_source=alex&utm_medium=creator',
+      referrer: '', pathname: '/', hostname: 'writeoffapp.com',
+    })?.creatorRef).toBe('alex');
+  });
+
   it('ignores a same-site referrer and a referrer that is writeoffapp.com on another host', () => {
     const storage = memoryStorage();
     expect(captureFirstTouch(storage, NOW, {

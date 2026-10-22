@@ -98,6 +98,23 @@ describe('one-time acquisition write', () => {
     expect(model.sets).toBe(1);
   });
 
+  it('writes creatorRef as a flat string from ref, without a nested creator object', async () => {
+    const response = await POST(request({
+      acquisition: {
+        ref: 'Jane_Partner',
+        utm_source: 'other',
+        utm_medium: 'creator',
+        capturedAt: '2026-10-22T18:30:00.000Z',
+      },
+    }));
+    expect(response.status).toBe(200);
+    const stored = model.docs.get('user_profiles/new-user')?.acquisition as Record<string, unknown>;
+    expect(stored.creatorRef).toBe('jane_partner');
+    expect(stored.ref).toBeUndefined();
+    expect(stored.creator).toBeUndefined();
+    expect(typeof stored.creatorRef).toBe('string');
+  });
+
   it('merges onto an existing profile without replacing its other fields', async () => {
     model.docs.set('user_profiles/new-user', { name: 'New customer' });
     expect((await POST(request({ acquisition }))).status).toBe(200);

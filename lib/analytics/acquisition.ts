@@ -12,6 +12,7 @@ const HOSTNAME = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9
 const LANDING_PATH = /^\/[A-Za-z0-9._~/-]{0,63}$/;
 const CAPTURED_AT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content'] as const;
+const CREATOR_MEDIUMS = new Set(['creator', 'affiliate']);
 
 export type UtmKey = (typeof UTM_KEYS)[number];
 
@@ -20,6 +21,8 @@ export interface Acquisition {
   utm_medium?: string;
   utm_campaign?: string;
   utm_content?: string;
+  /** Flat creator or partner code. Present for a `ref` param, or for a creator/affiliate utm_source. */
+  creatorRef?: string;
   referrerHost?: string;
   landingPath?: string;
   capturedAt: string;
@@ -93,7 +96,15 @@ function validCapturedAt(value: unknown, now: number): string {
 }
 
 function hasCampaignSource(acquisition: Omit<Acquisition, 'capturedAt'>): boolean {
-  return UTM_KEYS.some(key => Boolean(acquisition[key])) || Boolean(acquisition.referrerHost);
+  return UTM_KEYS.some(key => Boolean(acquisition[key])) || Boolean(acquisition.referrerHost) || Boolean(acquisition.creatorRef);
+}
+
+/** Explicit `ref` wins. Otherwise a creator or affiliate medium uses utm_source. */
+function creatorRefValue(record: Record<string, unknown>, utmSource?: string, utmMedium?: string): string | undefined {
+  const explicit = sanitizeUtmValue(record.creatorRef) ?? sanitizeUtmValue(record.ref);
+  if (explicit) return explicit;
+  if (utmMedium && CREATOR_MEDIUMS.has(utmMedium) && utmSource) return utmSource;
+  return undefined;
 }
 
 /** Keeps only known campaign fields. Returns null when no source was captured. */
@@ -105,6 +116,8 @@ export function acquisitionFromUnknown(input: unknown, now = Date.now()): Acquis
     const value = sanitizeUtmValue(record[key]);
     if (value) acquisition[key] = value;
   }
+  const creatorRef = creatorRefValue(record, acquisition.utm_source, acquisition.utm_medium);
+  if (creatorRef) acquisition.creatorRef = creatorRef;
   const referrerHost = referrerHostValue(record.referrerHost);
   if (referrerHost) acquisition.referrerHost = referrerHost;
   const landingPath = sanitizeLandingPath(record.landingPath);
@@ -118,6 +131,7 @@ function withoutExpiry(stored: StoredAcquisition): Acquisition {
     const value = stored[key];
     if (value) acquisition[key] = value;
   }
+  if (stored.creatorRef) acquisition.creatorRef = stored.creatorRef;
   if (stored.referrerHost) acquisition.referrerHost = stored.referrerHost;
   if (stored.landingPath) acquisition.landingPath = stored.landingPath;
   return acquisition;
@@ -163,6 +177,7 @@ function captureFromSource(source: CaptureSource, now: number): Acquisition | nu
     capturedAt: new Date(now).toISOString(),
   };
   for (const key of UTM_KEYS) record[key] = params.get(key) ?? undefined;
+  record.ref = params.get('ref') ?? undefined;
   return acquisitionFromUnknown(record, now);
 }
 
