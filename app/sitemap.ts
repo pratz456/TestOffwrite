@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
-import { getAllPosts } from "@/lib/blog";
+import { getListedPosts } from "@/lib/blog";
+import { isNoindexBlogSlug } from "@/lib/blog-hotfix";
 
 export const dynamic = 'force-dynamic';
 
@@ -26,16 +27,18 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${baseUrl}/tools/quarterly-estimate-calculator`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
   ];
 
-  const blogPosts: MetadataRoute.Sitemap = getAllPosts().map((post) => {
-    const parsedDate = post.date ? new Date(post.date) : now;
-    const lastModified = Number.isNaN(parsedDate.getTime()) ? now : parsedDate;
-    return {
-      url: `${baseUrl}/blog/${post.slug}`,
-      lastModified,
-      changeFrequency: "monthly",
-      priority: 0.75,
-    };
-  });
+  const blogPosts: MetadataRoute.Sitemap = getListedPosts()
+    .filter((post) => !isNoindexBlogSlug(post.slug))
+    .map((post) => {
+      const parsedDate = post.date ? new Date(post.date) : now;
+      const lastModified = Number.isNaN(parsedDate.getTime()) ? now : parsedDate;
+      return {
+        url: `${baseUrl}/blog/${post.slug}`,
+        lastModified,
+        changeFrequency: "monthly",
+        priority: 0.75,
+      };
+    });
 
   return [...staticPages, ...blogPosts];
 }

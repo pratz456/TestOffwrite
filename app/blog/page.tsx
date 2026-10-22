@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { getAllPosts } from "@/lib/blog";
+import { getListedPosts } from "@/lib/blog";
 import { Sparkles } from "lucide-react";
 import { BlogGridClient } from "@/components/blog/blog-grid-client";
 
@@ -105,7 +105,7 @@ const TAG_ICON_MAP: Record<string, string> = {
 };
 
 export default function BlogIndexPage() {
-  const posts = getAllPosts();
+  const posts = getListedPosts();
 
   const jsonLd = {
     "@context": "https://schema.org",

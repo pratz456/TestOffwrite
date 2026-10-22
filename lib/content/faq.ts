@@ -15,7 +15,7 @@ export const faqData: FAQItem[] = [
   },
   {
     question: "How does WriteOff work?",
-    answer: "Set up your work profile, enter an expense or upload a receipt, then review the amount, date, category and business purpose. You can download your records archive on any plan or use report exports with a trial or Premium plan. No bank connection is required to get started.",
+    answer: "Set up your work profile, enter an expense or upload a receipt, then review the amount, date, category and business purpose. You can download your records archive on any plan or use report exports with a trial or Premium plan.",
     category: "general"
   },
   {
