@@ -15,15 +15,22 @@ const excludedKey = (key: string) => {
 };
 /** Free-text records that may still hold identifier digits from before server-side redaction. */
 const REDACTED_TEXT_KEYS = new Set(['dependentdetails']);
+/**
+ * Imported W-2 box 12 is stored but never shown for review. Omit it only from that
+ * collection's export records. Other collections keep an unrelated field of the same name.
+ */
+const UNREVIEWED_EXPORT_FIELDS: Record<string, ReadonlySet<string>> = { w2_income: new Set(['box12codes']) };
+const normalizedExportKey = (key: string) => key.replace(/[^a-z0-9]/gi, '').toLowerCase();
 /** Never include connector credentials, tax identity ciphertexts or legacy signing PINs. */
-export function sanitizeExportValue(value: unknown): unknown {
+export function sanitizeExportValue(value: unknown, scope?: string): unknown {
   if (value === undefined) return null;
   if (value === null || typeof value !== 'object') return value;
   if (value instanceof Date) return value.toISOString();
   if ('toDate' in value && typeof value.toDate === 'function') return value.toDate().toISOString();
-  if (Array.isArray(value)) return value.map(sanitizeExportValue);
-  return Object.fromEntries(Object.entries(value).filter(([key]) => !excludedKey(key)).map(([key, entry]) => [key,
-    typeof entry === 'string' && REDACTED_TEXT_KEYS.has(key.replace(/[^a-z0-9]/gi, '').toLowerCase()) ? redactIdentifierText(entry).text : sanitizeExportValue(entry)]));
+  if (Array.isArray(value)) return value.map(entry => sanitizeExportValue(entry, scope));
+  const omitted = scope ? UNREVIEWED_EXPORT_FIELDS[scope] : undefined;
+  return Object.fromEntries(Object.entries(value).filter(([key]) => !excludedKey(key) && !omitted?.has(normalizedExportKey(key))).map(([key, entry]) => [key,
+    typeof entry === 'string' && REDACTED_TEXT_KEYS.has(normalizedExportKey(key)) ? redactIdentifierText(entry).text : sanitizeExportValue(entry, key === 'w2_income' ? 'w2_income' : scope)]));
 }
 function clean(record: ExportRecord): ExportRecord { return sanitizeExportValue(record) as ExportRecord; }
 function privateReceiptLink(value: unknown) { return typeof value === 'string' ? validateReceiptPreviewPath(value) ?? null : null; }
@@ -59,7 +66,8 @@ export async function generateUserDataExport(userId: string, year?: number): Pro
         const snapshots = await Promise.all(['userId', 'user_id'].map(field => adminDb.collection(name).where(field, '==', userId).get()));
         const records = new Map<string, ExportRecord>();
         snapshots.forEach(snapshot => snapshot.docs.forEach(doc => records.set(doc.ref.path, ownedExportRecord(doc, userId))));
-        return [name, yearRecords([...records.values()], year).map(clean)] as const;
+        const scope = name === 'w2_income' ? name : undefined;
+        return [name, yearRecords([...records.values()], year).map(record => sanitizeExportValue(record, scope) as ExportRecord)] as const;
       }),
       ...PROFILE_CHILDREN.map(async name => {
         const snapshot = await profileRef.collection(name).get();

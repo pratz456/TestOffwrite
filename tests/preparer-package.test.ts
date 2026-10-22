@@ -86,4 +86,28 @@ describe('receipt-inclusive preparer ZIP', () => {
     await expect(ownedReceiptBytes('owner', '../r1', 'raw-transaction')).rejects.toMatchObject({ code: 'RECEIPT_UNAVAILABLE' });
     expect(mock.reads).toEqual([]);
   });
+  it('omits unreviewed W-2 box 12 codes from records.json and keeps every other field', async () => {
+    const box12Codes = [{ code: 'D', amount: 5000 }, { code: 'DD', amount: 1200 }];
+    const w2 = {
+      id: 'w2-2026', employer: 'Northwind Studio', employerEIN: '12-3456789',
+      wages: 65000, federalWithheld: 8100, box1Wages: 65000, box2FederalWithheld: 8100,
+      socialSecurityWages: 65000, box3SocialSecurityWages: 65000, box4SocialSecurityWithheld: 4030,
+      medicareWages: 65000, box5MedicareWages: 65000, box6MedicareWithheld: 942.5,
+      state: 'TX', stateWages: 65000, box16StateWages: 65000, stateWithheld: 0, box17StateWithheld: 0,
+      source: 'document_import', taxYear: 2026, box12Codes,
+    };
+    const form1099 = { id: 'nec-2026', payerName: 'Acme Clients', nonemployeeCompensation: 4200, notes: 'January retainer', taxYear: 2026, box12Codes: [{ code: 'KEEP', amount: 9 }] };
+    archive.taxRecords = { w2_income: [{ ...w2 }], income_1099: [{ ...form1099 }] };
+    const entries = unzip((await buildPreparerPackage('owner', 2026)).bytes);
+    const records = JSON.parse(entries.get('records.json')!.toString());
+    const expectedW2 = { ...w2 };
+    delete expectedW2.box12Codes;
+    expect(records.taxRecords.w2_income).toHaveLength(1);
+    expect(records.taxRecords.w2_income[0]).not.toHaveProperty('box12Codes');
+    expect(JSON.stringify(records.taxRecords.w2_income)).not.toContain('box12Codes');
+    expect(records.taxRecords.w2_income[0]).toEqual(expectedW2);
+    expect(records.taxRecords.income_1099[0]).toEqual(form1099);
+    expect(entries.get('README.txt')!.toString()).toContain('W-2 box 12 codes are not included because they have not been reviewed in the app; use the W-2 itself.');
+    expect(w2.box12Codes).toEqual(box12Codes);
+  });
 });
