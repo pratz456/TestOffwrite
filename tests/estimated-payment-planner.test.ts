@@ -39,7 +39,9 @@ function form(overrides: Partial<PlannerFormInput> = {}): PlannerFormInput {
 }
 
 function markup(view: ReturnType<typeof buildPlannerCardView>): string {
-  return renderToStaticMarkup(createElement(PlannerCardResult, { view, onSeePlan() {}, onAddIncome() {} }));
+  return renderToStaticMarkup(createElement(PlannerCardResult, { view, onSeePlan() {}, onAddIncome() {} }))
+    .replace(/&#x27;/g, "'")
+    .replace(/&amp;/g, '&');
 }
 
 const guard = (): PlannerSubmitGuard => ({ current: false, postedPaymentIds: new Set() });
@@ -110,7 +112,7 @@ describe('projected current-year tax', () => {
     const seBase = earned * limits.seAdjustmentFactor;
     expect(seBase).toBeGreaterThan(rules.socialSecurityWageBase);
     expect(result.ssPart).toBeCloseTo(rules.socialSecurityWageBase * limits.socialSecurityRate, 2);
-    expect(result.medicarePart).toBeCloseTo(seBase * limits.medicareRate, 2);
+    expect(Math.round(result.medicarePart * 100)).toBe(Math.round(seBase * limits.medicareRate * 100));
   });
 
   it('N3 reduces the Social Security base by W-2 wages and drops it to zero once wages use the base', () => {
