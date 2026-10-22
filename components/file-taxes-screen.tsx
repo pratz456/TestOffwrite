@@ -161,6 +161,9 @@ export function FileTaxesScreen() {
 
     const rows = [
       { label: "Gross receipts", value: income.grossReceipts, note: "Reconciled business income" },
+      ...(income.returnsAndAllowances && income.returnsAndAllowances > 0
+        ? [{ label: "Returns and allowances", value: income.returnsAndAllowances, note: "Schedule C line 2" }]
+        : []),
       { label: "Confirmed expenses", value: income.totalDeductible, note: "Posted, confirmed deductions after category limits and refunds" },
       { label: "Net profit", value: income.scheduleCNetProfit, note: "Before depreciation; used for the federal estimate" },
     ];

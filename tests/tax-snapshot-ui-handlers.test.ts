@@ -39,6 +39,9 @@ import { TaxFilingHubScreen } from '../components/tax-filing-hub-screen';
 import { TaxPreviewScreen } from '../components/tax-preview-screen';
 import { FileTaxesScreen } from '../components/file-taxes-screen';
 import { reviewTargetForCode, loadDashboardTaxSnapshot } from '../lib/tax/dashboard-snapshot';
+import { EXPORT_BLOCKED_TITLE, RECONCILE_BUTTON } from '../lib/tax-rules/income-reconciliation-copy';
+import { IncomeReconciliationExportCard } from '../components/income-reconciliation-export-card';
+import { protectedScreenUrl } from '../lib/navigation/protected-screens';
 
 type Element = ReactElement<Record<string, any>>;
 function render(component = TaxFilingHubScreen): Element {
@@ -462,5 +465,48 @@ describe('tax preview personal deduction and benefit contract', () => {
       expect.stringContaining('Social Security / RRB withholding($1,200)'),
       expect.stringContaining('Enhanced senior deduction($6,000)'),
     ]));
+  });
+});
+
+describe('filing hub Schedule C export guidance', () => {
+  const reviewPath = `/protected?screen=income-tracking&tab=reconcile&year=${year}`;
+  const conflicts = [{ reason: 'multiple_forms', message: 'This tax year has more than one 1099.', sources: [
+    { label: '1099-K · Synthetic platform', amount: 10000 },
+    { label: '1099-NEC · Synthetic client', amount: 10000 },
+  ] }];
+
+  it('R-28 shows the reconcile card and opens the review path', async () => {
+    harness.request.mockImplementation((url: string) => url.includes('/api/tax/schedule-c/export')
+      ? Promise.resolve(response({ error: 'Review income sources before calculating tax', code: 'INCOME_RECONCILIATION_REQUIRED', conflicts, reviewPath }, 422))
+      : requests(url));
+    render(); await flush();
+    await walk(render()).find(node => node.props?.['aria-label'] === 'Export Schedule C PDF')!.props.onClick();
+    await flush();
+    const tree = render();
+    const card = walk(tree).find(node => node.type === IncomeReconciliationExportCard);
+    expect(card?.props.conflicts[0].sources).toEqual([
+      expect.objectContaining({ label: '1099-K · Synthetic platform', amount: 10000 }),
+      expect.objectContaining({ label: '1099-NEC · Synthetic client', amount: 10000 }),
+    ]);
+    const rendered = text(card.type(card.props));
+    expect(rendered).toContain(EXPORT_BLOCKED_TITLE);
+    expect(rendered.match(/\$10,000\.00/g)).toHaveLength(2);
+    walk(rendered ? card.type(card.props) : []).find(node => node.props?.onClick && text(node) === RECONCILE_BUTTON)!.props.onClick();
+    expect(harness.navigate).toHaveBeenCalledWith(`income-tracking?tab=reconcile&year=${year}`);
+    expect(protectedScreenUrl(`income-tracking?tab=reconcile&year=${year}`)).toBe(reviewPath);
+    expect(text(tree)).not.toContain('Export failed. Please retry.');
+  });
+
+  it('R-29 leaves other export 422 responses on the existing error', async () => {
+    const message = 'Duplicate transaction identifiers exist in saved records.';
+    harness.request.mockImplementation((url: string) => url.includes('/api/tax/schedule-c/export')
+      ? Promise.resolve(response({ error: message, code: 'EXPORT_REVIEW_REQUIRED' }, 422))
+      : requests(url));
+    render(); await flush();
+    await walk(render()).find(node => node.props?.['aria-label'] === 'Export Schedule C PDF')!.props.onClick();
+    await flush();
+    const content = text(render());
+    expect(content).toContain(message);
+    expect(walk(render()).find(node => node.type === IncomeReconciliationExportCard)).toBeUndefined();
   });
 });

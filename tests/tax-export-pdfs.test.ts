@@ -34,7 +34,10 @@ vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collection: (name: string) =
   return { where(field: string, _op: string, value: unknown) { filters.push([field, value]); return this; }, limit() { return this; }, get: async () => {
     if (state.fail === name) throw new Error('private Firestore failure');
     const records = (state.records[name] || []).filter(row => filters.every(([key, value]) => row[key] === value));
-    return { empty: !records.length, docs: records.map((row, index) => ({ id: `record-${index}`, data: () => row })) };
+    return { empty: !records.length, docs: records.map((row, index) => {
+      const id = typeof row.id === 'string' ? row.id : `record-${index}`;
+      return { id, ref: { path: `${name}/${id}` }, data: () => row };
+    }) };
   } };
 } } }));
 import { POST as scheduleC } from '../app/api/tax/schedule-c/export/route';
@@ -102,6 +105,34 @@ describe('Schedule C real PDF and request integrity', () => {
   });
   it('uses the actual changed OtherExpenses line reference by year', () => {
     expect(scheduleCExportLine('27a', 2024)).toBe('27a'); expect(scheduleCExportLine('27a', 2025)).toBe('27b'); expect(scheduleCExportLine('24b', 2026)).toBe('24b');
+  });
+  it('R-26 keeps both export formats at 422 until the two forms have a decision', async () => {
+    state.records.gross_receipts = [];
+    state.records.income_1099 = [
+      record({ id: 'k1', amount: 10000, formType: '1099-K', payerName: 'Synthetic platform' }),
+      record({ id: 'n1', amount: 10000, formType: '1099-NEC', payerName: 'Synthetic client' }),
+    ];
+    for (const format of ['csv', 'pdf'] as const) {
+      const response = await scheduleC(request({ year: 2026, format }));
+      expect(response.status).toBe(422);
+      expect(response.headers.get('content-disposition')).toBeNull();
+      const body = await response.json();
+      expect(body.code).toBe('INCOME_RECONCILIATION_REQUIRED');
+      expect(body.conflicts[0].reason).toBe('multiple_forms');
+      expect(body.reviewPath).toBe('/protected?screen=income-tracking&tab=reconcile&year=2026');
+    }
+  });
+  it('R-34 still exports a file for a version 1 same-payments decision', async () => {
+    state.records.gross_receipts = [record({ id: 'r1', amount: 12000, source: 'Synthetic platform', date: '2026-01-31', type: 'freelance' })];
+    state.records.income_1099 = [record({ id: 'k1', amount: 12000, formType: '1099-K', payerName: 'Synthetic platform' })];
+    state.records.income_reconciliations = [record({
+      id: 'legacy', decision: 'same_payments', version: 1, platformFeeAmount: null,
+      sources: [{ kind: 'form_1099', id: 'k1', amount: 12000 }, { kind: 'gross_receipt', id: 'r1', amount: 12000 }],
+    })];
+    const response = await scheduleC(request({ year: 2026, format: 'pdf', includeAppendix: false }));
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-disposition')).toContain('Schedule_C_2026_WriteOff.pdf');
+    expect((await response.arrayBuffer()).byteLength).toBeGreaterThan(100);
   });
 });
 

@@ -1,7 +1,8 @@
 import { IncomeReconciliationRequiredError, listIncomeSourceCandidates, type IncomeRecord } from './business-income';
 import {
   normalizeReconciliationDecision, resolveIncomeSources, sourceKey, validateReconciliationDecision,
-  type FeeExpenseCandidate, type IncomeReconciliationConflict, type IncomeSourceCandidate, type IncomeSourceRef, type ReconciliationDecisionType,
+  type FeeExpenseCandidate, type IncomeReconciliationConflict, type IncomeSourceCandidate, type IncomeSourceRef,
+  type NotBusinessPart, type OutsideScheduleCItem, type PaymentMethodHint, type ReconciliationDecisionType,
 } from './income-reconciliation';
 
 /** Deep link into the reconciliation panel for one tax year. */
@@ -37,12 +38,16 @@ export interface SavedDecisionView {
   decision: ReconciliationDecisionType | 'unknown';
   sources: Array<IncomeSourceRef & { label: string }>;
   platformFeeAmount: number;
+  notBusinessParts: NotBusinessPart[];
+  paymentMethodHint?: PaymentMethodHint;
   note: string;
-  /** Gross receipts this decision counted when it was saved. */
+  /** Schedule C line 1 amount this decision counted when it was saved. */
   countedAmount: number | null;
   decidedAt: string | null;
   /** False when the decision no longer matches the current records and is reported as a conflict. */
   applied: boolean;
+  /** True only for a same_payments decision saved before this change (version missing or 1). */
+  needsReconfirm: boolean;
 }
 
 export interface IncomeReconciliationSummary {
@@ -52,10 +57,15 @@ export interface IncomeReconciliationSummary {
   conflicts: IncomeReconciliationConflict[];
   /** Schedule C line 1 for the year once nothing is ambiguous; null while conflicts remain. */
   grossReceipts: number | null;
+  /** Schedule C line 2. Null while conflicts remain. */
+  returnsAndAllowances: number | null;
+  /** Schedule C line 3. Null while conflicts remain. Profit calculations use this, not line 1. */
+  netReceipts: number | null;
   /** Dollars counted once by applied decisions, and dollars of records no decision covers. */
   reconciledAmount: number;
   unclaimedAmount: number;
   feeExpenseCandidates: FeeExpenseCandidate[];
+  outsideScheduleC: OutsideScheduleCItem[];
   /** Set when a saved record needs review outside this workflow (e.g. a 1099-MISC or rental receipt). */
   unsupported: string | null;
   policy: string;
@@ -76,26 +86,31 @@ function decisionView(record: IncomeRecord, appliedIds: ReadonlySet<string>): Sa
       amount: typeof source.amount === 'number' ? source.amount : 0, label: str(source.label),
     })),
     platformFeeAmount: normalized?.platformFeeAmount ?? 0,
+    notBusinessParts: normalized?.notBusinessParts ?? [],
+    ...(normalized?.paymentMethodHint ? { paymentMethodHint: normalized.paymentMethodHint } : {}),
     note: str(record.note),
     countedAmount: typeof record.countedAmount === 'number' && Number.isFinite(record.countedAmount) ? record.countedAmount : null,
     decidedAt: str(record.decidedAt) || null,
     applied: appliedIds.has(id),
+    needsReconfirm: record.decision === 'same_payments' && (record.version === undefined || record.version === null || record.version === 1),
   };
 }
 
 /** The owner-facing state of one tax year: what can be reconciled, what was decided, what still blocks a total. */
 export function summarizeIncomeReconciliation(taxYear: number, records: IncomeSourceRecords): IncomeReconciliationSummary {
-  const base = { taxYear, feeExpenseCandidates: [] as FeeExpenseCandidate[], policy: INCOME_RECONCILIATION_POLICY };
+  const base = { taxYear, feeExpenseCandidates: [] as FeeExpenseCandidate[], outsideScheduleC: [] as OutsideScheduleCItem[], policy: INCOME_RECONCILIATION_POLICY };
   let candidates: IncomeSourceCandidate[];
   try {
     candidates = listIncomeSourceCandidates(taxYear, records.transactions, records.receipts, records.forms).candidates;
   } catch (error) {
     if (!(error instanceof IncomeReconciliationRequiredError)) throw error;
-    return { ...base, candidates: [], decisions: records.decisions.map(record => decisionView(record, new Set())), conflicts: [], grossReceipts: null, reconciledAmount: 0, unclaimedAmount: 0, unsupported: error.message };
+    return { ...base, candidates: [], decisions: records.decisions.map(record => decisionView(record, new Set())), conflicts: [], grossReceipts: null, returnsAndAllowances: null, netReceipts: null, reconciledAmount: 0, unclaimedAmount: 0, unsupported: error.message };
   }
   const resolution = resolveIncomeSources(taxYear, candidates, records.decisions);
   const appliedIds = new Set(resolution.appliedDecisionIds);
   const unclaimed = resolution.unclaimedCents.form_1099 + resolution.unclaimedCents.gross_receipt + resolution.unclaimedCents.transaction;
+  const line1Cents = resolution.reconciledCents + unclaimed;
+  const open = resolution.conflicts.length > 0;
   return {
     ...base,
     candidates: candidates.map(candidate => {
@@ -104,10 +119,13 @@ export function summarizeIncomeReconciliation(taxYear: number, records: IncomeSo
     }),
     decisions: records.decisions.map(record => decisionView(record, appliedIds)),
     conflicts: resolution.conflicts,
-    grossReceipts: resolution.conflicts.length ? null : (resolution.reconciledCents + unclaimed) / 100,
+    grossReceipts: open ? null : line1Cents / 100,
+    returnsAndAllowances: open ? null : resolution.returnsCents / 100,
+    netReceipts: open ? null : (line1Cents - resolution.returnsCents) / 100,
     reconciledAmount: resolution.reconciledCents / 100,
     unclaimedAmount: unclaimed / 100,
     feeExpenseCandidates: resolution.feeExpenseCandidates,
+    outsideScheduleC: resolution.outsideScheduleC,
     unsupported: null,
   };
 }
@@ -118,6 +136,8 @@ export interface DecisionRequest {
   decision: ReconciliationDecisionType;
   sources: IncomeSourceRef[];
   platformFeeAmount: number;
+  notBusinessParts: NotBusinessPart[];
+  paymentMethodHint?: PaymentMethodHint;
   note: string;
 }
 
@@ -126,6 +146,8 @@ export interface PreparedDecision {
   decision: ReconciliationDecisionType;
   sources: Array<IncomeSourceRef & { label: string }>;
   platformFeeAmount: number;
+  notBusinessParts: NotBusinessPart[];
+  paymentMethodHint?: PaymentMethodHint;
   note: string;
   countedAmount: number;
 }
@@ -150,7 +172,9 @@ export function prepareReconciliationDecision(taxYear: number, records: IncomeSo
   const others = records.decisions.filter(record => record.id !== request.id);
   const { claimedBy } = resolveIncomeSources(taxYear, candidates, others);
   const byKey = new Map(candidates.map(candidate => [sourceKey(candidate), candidate] as const));
-  const check = validateReconciliationDecision({ ...request, taxYear }, byKey, claimedBy);
+  const check = validateReconciliationDecision({
+    ...request, taxYear, notBusinessParts: request.notBusinessParts ?? [],
+  }, byKey, claimedBy);
   if (!check.ok) return { ok: false, status: 400, reason: check.reason };
   return {
     ok: true,
@@ -158,6 +182,8 @@ export function prepareReconciliationDecision(taxYear: number, records: IncomeSo
       taxYear, decision: request.decision, note: request.note,
       sources: check.sources.map(source => ({ kind: source.kind, id: source.id, amount: source.amount, label: source.label })),
       platformFeeAmount: check.feeCents / 100,
+      notBusinessParts: request.decision === 'k_not_business_income' ? request.notBusinessParts : [],
+      ...(request.paymentMethodHint ? { paymentMethodHint: request.paymentMethodHint } : {}),
       countedAmount: check.countedCents / 100,
     },
   };

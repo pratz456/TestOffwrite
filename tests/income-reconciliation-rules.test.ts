@@ -1,7 +1,19 @@
-import { describe, expect, it } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import { describe, expect, it, vi } from 'vitest';
+import { PDFPage } from 'pdf-lib';
 import { reconcileBusinessIncome, listIncomeSourceCandidates, IncomeReconciliationRequiredError } from '../lib/tax-rules/business-income';
 import { buildFederalTaxSnapshot } from '../lib/tax-rules/federal-tax-snapshot';
-import { normalizeReconciliationDecision, resolveIncomeSources, sourceKey, validateReconciliationDecision, type IncomeReconciliationDecision } from '../lib/tax-rules/income-reconciliation';
+import { aggregateScheduleC } from '../lib/schedule-c/aggregate';
+import { generateScheduleCPlanningPDF } from '../lib/reports/schedule-c-pdf';
+import {
+  normalizeReconciliationDecision, resolveIncomeSources, samePaymentsAllowed, sourceKey, validateReconciliationDecision, type IncomeReconciliationDecision,
+} from '../lib/tax-rules/income-reconciliation';
+import {
+  ERR_NOT_BUSINESS_NEEDS_ONE_K, ERR_PARTS_EXCEED_GROSS, ERR_REASON_REQUIRED, ERR_SELECT_BUSINESS_RECORDS, NO_FORM_NO_INCOME, OUTSIDE_SC_NOTE,
+  PANEL_FORMS_NOTE, SAME_PAYMENTS_NEEDS_K, fillIncomeCopy,
+} from '../lib/tax-rules/income-reconciliation-copy';
+import * as incomeCopy from '../lib/tax-rules/income-reconciliation-copy';
+import { summarizeIncomeReconciliation } from '../lib/tax-rules/income-reconciliation-response';
 import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductions';
 
 const deposit = (id: string, amount: number, date = '2026-02-01') => ({ id, trans_id: id, account_id: 'bank-1', amount: -amount, category: 'income', type: 'income', date, merchant_name: 'Synthetic platform payout' });
@@ -143,7 +155,6 @@ describe('decision validation against current records', () => {
     expect(check('k_includes_fees', [ref('form_1099', 'k1', 10000), ref('gross_receipt', 'r1', 10000), ref('transaction', 't1', 9500)], 500)).toMatchObject({ ok: true, countedCents: 1000000, feeCents: 50000 });
   });
   it.each([
-    ['separate_income', [ref('form_1099', 'k1', 10000), ref('gross_receipt', 'r1', 10000)], 0, 'one record at a time'],
     ['same_payments', [ref('form_1099', 'k1', 10000)], 0, 'at least two records'],
     ['same_payments', [ref('transaction', 't1', 9500), ref('transaction', 't2', 250)], 0, 'at least two kinds'],
     ['same_payments', [ref('form_1099', 'k1', 10000), ref('gross_receipt', 'r1', 10000)], 25, '1099-K includes fees'],
@@ -166,7 +177,7 @@ describe('decision validation against current records', () => {
     expect(validateReconciliationDecision({ id: 'new', taxYear: 2026, decision: 'same_payments', platformFeeAmount: 0, sources: [ref('form_1099', 'k1', 10000), ref('form_1099', 'n1', 10000)] }, byKey)).toMatchObject({ ok: true, countedCents: 1000000 });
   });
   it('normalizes saved records conservatively', () => {
-    expect(normalizeReconciliationDecision({ id: 'd', taxYear: 2026, decision: 'same_payments', sources: [ref('form_1099', 'k', 1)], platformFeeAmount: null, note: '' })).toEqual({ id: 'd', taxYear: 2026, decision: 'same_payments', sources: [ref('form_1099', 'k', 1)], platformFeeAmount: 0 });
+    expect(normalizeReconciliationDecision({ id: 'd', taxYear: 2026, decision: 'same_payments', sources: [ref('form_1099', 'k', 1)], platformFeeAmount: null, note: '' })).toEqual({ id: 'd', taxYear: 2026, decision: 'same_payments', sources: [ref('form_1099', 'k', 1)], platformFeeAmount: 0, notBusinessParts: [] });
     expect(normalizeReconciliationDecision({ id: 'd', taxYear: 2026, decision: 'same_payments', sources: [] })).toBeNull();
     expect(normalizeReconciliationDecision({ id: 'd', taxYear: '2026', decision: 'same_payments', sources: [ref('form_1099', 'k', 1)] })).toBeNull();
     expect(normalizeReconciliationDecision({ id: 'd', taxYear: 2026, decision: 'same_payments', sources: [ref('form_1099', 'k', 1)], platformFeeAmount: -5 })).toBeNull();
@@ -177,5 +188,259 @@ describe('decision validation against current records', () => {
     expect(resolution.appliedDecisionIds).toEqual([]);
     expect(resolution.unclaimedCents).toEqual({ form_1099: 0, gross_receipt: 25000, transaction: 10000 });
     expect(resolution.conflicts.map(conflict => conflict.reason)).toEqual(['stale_decision', 'overlapping_sources']);
+  });
+});
+
+const notBusiness = (
+  id: string,
+  sources: IncomeReconciliationDecision['sources'],
+  parts: IncomeReconciliationDecision['notBusinessParts'],
+  fee = 0,
+) => decision(id, 'k_not_business_income', sources, { platformFeeAmount: fee, notBusinessParts: parts });
+
+async function pdfText(data: { grossReceipts: number; returnsAndAllowances: number; netReceipts: number }) {
+  const spy = vi.spyOn(PDFPage.prototype, 'drawText');
+  await generateScheduleCPlanningPDF({ taxYear: 2026, ...data, lineItems: [], includeAppendix: false });
+  const calls = spy.mock.calls.map(call => String(call[0]));
+  spy.mockRestore();
+  return calls;
+}
+
+describe('1099-K amounts that are not business income', () => {
+  const refunds = (amount: number) => [{ reason: 'refunds_credits' as const, amount }];
+  const personal = (amount: number) => [{ reason: 'personal' as const, amount }];
+
+  it('R-11 puts refunds on line 2 and fees in the review list, and profit uses line 3', () => {
+    const transactions = [deposit('t1', 5000), deposit('t2', 4200)];
+    const forms = [form('k1', 10000)];
+    const saved = [notBusiness('d1', [ref('form_1099', 'k1', 10000), ref('transaction', 't1', 5000), ref('transaction', 't2', 4200)], refunds(500), 300)];
+    const result = reconcileBusinessIncome(2026, transactions, [], forms, saved);
+    expect(result).toMatchObject({
+      grossReceipts: 10000, returnsAndAllowances: 500, netReceipts: 9500, outsideScheduleC: [],
+      feeExpenseCandidates: [expect.objectContaining({ amount: 300, formId: 'k1' })],
+    });
+    const snapshot = buildFederalTaxSnapshot({
+      taxYear: 2026, transactions, grossReceipts: [], forms1099: forms, reconciliationDecisions: saved,
+      w2Entries: [{ wages: 100000, federalWithheld: 0, socialSecurityWages: 100000, medicareWages: 100000 }],
+      profile: { filing_status: 'single' }, organizer: reviewedPersonalDeductionOrganizer(),
+      deductions: {}, assets: [], estimatedPayments: 0,
+    });
+    expect(snapshot.scheduleC.profitBeforeAssets).toBe(9500);
+    expect(snapshot.income.grossReceipts).toBe(10000);
+    expect(snapshot.income.netReceipts).toBe(9500);
+    expect(snapshot.income.scheduleCNetProfit).toBe(9500);
+  });
+
+  it('R-12 and R-13 keep personal off every Schedule C line, including the PDF', async () => {
+    const transactions = [deposit('t1', 2200)];
+    const forms = [form('k1', 3000)];
+    const saved = [notBusiness('d1', [ref('form_1099', 'k1', 3000), ref('transaction', 't1', 2200)], personal(800))];
+    const before = JSON.stringify([transactions, forms]);
+    const result = reconcileBusinessIncome(2026, transactions, [], forms, saved);
+    expect(result).toMatchObject({ grossReceipts: 2200, returnsAndAllowances: 0, netReceipts: 2200 });
+    expect(result.outsideScheduleC).toEqual([expect.objectContaining({ amount: 800, status: 'needs_review', formId: 'k1' })]);
+    expect(result.warnings.filter(warning => warning.includes(OUTSIDE_SC_NOTE))).toHaveLength(1);
+    expect(JSON.stringify([transactions, forms])).toBe(before);
+    const drawn = await pdfText(result);
+    expect(drawn).not.toContain('$800.00');
+  });
+
+  it('R-14 does not put a personal amount on any expense line', () => {
+    const expense = { id: 'e1', amount: 40, date: '2026-03-01', category: 'GENERAL_MERCHANDISE_OTHER_GENERAL_MERCHANDISE', is_deductible: true, review_status: 'confirmed' };
+    const transactions = [deposit('t1', 2200), expense];
+    const forms = [form('k1', 3000)];
+    const saved = [notBusiness('d1', [ref('form_1099', 'k1', 3000), ref('transaction', 't1', 2200)], personal(800))];
+    const withoutDecision = aggregateScheduleC([expense], '2026');
+    const withDecision = aggregateScheduleC([expense], '2026');
+    expect(withDecision).toEqual(withoutDecision);
+    expect(withDecision.lineItemsArray.some(row => row.total === 800 || row.deductible === 800)).toBe(false);
+    const income = reconcileBusinessIncome(2026, transactions, [], forms, saved);
+    expect(income.outsideScheduleC[0].amount).toBe(800);
+    expect(income.returnsAndAllowances).toBe(0);
+  });
+
+  it('R-15 allows a whole 1099-K to be personal when nothing else is selected', () => {
+    const forms = [form('k1', 1500)];
+    const result = reconcileBusinessIncome(2026, [], [], forms, [notBusiness('d1', [ref('form_1099', 'k1', 1500)], personal(1500))]);
+    expect(result).toMatchObject({ grossReceipts: 0, returnsAndAllowances: 0, netReceipts: 0 });
+    expect(result.outsideScheduleC).toEqual([expect.objectContaining({ amount: 1500, status: 'needs_review' })]);
+  });
+
+  it('R-16 keeps refunds on line 2 and personal outside Schedule C in one decision', () => {
+    const receipts = [receipt('r1', 5000)];
+    const forms = [form('k1', 6000)];
+    const before = JSON.stringify([receipts, forms]);
+    const result = reconcileBusinessIncome(2026, [], receipts, forms, [notBusiness('d1', [ref('form_1099', 'k1', 6000), ref('gross_receipt', 'r1', 5000)], [
+      { reason: 'refunds_credits', amount: 400 }, { reason: 'personal', amount: 600 },
+    ])]);
+    expect(result).toMatchObject({ grossReceipts: 5400, returnsAndAllowances: 400, netReceipts: 5000 });
+    expect(result.outsideScheduleC).toEqual([expect.objectContaining({ amount: 600 })]);
+    expect(JSON.stringify([receipts, forms])).toBe(before);
+  });
+
+  it('R-17 rejects a sum that does not reach the 1099-K gross', () => {
+    const { candidates } = listIncomeSourceCandidates(2026, [deposit('t1', 5000), deposit('t2', 4200)], [], [form('k1', 10000)]);
+    const byKey = new Map(candidates.map(candidate => [sourceKey(candidate), candidate]));
+    const result = validateReconciliationDecision(notBusiness('d1', [ref('form_1099', 'k1', 10000), ref('transaction', 't1', 5000), ref('transaction', 't2', 4200)], refunds(500)), byKey);
+    expect(result.ok).toBe(false);
+    const reason = (result as { reason: string }).reason;
+    expect(reason.startsWith("The parts don't add up to the 1099-K gross of $10,000.00")).toBe(true);
+    expect(reason).toContain('bank income $9,200.00');
+    expect(reason).toContain('= $9,700.00');
+  });
+
+  it('R-18 rejects parts that exceed the 1099-K gross', () => {
+    const { candidates } = listIncomeSourceCandidates(2026, [], [], [form('k1', 1000)]);
+    const byKey = new Map(candidates.map(candidate => [sourceKey(candidate), candidate]));
+    const result = validateReconciliationDecision(notBusiness('d1', [ref('form_1099', 'k1', 1000)], [
+      { reason: 'refunds_credits', amount: 700 }, { reason: 'personal', amount: 400 },
+    ]), byKey);
+    expect(result).toEqual({ ok: false, reason: fillIncomeCopy(ERR_PARTS_EXCEED_GROSS, { parts: '$1,100.00', gross: '$1,000.00' }) });
+  });
+
+  it('R-19 rejects a not-business decision with no reason', () => {
+    const { candidates } = listIncomeSourceCandidates(2026, [deposit('t1', 1000)], [], [form('k1', 1000)]);
+    const byKey = new Map(candidates.map(candidate => [sourceKey(candidate), candidate]));
+    const result = validateReconciliationDecision(notBusiness('d1', [ref('form_1099', 'k1', 1000), ref('transaction', 't1', 1000)], []), byKey);
+    expect(result).toEqual({ ok: false, reason: ERR_REASON_REQUIRED });
+  });
+
+  it('R-21 requires the deposits or direct income for a remaining business part', () => {
+    const { candidates } = listIncomeSourceCandidates(2026, [], [], [form('k1', 2000)]);
+    const byKey = new Map(candidates.map(candidate => [sourceKey(candidate), candidate]));
+    const result = validateReconciliationDecision(notBusiness('d1', [ref('form_1099', 'k1', 2000)], refunds(200)), byKey);
+    expect(result).toEqual({ ok: false, reason: fillIncomeCopy(ERR_SELECT_BUSINESS_RECORDS, { business: '$1,800.00' }) });
+  });
+
+  it('R-22 rejects the not-business decision on a 1099-NEC', () => {
+    const { candidates } = listIncomeSourceCandidates(2026, [deposit('t1', 2500)], [], [form('n1', 3000, '1099-NEC')]);
+    const byKey = new Map(candidates.map(candidate => [sourceKey(candidate), candidate]));
+    const result = validateReconciliationDecision(notBusiness('d1', [ref('form_1099', 'n1', 3000), ref('transaction', 't1', 2500)], personal(500)), byKey);
+    expect(result).toEqual({ ok: false, reason: ERR_NOT_BUSINESS_NEEDS_ONE_K });
+  });
+
+  it('R-23 rejects refund or personal parts on any other decision', () => {
+    const { candidates } = listIncomeSourceCandidates(2026, [], [receipt('r1', 10000)], [form('k1', 10000)]);
+    const byKey = new Map(candidates.map(candidate => [sourceKey(candidate), candidate]));
+    const result = validateReconciliationDecision(decision('d1', 'same_payments', [ref('form_1099', 'k1', 10000), ref('gross_receipt', 'r1', 10000)], {
+      notBusinessParts: refunds(100),
+    }), byKey);
+    expect(result.ok).toBe(false);
+    expect((result as { reason: string }).reason).toContain('Refund and personal amounts can only be recorded');
+  });
+
+  it('R-25 prints Schedule C lines 1, 2 and 3 and uses line 3 on the worksheet', async () => {
+    const result = reconcileBusinessIncome(2026, [deposit('t1', 5000), deposit('t2', 4200)], [], [form('k1', 10000)], [
+      notBusiness('d1', [ref('form_1099', 'k1', 10000), ref('transaction', 't1', 5000), ref('transaction', 't2', 4200)], refunds(500), 300),
+    ]);
+    const drawn = await pdfText(result);
+    expect(drawn).toEqual(expect.arrayContaining(['$10,000.00', '$500.00', '$9,500.00']));
+    const worksheet = drawn.indexOf('Worksheet');
+    expect(drawn.slice(worksheet, worksheet + 4)).toContain('$9,500.00');
+  });
+
+  it('R-39 lets one 1099-K with no other records take the not-business decision', () => {
+    const forms = [form('k1', 900)];
+    expect(() => reconcileBusinessIncome(2026, [], [], forms)).not.toThrow();
+    const open = reconcileBusinessIncome(2026, [], [], forms);
+    expect(open.grossReceipts).toBe(900);
+    const saved = reconcileBusinessIncome(2026, [], [], forms, [notBusiness('d1', [ref('form_1099', 'k1', 900)], personal(900))]);
+    expect(saved).toMatchObject({ grossReceipts: 0, netReceipts: 0 });
+    expect(saved.outsideScheduleC).toEqual([expect.objectContaining({ amount: 900 })]);
+  });
+
+  it('R-40 leaves the underlying records byte-identical after R-11', () => {
+    const transactions = [deposit('t1', 5000), deposit('t2', 4200)];
+    const forms = [form('k1', 10000)];
+    const before = JSON.stringify([transactions, forms]);
+    reconcileBusinessIncome(2026, transactions, [], forms, [
+      notBusiness('d1', [ref('form_1099', 'k1', 10000), ref('transaction', 't1', 5000), ref('transaction', 't2', 4200)], refunds(500), 300),
+    ]);
+    expect(JSON.stringify([transactions, forms])).toBe(before);
+  });
+});
+
+describe('Tax Watch same-payments and separate-income rulings', () => {
+  it('rejects same payments for two 1099-NEC forms and counts them once each', () => {
+    const forms = [form('n1', 12000, '1099-NEC', 'Client A'), form('n2', 12000, '1099-NEC', 'Client B')];
+    const sources = [ref('form_1099', 'n1', 12000), ref('form_1099', 'n2', 12000)];
+    expect(samePaymentsAllowed([{ kind: 'form_1099', formType: '1099-NEC' }, { kind: 'form_1099', formType: '1099-NEC' }])).toBe(false);
+    expect(samePaymentsAllowed([
+      { kind: 'form_1099', formType: '1099-NEC' }, { kind: 'form_1099', formType: '1099-NEC' }, { kind: 'transaction' },
+    ])).toBe(false);
+    const { candidates } = listIncomeSourceCandidates(2026, [], [], forms);
+    const byKey = new Map(candidates.map(candidate => [sourceKey(candidate), candidate]));
+    const rejected = validateReconciliationDecision(decision('d1', 'same_payments', sources), byKey);
+    expect(rejected).toEqual({ ok: false, reason: SAME_PAYMENTS_NEEDS_K });
+    expect(() => reconcileBusinessIncome(2026, [], [], forms, [decision('d1', 'same_payments', sources)])).toThrow(IncomeReconciliationRequiredError);
+    const counted = reconcileBusinessIncome(2026, [], [], forms, [decision('d1', 'separate_income', sources)]);
+    expect(counted.grossReceipts).toBe(24000);
+    expect(counted.netReceipts).toBe(24000);
+  });
+
+  it('saves separate income for several records in one decision', () => {
+    const forms = [form('k1', 12000), form('n1', 4000, '1099-NEC', 'Client B')];
+    const result = reconcileBusinessIncome(2026, [], [], forms, [decision('d1', 'separate_income', [ref('form_1099', 'k1', 12000), ref('form_1099', 'n1', 4000)])]);
+    expect(result.grossReceipts).toBe(16000);
+    expect(result.reconciledDecisionCount).toBe(1);
+  });
+
+  it('R-10 ignores the payment-method hint in every total', () => {
+    const receipts = [receipt('r1', 10000)];
+    const forms = [form('k1', 10000)];
+    const sources = [ref('form_1099', 'k1', 10000), ref('gross_receipt', 'r1', 10000)];
+    const app = reconcileBusinessIncome(2026, [], receipts, forms, [decision('d1', 'same_payments', sources, { paymentMethodHint: 'app_or_card' })]);
+    const bank = reconcileBusinessIncome(2026, [], receipts, forms, [decision('d1', 'same_payments', sources, { paymentMethodHint: 'check_ach_wire' })]);
+    expect(app.grossReceipts).toBe(10000);
+    expect(app.netReceipts).toBe(bank.netReceipts);
+    expect(app.grossReceipts).toBe(bank.grossReceipts);
+    expect(app.returnsAndAllowances).toBe(bank.returnsAndAllowances);
+  });
+});
+
+describe('legacy decisions and copy', () => {
+  it('R-30 keeps a version 1 same-payments decision counting once and asks for confirmation', () => {
+    const receipts = [receipt('r1', 12000)];
+    const forms = [form('k1', 12000)];
+    const sources = [ref('form_1099', 'k1', 12000), ref('gross_receipt', 'r1', 12000)];
+    const legacy = { ...decision('d1', 'same_payments', sources), version: 1, countedAmount: 12000 };
+    const current = { ...decision('d1', 'same_payments', sources), version: 2, choiceConfirmedAt: '2026-04-01T00:00:00.000Z', countedAmount: 12000 };
+    expect(reconcileBusinessIncome(2026, [], receipts, forms, [legacy]).grossReceipts).toBe(12000);
+    expect(reconcileBusinessIncome(2026, [], receipts, forms, [legacy])).toMatchObject(
+      reconcileBusinessIncome(2026, [], receipts, forms, [current]),
+    );
+    const summary = summarizeIncomeReconciliation(2026, { transactions: [], receipts, forms, decisions: [legacy] });
+    expect(summary.grossReceipts).toBe(12000);
+    expect(summary.netReceipts).toBe(12000);
+    expect(summary.decisions[0].needsReconfirm).toBe(true);
+  });
+
+  it('R-33 does not ask to reconfirm version 1 separate-income or fee decisions', () => {
+    const summary = summarizeIncomeReconciliation(2026, {
+      transactions: [deposit('t1', 6000), deposit('t2', 4000)], receipts: [], forms: [form('k1', 10500), form('n1', 2500, '1099-NEC', 'Client B')],
+      decisions: [
+        { ...decision('fee', 'k_includes_fees', [ref('form_1099', 'k1', 10500), ref('transaction', 't1', 6000), ref('transaction', 't2', 4000)], { platformFeeAmount: 500 }), version: 1 },
+        { ...decision('sep', 'separate_income', [ref('form_1099', 'n1', 2500)]), version: 1 },
+      ],
+    });
+    expect(summary.decisions.map(item => item.needsReconfirm)).toEqual([false, false]);
+    expect(summary.grossReceipts).toBe(13000);
+  });
+
+  it('R-36 and R-37 keep the threshold wording and drop the banned claims', () => {
+    expect(PANEL_FORMS_NOTE).toContain('over $20,000 and over 200 transactions');
+    expect(NO_FORM_NO_INCOME).toContain("No form doesn't mean no income");
+    let grep = '';
+    try {
+      grep = execFileSync('git', ['grep', '-n', 'only above $20,000 and 200 transactions', '--', 'components', 'lib'], { encoding: 'utf8' });
+    } catch (error) {
+      grep = typeof error === 'object' && error && 'stdout' in error ? String((error as { stdout?: string }).stdout ?? '') : '';
+    }
+    expect(grep).toBe('');
+    for (const value of Object.values(incomeCopy)) {
+      if (typeof value !== 'string') continue;
+      expect(value).not.toContain('every dollar counted once');
+      expect(value).not.toContain('finished');
+    }
   });
 });

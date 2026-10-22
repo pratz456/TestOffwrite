@@ -51,7 +51,8 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
   const { totalDeductible } = aggregateScheduleC([...transactions] as Parameters<typeof aggregateScheduleC>[0], String(taxYear), CATEGORY_MAP, { mode: 'confirmed-only' });
   // Schedule C ordering shared with the SE loader: line 13 assets, line 29, line 30 home office, line 31.
   const scheduleC = computeScheduleCProfit({
-    taxYear, grossReceipts: reconciliation.grossReceipts, confirmedExpenses: totalDeductible, w2Wages: w2.wages,
+    // Line 3, not line 1. Refunds reduce profit; personal amounts never entered line 1.
+    taxYear, grossReceipts: reconciliation.netReceipts, confirmedExpenses: totalDeductible, w2Wages: w2.wages,
     assets: input.assets, depreciationElections: input.depreciationElections, homeOffice: input.homeOffice, legacyHomeOfficeMethod: profile.home_office_method,
   });
   const scheduleCNetProfit = scheduleC.profitBeforeAssets;
@@ -163,7 +164,8 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
     stateTax: result.stateTax,
     businessTaxNotices: businessTaxNotices({ stateCode: location.state, city: location.city, taxYear }),
     income: {
-      grossReceipts: reconciliation.grossReceipts, income1099: reconciliation.form1099Receipts, w2Wages: w2.wages, scheduleCNetProfit, scheduleCAllowed: result.scheduleCAllowed, totalDeductible, deMinimisExpense, depreciationDeduction,
+      grossReceipts: reconciliation.grossReceipts, returnsAndAllowances: reconciliation.returnsAndAllowances, netReceipts: reconciliation.netReceipts,
+      income1099: reconciliation.form1099Receipts, w2Wages: w2.wages, scheduleCNetProfit, scheduleCAllowed: result.scheduleCAllowed, totalDeductible, deMinimisExpense, depreciationDeduction,
       scheduleCLine29TentativeProfit: scheduleC.tentativeProfit, homeOfficeDeduction, scheduleCLine31NetProfit,
       otherIncome, otherOrdinaryIncome, interest, dividends,
       capGains, shortTermCapGains: capitalGains.netShortTerm, longTermCapGains: capitalGains.netLongTerm, capitalLossCarryforward: capitalGains.lossCarryforward,

@@ -39,8 +39,8 @@ export async function loadScheduleCRecords(uid: string, taxYear: number) {
     w2MedicareBoxesComplete: wages.docs.every(doc => doc.data().box5MedicareWages != null || doc.data().medicareWages != null),
     deductions: deductions.empty ? {} : deductions.docs[0].data(),
     assets: settings.data.assets, homeOffice: settings.data.homeOffice, depreciationElections: settings.data.depreciationElections,
-    /** §179(b)(3) business income: Schedule C profit before assets plus employee wages (Pub 946 ch. 2). */
-    section179BusinessIncome: receipts.grossReceipts - expense.totalDeductible + w2.wages,
+    /** §179(b)(3) business income: Schedule C line 3 minus confirmed expenses, plus employee wages (Pub 946 ch. 2). */
+    section179BusinessIncome: receipts.netReceipts - expense.totalDeductible + w2.wages,
   };
 }
 
@@ -49,7 +49,7 @@ export type ScheduleCRecords = Awaited<ReturnType<typeof loadScheduleCRecords>>;
 /** The shared line 13 → 29 → 30 → 31 ordering applied to loaded records; throws the review errors. */
 export function scheduleCProfitFromRecords(records: ScheduleCRecords) {
   return computeScheduleCProfit({
-    taxYear: records.taxYear, grossReceipts: records.receipts.grossReceipts, confirmedExpenses: records.expense.totalDeductible, w2Wages: records.w2.wages,
+    taxYear: records.taxYear, grossReceipts: records.receipts.netReceipts, confirmedExpenses: records.expense.totalDeductible, w2Wages: records.w2.wages,
     assets: records.assets, depreciationElections: records.depreciationElections, homeOffice: records.homeOffice, legacyHomeOfficeMethod: records.profile.home_office_method,
   });
 }
@@ -87,7 +87,7 @@ export async function loadScheduleSEData(uid: string, taxYear: number) {
   return {
     userProfile: { ...profile, filing_status: filingStatus }, taxYear, filingStatus,
     calculation, w2SocialSecurityWages: ownerSocialSecurityWages, w2MedicareWages: w2.medicareWagesForSE,
-    grossReceipts: receipts.grossReceipts, totalExpenses: expense.totalDeductible,
+    grossReceipts: receipts.netReceipts, totalExpenses: expense.totalDeductible,
     netProfitBeforeDepreciation, deMinimisExpense, depreciationDeduction, tentativeProfit: scheduleC.tentativeProfit, homeOfficeDeduction, netProfit,
     homeOffice: scheduleC.homeOffice.calculation, scheduleCWarnings: scheduleC.warnings,
     w2Wages: w2.wages, w2Withheld: w2.federalWithheld, w2Count: records.w2Count,

@@ -9,20 +9,35 @@
  *
  * IRS grounding: all business income is taxable whether or not an information
  * return arrives; a 1099-K reports gross amounts before platform fees, and for
- * 2025 and later a third-party settlement organization files one only above
- * $20,000 and 200 transactions (Gig Economy Tax Center; Form 1099-K FAQs).
+ * 2025 and later a third-party settlement organization files one only when
+ * payments are over $20,000 and over 200 transactions (Gig Economy Tax Center;
+ * Form 1099-K FAQs). Payment-card 1099-Ks have no threshold.
  */
+import {
+  DECISION_LABEL_NOT_BUSINESS, ERR_NOT_BUSINESS_NEEDS_ONE_K, ERR_PARTS_EXCEED_GROSS, ERR_REASON_REQUIRED,
+  ERR_SELECT_BUSINESS_RECORDS, ERR_SUM_MISMATCH, SAME_PAYMENTS_NEEDS_K, fillIncomeCopy,
+} from './income-reconciliation-copy';
+
 export const INCOME_SOURCE_KINDS = ['form_1099', 'gross_receipt', 'transaction'] as const;
 export type IncomeSourceKind = (typeof INCOME_SOURCE_KINDS)[number];
 
-export const RECONCILIATION_DECISION_TYPES = ['same_payments', 'separate_income', 'k_includes_fees'] as const;
+export const RECONCILIATION_DECISION_TYPES = ['same_payments', 'separate_income', 'k_includes_fees', 'k_not_business_income'] as const;
 export type ReconciliationDecisionType = (typeof RECONCILIATION_DECISION_TYPES)[number];
+
+export const NOT_BUSINESS_REASONS = ['refunds_credits', 'personal'] as const;
+export type NotBusinessReason = (typeof NOT_BUSINESS_REASONS)[number];
+/** Amount in dollars, over 0. */
+export interface NotBusinessPart { reason: NotBusinessReason; amount: number }
+
+export const PAYMENT_METHOD_HINTS = ['app_or_card', 'check_ach_wire', 'not_sure'] as const;
+export type PaymentMethodHint = (typeof PAYMENT_METHOD_HINTS)[number];
 
 export const SOURCE_KIND_LABELS: Record<IncomeSourceKind, string> = {
   form_1099: '1099 form', gross_receipt: 'direct income', transaction: 'bank income',
 };
 export const DECISION_LABELS: Record<ReconciliationDecisionType, string> = {
   same_payments: 'Same payments', separate_income: 'Separate income', k_includes_fees: '1099-K includes fees',
+  k_not_business_income: DECISION_LABEL_NOT_BUSINESS,
 };
 
 export interface IncomeSourceRef { kind: IncomeSourceKind; id: string; amount: number }
@@ -39,9 +54,20 @@ export interface IncomeReconciliationDecision {
   decision: ReconciliationDecisionType;
   sources: IncomeSourceRef[];
   platformFeeAmount: number;
+  /** Empty for every decision type other than k_not_business_income. */
+  notBusinessParts: NotBusinessPart[];
+  /** Guide-question answer. Never used in any total. */
+  paymentMethodHint?: PaymentMethodHint;
   note?: string;
 }
 export interface FeeExpenseCandidate { decisionId: string; formId: string; label: string; amount: number }
+export interface OutsideScheduleCItem {
+  decisionId: string;
+  formId: string;
+  label: string;
+  amount: number;
+  status: 'needs_review';
+}
 export interface IncomeReconciliationConflict {
   reason: 'overlapping_sources' | 'multiple_forms' | 'unreconciled_against_decision' | 'stale_decision';
   message: string;
@@ -55,9 +81,39 @@ const dollars = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { m
 const isFiniteAmount = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0;
 const publicRef = (candidate: IncomeSourceCandidate) => ({ kind: candidate.kind, id: candidate.id, amount: candidate.amount, label: candidate.label });
 
+/**
+ * Same payments may join a 1099-K to other records, or one 1099-NEC to the deposits
+ * or direct income that report it. Two or more 1099-NEC forms are separate income:
+ * a corrected NEC replaces the original rather than being matched to it.
+ */
+export function samePaymentsAllowed(sources: ReadonlyArray<{ kind: IncomeSourceKind; formType?: string }>): boolean {
+  const forms = sources.filter(source => source.kind === 'form_1099');
+  if (forms.some(form => form.formType === '1099-K')) return true;
+  if (forms.length === 0) return true;
+  const nonFormCount = sources.length - forms.length;
+  return forms.length === 1 && nonFormCount > 0 && forms.every(form => form.formType === '1099-NEC');
+}
+
+function readNotBusinessParts(value: unknown): NotBusinessPart[] | null {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.length > 2) return null;
+  const seen = new Set<string>();
+  const parts: NotBusinessPart[] = [];
+  for (const part of value) {
+    if (!part || typeof part !== 'object') return null;
+    const { reason, amount } = part as Record<string, unknown>;
+    if (!NOT_BUSINESS_REASONS.includes(reason as NotBusinessReason)) return null;
+    if (typeof reason !== 'string' || seen.has(reason)) return null;
+    if (typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0) return null;
+    seen.add(reason);
+    parts.push({ reason: reason as NotBusinessReason, amount });
+  }
+  return parts;
+}
+
 /** Shape-check a saved decision; malformed records are reported as stale, never applied. */
 export function normalizeReconciliationDecision(record: Record<string, unknown>): IncomeReconciliationDecision | null {
-  const { id, taxYear, decision, sources, platformFeeAmount, note } = record;
+  const { id, taxYear, decision, sources, platformFeeAmount, note, paymentMethodHint } = record;
   if (typeof id !== 'string' || !id || typeof taxYear !== 'number' || !Number.isInteger(taxYear)) return null;
   if (!RECONCILIATION_DECISION_TYPES.includes(decision as ReconciliationDecisionType)) return null;
   if (!Array.isArray(sources) || sources.length === 0) return null;
@@ -69,16 +125,26 @@ export function normalizeReconciliationDecision(record: Record<string, unknown>)
     refs.push({ kind: kind as IncomeSourceKind, id: sourceId, amount });
   }
   if (platformFeeAmount !== undefined && platformFeeAmount !== null && !isFiniteAmount(platformFeeAmount)) return null;
+  const notBusinessParts = readNotBusinessParts(record.notBusinessParts);
+  if (!notBusinessParts) return null;
+  if (paymentMethodHint !== undefined && paymentMethodHint !== null && !PAYMENT_METHOD_HINTS.includes(paymentMethodHint as PaymentMethodHint)) return null;
   return {
     id, taxYear, decision: decision as ReconciliationDecisionType, sources: refs,
     platformFeeAmount: isFiniteAmount(platformFeeAmount) ? platformFeeAmount : 0,
+    notBusinessParts,
+    ...(typeof paymentMethodHint === 'string' ? { paymentMethodHint: paymentMethodHint as PaymentMethodHint } : {}),
     ...(typeof note === 'string' && note ? { note } : {}),
   };
 }
 
 export type DecisionCheck =
-  | { ok: true; countedCents: number; feeCents: number; kinds: Set<IncomeSourceKind>; sources: IncomeSourceCandidate[] }
+  | { ok: true; countedCents: number; feeCents: number; returnsCents: number; personalCents: number; kinds: Set<IncomeSourceKind>; sources: IncomeSourceCandidate[] }
   | { ok: false; reason: string };
+
+const okCheck = (
+  countedCents: number, feeCents: number, kinds: Set<IncomeSourceKind>, sources: IncomeSourceCandidate[],
+  returnsCents = 0, personalCents = 0,
+): DecisionCheck => ({ ok: true, countedCents, feeCents, returnsCents, personalCents, kinds, sources });
 
 /**
  * Validate one decision against the current records. `claimedBy` lets a caller
@@ -103,6 +169,10 @@ export function validateReconciliationDecision(
     if (owner !== undefined && owner !== decision.id) return { ok: false, reason: `${candidate.label} is already reconciled in another saved decision.` };
     resolved.push(candidate);
   }
+  const parts = decision.notBusinessParts ?? [];
+  if (decision.decision !== 'k_not_business_income' && parts.length) {
+    return { ok: false, reason: 'Refund and personal amounts can only be recorded on the 1099-K decision for amounts that are not business income.' };
+  }
   const feeCents = toCents(decision.platformFeeAmount);
   const kinds = new Set(resolved.map(source => source.kind));
   const byKind = (kind: IncomeSourceKind) => resolved.filter(source => source.kind === kind);
@@ -110,9 +180,8 @@ export function validateReconciliationDecision(
   const forms = byKind('form_1099'), receipts = byKind('gross_receipt'), transactions = byKind('transaction');
 
   if (decision.decision === 'separate_income') {
-    if (resolved.length !== 1) return { ok: false, reason: 'Mark one record at a time as separate income.' };
     if (feeCents) return { ok: false, reason: 'Separate income does not record a platform fee.' };
-    return { ok: true, countedCents: toCents(resolved[0].amount), feeCents: 0, kinds, sources: resolved };
+    return okCheck(sum(resolved), 0, kinds, resolved);
   }
 
   if (decision.decision === 'same_payments') {
@@ -120,12 +189,13 @@ export function validateReconciliationDecision(
     // Two 1099s can report one payment stream. Duplicate receipts or deposits of one kind are
     // summed by the base rule, so they cannot be declared duplicates here.
     if (kinds.size < 2 && forms.length !== resolved.length) return { ok: false, reason: 'Select records of at least two kinds (a 1099, direct income or bank income) that describe the same payments.' };
+    if (!samePaymentsAllowed(resolved)) return { ok: false, reason: SAME_PAYMENTS_NEEDS_K };
     if (feeCents) return { ok: false, reason: 'Record platform fees with the “1099-K includes fees” decision.' };
     // An information return reports the whole payment stream; receipts and deposits may be split.
     const totals = [...forms.map(form => toCents(form.amount)), ...(receipts.length ? [sum(receipts)] : []), ...(transactions.length ? [sum(transactions)] : [])];
     const target = totals[0];
     if (totals.some(total => total !== target)) {
-      const parts = [
+      const partLabels = [
         ...forms.map(form => `${form.label} ${dollars(toCents(form.amount))}`),
         ...(receipts.length ? [`direct income ${dollars(sum(receipts))}`] : []),
         ...(transactions.length ? [`bank income ${dollars(sum(transactions))}`] : []),
@@ -134,9 +204,38 @@ export function validateReconciliationDecision(
       const hint = kForm && [receipts, transactions].some(group => group.length && sum(group) < toCents(kForm.amount))
         ? ' If the platform deducted fees before depositing, choose “1099-K includes fees” and enter the fee amount.'
         : '';
-      return { ok: false, reason: `Amounts do not match (${parts.join('; ')}). Each kind of record must total the same amount before it can count once.${hint}` };
+      return { ok: false, reason: `Amounts do not match (${partLabels.join('; ')}). Each kind of record must total the same amount before it can count once.${hint}` };
     }
-    return { ok: true, countedCents: target, feeCents: 0, kinds, sources: resolved };
+    return okCheck(target, 0, kinds, resolved);
+  }
+
+  if (decision.decision === 'k_not_business_income') {
+    if (forms.length !== 1 || forms[0].formType !== '1099-K') return { ok: false, reason: ERR_NOT_BUSINESS_NEEDS_ONE_K };
+    if (!parts.length) return { ok: false, reason: ERR_REASON_REQUIRED };
+    const partCents = (reason: NotBusinessReason) => {
+      const part = parts.find(item => item.reason === reason);
+      return part ? toCents(part.amount) : 0;
+    };
+    const refunds = partCents('refunds_credits');
+    const personal = partCents('personal');
+    const gross = toCents(forms[0].amount);
+    if (refunds + personal + feeCents > gross) {
+      return { ok: false, reason: fillIncomeCopy(ERR_PARTS_EXCEED_GROSS, { parts: dollars(refunds + personal + feeCents), gross: dollars(gross) }) };
+    }
+    const business = gross - refunds - personal - feeCents;
+    const groups = [['direct income', receipts], ['bank income', transactions]] as const;
+    if (business > 0) {
+      if (!receipts.length && !transactions.length) {
+        return { ok: false, reason: fillIncomeCopy(ERR_SELECT_BUSINESS_RECORDS, { business: dollars(business) }) };
+      }
+      const mismatches = groups.flatMap(([label, group]) => group.length && sum(group) !== business ? [mismatchReason(label, sum(group), gross, refunds, personal, feeCents)] : []);
+      if (mismatches.length) return { ok: false, reason: mismatches.join(' ') };
+    } else if (receipts.length || transactions.length) {
+      const selected = groups.filter(([, group]) => group.length);
+      const reason = selected.map(([label, group]) => mismatchReason(label, sum(group), gross, refunds, personal, feeCents)).join(' ');
+      return { ok: false, reason };
+    }
+    return okCheck(gross - personal, feeCents, kinds, resolved, refunds, personal);
   }
 
   if (forms.length !== 1 || forms[0].formType !== '1099-K') return { ok: false, reason: 'Select exactly one 1099-K together with the deposits or direct income it reports.' };
@@ -152,17 +251,27 @@ export function validateReconciliationDecision(
     else if (total !== gross) return { ok: false, reason: `${label} totals ${dollars(total)}, which is neither the 1099-K gross ${dollars(gross)} nor gross less the ${dollars(feeCents)} fee (${dollars(net)}).` };
   }
   if (!netEvidence) return { ok: false, reason: `No selected deposit or direct income equals the 1099-K gross less the ${dollars(feeCents)} fee. If nothing is net of fees, choose “same payments” instead.` };
-  return { ok: true, countedCents: gross, feeCents, kinds, sources: resolved };
+  return okCheck(gross, feeCents, kinds, resolved);
+}
+
+function mismatchReason(kind: string, selected: number, gross: number, refunds: number, personal: number, fee: number): string {
+  return fillIncomeCopy(ERR_SUM_MISMATCH, {
+    gross: dollars(gross), kind, selected: dollars(selected), refunds: dollars(refunds), personal: dollars(personal), fee: dollars(fee),
+    total: dollars(selected + refunds + personal + fee),
+  });
 }
 
 export interface IncomeReconciliationResolution {
-  /** Cents counted once per applied decision. */
+  /** Cents counted once per applied decision. For a not-business decision this is line 1 (gross minus personal). */
   reconciledCents: number;
+  /** Schedule C line 2 cents from owner-recorded 1099-K refunds and credits. */
+  returnsCents: number;
   /** Cents of records no decision covers, by kind. */
   unclaimedCents: Record<IncomeSourceKind, number>;
   claimedBy: Map<string, string>;
   appliedDecisionIds: string[];
   feeExpenseCandidates: FeeExpenseCandidate[];
+  outsideScheduleC: OutsideScheduleCItem[];
   conflicts: IncomeReconciliationConflict[];
 }
 
@@ -175,9 +284,11 @@ export function resolveIncomeSources(taxYear: number, candidates: ReadonlyArray<
   const claimedBy = new Map<string, string>();
   const conflicts: IncomeReconciliationConflict[] = [];
   const feeExpenseCandidates: FeeExpenseCandidate[] = [];
+  const outsideScheduleC: OutsideScheduleCItem[] = [];
   const groups: Array<{ decisionId: string; kinds: Set<IncomeSourceKind> }> = [];
   const appliedDecisionIds: string[] = [];
   let reconciledCents = 0;
+  let returnsCents = 0;
   for (const record of decisions) {
     const decision = normalizeReconciliationDecision(record);
     const decisionId = typeof record.id === 'string' ? record.id : 'unknown';
@@ -193,11 +304,16 @@ export function resolveIncomeSources(taxYear: number, candidates: ReadonlyArray<
     }
     check.sources.forEach(source => claimedBy.set(sourceKey(source), decision.id));
     reconciledCents += check.countedCents;
+    returnsCents += check.returnsCents;
     appliedDecisionIds.push(decision.id);
     if (decision.decision !== 'separate_income') groups.push({ decisionId: decision.id, kinds: check.kinds });
     if (check.feeCents) {
       const form = check.sources.find(source => source.kind === 'form_1099')!;
       feeExpenseCandidates.push({ decisionId: decision.id, formId: form.id, label: form.label, amount: check.feeCents / 100 });
+    }
+    if (check.personalCents) {
+      const form = check.sources.find(source => source.kind === 'form_1099')!;
+      outsideScheduleC.push({ decisionId: decision.id, formId: form.id, label: form.label, amount: check.personalCents / 100, status: 'needs_review' });
     }
   }
 
@@ -224,5 +340,5 @@ export function resolveIncomeSources(taxYear: number, candidates: ReadonlyArray<
       message: `Unreconciled ${uncovered.map(kind => SOURCE_KIND_LABELS[kind]).join(' and ')} may belong to payments already reconciled in a saved decision that has no ${uncovered.map(kind => SOURCE_KIND_LABELS[kind]).join(' or ')} record. Add those records to that decision or mark them as separate income.`,
       sources: unclaimed.filter(candidate => uncovered.includes(candidate.kind)).map(publicRef) });
   }
-  return { reconciledCents, unclaimedCents, claimedBy, appliedDecisionIds, feeExpenseCandidates, conflicts };
+  return { reconciledCents, returnsCents, unclaimedCents, claimedBy, appliedDecisionIds, feeExpenseCandidates, outsideScheduleC, conflicts };
 }

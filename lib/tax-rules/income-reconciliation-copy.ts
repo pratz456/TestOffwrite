@@ -1,0 +1,69 @@
+/**
+ * Owner-facing reconciliation copy. Every string is PENDING PRATHAM OK
+ * except RECONCILE_BUTTON, which already appears on the tax preview.
+ * No em dashes. {tokens} are filled by fillIncomeCopy.
+ */
+
+export const NO_CHOICE_YET = 'Choose how these records relate. WriteOff does not choose for you.';
+export const STALE_APP_REFRESH = 'This page is out of date. Refresh the page and choose again.';
+
+export const GUIDE_QUESTION = 'Did this client pay you by card, PayPal, Venmo or another payment app?';
+export const GUIDE_ANSWER_APP = 'Yes, by card or a payment app';
+export const GUIDE_ANSWER_BANK = 'No, by check, ACH or wire';
+export const GUIDE_ANSWER_NOT_SURE = 'Not sure';
+export const GUIDE_HINT_APP = 'Card and payment app payments are reported on a 1099-K, not a 1099-NEC. If you have both forms for this work, they may report the same payments. Compare the amounts, then choose.';
+export const GUIDE_HINT_BANK = 'Check, ACH and wire payments are not reported on a 1099-K. A 1099-NEC for this work is more likely separate income. Compare the amounts, then choose.';
+export const GUIDE_HINT_NOT_SURE = 'Check the client\'s payment records or your bank statement. If you still can\'t tell, ask your tax preparer before you choose.';
+
+export const DECISION_LABEL_NOT_BUSINESS = '1099-K includes amounts that are not business income';
+export const DECISION_HELP_NOT_BUSINESS = 'The 1099-K gross includes refunds you gave customers, or money that was not business income. Enter each amount. The parts must add up to the 1099-K gross.';
+export const REASON_REFUNDS = 'Refunds or credits to customers';
+export const REASON_REFUNDS_HELP = 'Goes on Schedule C line 2, returns and allowances.';
+export const REASON_PERSONAL = 'Personal, not business';
+export const REASON_PERSONAL_HELP = 'Gifts, money back from friends, a duplicate form, or a form that isn\'t yours. This is not on your Schedule C.';
+
+export const ERR_NOT_BUSINESS_NEEDS_ONE_K = 'Select exactly one 1099-K, and the deposits or direct income that report its business part.';
+export const ERR_REASON_REQUIRED = 'Choose at least one reason and enter its amount.';
+export const ERR_REASON_AMOUNT = 'Enter an amount over $0 for each reason you checked.';
+export const ERR_PARTS_EXCEED_GROSS = 'Refunds, personal amounts and fees add up to {parts}, which is more than the 1099-K gross of {gross}.';
+export const ERR_SELECT_BUSINESS_RECORDS = 'Select the deposits or direct income for the business part of this 1099-K ({business}).';
+export const ERR_SUM_MISMATCH = 'The parts don\'t add up to the 1099-K gross of {gross}: {kind} {selected} + refunds or credits {refunds} + personal {personal} + fees {fee} = {total}.';
+export const OUTSIDE_SC_NOTE = 'Outside Schedule C, needs review. This amount is not business income, so it is not on any Schedule C line. Ask the issuer for a corrected 1099-K, keep the form and your messages with the issuer, and file without waiting for the correction.';
+
+export const EXPORT_BLOCKED_TITLE = 'One step before your Schedule C';
+export const EXPORT_BLOCKED_BODY = 'Some of your income records may describe the same payments. Tell us how they relate, and your Schedule C worksheet will count each one once.';
+export const EXPORT_BLOCKED_SAFE = 'Your records are saved and nothing was changed.';
+export const RECONCILE_BUTTON = 'Reconcile income sources';
+export const RETRY_EXPORT = 'Try the export again';
+
+export const PANEL_FORMS_NOTE = 'All business income is taxable, whether or not you get a 1099. For 2025 and later, a payment app or marketplace sends a 1099-K only when your payments are over $20,000 and over 200 transactions. Card payments have no threshold. A 1099-K shows gross amounts, before fees, refunds and credits.';
+export const NO_FORM_NO_INCOME = 'No form doesn\'t mean no income. Your bank deposits are the main record of what you earned. 1099s are only a cross-check. For payments made in 2026, clients don\'t have to send a 1099-NEC below $2,000.';
+export const PANEL_SUMMARY_COUNTED = 'Built from {n} records and {m} saved decisions. Records you reconciled count once.';
+
+export const LEGACY_RECONFIRM_TITLE = 'Please confirm this decision';
+export const LEGACY_RECONFIRM_BODY = 'We changed how this choice works, so we\'re asking once: do these records describe the same payments? If one is a separate payment, change your answer.';
+export const LEGACY_RECONFIRM_YES = 'Yes, same payments';
+export const LEGACY_RECONFIRM_CHANGE = 'No, change my answer';
+export const HONEST_CLAIM = 'Your Schedule C worksheet, built from your records.';
+
+/** Tax Watch/Coach ruling, spec update pending. Two 1099-NEC forms are not the same payments. */
+export const SAME_PAYMENTS_NEEDS_K = 'Same payments needs a 1099-K when every selected form is a 1099-NEC. Those forms are separate income. A corrected 1099-NEC replaces the original.';
+
+/** Mockup live sum. PENDING PRATHAM OK. */
+export const LIVE_SUM_LINE = '1099-K gross {gross}, minus refunds or credits {refunds}, minus personal {personal}, minus fees {fee}, equals the business part {business}.';
+export const LIVE_SUM_MATCH = 'The selected records match the business part.';
+export const LIVE_SUM_DIFFER = 'The selected records do not match the business part yet.';
+
+/** Schedule C line 2 label on display-only screens. PENDING PRATHAM OK. */
+export const LINE_2_LABEL = 'Returns and allowances';
+export const LINE_2_NOTE = 'Schedule C line 2';
+export const LINE_1_COUNTED = 'Counted {amount} on line 1';
+export const LINE_2_AMOUNT = 'Line 2 {amount}';
+export const OUTSIDE_SC_AMOUNT = 'Outside Schedule C, needs review {amount}';
+
+export function fillIncomeCopy(template: string, values: Record<string, string | number>): string {
+  return template.replace(/\{([A-Za-z]+)\}/g, (_, key: string) => {
+    const value = values[key];
+    return value === undefined ? `{${key}}` : String(value);
+  });
+}

@@ -3,7 +3,12 @@ import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
 import { createPlanningPDF, formatExportMoney as money } from './planning-pdf';
 
 export interface ScheduleCExportData {
-  taxYear: number; grossReceipts: number; lineItems: LineItemSummary[];
+  taxYear: number; grossReceipts: number;
+  /** Schedule C line 2. Omitted from the worksheet when it is not over $0. */
+  returnsAndAllowances?: number;
+  /** Schedule C line 3. The worksheet row uses this whenever it is present. */
+  netReceipts?: number;
+  lineItems: LineItemSummary[];
   /** `ssn` and `ein` are masked display values (last four digits); callers never pass full identifiers. */
   name?: string; ssn?: string; profession?: string; naicsCode?: string; ein?: string;
   includeAppendix: boolean;
@@ -22,11 +27,17 @@ export async function generateScheduleCPlanningPDF(data: ScheduleCExportData) {
   ], [195, 333]);
   pdf.section('Recorded income and confirmed expenses');
   const total = data.lineItems.reduce((sum, row) => sum + row.deductible, 0);
+  const returns = data.returnsAndAllowances ?? 0;
+  const netReceipts = data.netReceipts ?? data.grossReceipts - returns;
   pdf.table(['Reference', 'Recorded amount / scope', 'Amount'], [
     ['1', 'Reconciled gross receipts in WriteOff', money(data.grossReceipts)],
+    ...(returns > 0 ? [
+      ['2', 'Returns and allowances', money(returns)],
+      ['3', 'Net receipts', money(netReceipts)],
+    ] : []),
     ...data.lineItems.map(row => [scheduleCExportLine(row.lineCode, data.taxYear), `${row.lineName} - ${row.transactionCount} confirmed records`, money(row.deductible)]),
     ['28 subtotal', 'Confirmed expense subtotal only', money(total)],
-    ['Worksheet', 'Receipts minus confirmed expenses, before other adjustments', money(data.grossReceipts - total)],
+    ['Worksheet', 'Receipts minus confirmed expenses, before other adjustments', money(netReceipts - total)],
     ['29-31', 'Final tentative profit, home-office deduction and net profit', 'Not determined'],
   ], [70, 353, 105]);
   pdf.paragraph('Credits/refunds are signed and meals use the shared 50% calculation. A confirmed category is not proof of legal deductibility. Review mixed business/personal use, asset purchases, vehicle method, entertainment and contribution classification.');

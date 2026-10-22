@@ -2,7 +2,7 @@ import { adminDb } from '@/lib/firebase/admin';
 import { readOwnedYearRecords } from '@/lib/reports/export-records';
 import { readTaxExportTransactions } from '@/lib/reports/tax-export-transactions';
 import type { IncomeRecord } from '@/lib/tax-rules/business-income';
-import type { IncomeSourceRef, ReconciliationDecisionType } from '@/lib/tax-rules/income-reconciliation';
+import type { IncomeSourceRef, NotBusinessPart, PaymentMethodHint, ReconciliationDecisionType } from '@/lib/tax-rules/income-reconciliation';
 
 /** Server-only collection: `income_reconciliations/{id}`; clients never read or write it directly. */
 export const INCOME_RECONCILIATIONS_COLLECTION = 'income_reconciliations';
@@ -32,6 +32,8 @@ export interface StoredDecisionInput {
   decision: ReconciliationDecisionType;
   sources: Array<IncomeSourceRef & { label: string }>;
   platformFeeAmount: number;
+  notBusinessParts: NotBusinessPart[];
+  paymentMethodHint?: PaymentMethodHint;
   note: string;
   countedAmount: number;
 }
@@ -40,7 +42,10 @@ function decisionData(uid: string, input: StoredDecisionInput, now: Date) {
   return {
     userId: uid, taxYear: input.taxYear, decision: input.decision, sources: input.sources,
     platformFeeAmount: input.platformFeeAmount || null, note: input.note, countedAmount: input.countedAmount,
-    decidedBy: uid, decidedAt: now.toISOString(), updatedAt: now, version: 1,
+    notBusinessParts: input.notBusinessParts ?? [],
+    ...(input.paymentMethodHint ? { paymentMethodHint: input.paymentMethodHint } : {}),
+    decidedBy: uid, decidedAt: now.toISOString(), updatedAt: now,
+    version: 2, choiceConfirmedAt: now.toISOString(),
   };
 }
 

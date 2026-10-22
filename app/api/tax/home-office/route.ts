@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       taxYear: year, settings: records.homeOffice, reviewReasons, worksheet: scheduleC.homeOffice.calculation, deduction: scheduleC.homeOfficeDeduction,
       scheduleC: {
-        grossReceipts: records.receipts.grossReceipts, confirmedExpenses: records.expense.totalDeductible, profitBeforeAssets: scheduleC.profitBeforeAssets,
+        grossReceipts: records.receipts.netReceipts, confirmedExpenses: records.expense.totalDeductible, profitBeforeAssets: scheduleC.profitBeforeAssets,
         deMinimisExpense: scheduleC.deMinimisExpense, depreciationDeduction: scheduleC.depreciationDeduction, tentativeProfit: scheduleC.tentativeProfit, netProfit: scheduleC.netProfit,
       },
       warnings: scheduleC.warnings,

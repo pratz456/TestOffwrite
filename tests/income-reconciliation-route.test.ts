@@ -48,6 +48,7 @@ vi.mock('@/lib/firebase/admin', () => {
 import { DELETE, GET, PATCH, POST } from '../app/api/income/reconciliation/route';
 import { ExportReviewRequiredError } from '../lib/reports/transaction-export';
 import { ExportDataUnavailableError } from '../lib/reports/export-records';
+import { SAME_PAYMENTS_NEEDS_K, STALE_APP_REFRESH } from '../lib/tax-rules/income-reconciliation-copy';
 
 type Body = Record<string, unknown>;
 function request(method: string, { body, query = '', headers = {} }: { body?: unknown; query?: string; headers?: Record<string, string> } = {}) {
@@ -56,7 +57,7 @@ function request(method: string, { body, query = '', headers = {} }: { body?: un
 const seed = (collection: string, id: string, data: Record<string, unknown>) => state.docs.set(`${collection}/${id}`, { ...data });
 const deposit = (id: string, amount: number, date = '2026-03-01') => ({ id, trans_id: id, account_id: 'bank-1', amount: -amount, category: 'income', type: 'income', date, merchant_name: 'Synthetic platform payout' });
 const ref = (kind: string, id: string, amount: number) => ({ kind, id, amount });
-const samePayments = (sources: Body[], extra: Body = {}) => ({ taxYear: 2026, decision: 'same_payments', sources, ...extra });
+const samePayments = (sources: Body[], extra: Body = {}) => ({ taxYear: 2026, decision: 'same_payments', sources, explicitChoice: true, ...extra });
 async function json(response: Response) { return { status: response.status, body: await response.json() as Body }; }
 
 beforeEach(() => {
@@ -151,10 +152,11 @@ describe('recording reconciliation decisions', () => {
     expect(created.body).toMatchObject({ success: true, id: 'income_reconciliations-1', countedAmount: 12000 });
     const stored = state.docs.get('income_reconciliations/income_reconciliations-1')!;
     expect(stored).toMatchObject({
-      userId: 'owner-a', decidedBy: 'owner-a', taxYear: 2026, decision: 'same_payments', note: 'Platform payouts', countedAmount: 12000, platformFeeAmount: null, version: 1,
+      userId: 'owner-a', decidedBy: 'owner-a', taxYear: 2026, decision: 'same_payments', note: 'Platform payouts', countedAmount: 12000, platformFeeAmount: null, version: 2, notBusinessParts: [],
       sources: [{ kind: 'form_1099', id: 'k1', amount: 12000, label: '1099-K · Synthetic platform' }, { kind: 'gross_receipt', id: 'r1', amount: 12000, label: 'Direct income · Synthetic platform' }],
     });
     expect(stored.decidedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(stored.choiceConfirmedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(state.writes).toEqual(['add income_reconciliations/income_reconciliations-1']);
     expect(JSON.stringify([state.docs.get('gross_receipts/r1'), state.docs.get('income_1099/k1')])).toBe(before);
 
@@ -183,7 +185,7 @@ describe('recording reconciliation decisions', () => {
     const mismatch = await json(await POST(request('POST', { body: samePayments([ref('form_1099', 'k1', 11000), ref('gross_receipt', 'r1', 12000)]) })));
     expect(mismatch.status).toBe(400);
     expect(mismatch.body.error).toContain('is $12,000.00 in your records, not the $11,000.00');
-    const otherOwner = await json(await POST(request('POST', { body: { taxYear: 2026, decision: 'separate_income', sources: [ref('gross_receipt', 'r-other-owner', 5000)] } })));
+    const otherOwner = await json(await POST(request('POST', { body: { taxYear: 2026, decision: 'separate_income', explicitChoice: true, sources: [ref('gross_receipt', 'r-other-owner', 5000)] } })));
     expect(otherOwner.status).toBe(400);
     expect(otherOwner.body.error).toContain('no longer exists for this tax year');
     expect(state.writes).toEqual([]);
@@ -202,7 +204,7 @@ describe('recording reconciliation decisions', () => {
     state.docs.set('income_1099/k1', { ...state.docs.get('income_1099/k1'), amount: 10500 });
     state.docs.delete('gross_receipts/r1');
     state.transactions['owner-a'] = [deposit('t1', 6000), deposit('t2', 4000)];
-    const body = { taxYear: 2026, decision: 'k_includes_fees', platformFeeAmount: 500, sources: [ref('form_1099', 'k1', 10500), ref('transaction', 't1', 6000), ref('transaction', 't2', 4000)] };
+    const body = { taxYear: 2026, decision: 'k_includes_fees', explicitChoice: true, platformFeeAmount: 500, sources: [ref('form_1099', 'k1', 10500), ref('transaction', 't1', 6000), ref('transaction', 't2', 4000)] };
     const created = await json(await POST(request('POST', { body })));
     expect(created).toMatchObject({ status: 201, body: { countedAmount: 10500 } });
     expect(state.docs.get('income_reconciliations/income_reconciliations-1')).toMatchObject({ platformFeeAmount: 500, countedAmount: 10500 });
@@ -219,7 +221,7 @@ describe('updating and removing decisions', () => {
   });
 
   it('refuses to update or remove another owner’s decision and reports missing ones', async () => {
-    const body = { id: 'theirs', taxYear: 2026, decision: 'separate_income', sources: [ref('gross_receipt', 'r1', 12000)] };
+    const body = { id: 'theirs', taxYear: 2026, decision: 'separate_income', explicitChoice: true, sources: [ref('gross_receipt', 'r1', 12000)] };
     expect((await PATCH(request('PATCH', { body }))).status).toBe(403);
     expect((await DELETE(request('DELETE', { query: '?id=theirs' }))).status).toBe(403);
     expect((await DELETE(request('DELETE', { query: '?id=missing' }))).status).toBe(404);
@@ -237,8 +239,9 @@ describe('updating and removing decisions', () => {
     const createdAt = state.docs.get(`income_reconciliations/${id}`)!.createdAt;
     const otherYear = await json(await PATCH(request('PATCH', { body: { id, ...samePayments([ref('form_1099', 'k1', 12000), ref('gross_receipt', 'r1', 12000)], { taxYear: 2025 }) } })));
     expect(otherYear.status).toBe(400);
-    const invalid = await json(await PATCH(request('PATCH', { body: { id, taxYear: 2026, decision: 'separate_income', sources: [ref('form_1099', 'k1', 12000), ref('gross_receipt', 'r1', 12000)] } })));
-    expect(invalid).toMatchObject({ status: 400, body: { error: 'Mark one record at a time as separate income.' } });
+    const invalid = await json(await PATCH(request('PATCH', { body: { id, taxYear: 2026, decision: 'same_payments', explicitChoice: true, sources: [ref('form_1099', 'k1', 1), ref('gross_receipt', 'r1', 12000)] } })));
+    expect(invalid.status).toBe(400);
+    expect(String(invalid.body.error)).toContain('in your records');
     expect(state.writes).toHaveLength(1);
 
     const updated = await json(await PATCH(request('PATCH', { body: { id, ...samePayments([ref('form_1099', 'k1', 12000), ref('gross_receipt', 'r1', 12000)], { note: 'Confirmed against the platform statement' }) } })));
@@ -252,5 +255,59 @@ describe('updating and removing decisions', () => {
     const { body } = await json(await GET(request('GET', { query: '?year=2026' })));
     expect(body.conflicts).toHaveLength(1);
     expect(body.grossReceipts).toBeNull();
+  });
+});
+
+describe('explicit choice and Tax Watch save rules', () => {
+  it('R-05 rejects a valid same-payments body that omits explicitChoice before any other validation', async () => {
+    const created = await json(await POST(request('POST', { body: { taxYear: 2026, decision: 'same_payments', sources: [ref('form_1099', 'k1', 12000), ref('gross_receipt', 'r1', 12000)] } })));
+    expect(created).toMatchObject({ status: 400, body: { error: STALE_APP_REFRESH } });
+    expect(state.writes).toEqual([]);
+    const { body } = await json(await GET(request('GET', { query: '?year=2026' })));
+    expect(body.grossReceipts).toBeNull();
+  });
+
+  it('refuses to count a 1099-K and a 1099-NEC as $12,000 without an explicit choice', async () => {
+    state.docs.delete('gross_receipts/r1');
+    seed('income_1099', 'n1', { userId: 'owner-a', taxYear: 2026, amount: 12000, formType: '1099-NEC', payerName: 'Synthetic client' });
+    const created = await json(await POST(request('POST', { body: { taxYear: 2026, decision: 'same_payments', sources: [ref('form_1099', 'k1', 12000), ref('form_1099', 'n1', 12000)] } })));
+    expect(created).toMatchObject({ status: 400, body: { error: STALE_APP_REFRESH } });
+    expect(state.writes).toEqual([]);
+    const { body } = await json(await GET(request('GET', { query: '?year=2026' })));
+    expect(body.grossReceipts).toBeNull();
+    expect(body.grossReceipts).not.toBe(12000);
+  });
+
+  it('rejects same payments for two 1099-NEC forms and counts a separate-income save as $24,000', async () => {
+    state.docs.delete('gross_receipts/r1');
+    state.docs.delete('income_1099/k1');
+    seed('income_1099', 'n1', { userId: 'owner-a', taxYear: 2026, amount: 12000, formType: '1099-NEC', payerName: 'Client A' });
+    seed('income_1099', 'n2', { userId: 'owner-a', taxYear: 2026, amount: 12000, formType: '1099-NEC', payerName: 'Client B' });
+    const rejected = await json(await POST(request('POST', { body: samePayments([ref('form_1099', 'n1', 12000), ref('form_1099', 'n2', 12000)]) })));
+    expect(rejected.status).toBe(400);
+    expect(rejected.body.error).toBe(SAME_PAYMENTS_NEEDS_K);
+    expect(state.writes).toEqual([]);
+    const saved = await json(await POST(request('POST', { body: { taxYear: 2026, decision: 'separate_income', explicitChoice: true, sources: [ref('form_1099', 'n1', 12000), ref('form_1099', 'n2', 12000)] } })));
+    expect(saved.status).toBe(201);
+    const { body } = await json(await GET(request('GET', { query: '?year=2026' })));
+    expect(body.grossReceipts).toBe(24000);
+    expect(body.conflicts).toEqual([]);
+  });
+
+  it('hides the not-business decision from the API unless the flag is on', async () => {
+    delete process.env.NEXT_PUBLIC_RECONCILIATION_K_NOT_BUSINESS_INCOME;
+    state.docs.delete('gross_receipts/r1');
+    const body = { taxYear: 2026, decision: 'k_not_business_income', explicitChoice: true, sources: [ref('form_1099', 'k1', 12000)], notBusinessParts: [{ reason: 'personal', amount: 12000 }] };
+    const hidden = await json(await POST(request('POST', { body })));
+    expect(hidden.status).toBe(400);
+    expect(String(hidden.body.error)).not.toContain('k_not_business_income');
+    expect(state.writes).toEqual([]);
+    process.env.NEXT_PUBLIC_RECONCILIATION_K_NOT_BUSINESS_INCOME = '1';
+    const shown = await json(await POST(request('POST', { body })));
+    expect(shown.status).toBe(201);
+    delete process.env.NEXT_PUBLIC_RECONCILIATION_K_NOT_BUSINESS_INCOME;
+    const { body: summary } = await json(await GET(request('GET', { query: '?year=2026' })));
+    expect(summary.grossReceipts).toBe(0);
+    expect(summary.outsideScheduleC).toEqual([expect.objectContaining({ amount: 12000 })]);
   });
 });

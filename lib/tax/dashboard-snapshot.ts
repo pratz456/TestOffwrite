@@ -2,7 +2,7 @@ import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 
 export interface DashboardTaxSnapshot {
   taxYear: number;
-  income: { grossReceipts: number; scheduleCNetProfit: number; totalDeductible: number };
+  income: { grossReceipts: number; scheduleCNetProfit: number; totalDeductible: number; returnsAndAllowances?: number };
   form1040: { totalTax: number; balanceDue: number; refund: number; calculationWarnings: string[] };
 }
 
@@ -63,7 +63,10 @@ export async function loadDashboardTaxSnapshot(taxYear: number, signal?: AbortSi
     }
     return { status: 'ready', snapshot: {
       taxYear,
-      income: { grossReceipts: income.grossReceipts, scheduleCNetProfit: income.scheduleCLine31NetProfit, totalDeductible: income.totalDeductible },
+      income: {
+        grossReceipts: income.grossReceipts, scheduleCNetProfit: income.scheduleCLine31NetProfit, totalDeductible: income.totalDeductible,
+        ...(typeof income.returnsAndAllowances === 'number' && income.returnsAndAllowances > 0 ? { returnsAndAllowances: income.returnsAndAllowances } : {}),
+      },
       form1040: { totalTax: form.totalTax, balanceDue: form.balanceDue, refund: form.refund,
         calculationWarnings: Array.isArray(form.calculationWarnings) ? form.calculationWarnings.filter((item: unknown): item is string => typeof item === 'string') : [],
       },
