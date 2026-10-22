@@ -127,6 +127,7 @@ export async function buildPreparerPackage(uid: string, taxYear: number) {
   const limitations = [
     'Records for preparer review, not a filed tax return, e-file submission or certification of deductibility.',
     'Only saved records are included. W-2/1099 source documents, basis, carryovers, credits and other missing facts must be supplied separately.',
+    'W-2 box 12 codes are not included because they have not been reviewed in the app; use the W-2 itself.',
     'AI recommendations are advisory. Confirmed decisions remain the user\'s saved decisions. Resolve unresolved questions before filing.',
     'Profile, assets and settings describe the current saved state; dated transaction and tax records follow the selected year.',
     'Original receipts can contain sensitive personal information. Only selected-year transaction-linked Storage originals are attached. Legacy embedded receipts and external URLs are listed as unavailable.',
@@ -141,7 +142,7 @@ export async function buildPreparerPackage(uid: string, taxYear: number) {
   entries.push({ name: 'records.json', bytes: json(preparerRecords(data)) }, { name: 'transactions.csv', bytes: Buffer.from(convertTransactionsToCSV(data.transactions)) },
     { name: 'audit-support.json', bytes: json(audit) }, { name: 'audit-support.csv', bytes: Buffer.from(auditSupportPacketCSV(audit)) },
     { name: 'unresolved-questions.json', bytes: json(questions) }, { name: 'receipt-status.json', bytes: json(receipts) },
-    { name: 'README.txt', bytes: Buffer.from(`WRITEOFF PREPARER PACKAGE: ${taxYear}\nGenerated ${manifest.generatedAt}\n\n${manifest.receiptFiles} original receipt files included; ${manifest.receiptIssues} receipt issues; ${manifest.unresolvedQuestions} transactions with unresolved questions.\n\nRead manifest.json, receipt-status.json and unresolved-questions.json before using these records. Audit-support files describe confirmed deductions and may contain private original links; use the receipt manifest for files actually attached to this ZIP.\n\nW-2 box 12 codes are not included because they have not been reviewed in the app; use the W-2 itself.\n\n${limitations.map(value => `- ${value}`).join('\n')}\n`) });
+    { name: 'README.txt', bytes: Buffer.from(`WRITEOFF PREPARER PACKAGE: ${taxYear}\nGenerated ${manifest.generatedAt}\n\n${manifest.receiptFiles} original receipt files included; ${manifest.receiptIssues} receipt issues; ${manifest.unresolvedQuestions} transactions with unresolved questions.\n\nRead manifest.json, receipt-status.json and unresolved-questions.json before using these records. Audit-support files describe confirmed deductions and may contain private original links; use the receipt manifest for files actually attached to this ZIP.\n\n${limitations.map(value => `- ${value}`).join('\n')}\n`) });
   if (entries.reduce((sum, entry) => sum + entry.bytes.length, 0) > MAX_PACKAGE_BYTES) throw new PreparerPackageError('The package exceeds 20 MB. Export records and original receipts separately.', 'PREPARER_PACKAGE_TOO_LARGE', 413);
   manifest.files = entries.map(entry => ({ file: entry.name, bytes: entry.bytes.length, sha256: digest(entry.bytes) }));
   entries.push({ name: 'manifest.json', bytes: Buffer.from(JSON.stringify(manifest, null, 2)) });

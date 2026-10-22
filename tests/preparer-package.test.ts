@@ -120,6 +120,8 @@ describe('receipt-inclusive preparer ZIP', () => {
     expect(records.taxRecords.income_1099[0]).toEqual(form1099);
     expect(archive.taxRecords.w2_income[0]).toEqual(w2);
     expect(entries.get('README.txt')!.toString()).toContain('W-2 box 12 codes are not included because they have not been reviewed in the app; use the W-2 itself.');
+    const manifest = JSON.parse(entries.get('manifest.json')!.toString());
+    expect(manifest.limitations).toContain('W-2 box 12 codes are not included because they have not been reviewed in the app; use the W-2 itself.');
   });
   it('omits unreviewed W-2 box 12 codes from the handoff ZIP records.json as well', async () => {
     const box12Codes = [{ code: 'D', amount: 5000 }, { code: 'DD', amount: 1200 }];
