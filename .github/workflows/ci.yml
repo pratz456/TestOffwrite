@@ -83,6 +83,9 @@ jobs:
           AI_ANALYSIS_ENABLED: 'false'
         run: npm run build
 
+      - name: Verify OCR build
+        run: node scripts/verify-ocr-build.mjs
+
       # Next generates route types during the application build.
       - name: Typecheck application
         run: npx --no-install tsc --noEmit
