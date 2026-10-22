@@ -105,6 +105,24 @@ describe('dashboard tax input key', () => {
     expect(JSON.stringify(ssn)).not.toContain('333445555');
   });
 
+  it('changes the key when a stored idKind goes from ssn to unknown and from unknown to itin', () => {
+    const child = { dependentSSN: '111223333', relationship: 'daughter' };
+    const ssn = facts({ dependents: [{ ...child, idKind: 'ssn' }] });
+    const unknown = facts({ dependents: [{ ...child, idKind: 'unknown' }] });
+    const itin = facts({ dependents: [{ ...child, idKind: 'itin' }] });
+    expect(String(ssn.dependents)).toContain('"identifierKind":"ssn"');
+    expect(String(unknown.dependents)).toContain('"identifierKind":"unknown"');
+    expect(String(itin.dependents)).toContain('"identifierKind":"itin"');
+    expect(String(unknown.dependents)).not.toContain('"identifierKind":"none"');
+    expect(String(unknown.dependents)).not.toContain('"identifierKind":"ssn"');
+    expect(taxFactsEqual(ssn, unknown)).toBe(false);
+    expect(taxFactsEqual(unknown, itin)).toBe(false);
+    expect(JSON.stringify(unknown)).not.toContain('111223333');
+    const bare = facts({ dependents: [{ idKind: 'unknown' }] });
+    expect(String(bare.dependents)).toContain('"identifierKind":"unknown"');
+    expect(String(bare.dependents)).not.toContain('"identifierKind":"none"');
+  });
+
   it('prefers a stored idKind over the field name and an explicit type', () => {
     const stored = facts({ dependents: [{ dependentSSN: '111223333', idKind: 'itin', relationship: 'son' }] });
     expect(String(stored.dependents)).toContain('"identifierKind":"itin"');
