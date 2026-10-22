@@ -39,6 +39,11 @@ export const PLANNER_PAYMENTS_HELPER = 'Leave this empty if you have not made an
 export const PLANNER_ADD_PAYMENT = 'Add a payment';
 export const PLANNER_PAYMENT_DATE = 'Payment date';
 export const PLANNER_PAYMENT_AMOUNT = 'Payment amount';
+export const PAYMENT_TAX_YEAR_PICKER_LABEL = 'Which tax year is this payment for?';
+export const PAYMENT_TYPE_PRIOR_YEAR_OVERPAYMENT_LABEL = 'Applied from last year\'s return';
+export const PLANNER_APPLIED_AMOUNT_LABEL = 'the amount on line 36 of your {priorYear} Form 1040';
+export const PLANNER_APPLIED_FILED_LABEL = 'Have you filed your {priorYear} return?';
+export const PLANNER_APPLIED_PENDING = 'Pending until you file';
 
 export const PLANNER_PROJECTED_INCOME_LABEL = 'Expected business income this year, after expenses';
 
@@ -75,6 +80,23 @@ export const PLANNER_DE_MINIMIS = 'This year\'s estimated tax minus withholding 
 export const PLANNER_ERROR_NOT_A_NUMBER = 'Enter a dollar amount, like 8500.';
 export const PLANNER_ERROR_NEGATIVE = 'This amount can\'t be below 0.';
 export const PLANNER_ERROR_PAYMENT_DATE = 'Pick a date in {taxYear}, on or before today.';
+export const PAYMENT_DATE_OUT_OF_RANGE_ERROR = 'Enter a date from January 1, {taxYear} to April 15, {nextYear}, and not after today.';
+
+export const PAST_DUE_LABEL = 'Past due, paying sooner lowers the penalty';
+export const PAST_DUE_SENTENCE = 'Some earlier due dates have passed. Paying now limits any penalty for those periods but may not remove it.';
+export const PER_DUE_DATE_PENALTY_SENTENCE = 'Paying at least this amount by {nextDueDate} generally avoids a federal underpayment penalty for that period.';
+export const PER_DUE_DATE_PENALTY_SENTENCE_PAST_DUE = 'Paying the past-due amount, plus at least this amount by {nextDueDate}, generally avoids a federal underpayment penalty for that period.';
+export const ANNUALIZED_PAST_DUE_NOTE = 'If most of your income came late in the year, Form 2210\'s annualized method may lower or remove the penalty for earlier periods';
+export const SHOW_ANNUALIZED_PAST_DUE_NOTE = false;
+export const AFTER_PENALTY_END_NOTE = '{taxYear} estimated payments are over. Any {taxYear} tax you still owe is due with your return, and tax unpaid after {penaltyEnd} adds interest and a late-payment penalty';
+export const SHOW_AFTER_PENALTY_END_NOTE = false;
+export const ALL_DUE_DATES_PASSED_SENTENCE = 'All {taxYear} due dates have passed. Paying the rest now limits the penalty.';
+export const Q4_FILE_AND_PAY_SENTENCE = 'If you file your {taxYear} return and pay the full balance by {q4AltDate}, there\'s no penalty for the {lastDue} payment.';
+export const PAID_LATE_SENTENCE = 'A payment was made after its due date, so a penalty for those days may still apply.';
+
+/** Existing quarterly-screen lines, reused when no estimated payment remains. */
+export const PLANNER_INSTALLMENTS_PASSED = 'All {taxYear} installment dates have passed';
+export const PLANNER_REMAINING_SHORTFALL = 'Remaining regular-method shortfall (planning estimate): {amount}. The return is due {returnDueDate}; any penalty is figured on the return.';
 export const PLANNER_ERROR_SAVE = 'We couldn\'t save your answers. Your entries are still here. Try again.';
 export const PLANNER_ERROR_LOAD = 'We saved your answers but couldn\'t load your plan. Try again, or open Quarterly taxes.';
 

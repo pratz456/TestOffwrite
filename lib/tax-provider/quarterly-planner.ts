@@ -19,6 +19,7 @@
  * - IRS quarterly interest rates (§6621 underpayment rate by calendar quarter):
  *   https://www.irs.gov/payments/quarterly-interest-rates
  */
+import { allocateOldestFirst, type PastDueAllocation } from '@/lib/planner/past-due';
 import { projectCurrentYearTax } from '@/lib/planner/projected-tax';
 import {
   CURRENT_YEAR_SAFE_HARBOR_RATE, DE_MINIMIS_TAX_LESS_WITHHOLDING, HIGH_AGI_PRIOR_YEAR_RATE,
@@ -334,6 +335,11 @@ export interface RecordedEstimatedPayment {
   paidDate: IsoDate | null;
   /** Quarter key the payment was saved under (used only when no date exists). */
   recordedQuarter: Quarter;
+  /** Set when a January 1-15 payment was marked as the prior year. Null counts toward this tax year. */
+  designatedTaxYear?: number | null;
+  /** Applied-from-last-year credits count only after that return is filed, on installment 1's due date. */
+  paymentType?: 'estimated' | 'prior_year_overpayment' | null;
+  priorReturnFiled?: boolean | null;
 }
 
 export interface MatchedPayment extends RecordedEstimatedPayment {
@@ -624,6 +630,8 @@ export interface QuarterlyPlan {
   requiredAnnualPayment: RequiredAnnualPayment;
   installments: InstallmentPlan[];
   nextDue: NextDue | null;
+  /** Oldest-first installment balances. Null before the first due date. `amountToPay` is unchanged. */
+  pastDue: PastDueAllocation | null;
   afterFinalDueDate: { returnDueDate: IsoDate; remainingShortfall: number } | null;
   totals: { requiredInstallments: number; withholdingCredited: number; recordedPayments: number; remainingEstimatedPayments: number };
   underpaymentInterestIllustration: InterestIllustration;
@@ -640,12 +648,39 @@ export function buildQuarterlyPlan(input: QuarterlyPlanInput): QuarterlyPlan {
   if (!isIsoDate(input.asOf)) throw new RangeError('Provide the planning date as YYYY-MM-DD.');
   const required = calculateRequiredAnnualPayment(input);
   const withholding = allocateWithholding(input.withholdingSchedule ?? { kind: 'even', total: input.withholding }, input.taxYear);
-  const payments = matchPaymentsToPeriods(input.payments, input.taxYear);
+  const installmentOneDate = getInstallmentDueDates(input.taxYear)[0].dueDate;
+  const countablePayments = input.payments.flatMap(payment => {
+    if (payment.paymentType === 'prior_year_overpayment') {
+      if (payment.priorReturnFiled !== true) return [];
+      return [{ ...payment, paidDate: installmentOneDate, designatedTaxYear: input.taxYear }];
+    }
+    if (payment.designatedTaxYear != null && payment.designatedTaxYear !== input.taxYear) return [];
+    return [payment];
+  });
+  const payments = matchPaymentsToPeriods(countablePayments, input.taxYear);
   const installments = computeInstallments({
     taxYear: input.taxYear, requiredAnnualPayment: required.requiredAnnualPayment, estimatedPaymentsRequired: required.estimatedPaymentsRequired,
     withholding, payments, asOf: input.asOf,
   });
   const nextDue = calculateNextDue(installments, input.taxYear, input.asOf);
+  const dueDates = getInstallmentDueDates(input.taxYear).map(item => item.dueDate);
+  // Past-due math uses the required installments even when withholding covers the annual
+  // amount. Withholding is four equal credits on the four due dates, not one payment date.
+  const installmentCents = required.deMinimis.applies ? [0, 0, 0, 0] : allocateQuarterly(toCents(required.requiredAnnualPayment));
+  const withholdingCredits = installmentCents.some(cents => cents > 0)
+    ? allocateQuarterly(toCents(input.withholding)).map((cents, index) => ({ date: dueDates[index], cents })).filter(credit => credit.cents > 0)
+    : [];
+  const pastDueAllocation = allocateOldestFirst({
+    dueDates,
+    installmentCents,
+    credits: [
+      ...withholdingCredits,
+      ...payments.filter(payment => compareIso(payment.effectiveDate, input.asOf) <= 0).map(payment => ({ date: payment.effectiveDate, cents: toCents(payment.amount) })),
+    ],
+    asOf: input.asOf,
+    rolledForwardCents: nextDue ? toCents(nextDue.amountToPay) : null,
+  });
+  const pastDue = pastDueAllocation.passedDueDates >= 1 ? pastDueAllocation : null;
   const requiredTotal = installments.reduce((sum, item) => sum + toCents(item.requiredInstallment), 0);
   const withholdingTotal = installments.reduce((sum, item) => sum + toCents(item.withholdingCredited), 0);
   const recordedTotal = installments.reduce((sum, item) => sum + toCents(item.paymentsMatchedTotal), 0);
@@ -674,7 +709,7 @@ export function buildQuarterlyPlan(input: QuarterlyPlanInput): QuarterlyPlan {
   ];
   return {
     status: 'ready', taxYear: input.taxYear, filingStatus: required.filingStatus, asOf: input.asOf,
-    requiredAnnualPayment: required, installments, nextDue,
+    requiredAnnualPayment: required, installments, nextDue, pastDue,
     afterFinalDueDate: nextDue ? null : { returnDueDate: penaltyPeriodEnd(input.taxYear), remainingShortfall: fromCents(remaining) },
     totals: { requiredInstallments: fromCents(requiredTotal), withholdingCredited: fromCents(withholdingTotal), recordedPayments: fromCents(recordedTotal), remainingEstimatedPayments: fromCents(remaining) },
     underpaymentInterestIllustration: illustration,

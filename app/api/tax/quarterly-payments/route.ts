@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { adminDb, FieldValue } from '@/lib/firebase/admin';
 import { getEstimatedTaxDeadline } from '@/lib/tax-provider/payment-deadlines';
+import { getInstallmentDueDates } from '@/lib/tax-provider/quarterly-planner';
 import { invalidJsonResponse, readJsonObject } from '@/app/api/_lib/body';
 
 const QUARTER_DEADLINES: { quarter: number; month: number; day: number; nextYear?: boolean }[] = [
@@ -20,6 +21,8 @@ interface QuarterlyPaymentRecord {
   estimatedAmount: number;
   paidAmount: number;
   paidDate: string | null;
+  designatedTaxYear: number | null;
+  paymentType: 'estimated' | 'prior_year_overpayment' | null;
   confirmationNumber: string | null;
   paymentMethod: string | null;
   status: PaymentStatus;
@@ -44,6 +47,8 @@ function createDefaultPayment(quarter: number, year: number): Omit<QuarterlyPaym
     estimatedAmount: 0,
     paidAmount: 0,
     paidDate: null,
+    designatedTaxYear: null,
+    paymentType: null,
     confirmationNumber: null,
     paymentMethod: null,
     status: 'no_record',
@@ -91,6 +96,8 @@ export async function GET(request: NextRequest) {
           estimatedAmount: data.estimatedAmount ?? 0,
           paidAmount: data.paidAmount ?? 0,
           paidDate: data.paidDate ?? null,
+          designatedTaxYear: Number.isInteger(data.designatedTaxYear) ? data.designatedTaxYear : null,
+          paymentType: data.paymentType === 'prior_year_overpayment' ? 'prior_year_overpayment' : null,
           confirmationNumber: data.confirmationNumber ?? null,
           paymentMethod: data.paymentMethod ?? null,
           status: data.paidAmount > 0 ? 'recorded' : 'no_record',
@@ -148,6 +155,9 @@ export async function POST(request: NextRequest) {
       confirmationNumber,
       paymentMethod,
       notes,
+      designatedTaxYear,
+      paymentType,
+      priorReturnFiled,
     } = body;
 
     if (quarter == null || year == null || paidAmount == null || !paidDate) {
@@ -167,6 +177,7 @@ export async function POST(request: NextRequest) {
 
     console.log('💰 [Quarterly Payments] POST record payment:', { quarter: q, year: y, paidAmount: amount });
 
+    const applied = paymentType === 'prior_year_overpayment';
     const docId = getDocId(q, y);
     const collectionRef = adminDb
       .collection('user_profiles')
@@ -178,6 +189,12 @@ export async function POST(request: NextRequest) {
       || Number.isNaN(Date.parse(paidDate)) || new Date(paidDate).toISOString().slice(0, 10) !== paidDate) {
       return NextResponse.json({ error: 'Provide a valid payment date (YYYY-MM-DD).' }, { status: 400 });
     }
+    if (applied && priorReturnFiled !== true) {
+      const existing = await docRef.get();
+      const current = existing.exists ? existing.data()! : createDefaultPayment(q, y);
+      return NextResponse.json({ ...current, penalty: null });
+    }
+    const effectiveDate = applied ? getInstallmentDueDates(y)[0].dueDate : paidDate;
     const updatedPayment = await adminDb.runTransaction(async transaction => {
       const snapshot = await transaction.get(docRef);
       const prior = snapshot.exists ? snapshot.data()! : createDefaultPayment(q, y);
@@ -185,7 +202,9 @@ export async function POST(request: NextRequest) {
       const paidAmount = (Math.round((Number(prior.paidAmount) || 0) * 100) + Math.round(amount * 100)) / 100;
       const record = {
         ...createDefaultPayment(q, y),
-        estimatedAmount, paidAmount, paidDate,
+        estimatedAmount, paidAmount, paidDate: effectiveDate,
+        designatedTaxYear: typeof designatedTaxYear === 'number' && Number.isInteger(designatedTaxYear) && designatedTaxYear >= 2000 && designatedTaxYear <= 2100 ? designatedTaxYear : null,
+        paymentType: applied ? 'prior_year_overpayment' as const : null,
         confirmationNumber: typeof confirmationNumber === 'string' ? confirmationNumber.slice(0, 200) : null,
         paymentMethod: typeof paymentMethod === 'string' ? paymentMethod.slice(0, 100) : null,
         notes: typeof notes === 'string' ? notes.slice(0, 2000) : '',

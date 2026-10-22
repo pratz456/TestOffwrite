@@ -22,6 +22,7 @@ import {
   type QuarterlyPlannerResponse, type RecordedEstimatedPayment,
 } from '@/lib/tax-provider/quarterly-planner';
 import { QUARTERLY_REVIEW_MESSAGE, QuarterlyReviewRequiredError } from '@/lib/tax-provider/regular-estimated-payments';
+import { localIsoDate } from '@/lib/planner/format-due-date';
 import { INSTALLMENT_SHARE } from '@/lib/tax-rules/estimated-tax-safe-harbor';
 
 const REVIEW_QUARTER = { recommended: null, status: 'review_required' } as const;
@@ -44,7 +45,7 @@ export async function GET(request: NextRequest) {
     const recordedEstimatedPayments = totalRecordedPayments(payments);
     const totalFederalWithheld = annual.payments.totalFederalWithheld ?? annual.payments.w2FederalWithheld;
     const asOfParam = request.nextUrl.searchParams.get('asOf');
-    const asOf = isIsoDate(asOfParam) ? asOfParam : new Date().toISOString().slice(0, 10);
+    const asOf = isIsoDate(asOfParam) ? asOfParam : localIsoDate();
 
     const resolution = resolveQuarterlyPlannerFacts({
       taxYear,
@@ -62,7 +63,11 @@ export async function GET(request: NextRequest) {
         .filter(payment => payment.paidAmount > 0)
         .map(payment => {
           const paidDate = payment.record?.paidDate;
-          return { amount: payment.paidAmount, paidDate: isIsoDate(paidDate) ? paidDate : null, recordedQuarter: payment.quarter };
+          const designatedTaxYear = payment.record?.designatedTaxYear;
+          return {
+            amount: payment.paidAmount, paidDate: isIsoDate(paidDate) ? paidDate : null, recordedQuarter: payment.quarter,
+            designatedTaxYear: typeof designatedTaxYear === 'number' && Number.isInteger(designatedTaxYear) ? designatedTaxYear : null,
+          };
         });
       try {
         planner = buildQuarterlyPlan({

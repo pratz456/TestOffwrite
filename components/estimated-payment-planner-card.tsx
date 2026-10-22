@@ -5,14 +5,16 @@ import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import { getNextDueDate } from '@/lib/tax-provider/quarterly-planner';
 import { type PlannerCardView } from '@/lib/planner/card-view';
 import { formatPlannerDueDate, formatPlannerMoney, localIsoDate } from '@/lib/planner/format-due-date';
-import { plannerFormHasLastYearNumbers, validatePlannerForm, type PlannerPaymentDraft } from '@/lib/planner/form-input';
+import { appliedCreditDate, defaultDesignatedTaxYear, paymentDateMax, paymentYearChoiceApplies, plannerFormHasLastYearNumbers, validatePlannerForm, type PlannerPaymentDraft } from '@/lib/planner/form-input';
 import { estimatedPaymentPlannerEnabled } from '@/lib/planner/planner-flag';
 import {
   PLANNER_ADD_PAYMENT, PLANNER_AGI_HELPER, PLANNER_AGI_LABEL, PLANNER_ANSWER_NO, PLANNER_ANSWER_NOT_SURE,
   PLANNER_ANSWER_YES, PLANNER_CARD_INTRO, PLANNER_CARD_TITLE, PLANNER_CREDITS_HELPER, PLANNER_CREDITS_LABEL,
   PLANNER_DISMISS, PLANNER_DISMISSED, PLANNER_EMPTY, PLANNER_ERROR_LOAD, PLANNER_ERROR_SAVE, PLANNER_FILING_STATUS_LABEL,
   PLANNER_FILING_STATUS_PROFILE, PLANNER_FOOTER, PLANNER_LINE_24_HELPER, PLANNER_LINE_24_LABEL, PLANNER_NOT_NOW, PLANNER_NOT_SURE,
-  PLANNER_PAYMENT_AMOUNT, PLANNER_PAYMENT_DATE, PLANNER_PAYMENTS_HELPER, PLANNER_PAYMENTS_LABEL,
+  PAYMENT_TAX_YEAR_PICKER_LABEL, PAYMENT_TYPE_PRIOR_YEAR_OVERPAYMENT_LABEL, PLANNER_APPLIED_AMOUNT_LABEL,
+  PLANNER_APPLIED_FILED_LABEL, PLANNER_APPLIED_PENDING, PLANNER_PAYMENT_AMOUNT, PLANNER_PAYMENT_DATE,
+  PLANNER_PAYMENTS_HELPER, PLANNER_PAYMENTS_LABEL,
   PLANNER_PRIOR_TAX_COMPUTED, PLANNER_PROJECTED_INCOME_LABEL, PLANNER_RESIDENCY_LABEL, PLANNER_SEE_FULL_PLAN,
   PLANNER_SHOW_PLAN, PLANNER_START, PLANNER_TWELVE_MONTH_HELPER, PLANNER_TWELVE_MONTH_LABEL,
   PLANNER_WITHHOLDING_FROM_W2, PLANNER_WITHHOLDING_HELPER, PLANNER_WITHHOLDING_INCOME_LINK, PLANNER_WITHHOLDING_LABEL,
@@ -75,9 +77,21 @@ export function PlannerCardResult({ view, onSeePlan, onAddIncome }: { view: Plan
     </div>}
     {view.kind === 'plan' && <div className="space-y-2">
       <p className="text-sm text-slate-700">{view.annual}</p>
-      <p className="text-xl font-semibold tracking-tight text-slate-900">{view.next}</p>
-      {view.deMinimis && <p className="text-sm leading-6 text-slate-700">{view.deMinimis}</p>}
-      <p className="text-sm leading-6 text-slate-600">{view.penalty}</p>
+      {view.pastDueLine && <p className="text-base font-medium text-slate-900">{view.pastDueLine}</p>}
+      {view.mode !== 'window' && view.pastDueSentence && <p className="text-sm leading-6 text-slate-600">{view.pastDueSentence}</p>}
+      {view.allDueDatesPassed && <p className="text-sm leading-6 text-slate-600">{view.allDueDatesPassed}</p>}
+      {view.mode === 'window' && view.pastDueSentence && <p className="text-sm leading-6 text-slate-600">{view.pastDueSentence}</p>}
+      {view.q4FileAndPay && <p className="text-sm leading-6 text-slate-600">{view.q4FileAndPay}</p>}
+      {view.next && <p className="text-xl font-semibold tracking-tight text-slate-900">{view.next}</p>}
+      {view.mode === 'standard' && view.deMinimis && <p className="text-sm leading-6 text-slate-700">{view.deMinimis}</p>}
+      {view.penalty && <p className="text-sm leading-6 text-slate-600">{view.penalty}</p>}
+      {view.paidLate && <p className="text-sm leading-6 text-slate-600">{view.paidLate}</p>}
+      {view.annualizedNote && <p className="text-sm leading-6 text-slate-600">{view.annualizedNote}</p>}
+      {view.afterFinalHeading && <p className="text-base font-medium text-slate-900">{view.afterFinalHeading}</p>}
+      {view.afterFinalDetail && <p className="text-sm leading-6 text-slate-600">{view.afterFinalDetail}</p>}
+      {view.afterPenaltyEndNote && <p className="text-sm leading-6 text-slate-600">{view.afterPenaltyEndNote}</p>}
+      {view.appliedPending && <p className="text-sm leading-6 text-slate-700">{view.appliedPending}</p>}
+      {view.mode === 'after_final' && view.deMinimis && <p className="text-sm leading-6 text-slate-700">{view.deMinimis}</p>}
       {view.basis && <p className="text-sm text-slate-700">{view.basis}</p>}
       {view.couldBeSmaller && <p className="text-sm leading-6 text-slate-700">{view.couldBeSmaller}</p>}
       {addIncome}
@@ -93,11 +107,12 @@ interface EstimatedPaymentPlannerCardProps {
   transport?: PlannerTransport;
   taxYear?: number;
   asOf?: string;
-  initialPhase?: 'collapsed' | 'form';
+  initialPhase?: 'collapsed' | 'form' | 'dismissed';
   initialW2?: { count: number; withheld: number } | null;
+  initialPayments?: PlannerPaymentDraft[];
 }
 
-export function EstimatedPaymentPlannerCard({ profile, onNavigate, transport, taxYear = new Date().getFullYear(), asOf = localIsoDate(), initialPhase = 'collapsed', initialW2 = null }: EstimatedPaymentPlannerCardProps) {
+export function EstimatedPaymentPlannerCard({ profile, onNavigate, transport, taxYear = new Date().getFullYear(), asOf = localIsoDate(), initialPhase = 'collapsed', initialW2 = null, initialPayments = [] }: EstimatedPaymentPlannerCardProps) {
   const enabled = estimatedPaymentPlannerEnabled();
   const alreadySeen = profile?.firstRunPlannerCard === 'dismissed' || profile?.firstRunPlannerCard === 'completed';
   const [phase, setPhase] = useState<'collapsed' | 'form' | 'result' | 'dismissed' | 'hidden'>(alreadySeen ? 'hidden' : initialPhase);
@@ -109,7 +124,7 @@ export function EstimatedPaymentPlannerCard({ profile, onNavigate, transport, ta
   const [agi, setAgi] = useState('');
   const [withholding, setWithholding] = useState('');
   const [projected, setProjected] = useState('');
-  const [payments, setPayments] = useState<PlannerPaymentDraft[]>([]);
+  const [payments, setPayments] = useState<PlannerPaymentDraft[]>(initialPayments);
   const [recorded, setRecorded] = useState<{ id: string; label: string }[]>([]);
   const [w2, setW2] = useState<{ count: number; withheld: number } | null>(initialW2);
   const [error, setError] = useState('');
@@ -221,17 +236,37 @@ export function EstimatedPaymentPlannerCard({ profile, onNavigate, transport, ta
         <div className="space-y-2">
           <p className="text-sm font-medium text-slate-800">{PLANNER_PAYMENTS_LABEL}</p>
           {recorded.map(item => <p key={item.id} className="text-sm text-slate-600">{item.label}</p>)}
-          {payments.map(payment => <div key={payment.clientId} className="grid gap-2 sm:grid-cols-2">
+          {payments.map(payment => {
+            const applied = payment.kind === 'prior_year_overpayment';
+            const lockedDate = appliedCreditDate(taxYear);
+            const dateValue = applied ? lockedDate : payment.date;
+            const yearChoice = !applied && paymentYearChoiceApplies(dateValue, taxYear);
+            const designatedYear = defaultDesignatedTaxYear(dateValue, taxYear, payment.designatedTaxYear);
+            const paymentYear = Number(dateValue.slice(0, 4));
+            const pending = applied && payment.amount.trim() !== '' && payment.priorReturnFiled !== 'yes';
+            return <div key={payment.clientId} className="grid gap-2 sm:grid-cols-2">
+            {applied && <p className="text-sm font-medium text-slate-800 sm:col-span-2">{PAYMENT_TYPE_PRIOR_YEAR_OVERPAYMENT_LABEL}</p>}
             <label className="block text-xs text-slate-600">{PLANNER_PAYMENT_DATE}
-              <input type="date" value={payment.date} min={`${taxYear}-01-01`} max={asOf} onChange={event => setPayments(rows => rows.map(row => row.clientId === payment.clientId ? { ...row, date: event.target.value } : row))} className="mt-1 w-full min-w-0 rounded-lg border border-slate-200 px-3 py-2 text-base" />
+              <input type="date" value={dateValue} min={applied ? lockedDate : `${taxYear}-01-01`} max={applied ? lockedDate : paymentDateMax(taxYear, asOf)} disabled={applied} readOnly={applied} onChange={event => { if (applied) return; setPayments(rows => rows.map(row => row.clientId !== payment.clientId ? row : { ...row, date: event.target.value, designatedTaxYear: defaultDesignatedTaxYear(event.target.value, taxYear, row.designatedTaxYear) ?? undefined })); }} className="mt-1 w-full min-w-0 rounded-lg border border-slate-200 px-3 py-2 text-base disabled:bg-slate-50" />
             </label>
-            <label className="block text-xs text-slate-600">{PLANNER_PAYMENT_AMOUNT}
+            <label className="block text-xs text-slate-600">{applied ? plannerFill(PLANNER_APPLIED_AMOUNT_LABEL, { priorYear: taxYear - 1 }) : PLANNER_PAYMENT_AMOUNT}
               <input type="text" inputMode="decimal" value={payment.amount} onChange={event => setPayments(rows => rows.map(row => row.clientId === payment.clientId ? { ...row, amount: event.target.value } : row))} className="mt-1 w-full min-w-0 rounded-lg border border-slate-200 px-3 py-2 text-base" />
             </label>
+            {applied && <fieldset className="space-y-2 sm:col-span-2">
+              <legend className="text-sm font-medium text-slate-800">{plannerFill(PLANNER_APPLIED_FILED_LABEL, { priorYear: taxYear - 1 })}</legend>
+              <div className="flex flex-wrap gap-2">{(['yes', 'no'] as const).map(value => <button type="button" key={value} aria-pressed={payment.priorReturnFiled === value} onClick={() => setPayments(rows => rows.map(row => row.clientId === payment.clientId ? { ...row, priorReturnFiled: value } : row))} className={`min-h-11 rounded-lg border px-3 text-sm ${payment.priorReturnFiled === value ? 'border-blue-600 bg-blue-50 text-blue-800' : 'border-slate-200 text-slate-700'}`}>{value === 'yes' ? PLANNER_ANSWER_YES : PLANNER_ANSWER_NO}</button>)}</div>
+            </fieldset>}
+            {pending && <p className="text-sm text-slate-700 sm:col-span-2">{PLANNER_APPLIED_PENDING}</p>}
+            {yearChoice && <fieldset className="space-y-2 sm:col-span-2">
+              <legend className="text-sm font-medium text-slate-800">{PAYMENT_TAX_YEAR_PICKER_LABEL}</legend>
+              <div className="flex flex-wrap gap-2">{[paymentYear - 1, paymentYear].map(year => <button type="button" key={year} aria-pressed={designatedYear === year} onClick={() => setPayments(rows => rows.map(row => row.clientId === payment.clientId ? { ...row, designatedTaxYear: year } : row))} className={`min-h-11 rounded-lg border px-3 text-sm ${designatedYear === year ? 'border-blue-600 bg-blue-50 text-blue-800' : 'border-slate-200 text-slate-700'}`}>{year}</button>)}</div>
+            </fieldset>}
             {fieldErrors[`payment-${payment.clientId}`] && <p className="text-sm text-red-700 sm:col-span-2">{fieldErrors[`payment-${payment.clientId}`]}</p>}
             {fieldErrors[`payment-date-${payment.clientId}`] && <p className="text-sm text-red-700 sm:col-span-2">{fieldErrors[`payment-date-${payment.clientId}`]}</p>}
-          </div>)}
+          </div>;
+          })}
           <button type="button" className="min-h-11 text-sm font-semibold text-blue-700" onClick={() => setPayments(rows => [...rows, { clientId: `pay-${rows.length + 1}-${Date.now()}`, date: '', amount: '' }])}>{PLANNER_ADD_PAYMENT}</button>
+          <button type="button" className="min-h-11 text-sm font-semibold text-blue-700" onClick={() => setPayments(rows => [...rows, { clientId: `applied-${rows.length + 1}-${Date.now()}`, date: appliedCreditDate(taxYear), amount: '', kind: 'prior_year_overpayment', priorReturnFiled: '' }])}>{PAYMENT_TYPE_PRIOR_YEAR_OVERPAYMENT_LABEL}</button>
           <p className="text-xs leading-5 text-slate-500">{PLANNER_PAYMENTS_HELPER}</p>
         </div>
         <AmountField id="planner-projected" label={PLANNER_PROJECTED_INCOME_LABEL} helper="" value={projected} onChange={setProjected} error={fieldErrors.projectedIncome} />

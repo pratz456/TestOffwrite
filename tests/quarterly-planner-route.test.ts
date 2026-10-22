@@ -18,6 +18,7 @@ vi.mock('@/lib/firebase/quarterly-payments-server', async importOriginal => ({
   getRecordedQuarterlyPayments: async () => ([1, 2, 3, 4] as const).map(quarter => state.payments.find(payment => payment.quarter === quarter) ?? { quarter, paidAmount: 0, record: null }),
 }));
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collection: (name: string) => ({ where() { return this; }, limit() { return this; }, get: async () => ({ empty: !state.records[name]?.length, docs: (state.records[name] || []).map((data, id) => ({ id: String(id), data: () => data })) }) }) } }));
+import { localIsoDate } from '@/lib/planner/format-due-date';
 import { GET as annual } from '../app/api/tax/compute-1040/route';
 import { GET as quarterly } from '../app/api/tax/quarterly-reminders/route';
 import { POST as legacy } from '../app/api/tax/quarterly-estimates/route';
@@ -118,7 +119,7 @@ describe('quarterly summary returns planner figures from reviewed facts', () => 
   });
   it('ignores an invalid asOf parameter and plans from today', async () => {
     const result = await (await quarterly(req('year=2026&asOf=tomorrow'))).json();
-    expect(result.asOf).toBe(new Date().toISOString().slice(0, 10)); expect(result.planner.status).toBe('ready');
+    expect(result.asOf).toBe(localIsoDate()); expect(result.planner.status).toBe('ready');
   });
   it('serves the same planner through the legacy POST entrypoint without trusting client totals', async () => {
     const response = await legacy(post({ taxYear: 2026, taxCalculation: { quarterlyAmount: 1 }, userProfile: { prior_year_tax: 1 } }));
