@@ -11,6 +11,7 @@ import {
   US_STATES,
   businessTaxNotices,
   estimateStateTax,
+  federalAgiForStateEstimate,
   readProfileLocation,
   resolveStateCode,
   type StateFilingStatus,
@@ -96,7 +97,11 @@ export function StateTaxCalculatorScreen({ userProfile }: StateTaxCalculatorScre
   const hasInput = Boolean(stateCode) && profit + w2Wages + other > 0;
 
   const estimate = useMemo(() => hasInput
-    ? estimateStateTax({ stateCode, taxYear: year, filingStatus, federalAGI: profit + w2Wages + other, scheduleCNetProfit: profit, w2Wages, otherIncome: other })
+    ? estimateStateTax({
+      stateCode, taxYear: year, filingStatus,
+      federalAGI: federalAgiForStateEstimate({ stateCode, taxYear: year, scheduleCNetProfit: profit, w2Wages, otherIncome: other }),
+      scheduleCNetProfit: profit, w2Wages, otherIncome: other,
+    })
     : null, [hasInput, stateCode, year, filingStatus, profit, w2Wages, other]);
 
   const notices = useMemo(() => stateCode
