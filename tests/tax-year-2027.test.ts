@@ -3,6 +3,7 @@ import {
   ACA_2027_PARAMETERS,
   HSA_2027_LIMITS,
   SALT_2027_PARAMETERS,
+  SOCIAL_SECURITY_QUARTER_OF_COVERAGE,
   TAX_YEAR_2027_STATUS,
 } from '../lib/tax-rules/tax-year-2027';
 import { getFederalTaxRules, SUPPORTED_TAX_YEARS, TAX_YEAR_2027_STATUS as apiStatus } from '../lib/tax-rules/federal-year-rules';
@@ -56,6 +57,8 @@ describe('2027 coverage boundaries', () => {
     }
     expect(TAX_YEAR_2027_STATUS.pendingPublication.some(({ item }) => item.includes('QBI'))).toBe(true);
     expect(TAX_YEAR_2027_STATUS.pendingPublication.some(({ item }) => item.includes('mileage'))).toBe(true);
+    expect(SOCIAL_SECURITY_QUARTER_OF_COVERAGE).toEqual({ 2026: 1890, 2027: 1970 });
+    expect(TAX_YEAR_2027_STATUS.pendingPublication.some(({ item }) => item.includes('quarter of coverage'))).toBe(false);
     expect(TAX_YEAR_2027_STATUS.notImplemented.join(' ')).toContain('transaction-level');
   });
 });
