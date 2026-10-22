@@ -307,7 +307,7 @@ async function extractDocument(source: DocumentSource, docType: string, payload:
 
 /** Dashed employer/payer form. A bare 9-digit run is not this shape. */
 const DASHED_PAYER_NUMBER = /^\d{2}-\d{7}$/;
-/** Nine digits with no separator. Kept from text only when that line names the employer or payer. */
+/** Nine digits with no separator. A W-2 employer line may keep one. A 1099 payer number may not. */
 const BARE_PAYER_NUMBER = /^\d{9}$/;
 const BLOCKED_PAYER_LABEL = /recipient|employee|payee/i;
 const NAMED_PAYER_LABEL = /employer|payer|\bEIN\b/i;
@@ -320,7 +320,7 @@ function payerNumberOrBlank(value: unknown): string | null {
 /**
  * A labeled number on its own line. A dashed NN-NNNNNNN stays when the label is not
  * recipient, employee, or payee. A bare 9-digit run stays only when that same line
- * names the employer or payer. A 3-2-4 value is never a payer number.
+ * names the employer or payer. A 1099 keeps only the dashed form. A 3-2-4 value is never kept.
  */
 function labeledPayerNumbers(text: string): { kept: string[] } {
   const pattern = /(^|\n)([^\n]*?)(\bEIN\b|identification number|payer(?:'s)? TIN)([^\n\d]{0,60})(\d{2}-\d{7}|\d{9})(?!\d)/gi;
@@ -600,9 +600,11 @@ export async function POST(request: NextRequest) {
     if (disclosure === 'text') {
       const einField = extracted.docType === 'w2' || docType === 'w2' ? 'employerEIN' : extracted.docType === '1099' || docType === '1099' ? 'payerEIN' : null;
       if (einField) {
-        extracted[einField] = payerNumberOrBlank(localEINs[0]);
+        // A sole proprietor can print an SSN in the 1099 payer box. Keep only a dashed NN-NNNNNNN there.
+        const accepted = einField === 'payerEIN' ? localEINs.filter(value => DASHED_PAYER_NUMBER.test(value)) : localEINs;
+        extracted[einField] = payerNumberOrBlank(accepted[0]);
         if (!extracted[einField]) addPayerIdCheck(extracted);
-        else if (localEINs.length > 1) einNotes.push(`Verify ${einField}. More than one EIN-shaped number was read from the document.`);
+        else if (accepted.length > 1) einNotes.push(`Verify ${einField}. More than one EIN-shaped number was read from the document.`);
       }
     }
     if (disclosure === 'image') rejectUndashedImagePayerNumbers(extracted);

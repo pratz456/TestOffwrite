@@ -158,17 +158,19 @@ describe('redact-first W-2/1099 import: text path', () => {
     expect(JSON.stringify(body)).not.toContain('123-45-6789');
   });
 
-  it('keeps the undashed payer TIN when a recipient identification number is labeled first', async () => {
+  it('blanks an undashed payer TIN after a recipient identification number and asks to check the ID', async () => {
     mocks.recognize.mockResolvedValue({ text: "RECIPIENT'S identification number 111111111\nPayer TIN 987654321\n1 Nonemployee compensation 1200.00", confidence: 0.95 });
     modelReplies({ docType: '1099', formVariant: 'NEC', payerName: 'Synthetic Payer', payerEIN: null, recipientTIN: '111111111', box1Amount: 1200, taxYear: 2025, confidence: 0.95 });
     const body = await (await importDocument(request({ docType: '1099' }))).json();
-    expect(body.extracted.payerEIN).toBe('987654321');
+    expect(body.extracted.payerEIN).toBeNull();
     expect(body.extracted.recipientTIN).toBeUndefined();
-    expect(state.records.income_1099[0].payerEIN).toBe('987654321');
+    expect(state.records.income_1099[0].payerEIN).toBe('');
     expect(state.records.income_1099[0].recipientTIN).toBeUndefined();
+    expect(body.verificationRequired).toContain('Check the employer/payer ID');
     expect(JSON.stringify(body)).not.toContain('111111111');
     expect(JSON.stringify(state.records.income_1099)).not.toContain('111111111');
-    expect(body.verificationRequired).not.toContain('Check the employer/payer ID');
+    expect(JSON.stringify(body)).not.toContain('987654321');
+    expect(JSON.stringify(state.records.income_1099)).not.toContain('987654321');
   });
 
   it('keeps the payer TIN when a dashed recipient TIN is listed first', async () => {
@@ -250,15 +252,36 @@ describe('redact-first W-2/1099 import: text path', () => {
     expect(JSON.stringify(state.records.w2_income)).not.toContain('111111111');
   });
 
-  it.each(['98-7654321', '131313131'])('keeps 1099 payer TIN %s from the text path and drops the recipient TIN', async (payerEIN) => {
+  it.each([
+    ['98-7654321', '98-7654321'],
+    ['131313131', null],
+  ] as const)('text path 1099 payer number %s resolves to %s and drops the recipient TIN', async (payerEIN, expected) => {
     mocks.recognize.mockResolvedValue({ text: `Payer TIN ${payerEIN}\nRecipient TIN 123-45-6789\n1 Nonemployee compensation 1200.00`, confidence: 0.95 });
     modelReplies({ docType: '1099', formVariant: 'NEC', payerName: 'Synthetic Payer', payerEIN: null, recipientTIN: '123-45-6789', box1Amount: 1200, taxYear: 2025, confidence: 0.95 });
     const body = await (await importDocument(request({ docType: '1099' }))).json();
-    expect(body.extracted.payerEIN).toBe(payerEIN);
+    expect(body.extracted.payerEIN).toBe(expected);
     expect(body.extracted.recipientTIN).toBeUndefined();
-    expect(state.records.income_1099[0].payerEIN).toBe(payerEIN);
+    expect(state.records.income_1099[0].payerEIN).toBe(expected ?? '');
     expect(state.records.income_1099[0].recipientTIN).toBeUndefined();
     expect(JSON.stringify(body)).not.toContain('123-45-6789');
+    if (expected === null) {
+      expect(body.verificationRequired).toContain('Check the employer/payer ID');
+      expect(JSON.stringify(body)).not.toContain(payerEIN);
+      expect(JSON.stringify(state.records.income_1099)).not.toContain(payerEIN);
+    } else {
+      expect(body.verificationRequired).not.toContain('Check the employer/payer ID');
+    }
+  });
+
+  it("blanks a bare payer TIN on a 1099 and asks to check the ID", async () => {
+    mocks.recognize.mockResolvedValue({ text: "PAYER'S TIN 123456789\nPaid for services rendered this year", confidence: 0.95 });
+    modelReplies({ docType: '1099', formVariant: 'NEC', payerName: 'Synthetic Payer', payerEIN: '123456789', box1Amount: 1000, taxYear: 2025, confidence: 0.95, verificationWarnings: [] });
+    const body = await (await importDocument(request({ docType: '1099' }))).json();
+    expect(body.extracted.payerEIN).toBeNull();
+    expect(state.records.income_1099[0].payerEIN).toBe('');
+    expect(body.verificationRequired).toContain('Check the employer/payer ID');
+    expect(JSON.stringify(body)).not.toContain('123456789');
+    expect(JSON.stringify(state.records.income_1099)).not.toContain('123456789');
   });
 
   it('still renders when the organizer has no identifier fields', async () => {
