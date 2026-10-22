@@ -29,7 +29,7 @@ vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collection: (name: string) =
 import { GET, POST } from '../app/api/tax/organizer/route';
 import { decryptSensitive, encryptSensitive, isEncrypted } from '../lib/security/utils';
 import {
-  DEPENDENT_IDENTIFIERS_REMOVED_WARNING, encryptOrganizerIdentifiers, legacyIdentifierPatch, maskOrganizerIdentifier,
+  encryptOrganizerIdentifiers, legacyIdentifierPatch, MASKED_NUMBER_EDIT_ERROR, maskOrganizerIdentifier,
   organizerIdentifierKind, readOrganizerIdentifiers,
 } from '../lib/tax-organizer/identifiers';
 import { REDACTED_ID, redactIdentifierText } from '../lib/security/identifier-redaction';
@@ -146,21 +146,23 @@ describe('organizer route stores ciphertext and returns plaintext only to the ow
       taxpayerSSN: '***-**-0001', spouseSSN: '***-**-0002', bankAccount: '****6789', bankRouting: '*****0013',
       ipPin: 'Provided to preparer separately', ein: '**-***6789',
     });
-    expect(body.organizer.dependentDetails).toBe(`Emma Shah, ${REDACTED_ID}, 2018-03-15, Daughter`);
+    expect(body.organizer.dependentDetails).toBe('Emma Shah, ***-**-6789, 2018-03-15, Daughter');
     expect(JSON.stringify(body)).not.toMatch(SSN_SHAPED);
     expect(state.docs.get('legacy')!.taxpayerSSN).toBe(IDENTIFIERS.taxpayerSSN);
+    expect(state.docs.get('legacy')!.dependentDetails).toBe('Emma Shah, 123-45-6789, 2018-03-15, Daughter');
     state.failSet = false;
     body = await (await get()).json();
     expect(body.organizer.taxpayerSSN).toBe('***-**-0001');
+    expect(body.organizer.dependentDetails).toBe('Emma Shah, ***-**-6789, 2018-03-15, Daughter');
     expect(JSON.stringify(body)).not.toMatch(SSN_SHAPED);
     const record = state.docs.get('legacy')!;
     for (const [field, value] of Object.entries(IDENTIFIERS)) {
       expect(isEncrypted(String(record[field])), field).toBe(true);
       expect(decryptSensitive(String(record[field]))).toBe(value);
     }
-    expect(record.dependentDetails).toBe(`Emma Shah, ${REDACTED_ID}, 2018-03-15, Daughter`);
+    expect(record.dependentDetails).toBe('Emma Shah, 123-45-6789, 2018-03-15, Daughter');
     expect(record.identifiersEncryptedAt).toBeInstanceOf(Date);
-    expect(JSON.stringify(record)).not.toMatch(/900000001|000123456789|071000013|123456|123-45-6789/);
+    expect(JSON.stringify({ ...record, dependentDetails: undefined })).not.toMatch(/900000001|000123456789|071000013|123456/);
     // A fully migrated document is not rewritten on later reads.
     state.sets.length = 0;
     await get();
@@ -174,16 +176,73 @@ describe('organizer route stores ciphertext and returns plaintext only to the ow
     expect(body.organizer.dependentDetails).not.toMatch(SSN_SHAPED);
     expect(JSON.stringify(body)).not.toMatch(SSN_SHAPED);
   });
-  it('removes identifier digits from dependent details before storing and tells the client what was saved', async () => {
-    const response = await post({ taxYear: 2026, dependents: '2', dependentDetails: 'Emma Shah, 123-45-6789, 2018-03-15, Daughter\nLeo Shah, 987 65 4321, 2020-01-02, Son\nITIN 912-70-1234' });
-    expect(response.status).toBe(201);
-    const body = await response.json();
-    const expected = `Emma Shah, ${REDACTED_ID}, 2018-03-15, Daughter\nLeo Shah, ${REDACTED_ID}, 2020-01-02, Son\nITIN ${REDACTED_ID}`;
-    expect(body).toMatchObject({ success: true, warning: DEPENDENT_IDENTIFIERS_REMOVED_WARNING, redacted: { dependentDetails: expected } });
-    expect(stored().dependentDetails).toBe(expected);
-    expect(JSON.stringify(stored())).not.toMatch(/123-45-6789|987 65 4321|912-70-1234/);
-    const clean = await post({ taxYear: 2026, dependentDetails: 'Emma Shah, 2018-03-15, Daughter' });
-    expect(await clean.json()).toEqual({ success: true, id: expect.any(String) });
+  it('stores free text as typed, masks it on read, and does not overwrite it when the masked text is saved back', async () => {
+    const original = 'Emma Shah, 123-45-6789, 2018-03-15, Daughter';
+    const saved = await post({ taxYear: 2026, dependentDetails: original });
+    expect(saved.status).toBe(201);
+    expect(stored().dependentDetails).toBe(original);
+    const viewed = await (await get()).json();
+    expect(viewed.organizer.dependentDetails).toBe('Emma Shah, ***-**-6789, 2018-03-15, Daughter');
+    expect(JSON.stringify(viewed)).not.toMatch(SSN_SHAPED);
+    expect(stored().dependentDetails).toBe(original);
+    const echoed = await post({ taxYear: 2026, dependentDetails: viewed.organizer.dependentDetails });
+    expect(echoed.status).toBe(200);
+    expect(state.sets).toEqual([]);
+    expect(stored().dependentDetails).toBe(original);
+    const edited = 'Emma Shah, 2018-03-15, Daughter, lives with taxpayer';
+    expect((await post({ taxYear: 2026, dependentDetails: edited })).status).toBe(200);
+    expect(stored().dependentDetails).toBe(edited);
+  });
+  it('masks a standalone 9-digit order number on read and stores it unchanged after the masked text is saved again', async () => {
+    // Known limit: the order number is masked on GET. Token restore puts the stored digits back.
+    const original = 'Order 123456789';
+    expect((await post({ taxYear: 2026, dependentDetails: original })).status).toBe(201);
+    expect(stored().dependentDetails).toBe(original);
+    const viewed = await (await get()).json();
+    expect(viewed.organizer.dependentDetails).toBe('Order ***-**-6789');
+    expect(viewed.organizer.dependentDetails).not.toContain('123456789');
+    const resaved = await post({ taxYear: 2026, dependentDetails: viewed.organizer.dependentDetails });
+    expect(resaved.status).toBe(200);
+    expect(state.sets).toEqual([]);
+    expect(stored().dependentDetails).toBe(original);
+  });
+  it('restores the stored digits when text around a masked token is edited', async () => {
+    const original = 'Emma, SSN 123-45-6789';
+    expect((await post({ taxYear: 2026, dependentDetails: original })).status).toBe(201);
+    const viewed = await (await get()).json();
+    expect(viewed.organizer.dependentDetails).toBe('Emma, SSN ***-**-6789');
+    const edited = `${viewed.organizer.dependentDetails} She lives with the taxpayer.`;
+    expect((await post({ taxYear: 2026, dependentDetails: edited })).status).toBe(200);
+    expect(stored().dependentDetails).toBe('Emma, SSN 123-45-6789 She lives with the taxpayer.');
+  });
+  it('restores two masked tokens that have different last 4 digits', async () => {
+    const original = 'Child 111-22-3333 and spouse 444-55-6666';
+    expect((await post({ taxYear: 2026, dependentDetails: original })).status).toBe(201);
+    const viewed = await (await get()).json();
+    expect(viewed.organizer.dependentDetails).toBe('Child ***-**-3333 and spouse ***-**-6666');
+    const edited = `${viewed.organizer.dependentDetails} are in school`;
+    expect((await post({ taxYear: 2026, dependentDetails: edited })).status).toBe(200);
+    expect(stored().dependentDetails).toBe('Child 111-22-3333 and spouse 444-55-6666 are in school');
+  });
+  it('rejects a masked token whose digits changed, or an ambiguous match, and writes nothing', async () => {
+    const original = 'Emma, SSN 123-45-6789';
+    state.docs.set('notes', { userId: 'owner', taxYear: 2026, dependentDetails: original, filingStatus: 'single' });
+    const changed = await post({ taxYear: 2026, dependentDetails: 'Emma, SSN ***-**-9999' });
+    expect(changed.status).toBe(400);
+    expect(await changed.json()).toEqual({ error: MASKED_NUMBER_EDIT_ERROR });
+    expect(state.sets).toEqual([]);
+    expect(stored().dependentDetails).toBe(original);
+    expect(stored().filingStatus).toBe('single');
+
+    state.docs.set('notes', { userId: 'owner', taxYear: 2026, dependentDetails: '111-22-6789 and 333-44-6789', filingStatus: 'single' });
+    const viewed = await (await get()).json();
+    expect(viewed.organizer.dependentDetails).toBe('***-**-6789 and ***-**-6789');
+    const ambiguous = await post({ taxYear: 2026, dependentDetails: viewed.organizer.dependentDetails, filingStatus: 'single' });
+    expect(ambiguous.status).toBe(400);
+    expect(await ambiguous.json()).toEqual({ error: MASKED_NUMBER_EDIT_ERROR });
+    expect(state.sets).toEqual([]);
+    expect(stored().dependentDetails).toBe('111-22-6789 and 333-44-6789');
+    expect(stored().filingStatus).toBe('single');
   });
   it('ignores a retired identifier instead of rejecting the rest of the save', async () => {
     const response = await post({ taxYear: 2026, ipPin: '12', taxpayerSSN: '900000001', filingStatus: 'single' });
@@ -202,11 +261,11 @@ describe('organizer route stores ciphertext and returns plaintext only to the ow
 describe('identifier read/patch helpers', () => {
   it('reports legacy fields and builds a patch of ciphertext plus redacted text only', () => {
     const read = readOrganizerIdentifiers({ taxpayerSSN: encryptSensitive('900000001'), ipPin: '123456', dependentDetails: 'SSN 900-00-0003', filingStatus: 'single' });
-    expect(read.organizer).toMatchObject({ taxpayerSSN: '900000001', ipPin: '123456', dependentDetails: `SSN ${REDACTED_ID}`, filingStatus: 'single' });
-    expect(read.legacyPlaintextFields).toEqual(['ipPin']); expect(read.redactedTextFields).toEqual(['dependentDetails']);
+    expect(read.organizer).toMatchObject({ taxpayerSSN: '900000001', ipPin: '123456', dependentDetails: 'SSN 900-00-0003', filingStatus: 'single' });
+    expect(read.legacyPlaintextFields).toEqual(['ipPin']); expect(read.redactedTextFields).toEqual([]);
     const patch = legacyIdentifierPatch(read);
-    expect(Object.keys(patch).sort()).toEqual(['dependentDetails', 'ipPin']);
-    expect(decryptSensitive(patch.ipPin)).toBe('123456'); expect(patch.dependentDetails).toBe(`SSN ${REDACTED_ID}`);
+    expect(Object.keys(patch)).toEqual(['ipPin']);
+    expect(decryptSensitive(patch.ipPin)).toBe('123456');
   });
   it('leaves amounts alone while redacting identifiers in dependent text', () => {
     const result = redactIdentifierText('Support paid $123,456,789 and 1,234.50; child SSN 123-45-6789; EIN 12-3456789; run 123456789; amount 123456789.00');

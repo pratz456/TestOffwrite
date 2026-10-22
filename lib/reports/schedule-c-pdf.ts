@@ -15,9 +15,10 @@ export async function generateScheduleCPlanningPDF(data: ScheduleCExportData) {
   pdf.section('Owner and business records');
   pdf.paragraph('Taxpayer identification numbers print with their last digits only. Give the full SSN and EIN to your preparer directly.');
   pdf.table(['Record', 'Saved value'], [
-    ['Name', data.name || 'Not provided'], ['SSN (last 4)', data.ssn || 'Not provided'],
+    ['Name', data.name || 'Not provided'], ['SSN (last 4)', data.ssn || ''],
     ['Profession / activity', data.profession || 'Not provided'], ['Business code', data.naicsCode || 'Not provided'],
-    ['EIN (last 4)', data.ein || 'Not provided'],
+    // Line D on Schedule C is the employer identification number. The box stays blank.
+    ['EIN (last 4)', data.ein || ''],
     ['Accounting method, business address, participation, information returns', 'Not established by this export - review separately'],
   ], [195, 333]);
   pdf.section('Recorded income and confirmed expenses');

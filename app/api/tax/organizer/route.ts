@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase/admin';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
-import { DEPENDENT_IDENTIFIERS_REMOVED_WARNING, encryptOrganizerIdentifiers, toOrganizerClientView, withoutRetiredOrganizerIdentifiers } from '@/lib/tax-organizer/identifiers';
+import { DEPENDENT_IDENTIFIERS_REMOVED_WARNING, encryptOrganizerIdentifiers, restoreOrganizerFreeText, toOrganizerClientView, withoutRetiredOrganizerIdentifiers, withoutUneditedMaskedText } from '@/lib/tax-organizer/identifiers';
 import { readOrganizerDocument } from '@/lib/tax-organizer/organizer-server';
 import { readEligibilityFacts } from '@/lib/tax-rules/eligibility';
 
@@ -55,18 +55,31 @@ export async function POST(request: NextRequest) {
   try {
     const snap = await adminDb.collection('tax_organizers').where('userId', '==', user.uid).where('taxYear', '==', year).limit(1).get();
     const previous = snap.empty ? {} : snap.docs[0].data();
-    const kept = withoutRetiredOrganizerIdentifiers(answers as Record<string, string>);
-    const encrypted = encryptOrganizerIdentifiers(kept, previous);
+    const restored = restoreOrganizerFreeText(withoutRetiredOrganizerIdentifiers(answers as Record<string, string>), previous);
+    if ('error' in restored) return NextResponse.json({ error: restored.error }, { status: 400, headers: privateHeaders });
+    const kept = withoutUneditedMaskedText(restored.answers, previous);
+    // On an update, blank defaults for fields that were never stored are not edits.
+    const writable = snap.empty ? kept : Object.fromEntries(Object.entries(kept).filter(([field, value]) => {
+      if (value !== '') return true;
+      const stored = previous[field];
+      return typeof stored === 'string' && stored !== '';
+    }));
+    const encrypted = encryptOrganizerIdentifiers(writable, previous);
     if ('error' in encrypted) return NextResponse.json({ error: encrypted.error }, { status: 400 });
-    const data = { ...encrypted.answers, userId: user.uid, taxYear: year, updatedAt: new Date() };
     // The client replaces its copy with the redacted text so the identifiers are not resent on the next save.
     const redaction = encrypted.redactedTextFields.length
       ? { warning: DEPENDENT_IDENTIFIERS_REMOVED_WARNING, redacted: Object.fromEntries(encrypted.redactedTextFields.map(field => [field, encrypted.answers[field]])) }
       : {};
     if (snap.empty) {
-      const ref = await adminDb.collection('tax_organizers').add({ ...data, createdAt: new Date() });
+      const data = { ...encrypted.answers, userId: user.uid, taxYear: year, updatedAt: new Date(), createdAt: new Date() };
+      const ref = await adminDb.collection('tax_organizers').add(data);
       return NextResponse.json({ success: true, id: ref.id, ...redaction }, { status: 201, headers: privateHeaders });
     }
+    // Unchanged masked read: do not merge a new timestamp over the stored bytes.
+    if (Object.keys(encrypted.answers).length === 0) {
+      return NextResponse.json({ success: true, id: snap.docs[0].id, ...redaction }, { headers: privateHeaders });
+    }
+    const data = { ...encrypted.answers, userId: user.uid, taxYear: year, updatedAt: new Date() };
     await snap.docs[0].ref.set(data, { merge: true });
     return NextResponse.json({ success: true, id: snap.docs[0].id, ...redaction }, { headers: privateHeaders });
   } catch {

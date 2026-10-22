@@ -101,9 +101,39 @@ describe('redact-first W-2/1099 import: text path', () => {
     modelReplies(W2_JSON);
     const body = await (await importDocument(request({ commit: 'false' }))).json();
     expect(body.documentOwner).toBe('unmatched');
-    expect(body.verificationRequired).toEqual([expect.stringContaining('(***-**-6789) does not match')]);
+    expect(body.verificationRequired).toEqual([expect.stringContaining('does not match')]);
+    expect(JSON.stringify(body.verificationRequired)).not.toMatch(/\d{3}-?\d{2}-?\d{4}/);
     expect(JSON.stringify(body)).not.toMatch(/123-45-6789|123456789|111223333|444556666/);
     expect(state.records.w2_income).toBeUndefined();
+  });
+
+  it('does not return or store a W-2 employee number from box a', async () => {
+    modelReplies({ ...W2_JSON, employeeSSN: '123-45-6789', employeeName: 'Jordan 123-45-6789' });
+    const response = await importDocument(request());
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    const ssnShaped = /\d{3}-?\d{2}-?\d{4}/;
+    expect(JSON.stringify(body)).not.toMatch(ssnShaped);
+    expect(JSON.stringify(state.records.w2_income)).not.toMatch(ssnShaped);
+    expect(body.extracted.employeeSSN).toBeUndefined();
+    expect(body.extracted.employerEIN).toBe('98-7654321');
+    expect(state.records.w2_income[0].employerEIN).toBe('98-7654321');
+  });
+
+  it.each([
+    ['NEC', '123-45-6789'],
+    ['K', '123456789'],
+  ])('does not return or store a 1099-%s recipient number', async (formVariant, recipientTIN) => {
+    mocks.recognize.mockResolvedValue({ text: `Form 1099-${formVariant}\nPayer EIN 98-7654321\nRecipient TIN ${recipientTIN}\n1 Nonemployee compensation 1200.00`, confidence: 0.95 });
+    modelReplies({ docType: '1099', formVariant, payerName: 'Synthetic Payer', payerEIN: null, recipientTIN, recipientName: 'Jordan Demo', box1Amount: 1200, taxYear: 2025, confidence: 0.95 });
+    const response = await importDocument(request({ docType: '1099' }));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(JSON.stringify(body)).not.toMatch(/\d{3}-?\d{2}-?\d{4}/);
+    expect(JSON.stringify(state.records.income_1099)).not.toMatch(/\d{3}-?\d{2}-?\d{4}/);
+    expect(body.extracted.recipientTIN).toBeUndefined();
+    expect(body.extracted.payerEIN).toBe('98-7654321');
+    expect(state.records.income_1099[0].payerEIN).toBe('98-7654321');
   });
 
   it('still renders when the organizer has no identifier fields', async () => {

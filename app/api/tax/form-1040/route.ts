@@ -190,7 +190,7 @@ async function page1(doc: PDFDocument, f: PDFFont, bf: PDFFont, d: Record<string
   hl(p, y, ML, MR, 0.5, BLACK); y -= 1;
   field(p, 'Full name as saved (verify legal return name)', ML, y - 2, 370, profile.name || '', f, bf);
   vl(p, ML + 374, y, y - 16);
-  field(p, 'Social security number (last 4 only)', ML + 377, y - 2, 159, profile.ssn || '___-__-____', f, bf);
+  field(p, 'Social security number (last 4 only)', ML + 377, y - 2, 159, profile.ssn || '', f, bf);
   hl(p, y - 16, ML, MR, 0.5, BLACK); y -= 20;
 
   if (profile.filing_status === 'married_filing_jointly' || profile.filing_status === 'married_filing_separately') {
@@ -385,11 +385,10 @@ export async function POST(request: NextRequest) {
     // Merge organizer data into profile for PDF pre-fill
     const enrichedProfile: Record<string, any> = {
       ...profile,
-      // SSN from organizer, last four digits only (***-**-1234)
-      ssn: maskOrganizerIdentifier('ssn', org.taxpayerSSN),
-      // Spouse
+      // SSN boxes stay blank. Stored values are not printed on this summary.
+      ssn: '',
       spouseName: org.spouseName || '',
-      spouseSSN: maskOrganizerIdentifier('ssn', org.spouseSSN),
+      spouseSSN: '',
       // Address (organizer address takes priority over profile)
       mailing_address: {
         street: org.streetAddress || profile.mailing_address?.street || '',
@@ -397,9 +396,9 @@ export async function POST(request: NextRequest) {
         state: org.stateAddr || profile.mailing_address?.state || profile.state || '',
         zip: org.zipCode || profile.mailing_address?.zip || '',
       },
-      // Refund account record, last four digits only
-      bankRouting: maskOrganizerIdentifier('bankRouting', org.bankRouting),
-      bankAccount: maskOrganizerIdentifier('bankAccount', org.bankAccount),
+      // Bank boxes stay blank. Stored account numbers are not printed on this summary.
+      bankRouting: '',
+      bankAccount: '',
       bankAccountType: org.bankAccountType || 'checking',
       // Prior year AGI for e-file
       priorYearAGI: org.priorYearAGI || '',
@@ -449,12 +448,12 @@ export async function POST(request: NextRequest) {
     notes.section('Saved identity and optional handoff records (last digits only)');
     notes.paragraph('Social Security, account and routing numbers print with their last digits only; the IRS IP PIN and dependent identification numbers are never printed. WriteOff stores these identifiers encrypted. Give the full values to your preparer directly.');
     notes.table(['Record', 'Saved value'], [
-      ['Full name', enrichedProfile.name || 'Not provided'], ['SSN (last 4)', enrichedProfile.ssn || 'Not provided'],
-      ['Spouse name', enrichedProfile.spouseName || 'Not provided'], ['Spouse SSN (last 4)', enrichedProfile.spouseSSN || 'Not provided'],
+      ['Full name', enrichedProfile.name || 'Not provided'], ['SSN (last 4)', enrichedProfile.ssn || ''],
+      ['Spouse name', enrichedProfile.spouseName || 'Not provided'], ['Spouse SSN (last 4)', enrichedProfile.spouseSSN || ''],
       ['Dependent identity records', enrichedProfile.dependentRecords || 'Not provided'],
       ['Address', [enrichedProfile.mailing_address.street, enrichedProfile.mailing_address.city, enrichedProfile.mailing_address.state, enrichedProfile.mailing_address.zip].filter(Boolean).join(', ') || 'Not provided'],
       ['IRS Identity Protection PIN', enrichedProfile.ipPin || 'Not provided'],
-      ['Optional refund routing / account (last 4)', enrichedProfile.bankRouting || enrichedProfile.bankAccount ? `${enrichedProfile.bankRouting || 'Not provided'} / ${enrichedProfile.bankAccount || 'Not provided'} (${enrichedProfile.bankAccountType})` : 'Not provided'],
+      ['Optional refund routing / account (last 4)', ''],
     ], [195, 333]);
     notes.section('Review notes');
     notes.paragraph(warnings.length ? `${warnings.length} calculation or completeness note(s) qualify the figures on pages 1-2:` : 'No calculation limits were reported for the saved inputs.');

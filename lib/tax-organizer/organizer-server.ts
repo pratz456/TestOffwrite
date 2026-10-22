@@ -5,7 +5,7 @@ interface OrganizerDocument { data(): Record<string, unknown>; ref?: OrganizerDo
 
 /**
  * Write-on-read migration: legacy plaintext identifiers found while reading an
- * organizer are stored encrypted (and free text redacted) before the response is
+ * organizer are stored encrypted before the response is
  * built. The read itself never depends on this write succeeding.
  */
 export async function migrateLegacyOrganizerIdentifiers(ref: OrganizerDocumentRef | undefined, read: OrganizerIdentifierRead): Promise<boolean> {

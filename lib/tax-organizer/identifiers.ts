@@ -3,12 +3,11 @@
  *
  * Every identifier answer is stored as AES-256-GCM ciphertext (`SSN_ENCRYPTION_KEY`)
  * and decrypted only inside server routes. Legacy plaintext values are read as-is
- * and reported so the caller can re-encrypt them on that read; free-text dependent
- * details have SSN/ITIN-shaped digits removed before storage. PDFs and archives
- * print masked values only.
+ * and reported so the caller can re-encrypt them on that read. Free text is stored
+ * as typed and masked only on the owner response. PDFs and archives print masked
+ * values only.
  */
-import { decryptSensitive, encryptSensitive, isEncrypted, maskSSN, sanitizeString } from '@/lib/security/utils';
-import { redactIdentifierText } from '@/lib/security/identifier-redaction';
+import { decryptSensitive, encryptSensitive, isEncrypted, maskSSN } from '@/lib/security/utils';
 
 export type OrganizerIdentifierKind = 'ssn' | 'bankAccount' | 'bankRouting' | 'ipPin' | 'ein';
 
@@ -78,11 +77,6 @@ export function readOrganizerIdentifiers(data: Record<string, unknown>): Organiz
     if (organizerIdentifierKind(field)) {
       if (isEncrypted(value)) organizer[field] = decryptSensitive(value);
       else legacyPlaintextFields.push(field);
-      continue;
-    }
-    if ((ORGANIZER_REDACTED_TEXT_FIELDS as readonly string[]).includes(field)) {
-      const redaction = redactIdentifierText(value);
-      if (redaction.count > 0) { organizer[field] = redaction.text; redactedTextFields.push(field); }
     }
   }
   return { organizer, legacyPlaintextFields, redactedTextFields };
@@ -109,7 +103,7 @@ export interface OrganizerIdentifierWrite {
 }
 
 /**
- * Encrypts every identifier answer and redacts identifier digits from free text.
+ * Encrypts identifier answers. Free text is copied through unchanged.
  * Ciphertext that matches the stored value is kept (a tab opened before an update
  * may still hold it); every other identifier is validated and re-encrypted.
  */
@@ -117,25 +111,82 @@ export function encryptOrganizerIdentifiers(
   answers: Record<string, string>, previous: Record<string, unknown>,
 ): OrganizerIdentifierWrite | { error: string } {
   const encrypted: Record<string, string> = { ...answers };
-  const redactedTextFields: string[] = [];
   for (const [field, value] of Object.entries(answers)) {
     if (!value) continue;
     const kind = organizerIdentifierKind(field);
-    if (kind) {
-      if (isEncrypted(value) && value === previous[field]) continue;
-      const normalized = normalizeOrganizerIdentifier(kind, value);
-      if ('error' in normalized) return normalized;
-      encrypted[field] = encryptSensitive(normalized.digits);
-      continue;
-    }
-    if ((ORGANIZER_REDACTED_TEXT_FIELDS as readonly string[]).includes(field)) {
-      const redaction = redactIdentifierText(value);
-      const text = maskSsnShapedFreeText(redaction.text);
-      if (redaction.count > 0 || text !== redaction.text) redactedTextFields.push(field);
-      encrypted[field] = sanitizeString(text, 2000);
-    }
+    if (!kind) continue;
+    if (isEncrypted(value) && value === previous[field]) continue;
+    const normalized = normalizeOrganizerIdentifier(kind, value);
+    if ('error' in normalized) return normalized;
+    encrypted[field] = encryptSensitive(normalized.digits);
   }
-  return { answers: encrypted, redactedTextFields };
+  return { answers: encrypted, redactedTextFields: [] };
+}
+
+/**
+ * Known limit: a standalone 9-digit number, such as an order number, is masked
+ * on read because it has the same shape as an SSN. The stored characters stay
+ * intact, and saving that masked read puts the original digits back.
+ */
+export function organizerTextForClient(field: string, value: string): string {
+  const kind = organizerIdentifierKind(field);
+  if (kind) return maskOrganizerIdentifier(kind, value);
+  const trimmed = value.trim();
+  const digits = trimmed.replace('-', '');
+  const amount = AMOUNT_TEXT.test(trimmed) || (/^-?\d+$/.test(trimmed) && digits.length !== 9);
+  return amount ? value : maskSsnShapedFreeText(value);
+}
+
+const MASKED_FREE_TEXT_TOKEN = /\*\*\*-\*\*-(\d{4})/g;
+const STORED_SSN_SHAPE = /\d{3}-?\d{2}-?\d{4}/g;
+export const MASKED_NUMBER_EDIT_ERROR = "Please don't edit the hidden number in this field";
+
+/** Puts stored originals back into masked free-text tokens. Text with no tokens is returned as typed. */
+export function restoreMaskedFreeText(incoming: string, stored: string): { text: string } | { error: string } {
+  const tokens = [...incoming.matchAll(MASKED_FREE_TEXT_TOKEN)];
+  if (tokens.length === 0) return { text: incoming };
+  const storedValues = [...stored.matchAll(STORED_SSN_SHAPE)].map(match => match[0]);
+  if (tokens.length > storedValues.length) return { error: MASKED_NUMBER_EDIT_ERROR };
+  const byLast4 = new Map<string, string[]>();
+  for (const value of storedValues) {
+    const last4 = value.replace(/\D/g, '').slice(-4);
+    byLast4.set(last4, [...(byLast4.get(last4) ?? []), value]);
+  }
+  for (const token of tokens) {
+    if ((byLast4.get(token[1]) ?? []).length !== 1) return { error: MASKED_NUMBER_EDIT_ERROR };
+  }
+  return { text: incoming.replace(MASKED_FREE_TEXT_TOKEN, (_match, last4: string) => byLast4.get(last4)![0]) };
+}
+
+export function restoreOrganizerFreeText(
+  answers: Record<string, string>, previous: Record<string, unknown>,
+): { answers: Record<string, string> } | { error: string } {
+  const next: Record<string, string> = {};
+  for (const [field, value] of Object.entries(answers)) {
+    if (organizerIdentifierKind(field)) { next[field] = value; continue; }
+    const restored = restoreMaskedFreeText(value, typeof previous[field] === 'string' ? previous[field] : '');
+    if ('error' in restored) return restored;
+    next[field] = restored.text;
+  }
+  return { answers: next };
+}
+
+/**
+ * Drops an answer the client sent back unchanged from a masked read, including
+ * free text whose masked tokens were just restored to the stored original.
+ * A merge that omits the field leaves the stored text byte-for-byte.
+ */
+export function withoutUneditedMaskedText(answers: Record<string, string>, previous: Record<string, unknown>): Record<string, string> {
+  return Object.fromEntries(Object.entries(answers).filter(([field, value]) => {
+    const stored = previous[field];
+    if (typeof stored !== 'string' || !stored) return true;
+    let plain = stored;
+    if (organizerIdentifierKind(field) && isEncrypted(stored)) {
+      try { plain = decryptSensitive(stored); } catch { return true; }
+    }
+    if (value === plain) return false;
+    return value !== organizerTextForClient(field, plain);
+  }));
 }
 
 export const IDENTIFIER_PROVIDED_SEPARATELY = 'Provided to preparer separately';
@@ -166,17 +217,14 @@ const AMOUNT_TEXT = /^-?\d[\d,]*\.\d+$|^-?\d{1,3}(?:,\d{3})+$/;
 export function toOrganizerClientView(organizer: Record<string, unknown>): Record<string, unknown> {
   const view: Record<string, unknown> = {};
   for (const [field, value] of Object.entries(organizer)) {
-    const kind = organizerIdentifierKind(field);
-    if (kind) {
-      if (typeof value !== 'string' || !value) continue;
-      const masked = maskOrganizerIdentifier(kind, value);
-      if (masked) view[field] = masked;
-      continue;
-    }
     if (typeof value === 'string') {
-      const digits = value.trim().replace('-', '');
-      const amount = AMOUNT_TEXT.test(value.trim()) || (/^-?\d+$/.test(value.trim()) && digits.length !== 9);
-      view[field] = amount ? value : maskSsnShapedFreeText(value);
+      if (organizerIdentifierKind(field)) {
+        if (!value) continue;
+        const masked = organizerTextForClient(field, value);
+        if (masked) view[field] = masked;
+        continue;
+      }
+      view[field] = organizerTextForClient(field, value);
       continue;
     }
     view[field] = value;

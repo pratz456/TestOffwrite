@@ -343,6 +343,29 @@ async function accountHolderNames(uid: string): Promise<string[]> {
   }
 }
 
+const DOCUMENT_IDENTIFIER_KEYS = new Set([
+  'employeessn', 'employeesocialsecuritynumber', 'ssn', 'socialsecuritynumber', 'boxa',
+  'recipienttin', 'recipientssn', 'recipientsocialsecuritynumber', 'tin', 'payeetin', 'payeessn', 'employeetin', 'ssnortin',
+]);
+const SSN_SHAPED_TEXT = /\d{3}-?\d{2}-?\d{4}/g;
+
+/** Removes employee/recipient identification values before a document result is stored or returned. Employer and payer EINs stay. */
+function dropDocumentIdentifiers<T>(value: T): T {
+  if (typeof value === 'string') return value.replace(SSN_SHAPED_TEXT, '') as T;
+  if (Array.isArray(value)) return value.map(item => dropDocumentIdentifiers(item)) as T;
+  if (value !== null && typeof value === 'object') {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return value;
+    const cleaned: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      if (DOCUMENT_IDENTIFIER_KEYS.has(key.toLowerCase().replace(/[^a-z0-9]/g, ''))) continue;
+      cleaned[key] = dropDocumentIdentifiers(entry);
+    }
+    return cleaned as T;
+  }
+  return value;
+}
+
 function consentRequired(reason: ImageFallbackReason, consentOnFile: boolean) {
   return NextResponse.json({
     error: reason === 'model_requested_image' || reason === 'ocr_low_confidence'
@@ -437,7 +460,7 @@ export async function POST(request: NextRequest) {
     if (!extracted || extracted.needs_image === true) {
       return NextResponse.json({
         error: 'Failed to parse the document. The image may be unclear or use an unsupported format.',
-        rawResponse: rawText.slice(0, 500),
+        rawResponse: dropDocumentIdentifiers(rawText.slice(0, 500)),
         disclosure,
       }, { status: 422 });
     }
@@ -457,8 +480,9 @@ export async function POST(request: NextRequest) {
     }
     const documentOwner = await matchDocumentOwner(user.uid, extracted.taxYear || taxYear || new Date().getFullYear() - 1, ssnLast4);
     if (documentOwner === 'unmatched') {
-      einNotes.push(`The Social Security number on this document (***-**-${ssnLast4}) does not match the taxpayer or spouse SSN saved in your Tax Organizer. Confirm this document is yours before saving.`);
+      einNotes.push('The identification number on this document does not match the taxpayer or spouse record saved in your Tax Organizer. Confirm this document is yours before saving.');
     }
+    extracted = dropDocumentIdentifiers(extracted);
 
     // Low confidence warning
     // Check for quality issues
@@ -480,7 +504,7 @@ export async function POST(request: NextRequest) {
           'Avoid shadows and glare',
           'Make sure all 4 corners are visible',
         ],
-        extracted,
+        extracted: dropDocumentIdentifiers(extracted),
         imageIssues,
         committed: false,
         disclosure,
@@ -495,8 +519,8 @@ export async function POST(request: NextRequest) {
       ...einNotes,
     ];
 
-    // Merge user edits into extracted data before saving
-    const finalData = { ...extracted, ...overrideFields };
+    // Merge user edits into extracted data before saving. Identifier keys are already removed from extracted.
+    const finalData = dropDocumentIdentifiers({ ...extracted, ...overrideFields });
 
     // Save to Firestore if commit=true
     let saveResult: Record<string, any> = {};

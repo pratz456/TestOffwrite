@@ -339,7 +339,8 @@ describe('Form1040 preparer export completeness disclosures', () => {
     const bytes = new Uint8Array(await response.arrayBuffer());
     expect((await PDFDocument.load(bytes)).getPageCount()).toBeGreaterThan(2);
     const text = draw.mock.calls.map(call => call[0]).join(' ');
-    expect(text).toContain('Synthetic Spouse Full Name'); expect(text).toContain('***-**-3333');
+    expect(text).toContain('Synthetic Spouse Full Name');
+    expect(text).not.toContain('***-**-3333');
     expect(text).not.toContain('111-22-3333'); expect(text).not.toContain('111223333');
     const stored = state.records.tax_organizers[0].spouseSSN as string;
     expect(isEncrypted(stored)).toBe(true); expect(decryptSensitive(stored)).toBe('111223333');
