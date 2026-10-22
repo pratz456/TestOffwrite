@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase/admin';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { dependentKindHints, encryptOrganizerIdentifiers, readOrganizerIdentifiers, restoreOrganizerFreeText, toOrganizerClientView, withoutDependentKindHints, withoutRetiredOrganizerIdentifiers, withoutUneditedMaskedText } from '@/lib/tax-organizer/identifiers';
-import { identifierFormatPatch, readOrganizerDocument } from '@/lib/tax-organizer/organizer-server';
+import { identifierFormatPatch, readOrganizerDocument, withClearedReviewFlags } from '@/lib/tax-organizer/organizer-server';
 import { readEligibilityFacts } from '@/lib/tax-rules/eligibility';
 import { organizerTaxInputResponse } from '@/lib/tax-rules/organizer-tax-inputs';
 
@@ -81,17 +81,18 @@ export async function POST(request: NextRequest) {
     const formatPatch = identifierFormatPatch(readOrganizerIdentifiers({ ...previous, ...dependentKindHints(answers as Record<string, unknown>) }));
     const nextAnswers: Record<string, unknown> = { ...formatPatch, ...withoutDependentKindHints(encrypted.answers) };
     if (formatPatch.idKind !== undefined) nextAnswers.idKind = formatPatch.idKind;
+    if (formatPatch.idKindNeedsReview !== undefined) nextAnswers.idKindNeedsReview = formatPatch.idKindNeedsReview;
     // Unchanged masked read: do not merge a new timestamp over the stored bytes.
     if (Object.keys(nextAnswers).length === 0) {
       return NextResponse.json({ success: true, id: snap.docs[0].id }, { headers: privateHeaders });
     }
-    const data = {
+    const data = withClearedReviewFlags(previous, {
       ...nextAnswers,
       userId: user.uid,
       taxYear: year,
       updatedAt: new Date(),
       ...(Object.keys(formatPatch).length > 0 ? { identifiersEncryptedAt: new Date() } : {}),
-    };
+    });
     await snap.docs[0].ref.set(data, { merge: true });
     return NextResponse.json({ success: true, id: snap.docs[0].id }, { headers: privateHeaders });
   } catch {

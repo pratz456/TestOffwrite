@@ -13,7 +13,25 @@ vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collection: (name: string) =
     if (state.failSet) throw new Error('private write failure');
     state.sets.push(patch);
     state.merges.push(options?.merge === true);
-    state.docs.set(id, options?.merge ? { ...state.docs.get(id), ...patch } : patch);
+    const isDelete = (value: unknown) => Boolean(value) && typeof value === 'object' && (value as { constructor?: { name?: string } }).constructor?.name === 'DeleteTransform';
+    const apply = (current: Record<string, unknown>) => {
+      const next = { ...current };
+      for (const [key, value] of Object.entries(patch)) {
+        if (isDelete(value)) { delete next[key]; continue; }
+        if (value && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date) && Object.values(value as Record<string, unknown>).some(isDelete)) {
+          const nested = { ...(typeof current[key] === 'object' && current[key] && !Array.isArray(current[key]) ? current[key] as Record<string, unknown> : {}) };
+          for (const [child, childValue] of Object.entries(value as Record<string, unknown>)) {
+            if (isDelete(childValue)) delete nested[child];
+            else nested[child] = childValue;
+          }
+          next[key] = nested;
+          continue;
+        }
+        next[key] = value;
+      }
+      return next;
+    };
+    state.docs.set(id, options?.merge ? apply(state.docs.get(id) ?? {}) : patch);
   } } });
   const query = {
     where(field: string, _op: string, value: unknown) { filters.push([field, value]); return query; },
@@ -442,6 +460,136 @@ describe('organizer route stores ciphertext and returns plaintext only to the ow
     expect(body.organizer.dependentNumber).toBe('***-**-0001');
     expect(body.organizer.idKind).toBeUndefined();
     expect(record.filingStatus).toBe('single');
+  });
+  it('a dependentSSN value starting with 9 and group 7 is labeled itin', async () => {
+    state.docs.set('ssn-itin', { userId: 'owner', taxYear: 2026, filingStatus: 'single', dependentSSN: '912-75-0001' });
+    const body = await (await get()).json();
+    const record = state.docs.get('ssn-itin')!;
+    expect(record.idKind).toEqual({ dependentSSN: 'itin' });
+    expect(record.idKindNeedsReview).toBeUndefined();
+    expect(isEncrypted(String(record.dependentSSN))).toBe(true);
+    expect(decryptSensitive(String(record.dependentSSN))).toBe('912750001');
+    expect(JSON.stringify(record.idKind)).not.toMatch(/912750001|0001/);
+    expect(body.organizer.dependentSSN).toBe('***-**-0001');
+    expect(body.organizer.idKind).toBeUndefined();
+    expect(body.organizer.idKindNeedsReview).toBeUndefined();
+    const storedOnce = structuredClone(record);
+    await get();
+    expect(state.docs.get('ssn-itin')).toEqual(storedOnce);
+  });
+  it('a dependent2SSN value with group 93 is labeled atin', async () => {
+    state.docs.set('ssn-atin', { userId: 'owner', taxYear: 2026, filingStatus: 'single', dependent2SSN: '901-93-0002' });
+    await get();
+    const record = state.docs.get('ssn-atin')!;
+    expect(record.idKind).toEqual({ dependent2SSN: 'atin' });
+    expect(record.idKindNeedsReview).toBeUndefined();
+    expect(isEncrypted(String(record.dependent2SSN))).toBe(true);
+    expect(decryptSensitive(String(record.dependent2SSN))).toBe('901930002');
+    expect(JSON.stringify(record.idKind)).not.toMatch(/901930002|0002/);
+  });
+  it('a leading 1 under an ssn suffix stays ssn, and itin and atin names stay', async () => {
+    state.docs.set('named', {
+      userId: 'owner', taxYear: 2026, filingStatus: 'single',
+      dependentSSN: '134-22-0008', dependent2ITIN: '134-22-0008', dependentATIN: '134-22-0008',
+    });
+    await get();
+    const record = state.docs.get('named')!;
+    expect(record.idKind).toEqual({ dependentSSN: 'ssn', dependent2ITIN: 'itin', dependentATIN: 'atin' });
+    expect(record.idKindNeedsReview).toBeUndefined();
+    expect(decryptSensitive(String(record.dependentSSN))).toBe('134220008');
+  });
+  it('a chosen ssn on a 9xx-7x value stores itin and a review flag', async () => {
+    state.docs.set('picked-ssn', { userId: 'owner', taxYear: 2026, filingStatus: 'single', dependentSSN: '912-75-0001' });
+    expect((await post({ taxYear: 2026, spouseName: 'Ada', idKind: 'ssn', idKindNeedsReview: '912750001' })).status).toBe(200);
+    const record = state.docs.get('picked-ssn')!;
+    expect(record.idKind).toEqual({ dependentSSN: 'itin' });
+    expect(record.idKindNeedsReview).toEqual({ dependentSSN: true });
+    expect(decryptSensitive(String(record.dependentSSN))).toBe('912750001');
+    expect(JSON.stringify(record.idKind)).not.toMatch(/912750001|0001/);
+    expect(JSON.stringify(record.idKindNeedsReview)).not.toMatch(/912750001|0001/);
+    expect(record.spouseName).toBe('Ada');
+    const storedOnce = structuredClone(record);
+    const body = await (await get()).json();
+    expect(state.docs.get('picked-ssn')).toEqual(storedOnce);
+    expect(body.organizer.dependentSSN).toBe('***-**-0001');
+    expect(body.organizer.idKind).toBeUndefined();
+    expect(body.organizer.idKindNeedsReview).toBeUndefined();
+    expect((await post({ taxYear: 2026 })).status).toBe(200);
+    expect(state.docs.get('picked-ssn')).toEqual(storedOnce);
+  });
+  it('a chosen ssn on a 9xx-93 value stores atin and a review flag', async () => {
+    state.docs.set('picked-93', { userId: 'owner', taxYear: 2026, filingStatus: 'single', dependent2SSN: '901-93-0002' });
+    expect((await post({ taxYear: 2026, idKind: 'ssn' })).status).toBe(200);
+    const record = state.docs.get('picked-93')!;
+    expect(record.idKind).toEqual({ dependent2SSN: 'atin' });
+    expect(record.idKindNeedsReview).toEqual({ dependent2SSN: true });
+    expect(decryptSensitive(String(record.dependent2SSN))).toBe('901930002');
+    expect(JSON.stringify(record.idKind)).not.toMatch(/901930002|0002/);
+    expect(JSON.stringify(record.idKindNeedsReview)).not.toMatch(/901930002|0002/);
+    const storedOnce = structuredClone(record);
+    await get();
+    expect(state.docs.get('picked-93')).toEqual(storedOnce);
+  });
+  it('a chosen ssn on a 9xx-4x value stores none and a review flag', async () => {
+    state.docs.set('picked-4', { userId: 'owner', taxYear: 2026, filingStatus: 'single', dependentSSN: '912-40-0004' });
+    expect((await post({ taxYear: 2026, idKind: 'ssn' })).status).toBe(200);
+    const record = state.docs.get('picked-4')!;
+    expect(record.idKind).toEqual({ dependentSSN: 'none' });
+    expect(record.idKindNeedsReview).toEqual({ dependentSSN: true });
+    expect(decryptSensitive(String(record.dependentSSN))).toBe('912400004');
+    expect(JSON.stringify(record.idKind)).not.toMatch(/912400004|0004/);
+    expect(JSON.stringify(record.idKindNeedsReview)).not.toMatch(/912400004|0004/);
+    const storedOnce = structuredClone(record);
+    await get();
+    expect(state.docs.get('picked-4')).toEqual(storedOnce);
+  });
+  it('a later itin choice clears the review flag', async () => {
+    state.docs.set('clear-flag', { userId: 'owner', taxYear: 2026, filingStatus: 'single', dependentSSN: '912-75-0001' });
+    expect((await post({ taxYear: 2026, spouseName: 'Ada', idKind: 'ssn' })).status).toBe(200);
+    const flagged = state.docs.get('clear-flag')!;
+    expect(flagged.idKind).toEqual({ dependentSSN: 'itin' });
+    expect(flagged.idKindNeedsReview).toEqual({ dependentSSN: true });
+    const ciphertext = flagged.dependentSSN;
+    expect((await post({ taxYear: 2026, idKind: 'itin' })).status).toBe(200);
+    const cleared = state.docs.get('clear-flag')!;
+    expect(cleared.idKind).toEqual({ dependentSSN: 'itin' });
+    expect(cleared.idKindNeedsReview).toEqual({});
+    expect(cleared.dependentSSN).toBe(ciphertext);
+    expect(decryptSensitive(String(cleared.dependentSSN))).toBe('912750001');
+    expect(JSON.stringify(cleared.idKindNeedsReview)).not.toMatch(/912750001|0001/);
+    const afterClear = structuredClone(cleared);
+    const body = await (await get()).json();
+    expect(state.docs.get('clear-flag')).toEqual(afterClear);
+    expect(body.organizer.idKind).toBeUndefined();
+    expect(body.organizer.idKindNeedsReview).toBeUndefined();
+    expect(body.organizer.dependentSSN).toBe('***-**-0001');
+    expect((await post({ taxYear: 2026 })).status).toBe(200);
+    expect(state.docs.get('clear-flag')).toEqual(afterClear);
+  });
+  it('a later atin choice clears only that review flag', async () => {
+    state.docs.set('two-flags', {
+      userId: 'owner', taxYear: 2026, filingStatus: 'single',
+      dependentSSN: '912-75-0001', dependent2SSN: '901-93-0002',
+    });
+    expect((await post({ taxYear: 2026, idKind: 'ssn' })).status).toBe(200);
+    expect(state.docs.get('two-flags')!.idKind).toEqual({ dependentSSN: 'itin', dependent2SSN: 'atin' });
+    expect(state.docs.get('two-flags')!.idKindNeedsReview).toEqual({ dependentSSN: true, dependent2SSN: true });
+    expect((await post({ taxYear: 2026, dependent2IdKind: 'atin' })).status).toBe(200);
+    const record = state.docs.get('two-flags')!;
+    expect(record.idKind).toEqual({ dependentSSN: 'itin', dependent2SSN: 'atin' });
+    expect(record.idKindNeedsReview).toEqual({ dependentSSN: true });
+    expect(JSON.stringify(record.idKindNeedsReview)).not.toMatch(/912750001|901930002|0001|0002/);
+    const storedOnce = structuredClone(record);
+    await get();
+    expect(state.docs.get('two-flags')).toEqual(storedOnce);
+  });
+  it('a chosen itin on a leading 1 stays itin', async () => {
+    state.docs.set('picked-itin', { userId: 'owner', taxYear: 2026, filingStatus: 'single', dependentSSN: '134-22-0008' });
+    expect((await post({ taxYear: 2026, idKind: 'itin' })).status).toBe(200);
+    const record = state.docs.get('picked-itin')!;
+    expect(record.idKind).toEqual({ dependentSSN: 'itin' });
+    expect(record.idKindNeedsReview).toBeUndefined();
+    expect(decryptSensitive(String(record.dependentSSN))).toBe('134220008');
   });
   it('a second conversion leaves the kind and the stored value byte-identical', async () => {
     const seed = (id: string) => state.docs.set(id, { userId: 'owner', taxYear: 2026, filingStatus: 'single', dependent2ITIN: '900-70-0001' });
