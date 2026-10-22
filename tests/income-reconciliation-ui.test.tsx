@@ -258,7 +258,7 @@ describe('income gate deep link', () => {
 
   it('shows the 1099-MISC pause sentence on the tax estimate and does not offer remove there', async () => {
     const error = 'Review income sources before calculating tax: Confirm the tax treatment of this 1099-MISC. Only business NEC/K income is included automatically.';
-    harness.request.mockImplementation((url: string) => Promise.resolve(Response.json({
+    harness.request.mockImplementation(() => Promise.resolve(Response.json({
       error, code: 'INCOME_RECONCILIATION_REQUIRED', taxYear: 2026, conflicts: [],
     }, { status: 422 })));
     const screen = () => TaxPreviewScreen({ user: { id: 'owner' }, onBack() {}, onNavigate: harness.navigate });
