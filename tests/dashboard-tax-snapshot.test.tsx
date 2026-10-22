@@ -546,13 +546,13 @@ describe('dashboard tax cards share the federal server calculation', () => {
     expect(render().state.status).toBe('loading');
     await flush();
     expect(taxCalls()).toBe(before + 2);
-    source.organizer = { ...source.organizer, dependents: [{ ...creditChild, dependentSSN: '900700111', dateOfBirth: '2019-01-02', relationship: 'son' }] };
+    source.organizer = { ...source.organizer, dependents: [{ ...creditChild, dependentSSN: '900700111', dateOfBirth: '2019-01-02', relationship: 'parent' }] };
     window.dispatchEvent(new Event('focus'));
     render(); await flush();
     expect(render().state.status).toBe('loading');
     await flush();
     expect(taxCalls()).toBe(before + 3);
-    source.organizer = { ...source.organizer, dependents: [{ ...creditChild, dependentSSN: '900700111', dateOfBirth: '2019-01-02', relationship: 'son', monthsLived: 6 }] };
+    source.organizer = { ...source.organizer, dependents: [{ ...creditChild, dependentSSN: '900700111', dateOfBirth: '2019-01-02', relationship: 'parent', monthsLived: 6 }] };
     window.dispatchEvent(new Event('focus'));
     render(); await flush();
     expect(render().state.status).toBe('loading');

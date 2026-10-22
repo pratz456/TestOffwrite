@@ -58,7 +58,7 @@ describe('dashboard tax input key', () => {
     const child = { name: 'Child', relationship: 'daughter', dateOfBirth: '2018-03-15', monthsLived: 12, dependentSSN: '900700111' };
     const start = facts({ dependents: [child] });
     expect(taxFactsEqual(start, facts({ dependents: [{ ...child, dateOfBirth: '2019-01-02' }] }))).toBe(false);
-    expect(taxFactsEqual(start, facts({ dependents: [{ ...child, relationship: 'son' }] }))).toBe(false);
+    expect(taxFactsEqual(start, facts({ dependents: [{ ...child, relationship: 'parent' }] }))).toBe(false);
     expect(taxFactsEqual(start, facts({ dependents: [{ ...child, monthsLived: 6 }] }))).toBe(false);
   });
 
@@ -66,7 +66,7 @@ describe('dashboard tax input key', () => {
     const first = facts({ dependents: [{ relationship: 'daughter', dateOfBirth: '2018-03-15', monthsLived: 12, residence: { zip: '78701', city: 'Austin' }, dependentSSN: '900700111' }] });
     const second = facts({ dependents: [{ dependentSSN: '900700111', residence: { city: 'Austin', zip: '78701' }, monthsLived: 12, dateOfBirth: '2018-03-15', relationship: 'daughter' }] });
     expect(taxFactsEqual(first, second)).toBe(true);
-    expect(String(first.dependents)).toContain('"relationship":"daughter"');
+    expect(String(first.dependents)).toContain('"relationship":"child"');
     expect(JSON.stringify(first)).not.toContain('900700111');
   });
 
@@ -86,10 +86,10 @@ describe('dashboard tax input key', () => {
     }
     expect(listed).not.toContain('"tin"');
     expect(read).not.toContain('"notes"');
-    expect(read).toContain('"fullTimeStudent":"yes"');
-    expect(read).toContain('"permanentlyAndTotallyDisabled":"no"');
+    expect(read).not.toContain('fullTimeStudent');
+    expect(read).not.toContain('permanentlyAndTotallyDisabled');
     expect(read).toContain('"age":8');
-    expect(listed).toContain('"relationship":"daughter"');
+    expect(listed).toContain('"relationship":"child"');
   });
 
   it('uses atin when an ATIN field is filled, and prefers ssn then atin then itin', () => {

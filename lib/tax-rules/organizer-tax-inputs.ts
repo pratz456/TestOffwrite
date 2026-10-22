@@ -1,3 +1,5 @@
+import { SNAPSHOT_DEPENDENT_FIELDS } from './credit-scope';
+
 /**
  * Organizer answers read by buildFederalTaxSnapshot. The dashboard refresh key
  * and the tax-input organizer read use this same list.
@@ -63,8 +65,89 @@ const DEPENDENT_SSN_FIELD = /^(?:dependent\d*)?ssn$/i;
 const DEPENDENT_ATIN_FIELD = /^(?:dependent\d*)?atin$/i;
 const DEPENDENT_ITIN_FIELD = /^(?:dependent\d*)?itin$/i;
 const EXPLICIT_KIND_FIELDS = ['identifierKind', 'identifierType', 'idType', 'identificationType', 'type'] as const;
-/** Credit facts kept for each dependent. Every other key is left out. */
-const DEPENDENT_CREDIT_FIELDS = ['dateOfBirth', 'age', 'relationship', 'monthsLived', 'fullTimeStudent', 'permanentlyAndTotallyDisabled'] as const;
+/** Credit facts kept for each dependent. Same fields the federal snapshot reads. */
+export const DEPENDENT_CREDIT_FIELDS = SNAPSHOT_DEPENDENT_FIELDS;
+
+/**
+ * Dependent properties the organizer can store that are not credit facts.
+ * Each value is a one-line reason the refresh key leaves that property out.
+ */
+export const DEPENDENT_IGNORED_FIELDS: Readonly<Record<string, string>> = {
+  dependentDetails: 'free-text note, not a structured credit fact',
+  dependents: 'the dependent list or count, not a fact inside one record',
+  dob: 'detail label; the credit fact is dateOfBirth',
+  name: 'display only',
+  ssn: 'identifier field; the key keeps the kind',
+};
+
+type DependentRelationship = 'child' | 'stepchild' | 'eligible_foster_child' | 'sibling' | 'descendant_of_child_or_sibling' | 'parent' | 'other_relative' | 'not_related';
+
+const RELATIONSHIP_BY_LABEL: Readonly<Record<string, DependentRelationship>> = {
+  child: 'child',
+  son: 'child',
+  daughter: 'child',
+  adopted: 'child',
+  'adopted child': 'child',
+  'adopted son': 'child',
+  'adopted daughter': 'child',
+  stepchild: 'stepchild',
+  'step child': 'stepchild',
+  stepson: 'stepchild',
+  stepdaughter: 'stepchild',
+  'step son': 'stepchild',
+  'step daughter': 'stepchild',
+  'eligible foster child': 'eligible_foster_child',
+  'foster child': 'eligible_foster_child',
+  'foster son': 'eligible_foster_child',
+  'foster daughter': 'eligible_foster_child',
+  sibling: 'sibling',
+  brother: 'sibling',
+  sister: 'sibling',
+  'half brother': 'sibling',
+  'half sister': 'sibling',
+  halfbrother: 'sibling',
+  halfsister: 'sibling',
+  stepbrother: 'sibling',
+  stepsister: 'sibling',
+  'step brother': 'sibling',
+  'step sister': 'sibling',
+  grandchild: 'descendant_of_child_or_sibling',
+  'grand child': 'descendant_of_child_or_sibling',
+  grandson: 'descendant_of_child_or_sibling',
+  granddaughter: 'descendant_of_child_or_sibling',
+  niece: 'descendant_of_child_or_sibling',
+  nephew: 'descendant_of_child_or_sibling',
+  'descendant of child or sibling': 'descendant_of_child_or_sibling',
+  parent: 'parent',
+  mother: 'parent',
+  father: 'parent',
+  'other relative': 'other_relative',
+  'not related': 'not_related',
+  unrelated: 'not_related',
+};
+
+function plainRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function canonicalDate(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return null;
+  const year = Number(trimmed.slice(0, 4));
+  const month = Number(trimmed.slice(5, 7));
+  const day = Number(trimmed.slice(8, 10));
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+  return trimmed;
+}
+
+function canonicalRelationship(value: unknown): DependentRelationship | 'unknown' {
+  if (typeof value !== 'string' || /\d/.test(value)) return 'unknown';
+  const label = value.trim().toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ');
+  if (!label || /\d/.test(label)) return 'unknown';
+  return RELATIONSHIP_BY_LABEL[label] ?? 'unknown';
+}
 
 export function readOrganizerTaxInput(organizer: Record<string, unknown>, field: OrganizerTaxInputField): unknown {
   return organizer[field];
@@ -115,6 +198,15 @@ function presentDependentRecord(record: Record<string, unknown>): Record<string,
   for (const field of DEPENDENT_CREDIT_FIELDS) {
     if (!Object.prototype.hasOwnProperty.call(record, field)) continue;
     const value = record[field];
+    if (field === 'relationship') {
+      if (typeof value === 'string' && !value.trim()) continue;
+      copy.relationship = canonicalRelationship(value);
+      continue;
+    }
+    if (field === 'dateOfBirth') {
+      copy.dateOfBirth = canonicalDate(value);
+      continue;
+    }
     if (typeof value === 'string') {
       const trimmed = value.trim();
       if (trimmed) copy[field] = trimmed;
@@ -126,12 +218,8 @@ function presentDependentRecord(record: Record<string, unknown>): Record<string,
 }
 
 function presentDependents(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(item => item && typeof item === 'object' && !Array.isArray(item)
-      ? presentDependentRecord(item as Record<string, unknown>)
-      : presentDependents(item));
-  }
-  if (value && typeof value === 'object') return presentDependentRecord(value as Record<string, unknown>);
+  if (Array.isArray(value)) return value.filter(plainRecord).map(item => presentDependentRecord(item));
+  if (plainRecord(value)) return presentDependentRecord(value);
   return value;
 }
 

@@ -9,7 +9,7 @@ import { summarizeW2Income } from './w2-income';
 import { normalizeFilingStatus } from './filing-status';
 import { assertWageOwnershipScope, TaxCalculationScopeReviewRequiredError } from './calculation-scope';
 import { calculateEligibleAdjustments } from './eligibility';
-import { assertGenericDependentCreditScope } from './credit-scope';
+import { assertGenericDependentCreditScope, readSnapshotDependentFacts } from './credit-scope';
 import { readSocialSecurityFacts, calculateSocialSecurityWorksheet, assertSocialSecurityAdjustmentRecords, SocialSecurityReviewRequiredError } from './social-security';
 import { calculateCapitalGainCharacter, hasCapitalGainAmounts, readCapitalGainFacts } from './capital-gains';
 import { businessTaxNotices, readProfileLocation } from './state';
@@ -38,7 +38,9 @@ interface FederalTaxSnapshotInput {
 export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
   const { taxYear, transactions, profile, organizer: org, deductions: ded } = input;
   const organizerField = (name: OrganizerTaxInputField) => readOrganizerTaxInput(org, name);
-  assertGenericDependentCreditScope(organizerField('dependents'));
+  const dependents = organizerField('dependents');
+  readSnapshotDependentFacts(dependents);
+  assertGenericDependentCreditScope(dependents);
   const benefitFacts = readSocialSecurityFacts(org);
   const amount = (value: unknown): number => {
     if (value === undefined || value === null || value === '') return 0;
