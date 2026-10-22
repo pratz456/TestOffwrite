@@ -96,9 +96,10 @@ export function profileLookupState(profile: unknown, error: unknown): 'existing'
     return code === 'PROFILE_NOT_FOUND' || code === 'PGRST116' ? 'missing' : 'error';
   }
   if (!profile) return 'missing';
-  // Consents are recorded before the setup answers, so a consent-only document
-  // still needs onboarding. Profiles without a consent record are untouched.
+  // Consents are recorded before the setup answers, and an acquisition-only
+  // document is written when the account is created. Neither is a finished
+  // profile. Profiles without those fields are untouched.
   const record = profile as Record<string, unknown>;
-  if (typeof profile === 'object' && record.consents && !hasSetupAnswers(record)) return 'missing';
+  if (typeof profile === 'object' && (record.consents || record.acquisition) && !hasSetupAnswers(record)) return 'missing';
   return 'existing';
 }

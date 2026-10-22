@@ -1,5 +1,5 @@
 import { adminDb } from '../firebase/admin';
-import { canStartFreeTrial, evaluateEntitlements, type SubscriptionStatus } from './entitlements';
+import { canStartFreeTrial, evaluateEntitlements, isAcquisitionOnlyProfile, type SubscriptionStatus } from './entitlements';
 export type { SubscriptionStatus } from './entitlements';
 
 export async function userHasHistoricalAccess(userId: string): Promise<boolean> {
@@ -17,8 +17,8 @@ export async function startFreeTrial(userId: string): Promise<{ success: boolean
     const ref = adminDb.doc(`user_profiles/${userId}`);
     return await adminDb.runTransaction(async (transaction) => {
       const snapshot = await transaction.get(ref);
-      if (!snapshot.exists) return { success: false, error: 'User profile not found' };
       const profile = snapshot.data() ?? {};
+      if (!snapshot.exists || isAcquisitionOnlyProfile(profile)) return { success: false, error: 'User profile not found' };
       if (!canStartFreeTrial(profile)) return { success: true };
       const now = new Date();
       transaction.update(ref, { subscriptionStatus: 'trial', trialStart: now,

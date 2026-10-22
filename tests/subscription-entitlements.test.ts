@@ -78,6 +78,12 @@ describe('shared trusted subscription policy', () => {
     expect(writes).toHaveBeenCalledTimes(1);
     expect(documents.get('user_profiles/u1')?.trialEnd).toEqual(new Date(now.getTime() + 30 * 86400000));
   });
+  it('does not start a trial from the signup source written before profile setup', async () => {
+    documents.set('user_profiles/u1', { acquisition: { utm_source: 'newsletter', capturedAt: '2026-10-22T19:00:00.000Z' } });
+    expect(await startFreeTrial('u1')).toEqual({ success: false, error: 'User profile not found' });
+    expect(writes).not.toHaveBeenCalled();
+    expect(documents.get('user_profiles/u1')?.trialStart).toBeUndefined();
+  });
   it('does not overwrite an expired trial or a paid cancellation', async () => {
     documents.set('user_profiles/u1', { subscriptionStatus: 'expired', trialStart: past, trialEnd: now });
     await startFreeTrial('u1');

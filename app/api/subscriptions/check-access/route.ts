@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import { startFreeTrial } from '@/lib/subscriptions/trial-manager';
-import { evaluateEntitlements } from '@/lib/subscriptions/entitlements';
+import { evaluateEntitlements, isAcquisitionOnlyProfile } from '@/lib/subscriptions/entitlements';
 import { adminDb } from '@/lib/firebase/admin';
 import { getStripeClient, reconcileUserSubscription, subscriptionDetails } from '@/lib/stripe/subscription-sync';
 import { isLocalAccountPreview } from '@/lib/firebase/local-account-preview';
@@ -13,7 +13,9 @@ export async function GET(req: Request) {
   try {
     const ref = adminDb.doc(`user_profiles/${uid}`);
     const snapshot = await ref.get();
-    if (!snapshot.exists) return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
+    if (!snapshot.exists || isAcquisitionOnlyProfile(snapshot.data())) {
+      return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
+    }
     const profile = snapshot.data() ?? {};
     if (isLocalAccountPreview()) {
       const entitlements = evaluateEntitlements(profile);

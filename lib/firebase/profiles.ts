@@ -8,6 +8,11 @@ import { waitForAuth } from "./auth";
 import { makeAuthenticatedRequest } from "./api-client";
 import type { ConsentRecord } from "@/lib/onboarding/consents";
 import { EDITABLE_PROFILE_FIELDS } from "./profile-fields";
+import { acquisitionFromUnknown, type Acquisition } from "@/lib/analytics/acquisition";
+
+function storedAcquisition(value: unknown): Acquisition | undefined {
+  return acquisitionFromUnknown(value) ?? undefined;
+}
 
 // Admin migration runs before SDK reads: Firestore cannot redact a secret field.
 async function prepareProfileRead() {
@@ -35,6 +40,8 @@ export interface UserProfile {
   updated_at?: any;
   /** Sign-up acknowledgments, recorded through the profile API before setup. */
   consents?: ConsentRecord | null;
+  /** First-touch campaign source, recorded once at account creation. */
+  acquisition?: Acquisition;
 
   // Phase 1: High Impact Fields
   itemization_status?: 'itemize' | 'standard';
@@ -128,7 +135,8 @@ export async function getUserProfileSafe(): Promise<{ data: UserProfile | null; 
 
     if (docSnap.exists()) {
       const data = docSnap.data() as DocumentData;
-              return {
+      const acquisition = storedAcquisition(data.acquisition);
+      return {
           data: {
             id: docSnap.id,
             email: data.email || '',
@@ -146,6 +154,7 @@ export async function getUserProfileSafe(): Promise<{ data: UserProfile | null; 
             created_at: data.created_at,
             updated_at: data.updated_at,
             consents: data.consents,
+            ...(acquisition ? { acquisition } : {}),
 
             // Phase 1: High Impact Fields
             itemization_status: data.itemization_status,
@@ -220,6 +229,7 @@ export async function getUserProfile(userId: string): Promise<{ data: UserProfil
 
     if (docSnap.exists()) {
       const data = docSnap.data() as DocumentData;
+      const acquisition = storedAcquisition(data.acquisition);
       return {
         data: {
           id: data.id || userId,
@@ -238,6 +248,7 @@ export async function getUserProfile(userId: string): Promise<{ data: UserProfil
           created_at: data.created_at,
           updated_at: data.updated_at,
           consents: data.consents,
+          ...(acquisition ? { acquisition } : {}),
 
           // Phase 1: High Impact Fields
           itemization_status: data.itemization_status,

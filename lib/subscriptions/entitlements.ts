@@ -65,6 +65,12 @@ export function evaluateEntitlements(profile: Record<string, unknown> | null | u
     features: { reports: fullAccess, exports: fullAccess, extended_history: hasAccess }, trialStart, trialEnd, subscriptionEnd };
 }
 
+/** Signup source written before profile setup. It must not count as a finished profile. */
+export function isAcquisitionOnlyProfile(profile: Record<string, unknown> | null | undefined): boolean {
+  if (!profile?.acquisition || typeof profile.acquisition !== 'object' || Array.isArray(profile.acquisition)) return false;
+  return Object.keys(profile).every(key => key === 'acquisition');
+}
+
 /** A trial can be claimed once, even after cancellation or a failed payment. */
 export function canStartFreeTrial(profile: Record<string, unknown>): boolean {
   return (!profile.subscriptionStatus || profile.subscriptionStatus === 'none') &&

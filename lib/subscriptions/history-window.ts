@@ -1,5 +1,5 @@
 import { adminDb } from '@/lib/firebase/admin';
-import { evaluateEntitlements } from './entitlements';
+import { evaluateEntitlements, isAcquisitionOnlyProfile } from './entitlements';
 
 export function transactionHistoryWindow(profile: Record<string, unknown>, now = new Date()) {
   const days = evaluateEntitlements(profile, now).features.extended_history ? 730 : 90;
@@ -12,7 +12,7 @@ export function transactionHistoryWindow(profile: Record<string, unknown>, now =
 /** Import limits affect new ingestion, never delete previously saved records. */
 export async function getTransactionHistoryWindow(uid: string) {
   const snapshot = await adminDb.doc(`user_profiles/${uid}`).get();
-  if (!snapshot.exists) throw new Error('User profile not found');
+  if (!snapshot.exists || isAcquisitionOnlyProfile(snapshot.data())) throw new Error('User profile not found');
   return transactionHistoryWindow(snapshot.data() ?? {});
 }
 

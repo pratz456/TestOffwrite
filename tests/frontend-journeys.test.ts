@@ -146,6 +146,9 @@ describe('returning-customer profile decisions', () => {
     expect(profileLookupState({ id: 'new', name: 'Finished setup', consents }, null)).toBe('existing');
     // Customers from before consent records never had the field and stay existing.
     expect(profileLookupState({ id: 'legacy', email: '', name: '', profession: '', income: '', state: '', filing_status: '' }, null)).toBe('existing');
+    const acquisition = { utm_source: 'newsletter', capturedAt: '2026-10-22T00:00:00.000Z' };
+    expect(profileLookupState({ id: 'new', email: '', name: '', profession: '', income: '', state: '', filing_status: '', acquisition }, null)).toBe('missing');
+    expect(profileLookupState({ id: 'done', name: 'Finished setup', acquisition }, null)).toBe('existing');
   });
 });
 
