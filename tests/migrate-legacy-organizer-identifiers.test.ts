@@ -109,7 +109,7 @@ describe('organizer record maintenance', () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const report = await runMigration({ projectId: PROJECT, db, ...quiet });
     expect(report).toEqual({
-      mode: 'dry_run', projectId: PROJECT, docsScanned: 2, docsWithLegacyPlaintext: 1,
+      mode: 'dry_run', projectId: PROJECT, docsScanned: 2, docsNeedingUpdate: 1,
       fieldsByType: { ssn: 2, ein: 1, redactedText: 1 }, docsUpdated: 0, docsUnreadable: 0, writesPerformed: false,
     });
     expect(writes).toEqual([]);
@@ -147,7 +147,7 @@ describe('organizer record maintenance', () => {
     const cleanBefore = { ...clean.data, identifiersEncryptedAt: new Date('2020-01-01T00:00:00.000Z') };
     const { db, writes, collections } = fakeDb({ legacy: legacy.data, clean: cleanBefore });
     const report = await runMigration({ projectId: PROJECT, apply: true, confirm: PROJECT, db, ...quiet });
-    expect(report).toMatchObject({ mode: 'apply', docsScanned: 2, docsWithLegacyPlaintext: 1, docsUpdated: 1, writesPerformed: true, fieldsByType: { ssn: 2, ein: 1, redactedText: 1 } });
+    expect(report).toMatchObject({ mode: 'apply', docsScanned: 2, docsNeedingUpdate: 1, docsUpdated: 1, writesPerformed: true, fieldsByType: { ssn: 2, ein: 1, redactedText: 1 } });
     const organizerWrites = writes.filter(write => write.collection === ORGANIZER_COLLECTION);
     const backupWrites = writes.filter(write => write.collection === ORGANIZER_IDENTIFIER_BACKUP_COLLECTION);
     expect(organizerWrites.map(write => write.id)).toEqual(['legacy']);
@@ -179,7 +179,7 @@ describe('organizer record maintenance', () => {
 
     const writesAfterFirst = writes.length;
     const second = await runMigration({ projectId: PROJECT, apply: true, confirm: PROJECT, db, ...quiet });
-    expect(second).toMatchObject({ docsScanned: 2, docsWithLegacyPlaintext: 0, docsUpdated: 0, writesPerformed: false, fieldsByType: {} });
+    expect(second).toMatchObject({ docsScanned: 2, docsNeedingUpdate: 0, docsUpdated: 0, writesPerformed: false, fieldsByType: {} });
     expect(writes).toHaveLength(writesAfterFirst);
     expect(formatMigrationReport(second)).not.toContain(SSN);
     expect(formatMigrationReport(second)).not.toContain('owner-a');
@@ -190,7 +190,7 @@ describe('organizer record maintenance', () => {
     const { db, writes, collections } = fakeDb({ clean: clean.data });
     const before = { ...collections.get(ORGANIZER_COLLECTION)!.get('clean') };
     const report = await runMigration({ projectId: PROJECT, apply: true, confirm: PROJECT, db, ...quiet });
-    expect(report).toMatchObject({ docsScanned: 1, docsWithLegacyPlaintext: 0, docsUpdated: 0, writesPerformed: false });
+    expect(report).toMatchObject({ docsScanned: 1, docsNeedingUpdate: 0, docsUpdated: 0, writesPerformed: false });
     expect(writes).toEqual([]);
     expect(collections.get(ORGANIZER_COLLECTION)!.get('clean')).toEqual(before);
   });
@@ -222,7 +222,7 @@ describe('organizer record maintenance', () => {
     const rows = { a: { ipPin: '123456' }, b: { ein: '123456789' }, c: { filingStatus: 'single', taxpayerSSN: encryptSensitive('900000001') } };
     const paged = fakeDb(rows);
     const scanned = await runMigration({ projectId: PROJECT, db: paged.db, ...quiet, pageSize: 1 });
-    expect(scanned).toMatchObject({ docsScanned: 3, docsWithLegacyPlaintext: 2, fieldsByType: { ipPin: 1, ein: 1 }, writesPerformed: false });
+    expect(scanned).toMatchObject({ docsScanned: 3, docsNeedingUpdate: 2, fieldsByType: { ipPin: 1, ein: 1 }, writesPerformed: false });
     expect(paged.writes).toEqual([]);
 
     const resumed = fakeDb(rows);

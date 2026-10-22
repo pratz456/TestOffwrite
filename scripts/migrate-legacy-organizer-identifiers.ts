@@ -60,7 +60,7 @@ export interface MigrationReport {
   mode: 'dry_run' | 'apply';
   projectId: string;
   docsScanned: number;
-  docsWithLegacyPlaintext: number;
+  docsNeedingUpdate: number;
   fieldsByType: Record<string, number>;
   docsUpdated: number;
   docsUnreadable: number;
@@ -97,7 +97,7 @@ export function formatMigrationReport(report: MigrationReport): string {
     mode: report.mode,
     projectId: report.projectId,
     docsScanned: report.docsScanned,
-    docsWithLegacyPlaintext: report.docsWithLegacyPlaintext,
+    docsNeedingUpdate: report.docsNeedingUpdate,
     fieldsByType,
     docsUpdated: report.docsUpdated,
     docsUnreadable: report.docsUnreadable,
@@ -222,7 +222,7 @@ export async function runMigration(options: MigrationRunOptions): Promise<Migrat
   const now = options.now ?? (() => new Date());
   const fieldsByType: Record<string, number> = {};
   let docsScanned = 0;
-  let docsWithLegacyPlaintext = 0;
+  let docsNeedingUpdate = 0;
   let docsUpdated = 0;
   let docsUnreadable = 0;
   let cursor = resumeAfter;
@@ -248,7 +248,7 @@ export async function runMigration(options: MigrationRunOptions): Promise<Migrat
         }
         const fields = legacyFields(read);
         if (!fields.length) continue;
-        docsWithLegacyPlaintext += 1;
+        docsNeedingUpdate += 1;
         for (const field of fields) fieldsByType[fieldType(field)] = (fieldsByType[fieldType(field)] ?? 0) + 1;
         if (!apply) continue;
         if (rateLimitMs > 0) await sleep(rateLimitMs);
@@ -286,7 +286,7 @@ export async function runMigration(options: MigrationRunOptions): Promise<Migrat
     mode: apply ? 'apply' : 'dry_run',
     projectId,
     docsScanned,
-    docsWithLegacyPlaintext,
+    docsNeedingUpdate,
     fieldsByType,
     docsUpdated,
     docsUnreadable,
