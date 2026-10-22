@@ -4,7 +4,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: vi.fn(async () => ({ ok: false })) }));
 
-import { DocumentImportSavePanel, importChoiceFromCommitError, importVerifyFieldDefs } from '@/components/document-import-screen';
+import { DocumentImportSavePanel, ImportSavedNotice, importChoiceFromCommitError, importVerifyFieldDefs, savedMiscPausesEstimate } from '@/components/document-import-screen';
+import { MISC_ESTIMATE_PAUSED_MESSAGE } from '@/lib/tax-rules/misc-estimate-pause';
 
 const panel = (choice: 'w2' | '1099' | null) => renderToStaticMarkup(
   <DocumentImportSavePanel
@@ -155,7 +156,9 @@ describe('W-2 or 1099 question on the verify panel', () => {
     const saveButton = buttons(waiting).find(button => button.includes('Save Verified Data to WriteOff'));
     expect(saveButton).toMatch(/disabled=""/);
     const picked = render('3');
-    expect(buttons(picked).find(button => button.includes('Other income (box 3)'))).toContain('aria-pressed="true"');
+    const pickedBox = buttons(picked).find(button => button.includes('Other income (box 3)'));
+    expect(pickedBox).toContain('aria-pressed="true"');
+    expect(pickedBox).toContain('bg-primary text-white');
     expect(buttons(picked).find(button => button.includes('Save Verified Data to WriteOff'))).not.toMatch(/disabled=""/);
     expect(waiting).not.toMatch(/audit-proof|IRS-ready|guaranteed/i);
   });
@@ -269,4 +272,116 @@ describe('W-2 or 1099 question on the verify panel', () => {
     expect(labelAt).toBeLessThan(withheldAt);
     expect(withheldAt).toBeLessThan(html.indexOf('Save Verified Data to WriteOff'));
   });
+
+  it('marks the clicked form button as selected and leaves the other unselected', () => {
+    let choice: 'w2' | '1099' | null = null;
+    const view = (current: 'w2' | '1099' | null) => DocumentImportSavePanel({
+      notes: ['Check the employer/payer ID'],
+      needsTypeConfirmation: true,
+      choice: current,
+      onChoice: next => { choice = next; },
+      saveDisabled: false,
+      saving: false,
+      saveLabel: 'Save Verified Data to WriteOff',
+      onSave: () => {},
+      children: <p>Box 1 wages</p>,
+    });
+    const target = walk(view(null)).find(node => node.props?.['aria-pressed'] === false && textOf(node).includes('1099') && !textOf(node).includes('Which'));
+    expect(target).toBeTruthy();
+    target.props.onClick();
+    expect(choice).toBe('1099');
+    const [w2, form1099] = buttons(renderToStaticMarkup(view(choice)));
+    expect(form1099).toContain('aria-pressed="true"');
+    expect(form1099).toContain('bg-primary text-white');
+    expect(w2).toContain('aria-pressed="false"');
+    expect(w2).toContain('bg-card');
+    expect(w2).not.toContain('bg-primary text-white');
+  });
+
+  it('marks the clicked 1099 kind as selected and leaves the other unselected', () => {
+    let variant: 'NEC' | 'MISC' | null = null;
+    const view = (current: 'NEC' | 'MISC' | null) => DocumentImportSavePanel({
+      notes: [],
+      needsTypeConfirmation: true,
+      needs1099Variant: true,
+      choice: '1099',
+      variantChoice: current,
+      onChoice: () => {},
+      onVariantChoice: next => { variant = next; },
+      saveDisabled: false,
+      saving: false,
+      saveLabel: 'Save Verified Data to WriteOff',
+      onSave: () => {},
+      children: <p>Box 1 wages</p>,
+    });
+    const target = walk(view(null)).find(node => node.props?.['aria-pressed'] === false && textOf(node).includes('MISC (other income)'));
+    expect(target).toBeTruthy();
+    target.props.onClick();
+    expect(variant).toBe('MISC');
+    const html = renderToStaticMarkup(view(variant));
+    const misc = buttons(html).find(button => button.includes('MISC (other income)'))!;
+    const nec = buttons(html).find(button => button.includes('NEC (pay for work)'))!;
+    expect(misc).toContain('aria-pressed="true"');
+    expect(misc).toContain('bg-primary text-white');
+    expect(nec).toContain('aria-pressed="false"');
+    expect(nec).not.toContain('bg-primary text-white');
+  });
+
+  it('marks box 3 as selected after it is clicked', () => {
+    let miscBox: '3' | null = null;
+    const view = (current: '3' | null) => DocumentImportSavePanel({
+      notes: [],
+      needsTypeConfirmation: true,
+      needsMiscBox: true,
+      choice: '1099',
+      miscBox: current,
+      miscAmount: 1500,
+      onChoice: () => {},
+      onMiscBox: next => { miscBox = next; },
+      saveDisabled: false,
+      saving: false,
+      saveLabel: 'Save Verified Data to WriteOff',
+      onSave: () => {},
+      children: <p>Amount</p>,
+    });
+    const target = walk(view(null)).find(node => node.props?.['aria-pressed'] === false && textOf(node).includes('Other income (box 3)'));
+    expect(target).toBeTruthy();
+    target.props.onClick();
+    expect(miscBox).toBe('3');
+    const picked = buttons(renderToStaticMarkup(view(miscBox))).find(button => button.includes('Other income (box 3)'))!;
+    expect(picked).toContain('aria-pressed="true"');
+    expect(picked).toContain('bg-primary text-white');
+  });
+
+  it('shows the pause sentence after a 1099-MISC save and not after an NEC save', () => {
+    expect(savedMiscPausesEstimate({ confirmed1099Variant: 'MISC', confirmedMiscBox: null })).toBe(true);
+    expect(savedMiscPausesEstimate({ confirmed1099Variant: null, confirmedMiscBox: '3' })).toBe(true);
+    expect(savedMiscPausesEstimate({ confirmed1099Variant: null, confirmedMiscBox: null, extractedFormVariant: 'MISC' })).toBe(true);
+    expect(savedMiscPausesEstimate({ confirmed1099Variant: 'NEC', confirmedMiscBox: null })).toBe(false);
+    const misc = renderToStaticMarkup(
+      <ImportSavedNotice docKind="1099" savedMisc onImportAnother={() => {}} onViewPreview={() => {}} />,
+    );
+    expect(misc.replace(/&#x27;|&#39;|&apos;/g, "'")).toContain(MISC_ESTIMATE_PAUSED_MESSAGE);
+    expect(misc).toContain('Saved to WriteOff');
+    expect(misc).not.toContain('Remove this record');
+    const nec = renderToStaticMarkup(
+      <ImportSavedNotice docKind="1099" savedMisc={false} onImportAnother={() => {}} />,
+    );
+    expect(nec).not.toContain(MISC_ESTIMATE_PAUSED_MESSAGE);
+    expect(nec).not.toContain('Remove this record');
+  });
 });
+
+function walk(node: React.ReactNode): React.ReactElement[] {
+  if (Array.isArray(node)) return node.flatMap(walk);
+  if (!node || typeof node !== 'object' || !('props' in node)) return [];
+  const element = node as React.ReactElement<{ children?: React.ReactNode }>;
+  return [element, ...walk(element.props?.children)];
+}
+
+function textOf(node: React.ReactElement): string {
+  const children = node.props?.children;
+  if (typeof children === 'string') return children;
+  if (Array.isArray(children)) return children.map(child => typeof child === 'string' ? child : '').join('');
+  return '';
+}

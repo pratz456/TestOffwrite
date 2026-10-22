@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { TaxCalculationNotice } from "@/components/tax-calculation-notice";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
+import { reviewMessageForUser } from "@/lib/tax-rules/misc-estimate-pause";
 
 interface FilingHubProps {
   user: { id: string; email?: string };
@@ -89,7 +90,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
       ]);
 
       const tax1040 = await form1040Res.json().catch(() => ({}));
-      if (!form1040Res.ok) throw new Error(tax1040.error || "The federal estimate could not be loaded. Open Tax Preview to retry before using these figures.");
+      if (!form1040Res.ok) throw new Error(reviewMessageForUser(tax1040.code, tax1040.error, "The federal estimate could not be loaded. Open Tax Preview to retry before using these figures."));
       const txData = await txRes.json().catch(() => ({}));
       if (!txRes.ok) throw new Error(txData.error || "Expense review could not be loaded. Please retry before reviewing these figures.");
       const federalEstimate = tax1040.form1040;
@@ -234,7 +235,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
         body: JSON.stringify(routes[formType] ? { year: Number(year) } : { type: formType, year: Number(year) }) });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || 'Export failed. Please retry.');
+        throw new Error(reviewMessageForUser(data.code, data.error, 'Export failed. Please retry.'));
       }
       const blob = await res.blob();
       if (active.current !== context) return;

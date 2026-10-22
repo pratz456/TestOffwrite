@@ -10,6 +10,12 @@ const h = vi.hoisted(() => ({ slots: [] as any[], cursor: 0, effects: [] as (() 
   uid: 'dashboard-owner', profile: {} as Record<string, unknown>, tx: [] as Record<string, unknown>[],
   records: {} as Record<string, Record<string, unknown>[]>, paid: 0, apiError: null as string | null,
   request: vi.fn(), lastJson: null as any,
+  taxFacts: undefined as {
+    amountOtherIncome: string | number | null;
+    dependents: string | number | null;
+    payments: { quarter: number; paidAmount: number }[];
+    notes?: string;
+  } | undefined,
 }));
 vi.mock('react', async importOriginal => {
   const actual = await importOriginal<typeof import('react')>();
@@ -62,7 +68,7 @@ function walk(node: any): Element[] { return Array.isArray(node) ? node.flatMap(
 function text(node: any): string { return Array.isArray(node) ? node.map(text).join('') : node && typeof node === 'object' ? text(node.props?.children) : typeof node === 'string' || typeof node === 'number' ? String(node) : ''; }
 function render() {
   h.cursor = 0;
-  const tree = DashboardScreen({ profile: h.profile, transactions: h.tx, onNavigate() {}, onTransactionClick() {} });
+  const tree = DashboardScreen({ profile: h.profile, transactions: h.tx, onNavigate() {}, onTransactionClick() {}, ...(h.taxFacts ? { taxFacts: h.taxFacts } : {}) });
   const props = walk(tree).find(n => n.type === ('KpiGrid' as any))!.props;
   h.effects.splice(0).forEach(effect => effect());
   return { ...props, header: walk(tree).find(n => n.type === ('DashboardHeader' as any))!.props,
@@ -89,7 +95,7 @@ async function transport(url: string) {
 function expense(amount: number, extra = {}) { return { amount, date: '2026-09-02', iso_currency_code: 'USD', category: 'office_expense', is_deductible: true, ...extra }; }
 beforeEach(() => {
   h.slots = []; h.cursor = 0; h.effects = []; h.uid = 'dashboard-owner';
-  h.profile = { id: h.uid, filing_status: 'Single', income: 0 }; h.tx = []; h.records = { tax_organizers: [reviewedPersonalDeductionOrganizer()] }; h.paid = 0; h.apiError = null; h.lastJson = null;
+  h.profile = { id: h.uid, filing_status: 'Single', income: 0 }; h.tx = []; h.records = { tax_organizers: [reviewedPersonalDeductionOrganizer()] }; h.paid = 0; h.apiError = null; h.lastJson = null; h.taxFacts = undefined;
   h.request.mockReset().mockImplementation(transport);
   vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-09-15T12:00:00Z'));
   vi.stubGlobal('fetch', vi.fn(async () => Response.json({})));
@@ -273,6 +279,31 @@ describe('dashboard tax cards share the federal server calculation', () => {
     render(); await flush(); expect(render().state.snapshot.income.grossReceipts).toBe(0);
     finish(Response.json({ taxYear: 2026, income: { grossReceipts: 999, totalDeductible: 0, scheduleCNetProfit: 999 }, form1040: { totalTax: 999, balanceDue: 999, refund: 0 } }));
     await flush(); expect(render().state.snapshot.income.grossReceipts).toBe(0);
+  });
+  it('recomputes when other income, a quarterly payment, or dependents change, and skips an unrelated field', async () => {
+    const payments = [1, 2, 3, 4].map(quarter => ({ quarter, paidAmount: 0 }));
+    h.taxFacts = { amountOtherIncome: null, dependents: null, payments, notes: 'first' };
+    render(); await flush();
+    expect(render().state.status).toBe('ready');
+    const taxCalls = () => h.request.mock.calls.filter(([url]) => String(url).includes('/api/tax/compute-1040')).length;
+    const before = taxCalls();
+    h.taxFacts = { ...h.taxFacts, notes: 'unrelated organizer note' };
+    h.profile = { ...h.profile, name: 'Synthetic' };
+    expect(render().state.status).toBe('ready');
+    await flush();
+    expect(taxCalls()).toBe(before);
+    h.taxFacts = { ...h.taxFacts, amountOtherIncome: '1500' };
+    expect(render().state.status).toBe('loading');
+    await flush();
+    expect(taxCalls()).toBe(before + 1);
+    h.taxFacts = { ...h.taxFacts, dependents: '1' };
+    expect(render().state.status).toBe('loading');
+    await flush();
+    expect(taxCalls()).toBe(before + 2);
+    h.taxFacts = { ...h.taxFacts, payments: payments.map(row => row.quarter === 2 ? { ...row, paidAmount: 400 } : row) };
+    expect(render().state.status).toBe('loading');
+    await flush();
+    expect(taxCalls()).toBe(before + 3);
   });
   it.each([{ taxYear: 2025 }, { income: { grossReceipts: '0' } }, { form1040: { totalTax: null } }])('rejects mismatched/malformed snapshots %j', async override => {
     const real = await (await GET(new NextRequest('http://localhost/api/tax/compute-1040?year=2026'))).json();

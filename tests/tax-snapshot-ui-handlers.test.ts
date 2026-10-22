@@ -38,6 +38,7 @@ vi.mock('@/lib/firebase/auth-context', () => ({ useAuth: () => ({ user: { id: 's
 import { TaxFilingHubScreen } from '../components/tax-filing-hub-screen';
 import { TaxPreviewScreen } from '../components/tax-preview-screen';
 import { reviewTargetForCode, loadDashboardTaxSnapshot } from '../lib/tax/dashboard-snapshot';
+import { MISC_ESTIMATE_PAUSED_MESSAGE } from '../lib/tax-rules/misc-estimate-pause';
 
 type Element = ReactElement<Record<string, any>>;
 function render(component = TaxFilingHubScreen): Element {
@@ -151,6 +152,22 @@ describe('filing hub uses the successful shared tax snapshot', () => {
     expect(exports.map(node => node.props.disabled)).toEqual([true, false, false]);
     expect(walk(tree).find(node => text(node) === 'Download records archive (JSON)' && node.props?.onClick)!.props.disabled).toBe(false);
     expect(harness.request.mock.calls.map(([url]) => url)).not.toEqual(expect.arrayContaining([expect.stringContaining('/income/')]));
+  });
+
+  it('replaces a 1099-MISC estimate hold with the pause sentence on the filing hub and the dashboard', async () => {
+    const error = 'Review income sources before calculating tax: Confirm the tax treatment of this 1099-MISC.';
+    harness.request.mockImplementation((url: string) => url.includes('compute-1040')
+      ? Promise.resolve(response({ error, code: 'INCOME_RECONCILIATION_REQUIRED' }, 422)) : requests(url));
+    render(); await flush();
+    expect(text(render())).toContain(MISC_ESTIMATE_PAUSED_MESSAGE);
+    expect(text(render())).not.toContain('No tax total has been calculated');
+    expect(text(render())).not.toContain('Remove this record');
+    harness.slots = [];
+    const preview = () => TaxPreviewScreen({ user: { id: 'snapshot-owner' }, onBack() {}, onNavigate: harness.navigate });
+    render(preview); await flush();
+    expect(text(render(preview))).toContain(MISC_ESTIMATE_PAUSED_MESSAGE);
+    const dashboard = await loadDashboardTaxSnapshot(year);
+    expect(dashboard).toMatchObject({ status: 'review', code: 'INCOME_RECONCILIATION_REQUIRED', message: MISC_ESTIMATE_PAUSED_MESSAGE });
   });
 
   it('uses snapshot income and self-employment tax, including explicitly calculated zeros', async () => {

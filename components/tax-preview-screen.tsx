@@ -9,6 +9,7 @@ import { TaxCalculationNotice } from "@/components/tax-calculation-notice";
 import { SUPPORTED_TAX_YEARS } from "@/lib/tax-rules/federal-year-rules";
 import type { BusinessTaxNotice, StateTaxComponents, StateTaxLine } from "@/lib/tax-rules/state";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
+import { reviewMessageForUser } from "@/lib/tax-rules/misc-estimate-pause";
 
 interface Props {
   user: { id: string; email?: string };
@@ -87,7 +88,7 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
           // The income gate names conflicting records by reference so the owner knows what to reconcile.
           setReviewConflicts(Array.isArray(result.conflicts) ? result.conflicts.filter((c: unknown) => c && typeof c === 'object' && typeof (c as { message?: unknown }).message === 'string') : []);
         }
-        throw new Error(result.error || "Failed to compute estimate");
+        throw new Error(reviewMessageForUser(result.code, result.error, "Failed to compute estimate"));
       }
       if (currentRequest === requestId.current) setData(result);
     } catch (e) {

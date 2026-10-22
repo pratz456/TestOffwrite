@@ -115,6 +115,7 @@ describe('income reconciliation explainer', () => {
     const { status, body } = await json(await GET(request('GET', { query: '?year=2026' })));
     expect(status).toBe(200);
     expect(body.unsupported).toContain('Confirm the tax treatment of this 1099');
+    expect(body.unsupportedRecords).toEqual([expect.objectContaining({ id: 'misc', formType: '1099-MISC', amount: 900, label: '1099-MISC · Rents Inc' })]);
     expect(body).toMatchObject({ candidates: [], conflicts: [], grossReceipts: null });
     const rejected = await json(await POST(request('POST', { body: samePayments([ref('form_1099', 'k1', 12000), ref('gross_receipt', 'r1', 12000)]) })));
     expect(rejected.status).toBe(422);

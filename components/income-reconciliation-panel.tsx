@@ -12,6 +12,7 @@ import {
   type IncomeSourceKind, type ReconciliationDecisionType,
 } from "@/lib/tax-rules/income-reconciliation";
 import type { IncomeReconciliationSummary, SavedDecisionView } from "@/lib/tax-rules/income-reconciliation-response";
+import { isMiscEstimatePaused, MISC_ESTIMATE_PAUSED_MESSAGE } from "@/lib/tax-rules/misc-estimate-pause";
 
 interface IncomeReconciliationPanelProps {
   taxYear: number;
@@ -39,6 +40,7 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const requestId = useRef(0);
 
@@ -125,6 +127,20 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
       setSaving(false);
     }
   };
+  const removeImportedForm = async (id: string) => {
+    setRemovingId(id); setFormError(null);
+    try {
+      const res = await makeAuthenticatedRequest(`/api/income/1099?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Could not remove this record. Try again.");
+      setConfirmingId(null);
+      await load();
+      onChanged?.();
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "Could not remove this record. Try again.");
+    } finally {
+      setRemovingId(null);
+    }
+  };
   const remove = async (id: string) => {
     setRemovingId(id); setFormError(null);
     try {
@@ -166,7 +182,27 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
           {summary.unsupported ? (
             <div role="alert" className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm">
               <p className="font-medium text-foreground">A saved record needs review before {taxYear} can be reconciled</p>
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{summary.unsupported}</p>
+              {isMiscEstimatePaused(summary.unsupported) ? (
+                <>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{MISC_ESTIMATE_PAUSED_MESSAGE}</p>
+                  {(summary.unsupportedRecords ?? []).filter(record => record.id).map(record => (
+                    <div key={record.id} className="mt-2 flex flex-wrap items-center gap-2">
+                      <p className="text-xs text-muted-foreground">{record.label}</p>
+                      {confirmingId === record.id ? (
+                        <>
+                          <Button type="button" variant="outline" onClick={() => removeImportedForm(record.id)} disabled={busy} className="min-h-11">Confirm remove</Button>
+                          <Button type="button" variant="outline" onClick={() => setConfirmingId(null)} disabled={busy} className="min-h-11">Cancel</Button>
+                        </>
+                      ) : (
+                        <Button type="button" variant="outline" onClick={() => setConfirmingId(record.id)} disabled={busy} className="min-h-11">Remove this record</Button>
+                      )}
+                    </div>
+                  ))}
+                </>
+              ) : (
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{summary.unsupported}</p>
+              )}
+              {formError && <p className="mt-2 text-xs text-destructive">{formError}</p>}
             </div>
           ) : summary.conflicts.length > 0 ? (
             <div role="alert" className="rounded-lg border border-warning/30 bg-warning/5 p-3 text-sm">

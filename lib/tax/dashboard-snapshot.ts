@@ -1,4 +1,5 @@
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
+import { reviewMessageForUser } from '@/lib/tax-rules/misc-estimate-pause';
 
 export interface DashboardTaxSnapshot {
   taxYear: number;
@@ -49,7 +50,7 @@ export async function loadDashboardTaxSnapshot(taxYear: number, signal?: AbortSi
     if (!response.ok) {
       return {
         status: response.status === 422 ? 'review' : 'error',
-        message: typeof data?.error === 'string' ? data.error : 'The federal estimate could not be loaded. Please retry.',
+        message: reviewMessageForUser(data?.code, data?.error, 'The federal estimate could not be loaded. Please retry.'),
         code: typeof data?.code === 'string' ? data.code : undefined,
       };
     }

@@ -11,6 +11,7 @@ vi.mock('react', async importOriginal => {
 });
 vi.mock('@/components/landing/landing-header', () => ({ LandingHeader: 'LandingHeader' }));
 vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: h.request }));
+import { MISC_ESTIMATE_PAUSED_MESSAGE } from '../lib/tax-rules/misc-estimate-pause';
 import { QuarterlyEstimateClient } from '../app/tools/quarterly-estimate-calculator/quarterly-estimate-client';
 import { QuarterlyTaxCalculator } from '../components/quarterly-tax-calculator';
 import { buildQuarterlyPlan, QUARTERLY_PLANNER_READY_MESSAGE, type MissingFact } from '../lib/tax-provider/quarterly-planner';
@@ -69,6 +70,15 @@ describe('authenticated quarterly summary handles review and stale data', () => 
     h.request.mockResolvedValue(Response.json({ code: 'SOCIAL_SECURITY_REVIEW_REQUIRED', error: 'Review Social Security benefits before calculating tax.' }, { status: 422 }));
     transactions = [{ id: 'new-record' }]; expect(text(render(component))).not.toContain('$12,000.00'); await flush();
     const content = text(render(component)); expect(content).toContain('Review Social Security benefits'); expect(content).not.toContain('$0.00');
+  });
+  it('shows the 1099-MISC pause sentence when the annual estimate is on hold', async () => {
+    h.request.mockResolvedValue(Response.json({ code: 'INCOME_RECONCILIATION_REQUIRED', error: 'Review income sources before calculating tax: Confirm the tax treatment of this 1099-MISC.' }, { status: 422 }));
+    const component = () => QuarterlyTaxCalculator({ userProfile: { id: 'synthetic' }, transactions: [] });
+    render(component); await flush();
+    const content = text(render(component));
+    expect(content).toContain(MISC_ESTIMATE_PAUSED_MESSAGE);
+    expect(content).not.toContain('No tax total has been calculated');
+    expect(content).not.toContain('Remove this record');
   });
 });
 

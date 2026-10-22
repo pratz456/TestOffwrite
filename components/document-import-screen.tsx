@@ -6,9 +6,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  Upload, FileText, CheckCircle2, AlertCircle, XCircle,
+  Upload, FileText, CheckCircle2, Check, AlertCircle, XCircle,
   Loader2, Camera, DollarSign, Building2, Receipt, Info, Edit3, Eye, ShieldCheck,
 } from "lucide-react";
+import { MISC_ESTIMATE_PAUSED_MESSAGE } from "@/lib/tax-rules/misc-estimate-pause";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 import { DocumentImageConsent, type DocumentImageFallbackReason } from "@/components/document-image-consent";
 import { DOCUMENT_IMAGE_CONSENT_REQUIRED } from "@/lib/onboarding/document-import-consent";
@@ -337,6 +338,54 @@ export function importChoiceFromCommitError(data: { code?: unknown } | null): {
   return null;
 }
 
+function formChoiceButton(label: string, pressed: boolean, onClick: () => void) {
+  return (
+    <Button type="button" variant={pressed ? "default" : "secondary"} className="w-full sm:flex-1" aria-pressed={pressed} onClick={onClick}>
+      {pressed ? <Check aria-hidden="true" /> : null}
+      {label}
+    </Button>
+  );
+}
+
+/** True after a 1099-MISC save, including a native MISC the type gate did not ask about. */
+export function savedMiscPausesEstimate(input: {
+  confirmed1099Variant: "NEC" | "MISC" | null;
+  confirmedMiscBox: "3" | null;
+  extractedFormVariant?: unknown;
+  needsMiscBox?: boolean;
+}): boolean {
+  return input.confirmed1099Variant === "MISC" || input.confirmedMiscBox === "3" || input.extractedFormVariant === "MISC" || Boolean(input.needsMiscBox);
+}
+
+export function ImportSavedNotice({
+  docKind,
+  savedMisc,
+  onImportAnother,
+  onViewPreview,
+}: {
+  docKind: "w2" | "1099" | "other";
+  savedMisc: boolean;
+  onImportAnother: () => void;
+  onViewPreview?: () => void;
+}) {
+  return (
+    <div className="flex flex-col items-center gap-3 py-6">
+      <CheckCircle2 className="w-10 h-10 text-green-600 dark:text-green-400" />
+      <p className="text-base font-semibold">Saved to WriteOff</p>
+      <p className="text-sm text-muted-foreground text-center">
+        {docKind === "w2" ? "W-2 wages and withholding added to your return" :
+         docKind === "1099" ? "1099 income added to your return" :
+         "Earnings added as self-employment income"}
+      </p>
+      {savedMisc && <p className="max-w-md text-center text-sm text-muted-foreground">{MISC_ESTIMATE_PAUSED_MESSAGE}</p>}
+      <div className="flex gap-3">
+        <Button variant="outline" onClick={onImportAnother}>Import Another</Button>
+        {onViewPreview && <Button onClick={onViewPreview}>View Tax Preview</Button>}
+      </div>
+    </div>
+  );
+}
+
 function formatImportAmount(amount: number): string {
   const [whole, fraction] = amount.toFixed(2).split(".");
   return `$${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}.${fraction}`;
@@ -409,8 +458,8 @@ export function DocumentImportSavePanel({
             <div className="space-y-2">
               <p className="text-sm text-foreground">This looks like it could be a 1099. Which form is it?</p>
               <div className="flex flex-col gap-2 sm:flex-row">
-                <Button type="button" variant="secondary" className="w-full sm:flex-1" aria-pressed={choice === "w2"} onClick={() => onChoice("w2")}>W-2</Button>
-                <Button type="button" variant="secondary" className="w-full sm:flex-1" aria-pressed={choice === "1099"} onClick={() => onChoice("1099")}>1099</Button>
+                {formChoiceButton("W-2", choice === "w2", () => onChoice("w2"))}
+                {formChoiceButton("1099", choice === "1099", () => onChoice("1099"))}
               </div>
             </div>
           )}
@@ -418,8 +467,8 @@ export function DocumentImportSavePanel({
             <div className="space-y-2">
               <p className="text-sm text-foreground">Which kind of 1099 is it?</p>
               <div className="flex flex-col gap-2 sm:flex-row">
-                <Button type="button" variant="secondary" className="w-full sm:flex-1" aria-pressed={variantChoice === "NEC"} onClick={() => onVariantChoice?.("NEC")}>NEC (pay for work)</Button>
-                <Button type="button" variant="secondary" className="w-full sm:flex-1" aria-pressed={variantChoice === "MISC"} onClick={() => onVariantChoice?.("MISC")}>MISC (other income)</Button>
+                {formChoiceButton("NEC (pay for work)", variantChoice === "NEC", () => onVariantChoice?.("NEC"))}
+                {formChoiceButton("MISC (other income)", variantChoice === "MISC", () => onVariantChoice?.("MISC"))}
               </div>
             </div>
           )}
@@ -428,7 +477,7 @@ export function DocumentImportSavePanel({
               <p className="text-sm text-foreground">Which box is this amount?</p>
               {typeof miscAmount === "number" && <p className="text-sm text-foreground">{formatImportAmount(miscAmount)}</p>}
               <div className="flex flex-col gap-2 sm:flex-row">
-                <Button type="button" variant="secondary" className="w-full sm:flex-1" aria-pressed={miscBox === "3"} onClick={() => onMiscBox?.("3")}>Other income (box 3)</Button>
+                {formChoiceButton("Other income (box 3)", miscBox === "3", () => onMiscBox?.("3"))}
               </div>
             </div>
           )}
@@ -750,21 +799,17 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
         )}
 
         {committed && (
-          <div className="flex flex-col items-center gap-3 py-6">
-            <CheckCircle2 className="w-10 h-10 text-green-600 dark:text-green-400" />
-            <p className="text-base font-semibold">Saved to WriteOff</p>
-            <p className="text-sm text-muted-foreground text-center">
-              {(confirmedDocType || result?.docType) === "w2" ? "W-2 wages and withholding added to your return" :
-               (confirmedDocType || result?.docType) === "1099" ? "1099 income added to your return" :
-               "Earnings added as self-employment income"}
-            </p>
-            <div className="flex gap-3">
-              <Button variant="outline" onClick={() => { setResult(null); setFile(null); setPreview(null); setCommitted(false); setEditedFields({}); setConfirmedDocType(null); setConfirmed1099Variant(null); setConfirmedMiscBox(null); }}>
-                Import Another
-              </Button>
-              {onNavigate && <Button onClick={() => onNavigate("tax-preview")}>View Tax Preview</Button>}
-            </div>
-          </div>
+          <ImportSavedNotice
+            docKind={(confirmedDocType || result?.docType) === "w2" ? "w2" : (confirmedDocType || result?.docType) === "1099" ? "1099" : "other"}
+            savedMisc={savedMiscPausesEstimate({
+              confirmed1099Variant,
+              confirmedMiscBox,
+              extractedFormVariant: result?.extracted?.formVariant,
+              needsMiscBox: Boolean(result?.needsMiscBox),
+            })}
+            onImportAnother={() => { setResult(null); setFile(null); setPreview(null); setCommitted(false); setEditedFields({}); setConfirmedDocType(null); setConfirmed1099Variant(null); setConfirmedMiscBox(null); }}
+            onViewPreview={onNavigate ? () => onNavigate("tax-preview") : undefined}
+          />
         )}
       </div>
     </div>

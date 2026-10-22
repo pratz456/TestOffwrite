@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { TaxCalculationNotice } from '@/components/tax-calculation-notice';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
+import { reviewMessageForUser } from '@/lib/tax-rules/misc-estimate-pause';
 import type { MissingFact, QuarterlyPlan, QuarterlyPlannerResponse } from '@/lib/tax-provider/quarterly-planner';
 import { LATEST_PUBLISHED_TAX_YEAR } from '@/lib/tax-rules/federal-year-rules';
 
@@ -75,7 +76,7 @@ export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyT
         const asOf = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
         const response = await makeAuthenticatedRequest(`/api/tax/quarterly-reminders?year=${year}&asOf=${asOf}`, { signal: controller.signal, cache: 'no-store' });
         const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Could not load your quarterly planning records. Please retry.');
+        if (!response.ok) throw new Error(reviewMessageForUser(data.code, data.error, 'Could not load your quarterly planning records. Please retry.'));
         if (data.taxYear !== year || ![data.totalEstimatedTax, data.recordedEstimatedPayments, data.w2Withheld].every(value => typeof value === 'number' && Number.isFinite(value)) || (data.totalFederalWithheld !== undefined && (typeof data.totalFederalWithheld !== 'number' || !Number.isFinite(data.totalFederalWithheld))) || !Array.isArray(data.quarters) || !data.paymentReview?.message) throw new Error('The quarterly summary is incomplete. Please retry.');
         if (data.planner != null && data.planner.status !== 'ready' && data.planner.status !== 'review_required') throw new Error('The quarterly summary is incomplete. Please retry.');
         if (data.planner?.status === 'ready' && (!Array.isArray(data.planner.installments) || !data.planner.requiredAnnualPayment || !data.planner.underpaymentInterestIllustration)) throw new Error('The quarterly summary is incomplete. Please retry.');

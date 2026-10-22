@@ -319,6 +319,7 @@ async function saveW2(uid: string, data: Record<string, any>, options?: { typeCo
 async function save1099(uid: string, data: Record<string, any>) {
   const taxYear = data.taxYear || new Date().getFullYear() - 1;
   const box3OtherIncome = data.box3OtherIncome || 0;
+  const box4FederalWithheld = data.box4FederalWithheld || data.box2FederalWithheld || 0;
   const record: Record<string, unknown> = {
     userId: uid,
     taxYear,
@@ -326,7 +327,8 @@ async function save1099(uid: string, data: Record<string, any>) {
     payerEIN: data.payerEIN || '',
     formType: `1099-${data.formVariant || 'NEC'}`,
     amount: data.grossAmount || box3OtherIncome || data.box1Amount || 0,
-    federalWithheld: data.box4FederalWithheld || data.box2FederalWithheld || 0,
+    federalWithheld: box4FederalWithheld,
+    box4FederalWithheld,
     platform: data.platform || null,
     source: 'document_import',
     box3OtherIncome,

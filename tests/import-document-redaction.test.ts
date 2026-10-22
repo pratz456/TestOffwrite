@@ -320,8 +320,12 @@ describe('redact-first W-2/1099 import: text path', () => {
   it.each([
     ['w2', "PAYER'S TIN 123456789"],
     ['w2', 'Payer EIN 123456789'],
+    ['1099', "PAYER'S TIN 123456789"],
+    ['1099', 'Payer EIN 123456789'],
   ] as ['w2' | '1099', string][])('without a confirmed form, model %s and text %s keeps the payer-number result on preview and does not save when the W-2 check fires', async (docType, line) => {
-    const reply = { ...W2_JSON, docType, employerEIN: '123456789', box1Wages: 1000 };
+    const reply = docType === '1099'
+      ? { docType: '1099', formVariant: 'NEC', payerName: 'Synthetic Payer', payerEIN: '123456789', box1Amount: 1000, taxYear: 2025, confidence: 0.95, verificationWarnings: [] }
+      : { ...W2_JSON, docType, employerEIN: '123456789', box1Wages: 1000 };
     const seen = captureLogs();
     try {
       mocks.recognize.mockResolvedValue({ text: `${line}\nPaid for services rendered this year`, confidence: 0.95 });
@@ -1009,6 +1013,7 @@ describe('W-2 save that looks like a 1099 asks which form it is', () => {
       expect(saved.record?.amount).toBe(1500);
       expect(saved.record?.amount).not.toBe(0);
       expect(saved.record?.box3OtherIncome).toBe(1500);
+      expect(saved.record?.box4FederalWithheld).toBe(80);
       expect(saved.record?.formType).toBe('1099-MISC');
       expect(saved.record).not.toHaveProperty('box1Amount');
       expect(saved.record).not.toHaveProperty('box1Wages');

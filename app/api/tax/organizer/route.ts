@@ -10,6 +10,20 @@ import { readEligibilityFacts } from '@/lib/tax-rules/eligibility';
 
 const privateHeaders = { 'Cache-Control': 'private, no-store' };
 
+function taxInputValue(value: unknown): string | number | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  return null;
+}
+
+/** Other income and dependents only. The full organizer stays on the default GET. */
+function organizerTaxInput(data: Record<string, unknown> | undefined) {
+  return {
+    amountOtherIncome: taxInputValue(data?.amountOtherIncome),
+    dependents: taxInputValue(data?.dependents),
+  };
+}
+
 function validYear(value: unknown): number | null {
   if (value === undefined || value === null) return new Date().getFullYear();
   const year = typeof value === 'number' || typeof value === 'string' ? Number(value) : NaN;
@@ -23,6 +37,10 @@ export async function GET(request: NextRequest) {
   if (!year) return NextResponse.json({ error: 'Invalid tax year' }, { status: 400 });
   try {
     const snap = await adminDb.collection('tax_organizers').where('userId', '==', user.uid).where('taxYear', '==', year).limit(1).get();
+    if (request.nextUrl.searchParams.get('view') === 'tax-input') {
+      const data = snap.empty ? undefined : snap.docs[0].data() as Record<string, unknown>;
+      return NextResponse.json(organizerTaxInput(data), { headers: privateHeaders });
+    }
     if (snap.empty) return NextResponse.json({ organizer: null, taxYear: year }, { headers: privateHeaders });
     const doc = snap.docs[0];
     // Return the owner's editable values. This read does not write.

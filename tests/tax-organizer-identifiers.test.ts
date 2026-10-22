@@ -361,6 +361,16 @@ describe('organizer route stores ciphertext and returns plaintext only to the ow
     expect(decryptSensitive(String(stored().ein))).toBe('987654321');
     expect(stored().ein).not.toBe(original);
   });
+  it('returns other income and dependents for the dashboard key without the rest of the organizer', async () => {
+    state.docs.set('tax-input-row', {
+      userId: 'owner', taxYear: 2026, amountOtherIncome: '1500', dependents: '2',
+      notes: 'unrelated', hasW2: 'yes', taxpayerSSN: 'ciphertext', updatedAt: 'stamp',
+    });
+    const body = await (await GET(new NextRequest('http://localhost/api/tax/organizer?year=2026&view=tax-input'))).json();
+    expect(body).toEqual({ amountOtherIncome: '1500', dependents: '2' });
+    const missing = await (await GET(new NextRequest('http://localhost/api/tax/organizer?year=2024&view=tax-input'))).json();
+    expect(missing).toEqual({ amountOtherIncome: null, dependents: null });
+  });
   it('still rejects an invalid EIN before writing', async () => {
     const response = await post({ taxYear: 2026, ein: '12-345678', filingStatus: 'single' });
     expect(response.status).toBe(400);

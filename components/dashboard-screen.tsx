@@ -17,6 +17,13 @@ import { summarizeAnalysisBacklog } from '@/lib/ai/analysis-state';
 import { AnalysisStatusNotice } from '@/components/analysis-status-notice';
 import { toast } from 'sonner';
 import { loadDashboardTaxSnapshot, type DashboardTaxState } from '@/lib/tax/dashboard-snapshot';
+import {
+  EMPTY_DASHBOARD_TAX_FACTS,
+  loadDashboardTaxFacts,
+  normalizeDashboardTaxFacts,
+  taxFactsEqual,
+  type DashboardTaxFacts,
+} from '@/lib/tax/dashboard-tax-input';
 import { transactionNeedsCategoryReview } from '@/lib/utils/transaction-tax-review';
 import { dashboardNextSteps } from '@/lib/dashboard/next-steps';
 import { summarizeConfirmedDeductions } from '@/lib/tax/display-deductions';
@@ -40,6 +47,8 @@ interface DashboardScreenProps {
   onTransactionClick: (transaction: any) => void;
   analyzingTransactions?: boolean;
   onSignOut?: () => void;
+  /** When set, wins over the organizer and quarterly-payment reads. */
+  taxFacts?: DashboardTaxFacts;
 }
 
 function recordRevision(value: unknown): number | string | null {
@@ -59,6 +68,7 @@ export default function DashboardScreen({
   onTransactionClick,
   analyzingTransactions = false,
   onSignOut,
+  taxFacts: taxFactsProp,
 }: DashboardScreenProps) {
   // --- Auth & realtime hooks (unchanged) ---
   const currentUser = auth.currentUser;
@@ -101,12 +111,17 @@ export default function DashboardScreen({
   // The current-year tax cards use the same authenticated calculation as Tax Preview.
   // Refresh only for facts that can affect the server snapshot. AI progress and
   // other cosmetic writes must not make ready KPI cards flash back to zero/loading.
+  // Other income, dependents, and quarterly payments live outside the profile,
+  // and those saves do not bump profile.updated_at, so they are part of this key.
   const taxYear = new Date().getFullYear();
   const [taxRetry, setTaxRetry] = useState(0);
+  const [loadedTaxFacts, setLoadedTaxFacts] = useState<DashboardTaxFacts>(EMPTY_DASHBOARD_TAX_FACTS);
+  const taxFacts = normalizeDashboardTaxFacts(taxFactsProp ?? loadedTaxFacts);
   const taxInputKey = JSON.stringify({
     userId,
     taxYear,
     taxRetry,
+    taxFacts,
     profile: {
       revision: recordRevision(profile?.updated_at ?? profile?.updatedAt),
       filingStatus: profile?.filing_status ?? profile?.filingStatus ?? null,
@@ -164,6 +179,17 @@ export default function DashboardScreen({
     });
     return () => { current = false; controller.abort(); };
   }, [taxInputKey, userId, taxYear]);
+
+  useEffect(() => {
+    if (taxFactsProp || !userId) return;
+    let current = true;
+    const controller = new AbortController();
+    void loadDashboardTaxFacts(taxYear, controller.signal).then(next => {
+      if (!current || !next) return;
+      setLoadedTaxFacts(previous => taxFactsEqual(previous, next) ? previous : next);
+    });
+    return () => { current = false; controller.abort(); };
+  }, [taxFactsProp, userId, taxYear, taxRetry]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;

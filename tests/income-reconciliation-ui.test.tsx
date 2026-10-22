@@ -39,6 +39,7 @@ import { incomeScreenTab, incomeScreenYear } from '../components/income-tracking
 import { protectedScreenUrl } from '../lib/navigation/protected-screens';
 import { prepareReconciliationDecision, summarizeIncomeReconciliation, type IncomeSourceRecords } from '../lib/tax-rules/income-reconciliation-response';
 import type { IncomeRecord } from '../lib/tax-rules/business-income';
+import { MISC_ESTIMATE_PAUSED_MESSAGE } from '../lib/tax-rules/misc-estimate-pause';
 
 type Element = ReactElement<Record<string, any>>;
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
@@ -76,6 +77,10 @@ function api(url: string, init?: RequestInit): Promise<Response> {
   if (method === 'GET') return Promise.resolve(Response.json(summarizeIncomeReconciliation(2026, records)));
   if (method === 'DELETE') {
     const id = new URL(url, 'http://localhost').searchParams.get('id');
+    if (url.includes('/api/income/1099')) {
+      records.forms = records.forms.filter(form => form.id !== id);
+      return Promise.resolve(Response.json({ success: true }));
+    }
     records.decisions = records.decisions.filter(decision => decision.id !== id);
     return Promise.resolve(Response.json({ success: true }));
   }
@@ -205,8 +210,29 @@ describe('income reconciliation panel', () => {
     records.forms = [form('m1', 900, '1099-MISC')];
     render(panel); await flush(); const tree = render(panel);
     expect(text(tree)).toContain('A saved record needs review before 2026 can be reconciled');
-    expect(text(tree)).toContain('Confirm the tax treatment of this 1099');
+    expect(text(tree)).toContain(MISC_ESTIMATE_PAUSED_MESSAGE);
+    expect(text(tree)).toContain('Remove this record');
     expect(walk(tree).find(node => node.type === 'form')).toBeUndefined();
+  });
+
+  it('removes an unsupported 1099-MISC only after confirm, and only that record id', async () => {
+    records.forms = [form('m1', 900, '1099-MISC')];
+    render(panel); await flush();
+    const tree = render(panel);
+    const remove = walk(tree).find(node => text(node) === 'Remove this record');
+    expect(remove).toBeTruthy();
+    remove.props.onClick();
+    const confirming = render(panel);
+    expect(harness.request.mock.calls.filter(([, init]) => init?.method === 'DELETE')).toHaveLength(0);
+    expect(text(confirming)).toContain('Confirm remove');
+    expect(text(confirming)).toContain('Cancel');
+    await walk(confirming).find(node => text(node) === 'Cancel')!.props.onClick();
+    expect(records.forms).toEqual([expect.objectContaining({ id: 'm1' })]);
+    walk(render(panel)).find(node => text(node) === 'Remove this record')!.props.onClick();
+    await walk(render(panel)).find(node => text(node) === 'Confirm remove')!.props.onClick();
+    expect(harness.request).toHaveBeenCalledWith('/api/income/1099?id=m1', { method: 'DELETE' });
+    expect(records.forms).toEqual([]);
+    expect(text(render(panel))).not.toContain('Remove this record');
   });
 });
 
@@ -226,6 +252,20 @@ describe('income gate deep link', () => {
     walk(tree).find(node => node.props?.onClick && text(node) === 'Reconcile income sources')!.props.onClick();
     expect(harness.navigate).toHaveBeenCalledWith(`income-tracking?tab=reconcile&year=${year}`);
     expect(protectedScreenUrl(`income-tracking?tab=reconcile&year=${year}`)).toBe(`/protected?screen=income-tracking&tab=reconcile&year=${year}`);
+    expect(text(tree)).not.toContain('Remove this record');
+    expect(text(tree)).not.toContain(MISC_ESTIMATE_PAUSED_MESSAGE);
+  });
+
+  it('shows the 1099-MISC pause sentence on the tax estimate and does not offer remove there', async () => {
+    const error = 'Review income sources before calculating tax: Confirm the tax treatment of this 1099-MISC. Only business NEC/K income is included automatically.';
+    harness.request.mockImplementation((url: string) => Promise.resolve(Response.json({
+      error, code: 'INCOME_RECONCILIATION_REQUIRED', taxYear: 2026, conflicts: [],
+    }, { status: 422 })));
+    const screen = () => TaxPreviewScreen({ user: { id: 'owner' }, onBack() {}, onNavigate: harness.navigate });
+    render(screen); await flush(); const tree = render(screen);
+    expect(text(tree)).toContain(MISC_ESTIMATE_PAUSED_MESSAGE);
+    expect(text(tree)).not.toContain('No tax total has been calculated');
+    expect(text(tree)).not.toContain('Remove this record');
   });
 
   it('keeps unknown tabs and years inside the income screen’s own choices', () => {
