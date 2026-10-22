@@ -267,7 +267,7 @@ describe('prior-year-only quarterly plan when dependent credit review blocks the
     expect(fromPost.withholdingApplied).toBe(true);
   });
 
-  it('returns a required payment of $0 and no installments due when prior-year tax is 0', async () => {
+  it('returns a zero-prior-tax review with no amounts when prior-year tax is 0', async () => {
     state.records.tax_organizers = [organizer({ ...PRIOR_YEAR_FACTS, priorYearTax: '0', dependents: '1' })];
     const annualBody = await (await annual(req())).json();
     expect(annualBody.code).toBe('DEPENDENT_CREDIT_REVIEW_REQUIRED');
@@ -275,40 +275,24 @@ describe('prior-year-only quarterly plan when dependent credit review blocks the
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.priorYearOnly).toBe(true);
-    expect(body).not.toHaveProperty('zeroPriorTaxReview');
+    expect(body.zeroPriorTaxReview).toBe(true);
     expect(body.annualStatus).toBe('review_required');
     expect(body.annualStatusMessage).toBe(annualBody.error);
-    expect(body.paymentReview).toEqual({ code: 'PRIOR_YEAR_ONLY', message: ZERO_PRIOR_TAX });
-    expect(body.safeHarborBasis).toBe('prior_year_100');
-    expect(body.safeHarborTotal).toBe(0);
-    expect(body.safeHarborPerQuarter).toBe(0);
-    expect(body.remainingTarget).toBe(0);
-    expect(body.perQuarterRecommended).toBe(0);
-    expect(body.planner.requiredAnnualPayment).toMatchObject({
-      basis: 'prior_year_100',
-      requiredAnnualPayment: 0,
-      estimatedPaymentsRequired: 0,
-      ninetyPercentOfCurrentYear: null,
-      priorYear: { totalTax: 0, target: 0, multiplier: 1 },
-    });
-    expect(body.quarters.map((quarter: { recommended: number; requiredInstallment: number }) => [quarter.requiredInstallment, quarter.recommended])).toEqual([[0, 0], [0, 0], [0, 0], [0, 0]]);
-    expect(body.planner.nextDue).toMatchObject({ amountToPay: 0, installmentOnly: 0, includesEarlierShortfall: false });
-    expect(body.planner.assumptions.join(' ')).toContain('Prior-year total tax is $0 with a 12-month return');
-    const fromGet = await (await quarterly(req('year=2026'))).json();
+    expect(body.paymentReview).toEqual({ code: 'ZERO_PRIOR_TAX', message: ZERO_PRIOR_TAX });
+    for (const key of ['quarters', 'safeHarborTotal', 'safeHarborPerQuarter', 'safeHarborBasis', 'perQuarterRecommended', 'remainingTarget', 'totalEstimatedTax', 'w2Withheld', 'totalFederalWithheld', 'totalPaid', 'recordedEstimatedPayments', 'planner', 'withholdingApplied', 'usingPriorYearSafeHarbor', 'priorYearBaseMayOverstate']) {
+      expect(body).not.toHaveProperty(key);
+    }
     const legacyResponse = await legacy(post({ taxYear: 2026 }));
     expect(legacyResponse.status).toBe(200);
-    expect(await legacyResponse.json()).toEqual(fromGet);
-    expect(fromGet.safeHarborTotal).toBe(0);
-    expect(fromGet.paymentReview.message).toBe(ZERO_PRIOR_TAX);
+    expect(await legacyResponse.json()).toEqual(body);
 
-    state.profile = { filing_status: 'single' };
     state.records.tax_organizers = [organizer({ ...PRIOR_YEAR_FACTS, priorYearTax: '0', priorYearAGI: '150001', dependents: '1' })];
     const aboveThreshold = await (await quarterly(req())).json();
-    expect(aboveThreshold).not.toHaveProperty('zeroPriorTaxReview');
-    expect(aboveThreshold.safeHarborBasis).toBe('prior_year_110');
-    expect(aboveThreshold.planner.requiredAnnualPayment.requiredAnnualPayment).toBe(0);
-    expect(aboveThreshold.quarters.map((quarter: { requiredInstallment: number }) => quarter.requiredInstallment)).toEqual([0, 0, 0, 0]);
+    expect(aboveThreshold.priorYearOnly).toBe(true);
+    expect(aboveThreshold.zeroPriorTaxReview).toBe(true);
     expect(aboveThreshold.paymentReview.message).toBe(ZERO_PRIOR_TAX);
+    expect(aboveThreshold).not.toHaveProperty('quarters');
+    expect(aboveThreshold).not.toHaveProperty('safeHarborTotal');
   });
 
   it('marks the prior-year line 24 total tax as a base that may overstate the safe harbor', async () => {

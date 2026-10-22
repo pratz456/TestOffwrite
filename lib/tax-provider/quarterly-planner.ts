@@ -56,8 +56,8 @@ export const PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL = 'PRIOR_YEAR_ONLY_LABEL_PEN
 export const BEFORE_WITHHOLDING_LABEL_PENDING_APPROVAL = 'BEFORE_WITHHOLDING_LABEL_PENDING_APPROVAL';
 
 /**
- * Awaiting owner approval. Placeholder when a 12-month prior return shows zero total tax.
- * Under §6654(d)(1)(B) the required payment is $0 and no installments are due. No residency test applies.
+ * Awaiting owner approval. Placeholder for the prior-year-only review shown when prior-year tax is 0.
+ * This review stays until the organizer asks about a filed return directly. The 12-month question does not ask that; only its hint text does.
  */
 export const ZERO_PRIOR_TAX_LABEL_PENDING_APPROVAL = 'ZERO_PRIOR_TAX_LABEL_PENDING_APPROVAL';
 

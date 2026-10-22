@@ -179,9 +179,7 @@ function priorYearOnlyBody(input: {
     calculationWarnings: [] as string[],
     paymentReview: {
       code: 'PRIOR_YEAR_ONLY',
-      message: planner.requiredAnnualPayment.priorYear?.totalTax === 0
-        ? ZERO_PRIOR_TAX_LABEL_PENDING_APPROVAL
-        : withholdingApplied ? PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL : BEFORE_WITHHOLDING_LABEL_PENDING_APPROVAL,
+      message: withholdingApplied ? PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL : BEFORE_WITHHOLDING_LABEL_PENDING_APPROVAL,
     },
     planner,
     perQuarterRecommended: planner.nextDue?.installmentOnly ?? null,
@@ -240,6 +238,22 @@ async function priorYearOnlyWhenDependentReview(request: NextRequest, uid: strin
     || typeof priorYear.totalTax !== 'number' || !Number.isFinite(priorYear.totalTax)
     || typeof priorYear.agi !== 'number' || !Number.isFinite(priorYear.agi)) {
     return null;
+  }
+  // A yes on the 12-month question does not prove a return was filed; only the question's hint text mentions filing.
+  // Prior-year tax of 0 therefore stays a review with no amounts until the organizer asks about a filed return directly.
+  // The planner's non-fallback $0 required-payment handling is a separate path and is left unchanged.
+  if (priorYear.totalTax === 0) {
+    return NextResponse.json({
+      taxYear,
+      priorYearOnly: true,
+      zeroPriorTaxReview: true,
+      annualStatus: 'review_required' as const,
+      annualStatusMessage,
+      calculationWarnings: [] as string[],
+      paymentReview: { code: 'ZERO_PRIOR_TAX', message: ZERO_PRIOR_TAX_LABEL_PENDING_APPROVAL },
+    }, {
+      headers: { 'Cache-Control': 'private, no-store' },
+    });
   }
 
   let withholdingApplied = false;
