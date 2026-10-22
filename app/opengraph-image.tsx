@@ -236,7 +236,7 @@ export default async function Image() {
               }}
             >
               Save expenses, review receipt details, and export records for your accountant.
-              Start with manual entry.
+              Start manually, with no bank connection required.
             </div>
 
             {/* Feature chips */}
