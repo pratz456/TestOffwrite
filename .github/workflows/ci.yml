@@ -92,3 +92,70 @@ jobs:
 
       - name: Build analysis worker
         run: npm --prefix functions-analysis run build
+
+  # Separate from `ci`, which leaves emulator files skipped.
+  # demo-organizer-maintenance is a demo project id, so this emulator stays
+  # offline and cannot reach a hosted Firebase project. No credentials are used.
+  # firebase-tools is the locked devDependency, started with npx --no-install.
+  # Storage is included because the rules emulator file checks Storage rules.
+  emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --include=dev
+
+      - name: Run emulator tests
+        run: |
+          # Local config only. The repo firebase.json hosts the app from source, which this
+          # emulator refuses to build, and it has no auth block. This file is not used to deploy.
+          node <<'EOF'
+          const { writeFileSync } = require('node:fs');
+          writeFileSync('firebase.emulator-ci.json', JSON.stringify({
+            firestore: { rules: 'firestore.rules', indexes: 'firestore.indexes.json' },
+            storage: { rules: 'storage.rules' },
+            auth: {},
+            emulators: {
+              auth: { host: '127.0.0.1', port: 9099 },
+              firestore: { host: '127.0.0.1', port: 8080 },
+              storage: { host: '127.0.0.1', port: 9199 },
+              ui: { enabled: false },
+              singleProjectMode: true,
+            },
+          }));
+          EOF
+          status=0
+          npx --no-install firebase emulators:exec --only firestore,auth,storage --project demo-organizer-maintenance --config firebase.emulator-ci.json \
+            'WRITEOFF_RULES_EMULATOR_TESTS=1 WRITEOFF_BANK_EMULATOR_TESTS=1 WRITEOFF_RULES_PROJECT_ID=demo-organizer-maintenance WRITEOFF_BANK_EMULATOR_PROJECT=demo-organizer-maintenance WRITEOFF_RULES_FIRESTORE_PORT=8080 WRITEOFF_RULES_STORAGE_PORT=9199 npx vitest run --no-file-parallelism --reporter=default --reporter=json --outputFile.json=/tmp/emulator-vitest.json tests/*.emulator.test.ts' \
+            || status=$?
+          rm -f firebase.emulator-ci.json
+          exit "$status"
+
+      - name: Require every emulator test to run
+        run: |
+          node --input-type=module -e '
+          import { readFileSync } from "node:fs";
+          const report = JSON.parse(readFileSync("/tmp/emulator-vitest.json", "utf8"));
+          const passed = report.numPassedTests ?? 0;
+          const skipped = (report.numPendingTests ?? 0) + (report.numTodoTests ?? 0);
+          const failed = report.numFailedTests ?? 0;
+          console.log(JSON.stringify({ passed, skipped, failed, total: report.numTotalTests ?? 0 }));
+          if (passed < 1 || skipped !== 0 || failed !== 0 || report.success !== true) process.exit(1);
+          '

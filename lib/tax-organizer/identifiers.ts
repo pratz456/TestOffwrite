@@ -20,6 +20,9 @@ export const ORGANIZER_IDENTIFIER_FIELDS: Readonly<Record<string, OrganizerIdent
 /** Free-text organizer answers that must never carry identifier digits. */
 export const ORGANIZER_REDACTED_TEXT_FIELDS = ['dependentDetails'] as const;
 
+/** Collection written by the owner-run organizer maintenance script. Clients are denied in `firestore.rules`. */
+export const ORGANIZER_IDENTIFIER_BACKUP_COLLECTION = 'tax_organizer_identifier_backups';
+
 const IDENTIFIER_RULES: Record<OrganizerIdentifierKind, { pattern: RegExp; label: string }> = {
   ssn: { pattern: /^\d{9}$/, label: 'Social Security number' },
   bankAccount: { pattern: /^\d{4,17}$/, label: 'bank account number' },
