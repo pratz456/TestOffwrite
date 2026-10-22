@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { dashboardTaxFactsFromReads, taxFactsEqual } from '../lib/tax/dashboard-tax-input';
+import { organizerTaxInputResponse, organizerTaxInputValues } from '../lib/tax-rules/organizer-tax-inputs';
+import { encryptSensitive } from '../lib/security/utils';
 
 const quarters = [1, 2, 3, 4].map(quarter => ({ quarter, paidAmount: 0, notes: 'blank', updatedAt: 'stamp' }));
 
@@ -66,6 +68,90 @@ describe('dashboard tax input key', () => {
     expect(taxFactsEqual(first, second)).toBe(true);
     expect(String(first.dependents)).toContain('"relationship":"daughter"');
     expect(JSON.stringify(first)).not.toContain('900700111');
+  });
+
+  it('drops unknown dependent keys from the key and the tax-input read', () => {
+    const dependents = [{
+      name: 'Child', dateOfBirth: '2018-03-15', age: 8, relationship: 'daughter', monthsLived: 12,
+      fullTimeStudent: 'yes', permanentlyAndTotallyDisabled: 'no',
+      tin: '111223333', taxId: '222334444', socialSecurityNumber: '333445555', notes: '444556666',
+    }];
+    const saved = facts({ dependents });
+    const key = JSON.stringify(saved);
+    const listed = String(saved.dependents);
+    const read = JSON.stringify(organizerTaxInputResponse({ dependents }));
+    for (const digits of ['111223333', '222334444', '333445555', '444556666']) {
+      expect(key, digits).not.toContain(digits);
+      expect(read, digits).not.toContain(digits);
+    }
+    expect(listed).not.toContain('"tin"');
+    expect(read).not.toContain('"notes"');
+    expect(read).toContain('"fullTimeStudent":"yes"');
+    expect(read).toContain('"permanentlyAndTotallyDisabled":"no"');
+    expect(read).toContain('"age":8');
+    expect(listed).toContain('"relationship":"daughter"');
+  });
+
+  it('uses atin when an ATIN field is filled, and prefers ssn then atin then itin', () => {
+    const atin = facts({ dependents: [{ dependentATIN: '222334444', relationship: 'daughter' }] });
+    expect(String(atin.dependents)).toContain('"identifierKind":"atin"');
+    expect(JSON.stringify(atin)).not.toContain('222334444');
+    expect(JSON.stringify(organizerTaxInputResponse({ dependents: [{ atin: '222334444' }] }))).not.toContain('222334444');
+    const ranked = facts({ dependents: [{ dependentATIN: '222334444', dependentITIN: '333445555' }] });
+    expect(String(ranked.dependents)).toContain('"identifierKind":"atin"');
+    const ssn = facts({ dependents: [{ dependentSSN: '111223333', dependentATIN: '222334444', itin: '333445555' }] });
+    expect(String(ssn.dependents)).toContain('"identifierKind":"ssn"');
+    expect(JSON.stringify(ssn)).not.toContain('111223333');
+    expect(JSON.stringify(ssn)).not.toContain('333445555');
+  });
+
+  it('prefers a stored idKind over the field name and an explicit type', () => {
+    const stored = facts({ dependents: [{ dependentSSN: '111223333', idKind: 'itin', relationship: 'son' }] });
+    expect(String(stored.dependents)).toContain('"identifierKind":"itin"');
+    expect(JSON.stringify(stored)).not.toContain('111223333');
+    const overType = facts({ dependents: [{ idKind: 'atin', identifierType: 'ssn', dependentSSN: '111223333' }] });
+    expect(String(overType.dependents)).toContain('"identifierKind":"atin"');
+    const none = facts({ dependents: [{ dependentSSN: '111223333', idKind: 'none' }] });
+    expect(String(none.dependents)).toContain('"identifierKind":"none"');
+    expect(JSON.stringify(none)).not.toContain('111223333');
+  });
+
+  it('keeps the field kind when the value is already in the current format and leaves that value out', () => {
+    const itinValue = encryptSensitive('900708888');
+    const ssnValue = encryptSensitive('111223333');
+    const itin = organizerTaxInputValues({ dependents: [{ dependentITIN: itinValue, dateOfBirth: '2018-03-15' }] });
+    const ssn = organizerTaxInputValues({ dependents: [{ dependentSSN: ssnValue, relationship: 'daughter' }] });
+    const stated = organizerTaxInputValues({ dependents: [{ dependentITIN: itinValue, identifierKind: 'atin' }] });
+    const read = organizerTaxInputResponse({
+      dependents: [
+        { dependentITIN: itinValue, dateOfBirth: '2018-03-15' },
+        { dependentSSN: ssnValue, identifierKind: 'atin' },
+      ],
+    });
+    expect(String(itin.dependents)).toContain('"identifierKind":"itin"');
+    expect(String(ssn.dependents)).toContain('"identifierKind":"ssn"');
+    expect(String(stated.dependents)).toContain('"identifierKind":"atin"');
+    const packed = JSON.stringify({ itin, ssn, stated, read });
+    expect(packed).not.toContain(itinValue);
+    expect(packed).not.toContain(ssnValue);
+    expect(packed).not.toContain('900708888');
+    expect(packed).not.toContain('111223333');
+  });
+
+  it('leaves other dependent text out of the key and the tax-input read, and keeps a short count', () => {
+    const note = 'Emma, 123-45-6789, daughter';
+    expect(organizerTaxInputValues({ dependents: note }).dependents).toBeNull();
+    expect(organizerTaxInputResponse({ dependents: note }).dependents).toBeNull();
+    const packed = JSON.stringify({
+      key: organizerTaxInputValues({ dependents: note }),
+      read: organizerTaxInputResponse({ dependents: note }),
+    });
+    expect(packed).not.toContain('Emma');
+    expect(packed).not.toContain('123-45-6789');
+    expect(packed).not.toContain('123456789');
+    expect(organizerTaxInputValues({ dependents: '2' }).dependents).toBe('2');
+    expect(organizerTaxInputResponse({ dependents: '2' }).dependents).toBe('2');
+    expect(facts({ dependents: '2' }).dependents).toBe('2');
   });
 
   it('treats a missing organizer and four zero payments as the empty key', () => {

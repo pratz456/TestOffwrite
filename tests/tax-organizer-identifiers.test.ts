@@ -521,14 +521,24 @@ describe('organizer route stores ciphertext and returns plaintext only to the ow
     expect(state.sets).toEqual([]);
     expect(state.docs.get('legacy-tax-input')).toEqual(before);
   });
-  it('returns dependent records whole and drops SSN and ITIN keys', async () => {
+  it('returns dependent credit facts and leaves other keys out of the tax-input read', async () => {
+    const note = 'Emma, 123-45-6789, daughter';
+    state.docs.set('dependent-text', { userId: 'owner', taxYear: 2026, dependents: note, amountOtherIncome: '10' });
+    const text = await (await GET(new NextRequest('http://localhost/api/tax/organizer?year=2026&view=tax-input'))).json();
+    expect(text.dependents).toBeNull();
+    expect(JSON.stringify(text)).not.toContain('Emma');
+    expect(JSON.stringify(text)).not.toContain('123-45-6789');
+    expect(JSON.stringify(text)).not.toContain('123456789');
+    expect(state.sets).toEqual([]);
+  });
+  it('returns dependent credit facts from a record and leaves identifier values out', async () => {
     const dependents = [{ name: 'Child', dependentSSN: '900000001', itin: '900000002', dependent2ITIN: '900000003', dateOfBirth: '2018-03-15' }];
     const businessLossFacts = { version: 1, taxYear: 2026, allInvestmentAtRisk: 'yes' };
     state.docs.set('dependent-object', {
       userId: 'owner', taxYear: 2026, dependents, businessLossFacts, notes: 'unrelated', taxpayerSSN: '900000009',
     });
     const input = await (await GET(new NextRequest('http://localhost/api/tax/organizer?year=2026&view=tax-input'))).json();
-    expect(input.dependents).toEqual([{ name: 'Child', dateOfBirth: '2018-03-15', identifierKind: 'ssn' }]);
+    expect(input.dependents).toEqual([{ dateOfBirth: '2018-03-15', identifierKind: 'ssn' }]);
     expect(input.businessLossFacts).toEqual(businessLossFacts);
     expect(JSON.stringify(input)).not.toContain('900000001');
     expect(JSON.stringify(input)).not.toContain('900000002');

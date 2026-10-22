@@ -57,12 +57,14 @@ export type OrganizerTaxInputResponse = {
   [K in OrganizerTaxInputField]: OrganizerTaxInputScalar | Record<string, unknown> | unknown[];
 };
 
-export type DependentIdentifierKind = 'ssn' | 'itin' | 'none';
+export type DependentIdentifierKind = 'ssn' | 'itin' | 'atin' | 'none';
 
 const DEPENDENT_SSN_FIELD = /^(?:dependent\d*)?ssn$/i;
+const DEPENDENT_ATIN_FIELD = /^(?:dependent\d*)?atin$/i;
 const DEPENDENT_ITIN_FIELD = /^(?:dependent\d*)?itin$/i;
-const IDENTIFIER_KEY = /ssn|itin/i;
 const EXPLICIT_KIND_FIELDS = ['identifierKind', 'identifierType', 'idType', 'identificationType', 'type'] as const;
+/** Credit facts kept for each dependent. Every other key is left out. */
+const DEPENDENT_CREDIT_FIELDS = ['dateOfBirth', 'age', 'relationship', 'monthsLived', 'fullTimeStudent', 'permanentlyAndTotallyDisabled'] as const;
 
 export function readOrganizerTaxInput(organizer: Record<string, unknown>, field: OrganizerTaxInputField): unknown {
   return organizer[field];
@@ -74,42 +76,51 @@ function filled(value: unknown): boolean {
   return value !== null && value !== undefined;
 }
 
+function statedKind(value: unknown): DependentIdentifierKind | null {
+  if (typeof value !== 'string') return null;
+  const kind = value.trim().toLowerCase();
+  if (kind === 'ssn' || kind === 'itin' || kind === 'atin' || kind === 'none') return kind;
+  return null;
+}
+
 function explicitKind(record: Record<string, unknown>): DependentIdentifierKind | null {
   for (const field of EXPLICIT_KIND_FIELDS) {
-    const value = record[field];
-    if (typeof value !== 'string') continue;
-    const kind = value.trim().toLowerCase();
-    if (kind === 'ssn' || kind === 'itin' || kind === 'none') return kind;
+    const kind = statedKind(record[field]);
+    if (kind) return kind;
   }
   return null;
 }
 
-/** SSN and ITIN are different Child Tax Credit facts. A filled SSN field wins over an ITIN field. */
+/** A stored idKind wins, then an explicit type, then the field name. Several filled fields resolve ssn, then atin, then itin. */
 function dependentIdentifierKind(record: Record<string, unknown>): DependentIdentifierKind {
+  const stored = statedKind(record.idKind);
+  if (stored) return stored;
   const stated = explicitKind(record);
   if (stated) return stated;
+  let atin = false;
   let itin = false;
   for (const [key, value] of Object.entries(record)) {
     if (!filled(value)) continue;
     if (DEPENDENT_SSN_FIELD.test(key)) return 'ssn';
-    if (DEPENDENT_ITIN_FIELD.test(key)) itin = true;
+    if (DEPENDENT_ATIN_FIELD.test(key)) atin = true;
+    else if (DEPENDENT_ITIN_FIELD.test(key)) itin = true;
   }
-  return itin ? 'itin' : 'none';
-}
-
-function withoutIdentifierKeys(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(withoutIdentifierKeys);
-  if (!value || typeof value !== 'object') return value;
-  const copy: Record<string, unknown> = {};
-  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-    if (IDENTIFIER_KEY.test(key)) continue;
-    copy[key] = withoutIdentifierKeys(entry);
-  }
-  return copy;
+  if (atin) return 'atin';
+  if (itin) return 'itin';
+  return 'none';
 }
 
 function presentDependentRecord(record: Record<string, unknown>): Record<string, unknown> {
-  const copy = withoutIdentifierKeys(record) as Record<string, unknown>;
+  const copy: Record<string, unknown> = {};
+  for (const field of DEPENDENT_CREDIT_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(record, field)) continue;
+    const value = record[field];
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed) copy[field] = trimmed;
+    } else if (typeof value === 'number' && Number.isFinite(value)) copy[field] = value;
+    else if (typeof value === 'boolean') copy[field] = value;
+  }
   copy.identifierKind = dependentIdentifierKind(record);
   return copy;
 }
@@ -156,12 +167,15 @@ function scalarTaxInputValue(value: unknown): OrganizerTaxInputScalar | undefine
 function dependentSource(value: unknown): unknown {
   if (typeof value !== 'string') return value;
   const trimmed = value.trim();
-  if (!trimmed || (!trimmed.startsWith('{') && !trimmed.startsWith('['))) return trimmed || null;
-  try {
-    const parsed = JSON.parse(trimmed) as unknown;
-    if (parsed && typeof parsed === 'object') return parsed;
-  } catch { /* A count or other plain answer stays text. */ }
-  return trimmed;
+  if (!trimmed) return null;
+  if (/^\d{1,2}$/.test(trimmed)) return trimmed;
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (parsed && typeof parsed === 'object') return parsed;
+    } catch { /* Anything other than a count or JSON is left out. */ }
+  }
+  return null;
 }
 
 function dependentResponseValue(value: unknown): OrganizerTaxInputResponse['dependents'] {
@@ -192,7 +206,7 @@ function dependentKeyValue(value: unknown): OrganizerTaxInputScalar {
   return canonicalJson(presented);
 }
 
-/** Whole objects for the tax-input read. Dependent identifier values are left out. */
+/** Objects for the tax-input read. Dependents keep credit facts only. */
 export function organizerTaxInputResponse(data?: Record<string, unknown> | null): OrganizerTaxInputResponse {
   const values = {} as OrganizerTaxInputResponse;
   for (const field of ORGANIZER_TAX_INPUT_FIELDS) {
