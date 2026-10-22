@@ -26,6 +26,48 @@ describe('dashboard tax input key', () => {
     ]);
   });
 
+  it('refreshes when a dependent goes from no identifier to an ITIN, and from an ITIN to an SSN', () => {
+    const child = { name: 'Child', relationship: 'daughter', dateOfBirth: '2018-03-15', monthsLived: 12 };
+    const none = facts({ dependents: [child] });
+    const itin = facts({ dependents: [{ ...child, dependentITIN: '900700111' }] });
+    const ssn = facts({ dependents: [{ ...child, dependentSSN: '900700111' }] });
+    expect(taxFactsEqual(none, itin)).toBe(false);
+    expect(taxFactsEqual(itin, ssn)).toBe(false);
+    expect(String(itin.dependents)).toContain('"identifierKind":"itin"');
+    expect(String(ssn.dependents)).toContain('"identifierKind":"ssn"');
+    const stated = facts({ dependents: [{ ...child, identifierType: 'itin', dependentSSN: '900700111' }] });
+    expect(String(stated.dependents)).toContain('"identifierKind":"itin"');
+    expect(JSON.stringify(stated)).not.toContain('900700111');
+  });
+
+  it('does not refresh when only the SSN digits change, and the key omits those digits', () => {
+    const child = { relationship: 'daughter', dateOfBirth: '2018-03-15', monthsLived: 12, name: 'Child' };
+    const first = facts({ dependents: [{ ...child, dependentSSN: '900700111' }] });
+    const second = facts({ dependents: [{ dependentSSN: '900700222', name: 'Child', monthsLived: 12, dateOfBirth: '2018-03-15', relationship: 'daughter' }] });
+    expect(taxFactsEqual(first, second)).toBe(true);
+    const key = JSON.stringify(first);
+    expect(String(first.dependents)).toContain('"identifierKind":"ssn"');
+    expect(key).not.toContain('900700111');
+    expect(key).not.toContain('900700222');
+    expect(JSON.stringify(second)).not.toContain('900700222');
+  });
+
+  it('refreshes when date of birth, relationship, or months lived changes', () => {
+    const child = { name: 'Child', relationship: 'daughter', dateOfBirth: '2018-03-15', monthsLived: 12, dependentSSN: '900700111' };
+    const start = facts({ dependents: [child] });
+    expect(taxFactsEqual(start, facts({ dependents: [{ ...child, dateOfBirth: '2019-01-02' }] }))).toBe(false);
+    expect(taxFactsEqual(start, facts({ dependents: [{ ...child, relationship: 'son' }] }))).toBe(false);
+    expect(taxFactsEqual(start, facts({ dependents: [{ ...child, monthsLived: 6 }] }))).toBe(false);
+  });
+
+  it('uses one key when the same dependent facts are stored with different key order', () => {
+    const first = facts({ dependents: [{ relationship: 'daughter', dateOfBirth: '2018-03-15', monthsLived: 12, residence: { zip: '78701', city: 'Austin' }, dependentSSN: '900700111' }] });
+    const second = facts({ dependents: [{ dependentSSN: '900700111', residence: { city: 'Austin', zip: '78701' }, monthsLived: 12, dateOfBirth: '2018-03-15', relationship: 'daughter' }] });
+    expect(taxFactsEqual(first, second)).toBe(true);
+    expect(String(first.dependents)).toContain('"relationship":"daughter"');
+    expect(JSON.stringify(first)).not.toContain('900700111');
+  });
+
   it('treats a missing organizer and four zero payments as the empty key', () => {
     const empty = dashboardTaxFactsFromReads({ data: {} }, { data: {} });
     expect(empty).toEqual(facts());

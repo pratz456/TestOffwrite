@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { buildFederalTaxSnapshot } from '../lib/tax-rules/federal-tax-snapshot';
 import { ORGANIZER_TAX_INPUT_FIELDS } from '../lib/tax-rules/organizer-tax-inputs';
@@ -56,4 +57,19 @@ describe('organizer fields the federal snapshot reads', () => {
       'retirementAmount', 'retirementType', 'hasSocialSecurity', 'socialSecurityLivedApartAllYear', 'filingStatus', 'spouseDoB', 'businessLossFacts',
     ]) expect(reads.has(field), field).toBe(true);
   });
+
+  it('includes organizer fields named in the wage-ownership and adjustment helpers', () => {
+    const files = ['lib/tax-rules/calculation-scope.ts', 'lib/tax-rules/eligibility.ts'];
+    const named = files.flatMap(file => organizerProperties(readFileSync(file, 'utf8')));
+    expect(named).toContain('adjustmentEligibilityFacts');
+    for (const field of named) expect(ORGANIZER_TAX_INPUT_FIELDS, field).toContain(field);
+  });
 });
+
+/** Property names read from an organizer parameter, including branches the fixtures do not run. */
+function organizerProperties(source: string): string[] {
+  const found = new Set<string>();
+  for (const match of source.matchAll(/organizer\??\.([A-Za-z_][A-Za-z0-9_]*)/g)) found.add(match[1]);
+  for (const match of source.matchAll(/organizer\??\[(?:'([^']+)'|"([^"]+)")\]/g)) found.add(match[1] || match[2]);
+  return [...found];
+}

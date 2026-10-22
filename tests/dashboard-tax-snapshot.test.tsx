@@ -1,3 +1,4 @@
+import { dashboardTaxFactsFromReads } from '../lib/tax/dashboard-tax-input';
 import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductions';
 import { reviewedBusinessLossFacts } from './fixtures/tier1-facts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -415,6 +416,148 @@ describe('dashboard tax cards share the federal server calculation', () => {
     await flush();
     expect(taxCalls()).toBe(before + 1);
     expect(render().state.status).toBe('ready');
+  });
+  async function productionOrganizer() {
+    vi.stubGlobal('window', new EventTarget());
+    const source = {
+      organizer: { notes: 'first' } as Record<string, unknown>,
+      payments: [1, 2, 3, 4].map(quarter => ({ quarter, paidAmount: 0, notes: 'blank' })),
+    };
+    h.request.mockImplementation(async (url: string) => {
+      const path = String(url);
+      if (path.includes('view=tax-input')) return Response.json(source.organizer);
+      if (path.includes('/api/tax/quarterly-payments')) return Response.json({ payments: source.payments });
+      return transport(path);
+    });
+    render(); await flush();
+    expect(render().state.status).toBe('ready');
+    const taxCalls = () => h.request.mock.calls.filter(([url]) => String(url).includes('/api/tax/compute-1040')).length;
+    const before = taxCalls();
+    expect(before).toBe(1);
+    source.organizer = { ...source.organizer, notes: 'only a note' };
+    window.dispatchEvent(new Event('focus'));
+    render(); await flush();
+    expect(render().state.status).toBe('ready');
+    expect(taxCalls()).toBe(before);
+    return { source, taxCalls, before };
+  }
+  it('recomputes once when a dependent record is added on the production tax-input read, and a note does not', async () => {
+    const { source, taxCalls, before } = await productionOrganizer();
+    source.organizer = { ...source.organizer, dependents: [{ name: 'Child' }] };
+    window.dispatchEvent(new Event('focus'));
+    render(); await flush();
+    expect(render().state.status).toBe('loading');
+    await flush();
+    expect(taxCalls()).toBe(before + 1);
+  });
+  it('recomputes once when business loss facts change on the production tax-input read, and a note does not', async () => {
+    const { source, taxCalls, before } = await productionOrganizer();
+    source.organizer = { ...source.organizer, businessLossFacts: { allInvestmentAtRisk: 'yes', materialParticipation: 'yes' } };
+    window.dispatchEvent(new Event('focus'));
+    render(); await flush();
+    expect(render().state.status).toBe('loading');
+    await flush();
+    expect(taxCalls()).toBe(before + 1);
+  });
+  it('recomputes once when personal deduction facts change on the production tax-input read, and a note does not', async () => {
+    const { source, taxCalls, before } = await productionOrganizer();
+    source.organizer = { ...source.organizer, personalDeductionFacts: { version: 1, taxYear: 2026, ordinaryScope: 'yes' } };
+    window.dispatchEvent(new Event('focus'));
+    render(); await flush();
+    expect(render().state.status).toBe('loading');
+    await flush();
+    expect(taxCalls()).toBe(before + 1);
+  });
+  it('does not recompute when object keys are reordered on the production tax-input read, and a note does not', async () => {
+    const { source, taxCalls, before } = await productionOrganizer();
+    source.organizer = { ...source.organizer, obbbaDeductionFacts: { b: 1, a: 2 } };
+    window.dispatchEvent(new Event('focus'));
+    render(); await flush();
+    expect(render().state.status).toBe('loading');
+    await flush();
+    expect(taxCalls()).toBe(before + 1);
+    source.organizer = { ...source.organizer, obbbaDeductionFacts: { a: 2, b: 1 } };
+    window.dispatchEvent(new Event('focus'));
+    render(); await flush();
+    expect(render().state.status).toBe('ready');
+    expect(taxCalls()).toBe(before + 1);
+  });
+  const creditChild = { name: 'Child', relationship: 'daughter', dateOfBirth: '2018-03-15', monthsLived: 12 };
+  it('recomputes once when a dependent goes from no identifier to an ITIN on the production tax-input read', async () => {
+    const { source, taxCalls, before } = await productionOrganizer();
+    source.organizer = { ...source.organizer, dependents: [creditChild] };
+    window.dispatchEvent(new Event('focus'));
+    render(); await flush();
+    expect(render().state.status).toBe('loading');
+    await flush();
+    expect(taxCalls()).toBe(before + 1);
+    source.organizer = { ...source.organizer, dependents: [{ ...creditChild, dependentITIN: '900700111' }] };
+    window.dispatchEvent(new Event('focus'));
+    render(); await flush();
+    expect(render().state.status).toBe('loading');
+    await flush();
+    expect(taxCalls()).toBe(before + 2);
+    expect(JSON.stringify(dashboardTaxFactsFromReads(source.organizer, { payments: source.payments }))).not.toContain('900700111');
+  });
+  it('recomputes once when a dependent goes from an ITIN to an SSN on the production tax-input read', async () => {
+    const { source, taxCalls, before } = await productionOrganizer();
+    source.organizer = { ...source.organizer, dependents: [{ ...creditChild, dependentITIN: '900700111' }] };
+    window.dispatchEvent(new Event('focus'));
+    render(); await flush();
+    expect(render().state.status).toBe('loading');
+    await flush();
+    expect(taxCalls()).toBe(before + 1);
+    source.organizer = { ...source.organizer, dependents: [{ ...creditChild, dependentSSN: '900700111' }] };
+    window.dispatchEvent(new Event('focus'));
+    render(); await flush();
+    expect(render().state.status).toBe('loading');
+    await flush();
+    expect(taxCalls()).toBe(before + 2);
+  });
+  it('does not recompute when only SSN digits change on the production tax-input read', async () => {
+    const { source, taxCalls, before } = await productionOrganizer();
+    source.organizer = { ...source.organizer, dependents: [{ ...creditChild, dependentSSN: '900700111' }] };
+    window.dispatchEvent(new Event('focus'));
+    render(); await flush();
+    expect(render().state.status).toBe('loading');
+    await flush();
+    expect(taxCalls()).toBe(before + 1);
+    const read = dashboardTaxFactsFromReads(source.organizer, { payments: source.payments });
+    expect(String(read.dependents)).toContain('"identifierKind":"ssn"');
+    expect(JSON.stringify(read)).not.toContain('900700111');
+    source.organizer = { ...source.organizer, dependents: [{ dependentSSN: '900700222', monthsLived: 12, dateOfBirth: '2018-03-15', relationship: 'daughter', name: 'Child' }] };
+    window.dispatchEvent(new Event('focus'));
+    render(); await flush();
+    expect(render().state.status).toBe('ready');
+    expect(taxCalls()).toBe(before + 1);
+    expect(JSON.stringify(dashboardTaxFactsFromReads(source.organizer, { payments: source.payments }))).not.toContain('900700222');
+  });
+  it('recomputes once when a dependent date of birth, relationship, or months lived changes on the production tax-input read', async () => {
+    const { source, taxCalls, before } = await productionOrganizer();
+    source.organizer = { ...source.organizer, dependents: [{ ...creditChild, dependentSSN: '900700111' }] };
+    window.dispatchEvent(new Event('focus'));
+    render(); await flush();
+    expect(render().state.status).toBe('loading');
+    await flush();
+    expect(taxCalls()).toBe(before + 1);
+    source.organizer = { ...source.organizer, dependents: [{ ...creditChild, dependentSSN: '900700111', dateOfBirth: '2019-01-02' }] };
+    window.dispatchEvent(new Event('focus'));
+    render(); await flush();
+    expect(render().state.status).toBe('loading');
+    await flush();
+    expect(taxCalls()).toBe(before + 2);
+    source.organizer = { ...source.organizer, dependents: [{ ...creditChild, dependentSSN: '900700111', dateOfBirth: '2019-01-02', relationship: 'son' }] };
+    window.dispatchEvent(new Event('focus'));
+    render(); await flush();
+    expect(render().state.status).toBe('loading');
+    await flush();
+    expect(taxCalls()).toBe(before + 3);
+    source.organizer = { ...source.organizer, dependents: [{ ...creditChild, dependentSSN: '900700111', dateOfBirth: '2019-01-02', relationship: 'son', monthsLived: 6 }] };
+    window.dispatchEvent(new Event('focus'));
+    render(); await flush();
+    expect(render().state.status).toBe('loading');
+    await flush();
+    expect(taxCalls()).toBe(before + 4);
   });
   it.each([{ taxYear: 2025 }, { income: { grossReceipts: '0' } }, { form1040: { totalTax: null } }])('rejects mismatched/malformed snapshots %j', async override => {
     const real = await (await GET(new NextRequest('http://localhost/api/tax/compute-1040?year=2026'))).json();
