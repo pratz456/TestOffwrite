@@ -905,7 +905,7 @@ const ActivePlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess
                 ) : (
                   <>
                     <Building2 className="w-4 h-4" />
-                    <span>{reconnectSessionId ? 'Connect bank for history review' : updateItemId ? 'Repair bank connection' : fromSettings ? 'Connect Bank Account' : 'Connect Bank Account (Start Free Trial)'}</span>
+                    <span>{reconnectSessionId ? 'Connect bank for history review' : updateItemId ? 'Repair bank connection' : 'Connect Bank Account'}</span>
                   </>
                 )}
               </Button>
