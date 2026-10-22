@@ -2,11 +2,11 @@
 
 ## Scope and outcome
 
-This audit traced the ordinary federal brackets, regular self-employment tax, Additional Medicare tax, the simplified profile/KPI rate helpers, annual QBI threshold handling, and Schedule C deductions passed to the state estimator. It is a calculation and boundary review, not certification of a complete tax return, all credits, or every state. No live customer records or provider calls were used.
+This audit traced the ordinary federal brackets, regular self-employment tax, Additional Medicare tax, the profile rate helpers, annual QBI threshold handling, and Schedule C deductions passed to the state estimator. It is a calculation and boundary review, not certification of a complete tax return, all credits, or every state. No live customer records or provider calls were used.
 
 Confirmed defects corrected:
 
-1. `calculateEffectiveTaxRate` and `calcCombinedSERate` previously used an uncapped 15.3% of 92.35% of profit. They now reuse regular Schedule SE calculation, including its Social Security ceiling, remaining same-owner wage base where provided, and net-earnings minimum. Combined tax includes separate Additional Medicare tax; that tax is excluded from the half-SE deduction.
+1. `calculateEffectiveTaxRate` previously used an uncapped 15.3% of 92.35% of profit. It now reuses regular Schedule SE calculation, including its Social Security ceiling, remaining same-owner wage base where provided, and net-earnings minimum. Additional Medicare tax is Form 8959 and is excluded from the half-SE deduction. The unused `calcCombinedSERate` helper has been removed; Schedule SE and `compute1040` are the calculations under test.
 2. `getMarginalTaxRate` previously selected a bracket from gross business income. It now uses income after the modeled half-SE adjustment and standard deduction, including W-2 income separately.
 3. Missing, malformed, nonfinite or negative profile income no longer silently supplies a generic 25% rate. `TaxRateReviewRequiredError` requires profile review. Explicit zero remains valid, W-2-only inputs are supported, and the display wrapper returns an unavailable rate instead of crashing.
 4. `compute1040` previously assigned a generic linear QBI phaseout above the annual threshold, without business type, business wages or qualified-property data. Positive QBI above the threshold now raises `QBIReviewRequiredError`; it does not publish a fabricated deduction or an assumed zero. Threshold equality remains supported. API/UI handlers must preserve the review-required result.
@@ -35,7 +35,7 @@ The strict unsupported-year boundary remains: full 2027 calculations do not borr
 
 | 2026 case | Expected result |
 | --- | --- |
-| Single, $300,000 profit, no W-2, basic profile/KPI helper | Net earnings $277,050; regular SE $30,912.45; half-SE deduction $15,456.23; Additional Medicare $693.45; ordinary income tax $62,724.57; combined modeled tax $94,330.47. QBI and credits are outside this basic helper. |
+| Single, $300,000 profit, no W-2, Schedule SE | Net earnings $277,050; regular SE $30,912.45; half-SE deduction $15,456.23; Additional Medicare $693.45. That Additional Medicare amount is separate from regular SE. A Form 1040 at this profit also applies QBI rules, so the old profit-only income-tax total is not the Form 1040 income tax. |
 | $400 profit | Net earnings below $400; no regular SE liability. |
 | $500 profit | Regular SE $70.65; no ordinary income tax under the basic standard-deduction assumptions. |
 | Single, $100,000 profit plus same-owner W-2 Social Security wages $180,000 | Remaining SS base $4,500; regular SE $3,236.15; half-SE deduction $1,618.08. |
@@ -52,7 +52,7 @@ Tests added in `tests/federal-calculation-audit.test.ts`; existing unsupported-y
 ## Remaining material scope limits
 
 - The manual/imported W-2 aggregate has no taxpayer-versus-spouse identity field. Regular Social Security wage-base coordination requires wages belonging to the self-employed owner. The annual engine and profile helpers now withhold joint mixed-wage/business calculations; the parent task propagates that boundary to route/export callers. Combined Medicare wages follow different rules. The audit did not invent ownership from available records.
-- Basic profile/KPI rate helpers are planning approximations, not complete returns or guaranteed expense savings. They omit QBI and credits. Profile health-insurance, retirement and HSA claims now require review rather than being applied without eligibility facts; the annual workflow handles deduction limits where modeled.
+- Profile rate helpers are planning approximations, not complete returns or guaranteed expense savings. They omit QBI and credits. Profile health-insurance, retirement and HSA claims now require review rather than being applied without eligibility facts; the annual workflow handles deduction limits where modeled.
 - The annual engine does not implement the 2026 active-business QBI minimum or §68 reduction and now review-blocks affected cases. HSA coverage-month/age/employer contribution eligibility is not fully collected. The saved-record annual boundary now withholds totals when HSA, retirement or self-employed health-insurance deductions are claimed until eligibility and applicable limits are supported. Pure helper tests assume eligible inputs; they do not establish eligibility. No correctness claim should describe this as full-return coverage.
 - Loss handling requires saved at-risk, material-participation and profit-motive declarations. The model does not aggregate multiple business losses, compute the complete NOL carryforward or all state-specific adjustments.
 - Tax-table rounding, qualified-dividend characterization, complex credits, AMT, NIIT, special business structures and full multi-state returns were not independently certified by this bounded audit.

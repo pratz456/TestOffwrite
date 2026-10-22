@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { calculateEffectiveTaxRate, calculateFederalIncomeTax, getMarginalTaxRate, getUserTaxRate, getUserTaxRateDisplay, TaxRateReviewRequiredError } from '../lib/tax-rules/federal-brackets';
-import { calcCombinedSERate } from '../lib/tax-rules/kpi-calculations';
 import { FilingStatusReviewRequiredError } from '../lib/tax-rules/filing-status';
 
 const fixture = vi.hoisted(() => ({ status: 'Single', income: 100000 }));
@@ -31,7 +30,6 @@ describe('shared dashboard rate normalization', () => {
     expect(calculateEffectiveTaxRate(profile)).toBe(calculateEffectiveTaxRate(canonical));
     expect(getUserTaxRate(profile)).toBe(getUserTaxRate(canonical));
     expect(getMarginalTaxRate(profile)).toBe(getMarginalTaxRate(canonical));
-    expect(calcCombinedSERate(100000, label)).toEqual(calcCombinedSERate(100000, key));
     expect(getUserTaxRateDisplay(profile)).toEqual({ rate: getUserTaxRate(canonical), filingStatus: key, reviewMessage: null });
   });
   it('does not use the Single rate for the Married Filing Jointly label', () => {
@@ -49,7 +47,7 @@ describe('shared dashboard rate normalization', () => {
   it.each(['Qualifying Widower', 'not-a-status'])('withholds the display rate for %s, even without income', status => {
     for (const income of [100000, 0, undefined]) {
       const profile = { filing_status: status, income };
-      for (const calculate of [() => calculateEffectiveTaxRate(profile), () => getUserTaxRate(profile), () => getMarginalTaxRate(profile), () => calcCombinedSERate(income ?? 0, status), () => calculateFederalIncomeTax(income ?? 0, status)]) {
+      for (const calculate of [() => calculateEffectiveTaxRate(profile), () => getUserTaxRate(profile), () => getMarginalTaxRate(profile), () => calculateFederalIncomeTax(income ?? 0, status)]) {
         expect(calculate).toThrow(FilingStatusReviewRequiredError);
       }
       expect(getUserTaxRateDisplay(profile)).toMatchObject({ rate: null, filingStatus: null, reviewMessage: expect.stringContaining('filing status in Profile') });

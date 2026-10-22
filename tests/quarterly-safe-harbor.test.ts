@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { calculateRegularEstimatedPayments, QuarterlyReviewRequiredError, type RegularEstimatedPaymentInput } from '../lib/tax-provider/regular-estimated-payments';
 import { compute1040, type Form1040Input } from '../lib/tax-rules/compute-1040';
-import { calcQuarterlyStatus } from '../lib/tax-rules/kpi-calculations';
 
 const fixture = (): RegularEstimatedPaymentInput => ({ taxYear: 2026, filingStatus: 'single', expectedTaxAfterCredits: 20000, expectedAnnualWithholding: 0, reviewedTaxAmounts: true, regularMethodConfirmed: true, priorYear: { available: true, adjustedGrossIncome: 100000, taxAfterAdjustments: 10000, fullTwelveMonths: true, sameTaxpayersAndFilingStatus: true, fullYearUSResident: true } });
 function prior(overrides: Record<string, unknown>) { const input = fixture(); return { ...input, priorYear: { ...input.priorYear, ...overrides } } as RegularEstimatedPaymentInput; }
@@ -60,5 +59,4 @@ it('annual1040 with prior-year tax alone omits unsafe harbor/quarterly amounts',
   const input: Form1040Input = { taxYear: 2026, filingStatus: 'single', scheduleCNetProfit: 0, w2Wages: 300000, w2MedicareWages: 300000, w2FederalWithheld: 0, estimatedPayments: 15000, selfEmploymentTax: 0, halfSEDeduction: 0, healthInsurancePremiums: 0, sepIraContribution: 0, solo401kContribution: 0, simpleIraContribution: 0, hsaContribution: 0, studentLoanInterest: 0 };
   const result = compute1040(input, 10000);
   expect(result.safeHarborAmount).toBeUndefined(); expect(result.quarterlyRecommended).toBeUndefined(); expect(result.calculationWarnings.some(note => note.includes('prior-year AGI'))).toBe(true);
-  expect(calcQuarterlyStatus(20000, 15000, 10000)).toMatchObject({ status: 'review_required', onTrack: null, quarterAmount: null, safeHarborAmount: null });
 });
