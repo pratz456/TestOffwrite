@@ -168,6 +168,53 @@ describe('redact-first W-2/1099 import: text path', () => {
     expect(state.records.income_1099[0].recipientTIN).toBeUndefined();
     expect(JSON.stringify(body)).not.toContain('111111111');
     expect(JSON.stringify(state.records.income_1099)).not.toContain('111111111');
+    expect(body.verificationRequired).not.toContain('Check the employer/payer ID');
+  });
+
+  it('keeps the payer TIN when a dashed recipient TIN is listed first', async () => {
+    mocks.recognize.mockResolvedValue({ text: "RECIPIENT'S TIN 12-3456789\nPAYER'S TIN 98-7654321\n1 Nonemployee compensation 1200.00", confidence: 0.95 });
+    modelReplies({ docType: '1099', formVariant: 'NEC', payerName: 'Synthetic Payer', payerEIN: '12-3456789', recipientTIN: '12-3456789', box1Amount: 1200, taxYear: 2025, confidence: 0.95 });
+    const body = await (await importDocument(request({ docType: '1099' }))).json();
+    expect(body.extracted.payerEIN).toBe('98-7654321');
+    expect(body.extracted.recipientTIN).toBeUndefined();
+    expect(state.records.income_1099[0].payerEIN).toBe('98-7654321');
+    expect(JSON.stringify(body)).not.toContain('12-3456789');
+    expect(JSON.stringify(state.records.income_1099)).not.toContain('12-3456789');
+    expect(body.verificationRequired).not.toContain('Check the employer/payer ID');
+  });
+
+  it('blanks a dashed recipient TIN when no payer TIN is present and asks to check the ID', async () => {
+    mocks.recognize.mockResolvedValue({ text: "RECIPIENT'S TIN 12-3456789\n1 Nonemployee compensation 1200.00", confidence: 0.95 });
+    modelReplies({ docType: '1099', formVariant: 'NEC', payerName: 'Synthetic Payer', payerEIN: '12-3456789', recipientTIN: '12-3456789', box1Amount: 1200, taxYear: 2025, confidence: 0.95 });
+    const body = await (await importDocument(request({ docType: '1099' }))).json();
+    expect(body.extracted.payerEIN).toBeNull();
+    expect(state.records.income_1099[0].payerEIN).toBe('');
+    expect(body.verificationRequired).toContain('Check the employer/payer ID');
+    expect(JSON.stringify(body)).not.toContain('12-3456789');
+    expect(JSON.stringify(state.records.income_1099)).not.toContain('12-3456789');
+  });
+
+  it('leaves the payer number blank when the only undashed number is under a recipient identification label', async () => {
+    mocks.recognize.mockResolvedValue({ text: "RECIPIENT'S identification number 123456789\n1 Nonemployee compensation 1200.00", confidence: 0.95 });
+    modelReplies({ docType: '1099', formVariant: 'NEC', payerName: 'Synthetic Payer', payerEIN: null, recipientTIN: '123456789', box1Amount: 1200, taxYear: 2025, confidence: 0.95 });
+    const body = await (await importDocument(request({ docType: '1099' }))).json();
+    expect(body.extracted.payerEIN).toBeNull();
+    expect(body.extracted.recipientTIN).toBeUndefined();
+    expect(state.records.income_1099[0].payerEIN).toBe('');
+    expect(body.verificationRequired).toContain('Check the employer/payer ID');
+    expect(JSON.stringify(body)).not.toContain('123456789');
+    expect(JSON.stringify(state.records.income_1099)).not.toContain('123456789');
+  });
+
+  it('does not keep a bare number under a generic identification number label', async () => {
+    mocks.recognize.mockResolvedValue({ text: 'Identification number 987654321\n1 Wages 1000.00', confidence: 0.95 });
+    modelReplies({ ...W2_JSON, employerEIN: '987654321', box1Wages: 1000 });
+    const body = await (await importDocument(request())).json();
+    expect(body.extracted.employerEIN).toBeNull();
+    expect(state.records.w2_income[0].employerEIN).toBe('');
+    expect(body.verificationRequired).toContain('Check the employer/payer ID');
+    expect(JSON.stringify(body)).not.toContain('987654321');
+    expect(JSON.stringify(state.records.w2_income)).not.toContain('987654321');
   });
 
   it('keeps the employer number when box a is labeled as an identification number', async () => {
@@ -291,27 +338,39 @@ describe('redact-first W-2/1099 import: image fallback needs the signed §7216 c
     expect(body.extracted.payerEIN).toBe('98-7654321');
   });
 
-  it.each(['98-7654321', '121212121'])('keeps W-2 employer EIN %s from the image path and drops box a', async (employerEIN) => {
+  it.each([
+    ['98-7654321', '98-7654321'],
+    ['121212121', null],
+  ] as const)('image path W-2 employer number %s resolves to %s and drops box a', async (employerEIN, expected) => {
     state.profile = { consents: consents(true) };
     mocks.recognize.mockResolvedValue(null);
     modelReplies({ ...W2_JSON, employerEIN, employeeSSN: '123-45-6789' });
     const body = await (await importDocument(request({ documentImageConsent: 'true' }))).json();
     expect(body.disclosure).toBe('image');
-    expect(body.extracted.employerEIN).toBe(employerEIN);
+    expect(body.extracted.employerEIN).toBe(expected);
     expect(body.extracted.employeeSSN).toBeUndefined();
-    expect(state.records.w2_income[0].employerEIN).toBe(employerEIN);
+    expect(state.records.w2_income[0].employerEIN).toBe(expected ?? '');
     expect(state.records.w2_income[0].employeeSSN).toBeUndefined();
     expect(JSON.stringify(body)).not.toContain('123-45-6789');
+    if (expected === null) {
+      expect(body.verificationRequired).toContain('Check the employer/payer ID');
+      expect(JSON.stringify(body)).not.toContain(employerEIN);
+      expect(JSON.stringify(state.records.w2_income)).not.toContain(employerEIN);
+    } else {
+      expect(body.verificationRequired).not.toContain('Check the employer/payer ID');
+    }
   });
 
   it.each([
     ['w2', 'employerEIN', '123-45-6789', null],
     ['w2', 'employerEIN', '12-3456789', '12-3456789'],
-    ['w2', 'employerEIN', '123456789', '123456789'],
+    ['w2', 'employerEIN', '123456789', null],
+    ['w2', 'employerEIN', '123 45 6789', null],
     ['1099', 'payerEIN', '123-45-6789', null],
     ['1099', 'payerEIN', '12-3456789', '12-3456789'],
-    ['1099', 'payerEIN', '123456789', '123456789'],
-  ] as const)('image path keeps only a 2-7 %s %s (%s)', async (docType, field, incoming, expected) => {
+    ['1099', 'payerEIN', '123456789', null],
+    ['1099', 'payerEIN', '123 45 6789', null],
+  ] as const)('image path keeps a dashed number and blanks %s %s (%s)', async (docType, field, incoming, expected) => {
     state.profile = { consents: consents(true) };
     mocks.recognize.mockResolvedValue(null);
     const extracted = docType === 'w2'
@@ -329,19 +388,66 @@ describe('redact-first W-2/1099 import: image fallback needs the signed §7216 c
     expect(storedRecord.recipientTIN).toBeUndefined();
     expect(JSON.stringify(body)).not.toContain('123-45-6789');
     expect(JSON.stringify(storedRecord)).not.toContain('123-45-6789');
+    if (expected === null) {
+      expect(body.verificationRequired).toContain('Check the employer/payer ID');
+      expect(JSON.stringify(body)).not.toContain(incoming);
+      expect(JSON.stringify(storedRecord)).not.toContain(incoming);
+    } else {
+      expect(body.verificationRequired).not.toContain('Check the employer/payer ID');
+    }
   });
 
-  it.each(['98-7654321', '131313131'])('keeps 1099 payer TIN %s from the image path and drops the recipient TIN', async (payerEIN) => {
+  it('blanks a bare employer number from a photo when box a is omitted and asks to check the ID', async () => {
+    state.profile = { consents: consents(true) };
+    mocks.recognize.mockResolvedValue(null);
+    modelReplies({ ...W2_JSON, employerEIN: '123456789' });
+    const body = await (await importDocument(request({ documentImageConsent: 'true' }))).json();
+    expect(body.disclosure).toBe('image');
+    expect(body.extracted.employerEIN).toBeNull();
+    expect(body.extracted.employeeSSN).toBeUndefined();
+    expect(state.records.w2_income[0].employerEIN).toBe('');
+    expect(state.records.w2_income[0].employeeSSN).toBeUndefined();
+    expect(body.verificationRequired).toContain('Check the employer/payer ID');
+    expect(JSON.stringify(body)).not.toContain('123456789');
+    expect(JSON.stringify(state.records.w2_income)).not.toContain('123456789');
+  });
+
+  it('does not store a bare number a photo repeats in box a and the employer number', async () => {
+    state.profile = { consents: consents(true) };
+    mocks.recognize.mockResolvedValue(null);
+    modelReplies({ ...W2_JSON, employerEIN: '123456789', employeeSSN: '123456789' });
+    const body = await (await importDocument(request({ documentImageConsent: 'true' }))).json();
+    expect(body.disclosure).toBe('image');
+    expect(body.extracted.employerEIN).toBeNull();
+    expect(body.extracted.employeeSSN).toBeUndefined();
+    expect(state.records.w2_income[0].employerEIN).toBe('');
+    expect(state.records.w2_income[0].employeeSSN).toBeUndefined();
+    expect(body.verificationRequired).toContain('Check the employer/payer ID');
+    expect(JSON.stringify(body)).not.toContain('123456789');
+    expect(JSON.stringify(state.records.w2_income)).not.toContain('123456789');
+  });
+
+  it.each([
+    ['98-7654321', '98-7654321'],
+    ['131313131', null],
+  ] as const)('image path 1099 payer number %s resolves to %s and drops the recipient TIN', async (payerEIN, expected) => {
     state.profile = { consents: consents(true) };
     mocks.recognize.mockResolvedValue(null);
     modelReplies({ docType: '1099', formVariant: 'NEC', payerName: 'Synthetic Payer', payerEIN, recipientTIN: '123-45-6789', recipientName: 'Jordan Demo', box1Amount: 1200, taxYear: 2025, confidence: 0.95 });
     const body = await (await importDocument(request({ docType: '1099', documentImageConsent: 'true' }))).json();
     expect(body.disclosure).toBe('image');
-    expect(body.extracted.payerEIN).toBe(payerEIN);
+    expect(body.extracted.payerEIN).toBe(expected);
     expect(body.extracted.recipientTIN).toBeUndefined();
-    expect(state.records.income_1099[0].payerEIN).toBe(payerEIN);
+    expect(state.records.income_1099[0].payerEIN).toBe(expected ?? '');
     expect(state.records.income_1099[0].recipientTIN).toBeUndefined();
     expect(JSON.stringify(body)).not.toContain('123-45-6789');
+    if (expected === null) {
+      expect(body.verificationRequired).toContain('Check the employer/payer ID');
+      expect(JSON.stringify(body)).not.toContain(payerEIN);
+      expect(JSON.stringify(state.records.income_1099)).not.toContain(payerEIN);
+    } else {
+      expect(body.verificationRequired).not.toContain('Check the employer/payer ID');
+    }
   });
 
   it('sends the whole image with store disabled once the flag and the signed consent are both present', async () => {

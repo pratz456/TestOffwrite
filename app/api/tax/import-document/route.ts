@@ -305,31 +305,68 @@ async function extractDocument(source: DocumentSource, docType: string, payload:
   return parseModelJson(rawText);
 }
 
-/** Employer and payer numbers only: two digits, an optional dash, then seven. A 3-2-4 value is not one. */
-const PAYER_NUMBER_SHAPE = /^\d{2}-?\d{7}$/;
+/** Dashed employer/payer form. A bare 9-digit run is not this shape. */
+const DASHED_PAYER_NUMBER = /^\d{2}-\d{7}$/;
+/** Nine digits with no separator. Kept from text only when that line names the employer or payer. */
+const BARE_PAYER_NUMBER = /^\d{9}$/;
 const BLOCKED_PAYER_LABEL = /recipient|employee|payee/i;
+const NAMED_PAYER_LABEL = /employer|payer|\bEIN\b/i;
+const PAYER_ID_CHECK = 'Check the employer/payer ID';
 
 function payerNumberOrBlank(value: unknown): string | null {
-  return typeof value === 'string' && PAYER_NUMBER_SHAPE.test(value) ? value : null;
+  return typeof value === 'string' && (DASHED_PAYER_NUMBER.test(value) || BARE_PAYER_NUMBER.test(value)) ? value : null;
 }
 
 /**
- * A labeled employer or payer number on its own line, with or without a dash.
- * Labels containing recipient, employee, or payee are not employer or payer numbers.
- * Bare runs that are not labeled stay out.
+ * A labeled number on its own line. A dashed NN-NNNNNNN stays when the label is not
+ * recipient, employee, or payee. A bare 9-digit run stays only when that same line
+ * names the employer or payer. A 3-2-4 value is never a payer number.
  */
-function labeledPayerNumbers(text: string): { kept: string[]; blockedDigits: Set<string> } {
-  const pattern = /(^|\n)([^\n]*?)(\bEIN\b|identification number|payer(?:'s)? TIN)([^\n\d]{0,60})(\d{2}-?\d{7})(?!\d)/gi;
+function labeledPayerNumbers(text: string): { kept: string[] } {
+  const pattern = /(^|\n)([^\n]*?)(\bEIN\b|identification number|payer(?:'s)? TIN)([^\n\d]{0,60})(\d{2}-\d{7}|\d{9})(?!\d)/gi;
   const kept: string[] = [];
-  const blockedDigits = new Set<string>();
   for (const match of text.matchAll(pattern)) {
     const number = match[5];
-    if (!PAYER_NUMBER_SHAPE.test(number)) continue;
     const label = `${match[2]} ${match[3]} ${match[4]}`;
-    if (BLOCKED_PAYER_LABEL.test(label)) blockedDigits.add(number.replace(/\D/g, ''));
-    else kept.push(number);
+    if (BLOCKED_PAYER_LABEL.test(label)) continue;
+    const named = NAMED_PAYER_LABEL.test(label);
+    if (DASHED_PAYER_NUMBER.test(number) || (BARE_PAYER_NUMBER.test(number) && named)) kept.push(number);
   }
-  return { kept, blockedDigits };
+  return { kept };
+}
+
+/**
+ * Every number on a recipient, employee, or payee line, in any format.
+ * The line does not also have to say EIN, identification number, or TIN.
+ */
+function blockedLineDigits(text: string): Set<string> {
+  const blocked = new Set<string>();
+  const numberPattern = /\d{2}[-\u2010-\u2015. ]\d{7}|\d{3}[- ]\d{2}[- ]\d{4}|\d{9}/g;
+  for (const line of text.split('\n')) {
+    if (!BLOCKED_PAYER_LABEL.test(line)) continue;
+    for (const match of line.matchAll(numberPattern)) blocked.add(match[0].replace(/\D/g, ''));
+  }
+  return blocked;
+}
+
+function addPayerIdCheck(data: Record<string, unknown>): void {
+  const current = Array.isArray(data.verificationWarnings) ? data.verificationWarnings : [];
+  const warnings = current.filter((item): item is string => typeof item === 'string');
+  if (!warnings.includes(PAYER_ID_CHECK)) warnings.push(PAYER_ID_CHECK);
+  data.verificationWarnings = warnings;
+}
+
+/** Photos keep a dashed NN-NNNNNNN only. Any other employer or payer value is cleared and the user is asked to check it. */
+function rejectUndashedImagePayerNumbers(data: Record<string, unknown>): void {
+  let rejected = false;
+  for (const field of PAYER_NUMBER_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(data, field)) continue;
+    const value = data[field];
+    if (typeof value === 'string' && DASHED_PAYER_NUMBER.test(value)) continue;
+    if (value !== null && value !== undefined && value !== '') rejected = true;
+    data[field] = null;
+  }
+  if (rejected) addPayerIdCheck(data);
 }
 
 /** Formats a locally captured EIN as XX-XXXXXXX; the model never sees it. */
@@ -520,13 +557,15 @@ export async function POST(request: NextRequest) {
     if (fallbackReason === null) {
       const redaction = redactIdentifierText(ocr!.text, { keepPrimarySSNLast4: true });
       ssnLast4 = redaction.ssnLast4;
+      const blockedDigits = blockedLineDigits(ocr!.text);
       const labeled = labeledPayerNumbers(ocr!.text);
       localEINs = redaction.eins.map(formatEIN).filter(value => {
         const digits = value.replace(/\D/g, '');
-        return PAYER_NUMBER_SHAPE.test(value) && !labeled.blockedDigits.has(digits);
+        return DASHED_PAYER_NUMBER.test(value) && !blockedDigits.has(digits);
       });
       for (const value of labeled.kept) {
         const digits = value.replace(/\D/g, '');
+        if (blockedDigits.has(digits)) continue;
         if (!localEINs.some(existing => existing.replace(/\D/g, '') === digits)) localEINs.push(value);
       }
       // The no-consent path also keeps the account holder's name and postal addresses on this server;
@@ -562,9 +601,11 @@ export async function POST(request: NextRequest) {
       const einField = extracted.docType === 'w2' || docType === 'w2' ? 'employerEIN' : extracted.docType === '1099' || docType === '1099' ? 'payerEIN' : null;
       if (einField) {
         extracted[einField] = payerNumberOrBlank(localEINs[0]);
-        if (localEINs.length > 1) einNotes.push(`Verify ${einField}. More than one EIN-shaped number was read from the document.`);
+        if (!extracted[einField]) addPayerIdCheck(extracted);
+        else if (localEINs.length > 1) einNotes.push(`Verify ${einField}. More than one EIN-shaped number was read from the document.`);
       }
     }
+    if (disclosure === 'image') rejectUndashedImagePayerNumbers(extracted);
     const documentOwner = await matchDocumentOwner(user.uid, extracted.taxYear || taxYear || new Date().getFullYear() - 1, ssnLast4);
     if (documentOwner === 'unmatched') {
       einNotes.push('The identification number on this document does not match the taxpayer or spouse record saved in your Tax Organizer. Confirm this document is yours before saving.');
@@ -608,6 +649,12 @@ export async function POST(request: NextRequest) {
 
     // Merge user edits into extracted data before saving. Identifier keys are already removed from extracted.
     const finalData = publicDocument(dropDocumentIdentifiers({ ...extracted, ...overrideFields }));
+    if (disclosure === 'image') {
+      rejectUndashedImagePayerNumbers(finalData);
+      if (Array.isArray(finalData.verificationWarnings) && finalData.verificationWarnings.includes(PAYER_ID_CHECK) && !verificationRequired.includes(PAYER_ID_CHECK)) {
+        verificationRequired.push(PAYER_ID_CHECK);
+      }
+    }
 
     // Save to Firestore if commit=true
     let saveResult: Record<string, any> = {};
