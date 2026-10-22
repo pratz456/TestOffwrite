@@ -9,6 +9,19 @@ export class DependentCreditReviewRequiredError extends Error {
   }
 }
 
+/** Dependent fields buildFederalTaxSnapshot reads. The estimate refresh key keeps this same list. */
+export const SNAPSHOT_DEPENDENT_FIELDS = ['dateOfBirth', 'age', 'relationship', 'monthsLived'] as const;
+
+/** Reads each snapshot dependent field. This does not decide child-credit eligibility. */
+export function readSnapshotDependentFacts(value: unknown): void {
+  const rows = Array.isArray(value) ? value : value && typeof value === 'object' ? [value] : [];
+  for (const row of rows) {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
+    const record = row as Record<string, unknown>;
+    for (const field of SNAPSHOT_DEPENDENT_FIELDS) void record[field];
+  }
+}
+
 /** A household dependent count cannot establish either CTC or EITC eligibility. */
 export function assertGenericDependentCreditScope(value: unknown): void {
   const count = value === undefined || value === null || value === '' ? 0

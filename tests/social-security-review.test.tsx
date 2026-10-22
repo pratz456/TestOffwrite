@@ -346,6 +346,7 @@ describe('Form1040 preparer export completeness disclosures', () => {
     expect(text).not.toContain('***-**-3333');
     expect(text).not.toContain('111-22-3333'); expect(text).not.toContain('111223333');
     const storedSpouse = String(state.records.tax_organizers[0].spouseSSN);
+    expect(storedSpouse).not.toBe('111223333');
     expect(isEncrypted(storedSpouse)).toBe(true);
     expect(decryptSensitive(storedSpouse)).toBe('111223333');
     expect(isEncrypted(decryptSensitive(storedSpouse))).toBe(false);

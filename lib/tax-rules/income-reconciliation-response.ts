@@ -58,11 +58,32 @@ export interface IncomeReconciliationSummary {
   feeExpenseCandidates: FeeExpenseCandidate[];
   /** Set when a saved record needs review outside this workflow (e.g. a 1099-MISC or rental receipt). */
   unsupported: string | null;
+  /** 1099-MISC rows that caused the hold, so the review card can remove one by id. Empty for every other hold. */
+  unsupportedRecords: UnsupportedIncomeRecord[];
   policy: string;
+}
+
+export interface UnsupportedIncomeRecord {
+  id: string;
+  formType: string;
+  amount: number;
+  label: string;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object';
 const str = (value: unknown) => typeof value === 'string' ? value : '';
+
+function miscHoldRecords(forms: ReadonlyArray<IncomeRecord>): UnsupportedIncomeRecord[] {
+  return forms.flatMap(form => {
+    if (form.formType !== '1099-MISC') return [];
+    const id = str(form.id).trim();
+    if (!id) return [];
+    const amount = typeof form.amount === 'number' && Number.isFinite(form.amount) ? form.amount
+      : typeof form.box3OtherIncome === 'number' && Number.isFinite(form.box3OtherIncome) ? form.box3OtherIncome : 0;
+    const payer = str(form.payerName).trim() || str(form.payer).trim() || 'Unknown payer';
+    return [{ id, formType: '1099-MISC', amount, label: `1099-MISC · ${payer}` }];
+  });
+}
 
 function decisionView(record: IncomeRecord, appliedIds: ReadonlySet<string>): SavedDecisionView {
   const normalized = normalizeReconciliationDecision(record);
@@ -91,7 +112,8 @@ export function summarizeIncomeReconciliation(taxYear: number, records: IncomeSo
     candidates = listIncomeSourceCandidates(taxYear, records.transactions, records.receipts, records.forms).candidates;
   } catch (error) {
     if (!(error instanceof IncomeReconciliationRequiredError)) throw error;
-    return { ...base, candidates: [], decisions: records.decisions.map(record => decisionView(record, new Set())), conflicts: [], grossReceipts: null, reconciledAmount: 0, unclaimedAmount: 0, unsupported: error.message };
+    const unsupportedRecords = error.message.includes('1099-MISC') ? miscHoldRecords(records.forms) : [];
+    return { ...base, candidates: [], decisions: records.decisions.map(record => decisionView(record, new Set())), conflicts: [], grossReceipts: null, reconciledAmount: 0, unclaimedAmount: 0, unsupported: error.message, unsupportedRecords };
   }
   const resolution = resolveIncomeSources(taxYear, candidates, records.decisions);
   const appliedIds = new Set(resolution.appliedDecisionIds);
@@ -109,6 +131,7 @@ export function summarizeIncomeReconciliation(taxYear: number, records: IncomeSo
     unclaimedAmount: unclaimed / 100,
     feeExpenseCandidates: resolution.feeExpenseCandidates,
     unsupported: null,
+    unsupportedRecords: [],
   };
 }
 

@@ -35,6 +35,7 @@ import { PersonalDeductionFields } from '../components/personal-deduction-fields
 import { BusinessLossFields } from '../components/business-loss-fields';
 import { OBBBADeductionFields } from '../components/obbba-deduction-fields';
 import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductions';
+import { DASHBOARD_TAX_INPUTS_UPDATED } from '../lib/tax/dashboard-tax-input';
 import { reviewedBusinessLossFacts, reviewedOBBBADeductionFacts } from './fixtures/tier1-facts';
 type Element = ReactElement<Record<string, any>>;
 const walk = (node: any): Element[] => Array.isArray(node) ? node.flatMap(walk)
@@ -77,6 +78,20 @@ describe('organizer personal facts and safe tax-year changes', () => {
     expect(Object.keys(saved).length - 1).toBeLessThanOrEqual(80);
     // 66 legacy fields plus the quarterly-planner 12-month answer, the short/long-term capital gain amounts and the structured eligibility facts field.
     expect(Object.keys(EMPTY_ORGANIZER_ANSWERS)).toHaveLength(72);
+  });
+  it('asks the dashboard to reread tax inputs after a successful organizer save', async () => {
+    const host = new EventTarget();
+    vi.stubGlobal('window', host);
+    let updates = 0;
+    host.addEventListener(DASHBOARD_TAX_INPUTS_UPDATED, () => { updates += 1; });
+    try {
+      await button(await load(), 'Save').props.onClick();
+      await tick();
+      expect(updates).toBe(1);
+      expect(text(render())).toContain('Saved');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
   it('keeps edited facts and the old year when automatic saving fails, without loading another year', async () => {
     personal(await load()).props.onChange('dateOfBirth', '1955-06-01');

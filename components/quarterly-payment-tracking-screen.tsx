@@ -24,6 +24,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
+import { notifyDashboardTaxInputsUpdated } from "@/lib/tax/dashboard-tax-input";
 import { AppPageHeader, AppScreenShell } from "@/components/app/app-screen-shell";
 import { LATEST_PUBLISHED_TAX_YEAR, SUPPORTED_TAX_YEARS } from "@/lib/tax-rules/federal-year-rules";
 
@@ -160,6 +161,7 @@ export function QuarterlyPaymentTrackingScreen({
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || "Failed to record payment");
       }
+      notifyDashboardTaxInputsUpdated();
       await fetchPayments();
       resetForm();
     } catch (err) {
@@ -185,6 +187,7 @@ export function QuarterlyPaymentTrackingScreen({
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || "Failed to update estimated amount");
       }
+      notifyDashboardTaxInputsUpdated();
       await fetchPayments();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update");

@@ -31,6 +31,7 @@ vi.mock('sonner', () => ({ toast: { error: harness.error, warning: vi.fn(), succ
 vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: harness.api }));
 vi.mock('@/lib/firebase/client', () => ({ auth: { currentUser: { getIdToken: async () => 'synthetic-id-token' } } }));
 import { ScheduleCExportScreen } from '../components/schedule-c-export-screen';
+import { MISC_ESTIMATE_PAUSED_MESSAGE } from '../lib/tax-rules/misc-estimate-pause';
 
 const props = {
   user: { id: 'synthetic-user' }, onBack: () => {},
@@ -89,6 +90,19 @@ describe('Schedule C supported-year selection', () => {
     render();
     await walk(render()).find(node => typeof node.props?.onClick === 'function' && text(node).includes('Export 2026 Schedule C Data')).props.onClick();
     expect(harness.error).toHaveBeenCalledWith(message);
+    expect(harness.download.click).not.toHaveBeenCalled();
+  });
+
+  it('shows the 1099-MISC pause sentence when a Schedule C export is blocked by that form', async () => {
+    harness.fetch.mockResolvedValue(new Response(JSON.stringify({
+      error: 'Review income sources before calculating tax: Confirm the tax treatment of this 1099-MISC.',
+      code: 'INCOME_RECONCILIATION_REQUIRED',
+    }), { status: 422, headers: { 'content-type': 'application/json' } }));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    walk(render()).filter(node => node.type === 'select')[1].props.onChange({ target: { value: 'PDF' } });
+    render();
+    await walk(render()).find(node => typeof node.props?.onClick === 'function' && text(node).includes('Export 2026 Schedule C Data')).props.onClick();
+    expect(harness.error).toHaveBeenCalledWith(MISC_ESTIMATE_PAUSED_MESSAGE);
     expect(harness.download.click).not.toHaveBeenCalled();
   });
 });

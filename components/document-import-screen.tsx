@@ -6,9 +6,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  Upload, FileText, CheckCircle2, AlertCircle, XCircle,
+  Upload, FileText, CheckCircle2, Check, AlertCircle, XCircle,
   Loader2, Camera, DollarSign, Building2, Receipt, Info, Edit3, Eye, ShieldCheck,
 } from "lucide-react";
+import { MISC_ESTIMATE_PAUSED_MESSAGE } from "@/lib/tax-rules/misc-estimate-pause";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 import { DocumentImageConsent, type DocumentImageFallbackReason } from "@/components/document-image-consent";
 import { DOCUMENT_IMAGE_CONSENT_REQUIRED } from "@/lib/onboarding/document-import-consent";
@@ -298,6 +299,98 @@ function FieldRow({
   );
 }
 
+/** Labels once the user has picked 1099. A MISC amount is not box 1 rents and not NEC box 1. */
+export function importVerifyFieldDefs(input: {
+  requestedType: string;
+  confirmedDocType: "w2" | "1099" | null;
+  variant: "NEC" | "MISC" | null;
+  needsMiscBox?: boolean;
+  fields: Record<string, unknown>;
+}): FieldDef[] {
+  if (input.confirmedDocType === "1099") {
+    const misc = input.variant === "MISC" || (Boolean(input.needsMiscBox) && input.variant !== "NEC");
+    const relabel = (def: FieldDef, label: string): FieldDef => ({ ...def, label });
+    return [
+      relabel(W2_FIELDS[0], "Payer name"),
+      relabel(W2_FIELDS[1], "Payer EIN"),
+      relabel(W2_FIELDS[2], misc ? "Amount" : "Nonemployee compensation (box 1)"),
+      relabel(W2_FIELDS[3], "Federal income tax withheld (box 4)"),
+    ];
+  }
+  const dt = input.requestedType;
+  if (dt === "w2" || input.fields.box1Wages !== undefined) return W2_FIELDS;
+  if (dt === "1099" || input.fields.formVariant !== undefined) return FORM_1099_FIELDS;
+  if (dt === "platform_summary" || input.fields.grossEarnings !== undefined) return PLATFORM_FIELDS;
+  return W2_FIELDS;
+}
+
+/** A save that came back without a required choice. Null when the error is something else. */
+export function importChoiceFromCommitError(data: { code?: unknown } | null): {
+  needsTypeConfirmation: true;
+  needs1099Variant?: boolean;
+  needsMiscBox?: boolean;
+  confirmedDocType?: "1099";
+  confirmed1099Variant?: "MISC";
+} | null {
+  if (data?.code === "TYPE_CHOICE_REQUIRED") return { needsTypeConfirmation: true };
+  if (data?.code === "VARIANT_CHOICE_REQUIRED") return { needsTypeConfirmation: true, needs1099Variant: true, confirmedDocType: "1099" };
+  if (data?.code === "MISC_BOX_CHOICE_REQUIRED") return { needsTypeConfirmation: true, needsMiscBox: true, confirmedDocType: "1099", confirmed1099Variant: "MISC" };
+  return null;
+}
+
+function formChoiceButton(label: string, pressed: boolean, onClick: () => void) {
+  return (
+    <Button type="button" variant={pressed ? "default" : "secondary"} className="w-full sm:flex-1" aria-pressed={pressed} onClick={onClick}>
+      {pressed ? <Check aria-hidden="true" /> : null}
+      {label}
+    </Button>
+  );
+}
+
+/** True after a 1099-MISC save, including a native MISC the type gate did not ask about. */
+export function savedMiscPausesEstimate(input: {
+  confirmed1099Variant: "NEC" | "MISC" | null;
+  confirmedMiscBox: "3" | null;
+  extractedFormVariant?: unknown;
+  needsMiscBox?: boolean;
+}): boolean {
+  return input.confirmed1099Variant === "MISC" || input.confirmedMiscBox === "3" || input.extractedFormVariant === "MISC" || Boolean(input.needsMiscBox);
+}
+
+export function ImportSavedNotice({
+  docKind,
+  savedMisc,
+  onImportAnother,
+  onViewPreview,
+}: {
+  docKind: "w2" | "1099" | "other";
+  savedMisc: boolean;
+  onImportAnother: () => void;
+  onViewPreview?: () => void;
+}) {
+  return (
+    <div className="flex flex-col items-center gap-3 py-6">
+      <CheckCircle2 className="w-10 h-10 text-green-600 dark:text-green-400" />
+      <p className="text-base font-semibold">Saved to WriteOff</p>
+      <p className="text-sm text-muted-foreground text-center">
+        {docKind === "w2" ? "W-2 wages and withholding added to your return" :
+         docKind === "1099" ? "1099 income added to your return" :
+         "Earnings added as self-employment income"}
+      </p>
+      {savedMisc && <p className="max-w-md text-center text-sm text-muted-foreground">{MISC_ESTIMATE_PAUSED_MESSAGE}</p>}
+      <div className="flex gap-3">
+        <Button variant="outline" onClick={onImportAnother}>Import Another</Button>
+        {onViewPreview && <Button onClick={onViewPreview}>View Tax Preview</Button>}
+      </div>
+    </div>
+  );
+}
+
+function formatImportAmount(amount: number): string {
+  const [whole, fraction] = amount.toFixed(2).split(".");
+  return `$${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}.${fraction}`;
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 
 const DOC_TYPES: { value: DocType; label: string; icon: React.ElementType }[] = [
@@ -306,6 +399,103 @@ const DOC_TYPES: { value: DocType; label: string; icon: React.ElementType }[] = 
   { value: "1099",             label: "1099 Form",        icon: Receipt    },
   { value: "platform_summary", label: "Platform Summary", icon: DollarSign },
 ];
+
+/** Verify-before-saving panel. Order: ID prompt, form question, 1099 kind when it is unclear, MISC box, fields, Save. */
+export function DocumentImportSavePanel({
+  notes,
+  needsTypeConfirmation,
+  needs1099Variant = false,
+  needsMiscBox = false,
+  choice,
+  variantChoice = null,
+  miscBox = null,
+  miscAmount = null,
+  onChoice,
+  onVariantChoice,
+  onMiscBox,
+  saveDisabled,
+  saving,
+  saveLabel,
+  onSave,
+  children,
+}: {
+  notes: string[];
+  needsTypeConfirmation: boolean;
+  needs1099Variant?: boolean;
+  needsMiscBox?: boolean;
+  choice: "w2" | "1099" | null;
+  variantChoice?: "NEC" | "MISC" | null;
+  miscBox?: "3" | null;
+  miscAmount?: number | null;
+  onChoice: (choice: "w2" | "1099") => void;
+  onVariantChoice?: (variant: "NEC" | "MISC") => void;
+  onMiscBox?: (box: "3") => void;
+  saveDisabled: boolean;
+  saving: boolean;
+  saveLabel: string;
+  onSave: () => void;
+  children: React.ReactNode;
+}) {
+  const awaitingChoice = needsTypeConfirmation && choice === null;
+  const awaitingVariant = needs1099Variant && choice === "1099" && variantChoice === null;
+  const askingMiscBox = choice === "1099" && (needsMiscBox || variantChoice === "MISC");
+  const awaitingMiscBox = askingMiscBox && miscBox !== "3";
+  return (
+    <>
+      {(notes.length > 0 || needsTypeConfirmation) && (
+        <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20 p-3 space-y-3">
+          <div>
+            <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 mb-1">Verify before saving</p>
+            {notes.length > 0 && (
+              <ul className="space-y-0.5">
+                {notes.map((note, i) => (
+                  <li key={i} className="text-xs text-amber-700 dark:text-amber-400">• {note}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+          {needsTypeConfirmation && (
+            <div className="space-y-2">
+              <p className="text-sm text-foreground">This looks like it could be a 1099. Which form is it?</p>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                {formChoiceButton("W-2", choice === "w2", () => onChoice("w2"))}
+                {formChoiceButton("1099", choice === "1099", () => onChoice("1099"))}
+              </div>
+            </div>
+          )}
+          {needs1099Variant && choice === "1099" && (
+            <div className="space-y-2">
+              <p className="text-sm text-foreground">Which kind of 1099 is it?</p>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                {formChoiceButton("NEC (pay for work)", variantChoice === "NEC", () => onVariantChoice?.("NEC"))}
+                {formChoiceButton("MISC (other income)", variantChoice === "MISC", () => onVariantChoice?.("MISC"))}
+              </div>
+            </div>
+          )}
+          {askingMiscBox && (
+            <div className="space-y-2">
+              <p className="text-sm text-foreground">Which box is this amount?</p>
+              {typeof miscAmount === "number" && <p className="text-sm text-foreground">{formatImportAmount(miscAmount)}</p>}
+              <div className="flex flex-col gap-2 sm:flex-row">
+                {formChoiceButton("Other income (box 3)", miscBox === "3", () => onMiscBox?.("3"))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+      {children}
+      <Button
+        type="button"
+        onClick={onSave}
+        disabled={saving || saveDisabled || awaitingChoice || awaitingVariant || awaitingMiscBox}
+        className="w-full min-h-[48px] gap-2 text-base font-semibold"
+      >
+        {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle2 className="w-5 h-5" />}
+        {saving ? "Saving…" : saveLabel}
+      </Button>
+    </>
+  );
+}
 
 export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
   const currentYear = new Date().getFullYear();
@@ -319,6 +509,9 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
   const [editedFields, setEditedFields] = useState<Record<string, any>>({});
   const [committing, setCommitting] = useState(false);
   const [committed, setCommitted] = useState(false);
+  const [confirmedDocType, setConfirmedDocType] = useState<"w2" | "1099" | null>(null);
+  const [confirmed1099Variant, setConfirmed1099Variant] = useState<"NEC" | "MISC" | null>(null);
+  const [confirmedMiscBox, setConfirmedMiscBox] = useState<"3" | null>(null);
   const [dragging, setDragging] = useState(false);
   // §7216 consent: the account's stored record, and whether the person authorized
   // the image fallback for the current document (reset with every new file).
@@ -337,7 +530,7 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
 
   const handleFile = (f: File) => {
     setFile(f); setResult(null); setError(null);
-    setCommitted(false); setEditedFields({});
+    setCommitted(false); setEditedFields({}); setConfirmedDocType(null); setConfirmed1099Variant(null); setConfirmedMiscBox(null);
     setImageConsentGranted(false); setConsentPrompt(null);
     setPreview(f.type.startsWith("image/") ? URL.createObjectURL(f) : null);
   };
@@ -359,11 +552,21 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
       fd.append("taxYear", action === "commit" ? String(result?.taxYear || year) : year);
       fd.append("commit", action === "commit" ? "true" : "false");
       if (action === "commit") fd.append("overrideFields", JSON.stringify(editedFields));
+      if (action === "commit" && confirmedDocType) fd.append("confirmedDocType", confirmedDocType);
+      if (action === "commit" && confirmedDocType === "1099" && confirmed1099Variant) fd.append("confirmed1099Variant", confirmed1099Variant);
+      if (action === "commit" && confirmedDocType === "1099" && confirmedMiscBox) fd.append("confirmedMiscBox", confirmedMiscBox);
       if (imageConsent) fd.append("documentImageConsent", "true");
       const res = await makeAuthenticatedRequest("/api/tax/import-document", { method: "POST", body: fd });
       const data = await res.json();
       if (!res.ok) {
         if (res.status === 403 && data.code === DOCUMENT_IMAGE_CONSENT_REQUIRED) { setConsentPrompt({ reason: data.reason, action }); return; }
+        const choiceError = action === "commit" ? importChoiceFromCommitError(data) : null;
+        if (choiceError) {
+          setResult((prev: { needs1099Variant?: boolean; needsMiscBox?: boolean } | null) => ({ ...(prev || {}), needsTypeConfirmation: true, needs1099Variant: choiceError.needs1099Variant || prev?.needs1099Variant, needsMiscBox: choiceError.needsMiscBox || prev?.needsMiscBox }));
+          if (choiceError.confirmedDocType) setConfirmedDocType(choiceError.confirmedDocType);
+          if (choiceError.confirmed1099Variant) setConfirmed1099Variant(choiceError.confirmed1099Variant);
+          return;
+        }
         if (data.tips) setError(`${data.warning}\n\nTips: ${data.tips.join(" • ")}`);
         else throw new Error(data.error || (action === "commit" ? "Save failed" : "Extraction failed"));
         return;
@@ -371,6 +574,9 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
       if (action === "commit") { setCommitted(true); return; }
       setResult(data);
       setEditedFields(data.extracted || {});
+      setConfirmedDocType(null);
+      setConfirmed1099Variant(null);
+      setConfirmedMiscBox(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : action === "commit" ? "Failed to save" : "Failed to extract document");
     } finally { if (action === "extract") setLoading(false); else setCommitting(false); }
@@ -386,14 +592,13 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
     }));
   };
 
-  // Determine which field definitions to show
-  const getFieldDefs = (): FieldDef[] => {
-    const dt = result?.docType || docType;
-    if (dt === "w2" || editedFields.box1Wages !== undefined) return W2_FIELDS;
-    if (dt === "1099" || editedFields.formVariant !== undefined) return FORM_1099_FIELDS;
-    if (dt === "platform_summary" || editedFields.grossEarnings !== undefined) return PLATFORM_FIELDS;
-    return W2_FIELDS; // default
-  };
+  const getFieldDefs = (): FieldDef[] => importVerifyFieldDefs({
+    requestedType: result?.docType || docType,
+    confirmedDocType,
+    variant: confirmed1099Variant,
+    needsMiscBox: Boolean(result?.needsMiscBox),
+    fields: editedFields,
+  });
 
   // Run cross-checks across all fields
   const getCrossCheckWarning = (def: FieldDef): string | null => {
@@ -523,7 +728,7 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
                 </p>
               </div>
               <Button variant="ghost" size="sm" className="text-xs gap-1"
-                onClick={() => { setResult(null); setFile(null); setPreview(null); setImageConsentGranted(false); }}>
+                onClick={() => { setResult(null); setFile(null); setPreview(null); setImageConsentGranted(false); setConfirmedDocType(null); setConfirmed1099Variant(null); setConfirmedMiscBox(null); }}>
                 Try different file
               </Button>
             </div>
@@ -543,79 +748,68 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
               <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Low confidence; verify</span>
             </div>
 
-            {/* Field rows */}
-            <div className="space-y-2">
-              {getFieldDefs().map(def => (
-                <FieldRow
-                  key={def.key}
-                  def={def}
-                  value={editedFields[def.key]}
-                  fieldConf={fieldConf[def.key]}
-                  onEdit={handleFieldEdit}
-                  crossCheckWarning={getCrossCheckWarning(def)}
-                />
-              ))}
-            </div>
-
-            {/* Server-side verification notes (model warnings, locally read EIN, organizer SSN match) */}
-            {result.verificationRequired?.length > 0 && (
-              <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20 p-3">
-                <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 mb-1">Verify before saving</p>
-                <ul className="space-y-0.5">
-                  {result.verificationRequired.map((note: string, i: number) => (
-                    <li key={i} className="text-xs text-amber-700 dark:text-amber-400">• {note}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {/* Image quality issues */}
-            {result.imageIssues?.length > 0 && (
-              <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20 p-3">
-                <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 mb-1">Image quality issues detected</p>
-                <ul className="space-y-0.5">
-                  {result.imageIssues.map((issue: string, i: number) => (
-                    <li key={i} className="text-xs text-amber-700 dark:text-amber-400">• {issue}</li>
-                  ))}
-                </ul>
-                <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">For best accuracy: lay document flat on white surface, use rear camera in natural light, ensure all 4 corners are visible.</p>
-              </div>
-            )}
-
-            {/* Disclaimer */}
-            <div className="text-xs text-center text-muted-foreground px-2 leading-relaxed">
-              Automated extraction can be wrong. The original document remains the source of truth for every value.
-              Edit any field using the Edit button before saving. Tax-critical fields are labeled.
-            </div>
-
-            {/* Save button */}
-            <Button
-              onClick={handleCommit}
-              disabled={committing || criticalFieldsMissing > 0}
-              className="w-full min-h-[48px] gap-2 text-base font-semibold"
+            <DocumentImportSavePanel
+              notes={result.verificationRequired || []}
+              needsTypeConfirmation={Boolean(result.needsTypeConfirmation)}
+              needs1099Variant={Boolean(result.needs1099Variant)}
+              needsMiscBox={Boolean(result.needsMiscBox)}
+              choice={confirmedDocType}
+              variantChoice={confirmed1099Variant}
+              miscBox={confirmedMiscBox}
+              miscAmount={typeof editedFields.box1Wages === "number" ? editedFields.box1Wages : typeof editedFields.box3OtherIncome === "number" ? editedFields.box3OtherIncome : null}
+              onChoice={(next) => { setConfirmedDocType(next); if (next !== "1099") { setConfirmed1099Variant(null); setConfirmedMiscBox(null); } }}
+              onVariantChoice={(next) => { setConfirmed1099Variant(next); if (next !== "MISC") setConfirmedMiscBox(null); }}
+              onMiscBox={setConfirmedMiscBox}
+              saveDisabled={criticalFieldsMissing > 0}
+              saving={committing}
+              saveLabel={criticalFieldsMissing > 0 ? `${criticalFieldsMissing} required field${criticalFieldsMissing > 1 ? "s" : ""} missing` : "Save Verified Data to WriteOff"}
+              onSave={handleCommit}
             >
-              {committing ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle2 className="w-5 h-5" />}
-              {committing ? "Saving…" : criticalFieldsMissing > 0 ? `${criticalFieldsMissing} required field${criticalFieldsMissing > 1 ? "s" : ""} missing` : "Save Verified Data to WriteOff"}
-            </Button>
+              <div className="space-y-2">
+                {getFieldDefs().map(def => (
+                  <FieldRow
+                    key={def.key}
+                    def={def}
+                    value={editedFields[def.key]}
+                    fieldConf={fieldConf[def.key]}
+                    onEdit={handleFieldEdit}
+                    crossCheckWarning={getCrossCheckWarning(def)}
+                  />
+                ))}
+              </div>
+
+              {result.imageIssues?.length > 0 && (
+                <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20 p-3">
+                  <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 mb-1">Image quality issues detected</p>
+                  <ul className="space-y-0.5">
+                    {result.imageIssues.map((issue: string, i: number) => (
+                      <li key={i} className="text-xs text-amber-700 dark:text-amber-400">• {issue}</li>
+                    ))}
+                  </ul>
+                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">For best accuracy: lay document flat on white surface, use rear camera in natural light, ensure all 4 corners are visible.</p>
+                </div>
+              )}
+
+              <div className="text-xs text-center text-muted-foreground px-2 leading-relaxed">
+                Automated extraction can be wrong. The original document remains the source of truth for every value.
+                Edit any field using the Edit button before saving. Tax-critical fields are labeled.
+              </div>
+            </DocumentImportSavePanel>
           </>
         )}
 
         {committed && (
-          <div className="flex flex-col items-center gap-3 py-6">
-            <CheckCircle2 className="w-10 h-10 text-green-600 dark:text-green-400" />
-            <p className="text-base font-semibold">Saved to WriteOff</p>
-            <p className="text-sm text-muted-foreground text-center">
-              {result?.docType === "w2" ? "W-2 wages and withholding added to your return" :
-               result?.docType === "1099" ? "1099 income added to your return" :
-               "Earnings added as self-employment income"}
-            </p>
-            <div className="flex gap-3">
-              <Button variant="outline" onClick={() => { setResult(null); setFile(null); setPreview(null); setCommitted(false); setEditedFields({}); }}>
-                Import Another
-              </Button>
-              {onNavigate && <Button onClick={() => onNavigate("tax-preview")}>View Tax Preview</Button>}
-            </div>
-          </div>
+          <ImportSavedNotice
+            docKind={(confirmedDocType || result?.docType) === "w2" ? "w2" : (confirmedDocType || result?.docType) === "1099" ? "1099" : "other"}
+            savedMisc={savedMiscPausesEstimate({
+              confirmed1099Variant,
+              confirmedMiscBox,
+              extractedFormVariant: result?.extracted?.formVariant,
+              needsMiscBox: Boolean(result?.needsMiscBox),
+            })}
+            onImportAnother={() => { setResult(null); setFile(null); setPreview(null); setCommitted(false); setEditedFields({}); setConfirmedDocType(null); setConfirmed1099Variant(null); setConfirmedMiscBox(null); }}
+            onViewPreview={onNavigate ? () => onNavigate("tax-preview") : undefined}
+          />
         )}
       </div>
     </div>

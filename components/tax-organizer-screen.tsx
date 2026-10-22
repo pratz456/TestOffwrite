@@ -12,6 +12,7 @@ import { BusinessLossFields } from "@/components/business-loss-fields";
 import { OBBBADeductionFields } from "@/components/obbba-deduction-fields";
 import { NON_ITEMIZER_CHARITY_FIRST_YEAR, SCHEDULE_1A_FIRST_YEAR, SCHEDULE_1A_LAST_YEAR } from "@/lib/tax-rules/obbba-deductions";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
+import { notifyDashboardTaxInputsUpdated } from "@/lib/tax/dashboard-tax-input";
 import { AdjustmentEligibilityFields } from "@/components/adjustment-eligibility-fields";
 import { LATEST_PUBLISHED_TAX_YEAR, SUPPORTED_TAX_YEARS } from "@/lib/tax-rules/federal-year-rules";
 
@@ -192,6 +193,7 @@ export function TaxOrganizerScreen({ user }: Props) {
       const res = await makeAuthenticatedRequest('/api/tax/organizer', { method: 'POST', body: JSON.stringify(organizerSaveBody(answers, year)) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Could not save the organizer. Your edits remain on this page.');
+      notifyDashboardTaxInputsUpdated();
       if (revision.current !== operation || currentOwner.current !== user.id) return false;
       baseline.current = JSON.stringify(answers); setSaved(true); return true;
     } catch (err) {

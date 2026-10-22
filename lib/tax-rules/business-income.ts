@@ -66,6 +66,9 @@ export function listIncomeSourceCandidates(taxYear: number, transactions: Readon
   let form1099Cents = 0;
   let linkedForms = 0;
   for (const form of forms) {
+    if (form.formType === '1099-MISC') {
+      throw new IncomeReconciliationRequiredError('Confirm the tax treatment of this 1099-MISC. Only business NEC/K income is included automatically; 1099-MISC other income is not counted until it is reviewed.');
+    }
     if (form.formType !== '1099-NEC' && form.formType !== '1099-K') {
       throw new IncomeReconciliationRequiredError('Confirm the tax treatment of this 1099. Only business NEC/K income is included automatically; MISC, interest, dividends and securities require separate review.');
     }

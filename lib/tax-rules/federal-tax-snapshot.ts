@@ -9,10 +9,11 @@ import { summarizeW2Income } from './w2-income';
 import { normalizeFilingStatus } from './filing-status';
 import { assertWageOwnershipScope, TaxCalculationScopeReviewRequiredError } from './calculation-scope';
 import { calculateEligibleAdjustments } from './eligibility';
-import { assertGenericDependentCreditScope } from './credit-scope';
+import { assertGenericDependentCreditScope, readSnapshotDependentFacts } from './credit-scope';
 import { readSocialSecurityFacts, calculateSocialSecurityWorksheet, assertSocialSecurityAdjustmentRecords, SocialSecurityReviewRequiredError } from './social-security';
 import { calculateCapitalGainCharacter, hasCapitalGainAmounts, readCapitalGainFacts } from './capital-gains';
 import { businessTaxNotices, readProfileLocation } from './state';
+import { readOrganizerTaxInput, type OrganizerTaxInputField } from './organizer-tax-inputs';
 
 interface FederalTaxSnapshotInput {
   taxYear: number;
@@ -36,7 +37,10 @@ interface FederalTaxSnapshotInput {
 /** One federal input snapshot for the preview and PDF; not a complete return engine. */
 export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
   const { taxYear, transactions, profile, organizer: org, deductions: ded } = input;
-  assertGenericDependentCreditScope(org.dependents);
+  const organizerField = (name: OrganizerTaxInputField) => readOrganizerTaxInput(org, name);
+  const dependents = organizerField('dependents');
+  readSnapshotDependentFacts(dependents);
+  assertGenericDependentCreditScope(dependents);
   const benefitFacts = readSocialSecurityFacts(org);
   const amount = (value: unknown): number => {
     if (value === undefined || value === null || value === '') return 0;
@@ -68,39 +72,39 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
   }, { taxYear, organizer: org });
   const seCalc = calcScheduleSE({ scheduleCNetProfit: scheduleCLine31NetProfit, taxYear }, filingStatus, ownerSocialSecurityWages, w2.medicareWagesForSE);
 
-  const interest = amount(org.amount1099INT);
-  const dividends = amount(org.amount1099DIV);
+  const interest = amount(organizerField('amount1099INT'));
+  const dividends = amount(organizerField('amount1099DIV'));
   // Any saved gain/loss (legacy total or short/long-term split) keeps the Social
   // Security gate below; character is resolved only after that gate.
   const anyCapitalGainAmount = hasCapitalGainAmounts(org);
-  const iraDist = amount(org.amountIRADistributions);
-  const rental = amount(org.amountRentalIncome);
-  const otherOrdinaryIncome = amount(org.amountOtherIncome);
-  const healthInsurancePremiums = amount(ded.healthInsurancePremiums ?? profile.health_insurance_premiums ?? org.healthInsurancePremium);
-  const sepIraContribution = amount(ded.sepIraContribution ?? profile.sep_ira_contribution ?? (org.retirementType === 'sep_ira' ? org.retirementAmount : 0));
+  const iraDist = amount(organizerField('amountIRADistributions'));
+  const rental = amount(organizerField('amountRentalIncome'));
+  const otherOrdinaryIncome = amount(organizerField('amountOtherIncome'));
+  const healthInsurancePremiums = amount(ded.healthInsurancePremiums ?? profile.health_insurance_premiums ?? organizerField('healthInsurancePremium'));
+  const sepIraContribution = amount(ded.sepIraContribution ?? profile.sep_ira_contribution ?? (organizerField('retirementType') === 'sep_ira' ? organizerField('retirementAmount') : 0));
   const solo401kComponents = ded.solo401kEmployeeContribution !== undefined || ded.solo401kEmployerContribution !== undefined
     ? [amount(ded.solo401kEmployeeContribution), amount(ded.solo401kEmployerContribution)]
-    : [amount(profile.solo_401k_contribution ?? (org.retirementType === 'solo_401k' ? org.retirementAmount : 0))];
+    : [amount(profile.solo_401k_contribution ?? (organizerField('retirementType') === 'solo_401k' ? organizerField('retirementAmount') : 0))];
   const solo401kContribution = solo401kComponents.reduce((total, contribution) => total + contribution, 0);
-  const simpleIraContribution = amount(ded.simpleIraContribution ?? (org.retirementType === 'simple_ira' ? org.retirementAmount : 0));
-  const hsaContribution = amount(ded.hsaContribution ?? profile.hsa_contribution ?? org.hsaAmount);
+  const simpleIraContribution = amount(ded.simpleIraContribution ?? (organizerField('retirementType') === 'simple_ira' ? organizerField('retirementAmount') : 0));
+  const hsaContribution = amount(ded.hsaContribution ?? profile.hsa_contribution ?? organizerField('hsaAmount'));
   const studentLoanInterest = amount(ded.studentLoanInterest);
   let socialSecurityWorksheet: ReturnType<typeof calculateSocialSecurityWorksheet> | null = null;
   if (benefitFacts) {
-    if (iraDist !== 0 && org.socialSecurityRetirementReviewed !== 'yes') {
+    if (iraDist !== 0 && organizerField('socialSecurityRetirementReviewed') !== 'yes') {
       throw new SocialSecurityReviewRequiredError('Confirm the retirement amount is the reviewed taxable Box2a amount, with no unresolved basis, rollover or additional early-distribution tax. Otherwise complete the retirement review before this estimate.');
     }
     if (anyCapitalGainAmount || rental !== 0) {
       throw new SocialSecurityReviewRequiredError('Capital gain/loss character and allowed rental income/loss must be reviewed before including them in this supported Social Security estimate. These return calculations are not yet fully modeled.');
     }
     assertSocialSecurityAdjustmentRecords(org, { healthInsurancePremiums, sepIraContribution, solo401kContribution, simpleIraContribution, hsaContribution, studentLoanInterest });
-    if (!profile.filing_status || !org.filingStatus || normalizeFilingStatus(org.filingStatus) !== filingStatus) {
+    if (!profile.filing_status || !organizerField('filingStatus') || normalizeFilingStatus(organizerField('filingStatus')) !== filingStatus) {
       throw new SocialSecurityReviewRequiredError('Confirm matching filing status in Profile and Tax Organizer before applying the benefit thresholds.');
     }
     if (scheduleCLine31NetProfit < 0) {
       throw new SocialSecurityReviewRequiredError('Business-loss treatment needs review before including it in the Social Security income test.');
     }
-    const livedApart = org.socialSecurityLivedApartAllYear;
+    const livedApart = organizerField('socialSecurityLivedApartAllYear');
     if (filingStatus === 'married_filing_separately' && livedApart !== 'yes' && livedApart !== 'no') {
       throw new SocialSecurityReviewRequiredError('Answer whether you lived apart from your spouse for the entire tax year.');
     }
@@ -108,10 +112,11 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
   // Preserve the Social Security-specific reconciliation/review errors above.
   // Raw saved totals cannot establish the eligibility that the conditional math helpers assume.
   if (solo401kComponents.some(value => value < 0)) throw new TaxCalculationScopeReviewRequiredError('Complete retirement-plan eligibility with nonnegative employee and employer contributions; reconcile signed entries');
-  if (amount(org.retirementAmount) > 0 && !['sep_ira', 'solo_401k', 'simple_ira'].includes(String(org.retirementType))) throw new TaxCalculationScopeReviewRequiredError('Traditional IRA and other retirement-plan deductions need their own eligibility and income-limit worksheet');
-  for (const [field, recorded, label] of [['hsaAmount', hsaContribution, 'HSA'], ['healthInsurancePremium', healthInsurancePremiums, 'health insurance'],
+  if (amount(organizerField('retirementAmount')) > 0 && !['sep_ira', 'solo_401k', 'simple_ira'].includes(String(organizerField('retirementType')))) throw new TaxCalculationScopeReviewRequiredError('Traditional IRA and other retirement-plan deductions need their own eligibility and income-limit worksheet');
+  for (const [name, recorded, label] of [['hsaAmount', hsaContribution, 'HSA'], ['healthInsurancePremium', healthInsurancePremiums, 'health insurance'],
     ['retirementAmount', sepIraContribution + solo401kContribution + simpleIraContribution, 'retirement']] as const) {
-    if (org[field] !== undefined && org[field] !== '' && Math.abs(amount(org[field]) - recorded) > .005) throw new TaxCalculationScopeReviewRequiredError(`Reconcile ${label} amounts in Tax Organizer and Tax Deductions before applying eligibility limits`);
+    const saved = organizerField(name);
+    if (saved !== undefined && saved !== '' && Math.abs(amount(saved) - recorded) > .005) throw new TaxCalculationScopeReviewRequiredError(`Reconcile ${label} amounts in Tax Organizer and Tax Deductions before applying eligibility limits`);
   }
   const adjustmentEligibility = calculateEligibleAdjustments({ taxYear, filingStatus, netProfit: scheduleCLine31NetProfit, halfSE: seCalc.halfSEDeduction,
     healthInsurancePremiums, hsaContribution, sepIraContribution, solo401kContribution, simpleIraContribution, organizer: org });
@@ -121,7 +126,7 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
   const capGains = capitalGains.line7;
   const nonBenefitOtherIncome = interest + dividends + capGains + iraDist + rental + otherOrdinaryIncome;
   if (benefitFacts) {
-    const livedApart = org.socialSecurityLivedApartAllYear;
+    const livedApart = organizerField('socialSecurityLivedApartAllYear');
     // Pub915 line7 includes the validated Schedule1 adjustments above, but excludes student-loan interest.
     socialSecurityWorksheet = calculateSocialSecurityWorksheet({
       taxYear, filingStatus, ...benefitFacts,

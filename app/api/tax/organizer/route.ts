@@ -7,8 +7,11 @@ import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { dependentKindHints, encryptOrganizerIdentifiers, readOrganizerIdentifiers, restoreOrganizerFreeText, toOrganizerClientView, withoutDependentKindHints, withoutRetiredOrganizerIdentifiers, withoutUneditedMaskedText } from '@/lib/tax-organizer/identifiers';
 import { identifierFormatPatch, readOrganizerDocument, withClearedReviewFlags } from '@/lib/tax-organizer/organizer-server';
 import { readEligibilityFacts } from '@/lib/tax-rules/eligibility';
+import { organizerTaxInputResponse } from '@/lib/tax-rules/organizer-tax-inputs';
 
 const privateHeaders = { 'Cache-Control': 'private, no-store' };
+
+/** Snapshot organizer fields only. The full organizer stays on the default GET. */
 
 function validYear(value: unknown): number | null {
   if (value === undefined || value === null) return new Date().getFullYear();
@@ -23,6 +26,10 @@ export async function GET(request: NextRequest) {
   if (!year) return NextResponse.json({ error: 'Invalid tax year' }, { status: 400 });
   try {
     const snap = await adminDb.collection('tax_organizers').where('userId', '==', user.uid).where('taxYear', '==', year).limit(1).get();
+    if (request.nextUrl.searchParams.get('view') === 'tax-input') {
+      const data = snap.empty ? undefined : snap.docs[0].data() as Record<string, unknown>;
+      return NextResponse.json(organizerTaxInputResponse(data), { headers: privateHeaders });
+    }
     if (snap.empty) return NextResponse.json({ organizer: null, taxYear: year }, { headers: privateHeaders });
     const doc = snap.docs[0];
     // Return the owner's editable values. Identifier fields still collected are stored in the current format.

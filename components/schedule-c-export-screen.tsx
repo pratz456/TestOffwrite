@@ -12,6 +12,7 @@ import { PremiumFeatureGate, subscriptionGateDestination } from '@/components/pr
 import { useRouter } from 'next/navigation';
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
+import { isMiscEstimatePaused, MISC_ESTIMATE_PAUSED_MESSAGE } from '@/lib/tax-rules/misc-estimate-pause';
 
 interface Transaction {
   id: string;
@@ -177,7 +178,9 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
             router.push(subscriptionGateDestination(subscriptionStatus));
             return;
           }
-          throw new Error(errorData.message || errorData.error || `PDF generation failed: ${response.statusText}`);
+          const raw = typeof errorData.error === 'string' ? errorData.error : errorData.message;
+          const paused = errorData.code === 'INCOME_RECONCILIATION_REQUIRED' && (isMiscEstimatePaused(errorData.error) || isMiscEstimatePaused(errorData.message));
+          throw new Error(paused ? MISC_ESTIMATE_PAUSED_MESSAGE : (errorData.message || raw || `PDF generation failed: ${response.statusText}`));
         }
         throw new Error(`PDF generation failed: ${response.statusText}`);
       }
