@@ -20,6 +20,7 @@ import {
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 import { businessMileageRateForDate, summarizeBusinessMileage } from "@/lib/tax-rules/mileage-rates";
 import { calendarDayYear, formatCalendarDay, localCalendarDay, localCalendarYear } from "@/lib/dates/calendar-day";
+import { mileageTripsPath } from "@/lib/mileage/list-request";
 
 interface MileageTrip {
   id: string;
@@ -64,7 +65,7 @@ export function MileageTrackerScreen({ user, onBack }: MileageTrackerScreenProps
   const fetchTrips = useCallback(async () => {
     try {
       const res = await makeAuthenticatedRequest(
-        `/api/mileage?userId=${encodeURIComponent(user.id)}`
+        mileageTripsPath(user.id)
       );
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
