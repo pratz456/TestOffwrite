@@ -134,11 +134,11 @@ export function dependentIdKind(field: string, value: string, data: Record<strin
   return reclassifiedLeadingNine(value, dependentIdKindUnguarded(field, value, data));
 }
 
-/** Set when a leading 9 would have been labeled ssn. A fresh itin or atin choice clears it. */
+/** Set when a fresh itin or atin choice disagrees with the digit pattern, or a leading 9 would have been labeled ssn. A matching itin or atin choice clears it. */
 export function dependentIdReview(field: string, value: string, data: Record<string, unknown>): 'set' | 'clear' | null {
   if (!isDependentIdentifierField(field)) return null;
   const fresh = freshDependentKind(field, data);
-  if (fresh === 'itin' || fresh === 'atin') return 'clear';
+  if (fresh === 'itin' || fresh === 'atin') return fresh === dependentKindFromDigits(value) ? 'clear' : 'set';
   const digits = value.replace(/\D/g, '');
   if (fresh === 'ssn' && digits[0] === '9') return 'set';
   if (dependentIdKindUnguarded(field, value, data) === 'ssn' && digits[0] === '9') return 'set';
