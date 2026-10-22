@@ -272,6 +272,7 @@ function california(rules: CaliforniaRules, facts: Facts): Computation {
     modifications, stateAGI, deductions, taxableIncome, taxBeforeCredits, credits, additionalTaxes, detail: [],
     marginalRate: scheduleMarginalRate(schedule, taxableIncome) + (taxableIncome > bhst.threshold ? bhst.rate : 0),
     warnings,
+    ...(rules.methodLabel ? { notes: [rules.methodLabel] } : {}),
   };
 }
 

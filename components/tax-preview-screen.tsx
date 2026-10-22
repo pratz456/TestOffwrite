@@ -310,6 +310,7 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
                         <p className="font-medium text-foreground">
                           {fmt(stateTax.estimate)} informational state planning estimate ({pct(stateTax.components?.effectiveRate ?? 0)} of federal AGI, {pct(stateTax.components?.marginalRate ?? 0)} marginal)
                         </p>
+                        {stateNotes.map(note => <p key={note}>{note}</p>)}
                         <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-0.5 tabular-nums">
                           {stateLines.map(line => (
                             <React.Fragment key={line.label}>

@@ -18,9 +18,9 @@ describe('state registry sanity', () => {
     expect([...ENCODED_STATE_CODES]).toEqual([...new Set([...NO_TAX, 'CA', 'GA', 'IL', 'NC', 'NY', 'OH', 'PA'])].sort());
     expect([...STATE_REGISTRY_TAX_YEARS]).toEqual([2025, 2026]);
     const pairs = supportedStateYears().map(pair => `${pair.stateCode}-${pair.taxYear}`);
-    // 9 no-tax states and 4 flat states for both years, New York for both years, California and Ohio for 2025 only.
-    expect(pairs).toHaveLength(9 * 2 + 4 * 2 + 2 + 1 + 1);
-    expect(pairs).toContain('CA-2025'); expect(pairs).not.toContain('CA-2026');
+    // 9 no-tax states and 4 flat states for both years, New York and California for both years, Ohio for 2025 only.
+    expect(pairs).toHaveLength(9 * 2 + 4 * 2 + 2 + 2 + 1);
+    expect(pairs).toContain('CA-2025'); expect(pairs).toContain('CA-2026');
     expect(pairs).toContain('OH-2025'); expect(pairs).not.toContain('OH-2026');
     expect(pairs).toContain('NY-2025'); expect(pairs).toContain('NY-2026');
   });
@@ -37,7 +37,8 @@ describe('state registry sanity', () => {
         expect(source.note.length, source.url).toBeGreaterThan(20);
       }
       expect(found.sources.some(source => /20(25|26)|2021|1980/.test(source.note)), `${stateCode} ${taxYear} note lacks an effective year`).toBe(true);
-      expect(found.reviewedAt).toBe(stateCode === 'GA' && taxYear === 2026 ? '2026-09-23' : '2026-09-17');
+      const reviewedAt = stateCode === 'GA' && taxYear === 2026 ? '2026-09-23' : stateCode === 'CA' && taxYear === 2026 ? '2026-10-22' : '2026-09-17';
+      expect(found.reviewedAt).toBe(reviewedAt);
       expect(Array.isArray(found.unmodeled)).toBe(true);
       expect(found.stateCode).toBe(stateCode); expect(found.taxYear).toBe(taxYear);
     }
@@ -52,11 +53,9 @@ describe('state registry sanity', () => {
     const nj = getStateYearRules('NJ', 2025);
     expect(isSupportedStateYear(nj)).toBe(false);
     if (!isSupportedStateYear(nj)) expect(nj.reason).toContain('New Jersey');
-    for (const state of ['CA', 'OH']) {
-      const found = getStateYearRules(state, 2026);
-      expect(isSupportedStateYear(found)).toBe(false);
-      if (!isSupportedStateYear(found)) { expect(found.reason).toMatch(/2026/); expect(found.reason).toMatch(/2025 only/); expect(found.sources?.length).toBeGreaterThan(0); }
-    }
+    const ohio2026 = getStateYearRules('OH', 2026);
+    expect(isSupportedStateYear(ohio2026)).toBe(false);
+    if (!isSupportedStateYear(ohio2026)) { expect(ohio2026.reason).toMatch(/2026/); expect(ohio2026.reason).toMatch(/2025 only/); expect(ohio2026.sources?.length).toBeGreaterThan(0); }
     const empty = getStateYearRules('', 2026);
     if (!isSupportedStateYear(empty)) expect(empty.reason).toMatch(/No state is saved/);
     const unknown = getStateYearRules('Narnia', 2026);
