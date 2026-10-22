@@ -100,13 +100,14 @@ describe('Schedule C real PDF and request integrity', () => {
     expect(response.status).toBe(200);
     const bytes = new Uint8Array(await response.arrayBuffer());
     expect(bytes[0]).toBe(0x25);
-    expect(view.text()).toContain('Not provided');
-    expect(view.text()).not.toMatch(/\d{3}-\d{2}-\d{4}/);
+    const drawn = view.spy.mock.calls.map(call => call[0]);
+    expect(drawn[drawn.indexOf('SSN (last 4)') + 1]).toBe('');
+    expect(drawn[drawn.indexOf('EIN (last 4)') + 1]).toBe('');
+    for (const label of ['SSN (last 4)', 'EIN (last 4)']) expect(drawn[drawn.indexOf(label) + 1]).not.toMatch(/[\d*]/);
     expect(view.text()).not.toContain('___-__-____');
     expect(view.text()).not.toContain('000-00-0000');
     expect(view.text()).not.toContain('***-**-');
-    const drawn = view.spy.mock.calls.map(call => call[0]);
-    expect(drawn[drawn.indexOf('SSN (last 4)') + 1]).toBe('');
+    expect(view.text()).not.toContain('**-***');
   });
   it('leaves the SSN and line D boxes blank even when organizer values are stored', async () => {
     const { encryptSensitive } = await import('../lib/security/utils');
@@ -141,6 +142,9 @@ describe('selected-year SE source and worksheet', () => {
     expect(body.calculation).toMatchObject({ socialSecurityTax: 558, medicareTax: 2678.15, totalSETax: 3236.15, halfSEDeduction: 1618.08 });
     const data = await loadScheduleSEData('export-owner', 2026); const view = inspectText(); const bytes = await generateScheduleSEPDF(data);
     expect(view.text()).toContain('$184,500.00'); expect(view.text()).toContain('$3,236.15'); expect(view.text()).toContain('$1,618.08');
+    const drawn = view.spy.mock.calls.map(call => call[0]);
+    expect(drawn[drawn.indexOf('Social security number') + 1]).toBe('');
+    expect(drawn[drawn.indexOf('Social security number') + 1]).not.toMatch(/[\d*]/);
     expect(view.text()).not.toContain('___-__-____'); expect(view.text()).not.toContain('000-00-0000'); expect(view.text()).not.toContain('***-**-');
     expect(view.text()).not.toContain('2024 Tax Rates'); expect(state.queries).not.toContain('tax_summary'); view.checkBounds(); saveArtifact('schedule-se-2026', bytes);
   });
@@ -231,17 +235,21 @@ describe('Form 1040 planning PDF prints its review notes', () => {
 
   it('leaves SSN and bank boxes blank even when those values are stored', async () => {
     const { encryptSensitive } = await import('../lib/security/utils');
-    state.records.tax_organizers = [record({ ...reviewedPersonalDeductionOrganizer(), spouseName: 'Synthetic Spouse',
+    state.records.tax_organizers = [record({ ...reviewedPersonalDeductionOrganizer(), filingStatus: 'married_filing_jointly', spouseName: 'Synthetic Spouse',
       taxpayerSSN: encryptSensitive('900000001'), spouseSSN: '900000002', bankAccount: encryptSensitive('000123456789'), bankRouting: '071000013',
       bankAccountType: 'savings', ipPin: encryptSensitive('123456'), dependentDetails: 'Emma Shah, 900-00-0003, 2018-03-15, Daughter' })];
     const view = inspectText(); const response = await form1040(request1040());
     expect(response.status).toBe(200);
     const text = view.text();
     const drawn = view.spy.mock.calls.map(call => call[0]);
-    expect(drawn[drawn.indexOf('Social security number (last 4 only)') + 1]).toBe('Home address');
+    expect(drawn[drawn.indexOf('Social security number (last 4 only)') + 1]).toBe('');
     expect(drawn[drawn.indexOf('SSN (last 4)') + 1]).toBe('');
     expect(drawn[drawn.indexOf('Spouse SSN (last 4)') + 1]).toBe('');
     expect(drawn[drawn.indexOf('Optional refund routing / account (last 4)') + 1]).toBe('');
+    for (const label of ['Social security number (last 4 only)', 'SSN (last 4)', 'Spouse SSN (last 4)', 'Optional refund routing / account (last 4)']) {
+      expect(drawn[drawn.indexOf(label) + 1], label).toBe('');
+      expect(drawn[drawn.indexOf(label) + 1], label).not.toMatch(/[\d*]/);
+    }
     expect(text).toContain('Provided to preparer separately');
     expect(text).not.toContain('Emma Shah');
     expect(text).not.toMatch(/900000001|900-00-0001|900000002|900-00-0002|000123456789|071000013|123456|900-00-0003|\*\*\*-\*\*-|\*\*\*\*\*0013|\*\*\*\*6789/);
@@ -256,13 +264,17 @@ describe('Form 1040 planning PDF prints its review notes', () => {
     expect(response.status).toBe(200);
     const bytes = new Uint8Array(await response.arrayBuffer());
     expect(bytes[0]).toBe(0x25);
-    expect(view.text()).toContain('Not provided');
-    expect(view.text()).not.toMatch(/\d{3}-\d{2}-\d{4}/);
+    const drawn = view.spy.mock.calls.map(call => call[0]);
+    expect(drawn[drawn.indexOf('Social security number (last 4 only)') + 1]).toBe('');
+    expect(drawn[drawn.indexOf('SSN (last 4)') + 1]).toBe('');
+    expect(drawn[drawn.indexOf('Spouse SSN (last 4)') + 1]).toBe('');
+    expect(drawn[drawn.indexOf('Optional refund routing / account (last 4)') + 1]).toBe('');
+    for (const label of ['Social security number (last 4 only)', 'SSN (last 4)', 'Spouse SSN (last 4)', 'Optional refund routing / account (last 4)']) {
+      expect(drawn[drawn.indexOf(label) + 1], label).not.toMatch(/[\d*]/);
+    }
     expect(view.text()).not.toContain('___-__-____');
     expect(view.text()).not.toContain('000-00-0000');
     expect(view.text()).not.toContain('***-**-');
-    const drawn = view.spy.mock.calls.map(call => call[0]);
-    expect(drawn[drawn.indexOf('Social security number (last 4 only)') + 1]).not.toMatch(/^\*\*\*|___-__-____|000-00-0000/);
     expect(drawn).not.toContain('___-__-____');
   });
 
@@ -406,7 +418,7 @@ describe('organizer screen round-trip and export boxes', () => {
     expect(formResponse.status).toBe(200);
     expect(Buffer.from(await formResponse.arrayBuffer()).subarray(0, 5).toString()).toBe('%PDF-');
     const formDrawn = view.spy.mock.calls.map(call => call[0]);
-    expect(cellAfter(formDrawn, 'Social security number (last 4 only)')).toBe('Home address');
+    expect(cellAfter(formDrawn, 'Social security number (last 4 only)')).toBe('');
     expect(cellAfter(formDrawn, 'SSN (last 4)')).toBe('');
     expect(cellAfter(formDrawn, 'Spouse SSN (last 4)')).toBe('');
     expect(cellAfter(formDrawn, 'Optional refund routing / account (last 4)')).toBe('');
@@ -418,6 +430,7 @@ describe('organizer screen round-trip and export boxes', () => {
     expect(Buffer.from(await seResponse.arrayBuffer()).subarray(0, 5).toString()).toBe('%PDF-');
     const seText = view.spy.mock.calls.map(call => call[0]).join('\n');
     expect(seText).not.toMatch(/900-00-1111|900000001|555000222|123456789|071000013|000123456789|\*\*\*-\*\*-|\*\*-\*\*\*|000-00-0000|___-__-____/);
+    expect(cellAfter(view.spy.mock.calls.map(call => call[0]), 'Social security number')).toBe('');
     expect(seText).not.toContain('SSN (last 4)');
     expect(seText).not.toContain('EIN (last 4)');
     expect(seText).not.toContain('Optional refund routing / account (last 4)');

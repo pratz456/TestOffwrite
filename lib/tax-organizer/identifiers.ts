@@ -2,10 +2,9 @@
  * Tax organizer identifier handling (server only).
  *
  * Every identifier answer is stored as AES-256-GCM ciphertext (`SSN_ENCRYPTION_KEY`)
- * and decrypted only inside server routes. Legacy plaintext values are read as-is
- * and reported so the caller can re-encrypt them on that read. Free text is stored
- * as typed and masked only on the owner response. PDFs and archives print masked
- * values only.
+ * and decrypted only inside server routes. Legacy plaintext values are read as-is.
+ * Reads do not rewrite them. Free text is stored as typed and masked only on the
+ * owner response.
  */
 import { decryptSensitive, encryptSensitive, isEncrypted, maskSSN } from '@/lib/security/utils';
 
@@ -115,6 +114,12 @@ export function encryptOrganizerIdentifiers(
     if (!value) continue;
     const kind = organizerIdentifierKind(field);
     if (!kind) continue;
+    let plain = typeof previous[field] === 'string' ? previous[field] : '';
+    if (plain && isEncrypted(plain)) {
+      try { plain = decryptSensitive(plain); } catch { plain = ''; }
+    }
+    // A masked read or the same number must not replace the stored value.
+    if (plain && echoesStoredIdentifier(kind, value, plain)) { delete encrypted[field]; continue; }
     if (isEncrypted(value) && value === previous[field]) continue;
     const normalized = normalizeOrganizerIdentifier(kind, value);
     if ('error' in normalized) return normalized;
@@ -124,28 +129,29 @@ export function encryptOrganizerIdentifiers(
 }
 
 /**
- * Known limit: a standalone 9-digit number, such as an order number, is masked
- * on read because it has the same shape as an SSN. The stored characters stay
- * intact, and saving that masked read puts the original digits back.
+ * Read path only. A standalone 9-digit number, such as an order number, is masked
+ * on read. The stored characters stay intact, and saving that masked read puts
+ * the original digits back. A phone, a ZIP+4 and a longer digit run are not masked.
  */
 export function organizerTextForClient(field: string, value: string): string {
   const kind = organizerIdentifierKind(field);
   if (kind) return maskOrganizerIdentifier(kind, value);
-  const trimmed = value.trim();
-  const digits = trimmed.replace('-', '');
-  const amount = AMOUNT_TEXT.test(trimmed) || (/^-?\d+$/.test(trimmed) && digits.length !== 9);
-  return amount ? value : maskSsnShapedFreeText(value);
+  return maskSsnShapedFreeText(value);
+}
+
+/** 3-2-4 groups with a dash or space, or a standalone 9-digit run, bounded on both sides. */
+export function ssnShapedExpression(): RegExp {
+  return /(?<!\w)(?:\d{3}[- ]\d{2}[- ]\d{4}|\d{9})(?!\w)/g;
 }
 
 const MASKED_FREE_TEXT_TOKEN = /\*\*\*-\*\*-(\d{4})/g;
-const STORED_SSN_SHAPE = /\d{3}-?\d{2}-?\d{4}/g;
 export const MASKED_NUMBER_EDIT_ERROR = "Please don't edit the hidden number in this field";
 
 /** Puts stored originals back into masked free-text tokens. Text with no tokens is returned as typed. */
 export function restoreMaskedFreeText(incoming: string, stored: string): { text: string } | { error: string } {
   const tokens = [...incoming.matchAll(MASKED_FREE_TEXT_TOKEN)];
   if (tokens.length === 0) return { text: incoming };
-  const storedValues = [...stored.matchAll(STORED_SSN_SHAPE)].map(match => match[0]);
+  const storedValues = [...stored.matchAll(ssnShapedExpression())].map(match => match[0]);
   if (tokens.length > storedValues.length) return { error: MASKED_NUMBER_EDIT_ERROR };
   const byLast4 = new Map<string, string[]>();
   for (const value of storedValues) {
@@ -185,14 +191,26 @@ export function withoutUneditedMaskedText(answers: Record<string, string>, previ
       try { plain = decryptSensitive(stored); } catch { return true; }
     }
     if (value === plain) return false;
-    return value !== organizerTextForClient(field, plain);
+    const kind = organizerIdentifierKind(field);
+    return !(kind && echoesStoredIdentifier(kind, value, plain));
   }));
 }
 
 export const IDENTIFIER_PROVIDED_SEPARATELY = 'Provided to preparer separately';
 export const DEPENDENT_IDENTIFIERS_REMOVED_WARNING = 'Social Security or taxpayer identification numbers were removed from the dependent details before saving. Give dependent SSNs to your tax preparer directly; WriteOff does not store them.';
 
-/** Display form for PDFs and archives: last digits only; an IP PIN is never printed. */
+/** True when a save is echoing a masked read, the last four digits, or the same full number. */
+export function echoesStoredIdentifier(kind: OrganizerIdentifierKind, incoming: string, storedPlain: string): boolean {
+  const storedDigits = storedPlain.replace(/\D/g, '');
+  if (!storedDigits) return false;
+  if (incoming === maskOrganizerIdentifier(kind, storedPlain)) return true;
+  const incomingDigits = incoming.replace(/\D/g, '');
+  if (incomingDigits.length === 4 && incomingDigits === storedDigits.slice(-4)) return true;
+  const normalized = normalizeOrganizerIdentifier(kind, incoming);
+  return !('error' in normalized) && normalized.digits === storedDigits;
+}
+
+/** Display form for a read response: last digits only; an IP PIN is never printed. */
 export function maskOrganizerIdentifier(kind: OrganizerIdentifierKind, value: unknown): string {
   if (typeof value !== 'string' || !value) return '';
   const digits = value.replace(/\D/g, '');
@@ -206,12 +224,10 @@ export function maskOrganizerIdentifier(kind: OrganizerIdentifierKind, value: un
   }
 }
 
-/** Masks 3-2-4 digit groups, including values stored without the usual dashes. */
+/** Masks separated 3-2-4 groups and standalone 9-digit runs. Save does not call this. */
 export function maskSsnShapedFreeText(value: string): string {
-  return value.replace(/\d{3}-?\d{2}-?\d{4}/g, (match) => `***-**-${match.replace(/\D/g, '').slice(-4)}`);
+  return value.replace(ssnShapedExpression(), (match) => `***-**-${match.replace(/\D/g, '').slice(-4)}`);
 }
-
-const AMOUNT_TEXT = /^-?\d[\d,]*\.\d+$|^-?\d{1,3}(?:,\d{3})+$/;
 
 /** Owner response: identifier answers are masked, and free text cannot echo a 3-2-4 digit group. */
 export function toOrganizerClientView(organizer: Record<string, unknown>): Record<string, unknown> {

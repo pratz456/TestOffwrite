@@ -70,15 +70,17 @@ function box(p: PDFPage, x: number, y: number, w: number, h: number, val: string
 function field(p: PDFPage, lbl: string, x: number, y: number, w: number, val: string, f: PDFFont, bf: PDFFont) {
   p.drawText(lbl, { x, y: y + 1, size: 5.5, font: f, color: GRAY });
   hl(p, y - 10, x, x + w, 0.6, BLACK);
-  if (val) {
-    let visible = String(val);
-    try { bf.encodeText(visible); } catch { visible = '[See identity appendix]'; }
-    if (tw(bf, visible, 8) > w - 4) {
-      while (visible.length && tw(bf, visible + '...', 8) > w - 4) visible = visible.slice(0, -1);
-      visible += '...';
-    }
-    p.drawText(visible, { x: x + 2, y: y - 9, size: 8, font: bf, color: BLACK });
+  if (!val) {
+    p.drawText('', { x: x + 2, y: y - 9, size: 8, font: bf, color: BLACK });
+    return;
   }
+  let visible = String(val);
+  try { bf.encodeText(visible); } catch { visible = '[See identity appendix]'; }
+  if (tw(bf, visible, 8) > w - 4) {
+    while (visible.length && tw(bf, visible + '...', 8) > w - 4) visible = visible.slice(0, -1);
+    visible += '...';
+  }
+  p.drawText(visible, { x: x + 2, y: y - 9, size: 8, font: bf, color: BLACK });
 }
 function fmtN(n: number | undefined): string {
   if (!n) return '';
@@ -445,8 +447,8 @@ export async function POST(request: NextRequest) {
     const notes = await createPlanningPDF('Form 1040 - identity records and review notes', taxYear);
     notes.paragraph('Do not file this export with the IRS. It is an incomplete planning summary. WriteOff has not prepared all required schedules, signatures, elections or state returns.', true);
     notes.paragraph('Missing or blank fields are not findings that the item is zero or inapplicable. The numeric estimate covers the saved inputs and supported rules only.');
-    notes.section('Saved identity and optional handoff records (last digits only)');
-    notes.paragraph('Social Security, account and routing numbers print with their last digits only; the IRS IP PIN and dependent identification numbers are never printed. WriteOff stores these identifiers encrypted. Give the full values to your preparer directly.');
+    notes.section('Saved identity and optional handoff records');
+    notes.paragraph('The Social Security number, spouse Social Security number, routing number and account number boxes on this summary are left blank. The IRS IP PIN and dependent identification numbers are never printed. Give the full values to your preparer directly.');
     notes.table(['Record', 'Saved value'], [
       ['Full name', enrichedProfile.name || 'Not provided'], ['SSN (last 4)', enrichedProfile.ssn || ''],
       ['Spouse name', enrichedProfile.spouseName || 'Not provided'], ['Spouse SSN (last 4)', enrichedProfile.spouseSSN || ''],

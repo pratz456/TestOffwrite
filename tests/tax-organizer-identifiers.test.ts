@@ -138,43 +138,27 @@ describe('organizer route stores ciphertext and returns plaintext only to the ow
     expect(record.filingStatus).toBe('head_of_household');
     expect(state.merges).toEqual([true]);
   });
-  it('re-encrypts every legacy plaintext identifier when the owner reads the organizer, and keeps the read working if that write fails', async () => {
-    state.docs.set('legacy', { userId: 'owner', taxYear: 2026, ...IDENTIFIERS, dependentDetails: 'Emma Shah, 123-45-6789, 2018-03-15, Daughter' });
-    state.failSet = true;
-    let body = await (await get()).json();
+  it('masks a legacy record on read and does not write', async () => {
+    const before = { userId: 'owner', taxYear: 2026, ...IDENTIFIERS, dependentDetails: 'Emma Shah, 123-45-6789, 2018-03-15, Daughter' };
+    state.docs.set('legacy', { ...before });
+    const body = await (await get()).json();
     expect(body.organizer).toMatchObject({
       taxpayerSSN: '***-**-0001', spouseSSN: '***-**-0002', bankAccount: '****6789', bankRouting: '*****0013',
       ipPin: 'Provided to preparer separately', ein: '**-***6789',
     });
     expect(body.organizer.dependentDetails).toBe('Emma Shah, ***-**-6789, 2018-03-15, Daughter');
     expect(JSON.stringify(body)).not.toMatch(SSN_SHAPED);
-    expect(state.docs.get('legacy')!.taxpayerSSN).toBe(IDENTIFIERS.taxpayerSSN);
-    expect(state.docs.get('legacy')!.dependentDetails).toBe('Emma Shah, 123-45-6789, 2018-03-15, Daughter');
-    state.failSet = false;
-    body = await (await get()).json();
-    expect(body.organizer.taxpayerSSN).toBe('***-**-0001');
-    expect(body.organizer.dependentDetails).toBe('Emma Shah, ***-**-6789, 2018-03-15, Daughter');
-    expect(JSON.stringify(body)).not.toMatch(SSN_SHAPED);
-    const record = state.docs.get('legacy')!;
-    for (const [field, value] of Object.entries(IDENTIFIERS)) {
-      expect(isEncrypted(String(record[field])), field).toBe(true);
-      expect(decryptSensitive(String(record[field]))).toBe(value);
-    }
-    expect(record.dependentDetails).toBe('Emma Shah, 123-45-6789, 2018-03-15, Daughter');
-    expect(record.identifiersEncryptedAt).toBeInstanceOf(Date);
-    expect(JSON.stringify({ ...record, dependentDetails: undefined })).not.toMatch(/900000001|000123456789|071000013|123456/);
-    // A fully migrated document is not rewritten on later reads.
-    state.sets.length = 0;
-    await get();
-    expect(state.sets).toHaveLength(0);
+    expect(state.sets).toEqual([]);
+    expect(state.docs.get('legacy')).toEqual(before);
   });
-  it('masks oddly formatted stored text instead of echoing a 9-digit value', async () => {
-    state.docs.set('dashed', { userId: 'owner', taxYear: 2026, taxpayerSSN: '900-00-0001', spouseName: 'Pat 900000001', dependentDetails: 'Child 123-456789 / 12345-6789' });
+  it('leaves a phone, a ZIP+4 and a longer reference number unchanged on read', async () => {
+    const details = 'Call 555-123-4567 or 5551234567, ZIP 12345-6789, ref 123456789012, note 123-456789';
+    state.docs.set('dashed', { userId: 'owner', taxYear: 2026, taxpayerSSN: '900-00-0001', spouseName: 'Pat 900000001', dependentDetails: details });
     const body = await (await get()).json();
     expect(body.organizer.taxpayerSSN).toBe('***-**-0001');
     expect(body.organizer.spouseName).toBe('Pat ***-**-0001');
-    expect(body.organizer.dependentDetails).not.toMatch(SSN_SHAPED);
-    expect(JSON.stringify(body)).not.toMatch(SSN_SHAPED);
+    expect(body.organizer.dependentDetails).toBe(details);
+    expect(state.sets).toEqual([]);
   });
   it('stores free text as typed, masks it on read, and does not overwrite it when the masked text is saved back', async () => {
     const original = 'Emma Shah, 123-45-6789, 2018-03-15, Daughter';
@@ -184,6 +168,7 @@ describe('organizer route stores ciphertext and returns plaintext only to the ow
     const viewed = await (await get()).json();
     expect(viewed.organizer.dependentDetails).toBe('Emma Shah, ***-**-6789, 2018-03-15, Daughter');
     expect(JSON.stringify(viewed)).not.toMatch(SSN_SHAPED);
+    expect(state.sets).toEqual([]);
     expect(stored().dependentDetails).toBe(original);
     const echoed = await post({ taxYear: 2026, dependentDetails: viewed.organizer.dependentDetails });
     expect(echoed.status).toBe(200);
@@ -211,9 +196,9 @@ describe('organizer route stores ciphertext and returns plaintext only to the ow
     expect((await post({ taxYear: 2026, dependentDetails: original })).status).toBe(201);
     const viewed = await (await get()).json();
     expect(viewed.organizer.dependentDetails).toBe('Emma, SSN ***-**-6789');
-    const edited = `${viewed.organizer.dependentDetails} She lives with the taxpayer.`;
+    const edited = String(viewed.organizer.dependentDetails).replace('Emma', 'Maya');
     expect((await post({ taxYear: 2026, dependentDetails: edited })).status).toBe(200);
-    expect(stored().dependentDetails).toBe('Emma, SSN 123-45-6789 She lives with the taxpayer.');
+    expect(stored().dependentDetails).toBe('Maya, SSN 123-45-6789');
   });
   it('restores two masked tokens that have different last 4 digits', async () => {
     const original = 'Child 111-22-3333 and spouse 444-55-6666';
@@ -250,6 +235,23 @@ describe('organizer route stores ciphertext and returns plaintext only to the ow
     expect(stored().ipPin).toBeUndefined();
     expect(stored().taxpayerSSN).toBeUndefined();
     expect(stored().filingStatus).toBe('single');
+  });
+  it('keeps a stored EIN when the save sends its masked or last-4 form, and stores a new full EIN', async () => {
+    const original = encryptSensitive('123456789');
+    const taxpayerSSN = encryptSensitive('900000001');
+    state.docs.set('ein-row', { userId: 'owner', taxYear: 2026, ein: original, taxpayerSSN, filingStatus: 'single' });
+    const masked = await post({ taxYear: 2026, ein: '**-***6789', taxpayerSSN: '***-**-0001', filingStatus: 'single' });
+    expect(masked.status).toBe(200);
+    expect(state.sets).toEqual([]);
+    expect(stored().ein).toBe(original);
+    expect(stored().taxpayerSSN).toBe(taxpayerSSN);
+    const last4 = await post({ taxYear: 2026, ein: '6789', filingStatus: 'single' });
+    expect(last4.status).toBe(200);
+    expect(stored().ein).toBe(original);
+    const created = await post({ taxYear: 2026, ein: '98-7654321', filingStatus: 'single' });
+    expect(created.status).toBe(200);
+    expect(decryptSensitive(String(stored().ein))).toBe('987654321');
+    expect(stored().ein).not.toBe(original);
   });
   it('still rejects an invalid EIN before writing', async () => {
     const response = await post({ taxYear: 2026, ein: '12-345678', filingStatus: 'single' });

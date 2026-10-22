@@ -25,8 +25,7 @@ export async function GET(request: NextRequest) {
     const snap = await adminDb.collection('tax_organizers').where('userId', '==', user.uid).where('taxYear', '==', year).limit(1).get();
     if (snap.empty) return NextResponse.json({ organizer: null, taxYear: year }, { headers: privateHeaders });
     const doc = snap.docs[0];
-    // Return the owner's editable values; never show encryption bytes in form inputs.
-    // Legacy plaintext identifiers are re-encrypted on this read.
+    // Return the owner's editable values. This read does not write.
     const organizer = toOrganizerClientView(await readOrganizerDocument(doc));
     return NextResponse.json({ organizer: { ...organizer, id: doc.id }, taxYear: year }, { headers: privateHeaders });
   } catch {

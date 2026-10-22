@@ -108,16 +108,21 @@ describe('redact-first W-2/1099 import: text path', () => {
   });
 
   it('does not return or store a W-2 employee number from box a', async () => {
-    modelReplies({ ...W2_JSON, employeeSSN: '123-45-6789', employeeName: 'Jordan 123-45-6789' });
+    modelReplies({ ...W2_JSON, employeeSSN: '123-45-6789', employeeName: 'Jordan 123-45-6789', modelTranscript: 'raw model text 123-45-6789' });
     const response = await importDocument(request());
     expect(response.status).toBe(200);
     const body = await response.json();
     const ssnShaped = /\d{3}-?\d{2}-?\d{4}/;
-    expect(JSON.stringify(body)).not.toMatch(ssnShaped);
-    expect(JSON.stringify(state.records.w2_income)).not.toMatch(ssnShaped);
+    expect(body.rawResponse).toBeUndefined();
     expect(body.extracted.employeeSSN).toBeUndefined();
+    expect(body.extracted.employeeName).toBeUndefined();
+    expect(body.extracted.modelTranscript).toBeUndefined();
+    expect(JSON.stringify(body)).not.toMatch(ssnShaped);
+    expect(JSON.stringify(body)).not.toContain('raw model text');
+    expect(JSON.stringify(state.records.w2_income)).not.toMatch(ssnShaped);
     expect(body.extracted.employerEIN).toBe('98-7654321');
     expect(state.records.w2_income[0].employerEIN).toBe('98-7654321');
+    expect(state.records.w2_income[0].employeeSSN).toBeUndefined();
   });
 
   it.each([
@@ -125,13 +130,17 @@ describe('redact-first W-2/1099 import: text path', () => {
     ['K', '123456789'],
   ])('does not return or store a 1099-%s recipient number', async (formVariant, recipientTIN) => {
     mocks.recognize.mockResolvedValue({ text: `Form 1099-${formVariant}\nPayer EIN 98-7654321\nRecipient TIN ${recipientTIN}\n1 Nonemployee compensation 1200.00`, confidence: 0.95 });
-    modelReplies({ docType: '1099', formVariant, payerName: 'Synthetic Payer', payerEIN: null, recipientTIN, recipientName: 'Jordan Demo', box1Amount: 1200, taxYear: 2025, confidence: 0.95 });
+    modelReplies({ docType: '1099', formVariant, payerName: 'Synthetic Payer', payerEIN: null, recipientTIN, recipientName: 'Jordan Demo', box1Amount: 1200, taxYear: 2025, confidence: 0.95, modelTranscript: `raw model text ${recipientTIN}` });
     const response = await importDocument(request({ docType: '1099' }));
     expect(response.status).toBe(200);
     const body = await response.json();
-    expect(JSON.stringify(body)).not.toMatch(/\d{3}-?\d{2}-?\d{4}/);
-    expect(JSON.stringify(state.records.income_1099)).not.toMatch(/\d{3}-?\d{2}-?\d{4}/);
+    expect(body.rawResponse).toBeUndefined();
     expect(body.extracted.recipientTIN).toBeUndefined();
+    expect(body.extracted.modelTranscript).toBeUndefined();
+    expect(JSON.stringify(body)).not.toMatch(/\d{3}-?\d{2}-?\d{4}/);
+    expect(JSON.stringify(body)).not.toContain('raw model text');
+    expect(JSON.stringify(state.records.income_1099)).not.toMatch(/\d{3}-?\d{2}-?\d{4}/);
+    expect(state.records.income_1099[0].recipientTIN).toBeUndefined();
     expect(body.extracted.payerEIN).toBe('98-7654321');
     expect(state.records.income_1099[0].payerEIN).toBe('98-7654321');
   });
@@ -193,6 +202,45 @@ describe('redact-first W-2/1099 import: image fallback needs the signed §7216 c
     mocks.recognize.mockResolvedValue(null);
     expect((await importDocument(request({ documentImageConsent: 'true' }))).status).toBe(403);
     expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it('does not return or store a W-2 box a value from the image path', async () => {
+    state.profile = { consents: consents(true) };
+    mocks.recognize.mockResolvedValue({ text: W2_TEXT, confidence: 0.2 });
+    modelReplies({ ...W2_JSON, employeeSSN: '123-45-6789', employeeName: 'Jordan 123-45-6789', employerEIN: '98-7654321', modelTranscript: 'raw model text 123-45-6789' });
+    const response = await importDocument(request({ documentImageConsent: 'true' }));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.disclosure).toBe('image');
+    expect(body.rawResponse).toBeUndefined();
+    expect(body.extracted.employeeSSN).toBeUndefined();
+    expect(body.extracted.modelTranscript).toBeUndefined();
+    expect(JSON.stringify(body)).not.toMatch(/\d{3}-?\d{2}-?\d{4}/);
+    expect(JSON.stringify(body)).not.toContain('raw model text');
+    expect(JSON.stringify(state.records.w2_income)).not.toMatch(/\d{3}-?\d{2}-?\d{4}/);
+    expect(state.records.w2_income[0].employeeSSN).toBeUndefined();
+    expect(state.records.w2_income[0].employerEIN).toBe('98-7654321');
+  });
+
+  it.each([
+    ['NEC', '123-45-6789'],
+    ['K', '123456789'],
+  ])('does not return or store a 1099-%s recipient number from the image path', async (formVariant, recipientTIN) => {
+    state.profile = { consents: consents(true) };
+    mocks.recognize.mockResolvedValue(null);
+    modelReplies({ docType: '1099', formVariant, payerName: 'Synthetic Payer', payerEIN: '98-7654321', recipientTIN, recipientName: 'Jordan Demo', box1Amount: 1200, taxYear: 2025, confidence: 0.95, modelTranscript: `raw model text ${recipientTIN}` });
+    const response = await importDocument(request({ docType: '1099', documentImageConsent: 'true' }));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.disclosure).toBe('image');
+    expect(body.rawResponse).toBeUndefined();
+    expect(body.extracted.recipientTIN).toBeUndefined();
+    expect(body.extracted.modelTranscript).toBeUndefined();
+    expect(JSON.stringify(body)).not.toMatch(/\d{3}-?\d{2}-?\d{4}/);
+    expect(JSON.stringify(body)).not.toContain('raw model text');
+    expect(JSON.stringify(state.records.income_1099)).not.toMatch(/\d{3}-?\d{2}-?\d{4}/);
+    expect(state.records.income_1099[0].recipientTIN).toBeUndefined();
+    expect(body.extracted.payerEIN).toBe('98-7654321');
   });
 
   it('sends the whole image with store disabled once the flag and the signed consent are both present', async () => {

@@ -39,6 +39,7 @@ import { redactIdentifierText, redactPersonalDetails } from '@/lib/security/iden
 import { DOCUMENT_IMAGE_CONSENT_REQUIRED } from '@/lib/onboarding/document-import-consent';
 import { documentImportConsentOnFile } from '@/lib/onboarding/document-import-consent-server';
 import { readOrganizerDocument } from '@/lib/tax-organizer/organizer-server';
+import { ssnShapedExpression } from '@/lib/tax-organizer/identifiers';
 
 // ── Extraction prompts per document type ─────────────────────────────────────
 
@@ -301,7 +302,7 @@ async function extractDocument(source: DocumentSource, docType: string, payload:
     messages: [{ role: 'user', content }],
   });
   const rawText = response.choices[0]?.message?.content || '{}';
-  return { rawText, extracted: parseModelJson(rawText) };
+  return parseModelJson(rawText);
 }
 
 /** Formats a locally captured EIN as XX-XXXXXXX; the model never sees it. */
@@ -347,11 +348,60 @@ const DOCUMENT_IDENTIFIER_KEYS = new Set([
   'employeessn', 'employeesocialsecuritynumber', 'ssn', 'socialsecuritynumber', 'boxa',
   'recipienttin', 'recipientssn', 'recipientsocialsecuritynumber', 'tin', 'payeetin', 'payeessn', 'employeetin', 'ssnortin',
 ]);
-const SSN_SHAPED_TEXT = /\d{3}-?\d{2}-?\d{4}/g;
+const W2_PUBLIC_FIELDS = ['docType', 'employerName', 'employerEIN', 'box1Wages', 'box2FederalWithheld', 'box3SocialSecurityWages', 'box4SocialSecurityWithheld', 'box5MedicareWages', 'box6MedicareWithheld', 'box12Codes', 'box16StateWages', 'box17StateWithheld', 'state', 'taxYear', 'confidence', 'fieldConfidence', 'imageQualityIssues', 'verificationWarnings'] as const;
+const FORM_1099_PUBLIC_FIELDS = ['docType', 'formVariant', 'payerName', 'payerEIN', 'recipientName', 'box1Amount', 'box2FederalWithheld', 'box4FederalWithheld', 'grossAmount', 'taxYear', 'platform', 'confidence', 'imageQualityIssues', 'verificationWarnings'] as const;
+const PLATFORM_PUBLIC_FIELDS = ['docType', 'platform', 'taxYear', 'grossEarnings', 'platformFees', 'netEarnings', 'milesDriven', 'onlineHours', 'trips', 'form1099KAmount', 'form1099NECAmount', 'federalWithheld', 'breakdown', 'confidence', 'imageQualityIssues', 'verificationWarnings'] as const;
+const AUTO_PUBLIC_FIELDS = ['docType', 'formVariant', 'platform', 'taxYear', 'primaryAmount', 'federalWithheld', 'employerOrPayerName', 'confidence'] as const;
+const BREAKDOWN_FIELDS = ['baseEarnings', 'tips', 'bonuses', 'promotions', 'otherIncome'] as const;
+const FIELD_CONFIDENCE_FIELDS = ['box1Wages', 'box2FederalWithheld', 'box3SocialSecurityWages', 'box5MedicareWages'] as const;
+
+function scrubImportText(value: string): string {
+  return value.replace(ssnShapedExpression(), '');
+}
+
+/** Known document fields only. Model text and employee or recipient identification numbers are omitted. */
+function publicDocument(data: Record<string, unknown>): Record<string, unknown> {
+  const fields = data.docType === '1099' ? FORM_1099_PUBLIC_FIELDS
+    : data.docType === 'platform_summary' ? PLATFORM_PUBLIC_FIELDS
+    : data.docType === 'w2' || 'box1Wages' in data || 'employerName' in data ? W2_PUBLIC_FIELDS
+    : AUTO_PUBLIC_FIELDS;
+  const out: Record<string, unknown> = {};
+  for (const field of fields) {
+    if (!Object.prototype.hasOwnProperty.call(data, field)) continue;
+    const value = data[field];
+    if (field === 'box12Codes' && Array.isArray(value)) {
+      out[field] = value.filter(item => item !== null && typeof item === 'object').map(item => {
+        const row = item as Record<string, unknown>;
+        const next: Record<string, unknown> = {};
+        if (typeof row.code === 'string') next.code = scrubImportText(row.code);
+        if (typeof row.amount === 'number') next.amount = row.amount;
+        return next;
+      });
+      continue;
+    }
+    if (field === 'breakdown' && value !== null && typeof value === 'object' && !Array.isArray(value)) {
+      const row = value as Record<string, unknown>;
+      out[field] = Object.fromEntries(BREAKDOWN_FIELDS.filter(key => typeof row[key] === 'number').map(key => [key, row[key]]));
+      continue;
+    }
+    if (field === 'fieldConfidence' && value !== null && typeof value === 'object' && !Array.isArray(value)) {
+      const row = value as Record<string, unknown>;
+      out[field] = Object.fromEntries(FIELD_CONFIDENCE_FIELDS.filter(key => typeof row[key] === 'number').map(key => [key, row[key]]));
+      continue;
+    }
+    if ((field === 'imageQualityIssues' || field === 'verificationWarnings') && Array.isArray(value)) {
+      out[field] = value.filter((item): item is string => typeof item === 'string').map(scrubImportText);
+      continue;
+    }
+    if (typeof value === 'string') { out[field] = scrubImportText(value); continue; }
+    if (typeof value === 'number' || value === null || typeof value === 'boolean') out[field] = value;
+  }
+  return out;
+}
 
 /** Removes employee/recipient identification values before a document result is stored or returned. Employer and payer EINs stay. */
 function dropDocumentIdentifiers<T>(value: T): T {
-  if (typeof value === 'string') return value.replace(SSN_SHAPED_TEXT, '') as T;
+  if (typeof value === 'string') return scrubImportText(value) as T;
   if (Array.isArray(value)) return value.map(item => dropDocumentIdentifiers(item)) as T;
   if (value !== null && typeof value === 'object') {
     const prototype = Object.getPrototypeOf(value);
@@ -433,7 +483,6 @@ export async function POST(request: NextRequest) {
     let fallbackReason: ImageFallbackReason | null = ocr === null ? 'ocr_unavailable' : documentOcrUsable(ocr) ? null : 'ocr_low_confidence';
     let disclosure: DocumentSource = 'text';
     let extracted: Record<string, any> | null = null;
-    let rawText = '';
     let ssnLast4: string | null = null;
     let localEINs: string[] = [];
     let identifiersRedacted = 0;
@@ -445,7 +494,7 @@ export async function POST(request: NextRequest) {
       // the boxes the model extracts are numeric and the employer name stays for labeling.
       const personal = redactPersonalDetails(redaction.text, await accountHolderNames(user.uid));
       identifiersRedacted = redaction.count + personal.count;
-      ({ rawText, extracted } = await extractDocument('text', docType, { text: personal.text }));
+      extracted = await extractDocument('text', docType, { text: personal.text });
       if (extracted?.needs_image === true) { fallbackReason = 'model_requested_image'; extracted = null; }
     }
 
@@ -454,13 +503,12 @@ export async function POST(request: NextRequest) {
       const consentOnFile = await documentImportConsentOnFile(user.uid);
       if (!documentImageConsent || !consentOnFile) return consentRequired(fallbackReason, consentOnFile);
       disclosure = 'image';
-      ({ rawText, extracted } = await extractDocument('image', docType, { dataUrl: `data:${mediaType};base64,${bytes.toString('base64')}` }));
+      extracted = await extractDocument('image', docType, { dataUrl: `data:${mediaType};base64,${bytes.toString('base64')}` });
     }
 
     if (!extracted || extracted.needs_image === true) {
       return NextResponse.json({
         error: 'Failed to parse the document. The image may be unclear or use an unsupported format.',
-        rawResponse: dropDocumentIdentifiers(rawText.slice(0, 500)),
         disclosure,
       }, { status: 422 });
     }
@@ -482,7 +530,7 @@ export async function POST(request: NextRequest) {
     if (documentOwner === 'unmatched') {
       einNotes.push('The identification number on this document does not match the taxpayer or spouse record saved in your Tax Organizer. Confirm this document is yours before saving.');
     }
-    extracted = dropDocumentIdentifiers(extracted);
+    extracted = publicDocument(dropDocumentIdentifiers(extracted));
 
     // Low confidence warning
     // Check for quality issues
@@ -504,7 +552,7 @@ export async function POST(request: NextRequest) {
           'Avoid shadows and glare',
           'Make sure all 4 corners are visible',
         ],
-        extracted: dropDocumentIdentifiers(extracted),
+        extracted: publicDocument(extracted),
         imageIssues,
         committed: false,
         disclosure,
@@ -520,7 +568,7 @@ export async function POST(request: NextRequest) {
     ];
 
     // Merge user edits into extracted data before saving. Identifier keys are already removed from extracted.
-    const finalData = dropDocumentIdentifiers({ ...extracted, ...overrideFields });
+    const finalData = publicDocument(dropDocumentIdentifiers({ ...extracted, ...overrideFields }));
 
     // Save to Firestore if commit=true
     let saveResult: Record<string, any> = {};
@@ -551,7 +599,7 @@ export async function POST(request: NextRequest) {
       imageIssues,
       lowConfidenceFields: lowConfFields,
       taxYear: extracted.taxYear,
-      extracted,
+      extracted: publicDocument(extracted),
       committed: commit,
       saveResult,
       summary: buildSummary(extracted),

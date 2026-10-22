@@ -12,6 +12,7 @@ export async function generateScheduleSEPDF(data: ScheduleSEData): Promise<Uint8
   const pdf = await createPlanningPDF('Schedule SE - self-employment tax worksheet', taxYear);
   pdf.paragraph('Preparer review only. This worksheet is not an official Schedule SE or a complete tax return. It uses one taxpayer’s recorded nonfarm business income and W-2 wage amounts.', true);
   pdf.paragraph(`Name as saved: ${userProfile.name || 'Not provided'} | Filing status: ${userProfile.filing_status}`);
+  pdf.table(['Record', 'Saved value'], [['Social security number', '']], [398, 130]);
   pdf.paragraph('Confirm that all business earnings and wages belong to the same taxpayer. Each spouse with self-employment income needs a separate Schedule SE. Farm, church, railroad, unreported-tip, optional-method and exemption cases need separate review.');
   pdf.table(['Worksheet input / result', 'Amount'], [
     ['Schedule C line 31 planning profit (after supported de minimis items, depreciation and simplified home office)', money(c.netProfitFromScheduleC)], ['Other SE adjustments', money(c.adjustments)],
