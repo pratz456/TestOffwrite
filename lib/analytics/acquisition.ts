@@ -109,6 +109,7 @@ function isIpAddress(host: string): boolean {
   return host.split('.').every(part => Number(part) <= 255);
 }
 
+/** Pathname only. Everything from the first `?` or `#` is dropped, then the path is capped. */
 export function sanitizeLandingPath(value: unknown): string | undefined {
   if (typeof value !== 'string' || !value.startsWith('/')) return undefined;
   const path = value.split(/[?#]/)[0].slice(0, MAX_VALUE_LENGTH);

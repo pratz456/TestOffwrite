@@ -131,6 +131,30 @@ describe('first-touch campaign capture', () => {
     expect(ipReferrer.snapshot()).toEqual({});
   });
 
+  it('stores the landing page as the pathname only', () => {
+    const storage = memoryStorage();
+    const captured = captureFirstTouch(storage, NOW, {
+      search: '?utm_source=newsletter',
+      referrer: '',
+      pathname: '/blog/x?gclid=abc&fbclid=def#y',
+      hostname: 'writeoffapp.com',
+    });
+    expect(captured?.landingPath).toBe('/blog/x');
+    const stored = JSON.parse(storage.snapshot()[ACQUISITION_STORAGE_KEY]) as { landingPath: string };
+    expect(stored.landingPath).toBe('/blog/x');
+    expect(JSON.stringify(stored)).not.toContain('gclid');
+    expect(JSON.stringify(stored)).not.toContain('fbclid');
+    expect(JSON.stringify(stored)).not.toContain('#');
+
+    const capped = memoryStorage();
+    expect(captureFirstTouch(capped, NOW, {
+      search: '?utm_source=newsletter',
+      referrer: '',
+      pathname: `/${'a'.repeat(80)}?gclid=abc#section`,
+      hostname: 'writeoffapp.com',
+    })?.landingPath).toBe(`/${'a'.repeat(63)}`);
+  });
+
   it('stores ref as a flat creatorRef and falls back to utm_source for creator or affiliate links', () => {
     const explicit = memoryStorage();
     const captured = captureFirstTouch(explicit, NOW, {
