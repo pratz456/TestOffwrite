@@ -17,6 +17,8 @@ export const STUBBED_BLOG_SLUGS = [
   "home-office-deduction-guide",
   "depreciation-recapture-selling-business-assets",
   "reasonable-salary-s-corp-irs",
+  "complete-guide-schedule-c-freelancers",
+  "top-tax-deductions-freelancers-2026",
 ] as const;
 
 export const NOINDEX_BLOG_SLUGS = [

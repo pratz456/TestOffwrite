@@ -23,6 +23,10 @@ import BlogPostPage, { generateMetadata } from "@/app/blog/[slug]/page";
 import sitemap from "@/app/sitemap";
 
 const NORMAL_SLUG = "self-employment-tax-explained";
+const HIDDEN_ORIGINAL_SENTENCE: Record<string, string> = {
+  "complete-guide-schedule-c-freelancers": "WriteOff generates Schedule C-ready reports automatically.",
+  "top-tax-deductions-freelancers-2026": "Its AI connects to your bank accounts",
+};
 const ORIGIN = "https://writeoffapp.com";
 
 function plainSentence(slug: string): string {
@@ -103,6 +107,8 @@ describe("stubbed blog posts", () => {
     expect(text).toContain(BLOG_STUB_LINE);
     expect(html).toContain(`href="${BLOG_STUB_HREF}"`);
     expect(text).not.toContain(sentence);
+    const hidden = HIDDEN_ORIGINAL_SENTENCE[slug];
+    if (hidden) expect(text).not.toContain(hidden);
     expect(text).not.toContain(post?.description);
     expect(text).not.toContain('"@type":"Article"');
     expect(text).not.toContain("Keep your expense records together");
