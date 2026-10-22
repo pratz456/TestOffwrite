@@ -298,6 +298,59 @@ function FieldRow({
   );
 }
 
+/** Same caps as parseOverrideFields in the import route: 64 entries, 500 characters per string, 16 KB of JSON. */
+const MAX_OVERRIDE_ENTRIES = 64;
+const MAX_OVERRIDE_STRING_CHARS = 500;
+const MAX_OVERRIDE_JSON_CHARS = 16 * 1024;
+
+type PlainOverride = string | number | boolean | null;
+
+function acceptedPlain(key: string, value: unknown): [string, PlainOverride] | null {
+  if (key.length === 0 || key.length > 64) return null;
+  if (value === null) return [key, null];
+  if (typeof value === "number") return Number.isFinite(value) ? [key, value] : null;
+  if (typeof value === "boolean") return [key, value];
+  if (typeof value === "string" && value.length <= MAX_OVERRIDE_STRING_CHARS) return [key, value];
+  return null;
+}
+
+function fitsOverrideLimits(entries: Array<[string, PlainOverride]>): boolean {
+  return entries.length <= MAX_OVERRIDE_ENTRIES && JSON.stringify(Object.fromEntries(entries)).length <= MAX_OVERRIDE_JSON_CHARS;
+}
+
+/** Field rows the screen shows, in definition order. Used only when the full plain preview would exceed the route limits. */
+function editableFieldKeys(docType: string, edited: Record<string, unknown>): string[] {
+  const defs = docType === "w2" || edited.box1Wages !== undefined ? W2_FIELDS
+    : docType === "1099" || edited.formVariant !== undefined ? FORM_1099_FIELDS
+    : docType === "platform_summary" || edited.grossEarnings !== undefined ? PLATFORM_FIELDS
+    : W2_FIELDS;
+  return defs.map(field => field.key);
+}
+
+/**
+ * Every plain value from the preview the person reviewed, edits included.
+ * Box 12 lists, fieldConfidence, verificationWarnings, imageQualityIssues, and any other array or object are left off so the route keeps them from its own read.
+ * A W-2, 1099, or platform schema is about a dozen plain fields, under the 64-entry, 500-character, and 16 KB caps.
+ * If a preview still exceeds those caps, send only the plain fields this screen shows as editable, in field order, stopping before a limit is crossed.
+ */
+function previewedPlainOverrides(edited: Record<string, unknown>, docType: string): Record<string, PlainOverride> {
+  const reviewed: Array<[string, PlainOverride]> = [];
+  for (const [key, value] of Object.entries(edited)) {
+    const entry = acceptedPlain(key, value);
+    if (entry) reviewed.push(entry);
+  }
+  const selected = fitsOverrideLimits(reviewed) ? reviewed : editableFieldKeys(docType, edited).flatMap(key => {
+    const entry = acceptedPlain(key, edited[key]);
+    return entry ? [entry] : [];
+  });
+  const packed: Array<[string, PlainOverride]> = [];
+  for (const entry of selected) {
+    if (!fitsOverrideLimits([...packed, entry])) break;
+    packed.push(entry);
+  }
+  return Object.fromEntries(packed);
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 
 const DOC_TYPES: { value: DocType; label: string; icon: React.ElementType }[] = [
@@ -358,7 +411,7 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
       fd.append("docType", action === "commit" ? result?.docType || docType : docType);
       fd.append("taxYear", action === "commit" ? String(result?.taxYear || year) : year);
       fd.append("commit", action === "commit" ? "true" : "false");
-      if (action === "commit") fd.append("overrideFields", JSON.stringify(editedFields));
+      if (action === "commit") fd.append("overrideFields", JSON.stringify(previewedPlainOverrides(editedFields, String(result?.docType || docType))));
       if (imageConsent) fd.append("documentImageConsent", "true");
       const res = await makeAuthenticatedRequest("/api/tax/import-document", { method: "POST", body: fd });
       const data = await res.json();
