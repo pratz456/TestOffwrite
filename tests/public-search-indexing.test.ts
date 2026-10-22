@@ -7,10 +7,23 @@ import { publicShareImage } from '../lib/public-share-image';
 
 const baseUrl = 'https://writeoffapp.com';
 const staticLastModified = new Date('2030-01-01T00:00:00.000Z');
-const HELD_UNTIL_CORRECTED = [
+const HELD_UNTIL_TAX_CORRECTIONS = [
+  'w2-and-1099-side-hustle-taxes',
+  'retirement-accounts-self-employed',
+  'qbi-deduction-freelancers-section-199a',
+  'reasonable-salary-s-corp-irs',
+  'self-employment-tax-explained',
+  'gig-economy-tax-guide',
+  'cpa-vs-tax-software-self-employed',
+  'how-irs-knows-your-income-1099k',
   'home-office-deduction-guide',
-  '1099-forms-explained',
-  'depreciation-recapture-selling-business-assets',
+  'hobby-vs-business-irs-section-183',
+  'cohan-rule-lost-receipts',
+  'worker-misclassification-1099-employee',
+  'irs-cp2000-notice-guide',
+  'mileage-deduction-guide-2026',
+  'uber-doordash-instacart-tax-guide',
+  'freelancer-tax-mistakes-cost-money',
 ];
 
 describe('public sitemap', () => {
@@ -33,12 +46,12 @@ describe('public sitemap', () => {
     expect(published.length).toBeGreaterThan(0);
   });
 
-  it('omits hotfix noindex and redirect slugs, the held posts, /welcome, and /pricing', () => {
+  it('omits hotfix noindex and redirect slugs, posts held for tax corrections, /welcome, and /pricing', () => {
     const hotfixSlugs = [
       ...Object.keys(REDIRECTED_BLOG_SLUGS),
       ...NOINDEX_BLOG_SLUGS,
       ...STUBBED_BLOG_SLUGS,
-      ...HELD_UNTIL_CORRECTED,
+      ...HELD_UNTIL_TAX_CORRECTIONS,
     ];
     for (const slug of hotfixSlugs) expect(SITEMAP_EXCLUDED_BLOG_SLUGS, slug).toContain(slug);
     for (const slug of excluded) expect(urls, slug).not.toContain(`${baseUrl}/blog/${slug}`);

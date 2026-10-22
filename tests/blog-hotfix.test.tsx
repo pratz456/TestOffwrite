@@ -90,7 +90,7 @@ describe("temporary blog listings", () => {
       ...NOINDEX_BLOG_SLUGS,
     ];
     for (const slug of hotfixSlugs) expect(listedUrl(slug), slug).toBe(false);
-    expect(listedUrl(NORMAL_SLUG)).toBe(true);
+    expect(listedUrl("w9-1099-guide-freelancers")).toBe(true);
   });
 });
 
