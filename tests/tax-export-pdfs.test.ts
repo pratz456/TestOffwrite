@@ -386,21 +386,27 @@ describe('organizer screen round-trip and export boxes', () => {
     expect(payload.dependentDetails).toBe(loaded.organizer.dependentDetails);
     expect(payload).not.toHaveProperty('taxpayerSSN');
 
+    const afterRead = { ...stored() };
+    expect(afterRead.dependentSSN).toBe(dependentSSN);
+    expect(afterRead.idKind).toEqual({ dependentSSN: 'ssn' });
+    expect(afterRead.identifiersEncryptedAt).toBeInstanceOf(Date);
+    expect(JSON.stringify(afterRead.idKind)).not.toMatch(/900000003|0003/);
+    expect(Object.keys(afterRead).sort()).toEqual([...Object.keys(before), 'idKind', 'identifiersEncryptedAt'].sort());
+    for (const key of Object.keys(before)) expect(afterRead[key], key).toBe(before[key]);
+
     const unchanged = await saveOrganizer(new NextRequest('http://localhost/api/tax/organizer', { method: 'POST', body: JSON.stringify(payload) }));
     expect(unchanged.status).toBe(200);
-    const afterLoad = { ...stored() };
-    expect(Object.keys(afterLoad).sort()).toEqual(Object.keys(before).sort());
-    for (const key of Object.keys(before)) expect(afterLoad[key], key).toBe(before[key]);
+    expect(stored()).toEqual(afterRead);
 
     const edited = screenSaveBody({ ...loaded.organizer, dependentDetails: String(loaded.organizer.dependentDetails).replace('child', 'student') }, loaded.taxYear);
     const saved = await saveOrganizer(new NextRequest('http://localhost/api/tax/organizer', { method: 'POST', body: JSON.stringify(edited) }));
     expect(saved.status).toBe(200);
     const afterEdit = stored();
     expect(afterEdit.dependentDetails).toBe('The student lives here. SSN 900-00-1111. Order 555000222.');
-    expect(Object.keys(afterEdit).sort()).toEqual([...Object.keys(before), 'updatedAt'].sort());
-    for (const key of Object.keys(before)) {
+    expect(Object.keys(afterEdit).sort()).toEqual([...Object.keys(afterRead), 'updatedAt'].sort());
+    for (const key of Object.keys(afterRead)) {
       if (key === 'dependentDetails') continue;
-      expect(afterEdit[key], key).toBe(before[key]);
+      expect(afterEdit[key], key).toBe(afterRead[key]);
     }
     expect(afterEdit.updatedAt).toBeInstanceOf(Date);
 

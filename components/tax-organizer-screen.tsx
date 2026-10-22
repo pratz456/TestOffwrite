@@ -114,7 +114,7 @@ const RETIRED_ORGANIZER_FIELDS = new Set(["taxpayerSSN", "spouseSSN", "bankRouti
 function organizerSaveBody(answers: OrgAnswers, taxYear: number): Record<string, unknown> {
   const body: Record<string, unknown> = { taxYear };
   for (const [key, value] of Object.entries(answers)) {
-    if (RETIRED_ORGANIZER_FIELDS.has(key) || /^dependent\d*(SSN|ITIN)$/.test(key)) continue;
+    if (RETIRED_ORGANIZER_FIELDS.has(key) || /^(?:dependent\d*)?(?:SSN|ITIN|ATIN)$/i.test(key) || /^dependent\d*(?:Number|Identifier)$/.test(key) || key === 'idKind' || /IdKind$/.test(key)) continue;
     body[key] = value;
   }
   return body;
