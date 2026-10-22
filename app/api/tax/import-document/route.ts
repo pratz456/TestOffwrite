@@ -356,6 +356,19 @@ function addPayerIdCheck(data: Record<string, unknown>): void {
   data.verificationWarnings = warnings;
 }
 
+/** A typed employer or payer value is kept only as NN-NNNNNNN. Anything else is cleared, and a non-empty edit asks the user to check it. */
+function applyPayerNumberEdits(data: Record<string, unknown>, overrides: Record<string, string | number | boolean | null>): void {
+  let rejected = false;
+  for (const field of PAYER_NUMBER_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(overrides, field)) continue;
+    const edited = overrides[field];
+    const kept = typeof edited === 'string' && DASHED_PAYER_NUMBER.test(edited) ? edited : null;
+    data[field] = kept;
+    if (!kept && edited !== null && edited !== undefined && edited !== '') rejected = true;
+  }
+  if (rejected) addPayerIdCheck(data);
+}
+
 /** Photos keep a dashed NN-NNNNNNN only. Any other employer or payer value is cleared and the user is asked to check it. */
 function rejectUndashedImagePayerNumbers(data: Record<string, unknown>): void {
   let rejected = false;
@@ -601,8 +614,9 @@ export async function POST(request: NextRequest) {
       const einField = extracted.docType === 'w2' || docType === 'w2' ? 'employerEIN' : extracted.docType === '1099' || docType === '1099' ? 'payerEIN' : null;
       if (einField) {
         // A sole proprietor can print an SSN in the 1099 payer box. Keep only a dashed NN-NNNNNNN there.
+        // The model saw redacted text. With no labeled local number, do not keep the number it returned.
         const accepted = einField === 'payerEIN' ? localEINs.filter(value => DASHED_PAYER_NUMBER.test(value)) : localEINs;
-        extracted[einField] = payerNumberOrBlank(accepted[0]);
+        extracted[einField] = accepted.length ? payerNumberOrBlank(accepted[0]) : null;
         if (!extracted[einField]) addPayerIdCheck(extracted);
         else if (accepted.length > 1) einNotes.push(`Verify ${einField}. More than one EIN-shaped number was read from the document.`);
       }
@@ -651,11 +665,15 @@ export async function POST(request: NextRequest) {
 
     // Merge user edits into extracted data before saving. Identifier keys are already removed from extracted.
     const finalData = publicDocument(dropDocumentIdentifiers({ ...extracted, ...overrideFields }));
-    if (disclosure === 'image') {
-      rejectUndashedImagePayerNumbers(finalData);
-      if (Array.isArray(finalData.verificationWarnings) && finalData.verificationWarnings.includes(PAYER_ID_CHECK) && !verificationRequired.includes(PAYER_ID_CHECK)) {
-        verificationRequired.push(PAYER_ID_CHECK);
-      }
+    if (disclosure === 'image') rejectUndashedImagePayerNumbers(finalData);
+    // A typed value that is not NN-NNNNNNN is saved blank. payerNumberOrBlank would already have dropped a 3-2-4, so check the raw edit.
+    applyPayerNumberEdits(finalData, overrideFields);
+    if (Array.isArray(finalData.verificationWarnings) && finalData.verificationWarnings.includes(PAYER_ID_CHECK) && !verificationRequired.includes(PAYER_ID_CHECK)) {
+      verificationRequired.push(PAYER_ID_CHECK);
+    }
+    const responseExtracted: Record<string, unknown> = { ...extracted };
+    for (const field of PAYER_NUMBER_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(overrideFields, field)) responseExtracted[field] = finalData[field];
     }
 
     // Save to Firestore if commit=true
@@ -687,7 +705,7 @@ export async function POST(request: NextRequest) {
       imageIssues,
       lowConfidenceFields: lowConfFields,
       taxYear: extracted.taxYear,
-      extracted: publicDocument(extracted),
+      extracted: publicDocument(responseExtracted),
       committed: commit,
       saveResult,
       summary: buildSummary(extracted),
