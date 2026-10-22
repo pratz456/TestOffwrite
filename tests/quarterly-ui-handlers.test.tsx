@@ -26,15 +26,22 @@ afterEach(() => { h.slots.forEach(slot => slot?.cleanup?.()); });
 
 const WITHHOLDING_LABEL = 'Expected full-year federal income tax withholding (W-2 box 2 and 1099 backup withholding, including Additional Medicare Tax withholding; not Social Security or regular Medicare tax)';
 
+function labelText(node: any): string {
+  const children = node?.props?.children;
+  const parts = Array.isArray(children) ? children : [children];
+  return parts.filter((child) => typeof child === 'string').join('');
+}
+
 describe('public quarterly estimate calculator copy', () => {
   it('shows the general-information line and labels federal income tax withholding', () => {
     const tree = render();
     const content = text(tree);
     expect(content).toContain('General information, not tax advice.');
-    expect(content).toContain(WITHHOLDING_LABEL);
     expect(content).not.toContain('Expected full-year federal withholding');
-    const withholdingInput = walk(tree).find(n => n.props?.['aria-label'] === WITHHOLDING_LABEL);
-    expect(withholdingInput).toBeTruthy();
+    const withholdingLabel = walk(tree).find(n => n.type === 'label' && labelText(n).includes('federal income tax withholding'));
+    expect(labelText(withholdingLabel)).toBe(WITHHOLDING_LABEL);
+    const withholdingInput = walk(tree).find(n => n.type === 'input' && n.props?.['aria-label']?.includes('federal income tax withholding'));
+    expect(withholdingInput.props['aria-label']).toBe(WITHHOLDING_LABEL);
     expect(walk(tree).some(n => n.props?.['aria-label'] === 'Expected annual withholding')).toBe(false);
     expect(walk(tree).some(n => n.props?.['aria-label'] === 'Expected full-year federal income tax withholding')).toBe(false);
   });

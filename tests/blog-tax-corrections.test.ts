@@ -148,7 +148,9 @@ describe("2026-10-22 blog tax corrections", () => {
     expect(cohan).toContain("**1. Travel expenses.**");
     expect(cohan).toContain("Meals fall under travel and entertainment, not their own category.");
     expect(cohan).toContain("**3. Gifts.**");
-    expect(cohan).toContain("**4. Listed property.**");
+    const listedLine = cohan.split("\n").find((line) => line.includes("Listed property"));
+    expect(listedLine?.slice(0, "**4. Listed property.**".length)).toBe("**4. Listed property.**");
+    expect(listedLine?.startsWith("4.")).toBe(false);
     expect(cohan).not.toContain("**2. Business meals.**");
     expect(cohan).toContain("(travel, entertainment, gifts, listed property)");
     expect(cohan).not.toContain("(travel, meals, entertainment, listed property)");
