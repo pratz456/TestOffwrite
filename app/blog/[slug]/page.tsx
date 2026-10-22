@@ -2,9 +2,17 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Calendar, Clock, ArrowLeft, ChevronLeft, ChevronRight, User, ShieldCheck } from "lucide-react";
-import { getAllPosts, getPostBySlug, getAdjacentPosts, formatReviewMonth } from "@/lib/blog";
+import { getAllPosts, getListedPosts, getPostBySlug, getAdjacentPosts, formatReviewMonth } from "@/lib/blog";
 import { BlogCTA } from "@/components/blog/blog-cta";
 import { RelatedPosts } from "@/components/blog/related-posts";
+import {
+  BLOG_RECHECK_NOTICE,
+  BLOG_STUB_HREF,
+  BLOG_STUB_LINE,
+  BLOG_STUB_LINK_PHRASE,
+  isNoindexBlogSlug,
+  isStubbedBlogSlug,
+} from "@/lib/blog-hotfix";
 
 export async function generateStaticParams() {
   return getAllPosts().map((p) => ({ slug: p.slug }));
@@ -20,16 +28,21 @@ export async function generateMetadata({
   if (!post) return {};
 
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://writeoffapp.com";
+  const description = isStubbedBlogSlug(slug) ? BLOG_STUB_LINE : post.description;
+  const robots = isStubbedBlogSlug(slug) || isNoindexBlogSlug(slug)
+    ? { index: false as const, follow: true as const }
+    : undefined;
 
   return {
     title: post.title,
-    description: post.description,
+    description,
+    ...(robots ? { robots } : {}),
     authors: [{ name: post.author }],
     alternates: { canonical: `/blog/${slug}` },
     openGraph: {
       type: "article",
       title: post.title,
-      description: post.description,
+      description,
       url: `/blog/${slug}`,
       publishedTime: post.date,
       authors: [post.author],
@@ -40,9 +53,25 @@ export async function generateMetadata({
     twitter: {
       card: "summary_large_image",
       title: post.title,
-      description: post.description,
+      description,
     },
   };
+}
+
+function BlogStubLine() {
+  const at = BLOG_STUB_LINE.lastIndexOf(BLOG_STUB_LINK_PHRASE);
+  if (at < 0) {
+    return <p className="text-sm text-muted-foreground">{BLOG_STUB_LINE}</p>;
+  }
+  return (
+    <p className="text-sm text-muted-foreground">
+      {BLOG_STUB_LINE.slice(0, at)}
+      <Link href={BLOG_STUB_HREF} className="underline underline-offset-2 hover:text-primary">
+        {BLOG_STUB_LINK_PHRASE}
+      </Link>
+      {BLOG_STUB_LINE.slice(at + BLOG_STUB_LINK_PHRASE.length)}
+    </p>
+  );
 }
 
 function PostContent({ html, hasMidCta }: { html: string; hasMidCta: boolean }) {
@@ -74,6 +103,26 @@ export default async function BlogPostPage({
   const post = await getPostBySlug(slug);
   if (!post) notFound();
 
+  if (isStubbedBlogSlug(slug)) {
+    return (
+      <article className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
+        <Link
+          href="/blog"
+          className="mb-6 inline-flex items-center gap-1 text-sm font-medium text-muted-foreground transition-colors hover:text-primary"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          All posts
+        </Link>
+        <h1 className="text-3xl font-extrabold tracking-tight text-foreground sm:text-4xl">
+          {post.title}
+        </h1>
+        <div className="mt-6">
+          <BlogStubLine />
+        </div>
+      </article>
+    );
+  }
+
   const { prev, next } = getAdjacentPosts(slug);
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://writeoffapp.com";
 
@@ -104,6 +153,9 @@ export default async function BlogPostPage({
       />
 
       <article className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
+        {isNoindexBlogSlug(slug) ? (
+          <p className="mb-6 text-sm text-muted-foreground">{BLOG_RECHECK_NOTICE}</p>
+        ) : null}
         {/* Back link */}
         <Link
           href="/blog"
@@ -179,7 +231,7 @@ export default async function BlogPostPage({
         <RelatedPosts
           currentSlug={slug}
           currentTags={post.tags}
-          allPosts={getAllPosts()}
+          allPosts={getListedPosts()}
         />
 
         {/* Previous / Next navigation */}

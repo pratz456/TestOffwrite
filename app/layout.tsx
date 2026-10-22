@@ -27,7 +27,7 @@ export const metadata: Metadata = {
     template: "%s | WriteOff",
   },
   description:
-    "Organize business expenses, review receipts, and export records for your tax preparer. Start with manual entry, with no bank connection required.",
+    "Organize business expenses, review receipts, and export records for your tax preparer. Start with manual entry.",
   icons: {
     icon: [{ url: "/writeofflogo.png", type: "image/png" }],
     shortcut: "/writeofflogo.png",
